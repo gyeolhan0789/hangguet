@@ -257,7 +257,7 @@ MR에 여러 Commit이 포함되더라도 제목은 Commit 목록을 나열하�
 
 ### 5.2 MR 필수 내용
 
-MR 본문은 [`.gitlab/merge_request_templates/Default.md`](.gitlab/merge_request_templates/Default.md) 템플릿을 사용한다. 파일 이름이 `Default.md`이므로 GitLab에서 MR을 생성하면 Description에 자동으로 채워진다.
+MR 본문은 [`.gitlab/merge_request_templates/Default.md`](../.gitlab/merge_request_templates/Default.md) 템플릿을 사용한다. 파일 이름이 `Default.md`이므로 GitLab에서 MR을 생성하면 Description에 자동으로 채워진다.
 
 템플릿은 관련 이슈, 변경 유형, 작업 내용, 스크린샷·테스트 결과, 리뷰 포인트, 체크리스트로 구성된다.
 
