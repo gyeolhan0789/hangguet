@@ -1,6 +1,8 @@
 # 개인 학습 기록 — 박연수
 
-> 담당:  · 기록 기간: 2026.10.12 ~
+> 담당: 면접관 표현 모듈 (FE) · TTS · 기록 기간: 2026.10.12 ~
+>
+> 모듈 기획 문서: [interviewer-avatar/](interviewer-avatar/README.md)
 
 ---
 
