@@ -12,10 +12,11 @@
 
 | # | 항목 | MVP | 고도화 |
 |---|---|---|---|
-| ①-1 | TTS 선정 | **GMS TTS**, 미제공 시 브라우저 TTS | 입 모양 정보(Viseme) 제공 TTS 비교 |
+| ①-1 | TTS 선정 | **GMS TTS**, 미제공 시 대안 TTS (1차 대안: Chirp 3: HD) | 입 모양 정보(Viseme) 제공 TTS 비교 |
 | ①-2 | 음성 스타일 | **고정**: 차분한 어조, 보통보다 약간 느린 속도 | 질문·안내·종료별 억양 구분 |
-| ①-3 | TTS 실패 처리 | **질문 Text만 표시** | 브라우저 TTS 자동 전환 |
+| ①-3 | TTS 실패 처리 | **질문 Text만 표시** (TTS 실패·Timeout, 음성 로드 실패 포함) | 브라우저 TTS 자동 전환 |
 
+- TTS는 BE 요청으로 AI 파트에서 호출하며, FE는 TTS Provider Credential을 보유하지 않는다. 대안 TTS도 동일하게 적용한다 ([CONTRIBUTING.md](../../docs/CONTRIBUTING.md) 2.2, 6.1, 7장, 구조는 [architecture.md](architecture.md) 1장).
 - GMS TTS 사용 불가 시 음성 데이터를 제공하는 대안 TTS를 탐색한다.
   - 1차 대안: [Google Cloud TTS Chirp 3: HD](https://docs.cloud.google.com/text-to-speech/docs/chirp3-hd?hl=ko) (한국어 지원, 음성 데이터 반환, 스트리밍 합성 지원, 비용 확인 필요)
 
@@ -43,7 +44,7 @@
 ## 진행 순서
 
 1. ①-1: GMS TTS 확인, 사용 불가 시 대안 TTS 탐색 (1차 대안: Chirp 3: HD)
-2. ②-1: 정지 이미지 + GMS TTS + 음량 기반 립싱크로 1차 연동
+2. ②-1: 정지 이미지 + GMS TTS + 음량 기반 립싱크로 1차 연동 (BE·AI 연동 전에는 샘플 음성 파일로 검증)
 3. ③-1, ③-2: VRM 모델 적용
 
 결정 사항 변경 시 본 문서와 [개요](overview.md)의 해당 항목을 함께 수정한다.
