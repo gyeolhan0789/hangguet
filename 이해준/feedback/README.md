@@ -10,6 +10,7 @@
 | [market.md](market.md) | 시중 서비스 조사: 국내외 AI 면접·연습 서비스가 언어·비언어를 분석하는지 |
 | [interviewer.md](interviewer.md) | 면접관이 보는 요소: 공식 평가 기준, 인사담당자 설문, 연구 근거 |
 | [detection.md](detection.md) | 요소별 판별 방법: 입력, 판별 규칙, 임계값 출발점, 검증 계획 |
+| [evaluation-items.md](evaluation-items.md) | 영상·음성으로 파악할 수 있는 평가 요소 목록, MVP 후보, 파악하지 않는 것 |
 | overview.md (작성 예정) | 하는 일, 이벤트·피드백 형식, 팀원과 주고받는 데이터 |
 | decisions.md (작성 예정) | 정해야 할 것과 MVP 결정 |
 | architecture.md (작성 예정) | MVP 구조, 고도화 로드맵 |
