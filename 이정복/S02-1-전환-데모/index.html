@@ -1256,13 +1256,15 @@ input[type=number]{width:64px;font:600 14px var(--sans);border-radius:8px;border
 <script src="https://cdn.jsdelivr.net/npm/motion@12.4.7/dist/motion.js"></script>
 <script>
 // 스트릭 뱃지 구간 색 (확정안과 동일)
+// 불 온도 순서: 회색 → 빨강(불씨) → 주황(활활) → 금색 → 파랑 → 오로라
 const TIERS=[
  {min:0,max:0,name:"스트릭 끊김",color:"#8B95A1",ink:"#FFFFFF"},
- {min:1,max:2,name:"불씨",color:"#FF7A26",ink:"#FFFFFF"},
- {min:3,max:5,name:"활활 불꽃",color:"#F0441F",ink:"#FFFFFF"},
+ {min:1,max:2,name:"불씨",color:"#F0441F",ink:"#FFFFFF"},
+ {min:3,max:5,name:"활활 불꽃",color:"#FF7A26",ink:"#FFFFFF"},
  {min:6,max:7,name:"황금 불꽃",color:"#F5A000",ink:"#2B1A00"},
  {min:8,max:13,name:"푸른 불꽃",color:"#2F6BFF",ink:"#FFFFFF"},
- {min:14,max:999,name:"전설의 불꽃",color:"#8F78FF",ink:"#FFFFFF"}];
+ // 전설의 불꽃: 글래스 뱃지 오로라 색(보라 → 하늘 → 분홍)을 흰 글씨가 읽히게 한 톤 진하게
+ {min:14,max:999,name:"전설의 불꽃",color:"linear-gradient(135deg,#8F78FF 0%,#5AA9FF 50%,#FF7AC6 100%)",ink:"#FFFFFF"}];
 const tierOf=d=>TIERS.find(t=>d>=t.min&&d<=t.max);
 const daysEl=document.getElementById("days"),tiersEl=document.getElementById("tiers"),hold=document.getElementById("hold"),speed=document.getElementById("speed");
 TIERS.forEach(t=>{const b=document.createElement("button");b.textContent=t.min===t.max?t.min+"일":(t.max>99?t.min+"일+":t.min+"–"+t.max+"일");b.style.background=t.color;b.style.color=t.ink;b.onclick=()=>{daysEl.value=t.min;sync()};tiersEl.appendChild(b)});
