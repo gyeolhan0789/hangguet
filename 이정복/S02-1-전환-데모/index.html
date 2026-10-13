@@ -1,18 +1,17 @@
 <!doctype html>
 <!--
   한끗 · S02-1 홈 진입 스트릭 전환 데모
-  흐름: 스트릭 뱃지 구간 색 원이 오른쪽에서 들어와 화면을 덮음 → 60프레임에서 멈춤
+  흐름: 스트릭 뱃지 구간 색 원이 오른쪽에서 들어와 화면을 덮음 → 잠깐 멈춤
         → "N일째!" 뿅 등장 → 확대·블러로 사라짐 → 원이 왼쪽으로 넘어가며 홈 목업 노출
   뒤 화면: pen.dev 목업을 HTML로 내보내 이 파일 안에 넣음 (S02-1 스켈레톤 → S02 홈, 0일이면 S02-C) · 라이트 모드만
-  실서비스: lottie 재생은 @lottiefiles/dotlottie-react 또는 lottie-web, 안내 문구 등장/퇴장은 Motion(motion/react)으로 같은 값 사용
+  애니메이션: 전부 Motion (motion@12.4.7) — 원형 와이프는 clip-path circle(), 실서비스는 motion/react animate에 같은 값 사용
 
-  ── 사용 Lottie (모두 LottieFiles 무료 · Lottie Simple License: 상업 사용·수정 가능, 출처 표기 선택) ──
-  [S02-1 전환]   Transition Page — Emmanuel Mamani
-                 https://lottiefiles.com/animations/transition-page-pGThJKxPSG
-                 단색 레이어 1개(sc 원래 #F0AF00) → 스트릭 구간 색으로 교체, 2초 · 60fps, 54~82프레임 화면 100% 덮음
+  [S02-1 전환]   Lottie(Transition Page — Emmanuel Mamani) 대신 Motion clip-path 원형 와이프로 교체
+                 오른쪽 밖 → 가운데 덮음 0.9s · 왼쪽 밖으로 빠짐 0.75s · ease [.65, 0, .35, 1] · 색은 스트릭 구간 색
 
-  ── 함께 확정한 다른 화면용 Lottie ──
-  [S08 · S02-L 색종이]     Flex Confetti — Steve Davis
+  ── 다른 화면용 Lottie 후보 (LottieFiles 무료 · Lottie Simple License: 상업 사용·수정 가능, 출처 표기 선택) ──
+
+  [S08 · S02-L 색종이]     Flex Confetti — Steve Davis → S02-L 데모에서는 Motion 파티클로 교체
                            https://lottiefiles.com/free-animation/flex-confetti-T80uT3DZLm
   [S05 · S01-1 완료 체크]  Checkmark — Brian
                            https://lottiefiles.com/free-animation/checkmark-UaMrRzGt3G
@@ -57,7 +56,7 @@ body.dark{background:#131416}
 .scr{position:absolute;left:50%;top:0;width:1440px;height:900px;transform-origin:top center;font-family:Pretendard,'IBM Plex Sans KR',system-ui,sans-serif}
 .scr[hidden]{display:none}
 .themes button{border:0;border-radius:8px;padding:6px 10px;font:700 12px var(--sans);cursor:pointer;background:#2A2C31;color:#fff}.themes button.on{background:#FF7A26}
-#anim{position:fixed;inset:0;pointer-events:none;z-index:5}
+#wipe{position:fixed;inset:0;pointer-events:none;z-index:5;visibility:hidden}
 #badge{position:fixed;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;pointer-events:none;opacity:0}
 #badge .n{font-size:clamp(72px,14vw,160px);font-weight:700;letter-spacing:-.05em;line-height:1}
 #badge .t{font-size:clamp(16px,2.4vw,24px);font-weight:700;opacity:.9}
@@ -1244,7 +1243,7 @@ input[type=number]{width:64px;font:600 14px var(--sans);border-radius:8px;border
 </div>
 </div>
 </div>
-<div id="anim"></div>
+<div id="wipe"></div>
 <div id="badge"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2c1.5 3.2-.6 5.1-1.9 6.6C8.6 10.3 7 12.2 7 15a5 5 0 0 0 10 0c0-2.1-1-3.7-2-4.9.2 1.6-.4 2.8-1.4 3.4.3-2.7-.6-5.6-1.6-7.5-.1 1.9-.9 3-1.8 3.9.2-3.1 1.2-5.3 1.8-7.9z"/></svg><div class="n" id="bn">7일째!</div><div class="t" id="bt">황금 불꽃 · 연속 연습 중</div></div>
 <div class="panel">
   <button class="go" id="go">전환 실행 ▶</button>
@@ -1254,19 +1253,16 @@ input[type=number]{width:64px;font:600 14px var(--sans);border-radius:8px;border
   <label>속도 <input type="range" id="speed" min="0.5" max="2" step="0.1" value="1"><span id="speedv">1.0x</span></label>
   <span class="state" id="state">대기</span>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/motion@12.4.7/dist/motion.js"></script>
 <script>
-// Transition Page (Emmanuel Mamani) Lottie JSON — https://lottiefiles.com/animations/transition-page-pGThJKxPSG
-const SRC={"v":"4.8.0","meta":{"g":"LottieFiles AE 3.4.4","a":"","k":"","d":"","tc":""},"fr":60,"ip":0,"op":120,"w":1200,"h":800,"nm":"Comp 1","ddd":0,"assets":[],"layers":[{"ddd":0,"ind":1,"ty":1,"nm":"S\u00f3lido Naranja 1","sr":1,"ks":{"o":{"a":0,"k":100,"ix":11},"r":{"a":0,"k":0,"ix":10},"p":{"a":0,"k":[600,400,0],"ix":2},"a":{"a":0,"k":[600,400,0],"ix":1},"s":{"a":0,"k":[100,100,100],"ix":6}},"ao":0,"hasMask":true,"masksProperties":[{"inv":false,"mode":"a","pt":{"a":1,"k":[{"i":{"x":0.334,"y":1},"o":{"x":0.669,"y":0},"t":0,"s":[{"i":[[0,0],[0,0],[0.004,-450.005],[0,0],[0,0],[0.003,352]],"o":[[0,0],[0,0],[-0.004,448],[0,0],[0,0],[-0.003,-352]],"v":[[1724,-108],[1668,-116],[1224.004,400],[1666,958],[1708,956],[1883.997,476]],"c":true}]},{"i":{"x":0.36,"y":1},"o":{"x":0.674,"y":0},"t":60,"s":[{"i":[[0,0],[0,0],[0.004,-450.005],[0,0],[0,0],[4.004,368]],"o":[[0,0],[0,0],[-0.004,447.999],[0,0],[0,0],[-3.829,-351.979]],"v":[[1155.999,-124],[-32.001,-128],[-27.996,400],[-30,926],[1151.999,928],[1567.996,396]],"c":true}]},{"t":119,"s":[{"i":[[0,0],[0,0],[0.004,-450.004],[0,0],[0,0],[4.004,368]],"o":[[0,0],[0,0],[-0.004,448],[0,0],[0,0],[-3.829,-351.979]],"v":[[-32.001,-124],[-176.001,-124],[-183.995,420],[-182,926.001],[-32.001,920.001],[-36.004,424]],"c":true}]}],"ix":1},"o":{"a":0,"k":100,"ix":3},"x":{"a":0,"k":0,"ix":4},"nm":"M\u00e1scara 1"}],"sw":1200,"sh":800,"sc":"#f0af00","ip":0,"op":120,"st":0,"bm":0}],"markers":[]};
-const COVER_FRAME=60; // 원이 화면을 꽉 채우는 프레임 (원은 오른쪽에서 들어와 왼쪽으로 빠져나감)
 // 스트릭 뱃지 구간 색 (확정안과 동일)
 const TIERS=[
  {min:0,max:0,name:"스트릭 끊김",color:"#8B95A1",ink:"#FFFFFF"},
  {min:1,max:2,name:"불씨",color:"#FF7A26",ink:"#FFFFFF"},
- {min:3,max:6,name:"활활 불꽃",color:"#F0441F",ink:"#FFFFFF"},
- {min:7,max:13,name:"황금 불꽃",color:"#F5A000",ink:"#2B1A00"},
- {min:14,max:20,name:"푸른 불꽃",color:"#2F6BFF",ink:"#FFFFFF"},
- {min:21,max:999,name:"전설의 불꽃",color:"#8F78FF",ink:"#FFFFFF"}];
+ {min:3,max:5,name:"활활 불꽃",color:"#F0441F",ink:"#FFFFFF"},
+ {min:6,max:7,name:"황금 불꽃",color:"#F5A000",ink:"#2B1A00"},
+ {min:8,max:13,name:"푸른 불꽃",color:"#2F6BFF",ink:"#FFFFFF"},
+ {min:14,max:999,name:"전설의 불꽃",color:"#8F78FF",ink:"#FFFFFF"}];
 const tierOf=d=>TIERS.find(t=>d>=t.min&&d<=t.max);
 const daysEl=document.getElementById("days"),tiersEl=document.getElementById("tiers"),hold=document.getElementById("hold"),speed=document.getElementById("speed");
 TIERS.forEach(t=>{const b=document.createElement("button");b.textContent=t.min===t.max?t.min+"일":(t.max>99?t.min+"일+":t.min+"–"+t.max+"일");b.style.background=t.color;b.style.color=t.ink;b.onclick=()=>{daysEl.value=t.min;sync()};tiersEl.appendChild(b)});
@@ -1275,35 +1271,42 @@ daysEl.oninput=sync;
 hold.oninput=()=>document.getElementById("holdv").textContent=(hold.value/1000).toFixed(1)+"초";
 speed.oninput=()=>document.getElementById("speedv").textContent=(+speed.value).toFixed(1)+"x";
 const st=s=>document.getElementById("state").textContent=s;
-const home=document.getElementById("home"),badge=document.getElementById("badge");
+let badge=document.getElementById("badge");
+// 실행마다 안내 문구 요소를 새로 만든다. 같은 요소에 확대·축소 애니를 반복하면 크롬이 글씨를 작은 배율로 그린 채 고정해 흐려짐
+function freshBadge(){const n=badge.cloneNode(true);n.removeAttribute("style");badge.replaceWith(n);badge=n}
 const SCR={skeleton:document.getElementById("scr-skeleton"),home:document.getElementById("scr-home"),home0:document.getElementById("scr-home0")};
 function show(k){Object.entries(SCR).forEach(([n,e])=>e.hidden=n!==k)}
 function fit(){const s=Math.max(innerWidth/1440,innerHeight/900);Object.values(SCR).forEach(e=>e.style.transform="translateX(-50%) scale("+s+")")}
 addEventListener("resize",fit);fit();
 function homeLoading(){show("skeleton")}                  // 전환 전: S02-1 홈 스켈레톤
 function homeReady(d){show(d===0?"home0":"home")}        // 전환 후: S02 홈 (0일이면 S02-C)
-let anim=null,busy=false;
-function build(color){const data=JSON.parse(JSON.stringify(SRC));data.layers.forEach(l=>{if(l.ty===1)l.sc=color});
-  if(anim)anim.destroy();anim=lottie.loadAnimation({container:document.getElementById("anim"),renderer:"svg",loop:false,autoplay:false,animationData:data,rendererSettings:{preserveAspectRatio:"xMidYMid slice"}});anim.setSpeed(+speed.value)}
-// 안내 문구: 뿅 튀어나옴 → 확대되며 사라짐 (실서비스에서는 Motion으로 같은 값 사용)
-function popIn(){return badge.animate([{opacity:0,transform:"scale(.55)"},{opacity:1,transform:"scale(1.12)",offset:.65},{opacity:1,transform:"scale(1)"}],{duration:480,easing:"cubic-bezier(.2,.9,.3,1.2)",fill:"forwards"}).finished}
-function popOut(){return badge.animate([{opacity:1,transform:"scale(1)",filter:"blur(0px)"},{opacity:0,transform:"scale(1.35)",filter:"blur(8px)"}],{duration:340,easing:"cubic-bezier(.4,0,1,1)",fill:"forwards"}).finished}
-document.getElementById("go").onclick=()=>{
+let busy=false;
+const {animate}=Motion;
+const wipe=document.getElementById("wipe"),sp=()=>1/(+speed.value),wait=ms=>new Promise(r=>setTimeout(r,ms));
+// 원형 와이프 (clip-path circle): 오른쪽 밖에서 들어와 화면을 덮고 → 멈춘 동안 안내 → 왼쪽 밖으로 빠지며 홈 노출
+// 화면 대각선만 한 큰 원이 오른쪽 밖에서 미끄러져 들어와 화면을 덮고, 나갈 때는 그대로 왼쪽 밖으로 빠져나감
+// (원 크기는 고정, 중심 x만 이동 → 둥근 가장자리가 화면을 쓸고 지나감)
+const R=()=>Math.ceil(Math.hypot(innerWidth,innerHeight)/2)+2;
+const circle=(r,x)=>{wipe.style.clipPath="circle("+r+"px at "+x+"px 50%)"};
+function slide(x0,x1,duration){const r=R();circle(r,x0);return animate(x0,x1,{duration,ease:[.65,0,.35,1],onUpdate:x=>circle(r,x)})}
+function cover(color){wipe.style.background=color;wipe.style.visibility="visible";return slide(innerWidth+R(),innerWidth/2,.9*sp())}
+function uncover(){return slide(innerWidth/2,-R(),.75*sp()).then(()=>{wipe.style.visibility="hidden"})}
+// 안내 문구: 뿅 튀어나옴 → 확대·블러로 사라짐. 끝나면 transform·filter를 지워 다음 실행 때 글씨가 흐려지지 않게 함
+function popIn(){return animate(badge,{opacity:[0,1,1],scale:[.55,1.12,1]},{duration:.48*sp(),times:[0,.65,1],ease:[.2,.9,.3,1.2]})
+  .then(()=>{badge.style.transform="none"})}
+function popOut(){return animate(badge,{opacity:0,scale:1.35,filter:["blur(0px)","blur(8px)"]},{duration:.34*sp(),ease:[.4,0,1,1]})
+  .then(()=>{badge.style.transform="none";badge.style.filter="none"})}
+document.getElementById("go").onclick=async()=>{
   if(busy)return;busy=true;
   const d=Math.max(0,+daysEl.value||0),t=tierOf(d);
-  homeLoading();badge.getAnimations().forEach(a=>a.cancel());badge.style.opacity=0;badge.style.color=t.ink;
+  homeLoading();freshBadge();badge.style.opacity=0;badge.style.color=t.ink;
   document.getElementById("bn").textContent=d===0?"0일":d+"일째!";
   document.getElementById("bt").textContent=d===0?"함께 불태워볼까요?":t.name+" · 연속 연습 중";
-  build(t.color);let phase=1;st("① 원이 화면을 덮는 중");
-  anim.addEventListener("enterFrame",function tick(){
-    const f=anim.currentFrame;
-    if(phase===1&&f>=COVER_FRAME){phase=2;anim.goToAndStop(COVER_FRAME,true);st("② 안내 뿅");
-      homeReady(d);
-      popIn().then(()=>new Promise(r=>setTimeout(r,+hold.value))).then(()=>{st("③ 안내 사라짐");return popOut()})
-        .then(()=>{phase=3;st("④ 원이 왼쪽으로 넘어가는 중");anim.addEventListener("complete",()=>{if(phase!==4){phase=4;anim.destroy();anim=null;st("끝 · 홈");busy=false}});anim.play()});
-    }else if(phase===3&&f>=anim.totalFrames-1.5){phase=4;anim.removeEventListener("enterFrame",tick);anim.destroy();anim=null;st("끝 · 홈");busy=false}
-  });
-  anim.play();
+  st("① 원이 화면을 덮는 중");await cover(t.color);
+  homeReady(d);st("② 안내 뿅");await popIn();
+  await wait(+hold.value);st("③ 안내 사라짐");await popOut();
+  st("④ 원이 왼쪽으로 넘어가는 중");await uncover();
+  st("끝 · 홈");busy=false;
 };
 homeLoading();sync();
 </script>
