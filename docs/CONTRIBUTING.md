@@ -23,7 +23,7 @@
 실행 Jira 1개 = 작업 Branch 1개 = MR 1개
 ```
 
-- `main`과 `develop`에 직접 Push하지 않는다.
+- `master`와 `develop`에 직접 Push하지 않는다.
 - Epic은 Release·사용자 여정의 집계 단위이므로 Branch를 만들지 않는다.
 - Story·Task를 실행 단위로 관리하며, 독립 MR이 필요한 이슈는 별도 브랜치로 분리한다.
 - 모든 변경은 Jira에 연결된 작업 Branch에서 수행한다.
@@ -36,10 +36,10 @@
 
 ## 2. 브랜치 전략
 
-A301은 `main`과 `develop`을 중심으로 단순화한 Git Flow를 사용한다.
+A301은 `master`와 `develop`을 중심으로 단순화한 Git Flow를 사용한다.
 
 ```
-main                            # 시연·운영 가능한 Release
+master                          # 시연·운영 가능한 Release
 └─ develop                      # 다음 Release 통합·검증
    ├─ S15P31A301-42/ai/feature/answer-evaluator
    ├─ S15P31A301-43/be/feature/interview-turn-job
@@ -67,7 +67,8 @@ S15P31A301-46/infra/docs/stt-runbook
 규칙:
 
 - Jira가 발급한 실제 번호를 사용한다.
-- `slug`는 소문자 영문·숫자와 하이픈으로 작성한다.
+- `slug`는 영문·숫자와 하이픈(`-`)·언더스코어(`_`)로 작성한다. `/`는 쓸 수 없다.
+- `develop`, `master`, GitLab Revert 버튼이 만드는 `revert-<sha>` 브랜치는 이 규칙에서 제외한다.
 - 개인 이름이나 담당자 이름을 Branch에 넣지 않는다.
 - 한 Branch에서 관련 없는 기능을 함께 수정하지 않는다.
 - 장기간 유지하는 개인별 `FE`, `BE`, `AI` Branch를 만들지 않는다.
@@ -94,7 +95,7 @@ S15P31A301-46/infra/docs/stt-runbook
 | --- | --- | --- |
 | `feature` | 기능·계약·테스트 체계를 새로 구현 | `S15P31A301-42/ai/feature/answer-evaluator` |
 | `fix` | 개발·Staging에서 발견한 일반 결함 수정 | `S15P31A301-43/be/fix/duplicate-answer-job` |
-| `hotfix` | `main`의 중대 운영 장애 긴급 수정 | `S15P31A301-44/infra/hotfix/audio-upload-outage` |
+| `hotfix` | `master`의 중대 운영 장애 긴급 수정 | `S15P31A301-44/infra/hotfix/audio-upload-outage` |
 | `docs` | 코드 변경 없는 공식 문서 작업 | `S15P31A301-45/common/docs/update-data-policy` |
 
 브랜치 Type은 `feature`, `fix`, `hotfix`, `docs`만 사용한다. `test`, `refactor`, `style`, `chore`는 별도 브랜치 Type이 아니라 관련 작업 브랜치 안의 Commit Type으로 사용한다. 테스트나 리팩터링 자체가 독립 Jira·MR 작업이라면 목적에 따라 `feature` 또는 `fix` 브랜치를 만들고, 내부 Commit에 `test` 또는 `refactor`를 사용한다.
@@ -128,7 +129,7 @@ flowchart LR
     E --> F[Cross-part E2E]
     F --> G[develop 배포·관측]
     G --> H[Release MR]
-    H --> I[main]
+    H --> I[master]
 ```
 
 ### 3.1 공통 계약 변경
@@ -157,20 +158,20 @@ flowchart LR
 
 ### 3.3 Hotfix
 
-운영 또는 시연용 `main`의 Blocker/Critical 장애에만 사용한다.
+운영 또는 시연용 `master`의 Blocker/Critical 장애에만 사용한다.
 
 ```
-main
+master
 → hotfix Branch
 → 재현 Test와 최소 수정
-→ main 병합·배포 확인
+→ master 병합·배포 확인
 → 동일 변경을 develop에도 즉시 반영
 ```
 
 - 일반 기능 추가를 Hotfix에 포함하지 않는다.
 - 장애 재현 Test를 먼저 추가한다.
 - 임시 우회라면 제거 조건과 후속 Jira를 기록한다.
-- Hotfix를 `main`에 병합한 뒤 동일한 수정 사항을 `develop`에도 병합하여 다음 Release에서 장애가 다시 발생하지 않도록 한다.
+- Hotfix를 `master`에 병합한 뒤 동일한 수정 사항을 `develop`에도 병합하여 다음 Release에서 장애가 다시 발생하지 않도록 한다.
 
 ## 4. 커밋 메시지
 
@@ -191,6 +192,14 @@ test(realtime): WebSocket 재연결 회귀 테스트 추가 [S15P31A301-48]
 fix(report): 평가 근거 누락 처리 수정 [S15P31A301-49]
 docs(contract): Answer Event 오류 예시 보완 [S15P31A301-50]
 ```
+
+규칙:
+
+- `(<scope>)`와 `[S15P31A301-번호]`는 생략할 수 있다. 예: `docs: 회의록 정리`
+- Jira 번호를 적을 때는 제목 끝에 `[S15P31A301-번호]`로 쓰는 것을 권장한다. CI는 이 표기를 검사하지 않는다.
+- `scope`는 영문·숫자와 `.`, `_`, `/`, `-`만 사용한다.
+- `:` 뒤에는 공백 한 칸을 둔다.
+- `git revert`나 GitLab Revert 버튼이 만드는 `Revert "..."` 커밋은 그대로 허용한다.
 
 ### 4.2 Commit Type
 
@@ -382,12 +391,12 @@ estimatedCost
 → Contract·E2E·AI Regression
 → 실패·부하·비용·개인정보 확인
 → Release MR
-→ main
+→ master
 → Smoke·관측
 → 문제 발생 시 Rollback 또는 Hotfix
 ```
 
-`main`에는 항상 시연하거나 배포할 수 있는 상태만 둔다. Release MR에는 포함 Jira, Migration, AI Config Version, 알려진 제한, Rollback 절차와 검증 Evidence를 기록한다.
+`master`에는 항상 시연하거나 배포할 수 있는 상태만 둔다. Release MR에는 포함 Jira, Migration, AI Config Version, 알려진 제한, Rollback 절차와 검증 Evidence를 기록한다.
 
 ## 10. 빠른 확인 Checklist
 
@@ -509,3 +518,15 @@ SonarQube를 사용할 수 있으면 중복·복잡도·잠재 결함과 Coverag
 | DB Table·Column | snake_case | `interview_session`, `created_at` |
 
 `data`, `info`, `manager`, `util`, `temp`, `flag`처럼 역할이 불명확한 이름을 피한다. Boolean은 `isRecording`, `hasEvidence`, `canRetry`, `shouldGenerateFollowUp`처럼 질문으로 읽히게 작성한다.
+
+### 12.4 MR 자동 검사(CI)
+
+현재 CI는 MR을 열거나 MR에 Commit을 Push할 때만 실행되며, 규칙 검사 3종만 수행한다. Build·Test·SonarQube는 기술 스택과 폴더 구조가 정해지면 추가한다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다.
+
+| Job | 검사 내용 | 기준 |
+| --- | --- | --- |
+| `branch-name` | Source Branch 이름 | [2.1 브랜치 이름](#21-브랜치-이름) |
+| `target-branch` | `master`에는 `develop` 또는 `hotfix` Branch만 병합 | [3. 병합 순서](#3-병합-순서) |
+| `commit-message` | MR에 새로 추가된 Commit 제목(Merge Commit 제외) | [4.1 형식](#41-형식) |
+
+실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
