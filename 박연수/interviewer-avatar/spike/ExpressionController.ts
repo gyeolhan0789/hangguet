@@ -131,7 +131,7 @@ export class ExpressionController {
     if (state === this.state) return;
     this.state = state;
     // 이전 표정은 200ms 동안 0으로, 새 표정은 목표값으로
-    this.momentary = null;
+    this.releaseMomentary();
     this.fadeFrom = { ...this.last };
     this.fadeT = 0;
   }
@@ -152,6 +152,21 @@ export class ExpressionController {
   /** 화면에 나오기 전에 만료된 순간 표정 취소 */
   cancelMomentary(): void {
     this.momentary = null;
+  }
+
+  /**
+   * 상태 전환 시 진행 중인 순간 표정을 바로 지우지 않고 현재 세기에서 하강 구간으로 넘긴다.
+   * (발화 종료로 speaking → listening 이 될 때 미소가 한 프레임에 사라지지 않도록, 2026-10-14)
+   */
+  private releaseMomentary(): void {
+    const mo = this.momentary;
+    if (!mo) return;
+    const m = momentaryEnvelope(mo.t, mo.holdSec);
+    if (m * mo.intensity <= 1e-4) {
+      this.momentary = null;
+      return;
+    }
+    this.momentary = { ...mo, intensity: m * mo.intensity, holdSec: 0, t: EXPRESSION_RISE_SEC };
   }
 
   get activeMomentary(): ExpressionName | null {
