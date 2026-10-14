@@ -1,5 +1,8 @@
 stages:
   - convention
+  - build
+  - test
+  - sonar
 
 variables:
   JIRA_KEY: "S15P31A301"                                        # Jira 프로젝트 키
@@ -122,3 +125,336 @@ commit-message:
         echo "  수정 : git commit --amend 또는 git rebase -i 로 고친 뒤 git push --force-with-lease"
         exit 1
       fi
+
+### 빌드·테스트·소나큐브 분석 ###
+# 파트 폴더나 이 파일이 바뀐 MR에서만 해당 파트 잡이 돕니다.
+# 순서: build(format·lint·빌드) → test(테스트·커버리지) → sonar(분석 결과 업로드)
+# SonarQube 서버 주소와 토큰은 GitLab CI/CD Variables의 SONAR_HOST_URL, SONAR_TOKEN에서 주입합니다.
+# 프로젝트는 파트마다 따로 둡니다: A301-be, A301-fe, A301-ai
+
+# 파트별 실행 조건
+.be-rules:
+  rules:
+    - changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+
+.fe-rules:
+  rules:
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+
+.ai-rules:
+  rules:
+    - changes:
+        - ai/**/*
+        - .gitlab-ci.yml
+
+# 소나큐브 분석은 수동 실행입니다. 파이프라인에 ▶ 버튼으로만 남고 자동으로 돌지 않습니다.
+# rules 안에서 when: manual을 쓰면 allow_failure 기본값이 false가 되어
+# 버튼을 누르기 전까지 파이프라인이 끝나지 않으므로 allow_failure: true를 함께 적습니다.
+# 병합 전에 버튼을 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 합니다.
+.be-sonar-rules:
+  rules:
+    - changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.fe-sonar-rules:
+  rules:
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.ai-sonar-rules:
+  rules:
+    - changes:
+        - ai/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# 소나큐브 분석 공통 설정
+# - 분석 결과를 업로드하면 잡은 바로 끝납니다. 품질 게이트 판정은 서버가 따로 처리하고,
+#   판정이 끝나면 SonarQube Webhook이 Mattermost로 결과를 알립니다.
+#   알림에 어느 MR의 결과인지 표시하도록 sonar.analysis.* 속성으로 MR 정보를 함께 보냅니다.
+# - 미니PC에서 도는 서버가 꺼져 있어도 MR이 막히지 않도록 실패를 허용합니다.
+# - New Code(최근 30일) 판정에 git blame이 필요해 전체 이력을 받습니다.
+# - 이미지에 Java가 있어 스캐너가 서버에서 JRE를 내려받지 않게 합니다(sonar.scanner.skipJreProvisioning).
+# - 분석기 플러그인은 $SONAR_USER_HOME/cache에 받으므로 잡마다 캐시합니다.
+#   러너 캐시는 러너 PC에 저장되어 러너마다 첫 실행은 플러그인을 내려받습니다.
+.sonar:
+  stage: sonar
+  allow_failure: true
+  variables:
+    GIT_DEPTH: "0"
+    SONAR_USER_HOME: "$CI_PROJECT_DIR/.sonar"
+  before_script:
+    - |
+      test -n "$SONAR_HOST_URL" || { echo "SONAR_HOST_URL CI/CD variable is required"; exit 1; }
+      test -n "$SONAR_TOKEN" || { echo "SONAR_TOKEN CI/CD variable is required"; exit 1; }
+
+# 스캐너는 SONAR_HOST_URL, SONAR_TOKEN 환경 변수를 직접 읽습니다.
+.sonar-scanner:
+  extends: .sonar
+  image:
+    name: sonarsource/sonar-scanner-cli:12.2.0.4256_8.1.0
+    entrypoint: [""]
+  # 언어마다 받는 플러그인이 달라 잡 이름으로 캐시를 나눕니다.
+  # 분석이 실패해도 이미 받은 플러그인은 남기도록 항상 저장합니다.
+  cache:
+    key: sonar-$CI_JOB_NAME
+    paths:
+      - .sonar/cache/
+    when: always
+
+## BE ##
+
+# Gradle 공통 설정
+.be:
+  extends: .be-rules
+  image: eclipse-temurin:21-jdk-noble
+  variables:
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-home"
+  cache:
+    key:
+      files:
+        - backend/gradle/wrapper/gradle-wrapper.properties
+        - backend/build.gradle
+    paths:
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+    policy: pull
+
+# 포맷·정적 분석·컴파일
+be-build:
+  extends: .be
+  stage: build
+  cache:
+    key:
+      files:
+        - backend/gradle/wrapper/gradle-wrapper.properties
+        - backend/build.gradle
+    paths:
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+    policy: pull-push
+  script:
+    - cd backend
+    - ./gradlew spotlessCheck checkstyleMain checkstyleTest assemble --no-daemon
+
+# 테스트 + JaCoCo 커버리지
+# @SpringBootTest가 실제 DataSource를 요구하므로 PostgreSQL 서비스 컨테이너를 붙입니다.
+be-test:
+  extends: .be
+  stage: test
+  needs:
+    - job: be-build
+  services:
+    - name: postgres:18.6-alpine
+      alias: postgres
+  variables:
+    POSTGRES_DB: a301
+    POSTGRES_USER: a301
+    POSTGRES_PASSWORD: a301-ci
+    DB_URL: jdbc:postgresql://postgres:5432/a301
+    DB_USERNAME: a301
+    DB_PASSWORD: a301-ci
+  script:
+    - cd backend
+    - ./gradlew test --no-daemon
+  artifacts:
+    when: always
+    paths:
+      - backend/build/reports/jacoco/test/jacocoTestReport.xml
+    reports:
+      junit: backend/build/test-results/test/*.xml
+    expire_in: 1 day
+
+# 소나큐브 분석 (Gradle 플러그인)
+# 플러그인이 컴파일된 클래스와 라이브러리 경로를 직접 넘겨 Java 규칙을 정확히 분석합니다.
+# sonar 태스크는 컴파일을 하지 않아 classes·testClasses를 함께 실행합니다.
+be-sonar:
+  extends:
+    - .be
+    - .sonar
+    - .be-sonar-rules
+  needs:
+    - job: be-test
+      artifacts: true
+  # Gradle 의존성 캐시는 읽기만 하고, 소나큐브 플러그인 캐시는 따로 저장합니다.
+  cache:
+    - key:
+        files:
+          - backend/gradle/wrapper/gradle-wrapper.properties
+          - backend/build.gradle
+      paths:
+        - .gradle-home/caches/
+        - .gradle-home/wrapper/
+      policy: pull
+    - key: sonar-$CI_JOB_NAME
+      paths:
+        - .sonar/cache/
+      when: always
+  script:
+    - cd backend
+    - |
+      test -f build/reports/jacoco/test/jacocoTestReport.xml || {
+        echo "JaCoCo XML 리포트가 없습니다. be-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - ./gradlew classes testClasses sonar --no-daemon
+      -Dsonar.projectKey=A301-be
+      -Dsonar.projectName=A301-be
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## FE ##
+
+# Node 공통 설정
+.fe:
+  extends: .fe-rules
+  image: node:24-alpine
+  variables:
+    NEXT_TELEMETRY_DISABLED: "1"
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - .npm/
+  before_script:
+    - cd frontend
+    - npm ci --prefer-offline --no-audit --no-fund
+
+# 포맷·린트·타입 검사·빌드
+fe-build:
+  extends: .fe
+  stage: build
+  script:
+    - npm run format:check
+    - npm run lint
+    - npm run typecheck
+    - npm run build
+
+# 단위 테스트 + lcov 커버리지
+fe-test:
+  extends: .fe
+  stage: test
+  needs:
+    - job: fe-build
+  script:
+    - npm run test:coverage -- --reporter=default --reporter=junit --outputFile.junit=junit.xml
+  artifacts:
+    when: always
+    paths:
+      - frontend/coverage/lcov.info
+    reports:
+      junit: frontend/junit.xml
+    expire_in: 1 day
+
+# 소나큐브 분석
+# 소스와 테스트가 같은 src 아래에 있어, 테스트 파일은 소스에서 빼고 테스트로만 잡습니다.
+fe-sonar:
+  extends:
+    - .sonar-scanner
+    - .fe-sonar-rules
+  needs:
+    - job: fe-test
+      artifacts: true
+  script:
+    - cd frontend
+    - |
+      test -f coverage/lcov.info || {
+        echo "lcov 리포트가 없습니다. fe-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - sonar-scanner
+      -Dsonar.projectKey=A301-fe
+      -Dsonar.projectName=A301-fe
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.sources=src
+      -Dsonar.tests=src
+      -Dsonar.exclusions="src/**/*.test.ts,src/**/*.test.tsx,**/*.d.ts"
+      -Dsonar.test.inclusions="src/**/*.test.ts,src/**/*.test.tsx"
+      -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## AI ##
+
+# 파이썬은 컴파일이 없어 build 잡 없이 test 잡에서 검사와 테스트를 함께 돌립니다.
+# uv 버전은 로컬에서 uv.lock을 만든 버전과 맞춥니다.
+ai-test:
+  extends: .ai-rules
+  stage: test
+  image: python:3.13-slim
+  needs: []
+  variables:
+    UV_VERSION: "0.12.5"
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+    UV_PYTHON_DOWNLOADS: "never"
+    UV_LINK_MODE: "copy"
+  cache:
+    key:
+      files:
+        - ai/uv.lock
+    paths:
+      - .uv-cache/
+  before_script:
+    - pip install --no-cache-dir "uv==${UV_VERSION}"
+    - cd ai
+    - uv sync --locked
+  script:
+    - uv run ruff format --check .
+    - uv run ruff check .
+    - uv run mypy
+    - uv run pytest --cov --cov-report=xml --junitxml=junit.xml
+  artifacts:
+    when: always
+    paths:
+      - ai/coverage.xml
+    reports:
+      junit: ai/junit.xml
+    expire_in: 1 day
+
+# 소나큐브 분석
+ai-sonar:
+  extends:
+    - .sonar-scanner
+    - .ai-sonar-rules
+  needs:
+    - job: ai-test
+      artifacts: true
+  script:
+    - cd ai
+    - |
+      test -f coverage.xml || {
+        echo "coverage.xml이 없습니다. ai-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - sonar-scanner
+      -Dsonar.projectKey=A301-ai
+      -Dsonar.projectName=A301-ai
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.sources=app
+      -Dsonar.tests=tests
+      -Dsonar.python.version=3.13
+      -Dsonar.python.coverage.reportPaths=coverage.xml
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"

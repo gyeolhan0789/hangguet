@@ -1,0 +1,23 @@
+# 접속 정보는 환경 변수로 주입한다. 기본값은 루트 docker-compose.yml 기준이다.
+spring:
+  application:
+    name: a301
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/a301}
+    username: ${DB_USERNAME:a301}
+    password: ${DB_PASSWORD:a301-local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # 테이블은 Flyway Migration(src/main/resources/db/migration)으로만 만든다.
+      ddl-auto: validate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      # 전체 상태(UP/DOWN)에 DB 연결 상태가 포함된다. 세부 정보는 노출하지 않는다.
+      show-details: never
