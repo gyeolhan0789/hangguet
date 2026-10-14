@@ -521,12 +521,20 @@ SonarQube를 사용할 수 있으면 중복·복잡도·잠재 결함과 Coverag
 
 ### 12.4 MR 자동 검사(CI)
 
-현재 CI는 MR을 열거나 MR에 Commit을 Push할 때만 실행되며, 규칙 검사 3종만 수행한다. Build·Test·SonarQube는 기술 스택과 폴더 구조가 정해지면 추가한다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다.
+현재 CI는 MR을 열거나 MR에 Commit을 Push할 때만 실행된다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다.
+
+`convention` → `build` → `test` → `sonar` 순서로 돈다. 규칙 검사는 모든 MR에서, 파트 Job은 해당 폴더(`backend/`, `frontend/`, `ai/`)나 `.gitlab-ci.yml`이 바뀐 MR에서만 실행된다.
 
 | Job | 검사 내용 | 기준 |
 | --- | --- | --- |
 | `branch-name` | Source Branch 이름 | [2.1 브랜치 이름](#21-브랜치-이름) |
 | `target-branch` | `master`에는 `develop` 또는 `hotfix` Branch만 병합 | [3. 병합 순서](#3-병합-순서) |
 | `commit-message` | MR에 새로 추가된 Commit 제목(Merge Commit 제외) | [4.1 형식](#41-형식) |
+| `be-build` · `be-test` | Spotless·Checkstyle·빌드, 테스트·JaCoCo | [12.2 Part별 도구](#122-part별-도구) |
+| `fe-build` · `fe-test` | Prettier·ESLint·TypeScript·빌드, Vitest·lcov | [12.2 Part별 도구](#122-part별-도구) |
+| `ai-test` | Ruff·mypy, pytest·coverage | [12.2 Part별 도구](#122-part별-도구) |
+| `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`) | 보조 지표. 실패해도 MR을 막지 않는다 |
 
 실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
+
+`sonar` Job은 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 MR 결과가 보인다. MR별 판정은 Mattermost 알림으로 확인한다.

@@ -40,6 +40,8 @@ pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["app"]
+# coverage.xml에 상대 경로를 남긴다. CI의 test job과 sonar job은 작업 경로가 다를 수 있다.
+relative_files = true
 
 [tool.coverage.report]
 show_missing = true

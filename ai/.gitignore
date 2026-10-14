@@ -11,4 +11,5 @@ __pycache__/
 # Coverage (SonarQube는 CI에서 생성한 coverage.xml을 읽는다)
 .coverage
 coverage.xml
+junit.xml
 htmlcov/
