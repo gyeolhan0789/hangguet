@@ -151,12 +151,43 @@ commit-message:
         - ai/**/*
         - .gitlab-ci.yml
 
+# 소나큐브 분석은 수동 실행입니다. 파이프라인에 ▶ 버튼으로만 남고 자동으로 돌지 않습니다.
+# rules 안에서 when: manual을 쓰면 allow_failure 기본값이 false가 되어
+# 버튼을 누르기 전까지 파이프라인이 끝나지 않으므로 allow_failure: true를 함께 적습니다.
+# 병합 전에 버튼을 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 합니다.
+.be-sonar-rules:
+  rules:
+    - changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.fe-sonar-rules:
+  rules:
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.ai-sonar-rules:
+  rules:
+    - changes:
+        - ai/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
 # 소나큐브 분석 공통 설정
 # - 분석 결과를 업로드하면 잡은 바로 끝납니다. 품질 게이트 판정은 서버가 따로 처리하고,
 #   판정이 끝나면 SonarQube Webhook이 Mattermost로 결과를 알립니다.
 #   알림에 어느 MR의 결과인지 표시하도록 sonar.analysis.* 속성으로 MR 정보를 함께 보냅니다.
 # - 미니PC에서 도는 서버가 꺼져 있어도 MR이 막히지 않도록 실패를 허용합니다.
 # - New Code(최근 30일) 판정에 git blame이 필요해 전체 이력을 받습니다.
+# - 이미지에 Java가 있어 스캐너가 서버에서 JRE를 내려받지 않게 합니다(sonar.scanner.skipJreProvisioning).
+# - 분석기 플러그인은 $SONAR_USER_HOME/cache에 받으므로 잡마다 캐시합니다.
+#   러너 캐시는 러너 PC에 저장되어 러너마다 첫 실행은 플러그인을 내려받습니다.
 .sonar:
   stage: sonar
   allow_failure: true
@@ -174,10 +205,13 @@ commit-message:
   image:
     name: sonarsource/sonar-scanner-cli:12.2.0.4256_8.1.0
     entrypoint: [""]
+  # 언어마다 받는 플러그인이 달라 잡 이름으로 캐시를 나눕니다.
+  # 분석이 실패해도 이미 받은 플러그인은 남기도록 항상 저장합니다.
   cache:
-    key: sonar-scanner
+    key: sonar-$CI_JOB_NAME
     paths:
       - .sonar/cache/
+    when: always
 
 ## BE ##
 
@@ -249,9 +283,24 @@ be-sonar:
   extends:
     - .be
     - .sonar
+    - .be-sonar-rules
   needs:
     - job: be-test
       artifacts: true
+  # Gradle 의존성 캐시는 읽기만 하고, 소나큐브 플러그인 캐시는 따로 저장합니다.
+  cache:
+    - key:
+        files:
+          - backend/gradle/wrapper/gradle-wrapper.properties
+          - backend/build.gradle
+      paths:
+        - .gradle-home/caches/
+        - .gradle-home/wrapper/
+      policy: pull
+    - key: sonar-$CI_JOB_NAME
+      paths:
+        - .sonar/cache/
+      when: always
   script:
     - cd backend
     - |
@@ -262,6 +311,7 @@ be-sonar:
     - ./gradlew classes testClasses sonar --no-daemon
       -Dsonar.projectKey=A301-be
       -Dsonar.projectName=A301-be
+      -Dsonar.scanner.skipJreProvisioning=true
       -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
       -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
       -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
@@ -316,8 +366,8 @@ fe-test:
 # 소스와 테스트가 같은 src 아래에 있어, 테스트 파일은 소스에서 빼고 테스트로만 잡습니다.
 fe-sonar:
   extends:
-    - .fe-rules
     - .sonar-scanner
+    - .fe-sonar-rules
   needs:
     - job: fe-test
       artifacts: true
@@ -331,6 +381,7 @@ fe-sonar:
     - sonar-scanner
       -Dsonar.projectKey=A301-fe
       -Dsonar.projectName=A301-fe
+      -Dsonar.scanner.skipJreProvisioning=true
       -Dsonar.sources=src
       -Dsonar.tests=src
       -Dsonar.exclusions="src/**/*.test.ts,src/**/*.test.tsx,**/*.d.ts"
@@ -382,8 +433,8 @@ ai-test:
 # 소나큐브 분석
 ai-sonar:
   extends:
-    - .ai-rules
     - .sonar-scanner
+    - .ai-sonar-rules
   needs:
     - job: ai-test
       artifacts: true
@@ -397,6 +448,7 @@ ai-sonar:
     - sonar-scanner
       -Dsonar.projectKey=A301-ai
       -Dsonar.projectName=A301-ai
+      -Dsonar.scanner.skipJreProvisioning=true
       -Dsonar.sources=app
       -Dsonar.tests=tests
       -Dsonar.python.version=3.13
