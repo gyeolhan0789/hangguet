@@ -2,7 +2,7 @@
 
 > 담당: 면접관 외형 및 아바타 표현 · 기록 기간: 2026.10.12 ~
 >
-> 기술 조사: [AI 면접관 아바타 기술 조사 요약](avatar-research.md)
+> 기술 조사: [AI 면접관 아바타 기술 조사 요약](docs/avatar-research.md)
 
 ---
 
@@ -38,7 +38,7 @@
 
 **관련 문서·이슈**
 
-- [2D 실사형 AI 면접관 PoC 구현 및 테스트 결과](simli-poc.md)
+- [2D 실사형 AI 면접관 PoC 구현 및 테스트 결과](docs/simli-poc.md)
 - [S15P31A301-65](https://ssafy.atlassian.net/browse/S15P31A301-65)
 
 ---
@@ -67,7 +67,7 @@
 - [ ] 반응 AI 담당과 이벤트 형식·취소·만료 정책 협의
 
 **참고 링크**
-- [아바타 기술 조사 요약](avatar-research.md)
+- [아바타 기술 조사 요약](docs/avatar-research.md)
 - [기존 면접관 표현 모듈 기획](../박연수/interviewer-avatar/README.md)
 
 ---

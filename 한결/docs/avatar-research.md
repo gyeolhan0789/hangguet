@@ -11,7 +11,7 @@
 - 저사양 성능이나 외형 문제가 반복되면 2D를 대안으로 추가한다.
 - 실사형 API는 세션 비용과 개별 동작 제어 제약 때문에 후순위로 둔다.
 
-> 기존 [면접관 표현 모듈 기획](../박연수/interviewer-avatar/README.md)은 VRM 기반이다. 이 문서의 TalkingHead 선택은 추가 검토 제안이며, v0 결과와 팀 합의 후 확정한다. 구현·성능 테스트는 아직 진행하지 않았다.
+> 기존 [면접관 표현 모듈 기획](../../박연수/interviewer-avatar/README.md)은 VRM 기반이다. 이 문서의 TalkingHead 선택은 추가 검토 제안이며, v0 결과와 팀 합의 후 확정한다. 구현·성능 테스트는 아직 진행하지 않았다.
 
 ## 아바타 방식 비교
 
@@ -86,7 +86,7 @@ flowchart LR
     L[로컬 경청·눈 깜빡임] --> A
 ```
 
-반응 이벤트와 음성 미디어 경로는 분리하되 세션·턴·발화 ID로 연결한다. 기존 [협업 가이드](../docs/CONTRIBUTING.md)에 따라 음성 Binary를 WebSocket이나 BE Application Body로 중계하지 않는다. 파일 기반 음성은 Storage URL 등을 활용하고 스트리밍 미디어 경로는 공통 계약으로 별도 합의한다.
+반응 이벤트와 음성 미디어 경로는 분리하되 세션·턴·발화 ID로 연결한다. 기존 [협업 가이드](../../docs/CONTRIBUTING.md)에 따라 음성 Binary를 WebSocket이나 BE Application Body로 중계하지 않는다. 파일 기반 음성은 Storage URL 등을 활용하고 스트리밍 미디어 경로는 공통 계약으로 별도 합의한다.
 
 | 프론트엔드 | 백엔드·AI |
 | --- | --- |
