@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Tool cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Coverage (SonarQube는 CI에서 생성한 coverage.xml을 읽는다)
+.coverage
+coverage.xml
+htmlcov/
