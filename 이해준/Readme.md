@@ -6,6 +6,46 @@
 
 ---
 
+### 📅 2026-10-14 (수)
+
+**오늘 한 것**
+![소나큐브 결과](imgs/sonar.png)
+- 프로젝트 스캐폴딩(be, fe, ai)
+- CI 파이프라인 개선
+  - convention -> build -> test -> sonar
+- Sonarqube 정적 분석 연결
+  - relay 서버를 통한 MM 알림 구현
+- img -> 3d 모델 조사
+
+**배운 것 / 정리**
+- **GitLab Runner 잡 실행**
+  - 러너가 GitLab을 polling해 태그가 맞는 잡을 받아 옴
+  - 잡마다 컨테이너를 새로 띄움: helper(checkout, cache, artifacts) / service(postgres 등) / build(script 실행)
+  - 순서: checkout → cache 복원 → artifacts 다운로드 → script → cache 저장 → artifacts 업로드 → 삭제
+  - cache는 러너 로컬에 zip으로 저장 → 다른 러너와 공유 안 됨
+  - artifacts는 GitLab 서버에 저장 → 러너가 달라도 다음 잡에 전달
+  - 파이프라인은 모든 잡이 끝나야 완료 → 오래 걸리는 잡은 `when: manual` + `allow_failure: true`
+  - Gradle Build Cache: 태스크 입력의 해시가 같으면 실행 없이 출력 재사용(`FROM-CACHE`)
+- **SonarQube 분석**
+  - 러너: 스캐너가 서버에서 엔진·규칙·플러그인을 받아 코드 분석 → 리포트 업로드 후 종료
+    - 파일 분류(main/test) → 언어별 분석기가 AST 파싱 후 규칙 실행 → 중복(CPD) 계산
+    - git blame으로 줄별 수정일 수집, 테스트 도구의 커버리지 리포트를 줄 단위로 매핑
+  - 서버: 업로드된 리포트를 Compute Engine이 비동기 처리
+    - 이전 분석과 이슈 매칭 → 지표 집계 → 새 코드(최근 30일) 분리 → Quality Gate 판정 → Webhook
+
+**막힌 것 & 해결**
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| | | |
+
+**내일 할 것**
+- [ ]
+
+**참고 링크**
+-
+
+---
+
 ### 📅 2026-10-13 (화)
 
 **오늘 한 것**
