@@ -216,6 +216,9 @@ commit-message:
 ## BE ##
 
 # Gradle 공통 설정
+# 캐시에는 의존성과 Gradle Build Cache(caches/build-cache-1, 컴파일 결과)가 함께 들어 있습니다.
+# 러너 캐시는 러너 PC에만 저장되어, be-build와 be-test가 다른 러너로 가면 적중하지 않습니다.
+# 그래서 be-build와 be-test 모두 캐시를 저장해, 어느 BE 잡이든 한 번 돈 러너에는 캐시가 생기게 합니다.
 .be:
   extends: .be-rules
   image: eclipse-temurin:21-jdk-noble
@@ -229,21 +232,12 @@ commit-message:
     paths:
       - .gradle-home/caches/
       - .gradle-home/wrapper/
-    policy: pull
+    policy: pull-push
 
 # 포맷·정적 분석·컴파일
 be-build:
   extends: .be
   stage: build
-  cache:
-    key:
-      files:
-        - backend/gradle/wrapper/gradle-wrapper.properties
-        - backend/build.gradle
-    paths:
-      - .gradle-home/caches/
-      - .gradle-home/wrapper/
-    policy: pull-push
   script:
     - cd backend
     - ./gradlew spotlessCheck checkstyleMain checkstyleTest assemble --no-daemon
