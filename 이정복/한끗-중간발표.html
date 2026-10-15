@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>한끗 중간 발표</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
+<style>
+  :root {
+    --ink: #f6f3ee;
+    --ink-2: rgba(246, 243, 238, .74);
+    --ink-3: rgba(246, 243, 238, .5);
+    --line: rgba(246, 243, 238, .22);
+    --glass: rgba(18, 18, 22, .5);
+    --accent: #ff7a2a;
+    --accent-soft: rgba(255, 122, 42, .18);
+    --cool: #7cc4ff;
+    --stage: #0c0c0e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--stage); overflow: hidden; }
+  body { font-family: "Pretendard", system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+
+  .deck { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center; }
+  .slide { position: absolute; inset: 0; overflow: hidden; opacity: 0; visibility: hidden; transition: opacity .5s ease, visibility .5s; }
+  .slide.active { opacity: 1; visibility: visible; }
+
+  .bg { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(9px) brightness(.55) saturate(.9); transform: scale(1.04); }
+  .shade { position: absolute; inset: 0; background: linear-gradient(100deg, rgba(8,8,10,.84) 0%, rgba(8,8,10,.58) 55%, rgba(8,8,10,.38) 100%); }
+  .body { position: absolute; inset: 0; padding: 112px 128px 150px; display: flex; flex-direction: column; gap: 44px; }
+
+  .kicker { font-size: 26px; font-weight: 600; letter-spacing: .14em; color: var(--accent); }
+  h1 { font-size: 150px; font-weight: 800; line-height: 1.05; letter-spacing: -.04em; }
+  h2 { font-size: 64px; font-weight: 700; line-height: 1.15; letter-spacing: -.02em; }
+  h3 { font-size: 34px; font-weight: 700; line-height: 1.25; }
+  p, li { font-size: 28px; line-height: 1.5; color: var(--ink-2); }
+  .em { color: var(--accent); }
+  .head { display: flex; flex-direction: column; gap: 16px; }
+
+  .foot { position: absolute; left: 128px; right: 128px; bottom: 60px; display: flex; justify-content: space-between; font-size: 24px; color: var(--ink-3); }
+
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: 24px; overflow: hidden; backdrop-filter: blur(6px); display: flex; flex-direction: column; }
+  .card > img { width: 100%; height: 240px; object-fit: cover; display: block; }
+  .card .txt { padding: 30px 34px 36px; display: flex; flex-direction: column; gap: 12px; }
+  .num { font-size: 24px; font-weight: 700; color: var(--accent); letter-spacing: .06em; }
+  .tag { display: inline-block; font-size: 22px; font-weight: 700; padding: 6px 16px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); align-self: flex-start; }
+  .tag.muted { background: rgba(246,243,238,.12); color: var(--ink-2); }
+  .row { display: flex; gap: 32px; }
+  .row > * { flex: 1; }
+  .arrow { flex: 0 0 auto !important; align-self: center; font-size: 56px; color: var(--accent); }
+
+  /* Figma 화면 캡처 */
+  .shot { display: block; width: 100%; border-radius: 18px; border: 1px solid rgba(255,255,255,.18); box-shadow: 0 30px 80px rgba(0,0,0,.55); background: #fff; }
+  .cap { display: flex; flex-direction: column; gap: 8px; margin-top: 22px; }
+  .cap b { font-size: 38px; color: var(--ink); }
+  .cap span { font-size: 30px; color: var(--ink-2); }
+  .bullets { display: flex; flex-direction: column; gap: 26px; }
+  .bullets .it { display: flex; flex-direction: column; gap: 6px; padding-left: 26px; border-left: 4px solid var(--accent); }
+  .bullets .it b { font-size: 32px; color: var(--ink); }
+
+  /* 표지: 면접관 캐릭터가 오른쪽에 보이도록 */
+  .cover .bg { left: auto; right: -20px; width: 1240px; filter: blur(2px) brightness(.85); transform: none; }
+  .cover .shade { background: linear-gradient(90deg, rgba(8,8,10,.97) 0%, rgba(8,8,10,.9) 38%, rgba(8,8,10,.25) 68%, rgba(8,8,10,.4) 100%); }
+  .dim .shade { background: rgba(8,8,10,.88); }
+
+  /* AI 상세: 가로 처리 흐름 */
+  .flowx { flex: 1; display: grid; grid-template-columns: 250px 64px 1fr 64px 1fr 64px 1.3fr; grid-template-rows: 104px 36px 1fr; }
+  .fx { grid-row: 3; border-radius: 24px; padding: 30px 30px 28px; display: flex; flex-direction: column; background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(6px); }
+  .fx .hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+  .fx .st { font-size: 20px; font-weight: 800; letter-spacing: .14em; color: var(--accent); }
+  .fx .ic { width: 56px; height: 56px; border-radius: 16px; background: var(--accent-soft); display: grid; place-items: center; }
+  .fx .ic svg, .sx .ic svg { width: 28px; height: 28px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .fx h4 { font-size: 40px; font-weight: 800; letter-spacing: -.02em; line-height: 1.2; }
+  .fx p { font-size: 26px; margin-top: 10px; word-break: keep-all; }
+  .fx .tc { margin-top: auto; padding-top: 20px; border-top: 1px solid var(--line); }
+  .fx .tc span { font-size: 22px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 7px 16px; border-radius: 999px; }
+  /* 밝은 블록: 입력 · 단계 · 보조 입력 */
+  .fx:not(.out) { background: #fff; border: 0; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+  .fx:not(.out) h4 { color: #1b1a18; }
+  .fx:not(.out) p { color: #6b655d; }
+  .fx:not(.out) .ic { background: #fff1e6; }
+  .fx:not(.out) .tc { border-top-color: #efeae3; }
+  .fx:not(.out) .tc span { color: #e2621a; background: #ffeee2; }
+  .fx.in { background: #f3efe9; }
+  .fx.in .st { color: #9a938a; }
+  .fx.in .ic { background: #fff; }
+  .fx.in .ic svg { stroke: #6b655d; }
+  .fx.out { background: linear-gradient(145deg, #ff8e45, #ff6a1a); border: 0; box-shadow: 0 20px 50px rgba(255,106,26,.3); }
+  .fx.out .st { color: rgba(255,255,255,.85); }
+  .fx.out .ic { background: rgba(255,255,255,.22); }
+  .fx.out .ic svg { stroke: #fff; }
+  .fx.out .box { margin-top: auto; background: #fff; border-radius: 16px; padding: 20px 22px; color: #2a2724; font-size: 24px; line-height: 1.5; word-break: keep-all; }
+  .fx.out .box em { font-style: normal; font-weight: 800; color: var(--accent); margin-right: 10px; }
+  .fx.out .vd { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+  .fx.out .vd div { background: #fff; border-radius: 12px; padding: 10px 20px; display: flex; justify-content: space-between; font-size: 23px; color: #4a4641; }
+  .fx.out .vd b { color: #1b1a18; } .fx.out .vd b.bad { color: #e5484d; } .fx.out .vd b.mid { color: #8a837a; }
+  .cx { grid-row: 3; align-self: center; justify-self: center; width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 22px; font-weight: 800; display: grid; place-items: center; }
+  .sx { grid-row: 1; border-radius: 18px; padding: 0 24px; display: flex; align-items: center; gap: 16px; background: #f3efe9; }
+  .sx.fut { background: #fff; border: 2px dashed #ff7a2a; }
+  .sx .ic { width: 52px; height: 52px; flex: none; border-radius: 14px; background: #fff; display: grid; place-items: center; }
+  .sx small { display: block; font-size: 18px; font-weight: 700; color: #9a938a; }
+  .sx.fut small { color: #e2621a; }
+  .sx.fut .ic { background: #fff1e6; }
+  .sx b { font-size: 26px; color: #1b1a18; }
+  .dx { grid-row: 2; justify-self: center; width: 2px; background: rgba(246,243,238,.5); position: relative; }
+  .dx::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); border: 7px solid transparent; border-top: 10px solid rgba(246,243,238,.7); border-bottom: 0; }
+
+  /* AI 상세: 덱 공통 색으로 맞춤 */
+  .fx:not(.out) { background: rgba(20,20,24,.86); border: 1px solid var(--line); box-shadow: none; }
+  .fx:not(.out) h4 { color: var(--ink); }
+  .fx:not(.out) p { color: var(--ink-2); }
+  .fx:not(.out) .ic { background: var(--accent-soft); }
+  .fx:not(.out) .tc { border-top-color: var(--line); }
+  .fx:not(.out) .tc span { color: var(--accent); background: var(--accent-soft); }
+  .fx.in { background: rgba(38,38,44,.9); }
+  .fx.in .st { color: var(--ink-2); }
+  .fx.in .ic { background: rgba(246,243,238,.1); }
+  .fx.in .ic svg { stroke: var(--ink); }
+  .fx.out { background: rgba(62,34,16,.92); border: 2px solid var(--accent); box-shadow: none; }
+  .fx.out .st { color: var(--accent); }
+  .fx.out h4 { color: var(--accent); }
+  .fx.out .ic { background: var(--accent-soft); }
+  .fx.out .ic svg { stroke: var(--accent); }
+  .fx.out .box { background: rgba(12,12,14,.6); color: var(--ink); border: 1px solid var(--line); }
+  .fx.out .vd div { background: rgba(12,12,14,.6); color: var(--ink-2); border: 1px solid var(--line); }
+  .fx.out .vd b { color: var(--ink); } .fx.out .vd b.bad { color: #ff8a80; } .fx.out .vd b.mid { color: var(--ink-2); }
+  .sx { background: rgba(20,20,24,.86); border: 1px solid var(--line); }
+  .sx.fut { background: rgba(20,20,24,.86); border: 2px dashed var(--accent); }
+  .sx .ic { background: rgba(246,243,238,.1); }
+  .sx .ic svg { stroke: var(--ink); }
+  .sx.fut .ic { background: var(--accent-soft); }
+  .sx.fut .ic svg { stroke: var(--accent); }
+  .sx small { color: var(--ink-2); }
+  .sx.fut small { color: var(--accent); }
+  .sx b { color: var(--ink); }
+
+  /* 21 음성 면접 (STT · TTS 예시 통합) */
+  .stt-wrap { position: absolute; inset: 0;  --ink:#f6f3ee; --ink-2:rgba(246,243,238,.8); --ink-3:rgba(246,243,238,.52); --line:rgba(246,243,238,.16);
+    --accent:#ff7a2a; --accent-soft:rgba(255,122,42,.14); --cool:#7cc4ff; --cool-soft:rgba(124,196,255,.12); }
+  .stt-wrap .stt-head { position:absolute; left:128px; top:112px; display:flex; flex-direction:column; gap:16px; }
+  .stt-wrap .stt-lede {margin-top:16px; font-size:30px; color:var(--ink-2); }
+  .stt-wrap svg.stt-i {width:1em; height:1em; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .stt-wrap .stt-stage {position:absolute; left:128px; top:340px; width:1664px; height:600px; }
+  .stt-wrap .stt-stage > svg.stt-rails {position:absolute; inset:0; width:1664px; height:600px; overflow:visible; }
+  .stt-wrap .stt-rail {fill:none; stroke:rgba(246,243,238,.42); stroke-width:3; stroke-dasharray:6 9; animation:stt-flow 1.3s linear infinite; }
+  @keyframes stt-flow { to { stroke-dashoffset:-15; } }
+  .stt-wrap .stt-abs {position:absolute; transform:translate(-50%,-50%); }
+  .stt-wrap .stt-actor {display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .stt-wrap .stt-actor .stt-face {width:140px; height:140px; border-radius:50%; display:grid; place-items:center; font-size:64px; border:2px solid; }
+  .stt-wrap .stt-actor b {font-size:30px; font-weight:800; }
+  .stt-wrap .stt-actor small {font-size:20px; color:var(--ink-3); white-space:nowrap; }
+  .stt-wrap .stt-actor.stt-me .stt-face {color:var(--cool); border-color:rgba(124,196,255,.55); background:var(--cool-soft); }
+  .stt-wrap .stt-actor.stt-iv .stt-face {color:var(--accent); border-color:rgba(255,122,42,.6); background:var(--accent-soft); }
+  .stt-wrap .stt-lab {position:absolute; font-size:24px; font-weight:800; letter-spacing:.1em; color:var(--ink-3); white-space:nowrap; }
+  .stt-wrap .stt-lab em {font-style:normal; font-weight:600; letter-spacing:.02em; font-size:22px; margin-left:12px; }
+  .stt-wrap .stt-stage {top:362px; }
+  .stt-wrap .stt-card {width:360px; padding:26px 24px 28px; border-radius:24px; background:#17171b; border:1px solid var(--line); display:flex; flex-direction:column; align-items:center; text-align:center; gap:12px; }
+  .stt-wrap .stt-card .stt-ic {width:84px; height:84px; border-radius:50%; display:grid; place-items:center; font-size:46px; background:rgba(255,255,255,.06); color:var(--ink); }
+  .stt-wrap .stt-card b {font-size:32px; font-weight:800; white-space:nowrap; }
+  .stt-wrap .stt-card b small {font-size:24px; font-weight:700; margin-left:12px; color:var(--ink-2); vertical-align:2px; }
+  .stt-wrap .stt-card p {font-size:22px; line-height:1.45; color:var(--ink-2); word-break:keep-all; }
+  .stt-wrap .stt-card.stt-ai {background:#26180f; border-color:rgba(255,122,42,.6); }
+  .stt-wrap .stt-card.stt-ai .stt-ic {background:rgba(255,122,42,.18); color:var(--accent); }
+  .stt-wrap .stt-card.stt-ai b {color:var(--accent); }
+  .stt-wrap .stt-card.stt-ai b small {color:rgba(255,122,42,.8); }
+  /* ERD 다이어그램 */
+  .erd { position: relative; flex: 1; min-height: 0; }
+  .erd-in { position: absolute; left: 0; top: 0; width: 1792px; display: flex; justify-content: space-between; padding-top: 58px; transform-origin: top left; }
+  .erd-col { display: flex; flex-direction: column; gap: 40px; }
+  .tbl { display: grid; grid-template-columns: max-content max-content max-content 1fr; column-gap: 14px; background: rgba(14,14,18,.9); border: 2px solid var(--c); border-radius: 12px; overflow: hidden; }
+  .tbl h4 { grid-column: 1 / -1; padding: 7px 14px; font-size: 22px; font-weight: 800; background: var(--c); color: #0c0c0e; }
+  .tbl .r { display: contents; }
+  .tbl .r > span { padding: 5px 0; border-top: 1px solid rgba(255,255,255,.08); font-size: 17px; line-height: 1.3; }
+  .tbl .r > span:first-child { padding-left: 14px; }
+  .tbl .r > span:last-child { padding-right: 14px; }
+  .r .k { font-weight: 700; color: var(--ink); white-space: nowrap; }
+  .r .k i { font-style: normal; font-size: 12px; font-weight: 800; color: #0c0c0e; background: var(--c); border-radius: 4px; padding: 1px 5px; margin-right: 6px; vertical-align: 2px; }
+  .r .t { color: #9fc9ff; white-space: nowrap; font-size: 15px !important; }
+  .r .n { color: rgba(246,243,238,.55); white-space: nowrap; font-size: 13px !important; }
+  .r .n.nn { color: rgba(246,243,238,.85); }
+  .r .d { color: var(--ink); }
+  .erd-lines { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  .statement .body { justify-content: center; }
+  .statement blockquote { font-size: 100px; font-weight: 800; line-height: 1.18; letter-spacing: -.03em; }
+
+  /* 나중에 채울 자리 */
+  .ph { flex: 1; border: 3px dashed rgba(255,122,42,.6); border-radius: 28px; background: rgba(255,122,42,.06); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; }
+  .ph b { font-size: 44px; color: var(--accent); }
+  .ph span { font-size: 26px; color: var(--ink-2); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 26px; }
+  th, td { text-align: left; padding: 14px 20px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  th { font-size: 22px; color: var(--ink-3); font-weight: 600; letter-spacing: .04em; }
+  td { color: var(--ink-2); }
+  td:first-child { color: var(--ink); font-weight: 600; }
+  .cmp th, .cmp td { text-align: center; }
+  .cmp th:first-child, .cmp td:first-child { text-align: left; }
+  tr.us td { background: var(--accent-soft); color: var(--ink); font-weight: 700; }
+  tr.us td:first-child { color: var(--accent); }
+  .o { color: var(--cool); font-weight: 800; }
+  .x { color: var(--ink-3); }
+  .d { color: #ffd27a; font-weight: 700; }
+
+  .big { font-size: 96px; font-weight: 800; letter-spacing: -.03em; color: var(--ink); line-height: 1; }
+  .src { font-size: 20px; color: var(--ink-3); }
+
+  .nav { transition: opacity .3s; }
+  body.hide-nav .nav { opacity: 0; }
+  body.hide-nav .nav:hover { opacity: 1; }
+  .nav { position: fixed; right: 20px; bottom: 16px; display: flex; gap: 8px; align-items: center; z-index: 10; font: 14px "Pretendard", sans-serif; color: rgba(246,243,238,.6); }
+  .nav button { background: rgba(255,255,255,.08); color: #f6f3ee; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 16px; }
+  .nav button:hover { background: rgba(255,255,255,.18); }
+  .progress { position: fixed; left: 0; top: 0; height: 3px; background: var(--accent); transition: width .4s; z-index: 10; }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div class="deck" id="deck">
+
+  <!-- 01 표지 -->
+  <section class="slide cover" data-bg="assets/hankkeut-midterm/s00-cover.jpg">
+    <div class="body" style="justify-content:center;gap:34px">
+      <div style="width:120px;height:8px;background:var(--accent);border-radius:4px"></div>
+      <div class="kicker">SSAFY 15기 자율 프로젝트 · 중간 발표</div>
+      <h1>한끗</h1>
+      <p style="font-size:46px;font-weight:700;color:var(--ink)">면접 준비를 <span class="em">습관</span>으로</p>
+      <p style="font-size:30px">말하는 동안 반응하는 3D 면접관과 매일 10분</p>
+    </div>
+    <div class="foot"><span>A301</span><span>2026. 10</span></div>
+  </section>
+
+  <!-- 02 문제상황 ① -->
+  <section class="slide statement" data-bg="photo-1510519138101-570d1dca3d66">
+    <div class="body">
+      <div class="kicker">문제상황</div>
+      <blockquote>면접 준비,<br>시작은 쉬운데<br><span class="em">이어가기</span>가 어렵습니다</blockquote>
+    </div>
+    <div class="foot"><span>문제상황</span><span>02</span></div>
+  </section>
+
+  <!-- 04 시장조사 ① 수요 -->
+  <section class="slide" data-bg="photo-1522202176988-66273c2fd55f">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">시장조사 ① · 수요</div>
+        <h2>면접을 준비하는 사람은 많고, <span class="em">어려워합니다</span></h2>
+      </div>
+      <div class="row" style="gap:28px;flex:1;align-items:stretch">
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">취업을 준비하는 청년</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">60만 명</div>
+        </div></div>
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">가장 어려운 관문, 면접</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">71.9%</div>
+        </div></div>
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">커지는 취업 준비 비용</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">455만 원</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="foot"><span style="font-size:20px">출처: 국가데이터처 경제활동인구조사 청년층 부가조사(2026.5) · 인잡핏 취준생 410명 조사, 대학저널(2025.7) · 잡코리아 조사, 뉴시스(2026.6)</span><span></span></div>
+  </section>
+
+  <!-- 05 시장조사 ② 흐름 -->
+  <section class="slide" data-bg="photo-1460925895917-afdab827c52f">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">시장조사 ② · 흐름</div>
+        <h2>채용도, 준비도 <span class="em">AI로</span> 옮겨 가는 중</h2>
+      </div>
+      <div class="row" style="gap:28px;flex:1;align-items:stretch">
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">AI 채용을 늘리려는 기업</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">74.5%</div>
+        </div></div>
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">AI로 면접을 준비한 청년</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">36.4%</div>
+        </div></div>
+        <div class="card" style="background:none;border:none;backdrop-filter:none"><div class="txt" style="padding:52px 16px;gap:28px;flex:1;justify-content:center;align-items:center;text-align:center">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+          <h3 style="font-size:52px;line-height:1.25;white-space:nowrap">커지는 면접 준비 시장</h3>
+          <div style="font-size:60px;font-weight:800;color:var(--accent);line-height:1">연 12.3%</div>
+        </div></div>
+      </div>
+    </div>
+    <div class="foot"><span style="font-size:20px">출처: 고용노동부 · 한국고용정보원, 2025 기업 채용동향조사 · The Business Research Company, Interview Preparation Tool Global Market Report(2026)</span><span></span></div>
+  </section>
+
+  <!-- 06 시장조사 ③ 경쟁 서비스 -->
+  <section class="slide" data-bg="photo-1529699211952-734e80c4d42b">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">시장조사 ③ · 경쟁 서비스</div>
+        <h2>잘하는 점은 <span class="em">가져옵니다</span></h2>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:grid;grid-template-columns:420px 1fr;padding-bottom:14px;border-bottom:3px solid var(--accent);font-size:26px;font-weight:700;letter-spacing:.08em;color:var(--ink)">
+          <span>서비스</span><span>강점</span>
+        </div>
+        <div style="display:grid;grid-template-columns:420px 1fr;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+          <b style="font-size:39px;color:var(--ink);white-space:nowrap">사람인</b>
+          <span style="font-size:40px;font-weight:600;color:var(--ink);white-space:nowrap">공고 연동 맞춤 질문</span>
+        </div>
+        <div style="display:grid;grid-template-columns:420px 1fr;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+          <b style="font-size:39px;color:var(--ink);white-space:nowrap">마인드프렙</b>
+          <span style="font-size:40px;font-weight:600;color:var(--ink);white-space:nowrap">표정 · 음성 · 시선 분석</span>
+        </div>
+        <div style="display:grid;grid-template-columns:420px 1fr;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+          <b style="font-size:39px;color:var(--ink);white-space:nowrap">Final Round AI</b>
+          <span style="font-size:40px;font-weight:600;color:var(--ink);white-space:nowrap">듣는 동안 반응하는 면접관</span>
+        </div>
+        <div style="display:grid;grid-template-columns:420px 1fr;align-items:center;padding:26px 0;border-bottom:1px solid var(--line);">
+          <b style="font-size:39px;color:var(--ink);white-space:nowrap">Yoodli</b>
+          <span style="font-size:40px;font-weight:600;color:var(--ink);white-space:nowrap">실시간 꼬리질문</span>
+        </div>
+        <div style="display:grid;grid-template-columns:420px 1fr;align-items:center;padding:26px 0;">
+          <b style="font-size:39px;color:var(--ink);white-space:nowrap">Huru</b>
+          <span style="font-size:40px;font-weight:600;color:var(--ink);white-space:nowrap">레벨 · 배지</span>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span style="font-size:20px">출처: 각 서비스 공식 페이지 · 보도 (2026.10 조회)</span><span></span></div>
+  </section>
+
+  <!-- 07 시장조사 ④ 비교 -->
+  <section class="slide dim" data-bg="photo-1586165368502-1bad197a6461">
+    <div class="body" style="gap:36px">
+      <div class="head">
+        <div class="kicker">시장조사 ④ · 비교</div>
+        <h2>한끗만의 <span class="em">특장점</span>은?</h2>
+      </div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding-bottom:18px;border-bottom:3px solid var(--accent);text-align:center">
+          <span></span><b style="font-size:30px;color:var(--ink)">지원서 맞춤 질문</b><b style="font-size:30px;color:var(--ink)">3D 면접관 실시간 반응</b><b style="font-size:30px;color:var(--ink)">습관화 장치</b>
+        </div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)"><b style="font-size:34px;color:var(--ink);padding-left:28px;white-space:nowrap">사람인</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#f6f3ee" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="없음"><path d="M12 12l20 20M32 12L12 32" stroke="rgba(246,243,238,.35)" stroke-width="4" stroke-linecap="round"/></svg></div></div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)"><b style="font-size:34px;color:var(--ink);padding-left:28px;white-space:nowrap">마인드프렙</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="없음"><path d="M12 12l20 20M32 12L12 32" stroke="rgba(246,243,238,.35)" stroke-width="4" stroke-linecap="round"/></svg></div></div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)"><b style="font-size:34px;color:var(--ink);padding-left:28px;white-space:nowrap">Final Round AI</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#f6f3ee" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="없음"><path d="M12 12l20 20M32 12L12 32" stroke="rgba(246,243,238,.35)" stroke-width="4" stroke-linecap="round"/></svg></div></div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)"><b style="font-size:34px;color:var(--ink);padding-left:28px;white-space:nowrap">Yoodli</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#f6f3ee" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="없음"><path d="M12 12l20 20M32 12L12 32" stroke="rgba(246,243,238,.35)" stroke-width="4" stroke-linecap="round"/></svg></div></div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;border-bottom:1px solid var(--line)"><b style="font-size:34px;color:var(--ink);padding-left:28px;white-space:nowrap">Huru</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#f6f3ee" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="없음"><path d="M12 12l20 20M32 12L12 32" stroke="rgba(246,243,238,.35)" stroke-width="4" stroke-linecap="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="일부"><path d="M22 8L38 35H6Z" fill="none" stroke="#ffd27a" stroke-width="4" stroke-linejoin="round"/></svg></div></div>
+        <div style="display:grid;grid-template-columns:440px 1fr 1fr 1fr;align-items:center;padding:18px 0;margin-top:10px;background:var(--accent-soft);border-radius:16px"><b style="font-size:40px;color:var(--accent);padding-left:28px">한끗</b><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#ff7a2a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#ff7a2a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div style="display:flex;justify-content:center"><svg width="44" height="44" viewBox="0 0 44 44" aria-label="지원"><path d="M9 23l9 9L35 13" fill="none" stroke="#ff7a2a" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+      </div>
+    </div>
+    <div class="foot"><span style="font-size:20px">✓ 지원 · △ 일부 · ✕ 없음 또는 확인되지 않음 · 각 서비스 공식 페이지 · 보도 (2026.10 조회)</span><span></span></div>
+  </section>
+
+  <!-- 07 차별성 ① 습관화 -->
+  <section class="slide" data-bg="photo-1618325508550-951512a1e82d">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">차별성 ① · 습관화 유도</div>
+        <h2>면접 준비를 <span class="em">습관</span>으로</h2>
+      </div>
+      <div class="row" style="gap:56px;align-items:center">
+        <div style="flex:1.45"><img class="shot" src="assets/hankkeut-midterm/s02-home.png" alt="홈 화면: 7일째 스트릭"></div>
+        <div class="bullets" style="flex:1">
+          <div class="it"><b>스트릭</b><p>며칠째 연습 중인지 홈 첫 화면에</p></div>
+          <div class="it"><b>오늘의 성장 리뷰</b><p>점수 대신 오늘 나아진 점과 다음에 해볼 것</p></div>
+          <div class="it"><b>레벨업 축하</b><p>연속 기록이 쌓이면 불꽃 단계가 올라갑니다</p></div>
+          <img class="shot" src="assets/hankkeut-midterm/s02l-levelup.png" alt="스트릭 레벨업 축하 화면" style="width:420px;margin-top:6px">
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안 · 홈 / 스트릭 레벨업</span><span>07</span></div>
+  </section>
+
+  <!-- 08 차별성 ② 페르소나 -->
+  <section class="slide" data-bg="photo-1575844261401-d69721eb5044">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">차별성 ② · 면접관 페르소나</div>
+        <h2><span class="em">다양한 면접관</span>과 재미있게</h2>
+      </div>
+      <div class="row" style="gap:56px;align-items:center">
+        <div style="flex:1.45"><img class="shot" src="assets/hankkeut-midterm/s04-persona.png" alt="면접관 선택 화면"></div>
+        <div class="bullets" style="flex:1">
+          <div class="it"><b>악마 면접관</b><p>압박 질문과 날카로운 꼬리 질문</p></div>
+          <div class="it"><b>개발자 커피챗</b><p>편안한 대화로 실무 이야기</p></div>
+          <div class="it"><b>계속 늘어나는 면접관</b><p>매일 다른 상대와 연습할 이유를 만듭니다</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안 · 면접관 선택</span><span>08</span></div>
+  </section>
+
+  <!-- 09 차별성 ③ Jev -->
+  <section class="slide" data-bg="photo-1636622433525-127afdf3662d">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">차별성 ③ · Jev 기반 실시간 피드백</div>
+        <h2>말하는 동안 <span class="em">반응하는</span> 면접관</h2>
+      </div>
+      <div class="row" style="gap:56px;align-items:center">
+        <div style="flex:1.45"><img class="shot" src="assets/hankkeut-midterm/s06-interview.jpg" alt="면접 진행 화면: 3D 악마 면접관"></div>
+        <div class="bullets" style="flex:1">
+          <div class="it"><b>듣는 중에 반응</b><p>끄덕임, 갸웃 같은 표정과 동작으로</p></div>
+          <div class="it"><b>음성으로 주고받는 면접</b><p>STT로 듣고 TTS로 묻습니다</p></div>
+          <div class="it"><b>페르소나별 장면</b><p>면접관마다 다른 말투와 배경</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안 · 면접 진행 (화상)</span><span>09</span></div>
+  </section>
+
+  <!-- 10 어떤 경험 ① BML 루프 -->
+  <section class="slide" data-bg="photo-1457364887197-9150188c107b">
+    <div class="body" style="gap:24px">
+      <div class="head">
+        <div class="kicker">개발 전략</div>
+        <h2>빠르게 배포하고, <span class="em">진짜 사용자</span>에게 배웁니다</h2>
+      </div>
+      <div class="row" style="gap:64px;align-items:center">
+        <svg viewBox="0 0 760 650" width="760" height="650" style="flex:0 0 760px" aria-label="Build-Measure-Learn 순환">
+          <defs>
+            <marker id="bml" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7a2a"/></marker>
+            <clipPath id="nb"><circle cx="380" cy="95" r="92"/></clipPath>
+            <clipPath id="nm"><circle cx="583.5" cy="447.5" r="92"/></clipPath>
+            <clipPath id="nl"><circle cx="176.5" cy="447.5" r="92"/></clipPath>
+          </defs>
+          <circle cx="380" cy="330" r="235" fill="none" stroke="rgba(246,243,238,.12)" stroke-width="2"/>
+          <!-- 화살표: Build → Measure → Learn → Build -->
+          <path d="M497.5,126.5 A235,235 0 0 1 615,330" fill="none" stroke="#ff7a2a" stroke-width="5" marker-end="url(#bml)"/>
+          <path d="M497.5,533.5 A235,235 0 0 1 262.5,533.5" fill="none" stroke="#ff7a2a" stroke-width="5" marker-end="url(#bml)"/>
+          <path d="M145,330 A235,235 0 0 1 262.5,126.5" fill="none" stroke="#ff7a2a" stroke-width="5" marker-end="url(#bml)"/>
+          <!-- 산출물 -->
+          <text x="640" y="182" fill="#f6f3ee" font-size="26" font-weight="700">MVP</text>
+          <text x="380" y="625" text-anchor="middle" fill="#f6f3ee" font-size="26" font-weight="700">설문(선택) · 연습 기록</text>
+          <text x="120" y="182" text-anchor="end" fill="#f6f3ee" font-size="26" font-weight="700">다음 가설</text>
+          <!-- 노드 -->
+          <image href="https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=400&q=70" x="288" y="3" width="184" height="184" preserveAspectRatio="xMidYMid slice" clip-path="url(#nb)"/>
+          <image href="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=400&q=70" x="491.5" y="355.5" width="184" height="184" preserveAspectRatio="xMidYMid slice" clip-path="url(#nm)"/>
+          <image href="https://images.unsplash.com/photo-1654089669464-dcc57c490d2b?auto=format&fit=crop&w=400&q=70" x="84.5" y="355.5" width="184" height="184" preserveAspectRatio="xMidYMid slice" clip-path="url(#nl)"/>
+          <circle cx="380" cy="95" r="92" fill="rgba(10,10,12,.55)" stroke="#ff7a2a" stroke-width="3"/>
+          <circle cx="583.5" cy="447.5" r="92" fill="rgba(10,10,12,.55)" stroke="#ff7a2a" stroke-width="3"/>
+          <circle cx="176.5" cy="447.5" r="92" fill="rgba(10,10,12,.55)" stroke="#ff7a2a" stroke-width="3"/>
+          <text x="380" y="105" text-anchor="middle" fill="#f6f3ee" font-size="30" font-weight="800" letter-spacing="3">BUILD</text>
+          <text x="583.5" y="457.5" text-anchor="middle" fill="#f6f3ee" font-size="30" font-weight="800" letter-spacing="3">MEASURE</text>
+          <text x="176.5" y="457.5" text-anchor="middle" fill="#f6f3ee" font-size="30" font-weight="800" letter-spacing="3">LEARN</text>
+          <!-- 가운데 가설 -->
+          <text x="380" y="270" text-anchor="middle" fill="rgba(246,243,238,.6)" font-size="22" font-weight="600" letter-spacing="2">가설</text>
+          <text x="380" y="308" text-anchor="middle" fill="#f6f3ee" font-size="28" font-weight="700">게이미피케이션이</text>
+          <text x="380" y="344" text-anchor="middle" fill="#f6f3ee" font-size="28" font-weight="700">면접 준비를 습관으로</text>
+        </svg>
+        <div class="bullets" style="flex:1">
+          <div class="it"><b>BUILD</b><p>가설 검증에 필요한 만큼만 MVP로</p></div>
+          <div class="it"><b>MEASURE</b><p>SSAFY 교육생 대상, 3일 연습하면 설문(선택) + 스트릭 기록</p></div>
+          <div class="it"><b>LEARN</b><p>습관이 됐는지 보고 유지하거나 방향을 바꿉니다</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span style="font-size:20px">출처: Eric Ries, 『The Lean Startup』(2011) · 린 스타트업 Build–Measure–Learn 루프</span><span>10</span></div>
+  </section>
+
+  <!-- 13 와이어프레임 ① 플로우 -->
+  <section class="slide" data-bg="photo-1435527173128-983b87201f4d">
+    <div class="body" style="gap:40px">
+      <div class="head">
+        <div class="kicker">와이어프레임 ① · 화면 플로우</div>
+        <h2>로그인부터 성장 리뷰까지 <span class="em">8단계</span></h2>
+      </div>
+      <svg viewBox="0 0 1664 540" width="1664" height="540" aria-label="화면 플로우: 로그인, 홈, 지원서 입력, 면접관 선택, 장치 점검, 면접 진행, 피드백 결과, 성장 리뷰, 한 번 더 분기">
+        <defs>
+          <marker id="fa" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f6f3ee"/></marker>
+          <marker id="fo" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7a2a"/></marker>
+          <marker id="fg" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="rgba(246,243,238,.6)"/></marker>
+          <clipPath id="th" clipPathUnits="objectBoundingBox"><rect width="1" height="1" rx=".06" ry=".095"/></clipPath>
+        </defs>
+
+        <!-- 단계 영역 -->
+        <g fill="rgba(18,18,22,.5)" stroke="rgba(246,243,238,.16)">
+          <rect x="80" y="0" width="350" height="500" rx="22"/>
+          <rect x="446" y="0" width="350" height="500" rx="22"/>
+          <rect x="812" y="0" width="350" height="500" rx="22"/>
+          <rect x="1178" y="0" width="350" height="500" rx="22"/>
+        </g>
+        <g font-weight="700">
+          <text x="104" y="40" fill="#ff7a2a" font-size="18" letter-spacing="3">PHASE 1</text>
+          <text x="104" y="74" fill="#f6f3ee" font-size="28">루프 진입</text>
+          <text x="470" y="40" fill="#ff7a2a" font-size="18" letter-spacing="3">PHASE 2</text>
+          <text x="470" y="74" fill="#f6f3ee" font-size="28">면접 준비</text>
+          <text x="836" y="40" fill="#ff7a2a" font-size="18" letter-spacing="3">PHASE 3</text>
+          <text x="836" y="74" fill="#f6f3ee" font-size="28">면접</text>
+          <text x="1202" y="40" fill="#ff7a2a" font-size="18" letter-spacing="3">PHASE 4</text>
+          <text x="1202" y="74" fill="#f6f3ee" font-size="28">면접 후</text>
+        </g>
+
+        <!-- 화면 썸네일 -->
+        <g>
+          <image href="assets/hankkeut-midterm/s01-login.png" x="96" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s02-home.png" x="274" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s03-application.png" x="462" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s04-persona.png" x="640" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s05-device.png" x="828" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s06-interview.jpg" x="1006" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s07-feedback.png" x="1194" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+          <image href="assets/hankkeut-midterm/s08-growth.png" x="1372" y="200" width="140" height="88" clip-path="url(#th)" preserveAspectRatio="xMidYMid slice"/>
+        </g>
+        <g fill="none" stroke="rgba(246,243,238,.35)" stroke-width="1.5">
+          <rect x="96" y="200" width="140" height="88" rx="8"/>
+          <rect x="462" y="200" width="140" height="88" rx="8"/>
+          <rect x="640" y="200" width="140" height="88" rx="8"/>
+          <rect x="828" y="200" width="140" height="88" rx="8"/>
+          <rect x="1006" y="200" width="140" height="88" rx="8"/>
+          <rect x="1194" y="200" width="140" height="88" rx="8"/>
+        </g>
+        <!-- 가설 검증 핵심 화면 -->
+        <g fill="none" stroke="#ff7a2a" stroke-width="4">
+          <rect x="272" y="198" width="144" height="92" rx="9"/>
+          <rect x="1370" y="198" width="144" height="92" rx="9"/>
+        </g>
+
+        <!-- 화면 이름 -->
+        <g text-anchor="middle">
+          <g fill="#f6f3ee" font-size="22" font-weight="700">
+            <text x="166" y="328">로그인 ·</text><text x="166" y="354">회원가입</text>
+            <text x="344" y="328">홈 · 스트릭</text>
+            <text x="532" y="328">지원서 입력</text>
+            <text x="710" y="328">면접관 선택</text>
+            <text x="898" y="328">장치 점검</text>
+            <text x="1076" y="328">면접 진행</text>
+            <text x="1264" y="328">피드백 결과</text>
+            <text x="1442" y="328">오늘의</text><text x="1442" y="354">성장 리뷰</text>
+          </g>
+        </g>
+
+        <!-- 시작 -->
+        <circle cx="36" cy="244" r="32" fill="#f6f3ee"/>
+        <text x="36" y="252" text-anchor="middle" fill="#121214" font-size="20" font-weight="800">시작</text>
+
+        <!-- 기본 진행 -->
+        <g stroke="#f6f3ee" stroke-width="2.5" marker-end="url(#fa)">
+          <line x1="70" y1="244" x2="90" y2="244"/>
+          <line x1="238" y1="244" x2="268" y2="244"/>
+          <line x1="418" y1="244" x2="456" y2="244"/>
+          <line x1="604" y1="244" x2="634" y2="244"/>
+          <line x1="782" y1="244" x2="822" y2="244"/>
+          <line x1="970" y1="244" x2="1000" y2="244"/>
+          <line x1="1148" y1="244" x2="1188" y2="244"/>
+          <line x1="1336" y1="244" x2="1366" y2="244"/>
+          <line x1="1516" y1="244" x2="1540" y2="244"/>
+        </g>
+
+        <!-- 한 번 더? -->
+        <path d="M1604,184 L1662,244 L1604,304 L1546,244 Z" fill="#121214" stroke="#f6f3ee" stroke-width="2.5"/>
+        <text x="1604" y="238" text-anchor="middle" fill="#f6f3ee" font-size="18" font-weight="800">한 번</text>
+        <text x="1604" y="260" text-anchor="middle" fill="#f6f3ee" font-size="18" font-weight="800">더?</text>
+
+        <!-- 로그인 유지 시 바로 홈 -->
+        <path d="M36,210 V156 H314 V192" fill="none" stroke="rgba(246,243,238,.6)" stroke-width="2" marker-end="url(#fg)"/>
+        <rect x="104" y="140" width="130" height="32" rx="16" fill="#1a1a1e"/>
+        <text x="169" y="162" text-anchor="middle" fill="rgba(246,243,238,.85)" font-size="18" font-weight="600">로그인 유지 시</text>
+
+        <!-- 아니오: 내일 다시 홈 -->
+        <path d="M1604,180 V118 H374 V192" fill="none" stroke="rgba(246,243,238,.6)" stroke-width="2.5" stroke-dasharray="10 8" marker-end="url(#fg)"/>
+        <rect x="820" y="100" width="340" height="36" rx="18" fill="#1a1a1e"/>
+        <text x="990" y="124" text-anchor="middle" fill="rgba(246,243,238,.9)" font-size="20" font-weight="700">아니오 · 내일 다시 홈에서</text>
+
+        <!-- 예: 한 번 더 -->
+        <path d="M1604,308 V450 H532 V390" fill="none" stroke="#ff7a2a" stroke-width="3" marker-end="url(#fo)"/>
+        <rect x="860" y="432" width="380" height="36" rx="18" fill="#2a1a10"/>
+        <text x="1050" y="456" text-anchor="middle" fill="#ff7a2a" font-size="20" font-weight="700">예 · 한 번 더 — 새 지원서로 다시 면접</text>
+      </svg>
+      <p style="align-self:center;font-size:44px;font-weight:800;color:var(--ink)">페이지 별로 알아봅시다</p>
+    </div>
+    <div class="foot"><span></span><span>11</span></div>
+  </section>
+
+  <!-- 16 와이어프레임 ④ 면접 준비 -->
+  <section class="slide" data-bg="photo-1554224155-1696413565d3">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">와이어프레임 ② · 면접 준비</div>
+        <h2><span class="em">면접</span> 시작하기</h2>
+      </div>
+      <div class="row" style="gap:28px">
+        <div><img class="shot" src="assets/hankkeut-midterm/s03-application.png" alt="지원서 입력 화면"><div class="cap"><b>지원서 입력</b><span>회사 · 직무 · 자기소개서</span></div></div>
+        <div><img class="shot" src="assets/hankkeut-midterm/s04-persona.png" alt="면접관 선택 화면"><div class="cap"><b>면접관 선택</b><span>악마 면접관 / 개발자 커피챗</span></div></div>
+        <div><img class="shot" src="assets/hankkeut-midterm/s05-1-mode.png" alt="면접 방식 선택 화면"><div class="cap"><b>면접 방식</b><span>화상 또는 채팅</span></div></div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안</span><span>16</span></div>
+  </section>
+
+  <!-- 16-B 와이어프레임 · 면접 진행 -->
+  <section class="slide" data-bg="photo-1510519138101-570d1dca3d66">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">와이어프레임 ③ · 면접</div>
+        <h2><span class="em">면접</span> 진행하기</h2>
+      </div>
+      <div class="row" style="gap:40px">
+        <div><img class="shot" src="assets/hankkeut-midterm/s05-device.png" alt="장치 점검 화면"><div class="cap"><b>장치 점검</b><span>카메라 · 마이크 확인</span></div></div>
+        <div><img class="shot" src="assets/hankkeut-midterm/s06-interview.jpg" alt="면접 진행 화상 화면"><div class="cap"><b>면접 진행</b><span>3D 면접관이 듣는 중 반응</span></div></div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안</span><span></span></div>
+  </section>
+
+  <!-- 17 와이어프레임 ⑤ 면접 후 -->
+  <section class="slide" data-bg="photo-1457530378978-8bac673b8062">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">와이어프레임 ④ · 면접 후</div>
+        <h2>사용자의 <span class="em">한끗</span>, 성장을 보여줍니다</h2>
+      </div>
+      <div class="row" style="gap:40px">
+        <div><img class="shot" src="assets/hankkeut-midterm/s07-feedback.png" alt="피드백 결과 화면"><div class="cap"><b>피드백 결과</b><span>평가 기준별 결과와 질문별 피드백</span></div></div>
+        <div><img class="shot" src="assets/hankkeut-midterm/s08-growth.png" alt="오늘의 성장 리뷰 화면"><div class="cap"><b>오늘의 성장 리뷰</b><span>오늘 나아진 점 · 다음에 해볼 것 · 스트릭</span></div></div>
+      </div>
+    </div>
+    <div class="foot"><span>Figma 시안</span><span>17</span></div>
+  </section>
+
+  <!-- 18 아키텍처 (자리) -->
+  <section class="slide" data-bg="photo-1558494949-ef010cbdcc31">
+    <div class="body" style="padding:112px 64px 96px;gap:24px">
+      <div class="head" style="padding-left:64px">
+        <div class="kicker">설계 · 시스템 구조</div>
+        <h2>아키텍처</h2>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;justify-content:center;align-items:center"><img src="assets/hankkeut-midterm/architecture.jpg" alt="한끗 시스템 아키텍처" style="max-width:100%;max-height:100%;object-fit:contain;background:#fff;padding:14px;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.55)"></div>
+    </div>
+    <div class="foot"><span>시스템 구조</span><span>18</span></div>
+  </section>
+
+  <!-- 19 ERD (자리) -->
+  <section class="slide dim" data-bg="photo-1587654780291-39c9404d746b">
+    <div class="body" style="padding:112px 64px 96px;gap:24px">
+      <div class="head" style="padding-left:64px">
+        <div class="kicker">설계 · 데이터</div>
+        <h2>ERD ① <span class="em">회원 · 지원서</span></h2>
+      </div>
+      <div class="erd" data-rel='[["회원", "회원ID", "약관동의", "회원ID", "1 : N", "h"], ["회원", "회원ID", "연습기록", "회원ID", "1 : N", "h"], ["회원", "회원ID", "지원서", "회원ID", "1 : N", "h"], ["지원서", "지원서ID", "면접세션", "지원서ID", "1 : N", "h"], ["회원", "회원ID", "면접세션", "회원ID", "1 : N", "top"]]'><div class="erd-in"><div class="erd-col" style="width:560px"><div class="tbl" data-t="회원" style="--c:#5b9bd5"><h4>회원</h4><div class="r" data-c="회원ID"><span class="k"><i>PK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">회원 식별자</span></div><div class="r" data-c="이메일"><span class="k">이메일</span><span class="t">varchar(255)</span><span class="n nn">NOT NULL</span><span class="d">로그인 아이디. 탈퇴하지 않은 회원끼리는 중복 불가</span></div><div class="r" data-c="암호화비밀번호"><span class="k">암호화비밀번호</span><span class="t">varchar(255)</span><span class="n nn">NOT NULL</span><span class="d">BCrypt로 암호화한 값</span></div><div class="r" data-c="닉네임"><span class="k">닉네임</span><span class="t">varchar(50)</span><span class="n nn">NOT NULL</span><span class="d">화면에 보이는 이름</span></div><div class="r" data-c="프로필이미지"><span class="k">프로필이미지</span><span class="t">varchar(500)</span><span class="n">NULL</span><span class="d">S3 객체 키</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">가입한 일시</span></div><div class="r" data-c="수정일시"><span class="k">수정일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">회원 정보를 마지막으로 수정한 일시</span></div><div class="r" data-c="탈퇴일시"><span class="k">탈퇴일시</span><span class="t">timestamptz</span><span class="n">NULL</span><span class="d">탈퇴한 일시. 값이 없으면 활동 중인 회원</span></div></div></div><div class="erd-col" style="width:520px"><div class="tbl" data-t="약관동의" style="--c:#5b9bd5"><h4>약관동의</h4><div class="r" data-c="약관동의ID"><span class="k"><i>PK</i>약관동의ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">약관동의 식별자</span></div><div class="r" data-c="회원ID"><span class="k"><i>FK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">동의한 회원</span></div><div class="r" data-c="약관종류"><span class="k">약관종류</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">TERMS / PRIVACY / RECORDING</span></div><div class="r" data-c="약관버전"><span class="k">약관버전</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">동의할 때의 약관 버전</span></div><div class="r" data-c="동의일시"><span class="k">동의일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">동의한 일시</span></div></div><div class="tbl" data-t="연습기록" style="--c:#5b9bd5"><h4>연습기록</h4><div class="r" data-c="연습기록ID"><span class="k"><i>PK</i>연습기록ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">연습기록 식별자</span></div><div class="r" data-c="회원ID"><span class="k"><i>FK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">연습한 회원</span></div><div class="r" data-c="연습일자"><span class="k">연습일자</span><span class="t">date</span><span class="n nn">NOT NULL</span><span class="d">연습한 날짜 (한국 시간 기준)</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">그날 처음 면접을 마친 일시</span></div></div><div class="tbl" data-t="지원서" style="--c:#4fb286"><h4>지원서</h4><div class="r" data-c="지원서ID"><span class="k"><i>PK</i>지원서ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">지원서 식별자</span></div><div class="r" data-c="회원ID"><span class="k"><i>FK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">작성한 회원</span></div><div class="r" data-c="회사명"><span class="k">회사명</span><span class="t">varchar(100)</span><span class="n nn">NOT NULL</span><span class="d">지원 회사명</span></div><div class="r" data-c="직무"><span class="k">직무</span><span class="t">varchar(100)</span><span class="n nn">NOT NULL</span><span class="d">지원 직무</span></div><div class="r" data-c="자기소개서"><span class="k">자기소개서</span><span class="t">text</span><span class="n nn">NOT NULL</span><span class="d">최대 3,000자</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">작성한 일시</span></div></div></div><div class="erd-col" style="width:560px"><div class="tbl" data-t="면접세션" style="--c:#4fb286"><h4>면접세션</h4><div class="r" data-c="면접세션ID"><span class="k"><i>PK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접세션 식별자</span></div><div class="r" data-c="회원ID"><span class="k"><i>FK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접을 본 회원</span></div><div class="r" data-c="지원서ID"><span class="k"><i>FK</i>지원서ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접에 사용한 지원서</span></div><div class="r" data-c="면접관유형"><span class="k">면접관유형</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">DEVIL / COFFEE_CHAT</span></div><div class="r" data-c="면접방식"><span class="k">면접방식</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">VIDEO / CHAT</span></div><div class="r" data-c="진행상태"><span class="k">진행상태</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">READY / IN_PROGRESS / ANALYZING / COMPLETED / ABORTED / FAILED</span></div><div class="r" data-c="총평"><span class="k">총평</span><span class="t">varchar(255)</span><span class="n">NULL</span><span class="d">피드백 결과 화면 맨 위의 총평</span></div><div class="r" data-c="시작일시"><span class="k">시작일시</span><span class="t">timestamptz</span><span class="n">NULL</span><span class="d">면접을 시작한 일시</span></div><div class="r" data-c="종료일시"><span class="k">종료일시</span><span class="t">timestamptz</span><span class="n">NULL</span><span class="d">면접을 마친 일시</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">세션을 만든 일시</span></div></div></div><svg class="erd-lines" aria-hidden="true"></svg></div></div>
+    </div>
+    <div class="foot"><span>ERD</span><span></span></div>
+  </section>
+
+  <section class="slide dim" data-bg="photo-1587654780291-39c9404d746b">
+    <div class="body" style="padding:112px 64px 96px;gap:24px">
+      <div class="head" style="padding-left:64px">
+        <div class="kicker">설계 · 데이터</div>
+        <h2>ERD ② <span class="em">면접 · 분석</span></h2>
+      </div>
+      <div class="erd" data-rel='[["면접세션", "면접세션ID", "기준별점수", "면접세션ID", "1 : N", "v"], ["면접세션", "면접세션ID", "음성지표", "면접세션ID", "1 : 1", "h"], ["면접세션", "면접세션ID", "미디어파일", "면접세션ID", "1 : N", "h"], ["면접세션", "면접세션ID", "면접질문", "면접세션ID", "1 : N", "top"], ["면접질문", "질문ID", "답변", "질문ID", "1 : 1", "v"], ["답변", "답변ID", "미디어파일", "답변ID", "1 : N", "h"]]'><div class="erd-in"><div class="erd-col" style="width:560px"><div class="tbl" data-t="면접세션" style="--c:#4fb286"><h4>면접세션</h4><div class="r" data-c="면접세션ID"><span class="k"><i>PK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접세션 식별자</span></div><div class="r" data-c="회원ID"><span class="k"><i>FK</i>회원ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접을 본 회원</span></div><div class="r" data-c="지원서ID"><span class="k"><i>FK</i>지원서ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">면접에 사용한 지원서</span></div><div class="r" data-c="면접관유형"><span class="k">면접관유형</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">DEVIL / COFFEE_CHAT</span></div><div class="r" data-c="면접방식"><span class="k">면접방식</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">VIDEO / CHAT</span></div><div class="r" data-c="진행상태"><span class="k">진행상태</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">READY / IN_PROGRESS / ANALYZING / COMPLETED / ABORTED / FAILED</span></div><div class="r" data-c="총평"><span class="k">총평</span><span class="t">varchar(255)</span><span class="n">NULL</span><span class="d">피드백 결과 화면 맨 위의 총평</span></div><div class="r" data-c="시작일시"><span class="k">시작일시</span><span class="t">timestamptz</span><span class="n">NULL</span><span class="d">면접을 시작한 일시</span></div><div class="r" data-c="종료일시"><span class="k">종료일시</span><span class="t">timestamptz</span><span class="n">NULL</span><span class="d">면접을 마친 일시</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">세션을 만든 일시</span></div></div><div class="tbl" data-t="기준별점수" style="--c:#d9a441"><h4>기준별점수</h4><div class="r" data-c="기준별점수ID"><span class="k"><i>PK</i>기준별점수ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">기준별점수 식별자</span></div><div class="r" data-c="면접세션ID"><span class="k"><i>FK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">평가한 면접세션</span></div><div class="r" data-c="평가기준"><span class="k">평가기준</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">JOB_FIT / COVER_LETTER / LOGIC / DELIVERY</span></div><div class="r" data-c="점수"><span class="k">점수</span><span class="t">integer</span><span class="n nn">NOT NULL</span><span class="d">0~100점</span></div><div class="r" data-c="한줄설명"><span class="k">한줄설명</span><span class="t">varchar(255)</span><span class="n">NULL</span><span class="d">성장 리뷰에 보여 줄 한 줄 설명</span></div></div></div><div class="erd-col" style="width:520px"><div class="tbl" data-t="음성지표" style="--c:#d9a441"><h4>음성지표</h4><div class="r" data-c="면접세션ID"><span class="k"><i>PK·FK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">화상 면접 세션만 저장. 세션 하나에 하나</span></div><div class="r" data-c="군말빈도"><span class="k">군말빈도</span><span class="t">numeric(5,2)</span><span class="n">NULL</span><span class="d">1분당 &#x27;음&#x27;, &#x27;어&#x27; 같은 군말 횟수</span></div><div class="r" data-c="말끊김횟수"><span class="k">말끊김횟수</span><span class="t">integer</span><span class="n">NULL</span><span class="d">문장 중간에 길게 멈춘 횟수</span></div><div class="r" data-c="말속도편차"><span class="k">말속도편차</span><span class="t">numeric(5,2)</span><span class="n">NULL</span><span class="d">평소 말 속도와의 차이 (%)</span></div><div class="r" data-c="말끝흐림비율"><span class="k">말끝흐림비율</span><span class="t">numeric(5,2)</span><span class="n">NULL</span><span class="d">말끝을 흐린 문장의 비율 (%)</span></div><div class="r" data-c="억양변화폭"><span class="k">억양변화폭</span><span class="t">numeric(5,2)</span><span class="n">NULL</span><span class="d">음높이가 오르내린 폭 (세미톤)</span></div><div class="r" data-c="시선응시비율"><span class="k">시선응시비율</span><span class="t">numeric(5,2)</span><span class="n">NULL</span><span class="d">말하는 동안 면접관을 바라본 시간 비율 (%)</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">지표를 저장한 일시</span></div></div><div class="tbl" data-t="미디어파일" style="--c:#4fb286"><h4>미디어파일</h4><div class="r" data-c="파일ID"><span class="k"><i>PK</i>파일ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">파일 식별자</span></div><div class="r" data-c="면접세션ID"><span class="k"><i>FK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">파일이 속한 면접세션</span></div><div class="r" data-c="답변ID"><span class="k"><i>FK</i>답변ID</span><span class="t">bigint</span><span class="n">NULL</span><span class="d">답변 음성이면 그 답변. 세션 녹화 영상이면 값 없음</span></div><div class="r" data-c="파일종류"><span class="k">파일종류</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">SESSION_VIDEO / ANSWER_AUDIO</span></div><div class="r" data-c="저장경로"><span class="k">저장경로</span><span class="t">varchar(500)</span><span class="n nn">NOT NULL</span><span class="d">S3 객체 키. 중복 불가</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">업로드를 마친 일시</span></div></div></div><div class="erd-col" style="width:560px"><div class="tbl" data-t="면접질문" style="--c:#4fb286"><h4>면접질문</h4><div class="r" data-c="질문ID"><span class="k"><i>PK</i>질문ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">질문 식별자</span></div><div class="r" data-c="면접세션ID"><span class="k"><i>FK</i>면접세션ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">질문이 속한 면접세션</span></div><div class="r" data-c="질문순서"><span class="k">질문순서</span><span class="t">integer</span><span class="n nn">NOT NULL</span><span class="d">세션 안에서의 순서. 1부터 시작</span></div><div class="r" data-c="질문내용"><span class="k">질문내용</span><span class="t">text</span><span class="n nn">NOT NULL</span><span class="d">AI가 만든 질문</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">질문을 만든 일시</span></div></div><div class="tbl" data-t="답변" style="--c:#4fb286"><h4>답변</h4><div class="r" data-c="답변ID"><span class="k"><i>PK</i>답변ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">답변 식별자</span></div><div class="r" data-c="질문ID"><span class="k"><i>FK</i>질문ID</span><span class="t">bigint</span><span class="n nn">NOT NULL</span><span class="d">답한 질문. 질문 하나에 답변 하나</span></div><div class="r" data-c="입력방식"><span class="k">입력방식</span><span class="t">varchar(20)</span><span class="n nn">NOT NULL</span><span class="d">VOICE / TEXT</span></div><div class="r" data-c="답변내용"><span class="k">답변내용</span><span class="t">text</span><span class="n nn">NOT NULL</span><span class="d">음성은 STT로 바꾼 글, 채팅은 입력한 글</span></div><div class="r" data-c="점수"><span class="k">점수</span><span class="t">integer</span><span class="n">NULL</span><span class="d">0~100점. 평가가 끝나기 전에는 값 없음</span></div><div class="r" data-c="잘한점"><span class="k">잘한점</span><span class="t">text</span><span class="n">NULL</span><span class="d">질문별 피드백의 잘한 점</span></div><div class="r" data-c="아쉬운점"><span class="k">아쉬운점</span><span class="t">text</span><span class="n">NULL</span><span class="d">질문별 피드백의 아쉬운 점</span></div><div class="r" data-c="생성일시"><span class="k">생성일시</span><span class="t">timestamptz</span><span class="n nn">NOT NULL</span><span class="d">답변을 제출한 일시</span></div></div></div><svg class="erd-lines" aria-hidden="true"></svg></div></div>
+    </div>
+    <div class="foot"><span>ERD</span><span></span></div>
+  </section>
+
+  <!-- 20 시연 -->
+  <section class="slide" data-bg="photo-1555066931-4365d14bab8c">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">시연</div>
+        <h2>직접 보여드리겠습니다</h2>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;justify-content:center;align-items:center"><img src="assets/hankkeut-midterm/jev-demo.webp" alt="한끗 시연 화면" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:18px;border:1px solid rgba(255,255,255,.18);box-shadow:0 30px 80px rgba(0,0,0,.55)"></div>
+      <a href="https://interview-prototype.vercel.app/demo" target="_blank" rel="noopener" style="align-self:center;font-size:40px;font-weight:800;color:var(--accent);text-decoration:underline;text-underline-offset:8px">시연 링크</a>
+    </div>
+    <div class="foot"><span>시연</span><span>20</span></div>
+  </section>
+
+  <!-- 21 AI 활용 ① 서비스 -->
+  <section class="slide" data-bg="photo-1478737270239-2f02b77fc618">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">AI 활용 · 서비스 속 AI</div>
+        <h2>면접의 모든 단계에 AI가 있습니다</h2>
+      </div>
+      <div class="row" style="gap:28px;flex:1;align-items:stretch">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:24px">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+          <span style="font-size:28px;font-weight:700;color:var(--accent);letter-spacing:.06em">LLM API</span>
+          <h3 style="font-size:40px;line-height:1.25;white-space:nowrap">지원서 맞춤 질문</h3>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:24px">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+          <span style="font-size:28px;font-weight:700;color:var(--accent);letter-spacing:.06em">STT · TTS</span>
+          <h3 style="font-size:40px;line-height:1.25;white-space:nowrap">음성으로 묻고 답하기</h3>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:24px">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+          <span style="font-size:28px;font-weight:700;color:var(--accent);letter-spacing:.06em">LLM API</span>
+          <h3 style="font-size:40px;line-height:1.25;white-space:nowrap">실시간 답변 평가</h3>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:24px">
+          <svg width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#f6f3ee" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>
+          <span style="font-size:28px;font-weight:700;color:var(--accent);letter-spacing:.06em">Jev</span>
+          <h3 style="font-size:40px;line-height:1.25;white-space:nowrap">3D 면접관 반응</h3>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>MVP는 고도화 없이 API 호출로 구현</span><span>21</span></div>
+  </section>
+
+  <!-- AI 상세 · 질문 생성 -->
+  <section class="slide" data-bg="photo-1654931799020-ce7cf3f4a2c7">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">AI 활용 · 질문 생성</div>
+        <h2>지원서 한 장으로 <span class="em">질문</span>과 평가 기준까지</h2>
+      </div>
+      <div class="flowx">
+        <div class="sx fut" style="grid-column:3">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 21h18M5 21V10l7-5 7 5v11M9 21v-6h6v6"/></svg></div>
+          <div><small>고도화 · DART 수집</small><b>회사 공시 · 인재상</b></div>
+        </div>
+        <div class="dx" style="grid-column:3"></div>
+
+        <div class="fx in" style="grid-column:1">
+          <div class="hd"><span class="st">INPUT</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div></div>
+          <h4>지원서</h4><p>회사 · 직무<br>자기소개서</p>
+        </div>
+        <div class="cx" style="grid-column:2">→</div>
+        <div class="fx" style="grid-column:3">
+          <div class="hd"><span class="st">STEP 01</span><div class="ic"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6M11 8v6"/></svg></div></div>
+          <h4>주장 추출</h4><p>자소서의<br>경험 · 수치를 뽑습니다</p>
+          <div class="tc"><span>LLM · SSAFY GMS</span></div>
+        </div>
+        <div class="cx" style="grid-column:4">→</div>
+        <div class="fx" style="grid-column:5">
+          <div class="hd"><span class="st">STEP 02</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/></svg></div></div>
+          <h4>질문 + 기준</h4><p>주장을 파고드는<br>질문과 채점 기준</p>
+          <div class="tc"><span>JSON 스키마</span></div>
+        </div>
+        <div class="cx" style="grid-column:6">→</div>
+        <div class="fx out" style="grid-column:7">
+          <div class="hd"><span class="st">OUTPUT</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></div></div>
+          <h4>질문 5개<br>+ 평가 기준</h4>
+          <div class="box"><em>Q</em>응답 시간을 40% 줄인 과정은?<br><em>기준</em>원인 분석 · 수치 근거</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>수집 고도화: Airflow · Kafka · Spark</span><span></span></div>
+  </section>
+
+  <!-- AI 상세 · STT · TTS -->
+  <section class="slide dim" data-bg="photo-1590602847861-f357a9332bbc">
+    <div class="stt-wrap"><svg width="0" height="0" style="position:absolute">
+  <symbol id="stt-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4.5"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="stt-iv" viewBox="0 0 24 24"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+  <symbol id="stt-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
+  <symbol id="stt-wave" viewBox="0 0 24 24"><path d="M2 10v3"/><path d="M6 6v11"/><path d="M10 3v18"/><path d="M14 8v7"/><path d="M18 5v13"/><path d="M22 10v3"/></symbol>
+  <symbol id="stt-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></symbol>
+  <symbol id="stt-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="stt-speaker" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></symbol>
+  <symbol id="stt-face" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/></symbol>
+  <marker id="stt-hd" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="rgba(246,243,238,.65)"/></marker>
+</svg>
+  <div class="stt-head"><div class="kicker">AI 활용 · STT · TTS</div><h2>음성 면접</h2>
+  <p class="stt-lede">답변은 듣는 즉시 텍스트로, 질문은 생성되는 즉시 소리로</p></div>
+  <div class="stt-stage">
+    <svg class="stt-rails" viewBox="0 0 1664 600">
+      <path class="stt-rail" d="M 165 285 H 202 Q 232 285 232 255 V 160 Q 232 130 262 130 H 1402 Q 1432 130 1432 160 V 265 Q 1432 295 1462 295 H 1488" marker-end="url(#stt-hd)"/>
+      <path class="stt-rail" d="M 1488 340 H 1462 Q 1432 340 1432 370 V 450 Q 1432 480 1402 480 H 262 Q 232 480 232 450 V 345 Q 232 315 202 315 H 172" marker-end="url(#stt-hd)"/>
+    </svg>
+    <div class="stt-abs stt-actor stt-me" style="left:1574px;top:300px"><div class="stt-face"><svg class="stt-i"><use href="#stt-user"/></svg></div><b>지원자</b></div>
+    <div class="stt-abs stt-actor stt-iv" style="left:90px;top:322px"><div class="stt-face"><svg class="stt-i"><use href="#stt-iv"/></svg></div><b>면접관</b><small>Jev 반응 · 채점 · 말하기 분석</small></div>
+    <div class="stt-abs stt-card" style="left:1232px;top:480px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-mic"/></svg></div><b>음성 스트림</b><p>마이크 음성을<br>0.1초씩 실시간 전송</p></div>
+    <div class="stt-abs stt-card stt-ai" style="left:832px;top:480px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-wave"/></svg></div><b>STT<small>Soniox</small></b><p>말하는 도중 바로 받아쓰기<br>한·영 섞인 개발 용어까지</p></div>
+    <div class="stt-abs stt-card" style="left:432px;top:480px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-text"/></svg></div><b>실시간 텍스트</b><p>받아쓴 문장과<br>단어마다 말한 시각</p></div>
+    <div class="stt-abs stt-card" style="left:1232px;top:130px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-face"/></svg></div><b>재생 + 립싱크</b><p>합성되는 대로 바로 재생<br>발음 시각에 맞춰 입 모양</p></div>
+    <div class="stt-abs stt-card stt-ai" style="left:832px;top:130px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-speaker"/></svg></div><b>TTS<small>ElevenLabs</small></b><p>스트리밍 음성 합성<br>글자별 발음 시각도 함께</p></div>
+    <div class="stt-abs stt-card" style="left:432px;top:130px"><div class="stt-ic"><svg class="stt-i"><use href="#stt-chat"/></svg></div><b>질문 생성</b><p>LLM이 지원서로 질문 작성<br>답변 따라 꼬리질문 추가</p></div>
+
+  </div></div>
+    <div class="foot"><span></span><span></span></div>
+  </section>
+
+  <!-- AI 상세 · 실시간 평가 -->
+  <section class="slide" data-bg="photo-1551288049-bebda4e38f71">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">AI 활용 · 답변 평가</div>
+        <h2>답변마다 <span class="em">기준별로</span> 채점합니다</h2>
+      </div>
+      <div class="flowx">
+        <div class="sx" style="grid-column:3">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg></div>
+          <div><small>질문 생성에서</small><b>질문별 평가 기준</b></div>
+        </div>
+        <div class="dx" style="grid-column:3"></div>
+        <div class="sx" style="grid-column:5">
+          <div class="ic"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div>
+          <div><small>지원서에서</small><b>자소서 원문</b></div>
+        </div>
+        <div class="dx" style="grid-column:5"></div>
+
+        <div class="fx in" style="grid-column:1">
+          <div class="hd"><span class="st">INPUT</span><div class="ic"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></svg></div></div>
+          <h4>답변</h4><p>STT로 받은<br>텍스트</p>
+        </div>
+        <div class="cx" style="grid-column:2">→</div>
+        <div class="fx" style="grid-column:3">
+          <div class="hd"><span class="st">STEP 01</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M12 3v18M5 7h14M5 7l-3 7a4 4 0 0 0 6 0zM19 7l-3 7a4 4 0 0 0 6 0zM8 21h8"/></svg></div></div>
+          <h4>기준별 판정</h4><p>4개 항목을<br>3단계로 판정</p>
+          <div class="tc"><span>G-Eval 방식</span></div>
+        </div>
+        <div class="cx" style="grid-column:4">→</div>
+        <div class="fx" style="grid-column:5">
+          <div class="hd"><span class="st">STEP 02</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div></div>
+          <h4>자소서 대조</h4><p>자소서 내용과<br>맞는지 확인</p>
+          <div class="tc"><span>근거 검증</span></div>
+        </div>
+        <div class="cx" style="grid-column:6">→</div>
+        <div class="fx out" style="grid-column:7">
+          <div class="hd"><span class="st">OUTPUT</span><div class="ic"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div></div>
+          <h4>기준별 결과<br>+ 피드백</h4>
+          <div class="vd">
+            <div>직무 적합성<b>좋아요</b></div>
+            <div>자소서 검증<b class="bad">아쉬워요</b></div>
+            <div>논리성<b>좋아요</b></div>
+            <div>전달력<b class="mid">보통</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>정답이 정해진 테스트 답변으로 채점 정확도 검증</span><span></span></div>
+  </section>
+
+  <!-- AI 상세 · 면접관 반응 -->
+  <section class="slide" data-bg="photo-1639628735078-ed2f038a193e">
+    <div class="body">
+      <div class="head">
+        <div class="kicker">AI 활용 · 면접관 반응</div>
+        <h2>평가를 Jev 표정 · 동작으로</h2>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;justify-content:center;align-items:center"><img src="assets/hankkeut-midterm/jev-demo.webp" alt="Jev 실시간 표정 시연 화면" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:18px;border:1px solid rgba(255,255,255,.18);box-shadow:0 30px 80px rgba(0,0,0,.55)"></div>
+      <p style="align-self:center;font-size:54px;font-weight:800;color:var(--ink)">감정표현이 아니라 <span class="em">면접관이 할만한 반응</span>으로 고도화</p>
+    </div>
+    <div class="foot"><span></span><span></span></div>
+  </section>
+
+  <!-- 23 감사합니다 -->
+  <section class="slide statement" data-bg="photo-1502224562085-639556652f33">
+    <div class="body">
+      <div class="kicker">한끗</div>
+      <blockquote>감사합니다</blockquote>
+      <p style="font-size:36px">오늘부터 1일째, 함께 시작해 볼까요?</p>
+    </div>
+    <div class="foot"><span>A301</span><span>23</span></div>
+  </section>
+
+  <!-- 24 Q&A -->
+  <section class="slide statement" data-bg="photo-1517048676732-d65bc937f952">
+    <div class="body">
+      <div class="kicker">질의응답</div>
+      <blockquote style="font-size:180px">Q&amp;A</blockquote>
+    </div>
+    <div class="foot"><span>A301</span><span>24</span></div>
+  </section>
+
+
+  <!-- 출처 ① 자료 -->
+  <section class="slide dim" data-bg="photo-1435527173128-983b87201f4d">
+    <div class="body" style="gap:32px">
+      <div class="head">
+        <div class="kicker">출처</div>
+        <h2>자료 출처</h2>
+      </div>
+      <div class="row" style="gap:64px;align-items:flex-start">
+        <div style="flex:1;display:flex;flex-direction:column;gap:30px"><div style="display:flex;flex-direction:column;gap:12px"><div class="kicker" style="font-size:22px">시장조사 · 수요</div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">청년층 취업시험 준비자 60만 명</b><span style="font-size:18px;color:var(--ink)">국가데이터처, 2026년 5월 경제활동인구조사 청년층 부가조사 (뉴시스, 2026.7)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://www.newsis.com/view/NISX20260723_0003720080</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">&quot;면접이 가장 어렵다&quot; 71.9%</b><span style="font-size:18px;color:var(--ink)">인잡핏 취업준비생 410명 조사 (대학저널, 2025.7)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://dhnews.co.kr/news/view/1065585199757801</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">평균 취업 사교육비 455만 원</b><span style="font-size:18px;color:var(--ink)">잡코리아 조사 (뉴시스, 2026.6)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://www.newsis.com/view/NISX20260609_0003661665</span></div></div><div style="display:flex;flex-direction:column;gap:12px"><div class="kicker" style="font-size:22px">시장조사 · 흐름</div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">채용 AI 도입 · 확대 계획 74.5%, 면접 준비에 AI 활용 36.4%</b><span style="font-size:18px;color:var(--ink)">고용노동부 · 한국고용정보원, 2025 기업 채용동향조사 (뉴시스, 2025.11)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://www.newsis.com/view/NISX20251128_0003421061</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">면접 준비 도구 시장 연 12.3% 성장</b><span style="font-size:18px;color:var(--ink)">The Business Research Company, Interview Preparation Tool Global Market Report (2026)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://www.giikorea.co.kr/report/tbrc2127356-interview-preparation-tool-global-market-report.html</span></div></div></div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:30px"><div style="display:flex;flex-direction:column;gap:12px"><div class="kicker" style="font-size:22px">경쟁 서비스</div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">사람인 AI 모의면접</b><span style="font-size:18px;color:var(--ink)">사람인 공식 페이지</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://m.saramin.co.kr/member/ai-interview</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">마인드프렙</b><span style="font-size:18px;color:var(--ink)">대학저널 보도 (2026)</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://dhnews.co.kr/news/view/1065604224582933</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">Final Round AI</b><span style="font-size:18px;color:var(--ink)">공식 페이지 · Tavus 고객 사례</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://www.finalroundai.com/ai-mock-interview</span></div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">Yoodli · Huru</b><span style="font-size:18px;color:var(--ink)">각 서비스 공식 페이지</span><span style="font-size:16px;color:var(--ink-2);word-break:break-all">https://yoodli.ai/ · https://huru.ai/</span></div></div><div style="display:flex;flex-direction:column;gap:12px"><div class="kicker" style="font-size:22px">개발 전략</div><div style="display:flex;flex-direction:column;gap:2px;padding-left:16px;border-left:3px solid var(--line)"><b style="font-size:22px;color:var(--ink)">Build–Measure–Learn 루프</b><span style="font-size:18px;color:var(--ink)">Eric Ries, 『The Lean Startup』 (2011)</span></div></div></div>
+      </div>
+    </div>
+    <div class="foot"><span>조회일 2026.10.15</span><span></span></div>
+  </section>
+
+  <!-- 출처 ② 이미지 -->
+  <section class="slide dim" data-bg="photo-1435527173128-983b87201f4d">
+    <div class="body" style="gap:32px">
+      <div class="head">
+        <div class="kicker">출처</div>
+        <h2>이미지 · 디자인 출처</h2>
+      </div>
+      <div class="row" style="gap:64px;align-items:flex-start">
+        <div style="flex:0 0 640px;display:flex;flex-direction:column;gap:26px">
+          <div style="display:flex;flex-direction:column;gap:4px;padding-left:16px;border-left:3px solid var(--accent)"><b style="font-size:26px;color:var(--ink)">화면 시안</b><span style="font-size:20px;color:var(--ink)">한끗 팀 Figma 와이어프레임 · 디자인 시안</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-left:16px;border-left:3px solid var(--accent)"><b style="font-size:26px;color:var(--ink)">ERD · 화면 플로우 · 다이어그램</b><span style="font-size:20px;color:var(--ink)">한끗 팀 자체 제작</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-left:16px;border-left:3px solid var(--accent)"><b style="font-size:26px;color:var(--ink)">배경 · 카드 사진</b><span style="font-size:20px;color:var(--ink)">Unsplash 무료 이미지 (Unsplash License)</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-left:16px;border-left:3px solid var(--accent)"><b style="font-size:26px;color:var(--ink)">아이콘</b><span style="font-size:20px;color:var(--ink)">Lucide (ISC License) · 팀 자체 제작</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px;padding-left:16px;border-left:3px solid var(--accent)"><b style="font-size:26px;color:var(--ink)">폰트</b><span style="font-size:20px;color:var(--ink)">Pretendard (SIL Open Font License)</span></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+          <div class="kicker" style="font-size:22px">사용한 Unsplash 이미지 (23장)</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;column-gap:24px;row-gap:6px"><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1510519138101-570d1dca3d66</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1522202176988-66273c2fd55f</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1460925895917-afdab827c52f</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1529699211952-734e80c4d42b</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1586165368502-1bad197a6461</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1618325508550-951512a1e82d</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1575844261401-d69721eb5044</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1636622433525-127afdf3662d</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1457364887197-9150188c107b</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1555066931-4365d14bab8c</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1654089669464-dcc57c490d2b</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1435527173128-983b87201f4d</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1554224155-1696413565d3</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1457530378978-8bac673b8062</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1558494949-ef010cbdcc31</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1587654780291-39c9404d746b</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1478737270239-2f02b77fc618</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1654931799020-ce7cf3f4a2c7</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1590602847861-f357a9332bbc</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1551288049-bebda4e38f71</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1639628735078-ed2f038a193e</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1502224562085-639556652f33</span><span style="font-size:15px;color:var(--ink-2);white-space:nowrap">images.unsplash.com/photo-1517048676732-d65bc937f952</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span>Unsplash License: 상업적 이용 포함 무료 사용 가능, 출처 표기 권장</span><span></span></div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button id="prev" aria-label="이전">‹</button>
+  <span id="count"></span>
+  <button id="next" aria-label="다음">›</button>
+  <button id="fs" aria-label="전체 화면">⛶</button>
+  <button id="hide" aria-label="하단바 숨기기 (H)" title="하단바 숨기기 (H)">⌄</button>
+</div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  slides.forEach((s, i) => {
+    const no = s.querySelector('.foot span:last-child');
+    if (no && /^\d*$/.test(no.textContent.trim())) no.textContent = String(i + 1).padStart(2, '0');
+    const src = s.dataset.bg;
+    const url = src.startsWith('photo-') ? `https://images.unsplash.com/${src}?auto=format&fit=crop&w=1920&q=70` : src;
+    const bg = document.createElement('div');
+    bg.className = 'bg';
+    bg.style.backgroundImage = `url("${url}")`;
+    const shade = document.createElement('div');
+    shade.className = 'shade';
+    s.prepend(bg, shade);
+  });
+
+  const deck = document.getElementById('deck');
+  function fit() {
+    const k = Math.min(innerWidth / 1920, innerHeight / 1080);
+    deck.style.transform = `translate(-50%, -50%) scale(${k})`;
+  }
+  addEventListener('resize', fit);
+  fit();
+
+  let cur = Math.max(0, Math.min(slides.length - 1, (parseInt(location.hash.slice(1)) || 1) - 1));
+  function show(i) {
+    cur = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === cur));
+    document.getElementById('count').textContent = `${cur + 1} / ${slides.length}`;
+    document.getElementById('progress').style.width = `${(cur + 1) / slides.length * 100}%`;
+    history.replaceState(null, '', '#' + (cur + 1));
+  }
+  addEventListener('keydown', e => {
+    if (['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'].includes(e.key)) { e.preventDefault(); show(cur + 1); }
+    if (['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'].includes(e.key)) { e.preventDefault(); show(cur - 1); }
+    if (e.key === 'Home') show(0);
+    if (e.key === 'End') show(slides.length - 1);
+    if (e.key === 'f' || e.key === 'F') toggleFs();
+    if (e.key === 'h' || e.key === 'H') toggleNav();
+  });
+  function toggleFs() {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen?.();
+  }
+  document.getElementById('prev').onclick = () => show(cur - 1);
+  document.getElementById('next').onclick = () => show(cur + 1);
+  document.getElementById('fs').onclick = toggleFs;
+  // 하단바 숨기기: H 키 또는 ⌄ 버튼. 숨긴 뒤에도 오른쪽 아래에 마우스를 올리면 보임
+  function toggleNav(force) {
+    const on = document.body.classList.toggle('hide-nav', force);
+    try { localStorage.setItem('hideNav', on ? '1' : '0'); } catch (e) {}
+  }
+  document.getElementById('hide').onclick = () => toggleNav();
+  try { if (localStorage.getItem('hideNav') === '1') toggleNav(true); } catch (e) {}
+
+  // ERD 관계선: .erd[data-rel] = [부모, 부모컬럼, 자식, 자식컬럼, 관계, 경로(h | v | top)]
+  function drawErd() {
+    document.querySelectorAll('.erd').forEach(root => {
+      const rel = JSON.parse(root.dataset.rel);
+      const inn = root.querySelector('.erd-in'), svg = inn.querySelector('.erd-lines');
+      inn.style.transform = '';
+      const pos = el => { let x = 0, y = 0, e = el; while (e && e !== inn) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; } return { x, y, w: el.offsetWidth, h: el.offsetHeight }; };
+      const tb = n => inn.querySelector(`.tbl[data-t="${n}"]`);
+      const rowY = (n, c) => { const r = pos(tb(n).querySelector(`.r[data-c="${c}"] .k`)); return r.y + r.h / 2; };
+      const W = inn.scrollWidth, H = inn.scrollHeight;
+      svg.setAttribute('width', W); svg.setAttribute('height', H); svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const C = '#ff7a2a', SW = 3;
+      const line = d => `<path d="${d}" fill="none" stroke="${C}" stroke-width="${SW}" stroke-linejoin="round" stroke-linecap="round"/>`;
+      const pill = (x, y, t, anchor = 'middle') => `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="${C}" font-size="16" font-weight="800" stroke="#0c0c0e" stroke-width="5" paint-order="stroke">${t.replace(/ /g, '')}</text>`;
+      let out = '', labels = '';
+      const lanes = {};
+      rel.forEach(([pt, pc, ct, cc, kind, route]) => {
+        const P = pos(tb(pt)), Q = pos(tb(ct)), one = kind.trim().endsWith('1');
+        if (route === 'h') {
+          const right = Q.x > P.x, dir = right ? 1 : -1;
+          const x1 = right ? P.x + P.w : P.x, x2 = right ? Q.x : Q.x + Q.w;
+          const py = rowY(pt, pc), cy = rowY(ct, cc);
+          const gk = Math.min(x1, x2) + '';
+          lanes[gk] = lanes[gk] || [];
+          if (!lanes[gk].includes(pt)) lanes[gk].push(pt);
+          const mx = x1 + dir * (16 + lanes[gk].indexOf(pt) * 16);
+          out += line(`M${x1},${py} H${mx} V${cy} H${x2}`);
+          out += line(`M${x1 + dir * 9},${py - 10} V${py + 10}`);
+          out += one ? line(`M${x2 - dir * 9},${cy - 10} V${cy + 10}`)
+                     : line(`M${x2 - dir * 16},${cy} L${x2},${cy - 10} M${x2 - dir * 16},${cy} L${x2},${cy + 10}`);
+          labels += pill((mx + x2) / 2, cy - 9, kind);
+        } else if (route === 'v') {
+          const x = P.x + P.w / 2, y1 = P.y + P.h, y2 = Q.y;
+          out += line(`M${x},${y1} V${y2}`);
+          out += line(`M${x - 10},${y1 + 9} H${x + 10}`);
+          out += one ? line(`M${x - 10},${y2 - 9} H${x + 10}`)
+                     : line(`M${x},${y2 - 16} L${x - 10},${y2} M${x},${y2 - 16} L${x + 10},${y2}`);
+          labels += pill(x + 16, (y1 + y2) / 2 + 6, kind, 'start');
+        } else {
+          const x1 = P.x + P.w / 2, x2 = Q.x + Q.w / 2, ly = 20;
+          out += line(`M${x1},${P.y} V${ly} H${x2} V${Q.y}`);
+          out += line(`M${x1 - 10},${P.y - 9} H${x1 + 10}`);
+          out += one ? line(`M${x2 - 10},${Q.y - 9} H${x2 + 10}`)
+                     : line(`M${x2},${Q.y - 16} L${x2 - 10},${Q.y} M${x2},${Q.y - 16} L${x2 + 10},${Q.y}`);
+          labels += pill((x1 + x2) / 2, ly - 9, kind);
+        }
+      });
+      svg.innerHTML = out + labels;
+      const k = Math.min(1, root.clientHeight / H, root.clientWidth / W);
+      inn.style.transform = `translateX(${(root.clientWidth - W * k) / 2}px) scale(${k})`;
+    });
+  }
+  drawErd();
+  if (document.fonts) document.fonts.ready.then(drawErd);
+  addEventListener('load', drawErd);
+  show(cur);
+</script>
+</body>
+</html>
