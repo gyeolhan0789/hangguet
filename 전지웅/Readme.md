@@ -8,6 +8,42 @@
 
 ---
 
+### 📅 2026-10-14 (수)
+
+**오늘 한 것**
+- 립싱크 테스트 페이지에 면접관 고갯짓·표정 추가 (말할 때 끄덕임, 질문 끝에 고개 기울임, 옅은 미소, 눈 깜빡임)
+- UI 디자인(S06)과 비교 → 핵심은 답변을 듣는 동안의 반응(끄덕임·갸웃·표정)
+- 면접관 아바타 후보 조사
+
+  | 후보 | 장점 | 걸리는 점 |
+  |---|---|---|
+  | [CGTrader 카툰 남성](https://www.cgtrader.com/3d-models/character/man/customizable-man-cartoon-character-in-blender) ($24) | 디자인 화풍과 비슷, 표정 52종 | 웹용 변환·경량화 필요, 웹 사용 허용 확인 |
+  | [CGTrader tomnook3d](https://www.cgtrader.com/3d-models?author=tomnook3d&low_poly=1&optimized=1&rigged=1&sort_by=sales) ($32) | 실사풍, 표정 52종 | 웹용 파일 없음, 무거움, 화풍 다름 |
+  | [VTubeMe 무료 VRM](https://vtubeme.com/free-vrm-avatars) | 무료 | 대부분 화풍 다름 |
+  | ~~[AI STUDIOS](https://www.aistudios.com/ko/ai-avatars)~~ | 실사 품질 | mp4 영상을 받는 방식이라 실시간 반응 불가 → 제외 |
+
+- TTS 타이밍 비교, Redis 사용 범위 검토
+
+**배운 것 / 정리**
+- **TTS 타이밍**: Typecast·ElevenLabs는 글자별 시간을 줘서 모음에 맞는 입 모양 가능. Chirp 3: HD는 소리 크기로만 입을 여닫음
+- **Redis**: 잠깐 쓰는 데이터만 저장(진행 중 면접 상태, 분석 대기열, 로그인 토큰 등). 오래 남길 기록은 Postgres, 음성은 Storage. 아바타 방식과는 무관
+
+**막힌 것 & 해결**
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| Crowley는 눈썹·눈동자를 움직일 수 없음 | 모델에 해당 표정이 없음 | 표정 52종 모델 후보 조사 |
+| 아바타 방식(2D·3D 구입·제작·무료) 미정 | 방식마다 표현력·화풍·비용이 다름 | 2D와 3D를 짧게 만들어 비교 예정 |
+
+**내일 할 것**
+- [ ] 조사 결과를 표현 모듈 담당과 공유
+- [ ] 구입 후보 판매자에게 웹 사용 가능 여부 문의
+- [ ] 테스트 페이지에 듣는 동안의 반응 추가
+
+**참고 링크**
+- [ElevenLabs 타임스탬프 TTS API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps)
+
+---
+
 ### 📅 2026-10-13 (화)
 
 **오늘 한 것**
