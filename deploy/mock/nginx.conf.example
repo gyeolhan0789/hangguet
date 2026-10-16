@@ -2,12 +2,15 @@
 # Nginx 컨테이너와 목 서버 컨테이너는 같은 Docker 네트워크(server_public-network)에 있다.
 # 설정을 넣은 뒤: docker exec <nginx 컨테이너> nginx -t && docker exec <nginx 컨테이너> nginx -s reload
 #
+# 주소: https://hangguet.yobistory.com/mock/be/docs
+# 한 도메인 아래를 경로로 나눈다. /mock/be는 목 서버이고, 다른 경로(FE·실제 BE)는 나중에 location을 더한다.
+#
 # TLS는 Cloudflare에서 끝나고, cloudflared → Nginx 구간은 HTTP다.
 # 그래서 원래 요청이 https였다고 X-Forwarded-* 헤더로 알려 준다.
 # 목 서버는 forward-headers-strategy: framework라 이 헤더로 Swagger "Try it out" 주소를 만든다.
 server {
     listen 80;
-    server_name hangguet-bemock.yobistory.com;
+    server_name hangguet.yobistory.com;
 
     # 주소를 변수로 두고 Docker 내장 DNS로 찾는다(결과는 10초 캐시 후 다시 조회).
     # proxy_pass에 이름을 바로 쓰면 Nginx가 시작할 때 한 번만 찾아서
@@ -16,14 +19,30 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $mock_upstream http://a301-mock:8080;
 
-    location / {
+    location = /mock/be {
+        return 308 /mock/be/;
+    }
+
+    location /mock/be/ {
+        # 목 서버는 접두사 없이 동작하므로 /mock/be를 떼고 넘긴다.
+        # proxy_pass에 변수를 쓰면 접두사가 자동으로 떼어지지 않아 rewrite로 뗀다.
+        rewrite ^/mock/be(/.*)$ $1 break;
         proxy_pass $mock_upstream;
 
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $http_cf_connecting_ip;
-        proxy_set_header X-Forwarded-For   $http_cf_connecting_ip;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header X-Forwarded-Host  $host;
-        proxy_set_header X-Forwarded-Port  443;
+        proxy_set_header Host               $host;
+        proxy_set_header X-Real-IP          $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-For    $http_cf_connecting_ip;
+        proxy_set_header X-Forwarded-Proto  https;
+        proxy_set_header X-Forwarded-Host   $host;
+        proxy_set_header X-Forwarded-Port   443;
+        # Swagger·리다이렉트 주소 앞에 /mock/be를 붙이게 한다
+        proxy_set_header X-Forwarded-Prefix /mock/be;
     }
 }
+
+# (선택) 이전 주소 hangguet-bemock.yobistory.com → 새 주소로 넘긴다. 308이라 POST도 그대로 유지된다.
+# server {
+#     listen 80;
+#     server_name hangguet-bemock.yobistory.com;
+#     return 308 https://hangguet.yobistory.com/mock/be$request_uri;
+# }

@@ -406,7 +406,7 @@ mock-deploy:
     MOCK_KEEP_IMAGES: "3"                                       # 롤백용으로 남길 이미지 수
   environment:
     name: mock
-    url: https://hangguet-bemock.yobistory.com/swagger-ui.html
+    url: https://hangguet.yobistory.com/mock/be/docs
   script:
     - docker compose -f deploy/mock/compose.yml up -d --build --remove-orphans
     - |
