@@ -23,3 +23,14 @@ API 명세의 기준은 이 서버의 Swagger다. 실제 백엔드(`backend/`)�
 ```
 
 포맷 자동 수정은 `./gradlew spotlessApply`.
+
+## Docker
+
+```bash
+docker build -t a301-mock .
+```
+
+```bash
+docker run -p 8080:8080 -e MOCK_CORS_ALLOWED_ORIGINS=http://localhost:3000 a301-mock
+```
+
