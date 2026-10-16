@@ -89,6 +89,47 @@ public class OpenApiConfig {
 
             채팅 면접은 음성이 없어 기본값(무표정, `state`만). 공통: `ttlMs`가 지났거나 `ANSWER_COMPLETED` 뒤 도착한 반응, 정의되지 않은 값은 버린다. 반응 로직 모듈은 면접관 방식을 몰라도 된다(케이스 2는 쓰지 않는 필드를 무시). 실시간 답변 자막은 브라우저가 STT 회사에서 직접 받는다(5.10).
 
+            ### 오류 코드
+
+            | code | 상태 | API |
+            |---|---|---|
+            | `UNAUTHORIZED` · `TOKEN_EXPIRED` | 401 | 인증 필요한 전부 |
+            | `VALIDATION_FAILED` | 400 | 본문·쿼리가 있는 전부 |
+            | `INTERNAL_ERROR` | 500 | 전부 |
+            | `LOGIN_FAILED` · `REFRESH_TOKEN_INVALID` | 401 | 1.3 · 1.4 |
+            | `AGREEMENT_REQUIRED` · `EMAIL_DUPLICATED` | 400 · 409 | 1.2 |
+            | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
+            | `FILE_NOT_FOUND` | 404 | 2.5, 5.7, 6.2 |
+            | `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.x, 5.1 |
+            | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x, 6.x |
+            | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
+            | `INVALID_SESSION_STATE` | 409 | 5.4~5.10, 6.1 |
+            | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
+            | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
+            | `STT_UNAVAILABLE` | 503 | 5.10 |
+            | `RECORDING_ALREADY_EXISTS` | 409 | 6.2 |
+            | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
+            | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
+            | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
+
+            ### 보류 · 확인 필요 (B)
+
+            | # | 내용 | 영향 | 담당 |
+            |---|---|---|---|
+            | B-1 | 질문 음성(TTS) 전달: TTS 회사(일레븐랩스·타입캐스트). 1회용 토큰 지원 시 5.10과 같은 방식 | 5.4, 5.5, `QUESTION_READY` | 보류 |
+            | B-2 | STT 회사: 일레븐랩스 · Soniox 중 미정 | 5.10 | BE |
+            | B-3 | 면접 전체 질문 수("질문 3 / 5"). 고정이면 상수, 바뀌면 컬럼 필요 | 5.2, 5.7 | 면접 AI 모듈 |
+            | B-4 | 점수 → 좋아요·보통·아쉬워요 경계값 | 6.3, 6.4, 7.1 | 협의 |
+            | B-5 | 오늘 완료 기준(현재: 답변 1개 이상인 면접 종료). 성장 리뷰까지 봐야 완료인지 | 3.1, 5.8 | 화면 |
+            | B-6 | 탈퇴 시 삭제 범위, 녹화 보관 기간 | 2.7, 6.x | 약관 |
+            | B-7 | 설문 노출·참여, 재방문 지표(D1·D3·D7) 저장 | 7.1 | 이벤트 로깅 |
+            | B-8 | 면접관별 반응 케이스(코드 변형 / 표정 이미지), 케이스 2 이미지 목록 | `REACTION` | 면접관 표현 모듈 |
+            | B-9 | 면접 플랜(예상 질문·평가 기준) 저장 위치. 평가 기준이 고정 4개면 저장 불필요 | 5.1~5.4 | 면접 AI 모듈 |
+            | B-10 | 자소서 검증: 충돌 1개당 차감 점수, "명확한 충돌" 판단 기준 | 6.3, 7.1 | 면접 AI 모듈 |
+            | B-11 | WebSocket 인증 방식(첫 메시지 토큰 / 쿠키 / 1회용 연결 티켓) | WebSocket | BE |
+
+            **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일, 개발자 콘솔
+
             ### 이 목 서버
             실제 로직 없이 명세의 예시 응답을 돌려준다. 인증·DB는 없다.
             """;

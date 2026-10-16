@@ -107,6 +107,26 @@ public final class ErrorExamples {
             { "title": "Service Unavailable", "status": 503, "detail": "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
               "instance": "/api/v1/interview-sessions/55/stt-token", "code": "STT_UNAVAILABLE" }\
             """;
+    public static final String RECORDING_ALREADY_EXISTS =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 녹화가 등록된 면접이에요.",
+              "instance": "/api/v1/interview-sessions/55/recordings", "code": "RECORDING_ALREADY_EXISTS" }\
+            """;
+    public static final String RESULT_NOT_READY =
+            """
+            { "title": "Conflict", "status": 409, "detail": "결과를 만들고 있어요.",
+              "instance": "/api/v1/interview-sessions/55/result", "code": "RESULT_NOT_READY" }\
+            """;
+    public static final String NO_RESULT =
+            """
+            { "title": "Conflict", "status": 409, "detail": "답변 없이 끝난 면접은 결과가 없어요.",
+              "instance": "/api/v1/interview-sessions/55/result", "code": "NO_RESULT" }\
+            """;
+    public static final String GROWTH_REVIEW_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "그날의 성장 리뷰가 없어요.",
+              "instance": "/api/v1/growth-reviews/2026-10-01", "code": "GROWTH_REVIEW_NOT_FOUND" }\
+            """;
 
     private ErrorExamples() {}
 }
