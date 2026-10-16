@@ -27,5 +27,36 @@ public final class ErrorExamples {
               "instance": "/api/v1/home", "code": "INTERNAL_ERROR" }\
             """;
 
+    public static final String LOGIN_FAILED =
+            """
+            { "title": "Unauthorized", "status": 401, "detail": "이메일 또는 비밀번호를 확인해 주세요.",
+              "instance": "/api/v1/auth/login", "code": "LOGIN_FAILED" }\
+            """;
+    public static final String REFRESH_TOKEN_INVALID =
+            """
+            { "title": "Unauthorized", "status": 401, "detail": "다시 로그인해 주세요.",
+              "instance": "/api/v1/auth/token/refresh", "code": "REFRESH_TOKEN_INVALID" }\
+            """;
+    public static final String AGREEMENT_REQUIRED =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "필수 약관에 모두 동의해 주세요.",
+              "instance": "/api/v1/auth/signup", "code": "AGREEMENT_REQUIRED" }\
+            """;
+    public static final String EMAIL_DUPLICATED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 사용 중인 이메일이에요.",
+              "instance": "/api/v1/auth/signup", "code": "EMAIL_DUPLICATED" }\
+            """;
+    public static final String PASSWORD_MISMATCH =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "비밀번호가 맞지 않아요.",
+              "instance": "/api/v1/users/me/password", "code": "PASSWORD_MISMATCH" }\
+            """;
+    public static final String FILE_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "업로드한 파일을 찾을 수 없어요.",
+              "instance": "/api/v1/users/me/profile-image", "code": "FILE_NOT_FOUND" }\
+            """;
+
     private ErrorExamples() {}
 }
