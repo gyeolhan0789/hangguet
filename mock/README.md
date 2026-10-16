@@ -34,3 +34,10 @@ docker build -t a301-mock .
 docker run -p 8080:8080 -e MOCK_CORS_ALLOWED_ORIGINS=http://localhost:3000 a301-mock
 ```
 
+## 환경 변수
+
+| 이름 | 설명 | 기본값 |
+|---|---|---|
+| `MOCK_CORS_ALLOWED_ORIGINS` | API를 호출할 FE 주소. 쉼표로 여러 개 | `http://localhost:3000` |
+
+리버스 프록시(예: `/mock` 경로) 뒤에서는 프록시가 `X-Forwarded-*` 헤더를 넘기면 Swagger가 프록시 주소로 요청을 보낸다.
