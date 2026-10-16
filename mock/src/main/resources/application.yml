@@ -1,6 +1,13 @@
 spring:
   application:
     name: a301-mock
+  jackson:
+    # 일시는 한국 시간 오프셋(+09:00)으로 내보낸다
+    time-zone: Asia/Seoul
+  mvc:
+    # 오류 응답을 RFC 9457 ProblemDetail로
+    problemdetails:
+      enabled: true
 
 management:
   endpoints:
