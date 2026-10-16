@@ -6,6 +6,47 @@
 
 ---
 
+### 📅 2026-10-15 (목)
+
+**오늘 한 것**
+- ERD 검토: 성장 리뷰를 별도 테이블 없이 기준별 점수(`session_scores`) 내용으로 대체할 수 있는 점을 발견해 ERD 담당에게 전달, ERD 수정 완료
+- 목 서버 구성 (S15P31A301-78)
+  - 목 서버 Spring 프로젝트(`mock/`), 공통 오류 형식(ProblemDetail + `code`), Swagger 기본 설정
+  - Dockerfile, FE 주소 CORS 허용·리버스 프록시 경로 설정, CI 빌드·테스트 작업 추가
+- API 명세 작성 (S15P31A301-69)
+  - 화면·ERD 기준 API 36개를 목 서버 Swagger로 작성: 요청·응답 필드와 제약, 상태별 케이스, 화면 상태별 예시 응답
+  - 공통 규약, WebSocket 메시지 계약, 오류 코드 표, 보류·확인 필요 목록(B-1~B-11)
+- 백엔드 도메인 구성 (S15P31A301-79)
+  - Flyway 초기 스키마(테이블 10개), 엔티티 10개·enum, 요청·응답 DTO, 엔티티 → 응답 DTO 변환
+  - 상태 전이·변환·DB 제약 테스트 17개
+- 백엔드 설계 문서 작성 (S15P31A301-80): 상태 전이, 처리 흐름, 계산 규칙, Redis 키, 멱등성, 인증, 파일
+- 중간발표 PPT 검토 및 발표 준비
+
+**배운 것 / 정리**
+- API 명세를 Swagger(springdoc)로 코드에서 만들면 명세와 실제 응답이 어긋나지 않음
+- 오류 응답은 표준 형식(RFC 9457 ProblemDetail)에 `code`를 더해 화면이 `code`로 분기하게 함. 목록은 Spring Data의 `content`·`page` 형식 사용
+- PostgreSQL은 제약 위반이 한 번 나면 그 트랜잭션 전체가 실패함 → 하루 한 건인 연습 기록은 예외를 잡지 않고 `ON CONFLICT DO NOTHING`으로 넣어야 함
+- ID를 IDENTITY로 만들면 `persist` 시점에 INSERT가 나가서 제약 위반도 그때 바로 발생함
+- DB에서 읽은 일시는 UTC 오프셋으로 나옴(같은 시각). 응답의 `+09:00`은 Jackson 시간대 설정이 맡음
+
+**막힌 것 & 해결**
+| 문제 | 원인 | 해결 |
+|---|---|---|
+| CI 목 서버 빌드가 `./gradlew: Permission denied`로 실패 | Windows에서 파일을 복사하며 실행 권한이 빠짐 | `git update-index --chmod=+x`로 실행 권한을 넣어 첫 커밋에 반영, CI와 같은 Linux 이미지에서 확인 후 다시 push |
+| Swagger 문서에 오류 응답 스키마의 타입이 빠짐 | OpenAPI 3.1에서는 `type` 대신 `types`로 지정해야 함 | `types`로 지정, 문서 테스트로 확인 |
+| Spring 자체 오류(404·405 등)의 안내 문구가 영어 내부 메시지 | Spring 기본 문구를 그대로 내보냄 | 사용자용 한국어 문구로 바꾸고 테스트 추가 |
+| 일시를 +09:00으로 읽게 하는 DB 설정이 효과 없음 | Hibernate가 `timestamptz`를 UTC로 읽음 | 설정 제거, 응답 시간대는 Jackson 설정으로 처리 |
+
+**내일 할 것**
+- [ ] 목 서버 Controller·Swagger 설정을 `backend/`로 옮기는 작업 이슈 생성
+
+**참고 링크**
+- [목 서버 (API 명세 Swagger)](../mock/README.md)
+- [BE 설계](../docs/BE-설계.md)
+- [Git 협업 가이드](../docs/CONTRIBUTING.md)
+
+---
+
 ### 📅 2026-10-14 (수)
 
 **오늘 한 것**
