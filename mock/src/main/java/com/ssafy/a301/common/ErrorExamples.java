@@ -57,6 +57,16 @@ public final class ErrorExamples {
             { "title": "Not Found", "status": 404, "detail": "업로드한 파일을 찾을 수 없어요.",
               "instance": "/api/v1/users/me/profile-image", "code": "FILE_NOT_FOUND" }\
             """;
+    public static final String APPLICATION_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "지원서를 찾을 수 없어요.",
+              "instance": "/api/v1/applications/0", "code": "APPLICATION_NOT_FOUND" }\
+            """;
+    public static final String APPLICATION_IN_USE =
+            """
+            { "title": "Conflict", "status": 409, "detail": "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
+              "instance": "/api/v1/applications/9", "code": "APPLICATION_IN_USE" }\
+            """;
 
     private ErrorExamples() {}
 }

@@ -40,6 +40,7 @@ public class OpenApiConfig {
             - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
             - **멱등성** 면접 만들기·시작·답변 제출·끝내기는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
             - **파일** 음성·영상·사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받음. API·WebSocket으로 파일을 보내지 않음
+            - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
 
             ### 이 목 서버
             실제 로직 없이 명세의 예시 응답을 돌려준다. 인증·DB는 없다.

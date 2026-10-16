@@ -15,7 +15,11 @@ public enum ErrorCode {
     AGREEMENT_REQUIRED(HttpStatus.BAD_REQUEST, "필수 약관에 모두 동의해 주세요."),
     EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일이에요."),
     PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "비밀번호가 맞지 않아요."),
-    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요.");
+    FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요."),
+
+    // 지원서
+    APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "지원서를 찾을 수 없어요."),
+    APPLICATION_IN_USE(HttpStatus.CONFLICT, "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.");
 
     private final HttpStatus status;
     private final String message;
