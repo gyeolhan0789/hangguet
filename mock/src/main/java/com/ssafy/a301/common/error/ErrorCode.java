@@ -19,7 +19,17 @@ public enum ErrorCode {
 
     // 지원서
     APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "지원서를 찾을 수 없어요."),
-    APPLICATION_IN_USE(HttpStatus.CONFLICT, "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.");
+    APPLICATION_IN_USE(HttpStatus.CONFLICT, "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요."),
+
+    // 면접 진행
+    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "면접을 찾을 수 없어요."),
+    QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "질문을 찾을 수 없어요."),
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "이미 처리된 요청이에요."),
+    INVALID_SESSION_STATE(HttpStatus.CONFLICT, "지금은 할 수 없는 요청이에요."),
+    PLAN_NOT_READY(HttpStatus.CONFLICT, "면접관이 질문을 준비하고 있어요."),
+    PLAN_NOT_FAILED(HttpStatus.CONFLICT, "면접 준비가 실패한 상태가 아니에요."),
+    ANSWER_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "이미 답변한 질문이에요."),
+    STT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

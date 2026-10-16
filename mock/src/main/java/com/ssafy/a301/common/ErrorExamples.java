@@ -67,6 +67,46 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
               "instance": "/api/v1/applications/9", "code": "APPLICATION_IN_USE" }\
             """;
+    public static final String SESSION_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "면접을 찾을 수 없어요.",
+              "instance": "/api/v1/interview-sessions/0", "code": "SESSION_NOT_FOUND" }\
+            """;
+    public static final String QUESTION_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "질문을 찾을 수 없어요.",
+              "instance": "/api/v1/interview-sessions/55/questions/0/answer", "code": "QUESTION_NOT_FOUND" }\
+            """;
+    public static final String IDEMPOTENCY_KEY_REUSED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 처리된 요청이에요.",
+              "instance": "/api/v1/interview-sessions", "code": "IDEMPOTENCY_KEY_REUSED" }\
+            """;
+    public static final String INVALID_SESSION_STATE =
+            """
+            { "title": "Conflict", "status": 409, "detail": "지금은 할 수 없는 요청이에요.",
+              "instance": "/api/v1/interview-sessions/55/start", "code": "INVALID_SESSION_STATE" }\
+            """;
+    public static final String PLAN_NOT_READY =
+            """
+            { "title": "Conflict", "status": 409, "detail": "면접관이 질문을 준비하고 있어요.",
+              "instance": "/api/v1/interview-sessions/55/start", "code": "PLAN_NOT_READY" }\
+            """;
+    public static final String PLAN_NOT_FAILED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "면접 준비가 실패한 상태가 아니에요.",
+              "instance": "/api/v1/interview-sessions/55/plan/retry", "code": "PLAN_NOT_FAILED" }\
+            """;
+    public static final String ANSWER_ALREADY_SUBMITTED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 답변한 질문이에요.",
+              "instance": "/api/v1/interview-sessions/55/questions/303/answer", "code": "ANSWER_ALREADY_SUBMITTED" }\
+            """;
+    public static final String STT_UNAVAILABLE =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/interview-sessions/55/stt-token", "code": "STT_UNAVAILABLE" }\
+            """;
 
     private ErrorExamples() {}
 }
