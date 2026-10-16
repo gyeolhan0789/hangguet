@@ -151,6 +151,12 @@ commit-message:
         - ai/**/*
         - .gitlab-ci.yml
 
+.mock-rules:
+  rules:
+    - changes:
+        - mock/**/*
+        - .gitlab-ci.yml
+
 # 소나큐브 분석은 수동 실행입니다. 파이프라인에 ▶ 버튼으로만 남고 자동으로 돌지 않습니다.
 # rules 안에서 when: manual을 쓰면 allow_failure 기본값이 false가 되어
 # 버튼을 누르기 전까지 파이프라인이 끝나지 않으므로 allow_failure: true를 함께 적습니다.
@@ -310,6 +316,46 @@ be-sonar:
       -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
       -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
       -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## MOCK ##
+
+# 목 서버(mock/): API 명세(Swagger)와 예시 응답. DB가 없어 서비스 컨테이너를 붙이지 않습니다.
+.mock:
+  extends: .mock-rules
+  image: eclipse-temurin:21-jdk-noble
+  variables:
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-home"
+  cache:
+    key:
+      files:
+        - mock/gradle/wrapper/gradle-wrapper.properties
+        - mock/build.gradle
+    paths:
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+    policy: pull-push
+
+# 포맷·정적 분석·컴파일
+mock-build:
+  extends: .mock
+  stage: build
+  script:
+    - cd mock
+    - ./gradlew spotlessCheck checkstyleMain checkstyleTest assemble --no-daemon
+
+mock-test:
+  extends: .mock
+  stage: test
+  needs:
+    - job: mock-build
+  script:
+    - cd mock
+    - ./gradlew test --no-daemon
+  artifacts:
+    when: always
+    reports:
+      junit: mock/build/test-results/test/*.xml
+    expire_in: 1 day
 
 ## FE ##
 
