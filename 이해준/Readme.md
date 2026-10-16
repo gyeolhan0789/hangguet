@@ -6,6 +6,42 @@
 
 ---
 
+### 📅 2026-10-16 (금)
+
+**오늘 한 것**
+- 중간 발표 팀간 평가 작성
+- mock server 배포 - [목서버 주소](https://hangguet.yobistory.com/mock/be/docs)
+  - 미니PC에 배포 전용 GitLab Runner 등록 (shell executor, 태그 `a301-mock-deploy`, Protected)
+  - CI에 develop push 파이프라인과 `mock-deploy` 잡 추가 → develop 병합 시 자동 배포
+  - `deploy/mock/compose.yml`, Nginx 설정 예시 작성
+
+**배운 것 / 정리**
+- **배포 흐름**
+  - develop 병합 → push 파이프라인 → mock-build → mock-test → mock-deploy(미니PC) → `docker compose up -d --build` → 헬스체크
+  - 요청 경로: Cloudflare Tunnel → Nginx 컨테이너 → `a301-mock:8080` (같은 Docker 네트워크)
+  - `resource_group`으로 배포를 한 번에 하나만, `interruptible: false`로 중간 취소 방지
+- **Nginx (컨테이너)**
+  - `proxy_pass`에 이름을 바로 쓰면 시작할 때 한 번만 DNS 조회 → 대상이 없으면 Nginx가 안 뜨고, 재배포로 IP가 바뀌면 502
+  - `resolver 127.0.0.11`(Docker 내장 DNS) + 변수 `proxy_pass` → 10초 캐시 후 다시 조회
+  - 변수 `proxy_pass`는 location 접두사를 자동으로 안 떼므로 `rewrite`로 `/mock/be`를 뗌
+- **리버스 프록시 뒤의 Spring**
+  - TLS는 Cloudflare에서 끝나고 Nginx까지는 HTTP → `X-Forwarded-Proto/Host/Port/Prefix`로 원래 주소를 알려 줌
+  - `forward-headers-strategy: framework`가 이 헤더로 Swagger `servers` 주소를 만듦 → 확인: `/v3/api-docs`의 `servers`
+  - springdoc의 `swagger-ui.path`(`/docs`)는 `/swagger-ui/index.html`로 가는 리다이렉트용 별칭
+- **CORS**
+  - 브라우저가 다른 출처로 요청할 때만 적용. 서버 간 요청·curl은 상관없음
+  - FE를 같은 도메인(`hangguet.yobistory.com`)에 배포하면 CORS 설정이 필요 없음
+
+**막힌 것 & 해결**
+
+**내일 할 것**
+- [ ]
+
+**참고 링크**
+-
+
+---
+
 ### 📅 2026-10-15 (목)
 
 **오늘 한 것**
