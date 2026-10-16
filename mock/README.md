@@ -41,3 +41,10 @@ docker run -p 8080:8080 -e MOCK_CORS_ALLOWED_ORIGINS=http://localhost:3000 a301-
 | `MOCK_CORS_ALLOWED_ORIGINS` | API를 호출할 FE 주소. 쉼표로 여러 개 | `http://localhost:3000` |
 
 리버스 프록시(예: `/mock` 경로) 뒤에서는 프록시가 `X-Forwarded-*` 헤더를 넘기면 Swagger가 프록시 주소로 요청을 보낸다.
+
+## 배포
+
+- 주소: https://hangguet-bemock.yobistory.com/swagger-ui.html
+- 방식: `mock/` 또는 `deploy/mock/` 변경이 `develop`에 병합되면 CI `mock-deploy` 잡이 미니PC에서 [`deploy/mock/compose.yml`](../deploy/mock/compose.yml)로 다시 빌드·실행한다. 배포 후 `/actuator/health`가 UP이 아니면 잡이 실패한다.
+- 롤백: GitLab **Deployments → Environments → mock**에서 이전 배포를 Re-deploy 한다.
+- Nginx 설정: [`deploy/mock/nginx.conf.example`](../deploy/mock/nginx.conf.example)
