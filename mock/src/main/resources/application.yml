@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: a301-mock
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
