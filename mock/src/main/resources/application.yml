@@ -1,5 +1,5 @@
 server:
-  # 리버스 프록시(예: /mock 경로) 뒤에서 X-Forwarded-* 헤더를 반영한다.
+  # 리버스 프록시(배포: /mock/be 경로) 뒤에서 X-Forwarded-*(Prefix 포함) 헤더를 반영한다.
   # Swagger "Try it out"이 프록시 주소로 요청을 보내게 된다.
   forward-headers-strategy: framework
 
@@ -25,7 +25,7 @@ management:
 
 springdoc:
   swagger-ui:
-    path: /swagger-ui.html
+    path: /docs
     tags-sorter: alpha
     doc-expansion: none
   api-docs:

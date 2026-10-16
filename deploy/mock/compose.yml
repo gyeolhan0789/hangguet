@@ -1,7 +1,8 @@
 # 목 서버 미니PC 배포
 # CI(mock-deploy)가 실행한다. 수동 실행: 레포 루트에서
 #   docker compose -f deploy/mock/compose.yml up -d --build
-# 외부 요청 경로: Cloudflare Tunnel → Nginx 컨테이너(nginx.conf.example) → a301-mock:8080 (server_public-network)
+# 외부 주소: https://hangguet.yobistory.com/mock/be/docs
+# 외부 요청 경로: Cloudflare Tunnel → Nginx 컨테이너(nginx.conf.example, /mock/be 접두사 제거) → a301-mock:8080 (server_public-network)
 name: a301-mock
 
 services:
