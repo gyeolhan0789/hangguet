@@ -55,13 +55,7 @@ public class AuthController {
     @Operation(
             summary = "1.1 이메일 사용 가능 여부",
             description =
-                    """
-                    **화면 — S01-1 회원가입 › 이메일 입력 즉시 검사**
-
-                    탈퇴하지 않은 회원 중 같은 이메일이 없으면 사용 가능하다. 탈퇴한 회원이 쓰던 이메일은 다시 쓸 수 있다.
-
-                    - **200**: 항상. 사용 중이면 `available: false`(오류 아님)\
-                    """)
+                    "탈퇴하지 않은 회원 중 같은 이메일이 없으면 사용 가능하다. 사용 중이어도 오류가 아니라 `available: false`로 답한다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",
@@ -76,19 +70,7 @@ public class AuthController {
         return new EmailAvailabilityResponse(true);
     }
 
-    @Operation(
-            summary = "1.2 회원가입",
-            description =
-                    """
-                    **화면 — S01-1 회원가입 › [가입하고 시작하기]**
-
-                    회원을 만들고 필수 약관 3개 동의를 기록한 뒤 로그인 토큰을 준다. 화면은 S02-D(첫 방문 홈)로 간다.
-
-                    - **201**: 가입 완료. 로그인 상태
-                    - **400 / AGREEMENT_REQUIRED**: 약관 3개 중 하나라도 없음. 가입하지 않음
-                    - **400 / VALIDATION_FAILED**: 이메일·비밀번호·닉네임 조건 불일치. 칸마다 `errors`
-                    - **409 / EMAIL_DUPLICATED**: 사용 중인 이메일(1.1 이후 다른 사람이 먼저 가입한 경우 포함)\
-                    """)
+    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 필수 약관 3개 동의를 기록한 뒤 로그인 토큰을 준다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "201",
@@ -126,17 +108,7 @@ public class AuthController {
         return stub.read(TOKEN_EXAMPLE, TokenResponse.class);
     }
 
-    @Operation(
-            summary = "1.3 로그인",
-            description =
-                    """
-                    **화면 — S01 로그인 › [로그인]** → S02 홈(하루 첫 진입이면 S02-1)
-
-                    자동 로그인 유지(스트릭 유지 목적)를 위해 리프레시 토큰 유효 기간을 길게 둔다(값은 BE 결정). 비밀번호 찾기는 MVP 제외.
-
-                    - **200**: 이메일·비밀번호 일치
-                    - **401 / LOGIN_FAILED**: 이메일 없음·비밀번호 틀림·탈퇴 회원. 구분 없이 같은 문구\
-                    """)
+    @Operation(summary = "1.3 로그인")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",
@@ -155,17 +127,7 @@ public class AuthController {
         return stub.read(TOKEN_EXAMPLE, TokenResponse.class);
     }
 
-    @Operation(
-            summary = "1.4 토큰 재발급",
-            description =
-                    """
-                    **화면 — 공통. 액세스 토큰 만료 시**
-
-                    새 액세스·리프레시 토큰을 준다. 쓴 리프레시 토큰은 폐기된다.
-
-                    - **200**: 유효한 리프레시 토큰
-                    - **401 / REFRESH_TOKEN_INVALID**: 만료·재사용·로그아웃·탈퇴로 폐기됨. 화면은 S01로\
-                    """)
+    @Operation(summary = "1.4 토큰 재발급", description = "새 액세스·리프레시 토큰을 준다. 쓴 리프레시 토큰은 폐기된다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",
@@ -184,14 +146,7 @@ public class AuthController {
         return stub.read(REFRESH_EXAMPLE, RefreshResponse.class);
     }
 
-    @Operation(
-            summary = "1.5 로그아웃",
-            description =
-                    """
-                    **화면 — C01 프로필 메뉴, S09-1 설정** → 확인 없이 S00
-
-                    - **204**: 로그아웃. 이미 폐기된 토큰이어도 204\
-                    """)
+    @Operation(summary = "1.5 로그아웃")
     @ApiResponse(responseCode = "204")
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)

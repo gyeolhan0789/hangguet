@@ -19,12 +19,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class HomeController {
 
-    private static final String RULES =
-            """
-
-            **스트릭 규칙**: 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 연습한 날 = 연습 면접이 있는 날. 스트릭 = 오늘(또는 어제)까지 빠짐없이 이어진 연습일 수, 하루라도 빠지면 0. 뱃지 구간 0 / 1–2 / 3–6 / 7–13 / 14–20 / 21+일.\
-            """;
-
     static final String HOME_NOT_DONE =
             """
             { "homeState": "NOT_DONE_TODAY", "currentStreak": 7, "bestStreak": 7, "leveledUpToday": true,
@@ -79,17 +73,7 @@ public class HomeController {
         this.stub = stub;
     }
 
-    @Operation(
-            summary = "3.1 홈",
-            description =
-                    """
-                    **화면 — S02 · S02-B · S02-C · S02-D, S02-1 인트로, S02-L 레벨업**
-
-                    홈 한 장에 필요한 값을 한 번에 준다. 어떤 홈을 그릴지는 `homeState`로 정한다. 자정까지 남은 시간, 인트로·레벨업 하루 1회 노출은 화면이 처리한다.
-
-                    - **200**: 항상. 기록이 없으면 `FIRST_VISIT`, 숫자 0, 배열 빈 배열\
-                    """
-                            + RULES)
+    @Operation(summary = "3.1 홈", description = "홈에 필요한 값을 한 번에 준다. 홈 종류는 `homeState`로 구분한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -107,31 +91,14 @@ public class HomeController {
         return stub.read(HOME_NOT_DONE, HomeResponse.class);
     }
 
-    @Operation(
-            summary = "3.2 통계",
-            description =
-                    """
-                    **화면 — S09 마이페이지 › 통계 타일, 이름 아래 직무**
-
-                    - **200**: 항상. 기록이 없으면 0·null\
-                    """)
+    @Operation(summary = "3.2 통계")
     @ApiResponse(responseCode = "200", content = @Content(examples = @ExampleObject(value = STATS)))
     @GetMapping("/api/v1/users/me/stats")
     public StatsResponse stats() {
         return stub.read(STATS, StatsResponse.class);
     }
 
-    @Operation(
-            summary = "3.3 연습 달력",
-            description =
-                    """
-                    **화면 — S09 마이페이지 › 스트릭 달력** → 날짜 클릭 시 7.1
-
-                    "이번 달 10일 연습"은 `content` 개수, "지금 7일 연속"은 3.2 `currentStreak`, 연속일 띠는 날짜가 이어지는지로 화면이 그린다.
-
-                    - **200**: 항상. 없으면 빈 배열
-                    - **400 / VALIDATION_FAILED**: `month` 형식 오류\
-                    """)
+    @Operation(summary = "3.3 연습 달력", description = "그 달에 연습한 날짜 목록을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = PRACTICE_LOGS)))
