@@ -27,7 +27,7 @@ springdoc:
   swagger-ui:
     path: /docs
     tags-sorter: alpha
-    doc-expansion: none
+    doc-expansion: list
   api-docs:
     path: /v3/api-docs
 

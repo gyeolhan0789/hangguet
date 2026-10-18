@@ -25,12 +25,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.core.type.TypeReference;
 
-@Tag(
-        name = "7. 성장 리뷰",
-        description =
-                """
-                저장하지 않고 조회 시 계산. 그날 점수 = 그날 `COMPLETED` 면접들의 기준별 평균. 비교 대상 = 직전 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null). 다음에 해볼 것 = 그날 평가 기준 점수와 질문별 점수 중 가장 낮은 것의 문구(기준은 `comment`, 질문은 `improvePoint`), 동점이면 모두.\
-                """)
+@Tag(name = "7. 성장 리뷰")
 @RestController
 @RequestMapping("/api/v1/growth-reviews")
 public class GrowthReviewController {
@@ -77,17 +72,7 @@ public class GrowthReviewController {
         this.stub = stub;
     }
 
-    @Operation(
-            summary = "7.1 날짜별 성장 리뷰",
-            description =
-                    """
-                    **화면 — S08(오늘), S08-C(첫 면접), S09 달력 날짜, S02 최근 리뷰 [보기]**
-
-                    화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다.
-
-                    - **200**: 그날 결과가 있음
-                    - **404 / GROWTH_REVIEW_NOT_FOUND**: 그날 연습 기록 또는 결과가 없음\
-                    """)
+    @Operation(summary = "7.1 날짜별 성장 리뷰")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -114,16 +99,7 @@ public class GrowthReviewController {
         return stub.read(REVIEW, GrowthReviewResponse.class);
     }
 
-    @Operation(
-            summary = "7.2 최근 성장 리뷰",
-            description =
-                    """
-                    **화면 — S02 홈 › 최근 성장 리뷰**(3.1에도 포함)
-
-                    페이지 목록, 최근 날짜 순.
-
-                    - **200**: 항상. 없으면 빈 배열\
-                    """)
+    @Operation(summary = "7.2 최근 성장 리뷰", description = "최근 날짜 순 페이지 목록.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = RECENT)))

@@ -33,14 +33,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(
-        name = "5. 면접 진행",
-        description =
-                """
-                **면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`.
-
-                **면접 플랜 상태** `planStatus`: `GENERATING` · `READY` · `FAILED`. **분석 단계** `analysisStep`: `ORGANIZING_ANSWERS` → `SCORING` → `WRITING_FEEDBACK`.\
-                """)
+@Tag(name = "5. 면접 진행")
 @RestController
 @RequestMapping("/api/v1/interview-sessions")
 public class InterviewSessionController {
@@ -168,15 +161,7 @@ public class InterviewSessionController {
     @Operation(
             summary = "5.1 면접 만들기",
             description =
-                    """
-                    **화면 — S05-1 면접 방식 › [다음: 장치 점검](화상) · [면접 시작](채팅)**
-
-                    면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다(사용자에게 비노출). 완료는 WebSocket `PLAN_READY` 또는 5.2로 확인한다.
-
-                    - **201**: 생성(`status: READY`, `planStatus: GENERATING`)
-                    - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
-                    - **409 / IDEMPOTENCY_KEY_REUSED**: 같은 키로 다른 본문\
-                    """)
+                    "면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다. 완료는 WebSocket `PLAN_READY` 또는 5.2로 확인한다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -219,15 +204,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.2 면접 조회",
-            description =
-                    """
-                    **화면 — S05 [면접 시작] 활성화, S06·S06-B 상단, S06-F 재연결 복구, S06-1 진행**
-
-                    WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다시 그린다(CONTRIBUTING 7). "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3).
-
-                    - **200**: 본인 면접
-                    - **404 / SESSION_NOT_FOUND**: 없거나 남의 면접\
-                    """)
+            description = "면접 상태와 진행 정보를 준다. WebSocket 메시지를 놓쳤을 때 이 응답으로 복구한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -260,16 +237,7 @@ public class InterviewSessionController {
         return stub.read(S06_IN_PROGRESS, SessionResponse.class);
     }
 
-    @Operation(
-            summary = "5.3 면접 플랜 재생성",
-            description =
-                    """
-                    **화면 — S05 장치 점검 › 생성 실패 › [다시 시도]**
-
-                    - **202**: 재생성 시작. 5.2 형식(`planStatus: GENERATING`)
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / PLAN_NOT_FAILED**: `planStatus`가 `FAILED`가 아님\
-                    """)
+    @Operation(summary = "5.3 면접 플랜 재생성")
     @ApiResponse(
             responseCode = "202",
             content = @Content(examples = @ExampleObject(value = CREATED)))
@@ -299,21 +267,7 @@ public class InterviewSessionController {
         return stub.read(CREATED, SessionResponse.class);
     }
 
-    @Operation(
-            summary = "5.4 면접 시작",
-            description =
-                    """
-                    **화면 — S05 [면접 시작](화상), S05-1 [면접 시작](채팅)**
-
-                    면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준).
-
-                    채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 `PLAN_READY`(또는 5.2 `planStatus: READY`)를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다.
-
-                    - **200**: 시작. 5.2 형식(`status: IN_PROGRESS`, `currentQuestion` = 1번 질문)
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / PLAN_NOT_READY**: 플랜 생성 중이거나 실패
-                    - **409 / INVALID_SESSION_STATE**: `READY`가 아님\
-                    """)
+    @Operation(summary = "5.4 면접 시작", description = "면접을 시작하고 첫 질문을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = STARTED)))
@@ -351,19 +305,7 @@ public class InterviewSessionController {
         return stub.read(STARTED, SessionResponse.class);
     }
 
-    @Operation(
-            summary = "5.5 지금 질문",
-            description =
-                    """
-                    **화면 — S06·S06-B 질문 말풍선. `QUESTION_READY`를 놓쳤을 때 복구**
-
-                    - **200**: 답할 질문 있음
-                    - **202 / QUESTION_GENERATING**: 다음 질문 생성 중. 오류가 아니라 본문은 `{ "code": "QUESTION_GENERATING" }`만. `QUESTION_READY`를 기다린다
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
-
-                    질문 음성(TTS) 전달은 보류(B-1).\
-                    """)
+    @Operation(summary = "5.5 지금 질문", description = "지금 답할 질문을 준다. 다음 질문을 만드는 중이면 202로 답한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -405,16 +347,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.6 답변 음성 업로드 주소",
-            description =
-                    """
-                    **화면 — S06 화상 › 답변 녹음 시작**
-
-                    응답은 2.4와 같은 형식. `objectKey`는 5.7 `audioObjectKey`로 보낸다.
-
-                    - **200**: 발급
-                    - **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님\
-                    """)
+            description = "답변 음성을 올릴 Presigned URL을 준다. 받은 `objectKey`는 5.7 `audioObjectKey`로 보낸다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = AUDIO_UPLOAD_URL)))
@@ -453,18 +386,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.7 답변 제출",
-            description =
-                    """
-                    **화면 — S06 [답변 완료] 또는 침묵, S06-B [보내기]**
-
-                    질문 하나에 답변 하나만 낼 수 있다. 화상은 실시간 음성 인식(5.10)의 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다. 음성 파일은 음성 지표 분석·보관용이다. 다음 질문은 `QUESTION_READY` 또는 5.5로 받고, 점수·피드백은 면접 종료 후 채워진다.
-
-                    - **202**: 접수
-                    - **400 / VALIDATION_FAILED**: `content` 길이 초과(TEXT 1,000자 / VOICE 10,000자), VOICE인데 `audioObjectKey` 없음
-                    - **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND** · **FILE_NOT_FOUND**(음성 파일 없음)
-                    - **409 / ANSWER_ALREADY_SUBMITTED**: 이미 답변함(다른 키로 재전송)
-                    - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님\
-                    """)
+            description = "질문 하나에 답변 하나만 낼 수 있다. 화상은 음성 인식 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -530,17 +452,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.8 면접 끝내기",
-            description =
-                    """
-                    **화면 — 마지막 답변 후 자동, S06-E [끝내기], S06-F [면접 끝내기]**
-
-                    본문 없음. 답변 1개 이상이면 결과 생성을 시작하고 그날 연습으로 인정한다. 0개면 결과·연습 인정 없이 끝난다.
-
-                    - **202**: 답변 ≥1. 5.2 형식(`status: ANALYZING`). 완료는 `SESSION_STATUS_CHANGED` 또는 5.2
-                    - **200**: 답변 0. 5.2 형식(`status: ABORTED`). 화면은 홈으로
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님\
-                    """)
+            description = "본문 없음. 답변이 1개 이상이면 결과 생성을 시작하고(202), 0개면 결과 없이 끝난다(200).")
     @ApiResponse(
             responseCode = "202",
             content =
@@ -587,16 +499,7 @@ public class InterviewSessionController {
         return ResponseEntity.accepted().body(stub.read(ENDED_ANALYZING, SessionResponse.class));
     }
 
-    @Operation(
-            summary = "5.9 결과 재생성",
-            description =
-                    """
-                    **화면 — S06-1 › 실패 › [다시 시도]**
-
-                    - **202**: 재생성 시작. 5.2 형식(`status: ANALYZING`)
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: `FAILED`가 아님\
-                    """)
+    @Operation(summary = "5.9 결과 재생성")
     @ApiResponse(
             responseCode = "202",
             content = @Content(examples = @ExampleObject(value = S06_1_ANALYZING)))
@@ -626,19 +529,7 @@ public class InterviewSessionController {
         return stub.read(S06_1_ANALYZING, SessionResponse.class);
     }
 
-    @Operation(
-            summary = "5.10 실시간 음성 인식 토큰",
-            description =
-                    """
-                    **화면 — S06 화상 › 답변 듣기 시작, 토큰 만료 전 재발급**
-
-                    브라우저가 STT 회사에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 BE·WebSocket을 거치지 않는다(CONTRIBUTING 7). 화면은 받아 적는 글을 S06 자막으로 보여 주고 최종 글을 5.7 `content`로 보낸다. STT 회사는 1회용 토큰을 지원하는 일레븐랩스·Soniox 중 미정(B-2).
-
-                    - **200**: 발급
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
-                    - **503 / STT_UNAVAILABLE**: STT 회사 토큰 발급 실패. 잠시 뒤 재시도\
-                    """)
+    @Operation(summary = "5.10 실시간 음성 인식 토큰", description = "브라우저가 STT 회사에 직접 연결할 1회용 임시 토큰을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = STT_TOKEN)))

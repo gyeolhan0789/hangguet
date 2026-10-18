@@ -89,16 +89,7 @@ public class ResultController {
 
     @Operation(
             summary = "6.1 녹화 업로드 주소",
-            description =
-                    """
-                    **화면 — S06 화상 › 면접 종료 시**
-
-                    녹화 동의는 가입 때 받는다(1.2 `RECORDING`). 응답은 2.4와 같은 형식. 용량이 크면 멀티파트 업로드로 바뀔 수 있다(BE 결정).
-
-                    - **200**: 발급
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / INVALID_SESSION_STATE**: 화상 면접이 아니거나 시작 전\
-                    """)
+            description = "면접 녹화 영상을 올릴 Presigned URL을 준다. 응답은 2.4와 같은 형식이다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = UPLOAD_URL)))
@@ -128,18 +119,7 @@ public class ResultController {
         return stub.read(UPLOAD_URL, UploadUrlResponse.class);
     }
 
-    @Operation(
-            summary = "6.2 녹화 등록",
-            description =
-                    """
-                    **화면 — S06 녹화 업로드 완료 직후**
-
-                    등록된 영상으로 시선 응시 비율(6.3 `speechMetrics.gazeRatio`)을 구한다.
-
-                    - **201**: 등록
-                    - **404 / FILE_NOT_FOUND**: S3에 파일 없음
-                    - **409 / RECORDING_ALREADY_EXISTS**: 이 면접에 녹화가 이미 있음(면접당 1개, 서버에서 확인)\
-                    """)
+    @Operation(summary = "6.2 녹화 등록", description = "업로드한 녹화 영상을 면접에 등록한다. 면접당 1개.")
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = RECORDING)))
@@ -176,19 +156,7 @@ public class ResultController {
 
     @Operation(
             summary = "6.3 면접 결과",
-            description =
-                    """
-                    **화면 — S07 피드백 결과**
-
-                    면접 1회 결과. 화면은 점수 대신 좋아요·보통·아쉬워요로 보여 준다. 반응 썸네일은 면접관별 고정 이미지라 API 필드가 없다. 채팅 면접은 같은 형식에 `mode: CHAT`, `speechMetrics: null`. 채팅도 기준 4개 점수가 모두 나온다(전달력은 답변 글로 판단).
-
-                    화면 표시: 기준 이름(`JOB_FIT` → 직무 적합성, `COVER_LETTER` → 자소서 검증, `LOGIC` → 논리성, `DELIVERY` → 전달력)과 `grade` 문구는 화면이 바꾼다. 질문별 피드백은 첫 번째 `WEAK`·`NORMAL` 질문만 펼친다.
-
-                    - **200**: `COMPLETED`
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / RESULT_NOT_READY**: `ANALYZING` 또는 `FAILED`. 화면은 S06-1로
-                    - **409 / NO_RESULT**: `ABORTED`\
-                    """)
+            description = "면접 1회 결과. 채팅 면접은 `mode: CHAT`, `speechMetrics: null`.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(name = "S07 화상 면접 결과", value = RESULT)))
@@ -221,16 +189,7 @@ public class ResultController {
 
     @Operation(
             summary = "6.4 다시보기",
-            description =
-                    """
-                    **화면 — S07-1 면접 다시보기**
-
-                    화상은 녹화 영상과 질문별 시점(마커), 채팅은 같은 목록을 대화 기록으로 준다(`mode: CHAT`, `videoUrl: null`). 재생 중 자막은 재생 위치가 속한 질문(`questionCreatedAt` ≤ 위치 < 다음 질문)의 `answer`.
-
-                    - **200**: `COMPLETED`
-                    - **404 / SESSION_NOT_FOUND**
-                    - **409 / RESULT_NOT_READY** · **NO_RESULT**: 6.3과 같음\
-                    """)
+            description = "화상은 녹화 영상과 질문별 시점을, 채팅은 대화 기록을 준다(`videoUrl: null`).")
     @ApiResponse(
             responseCode = "200",
             content =

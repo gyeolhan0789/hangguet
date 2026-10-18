@@ -63,16 +63,7 @@ public class ApplicationController {
         this.stub = stub;
     }
 
-    @Operation(
-            summary = "4.1 지원서 작성",
-            description =
-                    """
-                    **화면 — S03 지원서 › [새 지원서 작성] 후 [다음: 면접관 선택]**
-
-                    지원서를 저장해 두고 여러 면접에 다시 쓴다(S03에서 저장된 지원서 중 고르거나 새로 작성). 자기소개서는 질문 생성과 "자소서 검증" 평가에 쓴다.
-
-                    - **201**: 저장\
-                    """)
+    @Operation(summary = "4.1 지원서 작성", description = "지원서를 저장한다. 저장한 지원서는 여러 면접에 다시 쓴다.")
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
@@ -82,15 +73,7 @@ public class ApplicationController {
         return stub.read(APPLICATION, ApplicationResponse.class);
     }
 
-    @Operation(
-            summary = "4.2 지원서 조회",
-            description =
-                    """
-                    **화면 — S03 저장된 지원서 선택 시 내용 보기, S04·S05-1 상단 "○○전자 · 백엔드 개발자", S04 [← 지원서 수정] 시 S03 채우기**
-
-                    - **200**: 본인 지원서
-                    - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서\
-                    """)
+    @Operation(summary = "4.2 지원서 조회")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
@@ -110,16 +93,7 @@ public class ApplicationController {
         return stub.read(APPLICATION, ApplicationResponse.class);
     }
 
-    @Operation(
-            summary = "4.3 지원서 목록",
-            description =
-                    """
-                    **화면 — S03 지원서 › 저장된 지원서 목록**
-
-                    최근 작성 순. 목록에는 자기소개서 본문을 넣지 않는다(선택하면 4.2).
-
-                    - **200**: 항상. 없으면 빈 배열 → S03은 바로 새로 작성 화면\
-                    """)
+    @Operation(summary = "4.3 지원서 목록", description = "최근 작성 순. 목록에는 자기소개서 본문이 없다(4.2로 조회).")
     @ApiResponse(responseCode = "200", content = @Content(examples = @ExampleObject(value = LIST)))
     @GetMapping
     public PagedModel<ApplicationListItem> list(
@@ -136,18 +110,7 @@ public class ApplicationController {
         return new PagedModel<>(new PageImpl<>(items, PageRequest.of(page, size), items.size()));
     }
 
-    @Operation(
-            summary = "4.4 지원서 수정",
-            description =
-                    """
-                    **화면 — S03 저장된 지원서 › 수정, S04 [← 지원서 수정]**
-
-                    보낸 필드만 바꾼다. 이미 면접에 쓴 지원서는 고칠 수 없다(지난 결과가 바뀌지 않도록). 화면은 내용을 채운 새 작성(4.1)으로 안내한다.
-
-                    - **200**: 수정. 응답은 4.1과 같음
-                    - **404 / APPLICATION_NOT_FOUND**
-                    - **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서\
-                    """)
+    @Operation(summary = "4.4 지원서 수정", description = "보낸 필드만 바꾼다. 면접에 쓴 지원서는 수정할 수 없다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
@@ -177,18 +140,7 @@ public class ApplicationController {
         return stub.read(APPLICATION, ApplicationResponse.class);
     }
 
-    @Operation(
-            summary = "4.5 지원서 삭제",
-            description =
-                    """
-                    **화면 — S03 저장된 지원서 › 삭제**
-
-                    지원서를 지운다. 이미 면접에 쓴 지원서는 지울 수 없다(지난 결과·다시보기가 이 지원서를 보여 준다).
-
-                    - **204**: 삭제
-                    - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
-                    - **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서\
-                    """)
+    @Operation(summary = "4.5 지원서 삭제", description = "면접에 쓴 지원서는 삭제할 수 없다.")
     @ApiResponse(responseCode = "204")
     @ApiResponse(
             responseCode = "404",

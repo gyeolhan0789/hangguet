@@ -6,6 +6,7 @@ AI 기반 실전 모의면접 서비스
 
 - [전체 기획](docs/전체기획.md)
 - [Git 협업 가이드](docs/CONTRIBUTING.md)
+- [API 명세](docs/API-명세.md)
 - [면접관 표현 모듈 · TTS](박연수/interviewer-avatar/README.md)
 - [AI 면접관 아바타 기술 조사](한결/avatar-research.md)
 
