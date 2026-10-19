@@ -20,3 +20,8 @@
 | [warp/defringe.mjs](warp/defringe.mjs) | 생성 그림 가장자리 테두리 제거 | verification.md 9.7 |
 
 코드 안의 `@proto/contract`는 `reactionEvent.ts`, `./controllers/…`·`../…` import는 이 폴더에 없는 시험 코드 파일을 가리킨다. `warp/` 파일의 전역 변수(`P`, `masks`, `st`, `sm` 등)는 시험 렌더러 페이지 안의 상태다.
+
+발췌 코드의 반응 이벤트에는 `eventId`·`sessionId`·`turnId`·`sequence`가 들어 있지만, 정식 구현에서는 넣지 않는다(10/19 변경).
+
+- 면접 식별(`sessionId`)과 순서·중복 검사(`sequence`)는 WebSocket 메시지 봉투 값을 쓴다(10/19 변경).
+- 메시지 형식은 구현에 따라 바뀔 수 있으므로 적용·구현 시 다시 확인한다. 참고: [API 명세](../../../docs/API-명세.md) 3장

@@ -53,7 +53,7 @@ TTS 호출과 음성 전달 구조는 [CONTRIBUTING.md](../../docs/CONTRIBUTING.
 
 ```ts
 interface ReactionEventBase {
-  sequence: number;       // 출처별 단조 증가. 마지막 처리값 이하이면 무시
+  // sequence는 메시지 봉투로 이동 (10/19 변경)
   ttlMs: number;          // 상대 만료. 받은 시각 + ttlMs가 지나면 무시
   source: 'local' | 'server';
   intensity?: number;     // 0~1, 기본 1. 최종값 = 기본값 × 페르소나 배율 × intensity (최대 0.8)
@@ -73,6 +73,8 @@ type ReactionEvent = ReactionEventBase & (
 - 정의된 값만 처리하며, 정의되지 않은 값은 무시하고 현재 상태를 유지한다.
 - 서버 시각(`expiresAt`) 대신 상대 시간(`ttlMs`)을 쓰는 이유는 서버와 사용자 PC의 시계 차이 때문이다.
 - "답변 완료" 이후 도착한 이벤트는 버린다.
+- 순서·중복 검사는 WebSocket 메시지 봉투의 `sequence`로 하고, 반응 이벤트 안에는 두지 않는다. 쉴 때 끄덕임(`local`)은 순서 검사를 하지 않는다(10/19 변경).
+- 메시지 형식은 구현에 따라 바뀔 수 있으므로 적용·구현 시 다시 확인한다. 참고: [API 명세](../../docs/API-명세.md) 3장
 
 `common` 계약으로 옮길 때 반영할 것([CONTRIBUTING.md](../../docs/CONTRIBUTING.md)):
 

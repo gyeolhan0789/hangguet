@@ -234,7 +234,7 @@ AI가 판단하고 BE가 WebSocket으로 전달한다. 쉴 때 끄덕임만 FE �
 | 필드 | 의미 |
 |---|---|
 | `type` | `state` · `attitude` · `expression`(`smile`·`frown`·`smirk`) · `gesture`(`small_nod`·`nod`·`tilt`) |
-| `sequence` | 출처(`local`·`server`)별로 단조 증가. 마지막 처리값 이하이면 무시 |
+| `sequence` | ~~출처(`local`·`server`)별로 단조 증가. 마지막 처리값 이하이면 무시~~ → 메시지 봉투 `sequence`로 검사, `local`은 검사 안 함 (10/19 변경, [architecture.md](architecture.md) 2장) |
 | `ttlMs` | 상대 만료. 받은 시각 + `ttlMs`가 지나면 무시. 서버 시각(`expiresAt`)은 PC 시계 차이 때문에 쓰지 않음 |
 | `intensity` | 0~1, 기본 1. 최종값에 곱함 |
 | `durationMs` | 순간 표정 유지 시간, 갸웃 전체 길이(0.4~1.2초로 제한) |
