@@ -1,8 +1,8 @@
-package com.ssafy.a301.home;
+package com.ssafy.a301.home.mapper;
 
-import com.ssafy.a301.home.HomeDtos.PracticeLogItem;
-import com.ssafy.a301.home.HomeDtos.PracticeLogsResponse;
 import com.ssafy.a301.home.domain.PracticeLog;
+import com.ssafy.a301.home.dto.HomeDtos.PracticeLogItem;
+import com.ssafy.a301.home.dto.HomeDtos.PracticeLogsResponse;
 import java.util.Comparator;
 import java.util.List;
 

@@ -34,7 +34,7 @@ const signupValues = {
   email: "a@ssafy.com",
   password: "abcd1234",
   passwordConfirm: "abcd1234",
-  agreements: { TERMS: true, PRIVACY: true, RECORDING: true },
+  agreements: { TERMS: true },
 };
 
 beforeEach(() => {
@@ -78,7 +78,7 @@ describe("login", () => {
 });
 
 describe("signup", () => {
-  it("녹화 동의를 포함한 약관 3개를 보내고, 성공하면 쿠키를 저장한다", async () => {
+  it("서비스·개인정보 통합 약관 1개를 보내고, 성공하면 쿠키를 저장한다", async () => {
     post.mockResolvedValue({ data: tokens });
 
     expect(await signup(signupValues)).toEqual({ ok: true });
@@ -87,11 +87,7 @@ describe("signup", () => {
       nickname: "면접왕",
       email: "a@ssafy.com",
       password: "abcd1234",
-      agreements: [
-        { termsType: "TERMS", termsVersion: "1.0" },
-        { termsType: "PRIVACY", termsVersion: "1.0" },
-        { termsType: "RECORDING", termsVersion: "1.0" },
-      ],
+      agreements: [{ termsType: "TERMS", termsVersion: "1.0" }],
     });
     expect(cookieStore.set).toHaveBeenCalledTimes(2);
   });
@@ -123,7 +119,7 @@ describe("signup", () => {
   it("약관이 빠진 값은 서버에 보내지 않는다", async () => {
     const result = await signup({
       ...signupValues,
-      agreements: { TERMS: true, PRIVACY: true, RECORDING: false },
+      agreements: { TERMS: false },
     });
 
     expect(result.formError).toBeDefined();

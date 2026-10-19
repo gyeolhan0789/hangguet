@@ -1,4 +1,4 @@
-package com.ssafy.a301.growth;
+package com.ssafy.a301.growth.dto;
 
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.Grade;

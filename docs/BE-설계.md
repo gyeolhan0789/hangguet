@@ -20,36 +20,61 @@
 | 폴더 | 역할 |
 |---|---|
 | `mock/` | API별 요청·응답(Swagger)과 예시 응답. 실제 로직·DB 없음. FE가 실제 백엔드 완성 전에 붙여 개발 |
-| `backend/` | 실제 백엔드. 지금은 DB 스키마 · 엔티티 · DTO · 변환 · 오류 코드까지 |
+| `backend/` | 실제 백엔드. DB 스키마·도메인·DTO·Mapper와 회원가입·인증 API 구현 |
 
 두 폴더 모두 패키지는 `com.ssafy.a301`이고, 포맷·정적 분석 규칙이 같다. API를 `backend/`에 구현하면 그 API는 `backend/`의 Swagger가 기준이 되고, 모두 구현되면 `mock/`의 Controller·Swagger 설정을 `backend/`로 옮긴 뒤 `mock/`을 지운다 **[결정]**.
 
-`backend/`는 기능(도메인)별로 나누고, 각 기능 안에 Controller · DTO · Mapper · `domain`(엔티티·enum)을 둔다.
+`backend/`는 기능(도메인)별 구성을 유지하고, 각 기능 내부는 역할별 하위 패키지로 나눈다. 구현된 계층만 만들며 빈 패키지는 미리 만들지 않는다.
 
-```
+```text
 com.ssafy.a301
-├─ auth          1. 인증          AuthDtos
-├─ user          2. 회원          UserDtos, UserMapper, domain/{User, UserAgreement, TermsType}
-├─ home          3. 홈·스트릭     HomeDtos, HomeMapper, domain/PracticeLog
-├─ application   4. 지원서        ApplicationDtos, ApplicationMapper, domain/Application
-├─ interview     5. 면접 진행     InterviewDtos, InterviewMapper,
-│                                 domain/{InterviewSession, InterviewQuestion, Answer, Recording, SessionScore, SpeechMetric,
-│                                         SessionRuntime, enum 9종}
-├─ result        6. 결과·다시보기 ResultDtos, ResultMapper
-├─ growth        7. 성장 리뷰     GrowthDtos
-└─ common/error  ErrorCode, ApiException
+├─ auth
+│  ├─ controller   AuthController
+│  ├─ service      AuthService
+│  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
+│  ├─ jwt          AccessTokens, AuthProperties
+│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore
+│  └─ config       SecurityConfig
+├─ user
+│  ├─ dto          UserDtos
+│  ├─ mapper       UserMapper
+│  ├─ repository   UserRepository, UserAgreementRepository
+│  └─ domain       User, UserAgreement, TermsType
+├─ home
+│  ├─ dto          HomeDtos
+│  ├─ mapper       HomeMapper
+│  └─ domain       PracticeLog
+├─ application
+│  ├─ dto          ApplicationDtos
+│  ├─ mapper       ApplicationMapper
+│  └─ domain       Application
+├─ interview
+│  ├─ dto          InterviewDtos
+│  ├─ mapper       InterviewMapper
+│  └─ domain       면접·질문·답변·녹화·점수·음성 지표·상태 enum
+├─ result
+│  ├─ dto          ResultDtos
+│  └─ mapper       ResultMapper
+├─ growth/dto      GrowthDtos
+├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
+└─ config          OpenApiConfig
 ```
 
-- 아직 없는 층: Controller, Service, Repository, Redis·S3·외부 API 어댑터, Security, 공통 오류 처리(`GlobalExceptionHandler`, 지금은 `mock/`에만 있음)
+- `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
+- 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
+- 현재 인증 Controller·Service, 회원 Repository, JWT Security, Redis 토큰 저장소와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository, S3·외부 API 어댑터는 후속 구현 대상이다.
+
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
 
 ## 3. 도메인 모델 (엔티티 ↔ ERD)
 
+신규 가입은 통합 약관 `TERMS` 1개와 화면에 표시한 버전을 저장한다. 기존 `PRIVACY`·`RECORDING` enum은 과거 DB 기록을 읽기 위한 호환용으로 유지하되 신규 가입에서는 거부한다. 기존 동의 기록을 새로운 통합 약관 동의로 자동 변환하지 않는다.
+
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
 | `User` | `users` | - | 탈퇴는 `deleted_at` 기록(행 유지). 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스) **[결정]** |
-| `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
+| `UserAgreement` | `user_agreements` | N:1 User | 가입 시 서비스 및 개인정보 이용약관(TERMS) 1개 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 화면에 낸 시점에 행 생성** **[결정]**. `(session_id, seq)` UNIQUE **[제안]** |
@@ -146,7 +171,7 @@ com.ssafy.a301
 
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
-| `refresh:{tokenId}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
+| `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds, 5.11의 최근 문장·태도 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5·5.7·6.2에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | 요청 본문 해시 + 첫 응답(상태·본문) | 24시간 | 5.1·5.4·5.7·5.8 (8장) |
@@ -159,10 +184,17 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 3. 처리가 끝나면 응답을 저장한다. 처리 중 실패하면 키를 지워 재시도를 허용한다
 4. 같은 키로 동시에 들어온 두 번째 요청이 아직 처리 중이면 409로 응답한다(처리 중 표시 확인)
 
-## 9. 인증 **[제안]**
+## 9. 인증
+
+### 로그인·토큰 정책 **[결정]**
+
 - 액세스 토큰: JWT(짧게), 리프레시 토큰: 불투명 값 + Redis(길게, 자동 로그인 유지)
 - 재발급마다 리프레시 토큰을 새로 발급하고 이전 값은 폐기(회전). 폐기된 값으로 요청하면 401 `REFRESH_TOKEN_INVALID`
-- 탈퇴·로그아웃 시 해당 회원의 리프레시 토큰을 모두 삭제
+- 여러 기기 동시 로그인을 허용한다. 로그인마다 별도 리프레시 토큰을 발급하며 다른 기기의 토큰은 유지한다.
+- 로그아웃은 인증한 회원이 요청에 제출한 리프레시 토큰만 폐기한다. 다른 기기의 토큰과 액세스 토큰은 유지한다. 이미 폐기된 토큰도 204로 응답한다.
+- 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
+- 탈퇴 시에는 모든 기기의 리프레시 토큰을 폐기한다. 전체 토큰 정리 및 탈퇴 API는 S15P31A301-93에서 구현한다. 현재는 JWT 검증·재발급에서 탈퇴 회원을 조회 대상에서 제외한다.
+- Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
 
 ## 10. 파일 (S3) **[제안]**
 
@@ -181,8 +213,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
-1. Controller · Service · Repository 층(Controller는 `mock/`에서 옮김)
-2. 공통 오류 처리 · Swagger 설정을 `mock/`에서 옮김
-3. Redis · S3 · 면접 AI 모듈 · STT 어댑터
-4. Security(JWT 필터, `@AuthenticationPrincipal`로 회원 id)
+1. 인증 이외 기능의 Controller·Service·Repository 구현
+2. 회원정보·프로필(S15P31A301-92), 탈퇴·전체 기기 토큰 정리(S15P31A301-93)
+3. S3·면접 AI 모듈·STT 어댑터
+4. 후속 API의 인증 사용자 식별·리소스 소유권 검증
 5. 비동기 작업(플랜 생성 · 다음 질문 · 결과 생성 · 시선 분석) 실행 방식: `@Async` / 메시지 큐 중 선택 **[미정]**

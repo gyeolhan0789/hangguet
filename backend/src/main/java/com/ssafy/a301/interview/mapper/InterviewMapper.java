@@ -1,15 +1,15 @@
-package com.ssafy.a301.interview;
+package com.ssafy.a301.interview.mapper;
 
-import com.ssafy.a301.interview.InterviewDtos.AnswerResponse;
-import com.ssafy.a301.interview.InterviewDtos.CurrentQuestion;
-import com.ssafy.a301.interview.InterviewDtos.QuestionResponse;
-import com.ssafy.a301.interview.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.CurrentQuestion;
+import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import java.time.OffsetDateTime;
 
 /** 면접 엔티티 + Redis 진행 상태 → API 응답. session.application은 지연 로딩이므로 조회 쿼리에서 함께 가져온다(fetch join). */

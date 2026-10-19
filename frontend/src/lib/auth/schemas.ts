@@ -17,12 +17,8 @@ export const PASSWORD_RULES = [
 
 export const PASSWORD_MAX = 64;
 
-/** 필수 약관 3개. 서버는 셋 모두 받아야 가입시킨다(AGREEMENT_REQUIRED). */
-export const TERMS = [
-  { type: "TERMS", label: "[필수] 이용약관" },
-  { type: "PRIVACY", label: "[필수] 개인정보 수집 · 이용" },
-  { type: "RECORDING", label: "[필수] 면접 녹화 · 음성 이용" },
-] as const;
+/** 서비스 및 개인정보 이용약관 1개. 동의한 TERMS만 가입 요청에 보낸다. */
+export const TERMS = [{ type: "TERMS", label: "[필수] 서비스 및 개인정보 이용약관" }] as const;
 
 export type TermsType = (typeof TERMS)[number]["type"];
 
@@ -55,7 +51,7 @@ export const signupSchema = z
         "8자 이상, 영문과 숫자를 모두 넣어 주세요.",
       ),
     passwordConfirm: z.string().min(1, "비밀번호를 한 번 더 입력해 주세요."),
-    agreements: z.object({ TERMS: agreed, PRIVACY: agreed, RECORDING: agreed }),
+    agreements: z.object({ TERMS: agreed }),
   })
   .refine((values) => values.password === values.passwordConfirm, {
     path: ["passwordConfirm"],

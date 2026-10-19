@@ -57,23 +57,52 @@ class ApiSpecTest {
     }
 
     @Test
-    void signupWithoutAllAgreementsIsRejected() {
-        String body =
-                """
-                { "email": "a@ssafy.com", "password": "abcd1234", "nickname": "면접왕",
-                  "agreements": [ { "termsType": "TERMS", "termsVersion": "1.0" },
-                                  { "termsType": "TERMS", "termsVersion": "1.0" },
-                                  { "termsType": "PRIVACY", "termsVersion": "1.0" } ] }\
-                """;
+    void signupWithCombinedTermsSucceeds() {
         assertThat(
                         mockMvc.post()
                                 .uri("/api/v1/auth/signup")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content(body))
+                                .content(
+                                        """
+                                        { "email": "a@ssafy.com", "password": "abcd1234", "nickname": "면접왕",
+                                          "agreements": [{"termsType":"TERMS","termsVersion":"1.0"}] }
+                                        """))
+                .hasStatus(HttpStatus.CREATED);
+    }
+
+    @Test
+    void legacyPrivacyAgreementIsRejected() {
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        { "email": "a@ssafy.com", "password": "abcd1234", "nickname": "면접왕",
+                                          "agreements": [{"termsType":"PRIVACY","termsVersion":"1.0"}] }
+                                        """))
                 .hasStatus(HttpStatus.BAD_REQUEST)
                 .bodyJson()
                 .extractingPath("$.code")
                 .isEqualTo("AGREEMENT_REQUIRED");
+    }
+
+    @Test
+    void multipleAgreementsAreRejected() {
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        { "email": "a@ssafy.com", "password": "abcd1234", "nickname": "면접왕",
+                                          "agreements": [{"termsType":"TERMS","termsVersion":"1.0"},
+                                                         {"termsType":"TERMS","termsVersion":"1.0"}] }
+                                        """))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("VALIDATION_FAILED");
     }
 
     @Test

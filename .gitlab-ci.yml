@@ -278,6 +278,8 @@ be-test:
   services:
     - name: postgres:18.6-alpine
       alias: postgres
+    - name: redis:7.4-alpine
+      alias: redis
   variables:
     POSTGRES_DB: a301
     POSTGRES_USER: a301
@@ -285,15 +287,19 @@ be-test:
     DB_URL: jdbc:postgresql://postgres:5432/a301
     DB_USERNAME: a301
     DB_PASSWORD: a301-ci
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
   script:
     - cd backend
-    - ./gradlew test --no-daemon
+    - ./gradlew test redisIntegrationTest --no-daemon
   artifacts:
     when: always
     paths:
       - backend/build/reports/jacoco/test/jacocoTestReport.xml
     reports:
-      junit: backend/build/test-results/test/*.xml
+      junit:
+        - backend/build/test-results/test/*.xml
+        - backend/build/test-results/redisIntegrationTest/*.xml
     expire_in: 1 day
 
 # 소나큐브 분석 (Gradle 플러그인)
