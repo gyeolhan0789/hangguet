@@ -1,6 +1,6 @@
 # A301 API 명세
 
-> API별 요청·응답 형식과 예시는 목 서버 Swagger에서 본다. 이 문서는 Swagger에 담지 않는 **공통 규약, 실시간(WebSocket) 계약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
+> API별 요청·응답 형식과 예시는 목 서버 Swagger에서 본다. 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
 >
 > - Swagger: https://hangguet.yobistory.com/mock/be/docs (로컬: `mock/`에서 `./gradlew bootRun` → http://localhost:8080/docs)
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
@@ -10,9 +10,8 @@
 
 1. [공통 규약](#1-공통-규약)
 2. [API](#2-api)
-3. [실시간 (WebSocket)](#3-실시간-websocket)
-4. [오류 코드](#4-오류-코드)
-5. [보류 · 확인 필요 (B)](#5-보류--확인-필요-b)
+3. [오류 코드](#3-오류-코드)
+4. [보류 · 확인 필요 (B)](#4-보류--확인-필요-b)
 
 ## 1. 공통 규약
 
@@ -24,7 +23,11 @@
 - **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가
 - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
 - **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
-- **파일** 음성·영상·사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받음. API·WebSocket으로 파일을 보내지 않음
+- **파일** 음성·영상·사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받음. API로 파일을 보내지 않음
+- **상태 확인** WebSocket을 쓰지 않는다. 서버 작업이 끝났는지는 화면이 **2초마다(임시 값, B-11)** API를 다시 불러 확인한다
+  - 질문 준비(S05): 5.2. `planStatus`가 `READY` 또는 `FAILED`가 되면 멈춘다
+  - 다음 질문(S06·S06-B): 5.5. 202 대신 200(질문)이 오면 멈춘다
+  - 결과 분석(S06-1): 5.2. `status`가 `COMPLETED` 또는 `FAILED`가 되면 멈춘다
 - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
 - **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일, 개발자 콘솔
 
@@ -64,6 +67,7 @@
 | 5.8 | 면접 끝내기 | `POST /interview-sessions/{sessionId}/end` | S06, S06-E, S06-F, S02-L |
 | 5.9 | 결과 재생성 | `POST /interview-sessions/{sessionId}/analysis/retry` | S06-1 |
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
+| 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
@@ -251,7 +255,7 @@
 
 **화면 — S05-1 면접 방식 › [다음: 장치 점검](화상) · [면접 시작](채팅)**
 
-면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다(사용자에게 비노출). 완료는 WebSocket `PLAN_READY` 또는 5.2로 확인한다.
+면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다(사용자에게 비노출). 완료는 5.2를 2초마다(임시 값) 불러 `planStatus`로 확인한다(1장 상태 확인).
 
 - **201**: 생성(`status: READY`, `planStatus: GENERATING`)
 - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
@@ -261,7 +265,7 @@
 
 **화면 — S05 [면접 시작] 활성화, S06·S06-B 상단, S06-F 재연결 복구, S06-1 진행**
 
-WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다시 그린다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3). `leveledUp`은 5.8 응답에만 값이 있고, 이 API에서는 항상 null이다.
+질문 준비(`planStatus`·`planProgress`)와 결과 분석(`status`·`analysisStep`)이 끝났는지 이 API를 2초마다(임시 값) 불러 확인한다(1장 상태 확인). 새로고침·재연결 때도 이 응답으로 화면을 다시 그린다. "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3). `leveledUp`은 5.8 응답에만 값이 있고, 이 API에서는 항상 null이다.
 
 - **200**: 본인 면접
 - **404 / SESSION_NOT_FOUND**: 없거나 남의 면접
@@ -280,7 +284,7 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준).
 
-채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 `PLAN_READY`(또는 5.2 `planStatus: READY`)를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다.
+채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 5.2에서 `planStatus: READY`를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다.
 
 - **200**: 시작. 5.2 형식(`status: IN_PROGRESS`, `currentQuestion` = 1번 질문)
 - **404 / SESSION_NOT_FOUND**
@@ -289,10 +293,12 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 #### 5.5 지금 질문
 
-**화면 — S06·S06-B 질문 말풍선. `QUESTION_READY`를 놓쳤을 때 복구**
+**화면 — S06·S06-B 질문 말풍선**
+
+답변을 낸 뒤 다음 질문을 받을 때 부른다.
 
 - **200**: 답할 질문 있음
-- **202 / QUESTION_GENERATING**: 다음 질문 생성 중. 오류가 아니라 본문은 `{ "code": "QUESTION_GENERATING" }`만. `QUESTION_READY`를 기다린다
+- **202 / QUESTION_GENERATING**: 다음 질문 생성 중. 오류가 아니라 본문은 `{ "code": "QUESTION_GENERATING" }`만. 2초 뒤(임시 값) 다시 부른다
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 
@@ -312,7 +318,7 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 **화면 — S06 [답변 완료] 또는 침묵, S06-B [보내기]**
 
-질문 하나에 답변 하나만 낼 수 있다. 화상은 실시간 음성 인식(5.10)의 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다. 음성 파일은 음성 지표 분석·보관용이다. 다음 질문은 `QUESTION_READY` 또는 5.5로 받고, 점수·피드백은 면접 종료 후 채워진다.
+질문 하나에 답변 하나만 낼 수 있다. 화상은 실시간 음성 인식(5.10)의 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다. 음성 파일은 음성 지표 분석·보관용이다. 다음 질문은 5.5로 받고, 점수·피드백은 면접 종료 후 채워진다.
 
 - **202**: 접수
 - **400 / VALIDATION_FAILED**: `content` 길이 초과(TEXT 1,000자 / VOICE 10,000자), VOICE인데 `audioObjectKey` 없음
@@ -328,7 +334,7 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 **레벨업** `leveledUp`: 이번 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true다. 그날 첫 연습 면접이고 스트릭이 1·3·6·8·14일이 된 경우다. 같은 날 두 번째 면접, 답변 0개로 끝낸 면접은 false. 면접 끝내기는 면접마다 한 번만 호출되므로 레벨업도 한 번만 온다. 화면은 이 값을 기억해 뒀다가 결과 분석이 끝난 뒤 S08에서 레벨업(S02-L)을 띄운다.
 
-- **202**: 답변 ≥1. 5.2 형식(`status: ANALYZING`). 완료는 `SESSION_STATUS_CHANGED` 또는 5.2
+- **202**: 답변 ≥1. 5.2 형식(`status: ANALYZING`). 완료는 5.2를 2초마다(임시 값) 불러 확인
 - **200**: 답변 0. 5.2 형식(`status: ABORTED`). 화면은 홈으로
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
@@ -345,12 +351,40 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 **화면 — S06 화상 › 답변 듣기 시작, 토큰 만료 전 재발급**
 
-브라우저가 STT 회사에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 BE·WebSocket을 거치지 않는다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). 화면은 받아 적는 글을 S06 자막으로 보여 주고 최종 글을 5.7 `content`로 보낸다. STT 회사는 1회용 토큰을 지원하는 일레븐랩스·Soniox 중 미정(B-2).
+브라우저가 STT 회사에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 BE를 거치지 않는다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). 화면은 받아 적는 글을 S06 자막으로 보여 주고, 답변 도중 확정된 문장은 5.11로, 최종 글은 5.7 `content`로 보낸다. STT 회사는 1회용 토큰을 지원하는 일레븐랩스·Soniox 중 미정(B-2).
 
 - **200**: 발급
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
 - **503 / STT_UNAVAILABLE**: STT 회사 토큰 발급 실패. 잠시 뒤 재시도
+
+#### 5.11 면접관 리액션
+
+**화면 — S06 화상 › 답변하는 도중**
+
+음성 인식이 문장을 확정할 때마다 화면이 그 문장을 보내고, 서버는 면접관 리액션을 돌려준다. 리액션은 반응 로직 모듈이 정한다.
+
+- 보낸 문장은 저장하지 않는다. 저장되는 답변은 5.7로 낸 전체 글이다
+- 자막은 화면이 음성 인식 서비스에서 받은 글로 바로 보여 주며, 이 API의 응답을 기다리지 않는다
+- 응답이 보낸 순서와 다르게 도착하면 가장 큰 `seq`의 응답만 쓴다. 요청을 보낸 뒤 `ttlMs`가 지나 도착했거나 5.7을 낸 뒤 도착한 응답은 버린다
+- `interrupt`의 `text`는 면접관이 말을 끊으며 하는 말이라 자막으로 보여 준다
+- 말하다 잠깐 쉴 때의 끄덕임과 오래 침묵할 때의 안내는 화면이 직접 처리한다(서버 호출 없음)
+- 채팅 면접은 이 API를 쓰지 않는다. 면접관은 기본 상태(무표정)로 둔다
+
+**리액션 값** 필드는 면접관 표현 모듈 반응 이벤트 계약([`interviewer-avatar/architecture.md`](../박연수/interviewer-avatar/architecture.md) 2장)을 따르되, 태도(`attitude`)는 `reaction`에서 빼서 별도 필드로 둔다. 면접관 방식에 따라 화면이 값을 쓰는 방법이 다르고, 반응 로직 모듈은 면접관 방식을 몰라도 된다(B-8).
+
+| 값 | 코드로 변형 (후보 2개) | 표정별 이미지 (후보 1개) |
+|---|---|---|
+| `state`: `idle` · `listening` · `thinking` · `speaking` | 자세·시선·입 움직임으로 표현 | 상태별 기본 이미지 |
+| `expression`: `smile` · `frown` · `smirk` | `intensity`(세기)에 따라 연속 변형 | 표정별 이미지. `intensity` 무시 |
+| `gesture`: `small_nod` · `nod` · `tilt` | 끄덕·갸웃 동작 | 무시 |
+| `attitude`: `interest` · `trust` · `tension` (0~1) | 표정이 서서히 바뀜 | 무시 |
+| `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
+
+- **200**: 리액션
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**
+- **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
+- **409 / ANSWER_ALREADY_SUBMITTED**: 이미 5.7로 답변을 낸 질문
 
 ### 6. 녹화 · 결과 · 다시보기
 
@@ -418,58 +452,7 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 - **200**: 항상. 없으면 빈 배열
 
-## 3. 실시간 (WebSocket)
-
-Swagger에는 표시되지 않는다.
-
-`/ws/interview-sessions/{sessionId}`. 연결 직후 첫 메시지로 액세스 토큰 전송(B-11). 공통 필드 `type`, `sessionId`, `sequence`(보내는 쪽마다 1씩 증가), `sentAt`. 놓치면 REST로 복구.
-
-| type | 방향 | 언제 | 본문 | 복구 |
-|---|---|---|---|---|
-| `PLAN_READY` · `PLAN_FAILED` | 서버→화면 | 플랜 생성 완료 · 실패 | 없음 | 면접 조회 |
-| `SESSION_STATUS_CHANGED` | 서버→화면 | `status`·`planProgress`·`analysisStep` 변경 | 바뀐 값 | 면접 조회 |
-| `QUESTION_READY` | 서버→화면 | 다음 질문 준비 | `question: { id, seq, content }` | 지금 질문 |
-| `REACTION` | 서버→화면 | 면접관 반응(반응 로직 모듈 판단) | `reaction` (아래 두 케이스) | 없음 |
-| `LISTENING_STARTED` | 화면→서버 | 답변 듣기 시작 | `questionId` | - |
-| `ANSWER_COMPLETED` | 화면→서버 | [답변 완료] (반응 중지) | `questionId` | - |
-
-```json
-{ "type": "QUESTION_READY", "sessionId": 55, "sequence": 12, "sentAt": "2026-10-15T12:10:05+09:00",
-  "question": { "id": 304, "seq": 4, "content": "백엔드 직무에 지원한 이유는?" } }
-{ "type": "SESSION_STATUS_CHANGED", "sessionId": 55, "sequence": 41, "sentAt": "2026-10-15T12:18:06+09:00",
-  "status": "ANALYZING", "planProgress": null, "analysisStep": "SCORING" }
-```
-
-### `REACTION` — 면접관 방식별 두 케이스
-
-반응 판단·전달(반응 로직 모듈 → BE)은 같고, 화면이 값을 쓰는 방법이 다르다. 필드는 면접관 표현 모듈 반응 이벤트 계약([`interviewer-avatar/architecture.md`](../박연수/interviewer-avatar/architecture.md) 2장)을 따른다.
-
-| | 케이스 1. 코드로 변형 (후보 2개) | 케이스 2. 표정별 이미지 (후보 1개) |
-|---|---|---|
-| 동작 | BE 값에 따라 얼굴을 코드로 연속 변형 | 표정별로 저장한 이미지 중 하나를 표시 |
-| 쓰는 `reaction.type` | `state` · `expression` · `gesture` · `attitude` | `state` · `expression` |
-| `intensity`(세기) · `attitude`(태도) · `gesture`(동작) | 사용 | 무시 |
-| `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
-
-| 값 | 케이스 1 | 케이스 2 |
-|---|---|---|
-| `state`: `idle` · `listening` · `thinking` · `speaking` | 자세·시선·입 움직임으로 표현 | 상태별 기본 이미지 |
-| `expression`: `smile` · `frown` · `smirk` | 세기에 따라 연속 변형 | 표정별 이미지 |
-| `gesture`: `small_nod` · `nod` · `tilt` | 끄덕·갸웃 동작 | 무시 |
-| `attitude`: `interest` · `trust` · `tension` (0~1) | 표정이 서서히 바뀜 | 무시 |
-
-```json
-// 케이스 1
-{ "type": "REACTION", "sessionId": 55, "sequence": 31, "sentAt": "2026-10-15T12:07:02+09:00",
-  "reaction": { "type": "expression", "expression": "smile", "intensity": 0.6, "durationMs": 1200, "ttlMs": 1500, "source": "server" } }
-// 케이스 2
-{ "type": "REACTION", "sessionId": 55, "sequence": 31, "sentAt": "2026-10-15T12:07:02+09:00",
-  "reaction": { "type": "expression", "expression": "smile", "durationMs": 1200, "ttlMs": 1500, "source": "server" } }
-```
-
-채팅 면접은 음성이 없어 기본값(무표정, `state`만). 공통: `ttlMs`가 지났거나 `ANSWER_COMPLETED` 뒤 도착한 반응, 정의되지 않은 값은 버린다. 반응 로직 모듈은 면접관 방식을 몰라도 된다(케이스 2는 쓰지 않는 필드를 무시). 실시간 답변 자막은 브라우저가 STT 회사에서 직접 받는다(5.10).
-
-## 4. 오류 코드
+## 3. 오류 코드
 
 | code | 상태 | API |
 |---|---|---|
@@ -483,27 +466,27 @@ Swagger에는 표시되지 않는다.
 | `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.x, 5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x, 6.x |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
-| `INVALID_SESSION_STATE` | 409 | 5.4~5.10, 6.1 |
+| `INVALID_SESSION_STATE` | 409 | 5.4~5.11, 6.1 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
-| `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
+| `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7, 5.11 |
 | `STT_UNAVAILABLE` | 503 | 5.10 |
 | `RECORDING_ALREADY_EXISTS` | 409 | 6.2 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
 | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
 
-## 5. 보류 · 확인 필요 (B)
+## 4. 보류 · 확인 필요 (B)
 
 | # | 내용 | 영향 | 담당 |
 |---|---|---|---|
-| B-1 | 질문 음성(TTS) 전달: TTS 회사(일레븐랩스·타입캐스트). 1회용 토큰 지원 시 5.10과 같은 방식 | 5.4, 5.5, `QUESTION_READY` | 보류 |
+| B-1 | 질문 음성(TTS) 전달: TTS 회사(일레븐랩스·타입캐스트). 1회용 토큰 지원 시 5.10과 같은 방식 | 5.4, 5.5 | 보류 |
 | B-2 | STT 회사: 일레븐랩스 · Soniox 중 미정 | 5.10 | BE |
 | B-3 | 면접 전체 질문 수("질문 3 / 5"). 고정이면 상수, 바뀌면 컬럼 필요 | 5.2, 5.7 | 면접 AI 모듈 |
 | B-4 | 점수 → 좋아요·보통·아쉬워요 경계값 | 6.3, 6.4, 7.1 | 협의 |
 | B-5 | 오늘 완료 기준(현재: 답변 1개 이상인 면접 종료). 성장 리뷰까지 봐야 완료인지 | 3.1, 5.8 | 화면 |
 | B-6 | 탈퇴 시 삭제 범위, 녹화 보관 기간 | 2.7, 6.x | 약관 |
 | B-7 | 설문 노출·참여, 재방문 지표(D1·D3·D7) 저장 | 7.1 | 이벤트 로깅 |
-| B-8 | 면접관별 반응 케이스(코드 변형 / 표정 이미지), 케이스 2 이미지 목록 | `REACTION` | 면접관 표현 모듈 |
+| B-8 | 면접관별 리액션 방식(코드로 변형 / 표정별 이미지), 표정 이미지 목록 | 5.11 | 면접관 표현 모듈 |
 | B-9 | 면접 플랜(예상 질문·평가 기준) 저장 위치. 평가 기준이 고정 4개면 저장 불필요 | 5.1~5.4 | 면접 AI 모듈 |
 | B-10 | 자소서 검증: 충돌 1개당 차감 점수, "명확한 충돌" 판단 기준 | 6.3, 7.1 | 면접 AI 모듈 |
-| B-11 | WebSocket 인증 방식(첫 메시지 토큰 / 쿠키 / 1회용 연결 티켓) | WebSocket | BE |
+| B-11 | 상태 확인 간격(지금 임시 2초), 최대 대기 시간과 넘었을 때 화면 | 5.2, 5.5 | 화면 · BE |
