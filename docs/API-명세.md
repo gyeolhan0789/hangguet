@@ -16,7 +16,7 @@
 ## 1. 공통 규약
 
 - **기본 경로** `/api/v1`. Resource는 복수 명사·kebab-case, JSON 필드는 camelCase, enum은 UPPER_SNAKE_CASE
-- **처리 서버** Nginx가 경로로 나눠 보낸다. 5.11은 AI 실시간 반응 서비스가, 나머지는 BE가 처리한다. 두 서버는 이 장의 규약을 똑같이 따른다
+- **처리 서버** Nginx가 경로로 나눠 보낸다. 5.11·5.12는 AI 실시간 반응 서비스가, 나머지는 BE가 처리한다. 두 서버는 이 장의 규약을 똑같이 따른다
 - **일시** ISO 8601 오프셋 포함(`2026-10-15T12:00:00+09:00`), **날짜** `YYYY-MM-DD`(한국 시간)
 - **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음). 액세스 토큰은 JWT(HS256)이고 `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다. 리프레시 토큰은 JWT가 아닌 불투명한 문자열
 - 다른 회원의 리소스는 존재 여부를 숨기기 위해 **404**. 탈퇴한 회원의 데이터는 조회되지 않음
@@ -69,6 +69,7 @@
 | 5.9 | 결과 재생성 | `POST /interview-sessions/{sessionId}/analysis/retry` | S06-1 |
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
 | 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 |
+| 5.12 | 질문 음성 토큰 | `POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token` | S06 · S06-B |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
@@ -287,7 +288,7 @@
 
 **화면 — S05 [면접 시작](화상), S05-1 [면접 시작](채팅)**
 
-면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준).
+면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준). 첫 질문 음성은 5.12로 받는다.
 
 채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 5.2에서 `planStatus: READY`를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다.
 
@@ -307,7 +308,7 @@
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 
-질문 음성(TTS) 전달은 보류(B-1).
+질문 음성은 5.12로 받는다.
 
 #### 5.6 답변 음성 업로드 주소
 
@@ -391,6 +392,21 @@
 - **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
 - **409 / ANSWER_ALREADY_SUBMITTED**: 이미 5.7로 답변을 낸 질문
 
+#### 5.12 질문 음성 토큰
+
+**화면 — S06·S06-B 질문 말풍선 › 질문 음성 재생**
+
+브라우저가 TTS 회사(ElevenLabs)에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 서버를 거치지 않는다. 화면은 5.4·5.5로 질문을 받은 직후 이 API를 부르고, 받은 `voiceId`·`modelId`로 연결해 질문 글(`content`)을 보내 음성과 글자별 발음 시각을 받는다. 화상·채팅 모두 쓴다.
+
+- 토큰은 연결 1번에만 쓸 수 있고, 발급 후 15분이 지나면 만료된다. 연결이 끊기거나 만료되면 다시 부른다
+- 이미 답변을 낸 질문도 막지 않는다(재연결 시 다시 듣기)
+- 503, Nginx 502·504, 연결 실패·끊김이면 질문 글만 보여 주고 면접을 계속한다
+
+- **200**: 발급
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**: 질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문
+- **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
+- **503 / TTS_UNAVAILABLE**: TTS 회사 토큰 발급 실패
+
 ### 6. 녹화 · 결과 · 다시보기
 
 #### 6.1 녹화 업로드 주소
@@ -471,10 +487,11 @@
 | `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.x, 5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x, 6.x |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
-| `INVALID_SESSION_STATE` | 409 | 5.4~5.11, 6.1 |
+| `INVALID_SESSION_STATE` | 409 | 5.4~5.12, 6.1 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7, 5.11 |
 | `STT_UNAVAILABLE` | 503 | 5.10 |
+| `TTS_UNAVAILABLE` | 503 | 5.12 |
 | `RECORDING_ALREADY_EXISTS` | 409 | 6.2 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
@@ -484,7 +501,6 @@
 
 | # | 내용 | 영향 | 담당 |
 |---|---|---|---|
-| B-1 | 질문 음성(TTS) 전달: TTS 회사(일레븐랩스·타입캐스트). 1회용 토큰 지원 시 5.10과 같은 방식 | 5.4, 5.5 | 보류 |
 | B-2 | STT 회사: 일레븐랩스 · Soniox 중 미정 | 5.10 | BE |
 | B-3 | 면접 전체 질문 수("질문 3 / 5"). 고정이면 상수, 바뀌면 컬럼 필요 | 5.2, 5.7 | 면접 AI 모듈 |
 | B-4 | 점수 → 좋아요·보통·아쉬워요 경계값 | 6.3, 6.4, 7.1 | 협의 |

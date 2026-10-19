@@ -14,6 +14,7 @@ import com.ssafy.a301.interview.InterviewDtos.ReactionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SttTokenResponse;
+import com.ssafy.a301.interview.InterviewDtos.TtsTokenResponse;
 import com.ssafy.a301.user.UserDtos.UploadUrlResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -178,6 +179,10 @@ public class InterviewSessionController {
     private static final String STT_TOKEN =
             """
             { "token": "…", "expiresAt": "2026-10-15T12:16:00+09:00" }\
+            """;
+    private static final String TTS_TOKEN =
+            """
+            { "token": "…", "expiresAt": "2026-10-15T12:21:12+09:00", "voiceId": "…", "modelId": "…" }\
             """;
 
     private final Stub stub;
@@ -647,5 +652,52 @@ public class InterviewSessionController {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
         return stub.read(REACTION_NOD, ReactionResponse.class);
+    }
+
+    @Operation(
+            summary = "5.12 질문 음성 토큰",
+            description = "브라우저가 음성 합성(TTS) 서비스에 직접 연결해 질문 음성을 받을 때 쓰는 1회용 토큰을 준다.")
+    @ApiResponse(
+            responseCode = "200",
+            content = @Content(examples = @ExampleObject(value = TTS_TOKEN)))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "SESSION_NOT_FOUND",
+                                        value = ErrorExamples.SESSION_NOT_FOUND),
+                                @ExampleObject(
+                                        name = "QUESTION_NOT_FOUND",
+                                        value = ErrorExamples.QUESTION_NOT_FOUND)
+                            }))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "INVALID_SESSION_STATE",
+                                            value = ErrorExamples.INVALID_SESSION_STATE)))
+    @ApiResponse(
+            responseCode = "503",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "TTS_UNAVAILABLE",
+                                            value = ErrorExamples.TTS_UNAVAILABLE)))
+    @PostMapping("/{sessionId}/questions/{questionId}/tts-token")
+    public TtsTokenResponse ttsToken(
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
+            @Parameter(description = "질문 id. `0`이면 404", example = "303") @PathVariable
+                    long questionId) {
+        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
+        Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
+        return stub.read(TTS_TOKEN, TtsTokenResponse.class);
     }
 }
