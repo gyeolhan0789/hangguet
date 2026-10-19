@@ -65,4 +65,24 @@ describe("HomeView", () => {
     expect(screen.getByText(/첫 면접을 마치면 여기에 차곡차곡 쌓여요/)).toBeDefined();
     expect(screen.queryByText("최근 성장 리뷰")).toBeNull();
   });
+
+  // 7.2 RecentReviewItem: 첫 연습일이면 비교할 날이 없어 criterion · delta가 함께 null이다(mock DTO · API 명세 7장).
+  it("최근 성장 리뷰가 첫 연습일(criterion · delta null)이면 점수 칩 없이 날짜 · 회사명만 보여 준다", () => {
+    const firstDay = { ...HOME_BROKEN.recentReviews[0], criterion: null, delta: null };
+    render(
+      <HomeView
+        home={{ ...HOME_BROKEN, recentReviews: [firstDay, HOME_BROKEN.recentReviews[1]] }}
+        today={FIXTURE_TODAY}
+      />,
+    );
+
+    // 지난번 마지막 연습 카드: 점수 대신 회사명
+    expect(screen.getByText("10.12 · ○○전자")).toBeDefined();
+    expect(screen.queryByText(/null|undefined/)).toBeNull();
+    // 최근 성장 리뷰 행: 칩 없이 날짜 · 회사명, 화면 읽기 이름에도 null이 없다
+    expect(screen.getByRole("link", { name: "10.12 ○○전자 성장 리뷰 보기" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "10.11 △△소프트 논리성 +4 성장 리뷰 보기" }),
+    ).toBeDefined();
+  });
 });

@@ -5,6 +5,7 @@ import { nextTierOf, STREAK_TIERS, tierOf, withAlpha } from "@/lib/streak";
 
 import { FIXTURE_TODAY, HOME_BROKEN, HOME_DONE, HOME_FIRST, HOME_NOT_DONE } from "./fixtures";
 import { introCopy, shouldPlayIntro } from "./intro";
+import { formatReviewImprovement } from "./types";
 import { buildWeek } from "./week";
 
 describe("스트릭 단계", () => {
@@ -123,5 +124,17 @@ describe("introCopy", () => {
     });
     expect(introCopy(HOME_DONE)).toMatchObject({ count: 8, text: "일째 달성!" });
     expect(introCopy(HOME_BROKEN)).toMatchObject({ count: null, text: "다시 1일째부터!" });
+  });
+});
+
+describe("formatReviewImprovement", () => {
+  it("오른 기준이 있으면 '전달력 +8'", () => {
+    expect(formatReviewImprovement(HOME_BROKEN.recentReviews[0])).toBe("전달력 +8");
+  });
+
+  it("첫 연습일(criterion · delta null)이면 null", () => {
+    expect(
+      formatReviewImprovement({ ...HOME_BROKEN.recentReviews[0], criterion: null, delta: null }),
+    ).toBeNull();
   });
 });

@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { shortDate } from "@/lib/date";
-import { formatImprovement, type HomeResponse, type RecentReview } from "@/lib/home/types";
+import {
+  formatImprovement,
+  formatReviewImprovement,
+  type HomeResponse,
+  type RecentReview,
+} from "@/lib/home/types";
 import { growthReviewPath } from "@/lib/routes";
 
 const card = "flex flex-col rounded-3xl bg-bg-sub";
@@ -87,11 +92,13 @@ export function TodayImprovedCard({ home, today }: { home: HomeResponse; today: 
 export function LastPracticeCard({ home }: { home: HomeResponse }) {
   const [last] = home.recentReviews;
   if (!last) return null;
+  // 첫 연습일이라 오른 점수가 없으면 회사명을 대신 보여 준다.
+  const detail = formatReviewImprovement(last) ?? last.companyName;
   return (
     <FeatureCard
       icon="/home/icon-history.svg"
       label="지난번 마지막 연습"
-      title={`${shortDate(last.practiceDate)} · ${formatImprovement(last)}`}
+      title={`${shortDate(last.practiceDate)} · ${detail}`}
       footer="그때 성장 리뷰 보기 →"
       href={growthReviewPath(last.practiceDate)}
     />
@@ -99,10 +106,19 @@ export function LastPracticeCard({ home }: { home: HomeResponse }) {
 }
 
 function ReviewRow({ review }: { review: RecentReview }) {
+  // 첫 연습일이라 오른 점수가 없으면 점수 칩을 빼고 날짜 · 회사명만 보여 준다.
+  const improvement = formatReviewImprovement(review);
   return (
     <Link
       href={growthReviewPath(review.practiceDate)}
-      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${formatImprovement(review)} 성장 리뷰 보기`}
+      aria-label={[
+        shortDate(review.practiceDate),
+        review.companyName,
+        improvement,
+        "성장 리뷰 보기",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       className="flex items-center justify-between gap-3 py-2.5"
     >
       <span className="flex min-w-0 items-center gap-3 leading-normal font-semibold">
@@ -110,9 +126,11 @@ function ReviewRow({ review }: { review: RecentReview }) {
         <span className="truncate text-base text-text-1">{review.companyName}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
-          {formatImprovement(review)}
-        </span>
+        {improvement && (
+          <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
+            {improvement}
+          </span>
+        )}
         <MaskIcon src="/home/icon-chevron-right.svg" size={18} className="bg-text-3" />
       </span>
     </Link>
