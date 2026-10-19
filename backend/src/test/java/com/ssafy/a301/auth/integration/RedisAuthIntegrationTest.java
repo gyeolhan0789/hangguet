@@ -1,0 +1,289 @@
+package com.ssafy.a301.auth.integration;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.ssafy.a301.auth.jwt.AuthProperties;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/** 실제 HTTP → Spring Security → PostgreSQL·Redis 경로를 검증한다. 생성한 계정과 토큰만 정리한다. */
+@Tag("redis-integration")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+class RedisAuthIntegrationTest {
+    @LocalServerPort private int port;
+    @Autowired private StringRedisTemplate redis;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private AuthProperties properties;
+    private final HttpClient http =
+            HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final JsonMapper json = JsonMapper.builder().build();
+    private final List<String> emails = new ArrayList<>();
+    private final List<String> tokenKeys = new ArrayList<>();
+
+    @AfterEach
+    void cleanup() {
+        if (!tokenKeys.isEmpty()) {
+            redis.delete(tokenKeys);
+        }
+        for (String email : emails) {
+            jdbc.update(
+                    "DELETE FROM user_agreements WHERE user_id IN (SELECT id FROM users WHERE email"
+                            + " = ?)",
+                    email);
+            jdbc.update("DELETE FROM users WHERE email = ?", email);
+        }
+    }
+
+    @Test
+    void springBootConnectsToRedisAndHealthIsUp() throws Exception {
+        try (var connection = redis.getConnectionFactory().getConnection()) {
+            assertThat(connection.ping()).isEqualTo("PONG");
+        }
+        var response =
+                http.send(
+                        HttpRequest.newBuilder(uri("/actuator/health")).GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(json.readTree(response.body()).path("status").asText()).isEqualTo("UP");
+    }
+
+    @Test
+    void loginStoresRefreshTokenWithOwnerAndExpiry() throws Exception {
+        Account account = signup();
+        var response =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(response.statusCode()).isEqualTo(200);
+        JsonNode body = body(response);
+        String token = remember(body.path("refreshToken").asText());
+        String key = key(token);
+        assertThat(redis.opsForValue().get(key)).isEqualTo(Long.toString(account.id()));
+        Long ttl = redis.getExpire(key, TimeUnit.SECONDS);
+        assertThat(ttl).isPositive().isLessThanOrEqualTo(properties.refreshTtl().toSeconds());
+        assertThat(redis.hasKey("refresh:" + token)).isFalse();
+    }
+
+    @Test
+    void refreshRotatesAndOldTokenCannotBeReused() throws Exception {
+        Account account = signup();
+        var response =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(response.statusCode()).isEqualTo(200);
+        String next = remember(body(response).path("refreshToken").asText());
+        assertThat(next.equals(account.refresh())).isFalse();
+        assertThat(redis.hasKey(key(account.refresh()))).isFalse();
+        assertThat(redis.opsForValue().get(key(next))).isEqualTo(Long.toString(account.id()));
+        var reused =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(reused.statusCode()).isEqualTo(401);
+        assertThat(body(reused).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+        var again = post("/api/v1/auth/token/refresh", Map.of("refreshToken", next), null);
+        assertThat(again.statusCode()).isEqualTo(200);
+        remember(body(again).path("refreshToken").asText());
+    }
+
+    @Test
+    void concurrentRefreshSucceedsExactlyOnce() throws Exception {
+        Account account = signup();
+        HttpRequest request =
+                request(
+                        "/api/v1/auth/token/refresh",
+                        Map.of("refreshToken", account.refresh()),
+                        null);
+        var first = http.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        var second = http.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+        CompletableFuture.allOf(first, second).get(15, TimeUnit.SECONDS);
+        List<Integer> statuses = new ArrayList<>();
+        for (var future : List.of(first, second)) {
+            var response = future.get();
+            statuses.add(response.statusCode());
+            if (response.statusCode() == 200) {
+                remember(body(response).path("refreshToken").asText());
+            } else {
+                assertThat(body(response).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+            }
+        }
+        assertThat(statuses).containsExactlyInAnyOrder(200, 401);
+    }
+
+    @Test
+    void logoutRevokesTokenAndIsRepeatable() throws Exception {
+        Account account = signup();
+        var response =
+                post(
+                        "/api/v1/auth/logout",
+                        Map.of("refreshToken", account.refresh()),
+                        account.access());
+        assertThat(response.statusCode()).isEqualTo(204);
+        assertThat(redis.hasKey(key(account.refresh()))).isFalse();
+        assertThat(
+                        post(
+                                        "/api/v1/auth/logout",
+                                        Map.of("refreshToken", account.refresh()),
+                                        account.access())
+                                .statusCode())
+                .isEqualTo(204);
+        var refresh =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(refresh.statusCode()).isEqualTo(401);
+        assertThat(body(refresh).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+    }
+
+    @Test
+    void anotherUserCannotRevokeToken() throws Exception {
+        Account owner = signup();
+        Account other = signup();
+        assertThat(
+                        post(
+                                        "/api/v1/auth/logout",
+                                        Map.of("refreshToken", owner.refresh()),
+                                        other.access())
+                                .statusCode())
+                .isEqualTo(204);
+        assertThat(redis.hasKey(key(owner.refresh()))).isTrue();
+        var refresh =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", owner.refresh()), null);
+        assertThat(refresh.statusCode()).isEqualTo(200);
+        remember(body(refresh).path("refreshToken").asText());
+    }
+
+    @Test
+    void expiredTokenCannotRefresh() throws Exception {
+        Account account = signup();
+        redis.expire(key(account.refresh()), Duration.ZERO);
+        var response =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(body(response).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+    }
+
+    @Test
+    void devicesKeepIndependentSessionsAcrossLoginRefreshAndLogout() throws Exception {
+        Account first = signup();
+        var secondLogin =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", first.email(), "password", "testPass1234"),
+                        null);
+        assertThat(secondLogin.statusCode()).isEqualTo(200);
+        String secondToken = remember(body(secondLogin).path("refreshToken").asText());
+        assertThat(secondToken.equals(first.refresh())).isFalse();
+        assertThat(redis.hasKey(key(first.refresh()))).isTrue();
+        assertThat(redis.hasKey(key(secondToken))).isTrue();
+
+        var rotated =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", first.refresh()), null);
+        assertThat(rotated.statusCode()).isEqualTo(200);
+        String nextFirst = remember(body(rotated).path("refreshToken").asText());
+        String nextAccess = body(rotated).path("accessToken").asText();
+        assertThat(redis.hasKey(key(first.refresh()))).isFalse();
+        assertThat(redis.hasKey(key(secondToken))).isTrue();
+
+        assertThat(
+                        post("/api/v1/auth/logout", Map.of("refreshToken", nextFirst), nextAccess)
+                                .statusCode())
+                .isEqualTo(204);
+        assertThat(redis.hasKey(key(nextFirst))).isFalse();
+        assertThat(redis.hasKey(key(secondToken))).isTrue();
+        var otherRefresh =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", secondToken), null);
+        assertThat(otherRefresh.statusCode()).isEqualTo(200);
+        remember(body(otherRefresh).path("refreshToken").asText());
+    }
+
+    private Account signup() throws Exception {
+        String email = "redis-it-" + UUID.randomUUID() + "@example.com";
+        emails.add(email);
+        List<Map<String, String>> agreements =
+                List.of("TERMS").stream()
+                        .map(type -> Map.of("termsType", type, "termsVersion", "1.0"))
+                        .toList();
+        var response =
+                post(
+                        "/api/v1/auth/signup",
+                        Map.of(
+                                "email",
+                                email,
+                                "password",
+                                "testPass1234",
+                                "nickname",
+                                "Redis 검증",
+                                "agreements",
+                                agreements),
+                        null);
+        assertThat(response.statusCode()).isEqualTo(201);
+        JsonNode body = body(response);
+        return new Account(
+                email,
+                body.path("user").path("id").asLong(),
+                body.path("accessToken").asText(),
+                remember(body.path("refreshToken").asText()));
+    }
+
+    private String remember(String token) throws Exception {
+        tokenKeys.add(key(token));
+        return token;
+    }
+
+    private static String key(String token) throws Exception {
+        return "refresh:"
+                + HexFormat.of()
+                        .formatHex(
+                                MessageDigest.getInstance("SHA-256")
+                                        .digest(token.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private URI uri(String endpoint) {
+        return URI.create("http://127.0.0.1:" + port + endpoint);
+    }
+
+    private HttpRequest request(String endpoint, Object payload, String accessToken) {
+        var builder =
+                HttpRequest.newBuilder(uri(endpoint))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Content-Type", "application/json")
+                        .POST(
+                                HttpRequest.BodyPublishers.ofString(
+                                        json.writeValueAsString(payload)));
+        if (accessToken != null) {
+            builder.header("Authorization", "Bearer " + accessToken);
+        }
+        return builder.build();
+    }
+
+    private HttpResponse<String> post(String endpoint, Object payload, String accessToken)
+            throws Exception {
+        return http.send(
+                request(endpoint, payload, accessToken), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private JsonNode body(HttpResponse<String> response) {
+        return json.readTree(response.body());
+    }
+
+    private record Account(String email, long id, String access, String refresh) {}
+}

@@ -21,7 +21,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
-import java.util.EnumSet;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -74,7 +73,7 @@ public class AuthController {
         return new EmailAvailabilityResponse(true);
     }
 
-    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 로그인 토큰을 준다. 필수 약관 3개에 모두 동의해야 한다.")
+    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 서비스 및 개인정보 이용약관 동의를 기록한 뒤 로그인 토큰을 준다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "201",
@@ -104,9 +103,8 @@ public class AuthController {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public TokenResponse signup(@Valid @RequestBody SignupRequest request) {
-        var types = EnumSet.noneOf(AuthDtos.TermsType.class);
-        request.agreements().forEach(a -> types.add(a.termsType()));
-        if (types.size() != AuthDtos.TermsType.values().length) {
+        if (request.agreements().size() != 1
+                || request.agreements().getFirst().termsType() != AuthDtos.TermsType.TERMS) {
             throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
         }
         return tokens(

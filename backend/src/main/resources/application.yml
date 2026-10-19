@@ -2,6 +2,10 @@
 spring:
   application:
     name: a301
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/a301}
     username: ${DB_USERNAME:a301}
@@ -21,3 +25,11 @@ management:
     health:
       # 전체 상태(UP/DOWN)에 DB 연결 상태가 포함된다. 세부 정보는 노출하지 않는다.
       show-details: never
+
+auth:
+  jwt-secret: ${JWT_SECRET}
+  access-ttl: 9h
+  refresh-ttl: 30d
+springdoc:
+  swagger-ui:
+    path: /docs

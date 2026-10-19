@@ -1,4 +1,4 @@
-package com.ssafy.a301.result;
+package com.ssafy.a301.result.dto;
 
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.Grade;

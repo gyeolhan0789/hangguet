@@ -1,4 +1,4 @@
-package com.ssafy.a301.user;
+package com.ssafy.a301.user.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;

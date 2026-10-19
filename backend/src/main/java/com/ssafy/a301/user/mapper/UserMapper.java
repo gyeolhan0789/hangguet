@@ -1,8 +1,8 @@
-package com.ssafy.a301.user;
+package com.ssafy.a301.user.mapper;
 
-import com.ssafy.a301.user.UserDtos.MeResponse;
-import com.ssafy.a301.user.UserDtos.UserSummary;
 import com.ssafy.a301.user.domain.User;
+import com.ssafy.a301.user.dto.UserDtos.MeResponse;
+import com.ssafy.a301.user.dto.UserDtos.UserSummary;
 
 /** 회원 엔티티 → API 응답. 임시 주소(Presigned GET)와 계산값(스트릭)은 서비스가 구해서 넘긴다. */
 public final class UserMapper {

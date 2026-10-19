@@ -1,4 +1,4 @@
-package com.ssafy.a301.interview;
+package com.ssafy.a301.interview.dto;
 
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.InputType;

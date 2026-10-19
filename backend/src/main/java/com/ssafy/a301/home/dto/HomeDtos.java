@@ -1,6 +1,6 @@
-package com.ssafy.a301.home;
+package com.ssafy.a301.home.dto;
 
-import com.ssafy.a301.growth.GrowthDtos.RecentReviewItem;
+import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
 import com.ssafy.a301.interview.domain.Criterion;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;

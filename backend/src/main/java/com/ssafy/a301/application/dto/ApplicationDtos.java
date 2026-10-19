@@ -1,4 +1,4 @@
-package com.ssafy.a301.application;
+package com.ssafy.a301.application.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;

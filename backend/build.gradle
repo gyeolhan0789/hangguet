@@ -29,6 +29,10 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    testImplementation 'org.springframework.security:spring-security-test'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
@@ -53,6 +57,7 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+    environment 'JWT_SECRET', 'test-only-signing-secret-at-least-32-bytes'
     finalizedBy tasks.named('jacocoTestReport')
 }
 
@@ -92,5 +97,22 @@ tasks.named('jacocoTestReport') {
     reports {
         xml.required = true
         html.required = true
+    }
+}
+
+// 실제 PostgreSQL·Redis가 필요한 인증 통합 검사는 명시적으로 실행한다.
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'redis-integration'
+    }
+}
+
+tasks.register('redisIntegrationTest', Test) {
+    description = '실행 중인 PostgreSQL·Redis로 인증 HTTP 통합 테스트를 실행한다.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'redis-integration'
     }
 }

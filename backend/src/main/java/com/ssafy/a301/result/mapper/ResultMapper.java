@@ -1,4 +1,4 @@
-package com.ssafy.a301.result;
+package com.ssafy.a301.result.mapper;
 
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Grade;
@@ -7,12 +7,13 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
-import com.ssafy.a301.result.ResultDtos.AnswerFeedback;
-import com.ssafy.a301.result.ResultDtos.RecordingResponse;
-import com.ssafy.a301.result.ResultDtos.ReplayItem;
-import com.ssafy.a301.result.ResultDtos.ReplayResponse;
-import com.ssafy.a301.result.ResultDtos.ResultResponse;
-import com.ssafy.a301.result.ResultDtos.SpeechMetrics;
+import com.ssafy.a301.result.dto.ResultDtos;
+import com.ssafy.a301.result.dto.ResultDtos.AnswerFeedback;
+import com.ssafy.a301.result.dto.ResultDtos.RecordingResponse;
+import com.ssafy.a301.result.dto.ResultDtos.ReplayItem;
+import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
+import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
+import com.ssafy.a301.result.dto.ResultDtos.SpeechMetrics;
 import java.util.Comparator;
 import java.util.List;
 
