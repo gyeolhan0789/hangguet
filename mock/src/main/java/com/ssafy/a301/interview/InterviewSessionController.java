@@ -161,7 +161,7 @@ public class InterviewSessionController {
     @Operation(
             summary = "5.1 면접 만들기",
             description =
-                    "면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다. 완료는 WebSocket `PLAN_READY` 또는 5.2로 확인한다.")
+                    "면접을 만들고 질문 준비를 시작한다. 준비가 끝나면 WebSocket `PLAN_READY`가 오고, 5.2로도 확인할 수 있다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -204,7 +204,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.2 면접 조회",
-            description = "면접 상태와 진행 정보를 준다. WebSocket 메시지를 놓쳤을 때 이 응답으로 복구한다.")
+            description = "면접의 현재 상태를 준다. WebSocket 메시지를 놓쳤을 때 이 API로 상태를 다시 맞춘다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -305,7 +305,7 @@ public class InterviewSessionController {
         return stub.read(STARTED, SessionResponse.class);
     }
 
-    @Operation(summary = "5.5 지금 질문", description = "지금 답할 질문을 준다. 다음 질문을 만드는 중이면 202로 답한다.")
+    @Operation(summary = "5.5 지금 질문", description = "지금 답할 질문을 준다. 다음 질문을 준비 중이면 202를 준다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -347,7 +347,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.6 답변 음성 업로드 주소",
-            description = "답변 음성을 올릴 Presigned URL을 준다. 받은 `objectKey`는 5.7 `audioObjectKey`로 보낸다.")
+            description = "답변 음성을 올릴 주소를 준다. 받은 `objectKey`는 5.7의 `audioObjectKey`로 보낸다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = AUDIO_UPLOAD_URL)))
@@ -386,7 +386,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.7 답변 제출",
-            description = "질문 하나에 답변 하나만 낼 수 있다. 화상은 음성 인식 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다.")
+            description = "답변을 낸다. 질문마다 한 번만 낼 수 있다. 화상은 음성 인식 결과와 음성 키를, 채팅은 입력한 글을 보낸다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -452,7 +452,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.8 면접 끝내기",
-            description = "본문 없음. 답변이 1개 이상이면 결과 생성을 시작하고(202), 0개면 결과 없이 끝난다(200).")
+            description = "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200).")
     @ApiResponse(
             responseCode = "202",
             content =
@@ -529,7 +529,9 @@ public class InterviewSessionController {
         return stub.read(S06_1_ANALYZING, SessionResponse.class);
     }
 
-    @Operation(summary = "5.10 실시간 음성 인식 토큰", description = "브라우저가 STT 회사에 직접 연결할 1회용 임시 토큰을 준다.")
+    @Operation(
+            summary = "5.10 실시간 음성 인식 토큰",
+            description = "브라우저가 음성 인식(STT) 서비스에 직접 연결할 때 쓰는 1회용 토큰을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = STT_TOKEN)))

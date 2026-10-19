@@ -18,7 +18,7 @@
 
 - **기본 경로** `/api/v1`. Resource는 복수 명사·kebab-case, JSON 필드는 camelCase, enum은 UPPER_SNAKE_CASE
 - **일시** ISO 8601 오프셋 포함(`2026-10-15T12:00:00+09:00`), **날짜** `YYYY-MM-DD`(한국 시간)
-- **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음)
+- **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음). 액세스 토큰은 JWT(HS256)이고 `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다. 리프레시 토큰은 JWT가 아닌 불투명한 문자열
 - 다른 회원의 리소스는 존재 여부를 숨기기 위해 **404**. 탈퇴한 회원의 데이터는 조회되지 않음
 - **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`
 - **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가
@@ -28,7 +28,7 @@
 - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
 - **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일, 개발자 콘솔
 
-목 서버는 실제 로직 없이 예시 응답을 돌려준다. 인증·DB는 없고, 경로의 id가 `0`이면 해당 404를 돌려준다(화면 오류 처리 확인용).
+목 서버는 실제 로직 없이 예시 응답을 돌려준다. 인증·DB는 없고, 경로의 id가 `0`이면 해당 404를 돌려준다(화면 오류 처리 확인용). 회원가입(1.2)은 요청한 닉네임으로, 로그인(1.3)·재발급(1.4)은 예시 회원(id 1, 닉네임 "면접왕")으로 액세스 토큰을 만든다. 토큰을 검사하지는 않는다.
 
 ## 2. API
 

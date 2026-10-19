@@ -115,7 +115,7 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProfileImage() {}
 
-    @Operation(summary = "2.7 회원 탈퇴", description = "탈퇴 처리하고 모든 토큰을 폐기한다.")
+    @Operation(summary = "2.7 회원 탈퇴", description = "회원을 탈퇴 처리하고 모든 토큰을 무효로 만든다.")
     @ApiResponse(responseCode = "204")
     @ApiResponse(
             responseCode = "400",
