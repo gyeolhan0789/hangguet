@@ -1,8 +1,9 @@
 import axios from "axios";
 
+import type { RefreshResponse } from "@/types/api";
+
 import { defaultConfig } from "./config";
 import { authEndpoints } from "./endpoints";
-import type { TokenResponse } from "./types";
 
 // 1.4 토큰 재발급. proxy(페이지 들어오기 전)와 재발급 Route Handler(화면을 그리는 도중 만료됐을 때)가 같이 쓴다.
 // 액세스 토큰이 없어야 하므로 쿠키를 읽는 `api` 대신 별도 인스턴스를 쓴다.
@@ -10,15 +11,15 @@ const refreshClient = axios.create(defaultConfig);
 
 // 한 번 쓴 리프레시 토큰은 폐기되므로(API 명세 1.4), 동시에 들어온 요청이 같은 토큰으로
 // 재발급을 두 번 부르지 않도록 진행 중인 재발급을 잠시 공유한다.
-const pendingRefreshes = new Map<string, Promise<TokenResponse | null>>();
+const pendingRefreshes = new Map<string, Promise<RefreshResponse | null>>();
 const SHARE_REFRESH_MS = 10_000;
 
 /** 리프레시 토큰으로 새 토큰을 받는다. 실패(REFRESH_TOKEN_INVALID 등)하면 null */
-export function refreshTokens(refreshToken: string): Promise<TokenResponse | null> {
+export function refreshTokens(refreshToken: string): Promise<RefreshResponse | null> {
   let pending = pendingRefreshes.get(refreshToken);
   if (!pending) {
     pending = refreshClient
-      .post<TokenResponse>(authEndpoints.tokenRefresh, { refreshToken })
+      .post<RefreshResponse>(authEndpoints.tokenRefresh, { refreshToken })
       .then(({ data }) => data)
       .catch(() => null);
     pendingRefreshes.set(refreshToken, pending);

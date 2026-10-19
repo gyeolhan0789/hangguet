@@ -3,7 +3,7 @@ import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from "axio
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { api as ApiInstance } from "./client";
-import { getProblemDetail } from "./types";
+import { getProblemDetail } from "./problem-detail";
 
 const cookieJar = new Map<string, string>();
 vi.mock("next/headers", () => ({

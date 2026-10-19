@@ -1,4 +1,4 @@
-import type { HomeResponse } from "./types";
+import type { HomeResponse } from "@/types/api";
 
 // API 명세 3.1 Swagger 예시와 같은 값 (테스트용). 오늘은 2026-10-15로 본다.
 export const FIXTURE_TODAY = "2026-10-15";

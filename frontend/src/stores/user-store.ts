@@ -1,14 +1,14 @@
 import { create } from "zustand";
 
-import type { UserResponse } from "@/lib/api/types";
+import type { MeResponse } from "@/types/api";
 
 interface UserState {
   /** 로그인한 회원. 로그인 전·로그아웃 후에는 null */
-  user: UserResponse | null;
+  user: MeResponse | null;
   /** 서버 컴포넌트가 받아 온 내 정보(2.1)로 채운다. */
-  setUser: (user: UserResponse) => void;
+  setUser: (user: MeResponse) => void;
   /** 닉네임 변경·프로필 사진 등록·삭제처럼 일부만 바뀌었을 때 */
-  updateUser: (changes: Partial<UserResponse>) => void;
+  updateUser: (changes: Partial<MeResponse>) => void;
   clearUser: () => void;
 }
 

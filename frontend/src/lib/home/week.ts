@@ -1,6 +1,5 @@
 import { addDays, weekdayOf } from "@/lib/date";
-
-import type { HomeResponse } from "./types";
+import type { HomeResponse } from "@/types/api";
 
 /** done: 연습함 · missed: 빠짐(✕) · empty: 아직 기록 없음(첫 방문) · today: 오늘(아직) · today-done: 오늘 연습함 */
 export type DayStatus = "done" | "missed" | "empty" | "today" | "today-done";

@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
-import type { HomeResponse } from "@/lib/home/types";
+import type { HomeResponse } from "@/types/api";
 import { buildWeek } from "@/lib/home/week";
 import { ROUTES } from "@/lib/routes";
 

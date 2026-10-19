@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
 import { clearAuthCookies, REFRESH_TOKEN_COOKIE, setAuthCookies } from "@/lib/api/auth-cookies";
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
-import { getProblemDetail, type AuthResponse } from "@/lib/api/types";
+import { getProblemDetail } from "@/lib/api/problem-detail";
 import { ROUTES } from "@/lib/routes";
+import type { TokenResponse } from "@/types/api";
 
 import {
   emailSchema,
@@ -60,9 +61,9 @@ export async function login(values: LoginValues): Promise<AuthActionResult> {
   const parsed = loginSchema.safeParse(values);
   if (!parsed.success) return { formError: "이메일과 비밀번호를 확인해 주세요." };
 
-  let data: AuthResponse;
+  let data: TokenResponse;
   try {
-    ({ data } = await api.post<AuthResponse>(endpoints.auth.login, parsed.data));
+    ({ data } = await api.post<TokenResponse>(endpoints.auth.login, parsed.data));
   } catch (error) {
     return toActionResult(error, LOGIN_FIELDS);
   }
@@ -80,7 +81,7 @@ export async function signup(values: SignupValues): Promise<AuthActionResult> {
 
   const { nickname, email, password } = parsed.data;
   try {
-    const { data } = await api.post<AuthResponse>(endpoints.auth.signup, {
+    const { data } = await api.post<TokenResponse>(endpoints.auth.signup, {
       nickname,
       email,
       password,

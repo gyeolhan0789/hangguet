@@ -3,13 +3,9 @@ import type { ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { shortDate } from "@/lib/date";
-import {
-  formatImprovement,
-  formatReviewImprovement,
-  type HomeResponse,
-  type RecentReview,
-} from "@/lib/home/types";
+import { formatImprovement, formatReviewImprovement } from "@/lib/home/format";
 import { growthReviewPath } from "@/lib/routes";
+import type { HomeResponse, RecentReviewItem } from "@/types/api";
 
 const card = "flex flex-col rounded-3xl bg-bg-sub";
 
@@ -105,7 +101,7 @@ export function LastPracticeCard({ home }: { home: HomeResponse }) {
   );
 }
 
-function ReviewRow({ review }: { review: RecentReview }) {
+function ReviewRow({ review }: { review: RecentReviewItem }) {
   // 첫 연습일이라 오른 점수가 없으면 점수 칩을 빼고 날짜 · 회사명만 보여 준다.
   const improvement = formatReviewImprovement(review);
   return (
@@ -138,7 +134,7 @@ function ReviewRow({ review }: { review: RecentReview }) {
 }
 
 /** '최근 성장 리뷰' — 행을 누르면 그날 성장 리뷰(S08) */
-export function RecentReviewsCard({ reviews }: { reviews: RecentReview[] }) {
+export function RecentReviewsCard({ reviews }: { reviews: RecentReviewItem[] }) {
   if (reviews.length === 0) return null;
   return (
     <div className={`${card} gap-1 px-7 py-6`}>
