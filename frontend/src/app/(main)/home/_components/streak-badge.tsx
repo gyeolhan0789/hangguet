@@ -72,17 +72,3 @@ export function StreakBadge({ days }: { days: number }) {
     </span>
   );
 }
-
-/** S02-D 첫 방문: 작게 깜빡이는 불씨 (후광 없음) */
-export function SparkBadge() {
-  const reduce = useReducedMotion();
-  return (
-    <motion.span
-      className="flex size-18 items-center justify-center rounded-full bg-brand-soft dark:bg-brand-soft/8"
-      animate={reduce ? undefined : { scale: [1, 1.06, 1] }}
-      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-    >
-      <MaskIcon src="/home/icon-flame-first.svg" size={36} className="bg-brand" />
-    </motion.span>
-  );
-}

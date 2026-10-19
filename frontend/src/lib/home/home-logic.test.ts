@@ -104,14 +104,14 @@ describe("buildWeek", () => {
 });
 
 describe("shouldPlayIntro", () => {
-  it("홈에 들어올 때마다 인트로 (레벨업한 날이어도 홈 진입은 인트로)", () => {
-    expect(shouldPlayIntro(HOME_DONE)).toBe(true);
+  it("오늘 미완료 · 끊김 · 첫 방문은 홈에 들어올 때마다 인트로", () => {
     expect(shouldPlayIntro(HOME_NOT_DONE)).toBe(true);
     expect(shouldPlayIntro(HOME_BROKEN)).toBe(true);
+    expect(shouldPlayIntro(HOME_FIRST)).toBe(true);
   });
 
-  it("첫 방문이면 생략", () => {
-    expect(shouldPlayIntro(HOME_FIRST)).toBe(false);
+  it("오늘 완료는 생략 ('N일째 달성!'은 면접을 마친 순간에 띄울 연출)", () => {
+    expect(shouldPlayIntro(HOME_DONE)).toBe(false);
   });
 });
 
@@ -122,8 +122,12 @@ describe("introCopy", () => {
       text: "일째!",
       sub: "황금 불꽃! 오늘도 태워볼까요?",
     });
-    expect(introCopy(HOME_DONE)).toMatchObject({ count: 8, text: "일째 달성!" });
     expect(introCopy(HOME_BROKEN)).toMatchObject({ count: null, text: "다시 1일째부터!" });
+    expect(introCopy(HOME_FIRST)).toEqual({
+      count: 0,
+      text: "일째!",
+      sub: "첫 연습을 시작해볼까요?",
+    });
   });
 });
 

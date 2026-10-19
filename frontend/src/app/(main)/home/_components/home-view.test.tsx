@@ -54,12 +54,12 @@ describe("HomeView", () => {
     expect(screen.getAllByText("빠짐", { exact: false }).length).toBe(3);
   });
 
-  it("S02-D 첫 방문: 첫 연습 안내 · 3단계 · 빈 최근 리뷰", () => {
+  it("S02-D 첫 방문: 0일째 · 첫 연습 안내 · 3단계 · 빈 최근 리뷰", () => {
     render(<HomeView home={HOME_FIRST} today={FIXTURE_TODAY} />);
 
-    expect(
-      screen.getByRole("heading", { level: 1, name: "첫 연습을 시작해볼까요?" }),
-    ).toBeDefined();
+    expect(screen.getByRole("heading", { level: 1, name: "0일째" })).toBeDefined();
+    expect(screen.getByText("첫 연습을 시작해볼까요?")).toBeDefined();
+    expect(screen.queryByText(/지난 최고 기록/)).toBeNull();
     expect(screen.getByRole("link", { name: /첫 면접 시작하기/ })).toBeDefined();
     expect(screen.getByText("2. 3D 면접관과 면접")).toBeDefined();
     expect(screen.getByText(/첫 면접을 마치면 여기에 차곡차곡 쌓여요/)).toBeDefined();
