@@ -138,6 +138,7 @@ export function Hero() {
   return (
     <section
       ref={sectionRef}
+      aria-labelledby="hero-title"
       onMouseMove={handleMouseMove}
       className="relative h-svh min-h-[720px] overflow-hidden bg-night"
     >
@@ -232,7 +233,10 @@ export function Hero() {
         className="relative z-10 mx-auto flex h-full max-w-[1440px] flex-col justify-center gap-7 px-6 pb-[90px] sm:px-10 lg:px-[120px]"
         style={{ y: copyY }}
       >
-        <h1 className="text-[44px] leading-[1.2] font-extrabold tracking-[-1.2px] text-white sm:text-[64px] lg:text-[80px] lg:tracking-[-2.4px]">
+        <h1
+          id="hero-title"
+          className="text-[44px] leading-[1.2] font-extrabold tracking-[-1.2px] text-white sm:text-[64px] lg:text-[80px] lg:tracking-[-2.4px]"
+        >
           <motion.span className="block" {...appear(0.1)}>
             면접 준비,
           </motion.span>
