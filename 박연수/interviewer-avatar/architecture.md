@@ -16,7 +16,7 @@
       ↓
 [BE]            면접 AI 모듈에 질문 생성·TTS 요청 (업로드용 Presigned URL 포함)
       ↓
-[면접 AI 서버]  질문 생성 → TTS(Chirp 3: HD) 호출 → 업로드용 Presigned URL로 음성 파일을 Storage에 업로드
+[면접 AI 서버]  질문 생성 → TTS(ElevenLabs, 10/16 변경) 호출 → 업로드용 Presigned URL로 음성 파일을 Storage에 업로드
       ↓ 완료 응답
 [BE]            읽기용 Presigned URL 발급 → 질문 Text + 읽기용 URL 전달
       ↓
@@ -43,7 +43,7 @@ TTS 호출과 음성 전달 구조는 [CONTRIBUTING.md](../../docs/CONTRIBUTING.
 | 2D 렌더링 (10/14 변경) | 점 찍어 휘기: WebGL 메시 휘기 + 그림 섞기, 얼굴 점은 MediaPipe로 미리 계산한 JSON (서비스에 MediaPipe 미포함) | 표정 세기 연속 조절, 같은 코드로 캐릭터 추가, 그림 그대로의 화풍 유지 |
 | 렌더 크기 | 화면 표시 크기 × 기기 배율(원본 이하), 한 장 33ms 초과 시 단계적으로 낮춤, 첫 로딩은 안내 화면 동안 미리 불러오기 | GPU 없는 기기에서도 초당 30장 이상 ([verification.md](verification.md) 9.6절) |
 | 3D 렌더링 (대안 중 하나로 둠) | Three.js 0.180.0 + GLB (자체 컨트롤러) | 브라우저에서 별도 설치 없이 동작, ARKit 표정 52종으로 눈·눈썹·입을 따로 제어 |
-| 음성 합성 | Chirp 3: HD (AI 파트 호출) | 한국어 지원, 음성 데이터 반환, Credential은 AI 파트에서만 관리 |
+| 음성 합성 (10/16 변경) | ElevenLabs (AI 파트 호출) | 한국어 지원, 음성 데이터 반환, Credential은 AI 파트에서만 관리 |
 | 음성 전달 | Storage Presigned URL (BE 발급) | 음성 Binary 중계 금지, 만료 시간 적용 |
 | 립싱크 | Web Audio API, 음량 → `jawOpen` | 별도 라이브러리 없이 음량 측정 가능, 한국어에서 가장 안정적 |
 
@@ -53,7 +53,7 @@ TTS 호출과 음성 전달 구조는 [CONTRIBUTING.md](../../docs/CONTRIBUTING.
 
 ```ts
 interface ReactionEventBase {
-  sequence: number;       // 출처별 단조 증가. 마지막 처리값 이하이면 무시
+  // sequence는 메시지 봉투로 이동 (10/19 변경)
   ttlMs: number;          // 상대 만료. 받은 시각 + ttlMs가 지나면 무시
   source: 'local' | 'server';
   intensity?: number;     // 0~1, 기본 1. 최종값 = 기본값 × 페르소나 배율 × intensity (최대 0.8)
@@ -73,6 +73,8 @@ type ReactionEvent = ReactionEventBase & (
 - 정의된 값만 처리하며, 정의되지 않은 값은 무시하고 현재 상태를 유지한다.
 - 서버 시각(`expiresAt`) 대신 상대 시간(`ttlMs`)을 쓰는 이유는 서버와 사용자 PC의 시계 차이 때문이다.
 - "답변 완료" 이후 도착한 이벤트는 버린다.
+- 순서·중복 검사는 WebSocket 메시지 봉투의 `sequence`로 하고, 반응 이벤트 안에는 두지 않는다. 쉴 때 끄덕임(`local`)은 순서 검사를 하지 않는다(10/19 변경).
+- 메시지 형식은 구현에 따라 바뀔 수 있으므로 적용·구현 시 다시 확인한다. 참고: [API 명세](../../docs/API-명세.md) 3장
 
 `common` 계약으로 옮길 때 반영할 것([CONTRIBUTING.md](../../docs/CONTRIBUTING.md)):
 
@@ -83,7 +85,7 @@ type ReactionEvent = ReactionEventBase & (
 
 | 단계 | 추가 기능 | 변경 범위 | 결과물 |
 |---|---|---|---|
-| MVP | 1장 구조, 페르소나 3종 모두 2D 점 찍어 휘기 (10/14 변경, 이전: 3D 2종 + 2D 1종) | — | 발화·경청·생각 상태와 반응을 표현하는 면접관 |
+| MVP | 1장 구조, 페르소나 3종 모두 2D 점 찍어 휘기 (10/14 변경, 이전: 3D 2종 + 2D 1종). 1차 연구 완료, FE 최종 결정 대기(10/19 변경) | — | 발화·경청·생각 상태와 반응을 표현하는 면접관 |
 | 고도화 1 | 모음별 입 모양(질문 글자 + 음량 → 강제 정렬 보정 → 필요 시 발음 시각 TTS), 굳음·기다림 표정, 끼어들기, 문장 단위 음성 스트리밍 | 립싱크·동작·음성 | 입 모양·표정 자연스러움 향상, 첫 소리 지연 감소 |
 | 고도화 2 | 실사 면접관(협의 후), 미세 표정(시선·생각) 반응 종류 확장, 지원자 표정 요약 신호를 반영한 반응(피드백 모듈 경유) | Renderer·반응 이벤트 | 표정 표현력 향상, 상호작용 강화 |
 
