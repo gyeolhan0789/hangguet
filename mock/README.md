@@ -2,7 +2,7 @@
 
 실제 로직 없이 **API별 요청·응답(Swagger)과 예시 응답**을 제공하는 서버다. FE는 실제 백엔드가 완성되기 전 이 서버에 붙여 개발한다. DB를 쓰지 않는다.
 
-API 명세의 기준은 이 서버의 Swagger와 [API 명세 문서](../docs/API-명세.md)다. Swagger에는 API별 요청·응답과 예시를, 명세 문서에는 공통 규약·실시간(WebSocket) 계약·업무 규칙·화면 대응·오류 코드·보류 목록을 둔다. 실제 백엔드(`backend/`)가 API를 구현하면 그 API는 `backend/`의 Swagger가 기준이 되고, 모두 구현되면 이 폴더는 `backend/`로 옮긴 뒤 지운다.
+API 명세의 기준은 이 서버의 Swagger와 [API 명세 문서](../docs/API-명세.md)다. Swagger에는 API별 요청·응답과 예시를, 명세 문서에는 공통 규약·업무 규칙·화면 대응·오류 코드·보류 목록을 둔다. 실제 백엔드(`backend/`)가 API를 구현하면 그 API는 `backend/`의 Swagger가 기준이 되고, 모두 구현되면 이 폴더는 `backend/`로 옮긴 뒤 지운다.
 
 ## 실행
 

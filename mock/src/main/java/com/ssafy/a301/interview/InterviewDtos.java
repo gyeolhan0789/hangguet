@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 
@@ -156,6 +157,72 @@ public final class InterviewDtos {
             @Schema(description = "제출 일시") OffsetDateTime createdAt,
             @Schema(description = "마지막 질문이었으면 true → 화면이 면접 끝내기(5.8) 호출. false면 다음 질문을 기다린다")
                     boolean isLastQuestion) {}
+
+    @Schema(description = "면접관이 말을 끊는 이유. OFF_TOPIC 질문과 관계없는 이야기 · TOO_LONG 너무 긴 답변")
+    public enum InterruptReason {
+        OFF_TOPIC,
+        TOO_LONG
+    }
+
+    public record ReactionRequest(
+            @Schema(description = "답변 안에서 몇 번째 문장인지(1부터)", example = "3")
+                    @NotNull(message = "필수 값입니다.")
+                    @Positive(message = "1 이상입니다.")
+                    Integer seq,
+            @Schema(description = "음성 인식이 확정한 문장(1~1,000자)", example = "그래서 조회 응답 시간을 40% 줄였습니다.")
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 1_000, message = "1~1,000자입니다.")
+                    String text,
+            @Schema(description = "문장을 말한 뒤 쉰 시간(밀리초)", example = "420")
+                    @NotNull(message = "필수 값입니다.")
+                    @PositiveOrZero(message = "0 이상입니다.")
+                    Integer pauseMs) {}
+
+    public record Reaction(
+            @Schema(
+                            description = "리액션 종류. state 면접관 상태 · expression 표정 · gesture 동작",
+                            allowableValues = {"state", "expression", "gesture"},
+                            example = "gesture")
+                    String type,
+            @Schema(
+                            description = "type이 state일 때만 값",
+                            allowableValues = {"idle", "listening", "thinking", "speaking"},
+                            nullable = true)
+                    String state,
+            @Schema(
+                            description = "type이 expression일 때만 값",
+                            allowableValues = {"smile", "frown", "smirk"},
+                            nullable = true)
+                    String expression,
+            @Schema(
+                            description = "type이 gesture일 때만 값",
+                            allowableValues = {"small_nod", "nod", "tilt"},
+                            nullable = true)
+                    String gesture,
+            @Schema(description = "세기(0~1). 표정 이미지 방식은 무시한다", nullable = true, example = "0.6")
+                    Double intensity,
+            @Schema(description = "리액션을 유지하는 시간(밀리초)", example = "1200") int durationMs,
+            @Schema(description = "요청을 보낸 뒤 이 시간이 지나 도착하면 버린다(밀리초)", example = "1500") int ttlMs,
+            @Schema(description = "리액션을 정한 곳. 이 API는 항상 server", example = "server")
+                    String source) {}
+
+    public record Attitude(
+            @Schema(description = "관심(0~1)", example = "0.7") double interest,
+            @Schema(description = "신뢰(0~1)", example = "0.6") double trust,
+            @Schema(description = "긴장(0~1)", example = "0.2") double tension) {}
+
+    public record Interrupt(
+            InterruptReason reason,
+            @Schema(description = "면접관이 하는 말. 자막으로 보여 준다", example = "질문으로 다시 돌아가 볼게요.")
+                    String text) {}
+
+    public record ReactionResponse(
+            @Schema(description = "요청의 seq. 응답이 순서와 다르게 오면 가장 큰 seq의 응답만 쓴다", example = "3")
+                    int seq,
+            @Schema(description = "이 문장에 대한 면접관 리액션. 반응하지 않을 때는 null", nullable = true)
+                    Reaction reaction,
+            @Schema(description = "지금까지 답변을 듣고 쌓인 면접관 태도. 표정이 서서히 바뀌는 데 쓴다") Attitude attitude,
+            @Schema(description = "면접관이 말을 끊을 때만 값이 있다", nullable = true) Interrupt interrupt) {}
 
     public record SttTokenResponse(
             @Schema(description = "STT 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,

@@ -9,6 +9,8 @@ import com.ssafy.a301.interview.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.InterviewDtos.AnswerResponse;
 import com.ssafy.a301.interview.InterviewDtos.InputType;
 import com.ssafy.a301.interview.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.InterviewDtos.ReactionRequest;
+import com.ssafy.a301.interview.InterviewDtos.ReactionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SttTokenResponse;
@@ -147,6 +149,32 @@ public class InterviewSessionController {
             """
             { "id": 903, "questionId": 303, "inputType": "VOICE", "createdAt": "2026-10-15T12:08:40+09:00", "isLastQuestion": false }\
             """;
+    private static final String REACTION_REQUEST =
+            """
+            { "seq": 3, "text": "그래서 조회 응답 시간을 40% 줄였습니다.", "pauseMs": 420 }\
+            """;
+    private static final String REACTION_NOD =
+            """
+            { "seq": 3,
+              "reaction": { "type": "gesture", "state": null, "expression": null, "gesture": "nod",
+                            "intensity": 0.6, "durationMs": 1200, "ttlMs": 1500, "source": "server" },
+              "attitude": { "interest": 0.7, "trust": 0.6, "tension": 0.2 },
+              "interrupt": null }\
+            """;
+    private static final String REACTION_NONE =
+            """
+            { "seq": 4, "reaction": null,
+              "attitude": { "interest": 0.7, "trust": 0.6, "tension": 0.2 },
+              "interrupt": null }\
+            """;
+    private static final String REACTION_INTERRUPT =
+            """
+            { "seq": 9,
+              "reaction": { "type": "expression", "state": null, "expression": "frown", "gesture": null,
+                            "intensity": 0.5, "durationMs": 1500, "ttlMs": 1500, "source": "server" },
+              "attitude": { "interest": 0.4, "trust": 0.5, "tension": 0.6 },
+              "interrupt": { "reason": "OFF_TOPIC", "text": "질문으로 다시 돌아가 볼게요." } }\
+            """;
     private static final String STT_TOKEN =
             """
             { "token": "…", "expiresAt": "2026-10-15T12:16:00+09:00" }\
@@ -158,10 +186,7 @@ public class InterviewSessionController {
         this.stub = stub;
     }
 
-    @Operation(
-            summary = "5.1 면접 만들기",
-            description =
-                    "면접을 만들고 질문 준비를 시작한다. 준비가 끝나면 WebSocket `PLAN_READY`가 오고, 5.2로도 확인할 수 있다.")
+    @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -204,7 +229,7 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.2 면접 조회",
-            description = "면접의 현재 상태를 준다. WebSocket 메시지를 놓쳤을 때 이 API로 상태를 다시 맞춘다.")
+            description = "면접의 현재 상태를 준다. 질문 준비와 결과 분석이 끝났는지 이 API를 2초마다(임시 값) 불러 확인한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -305,7 +330,9 @@ public class InterviewSessionController {
         return stub.read(STARTED, SessionResponse.class);
     }
 
-    @Operation(summary = "5.5 지금 질문", description = "지금 답할 질문을 준다. 다음 질문을 준비 중이면 202를 준다.")
+    @Operation(
+            summary = "5.5 지금 질문",
+            description = "지금 답할 질문을 준다. 다음 질문을 준비 중이면 202를 주며, 2초 뒤(임시 값) 다시 부른다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -567,5 +594,58 @@ public class InterviewSessionController {
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId) {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         return stub.read(STT_TOKEN, SttTokenResponse.class);
+    }
+
+    @Operation(
+            summary = "5.11 면접관 리액션",
+            description =
+                    "화상 면접에서 답변하는 도중 문장이 끝날 때마다 그 문장을 보내면 면접관 리액션을 돌려준다."
+                            + " 보낸 문장은 저장하지 않으며, 저장되는 답변은 5.7로 낸 전체 글이다.")
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            content = @Content(examples = @ExampleObject(value = REACTION_REQUEST)))
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            examples = {
+                                @ExampleObject(name = "리액션 있음 (끄덕임)", value = REACTION_NOD),
+                                @ExampleObject(name = "리액션 없음", value = REACTION_NONE),
+                                @ExampleObject(name = "말 끊기", value = REACTION_INTERRUPT)
+                            }))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "SESSION_NOT_FOUND",
+                                        value = ErrorExamples.SESSION_NOT_FOUND),
+                                @ExampleObject(
+                                        name = "QUESTION_NOT_FOUND",
+                                        value = ErrorExamples.QUESTION_NOT_FOUND)
+                            }))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "INVALID_SESSION_STATE",
+                                        value = ErrorExamples.INVALID_SESSION_STATE),
+                                @ExampleObject(
+                                        name = "ANSWER_ALREADY_SUBMITTED",
+                                        value = ErrorExamples.ANSWER_ALREADY_SUBMITTED)
+                            }))
+    @PostMapping("/{sessionId}/questions/{questionId}/reactions")
+    public ReactionResponse reaction(
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
+            @Parameter(description = "질문 id. `0`이면 404", example = "303") @PathVariable
+                    long questionId,
+            @Valid @RequestBody ReactionRequest request) {
+        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
+        Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
+        return stub.read(REACTION_NOD, ReactionResponse.class);
     }
 }

@@ -19,7 +19,7 @@ public class OpenApiConfig {
 
     private static final String DESCRIPTION =
             """
-            한끗(A301) API. 공통 규약, 실시간(WebSocket) 계약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록은 [API 명세 문서](https://lab.ssafy.com/s15-final/S15P31A301/-/blob/develop/docs/API-%EB%AA%85%EC%84%B8.md)에 있다.
+            한끗(A301) API. 공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록은 [API 명세 문서](https://lab.ssafy.com/s15-final/S15P31A301/-/blob/develop/docs/API-%EB%AA%85%EC%84%B8.md)에 있다.
 
             - 실패하면 응답의 `code`로 오류를 구분한다
             - 공통 오류(401 `UNAUTHORIZED`·`TOKEN_EXPIRED`, 400 `VALIDATION_FAILED`, 500 `INTERNAL_ERROR`)는 API별 표기를 생략한다

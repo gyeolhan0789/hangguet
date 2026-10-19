@@ -1,7 +1,7 @@
 # A301 BE 설계
 
-> API 계약은 목 서버(`mock/`)의 Swagger(`/docs`)와 [API 명세](API-명세.md)가 기준이다. Swagger는 API별 요청·응답을, 명세 문서는 공통 규약·실시간(WebSocket) 계약·업무 규칙·보류 목록을 담는다. 이 문서는 그 API를 **어떻게 구현하는지**를 적는다.
-> 표기: **[결정]** 팀에서 정한 것 · **[제안]** 이 문서가 제안하는 것(확정 전) · **[미정]** 보류 목록([API 명세 5장](API-명세.md#5-보류--확인-필요-b) B-번호)
+> API 계약은 목 서버(`mock/`)의 Swagger(`/docs`)와 [API 명세](API-명세.md)가 기준이다. Swagger는 API별 요청·응답을, 명세 문서는 공통 규약·업무 규칙·보류 목록을 담는다. 이 문서는 그 API를 **어떻게 구현하는지**를 적는다.
+> 표기: **[결정]** 팀에서 정한 것 · **[제안]** 이 문서가 제안하는 것(확정 전) · **[미정]** 보류 목록([API 명세 4장](API-명세.md#4-보류--확인-필요-b) B-번호)
 
 ## 1. 범위 · 스택
 
@@ -40,7 +40,7 @@ com.ssafy.a301
 └─ common/error  ErrorCode, ApiException
 ```
 
-- 아직 없는 층: Controller, Service, Repository, Redis·S3·외부 API 어댑터, Security, WebSocket, 공통 오류 처리(`GlobalExceptionHandler`, 지금은 `mock/`에만 있음)
+- 아직 없는 층: Controller, Service, Repository, Redis·S3·외부 API 어댑터, Security, 공통 오류 처리(`GlobalExceptionHandler`, 지금은 `mock/`에만 있음)
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
 
@@ -80,12 +80,12 @@ com.ssafy.a301
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
 1. 지원서 소유 확인 → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
-2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신하고 WebSocket `SESSION_STATUS_CHANGED`(planProgress)
-3. 완료 → Redis `planStatus=READY` + `PLAN_READY` / 실패 → `FAILED` + `PLAN_FAILED`
+2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
+3. 완료 → Redis `planStatus=READY` / 실패 → `FAILED`
 4. 플랜(예상 질문·평가 기준) 저장 위치는 **[미정] B-9**. `interview_questions`에는 넣지 않는다
 
 ### 5.2 질문 출제 (5.4, 5.7 이후)
-- 다음 질문이 정해지는 순간 `InterviewQuestion(seq = 이전 + 1)`을 저장하고 `QUESTION_READY`를 보낸다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
+- 다음 질문이 정해지는 순간 `InterviewQuestion(seq = 이전 + 1)`을 저장한다. 그 전까지 5.5는 202 `QUESTION_GENERATING`을 준다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 - 질문 음성(TTS) 전달은 **[미정] B-1**
 
 ### 5.3 답변 제출 (5.6, 5.7, 5.10)
@@ -94,11 +94,16 @@ com.ssafy.a301
 3. 5.7 한 트랜잭션: 질문 소유·현재 질문 확인 → `Answer` 저장 → (VOICE) S3 존재 확인 후 `Recording.answerAudio` 저장
 4. 커밋 후 비동기로 다음 질문 생성(5.2). `isLastQuestion`은 전체 질문 수와 비교 **[미정] B-3**
 
+### 5.3-1 면접관 리액션 (5.11)
+1. 질문 소유·현재 질문·화상 면접 중인지 확인. 이미 답변을 낸 질문이면 409 `ANSWER_ALREADY_SUBMITTED`
+2. 질문과 Redis의 최근 문장·태도를 반응 로직 모듈에 넘겨 `reaction`·`attitude`·`interrupt`를 받는다
+3. 최근 문장·태도를 Redis에 갱신해 응답한다. 문장은 DB에 저장하지 않는다
+
 ### 5.4 끝내기 · 결과 생성 (5.8, 5.9, 6.1, 6.2)
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 그날(한국 시간, `ended_at` 기준) 처음일 때만 저장
    - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다 **[제안]**. 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
-2. 결과 생성은 **비동기**: `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신하며 `SESSION_STATUS_CHANGED` 전송
+2. 결과 생성은 **비동기**: `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 채점은 면접 AI 모듈이 한다 **[결정]**
      - 채점 대상: 기준 4개(직무 적합성 · 자소서 검증 · 논리성 · 전달력)
      - 판단 근거: 인재상 부합 · 사업·직무 연결 · 질문 의도 · 구체성을 종합
@@ -142,7 +147,7 @@ com.ssafy.a301
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
 | `refresh:{tokenId}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
-| `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds |
+| `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds, 5.11의 최근 문장·태도 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5·5.7·6.2에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | 요청 본문 해시 + 첫 응답(상태·본문) | 24시간 | 5.1·5.4·5.7·5.8 (8장) |
 
@@ -158,7 +163,6 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 액세스 토큰: JWT(짧게), 리프레시 토큰: 불투명 값 + Redis(길게, 자동 로그인 유지)
 - 재발급마다 리프레시 토큰을 새로 발급하고 이전 값은 폐기(회전). 폐기된 값으로 요청하면 401 `REFRESH_TOKEN_INVALID`
 - 탈퇴·로그아웃 시 해당 회원의 리프레시 토큰을 모두 삭제
-- WebSocket 인증 방식 **[미정] B-11**(연결 직후 첫 메시지로 토큰 전송 제안)
 
 ## 10. 파일 (S3) **[제안]**
 
@@ -181,5 +185,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 2. 공통 오류 처리 · Swagger 설정을 `mock/`에서 옮김
 3. Redis · S3 · 면접 AI 모듈 · STT 어댑터
 4. Security(JWT 필터, `@AuthenticationPrincipal`로 회원 id)
-5. WebSocket 서버(메시지 계약은 [API 명세 3장](API-명세.md#3-실시간-websocket))
-6. 비동기 작업(플랜 생성 · 다음 질문 · 결과 생성 · 시선 분석) 실행 방식: `@Async` / 메시지 큐 중 선택 **[미정]**
+5. 비동기 작업(플랜 생성 · 다음 질문 · 결과 생성 · 시선 분석) 실행 방식: `@Async` / 메시지 큐 중 선택 **[미정]**
