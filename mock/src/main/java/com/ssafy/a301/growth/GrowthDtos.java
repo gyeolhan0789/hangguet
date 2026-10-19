@@ -58,6 +58,7 @@ public final class GrowthDtos {
                             description = "그날 기준 스트릭. \"8일째 연습 완료!\". 설문 유도(3·7·21일째) 판단에도 쓴다",
                             example = "8")
                     int streakOnDate,
+            @Schema(description = "그날 연습으로 뱃지 구간이 바뀌었으면 true") boolean leveledUp,
             @Schema(description = "그날 포함 최근 7일 중 연습한 날. 동그라미") List<LocalDate> practiceDates,
             @Schema(description = "그날 연습 면접 수", example = "1") int interviewCount,
             @Schema(description = "그날 연습 면접 시간 합(분)", example = "18") int practiceMinutes,

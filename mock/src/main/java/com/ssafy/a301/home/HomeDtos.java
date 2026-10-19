@@ -30,7 +30,6 @@ public final class HomeDtos {
             HomeState homeState,
             @Schema(description = "현재 스트릭. 오늘 연습했으면 오늘 포함", example = "7") int currentStreak,
             @Schema(description = "가장 길었던 스트릭. S02-C \"지난 최고 기록\"", example = "7") int bestStreak,
-            @Schema(description = "마지막 연습으로 뱃지 구간이 바뀌었으면 true → S02-L") boolean leveledUpToday,
             @Schema(description = "오늘 포함 최근 7일 중 연습한 날. 이번 주 동그라미") List<LocalDate> practiceDates,
             @Schema(description = "오늘 연습 면접 수. S02-B \"면접 1회\"", example = "0")
                     int todayInterviewCount,
