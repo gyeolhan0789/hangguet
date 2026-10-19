@@ -21,6 +21,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
+import java.util.EnumSet;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,6 +37,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+    private static final String SIGNUP_EXAMPLE =
+            """
+            { "email": "a@ssafy.com", "password": "abcd1234", "nickname": "면접왕",
+              "agreements": [ { "termsType": "TERMS", "termsVersion": "1.0" },
+                              { "termsType": "PRIVACY", "termsVersion": "1.0" },
+                              { "termsType": "RECORDING", "termsVersion": "1.0" } ] }\
+            """;
     private static final String TOKEN_EXAMPLE =
             """
             { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600,
@@ -73,8 +81,10 @@ public class AuthController {
         return new EmailAvailabilityResponse(true);
     }
 
-    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 서비스 및 개인정보 이용약관 동의를 기록한 뒤 로그인 토큰을 준다.")
+    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 로그인 토큰을 준다. 필수 약관 3개에 모두 동의해야 한다.")
     @SecurityRequirements
+    @io.swagger.v3.oas.annotations.parameters.RequestBody(
+            content = @Content(examples = @ExampleObject(value = SIGNUP_EXAMPLE)))
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = TOKEN_EXAMPLE)))
@@ -103,8 +113,9 @@ public class AuthController {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public TokenResponse signup(@Valid @RequestBody SignupRequest request) {
-        if (request.agreements().size() != 1
-                || request.agreements().getFirst().termsType() != AuthDtos.TermsType.TERMS) {
+        var types = EnumSet.noneOf(AuthDtos.TermsType.class);
+        request.agreements().forEach(a -> types.add(a.termsType()));
+        if (types.size() != AuthDtos.TermsType.values().length) {
             throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
         }
         return tokens(

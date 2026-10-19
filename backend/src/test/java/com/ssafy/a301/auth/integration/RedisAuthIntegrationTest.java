@@ -219,7 +219,7 @@ class RedisAuthIntegrationTest {
         String email = "redis-it-" + UUID.randomUUID() + "@example.com";
         emails.add(email);
         List<Map<String, String>> agreements =
-                List.of("TERMS").stream()
+                List.of("TERMS", "PRIVACY", "RECORDING").stream()
                         .map(type -> Map.of("termsType", type, "termsVersion", "1.0"))
                         .toList();
         var response =

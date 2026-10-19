@@ -27,7 +27,9 @@ class AuthTokenTest {
         String body =
                 """
                 { "email": "b@ssafy.com", "password": "abcd1234", "nickname": " 새회원 ",
-                  "agreements": [ { "termsType": "TERMS", "termsVersion": "1.0" } ] }\
+                  "agreements": [ { "termsType": "TERMS", "termsVersion": "1.0" },
+                                  { "termsType": "PRIVACY", "termsVersion": "1.0" },
+                                  { "termsType": "RECORDING", "termsVersion": "1.0" } ] }\
                 """;
         JsonNode response = post("/api/v1/auth/signup", body);
         JsonNode claims = claims(response.get("accessToken").asString());

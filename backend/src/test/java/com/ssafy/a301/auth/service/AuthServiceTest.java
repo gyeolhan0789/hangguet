@@ -71,14 +71,18 @@ class AuthServiceTest {
     @Test
     void duplicateEmailIsRejectedBeforeSaving() {
         when(users.existsByEmailAndDeletedAtIsNull("a@test.com")).thenReturn(true);
-        var terms = List.of(new AgreementRequest(TermsType.TERMS, "1.0"));
+        var terms =
+                List.of(
+                        new AgreementRequest(TermsType.TERMS, "1.0"),
+                        new AgreementRequest(TermsType.PRIVACY, "1.0"),
+                        new AgreementRequest(TermsType.RECORDING, "1.0"));
         assertCode(
                 () -> service.signup(new SignupRequest("a@test.com", "abcd1234", "회원", terms)),
                 ErrorCode.EMAIL_DUPLICATED);
     }
 
     @Test
-    void legacyAgreementCannotReplaceCombinedTerms() {
+    void missingAgreementIsRejected() {
         assertCode(
                 () ->
                         service.signup(
@@ -86,7 +90,9 @@ class AuthServiceTest {
                                         "a@test.com",
                                         "abcd1234",
                                         "회원",
-                                        List.of(new AgreementRequest(TermsType.PRIVACY, "1.0")))),
+                                        List.of(
+                                                new AgreementRequest(TermsType.TERMS, "1.0"),
+                                                new AgreementRequest(TermsType.PRIVACY, "1.0")))),
                 ErrorCode.AGREEMENT_REQUIRED);
         verify(users, never()).saveAndFlush(any());
     }

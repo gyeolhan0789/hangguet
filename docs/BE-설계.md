@@ -69,12 +69,12 @@ com.ssafy.a301
 
 ## 3. 도메인 모델 (엔티티 ↔ ERD)
 
-신규 가입은 통합 약관 `TERMS` 1개와 화면에 표시한 버전을 저장한다. 기존 `PRIVACY`·`RECORDING` enum은 과거 DB 기록을 읽기 위한 호환용으로 유지하되 신규 가입에서는 거부한다. 기존 동의 기록을 새로운 통합 약관 동의로 자동 변환하지 않는다.
+가입은 필수 약관 3개(`TERMS`·`PRIVACY`·`RECORDING`)와 화면에 표시한 버전을 모두 저장한다. 하나라도 빠지면 400 `AGREEMENT_REQUIRED`.
 
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
 | `User` | `users` | - | 탈퇴는 `deleted_at` 기록(행 유지). 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스) **[결정]** |
-| `UserAgreement` | `user_agreements` | N:1 User | 가입 시 서비스 및 개인정보 이용약관(TERMS) 1개 기록 **[결정]** |
+| `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 화면에 낸 시점에 행 생성** **[결정]**. `(session_id, seq)` UNIQUE **[제안]** |

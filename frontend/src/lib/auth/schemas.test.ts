@@ -7,7 +7,7 @@ const validSignup = {
   email: " a@ssafy.com ",
   password: "abcd1234",
   passwordConfirm: "abcd1234",
-  agreements: { TERMS: true },
+  agreements: { TERMS: true, PRIVACY: true, RECORDING: true },
 };
 
 const firstError = (result: { success: boolean; error?: { issues: { path: PropertyKey[] }[] } }) =>
@@ -47,12 +47,12 @@ describe("signupSchema", () => {
     expect(firstError(result)).toBe("passwordConfirm");
   });
 
-  it("통합 약관에 동의하지 않으면 막는다", () => {
+  it("녹화 동의를 포함한 필수 약관 3개 중 하나라도 빠지면 막는다", () => {
     const result = signupSchema.safeParse({
       ...validSignup,
-      agreements: { TERMS: false },
+      agreements: { TERMS: true, PRIVACY: true, RECORDING: false },
     });
-    expect(firstError(result)).toBe("agreements.TERMS");
+    expect(firstError(result)).toBe("agreements.RECORDING");
   });
 });
 
