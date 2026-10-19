@@ -48,7 +48,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "READY",
               "planStatus": "GENERATING", "planProgress": 0, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 0,
-              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S05_GENERATING =
             """
@@ -56,7 +56,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "READY",
               "planStatus": "GENERATING", "planProgress": 78, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 0,
-              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S05_PLAN_FAILED =
             """
@@ -64,7 +64,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "READY",
               "planStatus": "FAILED", "planProgress": null, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 0,
-              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String STARTED =
             """
@@ -73,7 +73,7 @@ public class InterviewSessionController {
               "planStatus": "READY", "planProgress": null, "analysisStep": null,
               "currentQuestion": { "id": 301, "seq": 1, "content": "1분 동안 자기소개 부탁드려요." },
               "answeredCount": 0, "elapsedSeconds": 0,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S06_IN_PROGRESS =
             """
@@ -82,7 +82,7 @@ public class InterviewSessionController {
               "planStatus": "READY", "planProgress": null, "analysisStep": null,
               "currentQuestion": { "id": 303, "seq": 3, "content": "가장 큰 기술적 문제는 무엇이었나요?" },
               "answeredCount": 2, "elapsedSeconds": 522,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S06_NEXT_GENERATING =
             """
@@ -90,7 +90,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "IN_PROGRESS",
               "planStatus": "READY", "planProgress": null, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 3, "elapsedSeconds": 640,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S06_1_ANALYZING =
             """
@@ -98,7 +98,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "ANALYZING",
               "planStatus": "READY", "planProgress": null, "analysisStep": "SCORING",
               "currentQuestion": null, "answeredCount": 5, "elapsedSeconds": 1080,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:18:00+09:00", "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:18:00+09:00", "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String S06_1_FAILED =
             """
@@ -106,7 +106,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "FAILED",
               "planStatus": "READY", "planProgress": null, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 5, "elapsedSeconds": 1080,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:18:00+09:00", "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:18:00+09:00", "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null }\
             """;
     private static final String ENDED_ANALYZING =
             """
@@ -114,7 +114,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "ANALYZING",
               "planStatus": "READY", "planProgress": null, "analysisStep": "ORGANIZING_ANSWERS",
               "currentQuestion": null, "answeredCount": 2, "elapsedSeconds": 522,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:08:42+09:00", "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:08:42+09:00", "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": true }\
             """;
     private static final String ENDED_ABORTED =
             """
@@ -122,7 +122,7 @@ public class InterviewSessionController {
               "persona": "DEVIL", "mode": "VIDEO", "status": "ABORTED",
               "planStatus": "READY", "planProgress": null, "analysisStep": null,
               "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 95,
-              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:01:35+09:00", "createdAt": "2026-10-15T11:58:30+09:00" }\
+              "startedAt": "2026-10-15T12:00:00+09:00", "endedAt": "2026-10-15T12:01:35+09:00", "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": false }\
             """;
     private static final String QUESTION =
             """

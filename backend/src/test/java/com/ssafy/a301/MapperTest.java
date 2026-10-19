@@ -70,10 +70,16 @@ class MapperTest {
 
         SessionResponse ready =
                 InterviewMapper.toSessionResponse(
-                        s, new SessionRuntime(PlanStatus.GENERATING, 78, null, 0), null, 0, T0);
+                        s,
+                        new SessionRuntime(PlanStatus.GENERATING, 78, null, 0),
+                        null,
+                        0,
+                        T0,
+                        null);
         assertThat(ready.planProgress()).isEqualTo(78);
         assertThat(ready.currentQuestion()).isNull();
         assertThat(ready.elapsedSeconds()).isZero();
+        assertThat(ready.leveledUp()).isNull();
 
         s.start(T0);
         SessionResponse inProgress =
@@ -82,7 +88,8 @@ class MapperTest {
                         new SessionRuntime(PlanStatus.READY, 50, AnalysisStep.SCORING, 0),
                         question,
                         0,
-                        T0.plusSeconds(10));
+                        T0.plusSeconds(10),
+                        null);
         assertThat(inProgress.planProgress()).isNull();
         assertThat(inProgress.analysisStep()).isNull();
         assertThat(inProgress.currentQuestion().id()).isEqualTo(301);
@@ -96,9 +103,11 @@ class MapperTest {
                         new SessionRuntime(PlanStatus.READY, null, AnalysisStep.SCORING, 0),
                         question,
                         1,
-                        T0.plusSeconds(90));
+                        T0.plusSeconds(90),
+                        true);
         assertThat(analyzing.analysisStep()).isEqualTo(AnalysisStep.SCORING);
         assertThat(analyzing.currentQuestion()).isNull();
+        assertThat(analyzing.leveledUp()).isTrue();
     }
 
     @Test

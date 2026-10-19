@@ -62,7 +62,13 @@ public final class InterviewDtos {
             @Schema(description = "면접 시작 일시. 시작 전이면 null", nullable = true)
                     OffsetDateTime startedAt,
             @Schema(description = "면접 종료 일시. 끝나기 전이면 null", nullable = true) OffsetDateTime endedAt,
-            @Schema(description = "면접을 만든 일시") OffsetDateTime createdAt) {}
+            @Schema(description = "면접을 만든 일시") OffsetDateTime createdAt,
+            @Schema(
+                            description =
+                                    "이번에 끝낸 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이 있고, 그 외에는"
+                                            + " null",
+                            nullable = true)
+                    Boolean leveledUp) {}
 
     public record QuestionResponse(
             @Schema(description = "질문 id", example = "303") long id,
