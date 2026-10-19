@@ -15,6 +15,7 @@ import com.ssafy.a301.user.domain.UserAgreement;
 import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.UserAgreementRepository;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.util.EnumSet;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -52,8 +53,9 @@ public class AuthService {
     }
 
     public TokenResponse signup(SignupRequest request) {
-        if (request.agreements().size() != 1
-                || request.agreements().getFirst().termsType() != TermsType.TERMS) {
+        var types = EnumSet.noneOf(TermsType.class);
+        request.agreements().forEach(a -> types.add(a.termsType()));
+        if (types.size() != TermsType.values().length) {
             throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
         }
         if (!isEmailAvailable(request.email())) {

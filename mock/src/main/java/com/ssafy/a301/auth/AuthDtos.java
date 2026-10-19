@@ -14,9 +14,7 @@ public final class AuthDtos {
 
     private AuthDtos() {}
 
-    @Schema(
-            description =
-                    "TERMS: 서비스 및 개인정보 이용약관. PRIVACY·RECORDING은 기존 동의 기록 호환용이며 신규 가입에서 받지 않는다")
+    @Schema(description = "약관 종류. TERMS 이용약관 · PRIVACY 개인정보 수집·이용 · RECORDING 면접 녹화·음성 이용")
     public enum TermsType {
         TERMS,
         PRIVACY,
@@ -60,9 +58,9 @@ public final class AuthDtos {
                     @NotBlank(message = "필수 값입니다.")
                     @Size(max = 50, message = "1~50자입니다.")
                     String nickname,
-            @Schema(description = "서비스 및 개인정보 이용약관(TERMS) 1개 동의")
+            @Schema(description = "필수 약관 3개(TERMS·PRIVACY·RECORDING) 모두. termsType 중복 불가")
                     @NotNull(message = "필수 값입니다.")
-                    @Size(min = 1, max = 1, message = "서비스 및 개인정보 이용약관 1개가 필요합니다.")
+                    @Size(min = 3, max = 3, message = "약관 3개가 필요합니다.")
                     List<@NotNull @Valid AgreementRequest> agreements) {}
 
     public record LoginRequest(

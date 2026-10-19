@@ -17,7 +17,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
-/** 약관 동의 기록. 회원가입(1.2) 때 서비스 및 개인정보 이용약관 1개를 기록한다. */
+/** 약관 동의 기록. 회원가입(1.2) 때 약관 3개를 한 번에 기록한다. */
 @Entity
 @Table(name = "user_agreements")
 @Getter

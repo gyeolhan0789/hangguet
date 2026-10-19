@@ -78,7 +78,7 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
       email: "",
       password: "",
       passwordConfirm: "",
-      agreements: { TERMS: false },
+      agreements: { TERMS: false, PRIVACY: false, RECORDING: false },
     },
   });
 
