@@ -20,6 +20,8 @@ import {
 import { ROUTES } from "@/lib/routes";
 
 const EMAIL_CHECK_DELAY_MS = 400;
+/** 서버가 돌려준 칸별 오류(VALIDATION_FAILED · EMAIL_DUPLICATED)의 react-hook-form 오류 type */
+const SERVER_ERROR = "server";
 
 type EmailCheck = { email: string; available: boolean | null };
 
@@ -116,11 +118,14 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
   const shownError = (
     name: "nickname" | "password" | "passwordConfirm",
   ): FieldMessage | undefined => {
-    const message = errors[name]?.message;
-    if (!message || !(touchedFields[name] || dirtyFields[name])) return undefined;
-    // 비밀번호 규칙은 칩으로 보여 주므로, 문구는 최대 길이를 넘었을 때만 띄운다.
-    if (name === "password" && password.length <= PASSWORD_MAX) return undefined;
-    return { text: message, tone: "error" };
+    const error = errors[name];
+    if (!error?.message || !(touchedFields[name] || dirtyFields[name])) return undefined;
+    // 비밀번호 규칙은 칩으로 보여 주므로, 화면 검사 문구는 최대 길이를 넘었을 때만 띄운다.
+    // 서버가 거절한 이유(VALIDATION_FAILED)는 칩에 없으므로 그대로 보여 준다.
+    if (name === "password" && error.type !== SERVER_ERROR && password.length <= PASSWORD_MAX) {
+      return undefined;
+    }
+    return { text: error.message, tone: "error" };
   };
 
   function toggleAll(next: boolean) {
@@ -138,7 +143,7 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
     }
     for (const [field, text] of Object.entries(result.fieldErrors ?? {})) {
       if (field === "nickname" || field === "email" || field === "password") {
-        setError(field, { message: text });
+        setError(field, { type: SERVER_ERROR, message: text });
       }
     }
     if (result.formError) setFormError(result.formError);
