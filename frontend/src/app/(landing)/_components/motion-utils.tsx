@@ -11,11 +11,7 @@ import {
 } from "motion/react";
 import { useEffect, useRef, type ReactNode } from "react";
 
-/** 서버·클라이언트에서 같은 값이 나와야 하는 "랜덤" 값(0~1). 하이드레이션 불일치를 막는다. */
-export function seeded(index: number, salt: number) {
-  const x = Math.sin(index * 9301 + salt * 49297) * 233280;
-  return x - Math.floor(x);
-}
+import { seeded } from "@/lib/seeded";
 
 /** 운영체제의 "동작 줄이기"를 켜면 이동·확대 애니메이션을 끄고 페이드만 남긴다. */
 export function LandingMotion({ children }: { children: ReactNode }) {
