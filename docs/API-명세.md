@@ -16,11 +16,12 @@
 ## 1. 공통 규약
 
 - **기본 경로** `/api/v1`. Resource는 복수 명사·kebab-case, JSON 필드는 camelCase, enum은 UPPER_SNAKE_CASE
+- **처리 서버** Nginx가 경로로 나눠 보낸다. 5.11은 AI 실시간 반응 서비스가, 나머지는 BE가 처리한다. 두 서버는 이 장의 규약을 똑같이 따른다
 - **일시** ISO 8601 오프셋 포함(`2026-10-15T12:00:00+09:00`), **날짜** `YYYY-MM-DD`(한국 시간)
 - **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음). 액세스 토큰은 JWT(HS256)이고 `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다. 리프레시 토큰은 JWT가 아닌 불투명한 문자열
 - 다른 회원의 리소스는 존재 여부를 숨기기 위해 **404**. 탈퇴한 회원의 데이터는 조회되지 않음
 - **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`
-- **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가
+- **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가. Nginx가 직접 주는 502·504는 본문 형식을 보장하지 않아 상태 코드로 판단한다
 - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
 - **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
 - **파일** 음성·영상·사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받음. API로 파일을 보내지 않음
