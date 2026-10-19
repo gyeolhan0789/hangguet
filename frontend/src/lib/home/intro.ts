@@ -1,7 +1,6 @@
 import type { IntroCopy } from "@/components/streak/streak-intro";
 import { tierOf } from "@/lib/streak";
-
-import type { HomeResponse } from "./types";
+import type { HomeResponse } from "@/types/api";
 
 /**
  * 홈에 들어올 때마다(로그인 직후 포함) S02-1 인트로를 보여 줄지.

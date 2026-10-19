@@ -7,9 +7,9 @@ import {
   setAuthCookies,
 } from "@/lib/api/auth-cookies";
 import { isAccessTokenExpired, refreshTokens } from "@/lib/api/token-refresh";
-import type { TokenResponse } from "@/lib/api/types";
 import { PATHNAME_HEADER } from "@/lib/auth/auth-errors";
 import { GUEST_ONLY_PATHS, PUBLIC_PATHS, ROUTES } from "@/lib/routes";
+import type { RefreshResponse } from "@/types/api";
 
 // 페이지·서버 액션이 실행되기 전에
 // ① 액세스 토큰이 없거나(쿠키 만료) 곧 끝나고 리프레시 토큰이 있으면 재발급하고
@@ -20,7 +20,7 @@ export async function proxy(request: NextRequest) {
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   let loggedIn = !!accessToken && !isAccessTokenExpired(accessToken);
   /** undefined: 재발급 안 함, null: 재발급 실패(REFRESH_TOKEN_INVALID) */
-  let refreshed: TokenResponse | null | undefined;
+  let refreshed: RefreshResponse | null | undefined;
 
   if (!loggedIn && refreshToken) {
     refreshed = await refreshTokens(refreshToken);

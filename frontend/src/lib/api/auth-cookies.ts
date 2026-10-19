@@ -1,4 +1,4 @@
-import type { TokenResponse } from "./types";
+import type { RefreshResponse } from "@/types/api";
 
 export const ACCESS_TOKEN_COOKIE = "hk_access";
 export const REFRESH_TOKEN_COOKIE = "hk_refresh";
@@ -22,7 +22,7 @@ interface CookieWriter {
 }
 
 /** 로그인(1.3)·토큰 재발급(1.4) 응답을 쿠키에 저장한다. */
-export function setAuthCookies(cookies: CookieWriter, tokens: TokenResponse) {
+export function setAuthCookies(cookies: CookieWriter, tokens: RefreshResponse) {
   cookies.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, {
     ...baseOptions,
     maxAge: Math.max(tokens.expiresIn - ACCESS_TOKEN_MARGIN_SECONDS, 0),

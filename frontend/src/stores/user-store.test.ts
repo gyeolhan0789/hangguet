@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { UserResponse } from "@/lib/api/types";
+import type { MeResponse } from "@/types/api";
 
 import { useUserStore } from "./user-store";
 
-const user: UserResponse = {
+const user: MeResponse = {
   id: 1,
   email: "example@ssafy.com",
   nickname: "면접왕",

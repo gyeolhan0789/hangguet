@@ -143,10 +143,11 @@ test.describe("S00 랜딩 · 로그인 후 (C01 헤더)", () => {
 
     await page.goto("/");
 
+    // 주소는 처음부터 "/"라 toHaveURL로는 기다리지 못한다. 쿠키를 지우는 Route Handler를 거쳐 돌아올 때까지 기다린다.
+    await expect
+      .poll(async () => (await context.cookies()).map((cookie) => cookie.name))
+      .not.toContain(ACCESS_TOKEN_COOKIE);
     await expect(page).toHaveURL("/");
-    expect((await context.cookies()).map((cookie) => cookie.name)).not.toContain(
-      ACCESS_TOKEN_COOKIE,
-    );
     const header = page.getByRole("banner");
     await expect(header.getByRole("link", { name: "시작하기", exact: true })).toBeVisible();
     await expect(header.getByRole("button", { name: "프로필 메뉴" })).toHaveCount(0);
