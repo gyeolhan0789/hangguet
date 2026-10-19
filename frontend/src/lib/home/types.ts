@@ -33,8 +33,6 @@ export interface HomeResponse {
   homeState: HomeState;
   currentStreak: number;
   bestStreak: number;
-  /** 오늘 스트릭 단계가 올랐으면 S02-1 대신 S02-L을 보여 준다 */
-  leveledUpToday: boolean;
   /** 연습한 날짜(YYYY-MM-DD) */
   practiceDates: string[];
   todayInterviewCount: number;
