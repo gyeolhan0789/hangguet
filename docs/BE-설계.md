@@ -107,7 +107,7 @@ com.ssafy.a301
 1. 지원서 소유 확인 → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
 2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
 3. 완료 → Redis `planStatus=READY` / 실패 → `FAILED`
-4. 플랜(예상 질문·평가 기준) 저장 위치는 **[미정] B-9**. `interview_questions`에는 넣지 않는다
+4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(ERD 반영 대기 B-9). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**
 
 ### 5.2 질문 출제 (5.4, 5.7 이후)
 - 다음 질문이 정해지는 순간 `InterviewQuestion(seq = 이전 + 1)`을 저장한다. 그 전까지 5.5는 202 `QUESTION_GENERATING`을 준다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
@@ -117,7 +117,7 @@ com.ssafy.a301
 1. 화상: 5.10으로 STT 1회용 토큰 발급(회사 API 키는 서버에만) → 브라우저가 직접 스트리밍 **[결정]**. STT 회사 **[미정] B-2**
 2. 5.6으로 답변 음성 업로드 주소 발급 → 브라우저가 S3에 PUT
 3. 5.7 한 트랜잭션: 질문 소유·현재 질문 확인 → `Answer` 저장 → (VOICE) S3 존재 확인 후 `Recording.answerAudio` 저장
-4. 커밋 후 비동기로 다음 질문 생성(5.2). `isLastQuestion`은 전체 질문 수와 비교 **[미정] B-3**
+4. 커밋 후 답변 채점 작업(SCORE_ANSWER)을 큐에 넣고, 다음 질문은 플랜에서 꺼내 저장한다([AI 명세](AI-명세.md) 2·3장). `isLastQuestion`은 5번 질문이면 true **[결정]**
 
 ### 5.3-1 면접관 리액션 (5.11)
 1. 질문 소유·현재 질문·화상 면접 중인지 확인. 이미 답변을 낸 질문이면 409 `ANSWER_ALREADY_SUBMITTED`
@@ -129,14 +129,12 @@ com.ssafy.a301
    - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다 **[제안]**. 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
 2. 결과 생성은 **비동기**: `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
-   - 채점은 면접 AI 모듈이 한다 **[결정]**
+   - 채점·결과 저장은 AI 분석 작업자가 한다. BE는 작업 큐에 넣기만 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
      - 채점 대상: 기준 4개(직무 적합성 · 자소서 검증 · 논리성 · 전달력)
      - 판단 근거: 인재상 부합 · 사업·직무 연결 · 질문 의도 · 구체성을 종합
-     - BE가 넘길 입력: 회사 카드 · 채용공고 · 지원서(자소서 포함) · 질문 · 답변, 화상이면 음성 지표(군말 · 긴 멈춤 · 말 속도 · 말끝 흐림 · 억양 · 시선)
-     - 전달력: 화상은 답변 + 음성 지표, 채팅은 답변 글로 판단
-     - 받을 출력: 기준별 0~100점 + 한 줄 설명, 질문별 점수 + 잘한 점 + 아쉬운 점. 3단계는 BE가 점수로 계산(B-4)
-   - `Answer.evaluate()`, `SessionScore` 4개, `SpeechMetric`(화상) 저장 → `complete(summary)`
-   - 자소서 검증 점수 = 100 − 명확한 충돌 수 × 차감 폭 **[결정]**, 차감 폭 **[미정] B-10**
+     - 전달력: 화상은 답변 + 말하기 지표(비어 있으면 빼고), 채팅은 답변 글로 판단
+     - 3단계는 BE가 점수로 계산(경계 API 명세 6.3)
+   - 자소서 검증도 다른 기준과 같이 3단계로 판정하고, 자소서 대조로 확정한다 **[결정]**
 3. 6.2 녹화 등록 → 비동기로 영상에서 시선 응시 비율 계산 → `SpeechMetric.recordGazeRatio()`. 녹화가 없으면 null **[결정]**
 
 ## 6. 계산 규칙 (저장하지 않음)
@@ -164,7 +162,7 @@ com.ssafy.a301
 ### 6.3 기타
 - `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
 - `latestJobTitle` = 가장 최근 면접에 쓴 지원서의 직무
-- `grade` = `Grade.of(score)`. 경계 **[미정] B-4**(코드의 80/60은 임시값)
+- `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ## 7. Redis 키 **[제안]**

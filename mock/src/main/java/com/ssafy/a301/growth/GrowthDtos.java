@@ -18,7 +18,7 @@ public final class GrowthDtos {
         DELIVERY
     }
 
-    @Schema(description = "3단계. GOOD 좋아요 · NORMAL 보통 · WEAK 아쉬워요. 점수 경계는 B-4")
+    @Schema(description = "3단계. GOOD 좋아요 · NORMAL 보통 · WEAK 아쉬워요. 점수 경계는 API 명세 6.3")
     public enum Grade {
         GOOD,
         NORMAL,
