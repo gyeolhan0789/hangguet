@@ -4,6 +4,8 @@ import { motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 
+import { ROUTES } from "@/lib/routes";
+
 import { Embers, Reveal, type Ember } from "./motion-utils";
 
 // Figma "CTA Embers (animated)" 18개 (1440×520 기준)
@@ -76,7 +78,7 @@ export function FinalCta() {
           transition={{ boxShadow: { duration: 2, repeat: Infinity, ease: "easeInOut" } }}
         >
           <Link
-            href="/login"
+            href={ROUTES.signup}
             className="flex h-[60px] items-center gap-2 rounded-2xl bg-brand-strong px-8 text-lg font-bold text-white"
           >
             무료로 시작하기
