@@ -23,9 +23,20 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 → ③ LLM
 | 이름 | 내용 |
 |---|---|
 | `DART_API_KEY` | opendart.fss.or.kr 인증키 |
-| `GMS_API_KEY` | SSAFY GMS 키 |
-| `GMS_CHAT_URL` | GMS chat completions 주소 |
-| `GMS_MODEL` | 모델 이름 |
+| `LLM_CHAT_URL` | OpenAI 호환 chat completions 주소 |
+| `LLM_MODEL` | 모델 이름 |
+| `LLM_API_KEY` | API 키 (로컬 모델은 비움) |
+| `LLM_REASONING_EFFORT` | 생각 모드가 있는 모델에서 끌 때 `none` (GMS는 비움) |
+
+로컬 개발 (Ollama, qwen3:8b · 입력 길이 10240 토큰 설정 모델):
+
+```
+LLM_CHAT_URL=http://localhost:11434/v1/chat/completions
+LLM_MODEL=qwen3-8b-ctx
+LLM_REASONING_EFFORT=none
+```
+
+GMS가 발급되면 `LLM_CHAT_URL`, `LLM_MODEL`, `LLM_API_KEY`만 바꾼다.
 
 ## 데이터
 
