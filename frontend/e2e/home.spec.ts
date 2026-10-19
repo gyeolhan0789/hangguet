@@ -290,15 +290,19 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
   });
 
   test("S02 남은 시간은 1초마다 줄어든다", async ({ page }) => {
+    // Playwright 시계 문서 권장 순서: install → 페이지가 실제 시간으로 뜨고 인트로가 끝나게 둔다 → pauseAt으로 멈춘 뒤 runFor로 넘긴다.
+    // 인트로 도중에 시간을 건너뛰면 Motion 애니메이션이 중간에 멈춰 인트로가 사라지지 않는다.
     await page.clock.install({ time: new Date(`${TODAY}T23:00:00+09:00`) });
     await page.goto("/home");
-    await page.clock.runFor(5_000);
+    // 인트로가 뜨기 전에는 status가 없어 waitForIntro가 바로 통과하므로, 뜬 것을 본 뒤 끝나기를 기다린다.
+    await expect(intro(page)).toBeVisible();
     await waitForIntro(page);
+    await page.clock.pauseAt(new Date(`${TODAY}T23:00:30+09:00`));
     const chip = page.getByRole("main").getByText(/^오늘 남은 시간 \d{2}:\d{2}:\d{2}$/);
 
-    const before = await chip.textContent();
+    await expect(chip).toHaveText("오늘 남은 시간 00:59:30");
     await page.clock.runFor(1_000);
-    await expect(chip).not.toHaveText(before!);
+    await expect(chip).toHaveText("오늘 남은 시간 00:59:29");
   });
 
   test("S02-B 오늘 완료: 완료 문구 · 내일 목표 · [한 번 더 연습하기] · 오늘 나아진 점", async ({
