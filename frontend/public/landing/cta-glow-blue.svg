@@ -1,0 +1,9 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="680" height="680" viewBox="0 0 680 680" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle id="CTA Glow Blue (animated)" cx="340" cy="340" r="340" fill="url(#paint0_radial_0_34)"/>
+<defs>
+<radialGradient id="paint0_radial_0_34" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(340 340) scale(340)">
+<stop stop-color="#4C6FFF" stop-opacity="0.25098"/>
+<stop offset="1" stop-color="#4C6FFF" stop-opacity="0"/>
+</radialGradient>
+</defs>
+</svg>
