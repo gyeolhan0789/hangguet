@@ -5,6 +5,7 @@
 > - Swagger: https://hangguet.yobistory.com/mock/be/docs (로컬: `mock/`에서 `./gradlew bootRun` → http://localhost:8080/docs)
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
 > - API 번호(1.1, 5.10 등)는 Swagger 요약 앞 번호와 같다
+> - 면접 AI 내부 처리(작업·입출력·실패)는 [AI 명세](AI-명세.md)
 
 ## 목차
 
@@ -16,11 +17,12 @@
 ## 1. 공통 규약
 
 - **기본 경로** `/api/v1`. Resource는 복수 명사·kebab-case, JSON 필드는 camelCase, enum은 UPPER_SNAKE_CASE
+- **처리 서버** Nginx가 경로로 나눠 보낸다. 5.11·5.12는 AI 실시간 반응 서비스가, 나머지는 BE가 처리한다. 두 서버는 이 장의 규약을 똑같이 따른다
 - **일시** ISO 8601 오프셋 포함(`2026-10-15T12:00:00+09:00`), **날짜** `YYYY-MM-DD`(한국 시간)
 - **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음). 액세스 토큰은 JWT(HS256)이고 `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다. 리프레시 토큰은 JWT가 아닌 불투명한 문자열
 - 다른 회원의 리소스는 존재 여부를 숨기기 위해 **404**. 탈퇴한 회원의 데이터는 조회되지 않음
 - **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`
-- **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가
+- **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가. Nginx가 직접 주는 502·504는 본문 형식을 보장하지 않아 상태 코드로 판단한다
 - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
 - **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
 - **파일** 음성·영상·사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받음. API로 파일을 보내지 않음
@@ -68,6 +70,7 @@
 | 5.9 | 결과 재생성 | `POST /interview-sessions/{sessionId}/analysis/retry` | S06-1 |
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
 | 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 |
+| 5.12 | 질문 음성 토큰 | `POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token` | S06 · S06-B |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
@@ -269,7 +272,7 @@
 
 **화면 — S05 [면접 시작] 활성화, S06·S06-B 상단, S06-F 재연결 복구, S06-1 진행**
 
-질문 준비(`planStatus`·`planProgress`)와 결과 분석(`status`·`analysisStep`)이 끝났는지 이 API를 2초마다(임시 값) 불러 확인한다(1장 상태 확인). 새로고침·재연결 때도 이 응답으로 화면을 다시 그린다. "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3). `leveledUp`은 5.8 응답에만 값이 있고, 이 API에서는 항상 null이다.
+질문 준비(`planStatus`·`planProgress`)와 결과 분석(`status`·`analysisStep`)이 끝났는지 이 API를 2초마다(임시 값) 불러 확인한다(1장 상태 확인). 새로고침·재연결 때도 이 응답으로 화면을 다시 그린다. "질문 3 / 5"의 전체 질문 수는 5개로 고정이다. `leveledUp`은 5.8 응답에만 값이 있고, 이 API에서는 항상 null이다.
 
 - **200**: 본인 면접
 - **404 / SESSION_NOT_FOUND**: 없거나 남의 면접
@@ -286,7 +289,7 @@
 
 **화면 — S05 [면접 시작](화상), S05-1 [면접 시작](채팅)**
 
-면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준).
+면접을 시작하고 첫 질문을 준다. 화상은 이 응답 시점에 녹화를 시작한다(6.4 질문 시점의 기준). 첫 질문 음성은 5.12로 받는다.
 
 채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 5.2에서 `planStatus: READY`를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다.
 
@@ -306,7 +309,7 @@
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 
-질문 음성(TTS) 전달은 보류(B-1).
+질문 음성은 5.12로 받는다.
 
 #### 5.6 답변 음성 업로드 주소
 
@@ -322,11 +325,17 @@
 
 **화면 — S06 [답변 완료] 또는 침묵, S06-B [보내기]**
 
-질문 하나에 답변 하나만 낼 수 있다. 화상은 실시간 음성 인식(5.10)의 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다. 음성 파일은 음성 지표 분석·보관용이다. 다음 질문은 5.5로 받고, 점수·피드백은 면접 종료 후 채워진다.
+질문 하나에 답변 하나만 낼 수 있다. 화상은 실시간 음성 인식(5.10)의 최종 글과 음성 키를, 채팅은 입력한 글을 보낸다. 음성 파일은 음성 지표 분석·보관용이다. 다음 질문은 5.5로 받는다. 답변별 채점은 제출 직후 시작하고, 결과(6.3)는 면접 종료 후 확정된다.
+
+화상은 음성 인식이 확정한 토큰과 말한 시각(`tokens`)을 함께 보낼 수 있다. 말하기 지표 계산에 쓰며, 없으면 그 지표만 비어 있다.
+
+- 음성 인식이 준 확정 토큰을 그대로 보낸다(단어 일부·공백 포함, 단어로 합치지 않음). `<end>`·`<fin>` 표시 토큰은 뺀다
+- 시각은 답변 음성 파일(5.6) 시작 기준 밀리초. 음성 인식 연결 시작 시각과 다르면 화면이 차이를 빼서 보낸다
+- `content`와 글자가 맞는지는 검사하지 않는다. 채점은 `content`로 한다
 
 - **202**: 접수
-- **400 / VALIDATION_FAILED**: `content` 길이 초과(TEXT 1,000자 / VOICE 10,000자), VOICE인데 `audioObjectKey` 없음
-- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND** · **FILE_NOT_FOUND**(음성 파일 없음)
+- **400 / VALIDATION_FAILED**: `content` 길이 초과(TEXT 1,000자 / VOICE 10,000자), VOICE인데 `audioObjectKey` 없음, TEXT인데 `tokens`를 보냄(빈 배열 포함), `tokens` 10,000개 초과·빈 원소·`endMs` < `startMs`, `inputType`이 면접 방식과 다름
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**(질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문) · **FILE_NOT_FOUND**(음성 파일 없음)
 - **409 / ANSWER_ALREADY_SUBMITTED**: 이미 답변함(다른 키로 재전송)
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 
@@ -355,7 +364,7 @@
 
 **화면 — S06 화상 › 답변 듣기 시작, 토큰 만료 전 재발급**
 
-브라우저가 STT 회사에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 BE를 거치지 않는다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). 화면은 받아 적는 글을 S06 자막으로 보여 주고, 답변 도중 확정된 문장은 5.11로, 최종 글은 5.7 `content`로 보낸다. STT 회사는 1회용 토큰을 지원하는 일레븐랩스·Soniox 중 미정(B-2).
+브라우저가 STT 회사에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 BE를 거치지 않는다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). 화면은 받아 적는 글을 S06 자막으로 보여 주고, 답변 도중 확정된 문장은 5.11로, 최종 글은 5.7 `content`로, 확정 토큰과 말한 시각은 5.7 `tokens`로 보낸다. STT 회사는 1회용 토큰을 지원하는 일레븐랩스·Soniox 중 미정(B-2).
 
 - **200**: 발급
 - **404 / SESSION_NOT_FOUND**
@@ -374,6 +383,7 @@
 - `interrupt`의 `text`는 면접관이 말을 끊으며 하는 말이라 자막으로 보여 준다
 - 말하다 잠깐 쉴 때의 끄덕임과 오래 침묵할 때의 안내는 화면이 직접 처리한다(서버 호출 없음)
 - 채팅 면접은 이 API를 쓰지 않는다. 면접관은 기본 상태(무표정)로 둔다
+- 서버가 리액션을 정하지 못하면(시간 초과·실패) `reaction: null`로 200을 준다. Nginx 502·504면 화면은 리액션 없이 진행한다
 
 **리액션 값** 필드는 면접관 표현 모듈 반응 이벤트 계약([`interviewer-avatar/architecture.md`](../박연수/interviewer-avatar/architecture.md) 2장)을 따르되, 태도(`attitude`)는 `reaction`에서 빼서 별도 필드로 둔다. 면접관 방식에 따라 화면이 값을 쓰는 방법이 다르고, 반응 로직 모듈은 면접관 방식을 몰라도 된다(B-8).
 
@@ -386,9 +396,24 @@
 | `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
 
 - **200**: 리액션
-- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**: 질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문
 - **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
 - **409 / ANSWER_ALREADY_SUBMITTED**: 이미 5.7로 답변을 낸 질문
+
+#### 5.12 질문 음성 토큰
+
+**화면 — S06·S06-B 질문 말풍선 › 질문 음성 재생**
+
+브라우저가 TTS 회사(ElevenLabs)에 직접 스트리밍 연결할 1회용 임시 토큰을 준다. API 키는 서버에만 두고, 음성은 서버를 거치지 않는다. 화면은 5.4·5.5로 질문을 받은 직후 이 API를 부르고, 받은 `voiceId`·`modelId`로 연결해 질문 글(`content`)을 보내 음성과 글자별 발음 시각을 받는다. 화상·채팅 모두 쓴다.
+
+- 토큰은 연결 1번에만 쓸 수 있고, `expiresAt`이 지나면 만료된다. 연결이 끊기거나 만료되면 다시 부른다
+- 이미 답변을 낸 질문도 막지 않는다(재연결 시 다시 듣기)
+- 503, Nginx 502·504, 연결 실패·끊김이면 질문 글만 보여 주고 면접을 계속한다
+
+- **200**: 발급
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**: 질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문
+- **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
+- **503 / TTS_UNAVAILABLE**: TTS 회사 토큰 발급 실패
 
 ### 6. 녹화 · 결과 · 다시보기
 
@@ -416,7 +441,9 @@
 
 **화면 — S07 피드백 결과**
 
-면접 1회 결과. 화면은 점수 대신 좋아요·보통·아쉬워요로 보여 준다. 반응 썸네일은 면접관별 고정 이미지라 API 필드가 없다. 채팅 면접은 같은 형식에 `mode: CHAT`, `speechMetrics: null`. 채팅도 기준 4개 점수가 모두 나온다(전달력은 답변 글로 판단).
+면접 1회 결과. 화면은 점수 대신 좋아요·보통·아쉬워요로 보여 준다. 반응 썸네일은 면접관별 고정 이미지라 API 필드가 없다. 채팅 면접은 같은 형식에 `mode: CHAT`, `speechMetrics: null`. 채팅도 기준 4개 점수가 모두 나온다. 전달력은 화상이면 답변 글과 말하기 지표로, 채팅이면 답변 글로 판단한다. 말하기 지표가 비어 있으면 그 지표는 빼고 판단한다.
+
+`grade`는 점수로 계산한다: 80 이상 `GOOD`, 60 이상 `NORMAL`, 그 외 `WEAK`. 6.4·7.1도 같다.
 
 화면 표시: 기준 이름(`JOB_FIT` → 직무 적합성, `COVER_LETTER` → 자소서 검증, `LOGIC` → 논리성, `DELIVERY` → 전달력)과 `grade` 문구는 화면이 바꾼다. 질문별 피드백은 첫 번째 `WEAK`·`NORMAL` 질문만 펼친다.
 
@@ -443,7 +470,7 @@
 
 **화면 — S08(오늘), S08-C(첫 면접), S09 달력 날짜, S02 최근 리뷰 [보기]**
 
-화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다.
+화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(`grade`가 `GOOD`이면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다.
 
 - **200**: 그날 결과가 있음
 - **404 / GROWTH_REVIEW_NOT_FOUND**: 그날 연습 기록 또는 결과가 없음
@@ -470,10 +497,11 @@
 | `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.x, 5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x, 6.x |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
-| `INVALID_SESSION_STATE` | 409 | 5.4~5.11, 6.1 |
+| `INVALID_SESSION_STATE` | 409 | 5.4~5.12, 6.1 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7, 5.11 |
 | `STT_UNAVAILABLE` | 503 | 5.10 |
+| `TTS_UNAVAILABLE` | 503 | 5.12 |
 | `RECORDING_ALREADY_EXISTS` | 409 | 6.2 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
@@ -483,14 +511,14 @@
 
 | # | 내용 | 영향 | 담당 |
 |---|---|---|---|
-| B-1 | 질문 음성(TTS) 전달: TTS 회사(일레븐랩스·타입캐스트). 1회용 토큰 지원 시 5.10과 같은 방식 | 5.4, 5.5 | 보류 |
 | B-2 | STT 회사: 일레븐랩스 · Soniox 중 미정 | 5.10 | BE |
-| B-3 | 면접 전체 질문 수("질문 3 / 5"). 고정이면 상수, 바뀌면 컬럼 필요 | 5.2, 5.7 | 면접 AI 모듈 |
-| B-4 | 점수 → 좋아요·보통·아쉬워요 경계값 | 6.3, 6.4, 7.1 | 협의 |
 | B-5 | 오늘 완료 기준(현재: 답변 1개 이상인 면접 종료). 성장 리뷰까지 봐야 완료인지 | 3.1, 5.8 | 화면 |
 | B-6 | 탈퇴 시 삭제 범위, 녹화 보관 기간 | 2.7, 6.x | 약관 |
 | B-7 | 설문 노출·참여, 재방문 지표(D1·D3·D7) 저장 | 7.1 | 이벤트 로깅 |
 | B-8 | 면접관별 리액션 방식(코드로 변형 / 표정별 이미지), 표정 이미지 목록 | 5.11 | 면접관 표현 모듈 |
-| B-9 | 면접 플랜(예상 질문·평가 기준) 저장 위치. 평가 기준이 고정 4개면 저장 불필요 | 5.1~5.4 | 면접 AI 모듈 |
-| B-10 | 자소서 검증: 충돌 1개당 차감 점수, "명확한 충돌" 판단 기준 | 6.3, 7.1 | 면접 AI 모듈 |
+| B-9 | ERD 반영 대기: `interview_plans`(질문 5개·질문별 채점 기준), `answers.tokens`, `answers.evaluation`, 회사 요약 Table. 형식은 [AI 명세](AI-명세.md) | 5.1~5.7, 6.3 | ERD |
 | B-11 | 상태 확인 간격(지금 임시 2초), 최대 대기 시간과 넘었을 때 화면 | 5.2, 5.5 | 화면 · BE |
+| B-12 | JWT 검증 위치: AI 서비스(현재 CONTRIBUTING 7장) / Nginx에서 한 번에 검증 | 5.11, 5.12 | Infra |
+| B-13 | 말 속도 지표(`speedDeviationPct`)의 "평소" 기준 | 6.3 | 면접 AI 모듈 |
+| B-14 | 시선 지표(`gazeRatio`)를 계산하는 주체와 시점 | 6.3 | 면접 AI 모듈 |
+| B-15 | 5.11 문장 확정 기준(음성 인식 끝 감지 / 문장부호 / 쉰 시간) | 5.11 | 화면 · 면접 AI 모듈 |

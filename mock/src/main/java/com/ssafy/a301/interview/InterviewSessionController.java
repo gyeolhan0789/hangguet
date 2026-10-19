@@ -14,6 +14,8 @@ import com.ssafy.a301.interview.InterviewDtos.ReactionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.InterviewDtos.SttTokenResponse;
+import com.ssafy.a301.interview.InterviewDtos.TranscriptToken;
+import com.ssafy.a301.interview.InterviewDtos.TtsTokenResponse;
 import com.ssafy.a301.user.UserDtos.UploadUrlResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -138,8 +140,15 @@ public class InterviewSessionController {
             """;
     private static final String ANSWER_VOICE =
             """
-            { "inputType": "VOICE", "content": "저는 그 프로젝트에서 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고, 조회 응답 시간을 40% 줄였습니다.",
-              "audioObjectKey": "sessions/55/answers/303.webm" }\
+            { "inputType": "VOICE", "content": "조회 응답 시간을 40% 줄였습니다.",
+              "audioObjectKey": "sessions/55/answers/303.webm",
+              "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 }, { "text": " ", "startMs": 280, "endMs": 320 },
+                          { "text": "응답", "startMs": 320, "endMs": 600 }, { "text": " ", "startMs": 600, "endMs": 640 },
+                          { "text": "시간", "startMs": 640, "endMs": 900 }, { "text": "을", "startMs": 900, "endMs": 1000 },
+                          { "text": " ", "startMs": 1000, "endMs": 1180 }, { "text": "40", "startMs": 1180, "endMs": 1500 },
+                          { "text": "%", "startMs": 1500, "endMs": 1700 }, { "text": " ", "startMs": 1700, "endMs": 1740 },
+                          { "text": "줄", "startMs": 1740, "endMs": 1900 }, { "text": "였", "startMs": 1900, "endMs": 2050 },
+                          { "text": "습니다", "startMs": 2050, "endMs": 2400 }, { "text": ".", "startMs": 2400, "endMs": 2400 } ] }\
             """;
     private static final String ANSWER_TEXT =
             """
@@ -178,6 +187,10 @@ public class InterviewSessionController {
     private static final String STT_TOKEN =
             """
             { "token": "…", "expiresAt": "2026-10-15T12:16:00+09:00" }\
+            """;
+    private static final String TTS_TOKEN =
+            """
+            { "token": "…", "expiresAt": "2026-10-15T12:21:12+09:00", "voiceId": "…", "modelId": "…" }\
             """;
 
     private final Stub stub;
@@ -472,6 +485,17 @@ public class InterviewSessionController {
                 && (request.audioObjectKey() == null || request.audioObjectKey().isBlank())) {
             throw new FieldValidationException("audioObjectKey", "VOICE 답변은 음성 키가 필요합니다.");
         }
+        if (request.tokens() != null) {
+            if (request.inputType() == InputType.TEXT) {
+                throw new FieldValidationException("tokens", "TEXT 답변은 tokens를 보낼 수 없습니다.");
+            }
+            for (int i = 0; i < request.tokens().size(); i++) {
+                TranscriptToken token = request.tokens().get(i);
+                if (token.endMs() < token.startMs()) {
+                    throw new FieldValidationException("tokens[" + i + "].endMs", "startMs 이상입니다.");
+                }
+            }
+        }
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
         return stub.read(ANSWER_ACCEPTED, AnswerResponse.class);
@@ -647,5 +671,52 @@ public class InterviewSessionController {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
         return stub.read(REACTION_NOD, ReactionResponse.class);
+    }
+
+    @Operation(
+            summary = "5.12 질문 음성 토큰",
+            description = "브라우저가 음성 합성(TTS) 서비스에 직접 연결해 질문 음성을 받을 때 쓰는 1회용 토큰을 준다.")
+    @ApiResponse(
+            responseCode = "200",
+            content = @Content(examples = @ExampleObject(value = TTS_TOKEN)))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "SESSION_NOT_FOUND",
+                                        value = ErrorExamples.SESSION_NOT_FOUND),
+                                @ExampleObject(
+                                        name = "QUESTION_NOT_FOUND",
+                                        value = ErrorExamples.QUESTION_NOT_FOUND)
+                            }))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "INVALID_SESSION_STATE",
+                                            value = ErrorExamples.INVALID_SESSION_STATE)))
+    @ApiResponse(
+            responseCode = "503",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "TTS_UNAVAILABLE",
+                                            value = ErrorExamples.TTS_UNAVAILABLE)))
+    @PostMapping("/{sessionId}/questions/{questionId}/tts-token")
+    public TtsTokenResponse ttsToken(
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
+            @Parameter(description = "질문 id. `0`이면 404", example = "303") @PathVariable
+                    long questionId) {
+        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
+        Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
+        return stub.read(TTS_TOKEN, TtsTokenResponse.class);
     }
 }

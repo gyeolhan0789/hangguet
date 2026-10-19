@@ -17,7 +17,7 @@ import com.ssafy.a301.result.dto.ResultDtos.SpeechMetrics;
 import java.util.Comparator;
 import java.util.List;
 
-/** 엔티티 → 결과·다시보기 응답. 3단계(grade)는 점수로 계산한다(경계 B-4). */
+/** 엔티티 → 결과·다시보기 응답. 3단계(grade)는 점수로 계산한다(경계 API 명세 6.3). */
 public final class ResultMapper {
 
     private ResultMapper() {}

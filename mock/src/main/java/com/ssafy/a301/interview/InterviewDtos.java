@@ -1,13 +1,16 @@
 package com.ssafy.a301.interview;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public final class InterviewDtos {
 
@@ -148,7 +151,27 @@ public final class InterviewDtos {
                             description = "답변 음성 키. VOICE일 때 필수. 5.6에서 받은 objectKey",
                             nullable = true,
                             example = "sessions/55/answers/303.webm")
-                    String audioObjectKey) {}
+                    String audioObjectKey,
+            @Schema(
+                            description =
+                                    "음성 인식(5.10)이 확정한 토큰과 말한 시각. VOICE일 때만 보내며 없어도 된다."
+                                            + " 말하기 지표 계산에 쓴다",
+                            nullable = true)
+                    @Size(max = 10_000, message = "최대 10,000개입니다.")
+                    List<@NotNull(message = "필수 값입니다.") @Valid TranscriptToken> tokens) {}
+
+    public record TranscriptToken(
+            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부나 공백일 수 있다", example = "응답")
+                    @NotEmpty(message = "필수 값입니다.")
+                    String text,
+            @Schema(description = "토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준", example = "320")
+                    @NotNull(message = "필수 값입니다.")
+                    @PositiveOrZero(message = "0 이상입니다.")
+                    Integer startMs,
+            @Schema(description = "토큰을 말하기 끝낸 시각(밀리초). startMs 이상", example = "600")
+                    @NotNull(message = "필수 값입니다.")
+                    @PositiveOrZero(message = "0 이상입니다.")
+                    Integer endMs) {}
 
     public record AnswerResponse(
             @Schema(description = "답변 id", example = "903") long id,
@@ -227,6 +250,12 @@ public final class InterviewDtos {
     public record SttTokenResponse(
             @Schema(description = "STT 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
             @Schema(description = "토큰 만료 일시. 지나면 다시 발급받는다") OffsetDateTime expiresAt) {}
+
+    public record TtsTokenResponse(
+            @Schema(description = "TTS 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
+            @Schema(description = "토큰 만료 일시. 지나면 다시 발급받는다") OffsetDateTime expiresAt,
+            @Schema(description = "면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다") String voiceId,
+            @Schema(description = "음성 합성 모델 id. 서버가 정한다") String modelId) {}
 
     @Schema(description = "202 대기 상태 본문(오류 아님)")
     public record PendingResponse(@Schema(example = "QUESTION_GENERATING") String code) {}

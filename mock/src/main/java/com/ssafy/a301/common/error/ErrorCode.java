@@ -30,6 +30,7 @@ public enum ErrorCode {
     PLAN_NOT_FAILED(HttpStatus.CONFLICT, "면접 준비가 실패한 상태가 아니에요."),
     ANSWER_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "이미 답변한 질문이에요."),
     STT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요."),
+    TTS_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "질문 음성을 불러오지 못했어요. 글로 보여 드릴게요."),
 
     // 결과·성장 리뷰
     RECORDING_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 녹화가 등록된 면접이에요."),
