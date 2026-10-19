@@ -21,7 +21,7 @@ public class HomeController {
 
     static final String HOME_NOT_DONE =
             """
-            { "homeState": "NOT_DONE_TODAY", "currentStreak": 7, "bestStreak": 7, "leveledUpToday": true,
+            { "homeState": "NOT_DONE_TODAY", "currentStreak": 7, "bestStreak": 7,
               "practiceDates": ["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14"],
               "todayInterviewCount": 0, "todayPracticeMinutes": 0, "todayImprovements": [],
               "nextActions": ["꼬리 질문엔 근거부터 짧게"], "nextActionsDate": "2026-10-14",
@@ -31,7 +31,7 @@ public class HomeController {
             """;
     private static final String HOME_DONE =
             """
-            { "homeState": "DONE_TODAY", "currentStreak": 8, "bestStreak": 8, "leveledUpToday": false,
+            { "homeState": "DONE_TODAY", "currentStreak": 8, "bestStreak": 8,
               "practiceDates": ["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
               "todayInterviewCount": 1, "todayPracticeMinutes": 18,
               "todayImprovements": [ { "criterion": "DELIVERY", "delta": 8 }, { "criterion": "LOGIC", "delta": 4 } ],
@@ -42,7 +42,7 @@ public class HomeController {
             """;
     private static final String HOME_BROKEN =
             """
-            { "homeState": "BROKEN", "currentStreak": 0, "bestStreak": 7, "leveledUpToday": false,
+            { "homeState": "BROKEN", "currentStreak": 0, "bestStreak": 7,
               "practiceDates": ["2026-10-10", "2026-10-11", "2026-10-12"],
               "todayInterviewCount": 0, "todayPracticeMinutes": 0, "todayImprovements": [],
               "nextActions": ["꼬리 질문엔 근거부터 짧게"], "nextActionsDate": "2026-10-12",
@@ -52,7 +52,7 @@ public class HomeController {
             """;
     private static final String HOME_FIRST =
             """
-            { "homeState": "FIRST_VISIT", "currentStreak": 0, "bestStreak": 0, "leveledUpToday": false,
+            { "homeState": "FIRST_VISIT", "currentStreak": 0, "bestStreak": 0,
               "practiceDates": [], "todayInterviewCount": 0, "todayPracticeMinutes": 0, "todayImprovements": [],
               "nextActions": [], "nextActionsDate": null, "recentReviews": [] }\
             """;
@@ -81,9 +81,7 @@ public class HomeController {
             content =
                     @Content(
                             examples = {
-                                @ExampleObject(
-                                        name = "S02 오늘 미완료 + S02-L 레벨업",
-                                        value = HOME_NOT_DONE),
+                                @ExampleObject(name = "S02 오늘 미완료", value = HOME_NOT_DONE),
                                 @ExampleObject(name = "S02-B 오늘 완료", value = HOME_DONE),
                                 @ExampleObject(name = "S02-C 스트릭 끊김", value = HOME_BROKEN),
                                 @ExampleObject(name = "S02-D 첫 방문", value = HOME_FIRST)

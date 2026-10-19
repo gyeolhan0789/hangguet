@@ -46,7 +46,7 @@
 | 2.5 | 프로필 사진 등록 | `PUT /users/me/profile-image` | S09-1 |
 | 2.6 | 프로필 사진 삭제 | `DELETE /users/me/profile-image` | S09-1 |
 | 2.7 | 회원 탈퇴 | `POST /users/me` | S09-1 |
-| 3.1 | 홈 | `GET /home` | S02 · S02-B · S02-C · S02-D, S02-1, S02-L |
+| 3.1 | 홈 | `GET /home` | S02 · S02-B · S02-C · S02-D, S02-1 |
 | 3.2 | 통계 | `GET /users/me/stats` | S09 |
 | 3.3 | 연습 달력 | `GET /practice-logs` | S09 |
 | 4.1 | 지원서 작성 | `POST /applications` | S03 |
@@ -68,7 +68,7 @@
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
 | 6.4 | 다시보기 | `GET /interview-sessions/{sessionId}/replay` | S07-1 |
-| 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S09, S02 |
+| 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S02-L, S09, S02 |
 | 7.2 | 최근 성장 리뷰 | `GET /growth-reviews` | S02 |
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
@@ -171,13 +171,13 @@
 
 ### 3. 홈 · 스트릭
 
-**스트릭 규칙**: 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 연습한 날 = 연습 면접이 있는 날. 스트릭 = 오늘(또는 어제)까지 빠짐없이 이어진 연습일 수, 하루라도 빠지면 0. 뱃지 구간 0 / 1–2 / 3–6 / 7–13 / 14–20 / 21+일.
+**스트릭 규칙**: 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 연습한 날 = 연습 면접이 있는 날. 스트릭 = 오늘(또는 어제)까지 빠짐없이 이어진 연습일 수, 하루라도 빠지면 0. 스트릭은 연습 면접을 끝낸 순간(5.8) 오른다. 뱃지 구간 0 / 1–2 / 3–5 / 6–7 / 8–13 / 14+일(1·3·6·8·14일째에 다음 구간으로 레벨업).
 
 #### 3.1 홈
 
-**화면 — S02 · S02-B · S02-C · S02-D, S02-1 인트로, S02-L 레벨업**
+**화면 — S02 · S02-B · S02-C · S02-D, S02-1 인트로**
 
-홈 한 장에 필요한 값을 한 번에 준다. 어떤 홈을 그릴지는 `homeState`로 정한다. 자정까지 남은 시간, 인트로·레벨업 하루 1회 노출은 화면이 처리한다.
+홈 한 장에 필요한 값을 한 번에 준다. 어떤 홈을 그릴지는 `homeState`로 정한다. 자정까지 남은 시간, 인트로 하루 1회 노출은 화면이 처리한다.
 
 - **200**: 항상. 기록이 없으면 `FIRST_VISIT`, 숫자 0, 배열 빈 배열
 
@@ -401,9 +401,9 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 #### 7.1 날짜별 성장 리뷰
 
-**화면 — S08(오늘), S08-C(첫 면접), S09 달력 날짜, S02 최근 리뷰 [보기]**
+**화면 — S08(오늘), S08-C(첫 면접), S02-L(레벨업), S09 달력 날짜, S02 최근 리뷰 [보기]**
 
-화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다.
+화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다. `leveledUp`이 true면(그날 연습으로 뱃지 구간이 바뀜) S08에서 레벨업(S02-L)을 띄운다.
 
 - **200**: 그날 결과가 있음
 - **404 / GROWTH_REVIEW_NOT_FOUND**: 그날 연습 기록 또는 결과가 없음
