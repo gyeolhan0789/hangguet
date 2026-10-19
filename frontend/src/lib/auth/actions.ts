@@ -29,12 +29,26 @@ export interface AuthActionResult {
 
 const RETRY_LATER = "잠시 후 다시 시도해 주세요.";
 
-function toActionResult(error: unknown): AuthActionResult {
+/** 로그인 · 회원가입 폼에 칸이 있어 오류를 칸 아래에 보여 줄 수 있는 요청 필드 */
+const LOGIN_FIELDS = ["email", "password"] as const;
+const SIGNUP_FIELDS = ["nickname", "email", "password"] as const;
+
+/**
+ * API 실패를 폼에 보여 줄 형태로 바꾼다. formFields는 그 폼에 있는 칸 이름이다.
+ * VALIDATION_FAILED에서 폼에 없는 칸의 오류(예: 1.2의 agreements, agreements[0].termsVersion)는
+ * 칸 아래에 보여 줄 수 없으므로 폼 아래 문구(detail)로 알린다.
+ */
+function toActionResult(error: unknown, formFields: readonly string[]): AuthActionResult {
   const problem = getProblemDetail(error);
   if (!problem) return { formError: RETRY_LATER };
   if (problem.code === "VALIDATION_FAILED" && problem.errors?.length) {
+    const onForm = problem.errors.filter(({ field }) => formFields.includes(field));
+    const offForm = onForm.length < problem.errors.length;
     return {
-      fieldErrors: Object.fromEntries(problem.errors.map(({ field, reason }) => [field, reason])),
+      ...(onForm.length > 0 && {
+        fieldErrors: Object.fromEntries(onForm.map(({ field, reason }) => [field, reason])),
+      }),
+      ...(offForm && { formError: problem.detail }),
     };
   }
   if (problem.code === "EMAIL_DUPLICATED") return { fieldErrors: { email: problem.detail } };
@@ -50,7 +64,7 @@ export async function login(values: LoginValues): Promise<AuthActionResult> {
   try {
     ({ data } = await api.post<AuthResponse>(endpoints.auth.login, parsed.data));
   } catch (error) {
-    return toActionResult(error);
+    return toActionResult(error, LOGIN_FIELDS);
   }
   setAuthCookies(await cookies(), data);
   redirect(ROUTES.home);
@@ -75,7 +89,7 @@ export async function signup(values: SignupValues): Promise<AuthActionResult> {
     setAuthCookies(await cookies(), data);
     return { ok: true };
   } catch (error) {
-    return toActionResult(error);
+    return toActionResult(error, SIGNUP_FIELDS);
   }
 }
 

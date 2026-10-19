@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppNav, Header } from "@/layouts/header";
@@ -30,9 +31,17 @@ function GuestNav() {
   );
 }
 
-/** 로그인했으면 앱 헤더 메뉴, 아니면 로그인·시작하기. 내 정보를 못 불러오면 로그인 전 메뉴를 보여 준다. */
+/** 로그인했으면 앱 헤더 메뉴, 아니면 로그인·시작하기. */
 async function LandingNav() {
-  const me = await getMe().catch(() => null);
+  let me: Awaited<ReturnType<typeof getMe>> = null;
+  try {
+    me = await getMe();
+  } catch (error) {
+    // 쿠키를 읽어 요청마다 그려야 한다는 Next 신호(prerender 중단 등)는 Next가 처리하도록 다시 던진다.
+    unstable_rethrow(error);
+    // 내 정보가 실패해도 랜딩은 열려야 하므로 로그인 전 메뉴로 그린다. 원인은 서버 로그에 남긴다.
+    console.error("랜딩 헤더: 내 정보(2.1)를 불러오지 못했어요.", error);
+  }
   return me ? <AppNav user={me} /> : <GuestNav />;
 }
 

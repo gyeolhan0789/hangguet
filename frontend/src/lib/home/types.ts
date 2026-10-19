@@ -17,9 +17,15 @@ export interface Improvement {
   delta: number;
 }
 
-export interface RecentReview extends Improvement {
+/** 최근 성장 리뷰 항목(7.2 형식) */
+export interface RecentReview {
   practiceDate: string;
+  /** 그날 마지막 면접의 회사명 */
   companyName: string;
+  /** 그날 가장 많이 오른 기준. 첫 연습일이면 비교할 날이 없어 null */
+  criterion: Criterion | null;
+  /** 그 기준의 변화량. 첫 연습일이면 null */
+  delta: number | null;
 }
 
 /** 3.1 홈 응답 */
@@ -27,8 +33,6 @@ export interface HomeResponse {
   homeState: HomeState;
   currentStreak: number;
   bestStreak: number;
-  /** 오늘 스트릭 단계가 올랐으면 S02-1 대신 S02-L을 보여 준다 */
-  leveledUpToday: boolean;
   /** 연습한 날짜(YYYY-MM-DD) */
   practiceDates: string[];
   todayInterviewCount: number;
@@ -43,4 +47,9 @@ export interface HomeResponse {
 /** "전달력 +8" */
 export function formatImprovement({ criterion, delta }: Improvement): string {
   return `${CRITERION_LABEL[criterion]} ${delta >= 0 ? "+" : ""}${delta}`;
+}
+
+/** 최근 성장 리뷰의 "전달력 +8". 첫 연습일이라 비교할 값이 없으면 null */
+export function formatReviewImprovement({ criterion, delta }: RecentReview): string | null {
+  return criterion !== null && delta !== null ? formatImprovement({ criterion, delta }) : null;
 }

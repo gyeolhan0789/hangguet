@@ -71,6 +71,9 @@ export const interviewEndpoints = {
   analysisRetry: (sessionId: Id) => `/interview-sessions/${sessionId}/analysis/retry`,
   /** 5.10 POST 실시간 음성 인식 토큰 */
   sttToken: (sessionId: Id) => `/interview-sessions/${sessionId}/stt-token`,
+  /** 5.11 POST 면접관 리액션 (화상 면접에서 문장이 끝날 때마다. Swagger에만 있고 API 명세 문서에는 아직 없음) */
+  reactions: (sessionId: Id, questionId: Id) =>
+    `/interview-sessions/${sessionId}/questions/${questionId}/reactions`,
 } as const;
 
 /** 6. 녹화 · 결과 · 다시보기 */

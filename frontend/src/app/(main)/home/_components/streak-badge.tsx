@@ -28,11 +28,12 @@ export function StreakBadge({ days }: { days: number }) {
   return (
     <span className="relative flex size-18 items-center justify-center">
       {/* 후광 2겹: 둥근 글로우만 쓴다(사방으로 뻗는 빛살은 쓰지 않는다) */}
+      {/* 바깥 후광: 원 가장자리(closest-side)에서 투명이 되도록 해 경계 없이 번지며 사라진다. */}
       <motion.span
         aria-hidden
-        className="pointer-events-none absolute -inset-11 rounded-full"
+        className="pointer-events-none absolute -inset-16 rounded-full"
         style={{
-          background: `radial-gradient(circle, ${withAlpha(tier.to, 0.35)} 0%, ${withAlpha(tier.to, 0.12)} 55%, ${withAlpha(tier.to, 0)} 100%)`,
+          background: `radial-gradient(circle closest-side, ${withAlpha(tier.to, 0.6)} 0%, ${withAlpha(tier.to, 0.42)} 35%, ${withAlpha(tier.to, 0.2)} 62%, ${withAlpha(tier.to, 0.06)} 85%, ${withAlpha(tier.to, 0)} 100%)`,
         }}
         animate={reduce ? undefined : { scale: [1, 1.12, 1], opacity: [0.7, 1, 0.7] }}
         transition={loop(2.4)}
@@ -70,19 +71,5 @@ export function StreakBadge({ days }: { days: number }) {
         />
       </motion.span>
     </span>
-  );
-}
-
-/** S02-D 첫 방문: 작게 깜빡이는 불씨 (후광 없음) */
-export function SparkBadge() {
-  const reduce = useReducedMotion();
-  return (
-    <motion.span
-      className="flex size-18 items-center justify-center rounded-full bg-brand-soft dark:bg-brand-soft/8"
-      animate={reduce ? undefined : { scale: [1, 1.06, 1] }}
-      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-    >
-      <MaskIcon src="/home/icon-flame-first.svg" size={36} className="bg-brand" />
-    </motion.span>
   );
 }

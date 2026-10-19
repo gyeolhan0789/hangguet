@@ -36,7 +36,10 @@ export function FinalCta() {
     reduce ? undefined : { x: [0, 40 * dir, 0, -40 * dir, 0], y: [0, -40 * dir, 0, 40 * dir, 0] };
 
   return (
-    <section className="relative flex h-[520px] flex-col items-center justify-center gap-8 overflow-hidden bg-night-2 px-6">
+    <section
+      aria-labelledby="final-cta-title"
+      className="relative flex h-[520px] flex-col items-center justify-center gap-8 overflow-hidden bg-night-2 px-6"
+    >
       <motion.div
         aria-hidden
         className="pointer-events-none absolute top-[-220px] left-[-160px] size-[720px]"
@@ -56,7 +59,10 @@ export function FinalCta() {
       <Embers embers={CTA_EMBERS} width={1440} height={520} />
 
       <Reveal className="relative flex flex-col items-center gap-8">
-        <h2 className="text-center text-[36px] leading-[1.25] font-extrabold tracking-[-1.2px] text-white lg:text-[56px] lg:tracking-[-1.6px]">
+        <h2
+          id="final-cta-title"
+          className="text-center text-[36px] leading-[1.25] font-extrabold tracking-[-1.2px] text-white lg:text-[56px] lg:tracking-[-1.6px]"
+        >
           오늘부터 1일째,
           <br />
           시작해볼까요?

@@ -7,7 +7,6 @@ export const HOME_NOT_DONE: HomeResponse = {
   homeState: "NOT_DONE_TODAY",
   currentStreak: 7,
   bestStreak: 7,
-  leveledUpToday: true,
   practiceDates: [
     "2026-10-09",
     "2026-10-10",
@@ -32,7 +31,6 @@ export const HOME_DONE: HomeResponse = {
   homeState: "DONE_TODAY",
   currentStreak: 8,
   bestStreak: 8,
-  leveledUpToday: false,
   practiceDates: [...HOME_NOT_DONE.practiceDates, "2026-10-15"],
   todayInterviewCount: 1,
   todayPracticeMinutes: 18,
@@ -47,7 +45,6 @@ export const HOME_BROKEN: HomeResponse = {
   homeState: "BROKEN",
   currentStreak: 0,
   bestStreak: 7,
-  leveledUpToday: false,
   practiceDates: ["2026-10-10", "2026-10-11", "2026-10-12"],
   recentReviews: [
     { practiceDate: "2026-10-12", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
@@ -59,7 +56,6 @@ export const HOME_FIRST: HomeResponse = {
   homeState: "FIRST_VISIT",
   currentStreak: 0,
   bestStreak: 0,
-  leveledUpToday: false,
   practiceDates: [],
   todayInterviewCount: 0,
   todayPracticeMinutes: 0,

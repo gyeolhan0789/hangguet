@@ -14,6 +14,10 @@ export const ROUTES = {
   records: "/records",
   /** S09 마이페이지 */
   mypage: "/mypage",
+  /** 화면을 그리는 도중 액세스 토큰이 만료됐을 때(TOKEN_EXPIRED) 재발급하고 돌아오는 Route Handler */
+  tokenRefresh: "/api/auth/refresh",
+  /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
+  signedOut: "/api/auth/signed-out",
 } as const;
 
 /** S08 날짜별 성장 리뷰 (아직 화면 없음). practiceDate는 YYYY-MM-DD */

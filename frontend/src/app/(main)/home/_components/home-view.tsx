@@ -15,7 +15,7 @@ import {
 } from "./home-cards";
 import { HomeCta } from "./home-cta";
 import { RemainingTime } from "./remaining-time";
-import { SparkBadge, StreakBadge } from "./streak-badge";
+import { StreakBadge } from "./streak-badge";
 import { WeekRow } from "./week-row";
 
 function Chip({
@@ -41,8 +41,8 @@ function Chip({
   );
 }
 
-/** 뱃지 · '연속 연습' · N일째 · 한 줄 · 칩 */
-function StreakHero({ days, message, chip }: { days: number; message: string; chip: ReactNode }) {
+/** 뱃지 · '연속 연습' · N일째 · 한 줄 · 칩(첫 방문은 없음) */
+function StreakHero({ days, message, chip }: { days: number; message: string; chip?: ReactNode }) {
   return (
     <section className="flex flex-col items-center gap-2 text-center">
       <StreakBadge days={days} />
@@ -69,17 +69,10 @@ export function HomeView({ home, today }: { home: HomeResponse; today: string })
 
   switch (home.homeState) {
     case "FIRST_VISIT":
+      // Figma S02-D는 '첫 연습' 제목만 두지만, 끊김(S02-C)처럼 0일째를 보여 주고 아래 문구만 다르게 한다.
       return (
         <main className="flex flex-col items-center gap-[26px] px-6 pt-9 pb-16">
-          <section className="flex flex-col items-center gap-2 text-center">
-            <SparkBadge />
-            <h1 className="text-[32px] leading-[1.3] font-extrabold tracking-[-1px] text-text-1 sm:text-[44px] sm:tracking-[-1.4px]">
-              첫 연습을 시작해볼까요?
-            </h1>
-            <p className="text-lg leading-normal font-semibold text-text-2">
-              오늘 연습하면 1일째 스트릭이 시작돼요
-            </p>
-          </section>
+          <StreakHero days={0} message="첫 연습을 시작해볼까요?" />
           <WeekRow days={week} wave={false} />
           <HomeCta href={ROUTES.practice} label="첫 면접 시작하기" />
           <FirstSteps />
