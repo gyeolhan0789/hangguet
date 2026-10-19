@@ -526,7 +526,7 @@ CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(M
 `convention` → `build` → `test` → `sonar` → `deploy` 순서로 돈다.
 
 - MR: 규칙 검사는 모든 MR에서, 파트 Job은 해당 폴더(`backend/`, `frontend/`, `ai/`, `mock/`)나 `.gitlab-ci.yml`이 바뀐 MR에서만 실행된다.
-- `develop` Push: `mock/`이나 `.gitlab-ci.yml`이 바뀌면 목 서버를 빌드·테스트하고, `mock/`이나 `deploy/mock/`이 바뀌면 목 서버를 배포한다. 다른 Job은 실행되지 않는다.
+- `develop` Push: `mock/`이나 `deploy/mock/`이 바뀌면 목 서버를 배포한다. 검사는 MR에서 끝냈으므로 다른 Job은 실행되지 않는다.
 
 | Job | 검사 내용 | 기준 |
 | --- | --- | --- |
@@ -538,7 +538,7 @@ CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(M
 | `ai-test` | Ruff·mypy, pytest·coverage | [12.2 Part별 도구](#122-part별-도구) |
 | `mock-build` · `mock-test` | Spotless·Checkstyle·빌드, 테스트 | [12.2 Part별 도구](#122-part별-도구)의 BE와 같음 |
 | `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`). 수동 실행 | 보조 지표. 실패해도 MR을 막지 않는다 |
-| `mock-deploy` | `develop` 병합 시 목 서버 배포, Health 확인 | [목 서버 배포](../mock/README.md#배포) |
+| `mock-deploy` | `develop` 병합 시 목 서버 이미지 빌드·배포, Health 확인 (빌드·테스트 Job을 다시 돌리지 않음) | [목 서버 배포](../mock/README.md#배포) |
 
 실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
 
