@@ -5,10 +5,15 @@
 export function MaskIcon({
   src,
   size,
+  width = size,
+  height = size,
   className = "bg-current",
 }: {
   src: string;
-  size: number;
+  /** 정사각형 아이콘 크기. 가로·세로가 다르면 width·height를 쓴다. */
+  size?: number;
+  width?: number;
+  height?: number;
   /** 아이콘 색. 예: "bg-text-2" */
   className?: string;
 }) {
@@ -17,7 +22,7 @@ export function MaskIcon({
     <span
       aria-hidden
       className={`inline-block shrink-0 ${className}`}
-      style={{ width: size, height: size, mask, WebkitMask: mask }}
+      style={{ width, height, mask, WebkitMask: mask }}
     />
   );
 }
