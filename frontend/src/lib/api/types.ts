@@ -43,6 +43,11 @@ export interface UserResponse {
   currentStreak: number;
 }
 
+/** 로그인(1.3)·회원가입(1.2) 응답 */
+export interface AuthResponse extends TokenResponse {
+  user: Pick<UserResponse, "id" | "email" | "nickname" | "profileImageUrl">;
+}
+
 function isProblemDetail(data: unknown): data is ProblemDetail {
   return typeof data === "object" && data !== null && "code" in data && "status" in data;
 }

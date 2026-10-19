@@ -34,8 +34,8 @@ beforeEach(() => {
   refreshStatus = 200;
 });
 
-function requestWith(cookie: string) {
-  return new NextRequest("http://localhost:3000/home", { headers: { cookie } });
+function requestWith(cookie: string, path = "/home") {
+  return new NextRequest(`http://localhost:3000${path}`, { headers: { cookie } });
 }
 
 describe("proxy", () => {
@@ -67,12 +67,40 @@ describe("proxy", () => {
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  it("재발급이 실패하면 토큰 쿠키를 지운다", async () => {
+  it("재발급이 실패하면 토큰 쿠키를 지우고 로그인 화면으로 보낸다", async () => {
     refreshStatus = 401;
 
     const response = await proxy(requestWith("hk_refresh=refresh-bad"));
 
+    expect(response.headers.get("location")).toBe("http://localhost:3000/login");
     expect(response.cookies.get("hk_access")?.value).toBe("");
     expect(response.cookies.get("hk_refresh")?.value).toBe("");
+  });
+});
+
+describe("proxy 접근 제어", () => {
+  it("로그인하지 않았으면 앱 화면에서 로그인 화면으로 보낸다", async () => {
+    const response = await proxy(requestWith(""));
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/login");
+  });
+
+  it.each(["/", "/login", "/signup"])("로그인하지 않아도 %s는 그대로 보여 준다", async (path) => {
+    const response = await proxy(requestWith("", path));
+
+    expect(response.headers.get("location")).toBeNull();
+  });
+
+  it.each(["/login", "/signup"])("로그인했으면 %s에서 홈으로 보낸다", async (path) => {
+    const response = await proxy(requestWith("hk_access=a", path));
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/home");
+  });
+
+  it("재발급으로 로그인 상태가 되면 로그인 화면에서 홈으로 보내며 새 쿠키도 저장한다", async () => {
+    const response = await proxy(requestWith("hk_refresh=refresh-3", "/login"));
+
+    expect(response.headers.get("location")).toBe("http://localhost:3000/home");
+    expect(response.cookies.get("hk_access")?.value).toBe("access-from-refresh-3");
   });
 });

@@ -5,6 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRef } from "react";
 
+import { ROUTES } from "@/lib/routes";
+
 import { FeatureSection } from "./feature-section";
 import { CountUp } from "./motion-utils";
 
@@ -123,7 +125,7 @@ function StreakCard() {
       <Week />
 
       <Link
-        href="/login"
+        href={ROUTES.signup}
         className="relative flex h-14 w-full items-center justify-center overflow-hidden rounded-[14px] bg-brand-strong px-6 text-[17px] font-bold text-white"
       >
         오늘의 연습 시작하기

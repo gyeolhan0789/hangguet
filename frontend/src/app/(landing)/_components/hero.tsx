@@ -13,6 +13,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, type MouseEvent } from "react";
 
+import { ROUTES } from "@/lib/routes";
+
 import { Embers, type Ember } from "./motion-utils";
 
 // Figma "Ember Particles (animated)" 26개 (1440×900 기준)
@@ -246,7 +248,7 @@ export function Hero() {
         </motion.p>
         <motion.div className="flex flex-wrap gap-3" {...appear(0.58)}>
           <Link
-            href="/login"
+            href={ROUTES.signup}
             className="flex h-[60px] items-center gap-2 rounded-2xl bg-brand-strong px-7 text-lg font-bold text-white"
           >
             무료로 시작하기
