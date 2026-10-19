@@ -46,5 +46,6 @@ docker run -p 8080:8080 -e MOCK_CORS_ALLOWED_ORIGINS=http://localhost:3000 a301-
 
 - 주소: https://hangguet.yobistory.com/mock/be/docs (API 기준 주소: `https://hangguet.yobistory.com/mock/be`)
 - 방식: `mock/` 또는 `deploy/mock/` 변경이 `develop`에 병합되면 CI `mock-deploy` 잡이 미니PC에서 [`deploy/mock/compose.yml`](../deploy/mock/compose.yml)로 다시 빌드·실행한다. 배포 후 `/actuator/health`가 UP이 아니면 잡이 실패한다.
+- 검사: 포맷·정적 분석·테스트(`mock-build`·`mock-test`)는 MR에서만 돈다. 병합 뒤 배포 파이프라인은 이미지 빌드(컴파일)와 Health 확인만 하므로, MR 파이프라인이 통과한 뒤 병합한다.
 - 롤백: GitLab **Deployments → Environments → mock**에서 이전 배포를 Re-deploy 한다.
 - Nginx 설정: [`deploy/mock/nginx.conf.example`](../deploy/mock/nginx.conf.example)
