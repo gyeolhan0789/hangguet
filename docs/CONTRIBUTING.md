@@ -519,11 +519,14 @@ SonarQube를 사용할 수 있으면 중복·복잡도·잠재 결함과 Coverag
 
 `data`, `info`, `manager`, `util`, `temp`, `flag`처럼 역할이 불명확한 이름을 피한다. Boolean은 `isRecording`, `hasEvidence`, `canRetry`, `shouldGenerateFollowUp`처럼 질문으로 읽히게 작성한다.
 
-### 12.4 MR 자동 검사(CI)
+### 12.4 자동 검사·배포(CI)
 
-현재 CI는 MR을 열거나 MR에 Commit을 Push할 때만 실행된다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다.
+CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(MR 병합)될 때 실행된다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다. 배포 Job만 미니PC의 배포 전용 Runner(태그 `a301-mock-deploy`)에서 실행된다.
 
-`convention` → `build` → `test` → `sonar` 순서로 돈다. 규칙 검사는 모든 MR에서, 파트 Job은 해당 폴더(`backend/`, `frontend/`, `ai/`)나 `.gitlab-ci.yml`이 바뀐 MR에서만 실행된다.
+`convention` → `build` → `test` → `sonar` → `deploy` 순서로 돈다.
+
+- MR: 규칙 검사는 모든 MR에서, 파트 Job은 해당 폴더(`backend/`, `frontend/`, `ai/`, `mock/`)나 `.gitlab-ci.yml`이 바뀐 MR에서만 실행된다.
+- `develop` Push: `mock/`이나 `.gitlab-ci.yml`이 바뀌면 목 서버를 빌드·테스트하고, `mock/`이나 `deploy/mock/`이 바뀌면 목 서버를 배포한다. 다른 Job은 실행되지 않는다.
 
 | Job | 검사 내용 | 기준 |
 | --- | --- | --- |
@@ -533,8 +536,12 @@ SonarQube를 사용할 수 있으면 중복·복잡도·잠재 결함과 Coverag
 | `be-build` · `be-test` | Spotless·Checkstyle·빌드, 테스트·JaCoCo | [12.2 Part별 도구](#122-part별-도구) |
 | `fe-build` · `fe-test` | Prettier·ESLint·TypeScript·빌드, Vitest·lcov | [12.2 Part별 도구](#122-part별-도구) |
 | `ai-test` | Ruff·mypy, pytest·coverage | [12.2 Part별 도구](#122-part별-도구) |
-| `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`) | 보조 지표. 실패해도 MR을 막지 않는다 |
+| `mock-build` · `mock-test` | Spotless·Checkstyle·빌드, 테스트 | [12.2 Part별 도구](#122-part별-도구)의 BE와 같음 |
+| `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`). 수동 실행 | 보조 지표. 실패해도 MR을 막지 않는다 |
+| `mock-deploy` | `develop` 병합 시 목 서버 배포, Health 확인 | [목 서버 배포](../mock/README.md#배포) |
 
 실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
 
-`sonar` Job은 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 MR 결과가 보인다. MR별 판정은 Mattermost 알림으로 확인한다.
+`sonar` Job은 자동으로 돌지 않고, 파이프라인의 ▶ 버튼을 눌러야 실행된다. 병합 전에 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 한다. 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 MR 결과가 보인다. MR별 판정은 Mattermost 알림으로 확인한다.
+
+배포 방식, Health 확인 기준, Rollback 방법은 [목 서버 배포](../mock/README.md#배포)를 따른다.
