@@ -16,7 +16,7 @@
       ↓
 [BE]            면접 AI 모듈에 질문 생성·TTS 요청 (업로드용 Presigned URL 포함)
       ↓
-[면접 AI 서버]  질문 생성 → TTS(Chirp 3: HD) 호출 → 업로드용 Presigned URL로 음성 파일을 Storage에 업로드
+[면접 AI 서버]  질문 생성 → TTS(ElevenLabs, 10/16 변경) 호출 → 업로드용 Presigned URL로 음성 파일을 Storage에 업로드
       ↓ 완료 응답
 [BE]            읽기용 Presigned URL 발급 → 질문 Text + 읽기용 URL 전달
       ↓
@@ -43,7 +43,7 @@ TTS 호출과 음성 전달 구조는 [CONTRIBUTING.md](../../docs/CONTRIBUTING.
 | 2D 렌더링 (10/14 변경) | 점 찍어 휘기: WebGL 메시 휘기 + 그림 섞기, 얼굴 점은 MediaPipe로 미리 계산한 JSON (서비스에 MediaPipe 미포함) | 표정 세기 연속 조절, 같은 코드로 캐릭터 추가, 그림 그대로의 화풍 유지 |
 | 렌더 크기 | 화면 표시 크기 × 기기 배율(원본 이하), 한 장 33ms 초과 시 단계적으로 낮춤, 첫 로딩은 안내 화면 동안 미리 불러오기 | GPU 없는 기기에서도 초당 30장 이상 ([verification.md](verification.md) 9.6절) |
 | 3D 렌더링 (대안 중 하나로 둠) | Three.js 0.180.0 + GLB (자체 컨트롤러) | 브라우저에서 별도 설치 없이 동작, ARKit 표정 52종으로 눈·눈썹·입을 따로 제어 |
-| 음성 합성 | Chirp 3: HD (AI 파트 호출) | 한국어 지원, 음성 데이터 반환, Credential은 AI 파트에서만 관리 |
+| 음성 합성 (10/16 변경) | ElevenLabs (AI 파트 호출) | 한국어 지원, 음성 데이터 반환, Credential은 AI 파트에서만 관리 |
 | 음성 전달 | Storage Presigned URL (BE 발급) | 음성 Binary 중계 금지, 만료 시간 적용 |
 | 립싱크 | Web Audio API, 음량 → `jawOpen` | 별도 라이브러리 없이 음량 측정 가능, 한국어에서 가장 안정적 |
 

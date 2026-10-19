@@ -57,7 +57,7 @@
 - [x] 프로토타입으로 구조 검증 ([verification.md](verification.md))
 - [x] 면접관 모델 제작(3D 2종, 2D 1종), 라이선스 확인
 - [x] 2D 점 찍어 휘기 고도화 검증: 캐릭터 4종, 그림 18장, GPU 없는 환경 측정 ([verification.md](verification.md) 9장)
-- [ ] Chirp 3: HD 실제 키로 한국어 음질·지연 확인
+- [ ] ElevenLabs 실제 키로 한국어 음질·지연 확인 (10/16 변경)
 - [ ] 반응 로직 모듈과 반응 이벤트 계약 확정 (`common`)
 - [ ] 실제 저사양 기기 FPS 측정, 렌더 크기 자동 조정 구현
 - [ ] 2D 고개 위아래 동작·문장 끝 입 크기 개선 ([verification.md](verification.md) 9.9절)
