@@ -96,6 +96,7 @@ com.ssafy.a301
 
 ### 5.4 끝내기 · 결과 생성 (5.8, 5.9, 6.1, 6.2)
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 그날(한국 시간, `ended_at` 기준) 처음일 때만 저장
+   - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다 **[제안]**. 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
 2. 결과 생성은 **비동기**: `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신하며 `SESSION_STATUS_CHANGED` 전송
    - 채점은 면접 AI 모듈이 한다 **[결정]**
@@ -118,7 +119,7 @@ com.ssafy.a301
 - `homeState`: 기록 없음 → `FIRST_VISIT` / 오늘 기록 있음 → `DONE_TODAY` / 어제 기록 있음 → `NOT_DONE_TODAY` / 그 외 → `BROKEN`
 - 스트릭은 연습 면접을 끝낸 순간(5.8에서 `PracticeLog` 저장) 오른다
 - 뱃지 구간: 0 / 1–2 / 3–5 / 6–7 / 8–13 / 14+일 **[결정: Figma]**
-- `leveledUp`(7.1): 그날 스트릭(`streakOnDate`)과 하루 전 스트릭의 뱃지 구간이 다르면 true. 즉 `streakOnDate`가 1·3·6·8·14일 때. S08이 이 값으로 레벨업을 띄운다
+- `leveledUp`(5.8 응답): 이번 끝내기로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 즉 그날 첫 연습 기록이 저장되고 `currentStreak`가 1·3·6·8·14일이 된 경우(5.4). 면접 끝내기는 한 번만 호출되므로 레벨업도 한 번만 전달된다. 화면은 이 값을 기억해 뒀다가 S08에서 레벨업을 띄운다
 - 연습 시간(분) = Σ(`ended_at − started_at`) / 60. 연결이 끊겨 멈춘 시간은 포함된다(멈춘 시간은 Redis에만 있어 종료 후 사라짐) **[제안: 필요하면 종료 시 저장 방법 협의]**
 
 ### 6.2 성장 리뷰 (7.1, 7.2, 3.1) **[결정]**

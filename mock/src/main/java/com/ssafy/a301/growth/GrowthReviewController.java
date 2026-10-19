@@ -32,7 +32,7 @@ public class GrowthReviewController {
 
     private static final String REVIEW =
             """
-            { "practiceDate": "2026-10-13", "isFirst": false, "comparedDate": "2026-10-12", "streakOnDate": 8, "leveledUp": true,
+            { "practiceDate": "2026-10-13", "isFirst": false, "comparedDate": "2026-10-12", "streakOnDate": 8,
               "practiceDates": ["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13"],
               "interviewCount": 1, "practiceMinutes": 18,
               "criteria": [
@@ -44,7 +44,7 @@ public class GrowthReviewController {
             """;
     private static final String REVIEW_FIRST =
             """
-            { "practiceDate": "2026-10-15", "isFirst": true, "comparedDate": null, "streakOnDate": 1, "leveledUp": true,
+            { "practiceDate": "2026-10-15", "isFirst": true, "comparedDate": null, "streakOnDate": 1,
               "practiceDates": ["2026-10-15"], "interviewCount": 1, "practiceMinutes": 18,
               "criteria": [
                 { "criterion": "JOB_FIT", "score": 82, "grade": "GOOD", "delta": null, "comment": "직무 경험을 수치로 설명했어요" },

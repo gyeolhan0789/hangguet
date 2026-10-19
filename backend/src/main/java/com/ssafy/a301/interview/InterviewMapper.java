@@ -20,13 +20,15 @@ public final class InterviewMapper {
     /**
      * @param currentQuestion 지금 답할 질문(답변이 없는 마지막 질문). 면접 중이 아니거나 다음 질문을 만드는 중이면 null
      * @param answeredCount 지금까지 낸 답변 수
+     * @param leveledUp 이번 끝내기로 뱃지 구간이 바뀌었는지. 5.8 응답에서만 넘기고 그 외에는 null
      */
     public static SessionResponse toSessionResponse(
             InterviewSession session,
             SessionRuntime runtime,
             InterviewQuestion currentQuestion,
             int answeredCount,
-            OffsetDateTime now) {
+            OffsetDateTime now,
+            Boolean leveledUp) {
         boolean generating = runtime.planStatus() == PlanStatus.GENERATING;
         boolean analyzing = session.getStatus() == SessionStatus.ANALYZING;
         boolean inProgress = session.getStatus() == SessionStatus.IN_PROGRESS;
@@ -46,7 +48,8 @@ public final class InterviewMapper {
                 runtime.elapsedSeconds(session, now),
                 session.getStartedAt(),
                 session.getEndedAt(),
-                session.getCreatedAt());
+                session.getCreatedAt(),
+                leveledUp);
     }
 
     public static CurrentQuestion toCurrentQuestion(InterviewQuestion question) {

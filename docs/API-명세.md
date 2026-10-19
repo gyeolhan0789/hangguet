@@ -61,14 +61,14 @@
 | 5.5 | 지금 질문 | `GET /interview-sessions/{sessionId}/questions/current` | S06 · S06-B |
 | 5.6 | 답변 음성 업로드 주소 | `POST /interview-sessions/{sessionId}/questions/{questionId}/answer-audio/upload-url` | S06 |
 | 5.7 | 답변 제출 | `POST /interview-sessions/{sessionId}/questions/{questionId}/answer` | S06, S06-B |
-| 5.8 | 면접 끝내기 | `POST /interview-sessions/{sessionId}/end` | S06, S06-E, S06-F |
+| 5.8 | 면접 끝내기 | `POST /interview-sessions/{sessionId}/end` | S06, S06-E, S06-F, S02-L |
 | 5.9 | 결과 재생성 | `POST /interview-sessions/{sessionId}/analysis/retry` | S06-1 |
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
 | 6.4 | 다시보기 | `GET /interview-sessions/{sessionId}/replay` | S07-1 |
-| 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S02-L, S09, S02 |
+| 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S09, S02 |
 | 7.2 | 최근 성장 리뷰 | `GET /growth-reviews` | S02 |
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
@@ -261,7 +261,7 @@
 
 **화면 — S05 [면접 시작] 활성화, S06·S06-B 상단, S06-F 재연결 복구, S06-1 진행**
 
-WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다시 그린다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3).
+WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다시 그린다([CONTRIBUTING 7](CONTRIBUTING.md#7-음성websocketai-job-금지사항)). "질문 3 / 5"의 전체 질문 수는 아직 정해지지 않았다(B-3). `leveledUp`은 5.8 응답에만 값이 있고, 이 API에서는 항상 null이다.
 
 - **200**: 본인 면접
 - **404 / SESSION_NOT_FOUND**: 없거나 남의 면접
@@ -325,6 +325,8 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 **화면 — 마지막 답변 후 자동, S06-E [끝내기], S06-F [면접 끝내기]**
 
 본문 없음. 답변 1개 이상이면 결과 생성을 시작하고 그날 연습으로 인정한다. 0개면 결과·연습 인정 없이 끝난다.
+
+**레벨업** `leveledUp`: 이번 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true다. 그날 첫 연습 면접이고 스트릭이 1·3·6·8·14일이 된 경우다. 같은 날 두 번째 면접, 답변 0개로 끝낸 면접은 false. 면접 끝내기는 면접마다 한 번만 호출되므로 레벨업도 한 번만 온다. 화면은 이 값을 기억해 뒀다가 결과 분석이 끝난 뒤 S08에서 레벨업(S02-L)을 띄운다.
 
 - **202**: 답변 ≥1. 5.2 형식(`status: ANALYZING`). 완료는 `SESSION_STATUS_CHANGED` 또는 5.2
 - **200**: 답변 0. 5.2 형식(`status: ABORTED`). 화면은 홈으로
@@ -401,9 +403,9 @@ WebSocket을 놓쳤거나 새로고침했을 때 이 응답으로 화면을 다�
 
 #### 7.1 날짜별 성장 리뷰
 
-**화면 — S08(오늘), S08-C(첫 면접), S02-L(레벨업), S09 달력 날짜, S02 최근 리뷰 [보기]**
+**화면 — S08(오늘), S08-C(첫 면접), S09 달력 날짜, S02 최근 리뷰 [보기]**
 
-화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다. `leveledUp`이 true면(그날 연습으로 뱃지 구간이 바뀜) S08에서 레벨업(S02-L)을 띄운다.
+화면 표시: S08 "오늘 나아진 점"은 `delta` > 0인 기준. 자소서 검증(`COVER_LETTER`)은 `delta` 없이 `comment`만(충돌 0개면 "막힘 없이 통과"). S08-C는 `delta` 대신 `grade`로 기준점. 설문 유도(S08-B, 3·7·21일째)는 화면이 `streakOnDate`로 판단해 외부 구글폼을 연다.
 
 - **200**: 그날 결과가 있음
 - **404 / GROWTH_REVIEW_NOT_FOUND**: 그날 연습 기록 또는 결과가 없음
