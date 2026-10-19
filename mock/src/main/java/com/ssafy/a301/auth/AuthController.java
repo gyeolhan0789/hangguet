@@ -8,9 +8,9 @@ import com.ssafy.a301.auth.AuthDtos.RefreshResponse;
 import com.ssafy.a301.auth.AuthDtos.SignupRequest;
 import com.ssafy.a301.auth.AuthDtos.TokenResponse;
 import com.ssafy.a301.common.ErrorExamples;
-import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.user.UserDtos.UserSummary;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -22,6 +22,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import java.util.EnumSet;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,24 +39,27 @@ public class AuthController {
 
     private static final String TOKEN_EXAMPLE =
             """
-            { "accessToken": "eyJ…", "refreshToken": "eyJ…", "expiresIn": 3600,
+            { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600,
               "user": { "id": 1, "email": "a@ssafy.com", "nickname": "면접왕", "profileImageUrl": null } }\
             """;
     private static final String REFRESH_EXAMPLE =
             """
-            { "accessToken": "eyJ…", "refreshToken": "eyJ…", "expiresIn": 3600 }\
+            { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600 }\
             """;
 
-    private final Stub stub;
+    // 목 서버는 회원을 저장하지 않아 로그인·재발급은 이 예시 회원으로 토큰을 만든다
+    private static final long EXAMPLE_USER_ID = 1L;
+    private static final String EXAMPLE_NICKNAME = "면접왕";
 
-    public AuthController(Stub stub) {
-        this.stub = stub;
+    private final JwtIssuer jwtIssuer;
+
+    public AuthController(JwtIssuer jwtIssuer) {
+        this.jwtIssuer = jwtIssuer;
     }
 
     @Operation(
             summary = "1.1 이메일 사용 가능 여부",
-            description =
-                    "탈퇴하지 않은 회원 중 같은 이메일이 없으면 사용 가능하다. 사용 중이어도 오류가 아니라 `available: false`로 답한다.")
+            description = "가입에 쓸 수 있는 이메일인지 확인한다. 이미 가입된 이메일이면 `available: false`를 준다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",
@@ -70,7 +74,7 @@ public class AuthController {
         return new EmailAvailabilityResponse(true);
     }
 
-    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 필수 약관 3개 동의를 기록한 뒤 로그인 토큰을 준다.")
+    @Operation(summary = "1.2 회원가입", description = "회원을 만들고 로그인 토큰을 준다. 필수 약관 3개에 모두 동의해야 한다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "201",
@@ -105,7 +109,9 @@ public class AuthController {
         if (types.size() != AuthDtos.TermsType.values().length) {
             throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
         }
-        return stub.read(TOKEN_EXAMPLE, TokenResponse.class);
+        return tokens(
+                new UserSummary(
+                        EXAMPLE_USER_ID, request.email(), request.nickname().strip(), null));
     }
 
     @Operation(summary = "1.3 로그인")
@@ -124,10 +130,10 @@ public class AuthController {
                                             value = ErrorExamples.LOGIN_FAILED)))
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
-        return stub.read(TOKEN_EXAMPLE, TokenResponse.class);
+        return tokens(new UserSummary(EXAMPLE_USER_ID, request.email(), EXAMPLE_NICKNAME, null));
     }
 
-    @Operation(summary = "1.4 토큰 재발급", description = "새 액세스·리프레시 토큰을 준다. 쓴 리프레시 토큰은 폐기된다.")
+    @Operation(summary = "1.4 토큰 재발급", description = "리프레시 토큰으로 새 토큰을 받는다. 보낸 리프레시 토큰은 다시 쓸 수 없다.")
     @SecurityRequirements
     @ApiResponse(
             responseCode = "200",
@@ -143,7 +149,10 @@ public class AuthController {
                                             value = ErrorExamples.REFRESH_TOKEN_INVALID)))
     @PostMapping("/token/refresh")
     public RefreshResponse refresh(@Valid @RequestBody RefreshRequest request) {
-        return stub.read(REFRESH_EXAMPLE, RefreshResponse.class);
+        return new RefreshResponse(
+                jwtIssuer.issueAccessToken(EXAMPLE_USER_ID, EXAMPLE_NICKNAME),
+                newRefreshToken(),
+                jwtIssuer.accessTokenTtlSeconds());
     }
 
     @Operation(summary = "1.5 로그아웃")
@@ -151,4 +160,17 @@ public class AuthController {
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@Valid @RequestBody LogoutRequest request) {}
+
+    private TokenResponse tokens(UserSummary user) {
+        return new TokenResponse(
+                jwtIssuer.issueAccessToken(user.id(), user.nickname()),
+                newRefreshToken(),
+                jwtIssuer.accessTokenTtlSeconds(),
+                user);
+    }
+
+    // 리프레시 토큰은 JWT가 아닌 불투명 값이다(BE 설계 9장)
+    private static String newRefreshToken() {
+        return UUID.randomUUID().toString();
+    }
 }

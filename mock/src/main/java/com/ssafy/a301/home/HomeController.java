@@ -73,7 +73,9 @@ public class HomeController {
         this.stub = stub;
     }
 
-    @Operation(summary = "3.1 홈", description = "홈에 필요한 값을 한 번에 준다. 홈 종류는 `homeState`로 구분한다.")
+    @Operation(
+            summary = "3.1 홈",
+            description = "홈 화면에 필요한 값을 한 번에 준다. 어떤 홈을 보여 줄지는 `homeState`로 구분한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -98,7 +100,7 @@ public class HomeController {
         return stub.read(STATS, StatsResponse.class);
     }
 
-    @Operation(summary = "3.3 연습 달력", description = "그 달에 연습한 날짜 목록을 준다.")
+    @Operation(summary = "3.3 연습 달력", description = "한 달 동안 연습한 날짜 목록을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = PRACTICE_LOGS)))

@@ -99,7 +99,7 @@ public class GrowthReviewController {
         return stub.read(REVIEW, GrowthReviewResponse.class);
     }
 
-    @Operation(summary = "7.2 최근 성장 리뷰", description = "최근 날짜 순 페이지 목록.")
+    @Operation(summary = "7.2 최근 성장 리뷰", description = "성장 리뷰 목록을 최근 날짜 순으로 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = RECENT)))

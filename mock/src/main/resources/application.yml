@@ -35,3 +35,7 @@ mock:
   cors:
     # FE 주소. 쉼표로 여러 개. 배포 시 MOCK_CORS_ALLOWED_ORIGINS로 바꾼다
     allowed-origins: ${MOCK_CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  jwt:
+    # 목 서버는 토큰을 검사하지 않으므로 서명 키는 개발용 기본값을 쓴다
+    secret: ${MOCK_JWT_SECRET:a301-mock-jwt-signing-key-for-local-dev}
+    access-token-ttl: 1h

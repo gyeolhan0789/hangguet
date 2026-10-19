@@ -87,9 +87,7 @@ public class ResultController {
         this.stub = stub;
     }
 
-    @Operation(
-            summary = "6.1 녹화 업로드 주소",
-            description = "면접 녹화 영상을 올릴 Presigned URL을 준다. 응답은 2.4와 같은 형식이다.")
+    @Operation(summary = "6.1 녹화 업로드 주소", description = "녹화 영상을 올릴 주소를 준다. 응답 형식은 2.4와 같다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = UPLOAD_URL)))
@@ -119,7 +117,7 @@ public class ResultController {
         return stub.read(UPLOAD_URL, UploadUrlResponse.class);
     }
 
-    @Operation(summary = "6.2 녹화 등록", description = "업로드한 녹화 영상을 면접에 등록한다. 면접당 1개.")
+    @Operation(summary = "6.2 녹화 등록", description = "올린 녹화 영상을 면접에 등록한다. 면접마다 1개만 등록할 수 있다.")
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = RECORDING)))
@@ -156,7 +154,7 @@ public class ResultController {
 
     @Operation(
             summary = "6.3 면접 결과",
-            description = "면접 1회 결과. 채팅 면접은 `mode: CHAT`, `speechMetrics: null`.")
+            description = "면접 한 번의 결과를 준다. 채팅 면접은 `speechMetrics`가 null이다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(name = "S07 화상 면접 결과", value = RESULT)))
@@ -189,7 +187,7 @@ public class ResultController {
 
     @Operation(
             summary = "6.4 다시보기",
-            description = "화상은 녹화 영상과 질문별 시점을, 채팅은 대화 기록을 준다(`videoUrl: null`).")
+            description = "다시보기 정보를 준다. 화상은 녹화 영상과 질문별 시점을, 채팅은 대화 기록을 준다(`videoUrl`은 null).")
     @ApiResponse(
             responseCode = "200",
             content =

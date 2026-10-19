@@ -75,25 +75,36 @@ public final class AuthDtos {
 
     public record TokenResponse(
             @Schema(
-                            description = "API 호출용 토큰. `Authorization: Bearer {accessToken}`",
+                            description =
+                                    "API 호출용 JWT(HS256). `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다."
+                                            + " `Authorization: Bearer {accessToken}`",
                             example = "eyJ…")
                     String accessToken,
-            @Schema(description = "액세스 토큰 재발급용 토큰(1.4)", example = "eyJ…") String refreshToken,
+            @Schema(
+                            description = "액세스 토큰 재발급용 토큰(1.4)",
+                            example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
+                    String refreshToken,
             @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn,
             @Schema(description = "로그인한 회원") UserSummary user) {}
 
     public record RefreshRequest(
-            @Schema(description = "마지막으로 받은 리프레시 토큰", example = "eyJ…")
+            @Schema(
+                            description = "마지막으로 받은 리프레시 토큰",
+                            example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
                     @NotBlank(message = "필수 값입니다.")
                     String refreshToken) {}
 
     public record RefreshResponse(
-            @Schema(description = "새 액세스 토큰", example = "eyJ…") String accessToken,
-            @Schema(description = "새 리프레시 토큰. 요청에 쓴 토큰은 다시 쓸 수 없다", example = "eyJ…")
+            @Schema(description = "새 액세스 토큰. 1.3 응답의 accessToken과 같은 형식", example = "eyJ…")
+                    String accessToken,
+            @Schema(
+                            description = "새 리프레시 토큰. 요청에 쓴 토큰은 다시 쓸 수 없다",
+                            example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
                     String refreshToken,
             @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn) {}
 
     public record LogoutRequest(
-            @Schema(description = "폐기할 리프레시 토큰", example = "eyJ…") @NotBlank(message = "필수 값입니다.")
+            @Schema(description = "폐기할 리프레시 토큰", example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
+                    @NotBlank(message = "필수 값입니다.")
                     String refreshToken) {}
 }

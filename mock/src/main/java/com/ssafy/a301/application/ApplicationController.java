@@ -63,7 +63,7 @@ public class ApplicationController {
         this.stub = stub;
     }
 
-    @Operation(summary = "4.1 지원서 작성", description = "지원서를 저장한다. 저장한 지원서는 여러 면접에 다시 쓴다.")
+    @Operation(summary = "4.1 지원서 작성", description = "지원서를 저장한다. 저장한 지원서는 여러 면접에 쓸 수 있다.")
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
@@ -93,7 +93,7 @@ public class ApplicationController {
         return stub.read(APPLICATION, ApplicationResponse.class);
     }
 
-    @Operation(summary = "4.3 지원서 목록", description = "최근 작성 순. 목록에는 자기소개서 본문이 없다(4.2로 조회).")
+    @Operation(summary = "4.3 지원서 목록", description = "최근에 작성한 순으로 준다. 자기소개서 본문은 빠져 있다(4.2로 조회).")
     @ApiResponse(responseCode = "200", content = @Content(examples = @ExampleObject(value = LIST)))
     @GetMapping
     public PagedModel<ApplicationListItem> list(
@@ -110,7 +110,7 @@ public class ApplicationController {
         return new PagedModel<>(new PageImpl<>(items, PageRequest.of(page, size), items.size()));
     }
 
-    @Operation(summary = "4.4 지원서 수정", description = "보낸 필드만 바꾼다. 면접에 쓴 지원서는 수정할 수 없다.")
+    @Operation(summary = "4.4 지원서 수정", description = "보낸 필드만 수정한다. 면접에 쓴 지원서는 수정할 수 없다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
@@ -140,7 +140,7 @@ public class ApplicationController {
         return stub.read(APPLICATION, ApplicationResponse.class);
     }
 
-    @Operation(summary = "4.5 지원서 삭제", description = "면접에 쓴 지원서는 삭제할 수 없다.")
+    @Operation(summary = "4.5 지원서 삭제", description = "지원서를 삭제한다. 면접에 쓴 지원서는 삭제할 수 없다.")
     @ApiResponse(responseCode = "204")
     @ApiResponse(
             responseCode = "404",
