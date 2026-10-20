@@ -6,6 +6,9 @@ const e2eBuild = process.env.NEXT_TEST_PROXY === "1";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // 배포 이미지용. 빌드할 때 실행에 필요한 파일만 .next/standalone에 모으고, node server.js로 띄운다.
+  // public과 .next/static은 들어가지 않아 Dockerfile에서 따로 복사한다. next dev와 next start에는 영향이 없다.
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   distDir: e2eBuild ? ".next-e2e" : ".next",
