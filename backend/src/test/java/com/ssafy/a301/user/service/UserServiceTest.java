@@ -1,0 +1,239 @@
+package com.ssafy.a301.user.service;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.ssafy.a301.auth.jwt.AccessTokens;
+import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.home.repository.PracticeLogRepository;
+import com.ssafy.a301.storage.domain.UploadPurpose;
+import com.ssafy.a301.storage.repository.UploadKeyStore;
+import com.ssafy.a301.storage.s3.PresignedUrl;
+import com.ssafy.a301.storage.s3.S3FileStorage;
+import com.ssafy.a301.storage.s3.S3Properties;
+import com.ssafy.a301.user.domain.User;
+import com.ssafy.a301.user.repository.UserRepository;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+import software.amazon.awssdk.core.exception.SdkClientException;
+
+class UserServiceTest {
+    private static final long USER_ID = 7L;
+    private static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
+
+    private final UserRepository users = mock(UserRepository.class);
+    private final PracticeLogRepository practiceLogs = mock(PracticeLogRepository.class);
+    private final PasswordEncoder passwords = mock(PasswordEncoder.class);
+    private final AccessTokens access = mock(AccessTokens.class);
+    private final S3FileStorage storage = mock(S3FileStorage.class);
+    private final UploadKeyStore uploadKeys = mock(UploadKeyStore.class);
+    private UserService service;
+    private User user;
+
+    @BeforeEach
+    void setUp() {
+        service =
+                new UserService(
+                        users,
+                        practiceLogs,
+                        passwords,
+                        access,
+                        new AuthProperties(
+                                "test-secret-at-least-thirty-two-bytes",
+                                Duration.ofHours(1),
+                                Duration.ofDays(30)),
+                        storage,
+                        new S3Properties(
+                                "bucket", "ap-northeast-2", UPLOAD_TTL, Duration.ofHours(1)),
+                        uploadKeys);
+        user = new User("a@test.com", "hash", "이전닉네임");
+        ReflectionTestUtils.setField(user, "id", USER_ID);
+        when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+        when(practiceLogs.findPracticeDatesByUserId(USER_ID)).thenReturn(List.of());
+    }
+
+    @Test
+    void meHasCurrentStreakAndNoImageUrlWithoutImage() {
+        LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+        when(practiceLogs.findPracticeDatesByUserId(USER_ID))
+                .thenReturn(List.of(today.minusDays(1), today.minusDays(2)));
+
+        var me = service.me(USER_ID);
+
+        assertThat(me.currentStreak()).isEqualTo(2);
+        assertThat(me.profileImageUrl()).isNull();
+        verify(storage, never()).presignDownload(anyString());
+    }
+
+    @Test
+    void meHasPresignedImageUrl() {
+        user.changeProfileImage("profile/7/a.png");
+        when(storage.presignDownload("profile/7/a.png")).thenReturn("https://s3/get");
+
+        assertThat(service.me(USER_ID).profileImageUrl()).isEqualTo("https://s3/get");
+    }
+
+    @Test
+    void withdrawnUserIsUnauthorized() {
+        when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+
+        assertCode(() -> service.me(USER_ID), ErrorCode.UNAUTHORIZED);
+        assertCode(() -> service.changeNickname(USER_ID, "새닉네임"), ErrorCode.UNAUTHORIZED);
+    }
+
+    @Test
+    void nicknameChangeIssuesTokenWithNewNickname() {
+        when(access.issue(USER_ID, "새닉네임")).thenReturn("new-access");
+
+        var response = service.changeNickname(USER_ID, " 새닉네임 ");
+
+        assertThat(user.getNickname()).isEqualTo("새닉네임");
+        verify(users).save(user);
+        assertThat(response.nickname()).isEqualTo("새닉네임");
+        assertThat(response.accessToken()).isEqualTo("new-access");
+        assertThat(response.expiresIn()).isEqualTo(3600);
+    }
+
+    @Test
+    void passwordChangeStoresNewHash() {
+        when(passwords.matches("current1", "hash")).thenReturn(true);
+        when(passwords.encode("newpass1")).thenReturn("new-hash");
+
+        service.changePassword(USER_ID, "current1", "newpass1");
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        verify(users).save(user);
+    }
+
+    @Test
+    void wrongCurrentPasswordIsRejected() {
+        when(passwords.matches("wrong123", "hash")).thenReturn(false);
+
+        assertCode(
+                () -> service.changePassword(USER_ID, "wrong123", "newpass1"),
+                ErrorCode.PASSWORD_MISMATCH);
+        assertThat(user.getPasswordHash()).isEqualTo("hash");
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void uploadUrlUsesOwnKeyAndRecordsIssue() {
+        var expiresAt = OffsetDateTime.now();
+        when(storage.presignUpload(anyString(), eq("image/png"), eq(1024L)))
+                .thenReturn(new PresignedUrl("https://s3/put", expiresAt));
+
+        var response = service.profileImageUploadUrl(USER_ID, "image/png", 1024);
+
+        assertThat(response.objectKey()).matches("profile/7/[0-9a-f-]{36}\\.png");
+        assertThat(response.uploadUrl()).isEqualTo("https://s3/put");
+        assertThat(response.expiresAt()).isEqualTo(expiresAt);
+        verify(uploadKeys)
+                .issue(response.objectKey(), USER_ID, UploadPurpose.PROFILE_IMAGE, UPLOAD_TTL);
+    }
+
+    @Test
+    void jpegUploadKeyHasJpgExtension() {
+        when(storage.presignUpload(anyString(), eq("image/jpeg"), eq(1L)))
+                .thenReturn(new PresignedUrl("https://s3/put", OffsetDateTime.now()));
+
+        assertThat(service.profileImageUploadUrl(USER_ID, "image/jpeg", 1).objectKey())
+                .endsWith(".jpg");
+    }
+
+    @Test
+    void keyNotIssuedToUserIsRejected() {
+        when(uploadKeys.isIssuedTo("profile/8/b.png", USER_ID, UploadPurpose.PROFILE_IMAGE))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.registerProfileImage(USER_ID, "profile/8/b.png"))
+                .isInstanceOfSatisfying(
+                        FieldValidationException.class,
+                        ex -> assertThat(ex.field()).isEqualTo("objectKey"));
+        verify(storage, never()).exists(anyString());
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void missingFileIsNotFound() {
+        when(uploadKeys.isIssuedTo("profile/7/b.png", USER_ID, UploadPurpose.PROFILE_IMAGE))
+                .thenReturn(true);
+        when(storage.exists("profile/7/b.png")).thenReturn(false);
+
+        assertCode(
+                () -> service.registerProfileImage(USER_ID, "profile/7/b.png"),
+                ErrorCode.FILE_NOT_FOUND);
+        verify(users, never()).save(any());
+    }
+
+    @Test
+    void registeringReplacesImageAndDeletesPreviousFile() {
+        user.changeProfileImage("profile/7/old.png");
+        when(uploadKeys.isIssuedTo("profile/7/new.png", USER_ID, UploadPurpose.PROFILE_IMAGE))
+                .thenReturn(true);
+        when(storage.exists("profile/7/new.png")).thenReturn(true);
+        when(storage.presignDownload("profile/7/new.png")).thenReturn("https://s3/new");
+
+        var me = service.registerProfileImage(USER_ID, "profile/7/new.png");
+
+        assertThat(user.getProfileImageKey()).isEqualTo("profile/7/new.png");
+        assertThat(me.profileImageUrl()).isEqualTo("https://s3/new");
+        verify(users).save(user);
+        verify(storage).delete("profile/7/old.png");
+    }
+
+    @Test
+    void registeringSameKeyAgainKeepsFile() {
+        user.changeProfileImage("profile/7/a.png");
+        when(uploadKeys.isIssuedTo("profile/7/a.png", USER_ID, UploadPurpose.PROFILE_IMAGE))
+                .thenReturn(true);
+        when(storage.exists("profile/7/a.png")).thenReturn(true);
+
+        service.registerProfileImage(USER_ID, "profile/7/a.png");
+
+        verify(storage, never()).delete(anyString());
+    }
+
+    @Test
+    void failedFileDeletionDoesNotFailRequest() {
+        user.changeProfileImage("profile/7/a.png");
+        doThrow(SdkClientException.create("down")).when(storage).delete("profile/7/a.png");
+
+        service.deleteProfileImage(USER_ID);
+
+        assertThat(user.getProfileImageKey()).isNull();
+        verify(users).save(user);
+    }
+
+    @Test
+    void deletingWithoutImageDoesNothing() {
+        service.deleteProfileImage(USER_ID);
+
+        verify(users, never()).save(any());
+        verify(storage, never()).delete(anyString());
+    }
+
+    private static void assertCode(Runnable operation, ErrorCode expected) {
+        assertThatThrownBy(operation::run)
+                .isInstanceOfSatisfying(
+                        ApiException.class, ex -> assertThat(ex.errorCode()).isEqualTo(expected));
+    }
+}

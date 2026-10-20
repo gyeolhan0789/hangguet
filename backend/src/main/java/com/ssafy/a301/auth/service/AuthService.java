@@ -9,6 +9,7 @@ import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.domain.UserAgreement;
@@ -30,6 +31,7 @@ public class AuthService {
     private final RefreshTokenStore refreshTokens;
     private final AuthProperties properties;
     private final TransactionTemplate transactions;
+    private final S3FileStorage storage;
 
     public AuthService(
             UserRepository users,
@@ -38,7 +40,8 @@ public class AuthService {
             AccessTokens accessTokens,
             RefreshTokenStore refreshTokens,
             AuthProperties properties,
-            TransactionTemplate transactions) {
+            TransactionTemplate transactions,
+            S3FileStorage storage) {
         this.users = users;
         this.agreements = agreements;
         this.passwords = passwords;
@@ -46,6 +49,7 @@ public class AuthService {
         this.refreshTokens = refreshTokens;
         this.properties = properties;
         this.transactions = transactions;
+        this.storage = storage;
     }
 
     public boolean isEmailAvailable(String email) {
@@ -122,6 +126,11 @@ public class AuthService {
                 accessTokens.issue(user.getId(), user.getNickname()),
                 refreshTokens.issue(user.getId()),
                 properties.accessTtl().toSeconds(),
-                UserMapper.toSummary(user, null));
+                UserMapper.toSummary(user, profileImageUrl(user)));
+    }
+
+    private String profileImageUrl(User user) {
+        String key = user.getProfileImageKey();
+        return key == null ? null : storage.presignDownload(key);
     }
 }

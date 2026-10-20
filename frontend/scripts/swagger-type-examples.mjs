@@ -13,7 +13,7 @@ const RESPONSE_TYPES = {
   "POST /auth/login 200": "TokenResponse",
   "POST /auth/token/refresh 200": "RefreshResponse",
   "GET /users/me 200": "MeResponse",
-  "PATCH /users/me 200": "MeResponse",
+  "PATCH /users/me 200": "NicknameChangeResponse",
   "POST /users/me/profile-image/upload-url 200": "UploadUrlResponse",
   "PUT /users/me/profile-image 200": "MeResponse",
   "GET /home 200": "HomeResponse",

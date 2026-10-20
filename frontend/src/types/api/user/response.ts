@@ -1,7 +1,7 @@
 // 2. 회원 응답. 기준: mock UserDtos · UserController.
 import type { OffsetDateTime } from "../common";
 
-/** 2.1 내 정보 · 2.2 닉네임 변경 · 2.5 프로필 사진 등록 (200) */
+/** 2.1 내 정보 · 2.5 프로필 사진 등록 (200) */
 export interface MeResponse {
   id: number;
   /** 로그인 아이디 */
@@ -13,6 +13,13 @@ export interface MeResponse {
   createdAt: OffsetDateTime;
   /** 현재 스트릭(오늘 또는 어제까지 빠짐없이 이어진 연습일 수). 모든 화면 헤더(C01) "스트릭 7일" */
   currentStreak: number;
+}
+
+/** 2.2 닉네임 변경 (200). 토큰의 nickname이 바뀌도록 새 액세스 토큰을 함께 준다. 리프레시 토큰은 그대로 쓴다 */
+export interface NicknameChangeResponse extends MeResponse {
+  accessToken: string;
+  /** 액세스 토큰 유효 시간(초) */
+  expiresIn: number;
 }
 
 // 2.4 프로필 사진 업로드 주소(200)는 공통 UploadUrlResponse(../common)
