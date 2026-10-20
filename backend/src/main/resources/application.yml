@@ -7,6 +7,9 @@ server:
 spring:
   application:
     name: a301
+  jackson:
+    # 일시는 한국 시간 오프셋(+09:00)으로 내보낸다(목 서버와 같음)
+    time-zone: Asia/Seoul
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -41,6 +44,14 @@ soniox:
 
 elevenlabs:
   api-key: ${ELEVENLABS_API_KEY:}
+
+# 자격 증명은 AWS 기본 공급자(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수 등)에서 읽는다.
+storage:
+  s3:
+    bucket: ${S3_BUCKET:a301-local}
+    region: ${AWS_REGION:ap-northeast-2}
+    upload-url-ttl: 10m
+    download-url-ttl: 1h
 
 springdoc:
   swagger-ui:

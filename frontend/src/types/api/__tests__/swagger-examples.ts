@@ -14,6 +14,7 @@ import type {
   LoginRequest,
   LogoutRequest,
   MeResponse,
+  NicknameChangeResponse,
   NicknameRequest,
   PasswordChangeRequest,
   PendingResponse,
@@ -154,7 +155,9 @@ export const swaggerExamples = [
     profileImageUrl: "https://…",
     createdAt: "2026-09-01T10:00:00+09:00",
     currentStreak: 7,
-  } satisfies MeResponse,
+    accessToken: "eyJ…",
+    expiresIn: 3600,
+  } satisfies NicknameChangeResponse,
   // 2.3 비밀번호 변경 요청 스키마 example
   { currentPassword: "abcd1234", newPassword: "efgh5678" } satisfies PasswordChangeRequest,
   // 2.3 비밀번호 변경 400 PASSWORD_MISMATCH

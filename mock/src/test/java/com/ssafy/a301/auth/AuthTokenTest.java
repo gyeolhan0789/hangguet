@@ -14,7 +14,7 @@ import org.springframework.test.web.servlet.assertj.MvcTestResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
-/** 회원가입·로그인·재발급이 회원 id와 닉네임을 담은 JWT를 주는지 확인한다. */
+/** 회원가입·로그인·재발급·닉네임 변경이 회원 id와 닉네임을 담은 JWT를 주는지 확인한다. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class AuthTokenTest {
@@ -58,6 +58,23 @@ class AuthTokenTest {
                 .isEqualTo("면접왕");
         assertThat(refresh.get("refreshToken").asString())
                 .isNotEqualTo(login.get("refreshToken").asString());
+    }
+
+    @Test
+    void nicknameChangeReturnsTokenWithNewNickname() throws Exception {
+        MvcTestResult result =
+                mockMvc.patch()
+                        .uri("/api/v1/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"nickname\": \" 새닉네임 \" }")
+                        .exchange();
+        assertThat(result).hasStatusOk();
+        JsonNode response = objectMapper.readTree(result.getResponse().getContentAsString(UTF_8));
+
+        assertThat(response.get("nickname").asString()).isEqualTo("새닉네임");
+        assertThat(claims(response.get("accessToken").asString()).get("nickname").asString())
+                .isEqualTo("새닉네임");
+        assertThat(response.get("expiresIn").asLong()).isPositive();
     }
 
     private JsonNode post(String uri, String body) throws Exception {

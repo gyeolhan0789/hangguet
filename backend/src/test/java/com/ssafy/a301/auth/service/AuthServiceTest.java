@@ -16,6 +16,7 @@ import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserAgreementRepository;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class AuthServiceTest {
@@ -35,6 +37,7 @@ class AuthServiceTest {
     private final AccessTokens access = mock(AccessTokens.class);
     private final RefreshTokenStore refresh = mock(RefreshTokenStore.class);
     private final TransactionTemplate transactions = mock(TransactionTemplate.class);
+    private final S3FileStorage storage = mock(S3FileStorage.class);
     private AuthService service;
 
     @BeforeEach
@@ -50,7 +53,8 @@ class AuthServiceTest {
                                 "test-secret-at-least-thirty-two-bytes",
                                 Duration.ofHours(1),
                                 Duration.ofDays(30)),
-                        transactions);
+                        transactions,
+                        storage);
     }
 
     @Test
@@ -109,6 +113,22 @@ class AuthServiceTest {
         assertCode(
                 () -> service.login(new LoginRequest("a@test.com", "wrong")),
                 ErrorCode.LOGIN_FAILED);
+    }
+
+    @Test
+    void loginResponseHasProfileImageUrl() {
+        var user = new User("a@test.com", "hash", "회원");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        user.changeProfileImage("profile/7/a.png");
+        when(users.findByEmailAndDeletedAtIsNull("a@test.com")).thenReturn(Optional.of(user));
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+        when(storage.presignDownload("profile/7/a.png")).thenReturn("https://s3/get");
+
+        assertThat(
+                        service.login(new LoginRequest("a@test.com", "abcd1234"))
+                                .user()
+                                .profileImageUrl())
+                .isEqualTo("https://s3/get");
     }
 
     @Test

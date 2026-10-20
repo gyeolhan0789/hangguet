@@ -1,8 +1,10 @@
 package com.ssafy.a301.user;
 
+import com.ssafy.a301.auth.JwtIssuer;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.user.UserDtos.MeResponse;
+import com.ssafy.a301.user.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.UserDtos.NicknameRequest;
 import com.ssafy.a301.user.UserDtos.PasswordChangeRequest;
 import com.ssafy.a301.user.UserDtos.ProfileImageRequest;
@@ -36,6 +38,12 @@ public class UserController {
             { "id": 1, "email": "example@ssafy.com", "nickname": "면접왕", "profileImageUrl": "https://…",
               "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7 }\
             """;
+    private static final String NICKNAME_CHANGE_EXAMPLE =
+            """
+            { "id": 1, "email": "example@ssafy.com", "nickname": "면접왕", "profileImageUrl": "https://…",
+              "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7, "accessToken": "eyJ…",
+              "expiresIn": 3600 }\
+            """;
     private static final String UPLOAD_URL_EXAMPLE =
             """
             { "uploadUrl": "https://…s3…?X-Amz-Signature=…", "objectKey": "profile/1/7f3c….png",
@@ -43,9 +51,11 @@ public class UserController {
             """;
 
     private final Stub stub;
+    private final JwtIssuer jwtIssuer;
 
-    public UserController(Stub stub) {
+    public UserController(Stub stub, JwtIssuer jwtIssuer) {
         this.stub = stub;
+        this.jwtIssuer = jwtIssuer;
     }
 
     @Operation(summary = "2.1 내 정보")
@@ -57,13 +67,25 @@ public class UserController {
         return stub.read(ME_EXAMPLE, MeResponse.class);
     }
 
-    @Operation(summary = "2.2 닉네임 변경")
+    @Operation(
+            summary = "2.2 닉네임 변경",
+            description = "토큰의 nickname이 바뀌도록 새 액세스 토큰을 함께 준다. 리프레시 토큰은 그대로 쓴다.")
     @ApiResponse(
             responseCode = "200",
-            content = @Content(examples = @ExampleObject(value = ME_EXAMPLE)))
+            content = @Content(examples = @ExampleObject(value = NICKNAME_CHANGE_EXAMPLE)))
     @PatchMapping
-    public MeResponse changeNickname(@Valid @RequestBody NicknameRequest request) {
-        return stub.read(ME_EXAMPLE, MeResponse.class);
+    public NicknameChangeResponse changeNickname(@Valid @RequestBody NicknameRequest request) {
+        MeResponse me = stub.read(ME_EXAMPLE, MeResponse.class);
+        String nickname = request.nickname().strip();
+        return new NicknameChangeResponse(
+                me.id(),
+                me.email(),
+                nickname,
+                me.profileImageUrl(),
+                me.createdAt(),
+                me.currentStreak(),
+                jwtIssuer.issueAccessToken(me.id(), nickname),
+                jwtIssuer.accessTokenTtlSeconds());
     }
 
     @Operation(summary = "2.3 비밀번호 변경")
