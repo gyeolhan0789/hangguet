@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Secret
+.env
+
+# 파이프라인 수집 원문·생성 카드
+pipeline/data/
+
 # Tool cache
 .mypy_cache/
 .pytest_cache/
