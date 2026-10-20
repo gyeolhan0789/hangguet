@@ -30,6 +30,10 @@ auth:
   jwt-secret: ${JWT_SECRET}
   access-ttl: 9h
   refresh-ttl: 30d
+
+soniox:
+  api-key: ${SONIOX_API_KEY:}
+
 springdoc:
   swagger-ui:
     path: /docs

@@ -194,9 +194,11 @@ public class InterviewSessionController {
             """;
 
     private final Stub stub;
+    private final SonioxClient soniox;
 
-    public InterviewSessionController(Stub stub) {
+    public InterviewSessionController(Stub stub, SonioxClient soniox) {
         this.stub = stub;
+        this.soniox = soniox;
     }
 
     @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
@@ -582,10 +584,19 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.10 실시간 음성 인식 토큰",
-            description = "브라우저가 음성 인식(STT) 서비스에 직접 연결할 때 쓰는 1회용 토큰을 준다.")
+            description = "브라우저가 Soniox 실시간 음성 인식에 직접 연결할 때 쓰는 1회용 임시 키를 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = STT_TOKEN)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "VALIDATION_FAILED",
+                                            value = ErrorExamples.VALIDATION_FAILED)))
     @ApiResponse(
             responseCode = "404",
             content =
@@ -615,9 +626,15 @@ public class InterviewSessionController {
                                             value = ErrorExamples.STT_UNAVAILABLE)))
     @PostMapping("/{sessionId}/stt-token")
     public SttTokenResponse sttToken(
-            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId) {
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
+            @Parameter(description = "Soniox API 키. 목 서버에서만 받으며, 실제 백엔드는 서버에 둔 키를 쓴다")
+                    @RequestHeader("X-Soniox-Api-Key")
+                    String sonioxApiKey) {
+        if (sonioxApiKey.isBlank()) {
+            throw new FieldValidationException("X-Soniox-Api-Key", "필수 값입니다.");
+        }
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
-        return stub.read(STT_TOKEN, SttTokenResponse.class);
+        return soniox.issueTemporaryKey(sonioxApiKey, sessionId);
     }
 
     @Operation(
