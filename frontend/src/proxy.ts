@@ -7,7 +7,7 @@ import {
   setAuthCookies,
 } from "@/lib/api/auth-cookies";
 import { isAccessTokenExpired, refreshTokens } from "@/lib/api/token-refresh";
-import { PATHNAME_HEADER } from "@/lib/auth/auth-errors";
+import { PATHNAME_HEADER, SERVER_ACTION_HEADER } from "@/lib/auth/auth-errors";
 import { GUEST_ONLY_PATHS, PUBLIC_PATHS, ROUTES } from "@/lib/routes";
 import type { RefreshResponse } from "@/types/api";
 
@@ -44,6 +44,8 @@ export async function proxy(request: NextRequest) {
   } else {
     // 화면을 그리다 TOKEN_EXPIRED를 받으면 재발급 뒤 이 주소로 돌아온다.
     request.headers.set(PATHNAME_HEADER, `${pathname}${search}`);
+    // 화면 주소에 오는 POST는 서버 액션뿐이다(Next 문서 mutating-data). 밖에서 보낸 값은 덮어쓴다.
+    request.headers.set(SERVER_ACTION_HEADER, request.method === "POST" ? "1" : "0");
     response = NextResponse.next({ request: { headers: request.headers } });
   }
 
