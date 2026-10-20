@@ -161,7 +161,7 @@ public final class InterviewDtos {
                     List<@NotNull(message = "필수 값입니다.") @Valid TranscriptToken> tokens) {}
 
     public record TranscriptToken(
-            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부나 공백일 수 있다", example = "응답")
+            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부, 공백, 앞에 공백이 붙은 단어일 수 있다", example = "응답")
                     @NotEmpty(message = "필수 값입니다.")
                     String text,
             @Schema(description = "토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준", example = "320")
@@ -188,15 +188,17 @@ public final class InterviewDtos {
     }
 
     public record ReactionRequest(
-            @Schema(description = "답변 안에서 몇 번째 문장인지(1부터)", example = "3")
+            @Schema(description = "답변 안에서 보낸 순서(1부터). 화상은 몇 번째 문장, 채팅은 몇 번째 입력", example = "3")
                     @NotNull(message = "필수 값입니다.")
                     @Positive(message = "1 이상입니다.")
                     Integer seq,
-            @Schema(description = "음성 인식이 확정한 문장(1~1,000자)", example = "그래서 조회 응답 시간을 40% 줄였습니다.")
+            @Schema(
+                            description = "화상은 음성 인식이 확정한 문장, 채팅은 입력 칸의 글 전체(1~1,000자)",
+                            example = "그래서 조회 응답 시간을 40% 줄였습니다.")
                     @NotBlank(message = "필수 값입니다.")
                     @Size(max = 1_000, message = "1~1,000자입니다.")
                     String text,
-            @Schema(description = "문장을 말한 뒤 쉰 시간(밀리초)", example = "420")
+            @Schema(description = "화상은 문장을 말한 뒤 쉰 시간, 채팅은 입력을 멈춘 시간(밀리초)", example = "420")
                     @NotNull(message = "필수 값입니다.")
                     @PositiveOrZero(message = "0 이상입니다.")
                     Integer pauseMs) {}
@@ -242,13 +244,14 @@ public final class InterviewDtos {
     public record ReactionResponse(
             @Schema(description = "요청의 seq. 응답이 순서와 다르게 오면 가장 큰 seq의 응답만 쓴다", example = "3")
                     int seq,
-            @Schema(description = "이 문장에 대한 면접관 리액션. 반응하지 않을 때는 null", nullable = true)
+            @Schema(description = "보낸 글에 대한 면접관 리액션. 반응하지 않을 때는 null", nullable = true)
                     Reaction reaction,
             @Schema(description = "지금까지 답변을 듣고 쌓인 면접관 태도. 표정이 서서히 바뀌는 데 쓴다") Attitude attitude,
-            @Schema(description = "면접관이 말을 끊을 때만 값이 있다", nullable = true) Interrupt interrupt) {}
+            @Schema(description = "면접관이 말을 끊을 때만 값이 있다. 채팅은 항상 null", nullable = true)
+                    Interrupt interrupt) {}
 
     public record SttTokenResponse(
-            @Schema(description = "Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 답변마다 새로 받는다")
+            @Schema(description = "Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 연결할 때마다 새로 받는다")
                     String token,
             @Schema(description = "이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다") OffsetDateTime expiresAt) {}
 

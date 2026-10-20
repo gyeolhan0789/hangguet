@@ -94,7 +94,7 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 - **시작** 5.7. `answers.evaluation`이 이미 있으면 버리고, 쓸 때도 `evaluation IS NULL`일 때만 쓴다
 - **말하기 분석(화상만)** 입력은 `answers.tokens`와 답변 음성 파일(`recordings`의 `ANSWER_AUDIO`)
   - 말하기 지표는 답변 음성으로 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, 6.3 `speechMetrics`에서 `gazeRatio`를 뺀 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 쓰지 않는다
-  - `tokens`는 공백 토큰을 경계로 단어로 묶는다
+  - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를, 음성 파일로 말끝 흐림·억양 폭을 구한다
   - `tokens`가 없거나 구하지 못한 지표는 비워 둔다
 - **판정 입력** 질문, 채점 기준(`interview_plans.questions[seq].criteria`), 답변 `content`. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다. 고도화에서는 회사 공시 요약을 더한다
@@ -164,8 +164,8 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 인증·오류 형식은 CONTRIBUTING 7장, 화면 동작은 API 명세 5.11을 따른다.
 
 **5.11 면접관 리액션**
-- 입력: 질문·채점 기준(`interview_plans`), 보낸 문장·`pauseMs`, 서비스가 따로 두는 Redis의 최근 문장·태도
-- Jev를 호출해 `reaction`·`attitude`·`interrupt`를 정하고, 최근 문장·태도를 Redis에 갱신한다
+- 입력: 질문·채점 기준(`interview_plans`), 면접 방식·면접관(`interview_sessions.mode`·`persona`), 보낸 글·`pauseMs`, 서비스가 따로 두는 Redis의 최근 보낸 글·태도
+- Jev(`POST /v1/systemone`, 질문 유형 `choice`·`score`·`noul`)로 `reaction`·`attitude`와 말 끊기 여부를 판단하고, 최근 보낸 글·태도를 Redis에 갱신한다. Jev는 글을 만들지 않으므로 `interrupt.text`는 이유(`reason`)·면접관별로 서비스 설정에 둔 문구를 쓴다. 채팅이면 말 끊기는 판단하지 않는다(API 명세 5.11)
 - `ttlMs` 안에 답을 받지 못하거나 호출이 실패하면 `reaction: null`, `attitude`는 직전 값으로 200을 준다
 
 ## 7. 회사 공시 요약 (고도화)
@@ -189,6 +189,6 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 | 내용 | 영향 |
 |---|---|
 | GMS가 토큰 확률(logprobs)을 주는지 | 3장 점수 방식(`PROBABILITY`/`FIXED`) |
-| Jev 입출력, 말 끊기(`interrupt`)를 Jev가 정하는지 | 6장 5.11 |
+| Jev 질문 구성(리액션·태도·말 끊기를 어떤 질문 유형으로 물을지), 한국어 답변에서의 정확도, 응답 시간 | 6장 5.11 |
 | 군말 목록, 긴 멈춤 기준 시간 | 3장 말하기 분석 |
 | Soniox 시각 기준점(API 명세 5.7) | 3장 말하기 분석 |

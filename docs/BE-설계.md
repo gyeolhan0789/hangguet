@@ -127,9 +127,7 @@ com.ssafy.a301
 4. 커밋 후 답변 채점 작업(SCORE_ANSWER)을 큐에 넣고, 다음 질문은 플랜에서 꺼내 저장한다([AI 명세](AI-명세.md) 2·3장). `isLastQuestion`은 5번 질문이면 true **[결정]**
 
 ### 5.3-1 면접관 리액션 (5.11)
-1. 질문 소유·현재 질문·화상 면접 중인지 확인. 이미 답변을 낸 질문이면 409 `ANSWER_ALREADY_SUBMITTED`
-2. 질문과 Redis의 최근 문장·태도를 반응 로직 모듈에 넘겨 `reaction`·`attitude`·`interrupt`를 받는다
-3. 최근 문장·태도를 Redis에 갱신해 응답한다. 문장은 DB에 저장하지 않는다
+- AI 실시간 반응 서비스가 처리하며 BE는 관여하지 않는다 **[결정]**. 처리 내용은 [AI 명세](AI-명세.md) 6장
 
 ### 5.4 끝내기 · 결과 생성 (5.8, 5.9, 6.1, 6.2)
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 그날(한국 시간, `ended_at` 기준) 처음일 때만 저장
@@ -177,7 +175,7 @@ com.ssafy.a301
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
-| `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds, 5.11의 최근 문장·태도 |
+| `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5·5.7·6.2에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | 요청 본문 해시 + 첫 응답(상태·본문) | 24시간 | 5.1·5.4·5.7·5.8 (8장) |
 

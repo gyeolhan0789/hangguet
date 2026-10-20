@@ -309,7 +309,7 @@ MR 본문은 [`.gitlab/merge_request_templates/Default.md`](../.gitlab/merge_req
 - 마이크 권한 거부, Upload 실패, WebSocket 재연결을 처리한다.
 - 중복 클릭으로 Answer·Job이 중복 생성되지 않는다.
 - Keyboard·접근성·Chrome/Edge 주요 흐름을 확인한다.
-- GMS를 직접 호출하지 않는다. AI Service는 Nginx가 AI Service로 보내는 API([API 명세](API-명세.md) 1장)로만 호출하고, STT·TTS Provider에는 BE·AI가 발급한 1회용 토큰으로만 직접 연결한다.
+- GMS를 직접 호출하지 않는다. AI Service는 Nginx가 AI Service로 보내는 API([API 명세](API-명세.md) 1장)로만 호출하고, STT·TTS Provider에는 BE가 발급한 1회용 토큰으로만 직접 연결한다.
 
 ### 6.2 BE
 
