@@ -7,7 +7,7 @@ import type { ApplicationResponse } from "@/types/api";
 const get = vi.fn();
 vi.mock("@/lib/api/client", () => ({ api: { get } }));
 
-const { getApplication, parseApplicationId } = await import("./queries");
+const { getApplication } = await import("./queries");
 
 // Swagger 4.2 200 예시
 const application = {
@@ -62,28 +62,5 @@ describe("getApplication (4.2 지원서 조회)", () => {
     get.mockRejectedValue(error);
 
     await expect(getApplication(10)).rejects.toBe(error);
-  });
-});
-
-describe("parseApplicationId (주소의 applicationId)", () => {
-  it.each([
-    { value: "10", expected: 10 },
-    { value: "1", expected: 1 },
-  ])("$value → $expected", ({ value, expected }) => {
-    expect(parseApplicationId(value)).toBe(expected);
-  });
-
-  it.each([
-    { label: "없음", value: undefined },
-    { label: "빈 문자열", value: "" },
-    { label: "0", value: "0" },
-    { label: "음수", value: "-1" },
-    { label: "앞자리 0", value: "01" },
-    { label: "소수", value: "1.5" },
-    { label: "숫자 아님", value: "abc" },
-    { label: "안전한 정수 범위 밖", value: "99999999999999999999" },
-    { label: "여러 값", value: ["10", "11"] },
-  ])("$label → null", ({ value }) => {
-    expect(parseApplicationId(value)).toBeNull();
   });
 });

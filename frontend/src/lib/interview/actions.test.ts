@@ -30,7 +30,11 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { createSession } = await import("./actions");
+// 5.3 성공 뒤 화면을 다시 그리는 refresh(서버 액션 전용)
+const refresh = vi.fn();
+vi.mock("next/cache", () => ({ refresh: () => refresh() }));
+
+const { createSession, retryPlan, startSession } = await import("./actions");
 
 const KEY = "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70";
 const values = {
@@ -90,10 +94,11 @@ describe("createSession (5.1 면접 만들기)", () => {
     },
   );
 
-  it("갈 곳은 서버가 만든 면접의 방식으로 정한다(같은 키로 다시 보낸 응답도 같은 곳)", async () => {
-    post.mockResolvedValue({ data: { ...session, mode: "CHAT" } });
+  it("갈 곳은 고른 방식으로 정한다: 채팅이면 응답의 방식과 상관없이 장치 점검 없이 바로 면접으로 간다", async () => {
+    // 목 서버 5.1은 본문과 상관없이 늘 VIDEO 예시를 준다.
+    post.mockResolvedValue({ data: { ...session, mode: "VIDEO" } });
 
-    await expect(createSession({ ...values, mode: "VIDEO" }, KEY)).rejects.toThrow(
+    await expect(createSession({ ...values, mode: "CHAT" }, KEY)).rejects.toThrow(
       "REDIRECT /interview/55",
     );
   });
@@ -159,4 +164,149 @@ describe("createSession (5.1 면접 만들기)", () => {
       expect(post).not.toHaveBeenCalled();
     },
   );
+});
+
+// Swagger 5.2~5.4 오류 예시
+const SESSION_NOT_FOUND = {
+  title: "Not Found",
+  status: 404,
+  detail: "면접을 찾을 수 없어요.",
+  instance: "/api/v1/interview-sessions/0",
+  code: "SESSION_NOT_FOUND",
+} satisfies ProblemDetail;
+
+describe("retryPlan (5.3 면접 플랜 재생성)", () => {
+  it("다시 준비를 시작하고 화면을 다시 그려(refresh) 진행률 조회를 이어 간다", async () => {
+    post.mockResolvedValue({ data: { ...session, planStatus: "GENERATING", planProgress: 0 } });
+
+    expect(await retryPlan(55)).toEqual({});
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/plan/retry");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("이미 다시 준비 중이거나 끝났으면(409 PLAN_NOT_FAILED) 실패로 보지 않고 다시 그리기만 한다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "면접 준비가 실패한 상태가 아니에요.",
+        instance: "/api/v1/interview-sessions/55/plan/retry",
+        code: "PLAN_NOT_FAILED",
+      }),
+    );
+
+    expect(await retryPlan(55)).toEqual({});
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
+    post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
+
+    await expect(retryPlan(55)).rejects.toThrow("REDIRECT /practice");
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
+    post.mockRejectedValue(new Error("network"));
+
+    expect(await retryPlan(55)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(retryPlan(55)).rejects.toBe(signedOut);
+  });
+
+  it.each([0, -1, 1.5])("면접 id가 %s면 서버에 보내지 않는다", async (id) => {
+    expect(await retryPlan(id)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("startSession (5.4 면접 시작)", () => {
+  it("멱등 키와 함께 면접을 시작하고 S06 면접 화면으로 간다", async () => {
+    post.mockResolvedValue({ data: { ...session, status: "IN_PROGRESS", planStatus: "READY" } });
+
+    await expect(startSession(55, KEY)).rejects.toThrow("REDIRECT /interview/55");
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/start", undefined, {
+      headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders,
+    });
+  });
+
+  it("409 PLAN_NOT_READY면 서버 문구를 돌려주고, 화면을 다시 그려 진행률 조회(5.2)를 다시 잇는다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "면접관이 질문을 준비하고 있어요.",
+        instance: "/api/v1/interview-sessions/55/start",
+        code: "PLAN_NOT_READY",
+      }),
+    );
+
+    expect(await startSession(55, KEY)).toEqual({ formError: "면접관이 질문을 준비하고 있어요." });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("이미 시작 · 종료한 면접이면(409 INVALID_SESSION_STATE) 서버 문구를 돌려준다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "지금은 할 수 없는 요청이에요.",
+        instance: "/api/v1/interview-sessions/55/start",
+        code: "INVALID_SESSION_STATE",
+      }),
+    );
+
+    expect(await startSession(55, KEY)).toEqual({ formError: "지금은 할 수 없는 요청이에요." });
+  });
+
+  it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 새 키가 필요하다고 알린다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "이미 처리된 요청이에요.",
+        instance: "/api/v1/interview-sessions/55/start",
+        code: "IDEMPOTENCY_KEY_REUSED",
+      }),
+    );
+
+    expect(await startSession(55, KEY)).toEqual({
+      formError: "이미 처리된 요청이에요.",
+      keyReused: true,
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
+    post.mockRejectedValue(new Error("network"));
+
+    expect(await startSession(55, KEY)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
+    post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
+
+    await expect(startSession(55, KEY)).rejects.toThrow("REDIRECT /practice");
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(startSession(55, KEY)).rejects.toBe(signedOut);
+  });
+
+  it.each([
+    { label: "양수가 아닌 면접 id", id: 0, key: KEY },
+    { label: "UUID가 아닌 멱등 키", id: 55, key: "not-a-uuid" },
+  ])("$label은 서버에 보내지 않는다", async ({ id, key }) => {
+    expect(await startSession(id, key)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(post).not.toHaveBeenCalled();
+  });
 });
