@@ -36,6 +36,8 @@ com.ssafy.a301
 │  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore
 │  └─ config       SecurityConfig
 ├─ user
+│  ├─ controller   UserController
+│  ├─ service      UserService
 │  ├─ dto          UserDtos
 │  ├─ mapper       UserMapper
 │  ├─ repository   UserRepository, UserAgreementRepository
@@ -43,7 +45,8 @@ com.ssafy.a301
 ├─ home
 │  ├─ dto          HomeDtos
 │  ├─ mapper       HomeMapper
-│  └─ domain       PracticeLog
+│  ├─ repository   PracticeLogRepository
+│  └─ domain       PracticeLog, Streak
 ├─ application
 │  ├─ dto          ApplicationDtos
 │  ├─ mapper       ApplicationMapper
@@ -56,13 +59,17 @@ com.ssafy.a301
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
 ├─ growth/dto      GrowthDtos
+├─ storage
+│  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
+│  ├─ repository   UploadKeyStore, RedisUploadKeyStore
+│  └─ domain       UploadPurpose
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
 └─ config          OpenApiConfig
 ```
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 Repository, JWT Security, Redis 토큰 저장소와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository, S3·외부 API 어댑터는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필(2.1~2.6) Controller·Service, 회원·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
@@ -190,9 +197,12 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 로그아웃은 인증한 회원이 요청에 제출한 리프레시 토큰만 폐기한다. 다른 기기의 토큰과 액세스 토큰은 유지한다. 이미 폐기된 토큰도 204로 응답한다.
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴 시에는 모든 기기의 리프레시 토큰을 폐기한다. 전체 토큰 정리 및 탈퇴 API는 S15P31A301-93에서 구현한다. 현재는 JWT 검증·재발급에서 탈퇴 회원을 조회 대상에서 제외한다.
+- 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
 
 ## 10. 파일 (S3) **[제안]**
+
+`storage.s3`(버킷·리전·주소 유효 시간)로 설정한다. 자격 증명은 AWS 기본 공급자(환경 변수 등)에서 읽어, 없으면 파일 주소가 필요한 요청만 실패한다. 업로드 주소 10분, 조회 주소 1시간.
 
 | 용도 | 키 규칙 | 업로드 | 조회 |
 |---|---|---|---|
@@ -200,7 +210,10 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 | 답변 음성 | `sessions/{sessionId}/answers/{questionId}.{ext}` | 5.6 | 분석에서만 사용 |
 | 면접 녹화 | `sessions/{sessionId}/session.{ext}` | 6.1(용량이 크면 멀티파트) | 6.4 Presigned GET |
 
-- 등록 API(2.5·5.7·6.2)는 S3에 실제 파일이 있는지 확인한다. 없으면 404 `FILE_NOT_FOUND`
+- 업로드 주소(2.4)는 형식(Content-Type)과 크기를 서명에 넣는다. 발급 때와 다른 파일은 S3가 거절한다
+- 업로드 주소를 발급하면 `upload:{objectKey}`(7장)에 회원 id와 용도를 남긴다. 등록 API는 본인에게 같은 용도로 발급된 키가 아니면 400 `VALIDATION_FAILED`(`objectKey`)
+- 등록 API(2.5·5.7·6.2)는 S3에 실제 파일이 있는지 확인한다. 없으면 404 `FILE_NOT_FOUND`. 버킷 목록 권한(`s3:ListBucket`)이 없으면 S3가 없는 파일에도 403을 주므로 BE 권한에 포함한다
+- 프로필 사진을 바꾸거나(2.5) 지우면(2.6) 회원 정보를 저장한 뒤 이전 파일을 지운다. 파일 삭제가 실패해도 요청은 성공으로 두고 경고 로그만 남긴다
 - 녹화 보관 기간·탈퇴 시 삭제 범위 **[미정] B-6**
 
 ## 11. 오류 처리 **[결정]**
@@ -210,7 +223,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ## 12. 남은 일
 1. 인증 이외 기능의 Controller·Service·Repository 구현
-2. 회원정보·프로필(S15P31A301-92), 탈퇴·전체 기기 토큰 정리(S15P31A301-93)
-3. S3·면접 AI 모듈 어댑터
+2. 탈퇴·전체 기기 토큰 정리(S15P31A301-93)
+3. 답변 음성·녹화 업로드(5.6·6.1)의 S3 연동, 면접 AI 모듈 어댑터
 4. 후속 API의 인증 사용자 식별·리소스 소유권 검증
 5. 비동기 작업(플랜 생성 · 다음 질문 · 결과 생성 · 시선 분석) 실행 방식: `@Async` / 메시지 큐 중 선택 **[미정]**

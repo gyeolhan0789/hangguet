@@ -1,5 +1,6 @@
 import { isAxiosError } from "axios";
 
+import { RETRY_LATER } from "@/lib/messages";
 import type { ProblemDetail } from "@/types/api";
 
 function isProblemDetail(data: unknown): data is ProblemDetail {
@@ -21,8 +22,7 @@ export interface FormActionResult<F extends string = string> {
   fieldErrors?: Partial<Record<F, string>>;
 }
 
-/** 서버에 닿지 못했거나 응답 형식을 모를 때 보여 줄 문구 */
-export const RETRY_LATER = "잠시 후 다시 시도해 주세요.";
+export { RETRY_LATER };
 
 /**
  * API 실패를 폼에 보여 줄 형태로 바꾼다. formFields는 그 폼에 있는 칸 이름이다.

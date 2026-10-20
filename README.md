@@ -39,6 +39,8 @@ cd ai && uv sync && uv run uvicorn app.main:app --reload
 
 DB 접속 정보 기본값은 [`.env.example`](.env.example)과 같다. 바꾸려면 `.env.example`을 `.env`로 복사해 수정하고, BE는 `DB_URL`·`DB_USERNAME`·`DB_PASSWORD` 환경 변수로 넘긴다. 로컬에 설치된 PostgreSQL과 겹치지 않도록 Docker DB는 5433 포트를 쓴다.
 
+프로필 사진 등 파일 API(S3 Presigned URL)를 쓰려면 BE에 `S3_BUCKET`·`AWS_REGION`(기본 `ap-northeast-2`)과 AWS 자격 증명(`AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY`)을 넘긴다. 없어도 BE는 뜨고, 파일 주소가 필요한 요청만 500으로 실패한다.
+
 ## 검사 명령
 
 MR 전에 파트별로 실행한다. CI도 같은 명령을 쓴다.

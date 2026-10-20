@@ -1,7 +1,15 @@
 // mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/docs)의 응답 예시를 그대로 옮긴 값.
 // E2E는 이 값을 MSW 핸들러 응답으로 돌려준다. Swagger 예시가 바뀌면 같이 바꾼다.
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
-import type { ApplicationResponse, ProblemDetail, SessionResponse } from "../../src/types/api";
+import type {
+  ApplicationResponse,
+  MeResponse,
+  PracticeLogsResponse,
+  ProblemDetail,
+  SessionResponse,
+  StatsResponse,
+  UploadUrlResponse,
+} from "../../src/types/api";
 
 const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-access";
 const REFRESHED_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-refreshed";
@@ -29,7 +37,45 @@ export const ME = {
   profileImageUrl: "https://…",
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
-};
+} satisfies MeResponse;
+
+/** 3.2 통계 200 — Swagger 예시 */
+export const STATS = {
+  currentStreak: 7,
+  bestStreak: 12,
+  totalInterviewCount: 23,
+  totalPracticeMinutes: 400,
+  latestJobTitle: "백엔드 개발자",
+} satisfies StatsResponse;
+
+/** 3.3 연습 달력 200 — Swagger 예시(2026-10-01 · 02) */
+export const PRACTICE_LOGS = {
+  content: [
+    { practiceDate: "2026-10-01", createdAt: "2026-10-01T21:12:00+09:00" },
+    { practiceDate: "2026-10-02", createdAt: "2026-10-02T20:40:00+09:00" },
+  ],
+} satisfies PracticeLogsResponse;
+
+/**
+ * 3.3 연습 달력 — Figma S09 스트릭 달력(18:2930)과 같은 10월(1~3 · 6~12일 연습, 오늘 13일).
+ * Swagger 예시는 두 날뿐이라, 띠가 주를 넘어가는 모양을 보려고 Figma 그림의 날짜로 만든다(createdAt은 예시와 같은 시각).
+ */
+export const PRACTICE_LOGS_FIGMA = {
+  content: ["01", "02", "03", "06", "07", "08", "09", "10", "11", "12"].map((day) => ({
+    practiceDate: `2026-10-${day}`,
+    createdAt: `2026-10-${day}T21:12:00+09:00`,
+  })),
+} satisfies PracticeLogsResponse;
+
+/**
+ * 2.4 프로필 사진 업로드 주소 200 — Swagger 예시.
+ * 예시의 uploadUrl("https://…s3…?X-Amz-Signature=…")은 생략 표기라 브라우저가 PUT할 수 없어서, 같은 모양의 주소로 바꿨다.
+ */
+export const UPLOAD_URL = {
+  uploadUrl: "https://s3.e2e.test/profile/1/7f3c.png?X-Amz-Signature=e2e",
+  objectKey: "profile/1/7f3c….png",
+  expiresAt: "2026-10-15T12:10:00+09:00",
+} satisfies UploadUrlResponse;
 
 /** 3.1 홈 200 — Swagger 예시 4개(S02 · S02-B · S02-C · S02-D) */
 export const HOME = {
@@ -243,6 +289,22 @@ export const PROBLEM = {
     detail: "면접관이 질문을 준비하고 있어요.",
     instance: "/api/v1/interview-sessions/55/start",
     code: "PLAN_NOT_READY",
+  },
+  // Swagger 2.3 · 2.7 400 예시(2.7 예시의 instance도 /password로 같다)
+  PASSWORD_MISMATCH: {
+    title: "Bad Request",
+    status: 400,
+    detail: "비밀번호가 맞지 않아요.",
+    instance: "/api/v1/users/me/password",
+    code: "PASSWORD_MISMATCH",
+  },
+  // Swagger 2.5 404 예시
+  FILE_NOT_FOUND: {
+    title: "Not Found",
+    status: 404,
+    detail: "업로드한 파일을 찾을 수 없어요.",
+    instance: "/api/v1/users/me/profile-image",
+    code: "FILE_NOT_FOUND",
   },
   EMAIL_DUPLICATED: {
     title: "Conflict",

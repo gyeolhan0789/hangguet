@@ -34,6 +34,19 @@ public final class UserDtos {
                             example = "7")
                     int currentStreak) {}
 
+    @Schema(description = "2.1 내 정보에 새 닉네임을 담은 액세스 토큰을 더한 응답")
+    public record NicknameChangeResponse(
+            @Schema(description = "회원 id", example = "1") long id,
+            @Schema(description = "로그인 아이디", example = "example@ssafy.com") String email,
+            @Schema(description = "닉네임", example = "면접왕") String nickname,
+            @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
+                    String profileImageUrl,
+            @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
+            @Schema(description = "현재 스트릭", example = "7") int currentStreak,
+            @Schema(description = "새 닉네임을 담은 액세스 토큰. 리프레시 토큰은 그대로 쓴다", example = "eyJ…")
+                    String accessToken,
+            @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn) {}
+
     public record NicknameRequest(
             @Schema(description = "새 닉네임. 앞뒤 공백 제거", example = "면접왕", minLength = 1, maxLength = 50)
                     @NotBlank(message = "필수 값입니다.")
