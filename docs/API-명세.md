@@ -520,7 +520,7 @@
 | B-8 | 면접관별 리액션 방식(코드로 변형 / 표정별 이미지), 표정 이미지 목록 | 5.11 | 면접관 표현 모듈 |
 | B-9 | ERD 반영 대기: `interview_plans`(질문 5개·질문별 채점 기준), `answers.tokens`, `answers.evaluation`, 회사 요약 Table. 형식은 [AI 명세](AI-명세.md) | 5.1~5.7, 6.3 | ERD |
 | B-11 | 상태 확인 간격(지금 임시 2초), 최대 대기 시간과 넘었을 때 화면 | 5.2, 5.5 | 화면 · BE |
-| B-12 | JWT 검증 위치: AI 서비스(현재 CONTRIBUTING 7장) / Nginx에서 한 번에 검증 | 5.11, 5.12 | Infra |
+| B-12 | JWT 검증 위치: AI 서비스(현재 CONTRIBUTING 7장) / Nginx에서 한 번에 검증 | 5.11 | Infra |
 | B-13 | 말 속도 지표(`speedDeviationPct`)의 "평소" 기준 | 6.3 | 면접 AI 모듈 |
 | B-14 | 시선 지표(`gazeRatio`)를 계산하는 주체와 시점 | 6.3 | 면접 AI 모듈 |
 | B-15 | 5.11 문장 확정 기준(음성 인식 끝 감지 / 문장부호 / 쉰 시간) | 5.11 | 화면 · 면접 AI 모듈 |
