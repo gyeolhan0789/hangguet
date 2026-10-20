@@ -1,6 +1,8 @@
 // mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/docs)의 응답 예시를 그대로 옮긴 값.
 // E2E는 이 값을 MSW 핸들러 응답으로 돌려준다. Swagger 예시가 바뀌면 같이 바꾼다.
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
+import type { ApplicationResponse, ProblemDetail } from "../../src/types/api";
+
 const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-access";
 const REFRESHED_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-refreshed";
 
@@ -108,6 +110,16 @@ export const HOME = {
   },
 } as const;
 
+/** 4.1 지원서 작성 201 — Swagger 예시 */
+export const APPLICATION = {
+  id: 10,
+  companyName: "○○전자",
+  jobTitle: "백엔드 개발자",
+  coverLetter: "1. 지원 동기\n저는…",
+  createdAt: "2026-10-15T11:55:00+09:00",
+  inUse: false,
+} as const satisfies ApplicationResponse;
+
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {
   LOGIN_FAILED: {
@@ -140,6 +152,18 @@ export const PROBLEM = {
     instance: "/api/v1/auth/signup",
     code: "VALIDATION_FAILED",
     errors: [{ field: "agreements", reason: "약관 3개가 필요합니다." }],
+  },
+  // 실제 mock 서버 응답(4.1에 회사명 101자 · 자기소개서 3,001자를 보냈을 때). Swagger 4.1에는 400 예시가 없다.
+  VALIDATION_FAILED_APPLICATION: {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/applications",
+    code: "VALIDATION_FAILED",
+    errors: [
+      { field: "companyName", reason: "1~100자입니다." },
+      { field: "coverLetter", reason: "1~3,000자입니다." },
+    ],
   },
   EMAIL_DUPLICATED: {
     title: "Conflict",
@@ -177,4 +201,4 @@ export const PROBLEM = {
     instance: "/api/v1/auth/login",
     code: "INTERNAL_ERROR",
   },
-} as const;
+} as const satisfies Record<string, ProblemDetail>;

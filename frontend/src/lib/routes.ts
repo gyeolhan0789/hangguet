@@ -8,7 +8,7 @@ export const ROUTES = {
   signup: "/signup",
   /** S02 홈. 오늘 완료(S02-B) · 끊김(S02-C) · 첫 방문(S02-D)도 같은 주소에서 상태로 나눈다. */
   home: "/home",
-  /** S03 지원서 입력 — 연습 시작 (아직 화면 없음) */
+  /** S03 지원서 입력 — 연습 시작(진행 1단계) */
   practice: "/practice",
   /** 헤더 [연습 기록] (화면 미정) */
   records: "/records",
@@ -19,6 +19,13 @@ export const ROUTES = {
   /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
   signedOut: "/api/auth/signed-out",
 } as const;
+
+/**
+ * S04 면접관 선택(진행 2단계, 아직 화면 없음). S03에서 만든 지원서(4.1)의 id를 들고 간다.
+ * 면접 만들기(5.1)는 면접관 · 면접 방식까지 고른 뒤라, 그때까지 고른 값은 주소로 넘긴다.
+ */
+export const interviewerPath = (applicationId: number) =>
+  `${ROUTES.practice}/interviewer?applicationId=${applicationId}`;
 
 /** S08 날짜별 성장 리뷰 (아직 화면 없음). practiceDate는 YYYY-MM-DD */
 export const growthReviewPath = (practiceDate: string) => `/reviews/${practiceDate}`;
