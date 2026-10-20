@@ -18,7 +18,7 @@ export default defineConfig({
       // SonarQube가 읽을 커버리지 리포트 (coverage/lcov.info)
       reporter: ["text", "lcov"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.d.ts", "src/test/**"],
     },
   },
 });
