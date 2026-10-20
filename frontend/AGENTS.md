@@ -8,6 +8,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
+## 한국어로 답변한다
+
+## 구현은 Mock · Figma · 정의된 타입을 기준으로 하고 출처를 적는다
+
+- 모든 구현은 아래 세 가지를 기준으로 한다. 셋과 다르게 만들지 않는다.
+  - Mock: mock 서버 Swagger(`https://hangguet.yobistory.com/mock/be/swagger-ui/index.html`)
+  - Figma: 와이어프레임 파일(`https://www.figma.com/design/MhbhCsxX6tsubO3Hku4TjH`)의 해당 화면
+  - 타입: `src/types/api`에 정의된 요청 · 응답 타입. API 데이터의 타입을 새로 만들지 않고 여기서 가져온다
+- 단일 모듈(컴포넌트 · 서버 액션 · 조회 함수 · 스키마 등) 하나를 구현할 때마다, 그 모듈이 따르는 설계(Figma 화면 · mock Swagger의 해당 API · 타입)를 먼저 확인한다.
+- 확인한 설계는 모듈에 출처로 적는다. 예: `// 기준: Figma S03 지원서 · Swagger 4.1 지원서 작성 · ApplicationCreateRequest`
+
 ## 설치된 라이브러리를 반드시 쓴다
 
 아래 표에 있는 일은 직접 구현하지 말고, 해당 라이브러리를 반드시 쓴다. 같은 일을 하는 다른 라이브러리도 새로 추가하지 않는다.
