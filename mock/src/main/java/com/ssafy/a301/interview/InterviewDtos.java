@@ -161,7 +161,7 @@ public final class InterviewDtos {
                     List<@NotNull(message = "필수 값입니다.") @Valid TranscriptToken> tokens) {}
 
     public record TranscriptToken(
-            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부나 공백일 수 있다", example = "응답")
+            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부, 공백, 앞에 공백이 붙은 단어일 수 있다", example = "응답")
                     @NotEmpty(message = "필수 값입니다.")
                     String text,
             @Schema(description = "토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준", example = "320")

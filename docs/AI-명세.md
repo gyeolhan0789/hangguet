@@ -94,7 +94,7 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 - **시작** 5.7. `answers.evaluation`이 이미 있으면 버리고, 쓸 때도 `evaluation IS NULL`일 때만 쓴다
 - **말하기 분석(화상만)** 입력은 `answers.tokens`와 답변 음성 파일(`recordings`의 `ANSWER_AUDIO`)
   - 말하기 지표는 답변 음성으로 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, 6.3 `speechMetrics`에서 `gazeRatio`를 뺀 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 쓰지 않는다
-  - `tokens`는 공백 토큰을 경계로 단어로 묶는다
+  - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를, 음성 파일로 말끝 흐림·억양 폭을 구한다
   - `tokens`가 없거나 구하지 못한 지표는 비워 둔다
 - **판정 입력** 질문, 채점 기준(`interview_plans.questions[seq].criteria`), 답변 `content`. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다. 고도화에서는 회사 공시 요약을 더한다
