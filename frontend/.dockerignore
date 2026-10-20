@@ -1,0 +1,13 @@
+node_modules
+.next
+.next-e2e
+coverage
+junit.xml
+tsconfig.tsbuildinfo
+test-results
+playwright-report
+.env*
+.idea
+.vscode
+Dockerfile
+.dockerignore

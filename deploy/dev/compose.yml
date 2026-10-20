@@ -1,0 +1,142 @@
+# 개발 서버 미니PC 배포 (목 서버와 같은 미니PC)
+# CI(be-deploy·fe-deploy·ai-deploy)가 서비스 하나씩 실행한다. 수동 실행: 레포 루트에서
+#   DB_PASSWORD=... JWT_SECRET=... docker compose -f deploy/dev/compose.yml up -d --build <서비스>
+# 외부 주소: https://hangguet.yobistory.com/ (FE), /be/docs (BE Swagger). AI는 내부 전용이라 외부 주소가 없다.
+# 외부 요청 경로: Cloudflare Tunnel → Nginx 컨테이너(nginx.conf.example) → a301-dev-fe:3000, a301-dev-be:8080
+#
+# 네트워크
+# - proxy(server_public-network): Nginx가 붙어 있는 미니PC 공용 네트워크. FE·BE만 붙인다.
+#   목 서버(a301-mock)도 여기 있어서 FE가 목 서버를 볼 때도 이 네트워크로 간다.
+# - internal(a301-dev): 이 프로젝트 전용. DB·Redis·AI는 여기에만 둬서 미니PC의 다른 컨테이너가 접근하지 못한다.
+# 공용 네트워크에서는 서비스 이름도 주소가 되므로, 다른 프로젝트와 겹치지 않게 서비스 이름을 컨테이너 이름과 같이 a301-dev-*로 짓는다.
+#
+# 값
+# - 비밀값(DB_PASSWORD, JWT_SECRET)은 GitLab CI/CD Variables에서 받는다. 없으면 compose가 바로 실패한다.
+#   compose는 파일 전체를 읽으므로 어느 서비스를 배포하든 두 값이 필요하다.
+# - 비밀이 아닌 설정은 이 파일에 적는다.
+# - POSTGRES_DB·POSTGRES_USER·DB_PASSWORD는 DB 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 DB에서도 직접 바꿔야 한다.
+#
+# 자원: 미니PC의 다른 컨테이너와 메모리를 나눠 쓰므로 컨테이너마다 상한을 둔다(합계 약 2.2GB).
+# 헬스체크용 포트는 루프백에만 연다(BE 18081, FE 18082, AI 18083).
+name: a301-dev
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  a301-dev-postgres:
+    image: postgres:18.6-alpine
+    container_name: a301-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: a301
+      POSTGRES_USER: a301
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    volumes:
+      # PostgreSQL 18 이미지는 데이터를 /var/lib/postgresql/<버전>/docker에 저장한다.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-redis:
+    image: redis:7.4-alpine
+    container_name: a301-dev-redis
+    restart: unless-stopped
+    # 리프레시 토큰을 저장하므로 메모리가 차도 키를 지우지 않는다(지우면 로그인이 풀린다). 기본 저장 설정으로 /data에 남긴다.
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 128m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-be:
+    build:
+      context: ../../backend
+    image: a301-dev-be:${IMAGE_TAG:-local}
+    container_name: a301-dev-be
+    restart: unless-stopped
+    depends_on:
+      a301-dev-postgres:
+        condition: service_healthy
+      a301-dev-redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DEV_BE_HOST_PORT:-18081}:8080"
+    environment:
+      DB_URL: jdbc:postgresql://a301-dev-postgres:5432/a301
+      DB_USERNAME: a301
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+      REDIS_HOST: a301-dev-redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
+    mem_limit: 768m
+    networks:
+      - internal
+      - proxy
+    logging: *logging
+
+  a301-dev-ai:
+    build:
+      context: ../../ai
+    image: a301-dev-ai:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEV_AI_HOST_PORT:-18083}:8000"
+    # 내부 전용. BE가 http://a301-dev-ai:8000으로 부른다.
+    # 외부에 열 때: networks에 proxy 추가, AI_ROOT_PATH에 경로(/ai) 지정, Nginx에 location 추가
+    environment:
+      AI_ROOT_PATH: ""
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-fe:
+    build:
+      context: ../../frontend
+    image: a301-dev-fe:${IMAGE_TAG:-local}
+    container_name: a301-dev-fe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEV_FE_HOST_PORT:-18082}:3000"
+    environment:
+      # FE가 부를 API 주소(/api/v1 포함). CI(fe-deploy)가 DEV_FE_API_TARGET(be|mock)에 맞춰 넣는다.
+      # - be:   http://a301-dev-be:8080/api/v1
+      # - mock: http://a301-mock:8080/api/v1
+      API_BASE_URL: ${API_BASE_URL:-http://a301-dev-be:8080/api/v1}
+    mem_limit: 512m
+    networks:
+      - internal
+      - proxy
+    logging: *logging
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  internal:
+    name: a301-dev
+  # 미니PC의 Nginx 컨테이너가 붙어 있는 네트워크. 미니PC에서 미리 만들어 둔 것을 쓴다
+  proxy:
+    external: true
+    name: server_public-network
