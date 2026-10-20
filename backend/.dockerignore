@@ -1,0 +1,9 @@
+.gradle
+build
+bin
+.idea
+*.iml
+.vscode
+Dockerfile
+.dockerignore
+README.md
