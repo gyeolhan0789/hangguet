@@ -69,7 +69,7 @@
 | 5.8 | 면접 끝내기 | `POST /interview-sessions/{sessionId}/end` | S06, S06-E, S06-F, S02-L |
 | 5.9 | 결과 재생성 | `POST /interview-sessions/{sessionId}/analysis/retry` | S06-1 |
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
-| 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 |
+| 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 · S06-B |
 | 5.12 | 질문 음성 토큰 | `POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token` | S06 · S06-B |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
@@ -375,16 +375,17 @@
 
 #### 5.11 면접관 리액션
 
-**화면 — S06 화상 › 답변하는 도중**
+**화면 — S06·S06-B › 답변하는 도중**
 
-음성 인식이 문장을 확정할 때마다 화면이 그 문장을 보내고, 서버는 면접관 리액션을 돌려준다. 리액션은 반응 로직 모듈이 정한다.
+답변하는 도중 화면이 답변 글을 보내고, 서버는 면접관 리액션을 돌려준다. 리액션은 반응 로직 모듈이 정한다. 화상·채팅 모두 쓴다.
 
-- 보낸 문장은 저장하지 않는다. 저장되는 답변은 5.7로 낸 전체 글이다
-- 자막은 화면이 음성 인식 서비스에서 받은 글로 바로 보여 주며, 이 API의 응답을 기다리지 않는다
+- 화상은 음성 인식 결과에서 문장이 끝날 때마다(기준 B-15) 그 문장을 보낸다. `pauseMs`는 문장을 말한 뒤 쉰 시간이다
+- 채팅은 입력이 0.8초(임시 값) 멈출 때마다 입력 칸의 글 전체를 보낸다. 글이 비었거나 공백뿐이거나 마지막으로 보낸 글과 같으면 보내지 않는다. `pauseMs`는 입력을 멈춘 시간이다
+- 보낸 글은 저장하지 않는다. 저장되는 답변은 5.7로 낸 전체 글이다
+- 화상 자막은 화면이 음성 인식 서비스에서 받은 글로 바로 보여 주며, 이 API의 응답을 기다리지 않는다
 - 응답이 보낸 순서와 다르게 도착하면 가장 큰 `seq`의 응답만 쓴다. 요청을 보낸 뒤 `ttlMs`가 지나 도착했거나 5.7을 낸 뒤 도착한 응답은 버린다
-- `interrupt`의 `text`는 면접관이 말을 끊으며 하는 말이라 자막으로 보여 준다
-- 말하다 잠깐 쉴 때의 끄덕임과 오래 침묵할 때의 안내는 화면이 직접 처리한다(서버 호출 없음)
-- 채팅 면접은 이 API를 쓰지 않는다. 면접관은 기본 상태(무표정)로 둔다
+- `interrupt`의 `text`는 면접관이 말을 끊으며 하는 말이라 자막으로 보여 준다. 채팅은 `interrupt`가 항상 null이다
+- 화상에서 말하다 잠깐 쉴 때의 끄덕임과 오래 침묵할 때의 안내는 화면이 직접 처리한다(서버 호출 없음)
 - 서버가 리액션을 정하지 못하면(시간 초과·실패) `reaction: null`로 200을 준다. Nginx 502·504면 화면은 리액션 없이 진행한다
 
 **리액션 값** 필드는 면접관 표현 모듈 반응 이벤트 계약([`interviewer-avatar/architecture.md`](../박연수/interviewer-avatar/architecture.md) 2장)을 따르되, 태도(`attitude`)는 `reaction`에서 빼서 별도 필드로 둔다. 면접관 방식에 따라 화면이 값을 쓰는 방법이 다르고, 반응 로직 모듈은 면접관 방식을 몰라도 된다(B-8).
@@ -399,7 +400,7 @@
 
 - **200**: 리액션
 - **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**: 질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문
-- **409 / INVALID_SESSION_STATE**: 화상 면접 중이 아님
+- **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 - **409 / ANSWER_ALREADY_SUBMITTED**: 이미 5.7로 답변을 낸 질문
 
 #### 5.12 질문 음성 토큰
@@ -523,4 +524,4 @@
 | B-12 | JWT 검증 위치: AI 서비스(현재 CONTRIBUTING 7장) / Nginx에서 한 번에 검증 | 5.11 | Infra |
 | B-13 | 말 속도 지표(`speedDeviationPct`)의 "평소" 기준 | 6.3 | 면접 AI 모듈 |
 | B-14 | 시선 지표(`gazeRatio`)를 계산하는 주체와 시점 | 6.3 | 면접 AI 모듈 |
-| B-15 | 5.11 문장 확정 기준(음성 인식 끝 감지 / 문장부호 / 쉰 시간) | 5.11 | 화면 · 면접 AI 모듈 |
+| B-15 | 5.11 화상 문장 확정 기준. 후보: 종결어미(-다·-요·-까 등)로 끝난 확정 토큰 + 짧은 쉼(끝 감지 `<end>`는 놓쳤을 때 보조) / 끝 감지만 / 문장부호. 한국어 문장부호 출력과 끝 감지 지연은 실측 필요 | 5.11 | 화면 · 면접 AI 모듈 |

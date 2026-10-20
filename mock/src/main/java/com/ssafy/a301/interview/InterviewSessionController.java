@@ -162,6 +162,10 @@ public class InterviewSessionController {
             """
             { "seq": 3, "text": "그래서 조회 응답 시간을 40% 줄였습니다.", "pauseMs": 420 }\
             """;
+    private static final String REACTION_REQUEST_CHAT =
+            """
+            { "seq": 7, "text": "캐시 무효화 시점을 직접 설계했고, 그 결과", "pauseMs": 800 }\
+            """;
     private static final String REACTION_NOD =
             """
             { "seq": 3,
@@ -642,10 +646,16 @@ public class InterviewSessionController {
     @Operation(
             summary = "5.11 면접관 리액션",
             description =
-                    "화상 면접에서 답변하는 도중 문장이 끝날 때마다 그 문장을 보내면 면접관 리액션을 돌려준다."
-                            + " 보낸 문장은 저장하지 않으며, 저장되는 답변은 5.7로 낸 전체 글이다.")
+                    "답변하는 도중 화면이 답변 글을 보내면 면접관 리액션을 돌려준다."
+                            + " 화상은 문장이 끝날 때마다 그 문장을, 채팅은 입력이 잠깐 멈출 때마다 입력 칸의 글을 보낸다."
+                            + " 보낸 글은 저장하지 않으며, 저장되는 답변은 5.7로 낸 전체 글이다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
-            content = @Content(examples = @ExampleObject(value = REACTION_REQUEST)))
+            content =
+                    @Content(
+                            examples = {
+                                @ExampleObject(name = "S06 화상", value = REACTION_REQUEST),
+                                @ExampleObject(name = "S06-B 채팅", value = REACTION_REQUEST_CHAT)
+                            }))
     @ApiResponse(
             responseCode = "200",
             content =
