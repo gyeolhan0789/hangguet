@@ -165,7 +165,7 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 
 **5.11 면접관 리액션**
 - 입력: 질문·채점 기준(`interview_plans`), 보낸 문장·`pauseMs`, 서비스가 따로 두는 Redis의 최근 문장·태도
-- Jev를 호출해 `reaction`·`attitude`·`interrupt`를 정하고, 최근 문장·태도를 Redis에 갱신한다
+- Jev(`POST /v1/systemone`, 질문 유형 `choice`·`score`·`noul`)로 `reaction`·`attitude`와 말 끊기 여부를 판단하고, 최근 문장·태도를 Redis에 갱신한다. Jev는 글을 만들지 않으므로 `interrupt.text`는 이유(`reason`)·면접관별로 서비스 설정에 둔 문구를 쓴다
 - `ttlMs` 안에 답을 받지 못하거나 호출이 실패하면 `reaction: null`, `attitude`는 직전 값으로 200을 준다
 
 ## 7. 회사 공시 요약 (고도화)
@@ -189,6 +189,6 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 | 내용 | 영향 |
 |---|---|
 | GMS가 토큰 확률(logprobs)을 주는지 | 3장 점수 방식(`PROBABILITY`/`FIXED`) |
-| Jev 입출력, 말 끊기(`interrupt`)를 Jev가 정하는지 | 6장 5.11 |
+| Jev 질문 구성(리액션·태도·말 끊기를 어떤 질문 유형으로 물을지), 한국어 답변에서의 정확도, 응답 시간 | 6장 5.11 |
 | 군말 목록, 긴 멈춤 기준 시간 | 3장 말하기 분석 |
 | Soniox 시각 기준점(API 명세 5.7) | 3장 말하기 분석 |
