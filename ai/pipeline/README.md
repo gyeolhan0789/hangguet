@@ -10,10 +10,12 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 → ③ LLM
 ## 회사 목록
 
 `companies.json`에 회사를 적는다. `name`은 DART에 등록된 회사명과 정확히 같아야 한다.
-인재상은 채용 페이지에서 복사해 `talent_text`에, 그 페이지 주소를 `talent_url`에 넣는다.
+인재상은 공식 채용 페이지에서 글자 그대로 복사해 `talent_text`에, 그 페이지 주소를 `talent_url`에,
+복사한 날짜를 `talent_collected_at`에 넣는다. 인재상 페이지가 없으면 "일하는 방식" 같은 페이지를 쓰고,
+그것도 없으면 비워 둔다(카드에 사업 방향만 남는다).
 
 ```json
-[{"name": "삼성전자", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문"}]
+[{"name": "삼성전자", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문", "talent_collected_at": "2026-10-20"}]
 ```
 
 ## 환경변수
