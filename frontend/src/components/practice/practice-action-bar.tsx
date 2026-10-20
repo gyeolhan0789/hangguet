@@ -8,6 +8,7 @@ import { MaskIcon } from "@/components/mask-icon";
 
 // 기준: Figma S03 Action Bar(18:2106: 높이 88 · 위 테두리 · 왼쪽 [← 홈으로] · 오른쪽 [다음 →] 280px)
 // · S04 같은 자리([← 지원서 수정] · [다음: 면접 방식]) · 모션 메모 S03([다음] 회색 → 주황 채움 + scale 0.96→1 팝)
+// · 모션 메모 S05(18:2492: [면접 시작]이 주황으로 채워지며 한 번 통통 scale [1,1.06,1])
 
 /** 연습 시작 단계 화면 아래에 붙는 버튼 막대. 왼쪽은 이전으로 가는 링크, 오른쪽(children)은 다음 버튼 */
 export function PracticeActionBar({
@@ -33,15 +34,20 @@ export function PracticeActionBar({
   );
 }
 
-/** 다음 단계로 가는 제출 버튼. 비활성(회색)에서 활성이 되는 순간 주황이 채워지며 살짝 커진다. */
+/**
+ * 다음 단계로 가는 제출 버튼. 비활성(회색)에서 활성이 되는 순간 주황이 채워지며 팝 한다.
+ * pop: settle은 0.96→1로 자리 잡기(S03 · S04 · S05-1), bounce는 [1, 1.06, 1]로 한 번 통통(S05).
+ */
 export function PracticeNextButton({
   children,
   disabled = false,
   pending = false,
+  pop = "settle",
 }: {
   children: ReactNode;
   disabled?: boolean;
   pending?: boolean;
+  pop?: "settle" | "bounce";
 }) {
   const [scope, animate] = useAnimate<HTMLButtonElement>();
   const reduce = useReducedMotion();
@@ -50,10 +56,19 @@ export function PracticeNextButton({
 
   useEffect(() => {
     if (wasDisabled.current && !disabled && !reduce && scope.current) {
-      animate(scope.current, { scale: [0.96, 1] }, { type: "spring", stiffness: 500, damping: 18 });
+      if (pop === "bounce") {
+        // spring은 키프레임 2개만 받으므로 3개짜리 통통은 시간 기반으로 움직인다.
+        animate(scope.current, { scale: [1, 1.06, 1] }, { duration: 0.4, ease: "easeOut" });
+      } else {
+        animate(
+          scope.current,
+          { scale: [0.96, 1] },
+          { type: "spring", stiffness: 500, damping: 18 },
+        );
+      }
     }
     wasDisabled.current = disabled;
-  }, [disabled, reduce, animate, scope]);
+  }, [disabled, reduce, animate, scope, pop]);
 
   return (
     <button

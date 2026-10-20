@@ -1,11 +1,10 @@
 import type { Page } from "@playwright/test";
-import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import { ACCESS_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 import type { SessionCreateRequest } from "../src/types/api";
 
 import { APPLICATION, PROBLEM, SESSION } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import { api, expect, http, HttpResponse, problemResponse, recordSessions, test } from "./test";
 
 // S05-1 면접 방식 선택
 // 근거: Figma S05-1 면접 방식 선택(18:2219) · 기획 메모 S05-1(18:1013: 화상 → S05 장치 점검 · 채팅 → 바로 면접,
@@ -22,19 +21,6 @@ const choose = (page: Page, name: string) =>
   modeGroup(page).getByText(name, { exact: true }).click();
 const nextButton = (page: Page) =>
   page.getByRole("main").getByRole("button", { name: /다음: 장치 점검|면접 시작/ });
-
-/** 5.1 요청을 모아 둔다: 본문과 Idempotency-Key 헤더. respond가 없으면 고른 방식으로 만든 면접(201)을 돌려준다. */
-function recordSessions(msw: MswFixture, respond?: () => Response) {
-  const requests: { body: SessionCreateRequest; key: string | null }[] = [];
-  msw.use(
-    http.post(api("/interview-sessions"), async ({ request }) => {
-      const body = (await request.json()) as SessionCreateRequest;
-      requests.push({ body, key: request.headers.get("Idempotency-Key") });
-      return respond?.() ?? HttpResponse.json({ ...SESSION, mode: body.mode }, { status: 201 });
-    }),
-  );
-  return requests;
-}
 
 test.beforeEach(async ({ signIn }) => {
   await signIn();

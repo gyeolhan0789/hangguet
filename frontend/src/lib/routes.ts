@@ -16,7 +16,7 @@ export const ROUTES = {
   practiceInterviewer: "/practice/interviewer",
   /** S05-1 면접 방식 선택(진행 3단계). 주소에 applicationId · persona를 붙인다. */
   practiceMode: "/practice/mode",
-  /** S05 장치 점검(진행 4단계, 화상만, 아직 화면 없음). 주소에 sessionId를 붙인다. */
+  /** S05 장치 점검(진행 4단계, 화상만). 주소에 sessionId를 붙인다. */
   practiceDevices: "/practice/devices",
   /** 헤더 [연습 기록] (화면 미정) */
   records: "/records",
@@ -34,6 +34,10 @@ export const ROUTES = {
  */
 export const interviewerPath = (applicationId: number, persona?: Persona) =>
   `${ROUTES.practiceInterviewer}?applicationId=${applicationId}${persona ? `&persona=${persona}` : ""}`;
+
+/** S05-1 면접 방식 선택. S05 [← 면접 방식]으로 돌아갈 때 그 면접의 지원서 · 면접관을 넘긴다. */
+export const modePath = (applicationId: number, persona: Persona) =>
+  `${ROUTES.practiceMode}?applicationId=${applicationId}&persona=${persona}`;
 
 /** S05 장치 점검(화상). S05-1에서 만든 면접(5.1)의 id를 들고 간다. */
 export const devicesPath = (sessionId: number) =>
