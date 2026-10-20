@@ -38,6 +38,18 @@ LLM_REASONING_EFFORT=none
 
 GMS가 발급되면 `LLM_CHAT_URL`, `LLM_MODEL`, `LLM_API_KEY`만 바꾼다.
 
+## 실행
+
+```bash
+cd ai
+uv run --env-file .env python -m pipeline.run              # companies.json 전체
+uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
+```
+
+- 한 회사가 실패해도 나머지는 계속하고, 끝에 실패한 회사를 알려 준다
+- 원문에 없는 인용으로 버린 항목은 WARNING 로그로 남는다
+- 이미 받은 사업보고서는 다시 받지 않는다
+
 ## 데이터
 
 수집한 원문은 `data/raw/`, 만든 카드는 `data/cards/`에 저장하며 둘 다 git에서 제외한다.
