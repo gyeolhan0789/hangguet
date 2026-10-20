@@ -40,7 +40,7 @@ public class SessionScore {
     @Column(nullable = false, length = 20)
     private Criterion criterion;
 
-    // 0~100. 자소서 검증은 명확한 충돌 개수만큼 100점에서 차감(차감 폭 B-10)
+    // 0~100. 답한 질문들의 이 기준 판정 점수 평균(AI 명세 4장)
     @Column(nullable = false)
     private int score;
 

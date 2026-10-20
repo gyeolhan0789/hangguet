@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { MaskIcon } from "@/components/mask-icon";
-import type { UserResponse } from "@/lib/api/types";
+import type { MeResponse } from "@/types/api";
 import { ROUTES } from "@/lib/routes";
 
 import { ProfileMenu } from "./profile-menu";
@@ -32,7 +32,7 @@ function StreakPill({ days }: { days: number }) {
 
 // Figma C/App Header 오른쪽: 홈 · 연습 기록 · 스트릭 · 프로필 (간격 28).
 // 헤더가 붙이는 다크 모드 토글과의 간격도 28이 되도록 오른쪽에 12를 더한다(헤더 기본 간격 16).
-export function AppNav({ user }: { user: UserResponse }) {
+export function AppNav({ user }: { user: MeResponse }) {
   return (
     <nav aria-label="주요 메뉴" className="flex items-center gap-4 pr-3 sm:gap-7">
       <Link

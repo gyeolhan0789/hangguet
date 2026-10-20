@@ -6,8 +6,13 @@ import { redirect } from "next/navigation";
 import { clearAuthCookies, REFRESH_TOKEN_COOKIE, setAuthCookies } from "@/lib/api/auth-cookies";
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
-import { getProblemDetail, type AuthResponse } from "@/lib/api/types";
+import {
+  getProblemDetail,
+  toFormActionResult,
+  type FormActionResult,
+} from "@/lib/api/problem-detail";
 import { ROUTES } from "@/lib/routes";
+import type { TokenResponse } from "@/types/api";
 
 import {
   emailSchema,
@@ -19,40 +24,21 @@ import {
   type SignupValues,
 } from "./schemas";
 
-export interface AuthActionResult {
-  ok?: true;
-  /** 폼 전체에 보여 줄 오류(예: LOGIN_FAILED) */
-  formError?: string;
-  /** 칸별 오류(VALIDATION_FAILED · EMAIL_DUPLICATED) */
-  fieldErrors?: Record<string, string>;
-}
-
-const RETRY_LATER = "잠시 후 다시 시도해 주세요.";
-
 /** 로그인 · 회원가입 폼에 칸이 있어 오류를 칸 아래에 보여 줄 수 있는 요청 필드 */
 const LOGIN_FIELDS = ["email", "password"] as const;
 const SIGNUP_FIELDS = ["nickname", "email", "password"] as const;
 
-/**
- * API 실패를 폼에 보여 줄 형태로 바꾼다. formFields는 그 폼에 있는 칸 이름이다.
- * VALIDATION_FAILED에서 폼에 없는 칸의 오류(예: 1.2의 agreements, agreements[0].termsVersion)는
- * 칸 아래에 보여 줄 수 없으므로 폼 아래 문구(detail)로 알린다.
- */
-function toActionResult(error: unknown, formFields: readonly string[]): AuthActionResult {
+type AuthField = (typeof SIGNUP_FIELDS)[number];
+
+export interface AuthActionResult extends FormActionResult<AuthField> {
+  ok?: true;
+}
+
+/** 공통 변환에 회원가입의 EMAIL_DUPLICATED(이메일 칸 오류)만 더한다. */
+function toActionResult(error: unknown, formFields: readonly AuthField[]): AuthActionResult {
   const problem = getProblemDetail(error);
-  if (!problem) return { formError: RETRY_LATER };
-  if (problem.code === "VALIDATION_FAILED" && problem.errors?.length) {
-    const onForm = problem.errors.filter(({ field }) => formFields.includes(field));
-    const offForm = onForm.length < problem.errors.length;
-    return {
-      ...(onForm.length > 0 && {
-        fieldErrors: Object.fromEntries(onForm.map(({ field, reason }) => [field, reason])),
-      }),
-      ...(offForm && { formError: problem.detail }),
-    };
-  }
-  if (problem.code === "EMAIL_DUPLICATED") return { fieldErrors: { email: problem.detail } };
-  return { formError: problem.detail };
+  if (problem?.code === "EMAIL_DUPLICATED") return { fieldErrors: { email: problem.detail } };
+  return toFormActionResult(error, formFields);
 }
 
 /** 1.3 로그인 → 토큰을 쿠키에 저장하고 홈(S02)으로 보낸다. */
@@ -60,9 +46,9 @@ export async function login(values: LoginValues): Promise<AuthActionResult> {
   const parsed = loginSchema.safeParse(values);
   if (!parsed.success) return { formError: "이메일과 비밀번호를 확인해 주세요." };
 
-  let data: AuthResponse;
+  let data: TokenResponse;
   try {
-    ({ data } = await api.post<AuthResponse>(endpoints.auth.login, parsed.data));
+    ({ data } = await api.post<TokenResponse>(endpoints.auth.login, parsed.data));
   } catch (error) {
     return toActionResult(error, LOGIN_FIELDS);
   }
@@ -80,7 +66,7 @@ export async function signup(values: SignupValues): Promise<AuthActionResult> {
 
   const { nickname, email, password } = parsed.data;
   try {
-    const { data } = await api.post<AuthResponse>(endpoints.auth.signup, {
+    const { data } = await api.post<TokenResponse>(endpoints.auth.signup, {
       nickname,
       email,
       password,

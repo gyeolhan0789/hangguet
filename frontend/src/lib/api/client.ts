@@ -5,7 +5,7 @@ import { redirectToSignedOut, redirectToTokenRefresh } from "@/lib/auth/auth-err
 
 import { ACCESS_TOKEN_COOKIE } from "./auth-cookies";
 import { defaultConfig } from "./config";
-import { getProblemDetail } from "./types";
+import { getProblemDetail } from "./problem-detail";
 
 // 서버 컴포넌트·서버 액션 전용. next/headers를 쓰므로 클라이언트 컴포넌트에서 불러오면 빌드가 실패한다.
 // 액세스 토큰 만료는 요청이 여기 오기 전에 proxy가 재발급해 둔다(src/proxy.ts).

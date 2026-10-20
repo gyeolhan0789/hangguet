@@ -46,11 +46,7 @@ public final class ResultDtos {
 
     public record SessionScore(
             Criterion criterion,
-            @Schema(
-                            description =
-                                    "점수(0~100). 자소서 검증은 답변이 자소서와 명확하게 충돌한 개수만큼 100점에서 차감(B-10)",
-                            example = "82")
-                    int score,
+            @Schema(description = "점수(0~100). 답한 질문들의 이 기준 판정 점수 평균", example = "82") int score,
             @Schema(description = "3단계") Grade grade,
             @Schema(description = "한 줄 설명. 성장 리뷰의 \"다음에 해볼 것\"에도 쓰인다", nullable = true)
                     String comment) {}

@@ -5,7 +5,7 @@ import { nextTierOf, STREAK_TIERS, tierOf, withAlpha } from "@/lib/streak";
 
 import { FIXTURE_TODAY, HOME_BROKEN, HOME_DONE, HOME_FIRST, HOME_NOT_DONE } from "./fixtures";
 import { introCopy, shouldPlayIntro } from "./intro";
-import { formatReviewImprovement } from "./types";
+import { formatReviewImprovement } from "./format";
 import { buildWeek } from "./week";
 
 describe("스트릭 단계", () => {

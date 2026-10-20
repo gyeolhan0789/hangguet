@@ -64,7 +64,7 @@ public final class InterviewMapper {
                 question.getCreatedAt());
     }
 
-    // isLastQuestion은 전체 질문 수(B-3)와 비교해 서비스가 정한다
+    // isLastQuestion은 전체 질문 수(5개 고정, API 명세 5.2)와 비교해 서비스가 정한다
     public static AnswerResponse toAnswerResponse(Answer answer, boolean isLastQuestion) {
         return new AnswerResponse(
                 answer.getId(),

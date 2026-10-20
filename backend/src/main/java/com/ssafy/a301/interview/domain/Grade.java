@@ -2,13 +2,13 @@ package com.ssafy.a301.interview.domain;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-@Schema(description = "3단계. GOOD 좋아요 · NORMAL 보통 · WEAK 아쉬워요. 점수 경계는 B-4")
+@Schema(description = "3단계. GOOD 좋아요 · NORMAL 보통 · WEAK 아쉬워요. 점수 경계는 API 명세 6.3")
 public enum Grade {
     GOOD,
     NORMAL,
     WEAK;
 
-    // TODO(B-4): 경계값 미정. 아래 숫자는 임시값이며 협의 후 바꾼다
+    // 경계값은 API 명세 6.3
     static final int GOOD_MIN = 80;
     static final int NORMAL_MIN = 60;
 
