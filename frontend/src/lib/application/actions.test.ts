@@ -1,11 +1,17 @@
 // @vitest-environment node
-import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ApplicationCreateRequest, ApplicationResponse, ProblemDetail } from "@/types/api";
+import { axiosProblem } from "@/test/axios-problem";
+import type {
+  ApplicationCreateRequest,
+  ApplicationResponse,
+  ApplicationUpdateRequest,
+  ProblemDetail,
+} from "@/types/api";
 
 const post = vi.fn();
-vi.mock("@/lib/api/client", () => ({ api: { post } }));
+const patch = vi.fn();
+vi.mock("@/lib/api/client", () => ({ api: { post, patch } }));
 
 // Next의 redirect는 특별한 오류를 던져 이동시킨다. unstable_rethrow는 그 오류만 다시 던진다.
 class RedirectSignal extends Error {}
@@ -19,7 +25,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-const { createApplication } = await import("./actions");
+const { createApplication, updateApplication } = await import("./actions");
 
 const values = {
   companyName: "○○전자",
@@ -37,12 +43,6 @@ const created = {
   inUse: false,
 } satisfies ApplicationResponse;
 
-function problem(body: ProblemDetail) {
-  const config = { headers: {} } as InternalAxiosRequestConfig;
-  const response = { status: body.status, data: body, headers: {}, config } as AxiosResponse;
-  return new AxiosError("fail", undefined, config, null, response);
-}
-
 const validationFailed = (errors: ProblemDetail["errors"]): ProblemDetail => ({
   title: "Bad Request",
   status: 400,
@@ -51,6 +51,8 @@ const validationFailed = (errors: ProblemDetail["errors"]): ProblemDetail => ({
   code: "VALIDATION_FAILED",
   errors,
 });
+
+const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out?next=%2Fpractice");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -95,14 +97,14 @@ describe("createApplication (4.1 지원서 작성)", () => {
       expected: { formError: "입력값을 확인해 주세요." },
     },
   ])("VALIDATION_FAILED: $name", async ({ errors, expected }) => {
-    post.mockRejectedValue(problem(validationFailed(errors)));
+    post.mockRejectedValue(axiosProblem(validationFailed(errors)));
 
     expect(await createApplication(values)).toEqual(expected);
   });
 
   it("서버 오류(500)면 서버가 준 문구를 폼 오류로 돌려준다", async () => {
     post.mockRejectedValue(
-      problem({
+      axiosProblem({
         title: "Internal Server Error",
         status: 500,
         detail: "서버에 문제가 생겼어요.",
@@ -121,17 +123,84 @@ describe("createApplication (4.1 지원서 작성)", () => {
   });
 
   it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 삼키지 않고 그대로 이동한다", async () => {
-    post.mockRejectedValue(new RedirectSignal("REDIRECT /api/auth/signed-out?next=%2Fpractice"));
+    post.mockRejectedValue(signedOut);
 
-    await expect(createApplication(values)).rejects.toThrow(
-      "REDIRECT /api/auth/signed-out?next=%2Fpractice",
-    );
+    await expect(createApplication(values)).rejects.toBe(signedOut);
   });
 
   it("빈칸(공백만)이 있으면 서버에 보내지 않는다", async () => {
     const result = await createApplication({ ...values, jobTitle: "   " });
 
-    expect(result.formError).toBeDefined();
+    expect(result).toEqual({ formError: "입력값을 확인해 주세요." });
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateApplication (4.4 지원서 수정, S04 [← 지원서 수정])", () => {
+  it("앞뒤 공백을 지운 세 칸을 4.4로 보내고, 저장되면 같은 지원서로 S04 면접관 선택에 돌아간다", async () => {
+    patch.mockResolvedValue({ data: created });
+
+    await expect(
+      updateApplication(10, { ...values, companyName: " ○○전자 본사 " }),
+    ).rejects.toThrow("REDIRECT /practice/interviewer?applicationId=10");
+
+    expect(patch).toHaveBeenCalledWith("/applications/10", {
+      ...values,
+      companyName: "○○전자 본사",
+    } satisfies ApplicationUpdateRequest);
+  });
+
+  // Swagger 4.4 404 · 409 예시
+  it.each([
+    {
+      name: "없는 지원서(404 APPLICATION_NOT_FOUND)",
+      problem: {
+        title: "Not Found",
+        status: 404,
+        detail: "지원서를 찾을 수 없어요.",
+        instance: "/api/v1/applications/0",
+        code: "APPLICATION_NOT_FOUND",
+      },
+    },
+    {
+      name: "면접에 쓴 지원서(409 APPLICATION_IN_USE)",
+      problem: {
+        title: "Conflict",
+        status: 409,
+        detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
+        instance: "/api/v1/applications/9",
+        code: "APPLICATION_IN_USE",
+      },
+    },
+  ] satisfies { name: string; problem: ProblemDetail }[])(
+    "$name면 서버 문구를 폼 오류로 돌려준다",
+    async ({ problem }) => {
+      patch.mockRejectedValue(axiosProblem(problem));
+
+      expect(await updateApplication(9, values)).toEqual({ formError: problem.detail });
+    },
+  );
+
+  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 삼키지 않고 그대로 이동한다", async () => {
+    patch.mockRejectedValue(signedOut);
+
+    await expect(updateApplication(10, values)).rejects.toBe(signedOut);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    "지원서 id가 양의 정수가 아니면(%s) 서버에 보내지 않는다",
+    async (applicationId) => {
+      expect(await updateApplication(applicationId, values)).toEqual({
+        formError: "지원서를 찾을 수 없어요.",
+      });
+      expect(patch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("빈칸(공백만)이 있으면 서버에 보내지 않는다", async () => {
+    const result = await updateApplication(10, { ...values, coverLetter: " " });
+
+    expect(result).toEqual({ formError: "입력값을 확인해 주세요." });
+    expect(patch).not.toHaveBeenCalled();
   });
 });
