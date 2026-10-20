@@ -29,4 +29,6 @@ export const defaultHandlers = [
   http.get(api("/users/me"), () => HttpResponse.json(ME)),
   http.get(api("/home"), () => HttpResponse.json(HOME.NOT_DONE_TODAY)),
   http.post(api("/applications"), () => HttpResponse.json(APPLICATION, { status: 201 })),
+  http.get(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
+  http.patch(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
 ];

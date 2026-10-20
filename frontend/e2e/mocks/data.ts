@@ -110,7 +110,7 @@ export const HOME = {
   },
 } as const;
 
-/** 4.1 지원서 작성 201 — Swagger 예시 */
+/** 4.1 지원서 작성 201 · 4.2 조회 · 4.4 수정 200 — Swagger 예시(셋 다 같은 값) */
 export const APPLICATION = {
   id: 10,
   companyName: "○○전자",
@@ -164,6 +164,22 @@ export const PROBLEM = {
       { field: "companyName", reason: "1~100자입니다." },
       { field: "coverLetter", reason: "1~3,000자입니다." },
     ],
+  },
+  // Swagger 4.2 · 4.4 404 예시
+  APPLICATION_NOT_FOUND: {
+    title: "Not Found",
+    status: 404,
+    detail: "지원서를 찾을 수 없어요.",
+    instance: "/api/v1/applications/0",
+    code: "APPLICATION_NOT_FOUND",
+  },
+  // Swagger 4.4 409 예시
+  APPLICATION_IN_USE: {
+    title: "Conflict",
+    status: 409,
+    detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
+    instance: "/api/v1/applications/9",
+    code: "APPLICATION_IN_USE",
   },
   EMAIL_DUPLICATED: {
     title: "Conflict",

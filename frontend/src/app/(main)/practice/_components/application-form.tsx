@@ -8,7 +8,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { MaskIcon } from "@/components/mask-icon";
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
-import { createApplication } from "@/lib/application/actions";
+import { createApplication, updateApplication } from "@/lib/application/actions";
 import {
   applicationSchema,
   COMPANY_NAME_MAX,
@@ -17,11 +17,13 @@ import {
   type ApplicationValues,
 } from "@/lib/application/schemas";
 import { ROUTES } from "@/lib/routes";
+import type { ApplicationResponse } from "@/types/api";
 
 import { CoverLetterCounter } from "./cover-letter-counter";
 
 // 기준: Figma S03 지원서 입력(18:2033) · 메모 S03(필수 3칸, 빈칸이면 [다음] 비활성)
 // · 모션 메모 S03(입력칸 포커스: 테두리 주황 + 바깥 글로우 0.2s, 커서 깜빡임) · Swagger 4.1 지원서 작성
+// · S04 [← 지원서 수정](Figma 18:2204) · Swagger 4.2 지원서 조회 · 4.4 지원서 수정
 
 /** 서버가 돌려준 칸별 오류(VALIDATION_FAILED)의 react-hook-form 오류 type */
 const SERVER_ERROR = "server";
@@ -71,7 +73,17 @@ function ApplicationField({
   );
 }
 
-export function ApplicationForm() {
+/**
+ * application이 있으면 S04 [← 지원서 수정]으로 다시 연 것이다: 그 지원서(4.2)로 칸을 채우고 [다음]은 4.4로 고친다.
+ * 없으면 새 지원서를 4.1로 만든다. loading은 고칠 지원서를 불러오는 동안이다: 입력과 제출을 막는다.
+ */
+export function ApplicationForm({
+  application,
+  loading = false,
+}: {
+  application?: ApplicationResponse;
+  loading?: boolean;
+}) {
   const [formError, setFormError] = useState<string>();
   const {
     register,
@@ -82,7 +94,11 @@ export function ApplicationForm() {
   } = useForm<ApplicationValues>({
     resolver: zodResolver(applicationSchema),
     mode: "onChange",
-    defaultValues: { companyName: "", jobTitle: "", coverLetter: "" },
+    defaultValues: {
+      companyName: application?.companyName ?? "",
+      jobTitle: application?.jobTitle ?? "",
+      coverLetter: application?.coverLetter ?? "",
+    },
   });
 
   const coverLetter = useWatch({ control, name: "coverLetter" });
@@ -92,8 +108,11 @@ export function ApplicationForm() {
     errors[name]?.type === SERVER_ERROR ? errors[name]?.message : undefined;
 
   const onSubmit = handleSubmit(async (values) => {
+    if (loading) return;
     setFormError(undefined);
-    const result = await createApplication(values);
+    const result = application
+      ? await updateApplication(application.id, values)
+      : await createApplication(values);
     for (const [field, text] of Object.entries(result.fieldErrors ?? {})) {
       setError(field as keyof ApplicationValues, { type: SERVER_ERROR, message: text });
     }
@@ -128,6 +147,7 @@ export function ApplicationForm() {
                 aria-invalid={!!serverError("companyName") || undefined}
                 aria-describedby={serverError("companyName") ? "companyName-error" : undefined}
                 className={`h-14 w-full rounded-xl px-4 text-base leading-normal font-semibold tracking-[-0.2px] ${inputBox} ${serverError("companyName") ? invalidBox : "border-line"}`}
+                readOnly={loading}
                 {...register("companyName")}
               />
             </ApplicationField>
@@ -139,6 +159,7 @@ export function ApplicationForm() {
                 aria-invalid={!!serverError("jobTitle") || undefined}
                 aria-describedby={serverError("jobTitle") ? "jobTitle-error" : undefined}
                 className={`h-14 w-full rounded-xl px-4 text-base leading-normal font-semibold tracking-[-0.2px] ${inputBox} ${serverError("jobTitle") ? invalidBox : "border-line"}`}
+                readOnly={loading}
                 {...register("jobTitle")}
               />
             </ApplicationField>
@@ -162,6 +183,7 @@ export function ApplicationForm() {
               aria-invalid={!!serverError("coverLetter") || undefined}
               aria-describedby={`coverLetter-count${serverError("coverLetter") ? " coverLetter-error" : ""}`}
               className={`h-60 w-full resize-none rounded-2xl p-5 text-base leading-[1.7] font-medium tracking-[-0.2px] ${inputBox} ${serverError("coverLetter") ? invalidBox : "border-line"}`}
+              readOnly={loading}
               {...register("coverLetter")}
             />
           </ApplicationField>
@@ -190,7 +212,7 @@ export function ApplicationForm() {
       </div>
 
       <PracticeActionBar backHref={ROUTES.home} backLabel="홈으로">
-        <PracticeNextButton disabled={!isValid} pending={isSubmitting}>
+        <PracticeNextButton disabled={!isValid || loading} pending={isSubmitting}>
           다음: 면접관 선택
         </PracticeNextButton>
       </PracticeActionBar>
