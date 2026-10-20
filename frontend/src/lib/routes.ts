@@ -20,8 +20,10 @@ export const ROUTES = {
   practiceDevices: "/practice/devices",
   /** 헤더 [연습 기록] (화면 미정) */
   records: "/records",
-  /** S09 마이페이지 */
+  /** S09 마이페이지. 스트릭 달력에서 볼 달은 주소에 month(YYYY-MM)로 붙인다. */
   mypage: "/mypage",
+  /** S09-1 설정 (S09 [설정]으로 들어오고 '‹ 마이페이지'로 돌아간다) */
+  settings: "/mypage/settings",
   /** 화면을 그리는 도중 액세스 토큰이 만료됐을 때(TOKEN_EXPIRED) 재발급하고 돌아오는 Route Handler */
   tokenRefresh: "/api/auth/refresh",
   /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
@@ -49,6 +51,12 @@ export const interviewPath = (sessionId: number) => `/interview/${sessionId}`;
 /** S03 지원서 입력을 S04 [← 지원서 수정]에서 다시 열 때. 그 지원서(4.2)로 칸을 채우고 4.4로 고친다. */
 export const applicationEditPath = (applicationId: number) =>
   `${ROUTES.practice}?applicationId=${applicationId}`;
+
+/** S09 마이페이지의 스트릭 달력을 month(YYYY-MM) 달로 연다. */
+export const mypagePath = (month: string) => `${ROUTES.mypage}?month=${month}`;
+
+/** S09 프로필 사진 ✎ → S09-1 설정의 프로필 사진 줄(모션 메모 S09) */
+export const PROFILE_IMAGE_ANCHOR = "profile-image";
 
 /** S08 날짜별 성장 리뷰 (아직 화면 없음). practiceDate는 YYYY-MM-DD */
 export const growthReviewPath = (practiceDate: string) => `/reviews/${practiceDate}`;
