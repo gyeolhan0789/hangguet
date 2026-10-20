@@ -13,6 +13,7 @@
 # 값
 # - 비밀값(DB_PASSWORD, JWT_SECRET)은 GitLab CI/CD Variables에서 받는다. 없으면 compose가 바로 실패한다.
 #   compose는 파일 전체를 읽으므로 어느 서비스를 배포하든 두 값이 필요하다.
+# - 외부 API 키(SONIOX_API_KEY)도 CI/CD Variables에서 받는다. 없어도 BE는 뜨고 해당 기능만 실패하므로 필수로 두지 않는다.
 # - 비밀이 아닌 설정은 이 파일에 적는다.
 # - POSTGRES_DB·POSTGRES_USER·DB_PASSWORD는 DB 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 DB에서도 직접 바꿔야 한다.
 #
@@ -86,6 +87,8 @@ services:
       REDIS_HOST: a301-dev-redis
       REDIS_PORT: "6379"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 음성 인식(STT) 임시 키 발급용. 없으면 BE가 STT_UNAVAILABLE로 답하고 경고 로그를 남긴다(SonioxClient).
+      SONIOX_API_KEY: ${SONIOX_API_KEY:-}
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
     mem_limit: 768m
     networks:

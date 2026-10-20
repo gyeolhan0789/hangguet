@@ -453,6 +453,7 @@ mock-deploy:
 # - 세 잡이 같은 resource_group이라 한 번에 하나씩 돕니다. N100에서 Gradle·Next 빌드가 겹치지 않게 합니다.
 # - 비밀값 DB_PASSWORD, JWT_SECRET은 GitLab CI/CD Variables(Protected·Masked, Environment scope dev/*)에서 받습니다.
 #   compose가 파일 전체를 읽으므로 세 잡 모두 두 값이 필요합니다.
+#   외부 API 키 SONIOX_API_KEY도 Variables에서 받아 BE에 넘깁니다(없어도 배포는 됩니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
 # - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai에서 이전 배포를 Re-deploy 합니다(그 커밋으로 다시 빌드).
 
