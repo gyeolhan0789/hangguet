@@ -195,10 +195,12 @@ public class InterviewSessionController {
 
     private final Stub stub;
     private final SonioxClient soniox;
+    private final ElevenLabsClient elevenLabs;
 
-    public InterviewSessionController(Stub stub, SonioxClient soniox) {
+    public InterviewSessionController(Stub stub, SonioxClient soniox, ElevenLabsClient elevenLabs) {
         this.stub = stub;
         this.soniox = soniox;
+        this.elevenLabs = elevenLabs;
     }
 
     @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
@@ -692,10 +694,19 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.12 질문 음성 토큰",
-            description = "브라우저가 음성 합성(TTS) 서비스에 직접 연결해 질문 음성을 받을 때 쓰는 1회용 토큰을 준다.")
+            description = "브라우저가 ElevenLabs에 직접 연결해 질문 음성을 받을 때 쓰는 1회용 토큰을 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = TTS_TOKEN)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "VALIDATION_FAILED",
+                                            value = ErrorExamples.VALIDATION_FAILED)))
     @ApiResponse(
             responseCode = "404",
             content =
@@ -731,9 +742,15 @@ public class InterviewSessionController {
     public TtsTokenResponse ttsToken(
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
             @Parameter(description = "질문 id. `0`이면 404", example = "303") @PathVariable
-                    long questionId) {
+                    long questionId,
+            @Parameter(description = "ElevenLabs API 키. 목 서버에서만 받으며, 실제 백엔드는 서버에 둔 키를 쓴다")
+                    @RequestHeader("X-ElevenLabs-Api-Key")
+                    String elevenLabsApiKey) {
+        if (elevenLabsApiKey.isBlank()) {
+            throw new FieldValidationException("X-ElevenLabs-Api-Key", "필수 값입니다.");
+        }
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
-        return stub.read(TTS_TOKEN, TtsTokenResponse.class);
+        return elevenLabs.issueToken(elevenLabsApiKey);
     }
 }

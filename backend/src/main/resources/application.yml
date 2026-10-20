@@ -39,6 +39,9 @@ auth:
 soniox:
   api-key: ${SONIOX_API_KEY:}
 
+elevenlabs:
+  api-key: ${ELEVENLABS_API_KEY:}
+
 springdoc:
   swagger-ui:
     path: /docs

@@ -10,7 +10,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
 
-/** 질문 음성 토큰(5.12)이 예시 응답과 오류를 돌려주고, Swagger 문서에 명세대로 나오는지 확인한다. */
+/** 질문 음성 토큰(5.12)이 오류를 돌려주고, Swagger 문서에 명세대로 나오는지 확인한다. */
 @SpringBootTest
 @AutoConfigureMockMvc
 class TtsTokenTest {
@@ -21,24 +21,20 @@ class TtsTokenTest {
     @Autowired private MockMvcTester mockMvc;
 
     @Test
-    void returnsToken() {
+    void withoutElevenLabsApiKeyIsValidationFailed() {
         assertThat(mockMvc.post().uri("/api/v1/interview-sessions/55/questions/303/tts-token"))
-                .hasStatusOk()
+                .hasStatus(400)
                 .bodyJson()
-                .satisfies(
-                        json -> {
-                            assertThat(json).extractingPath("$.token").isEqualTo("…");
-                            assertThat(json).extractingPath("$.voiceId").isEqualTo("…");
-                            assertThat(json).extractingPath("$.modelId").isEqualTo("…");
-                            assertThat(json)
-                                    .extractingPath("$.expiresAt")
-                                    .isEqualTo("2026-10-15T12:21:12+09:00");
-                        });
+                .extractingPath("$.code")
+                .isEqualTo("VALIDATION_FAILED");
     }
 
     @Test
     void sessionIdZeroIsNotFound() {
-        assertThat(mockMvc.post().uri("/api/v1/interview-sessions/0/questions/303/tts-token"))
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/interview-sessions/0/questions/303/tts-token")
+                                .header("X-ElevenLabs-Api-Key", "key"))
                 .hasStatus(404)
                 .bodyJson()
                 .extractingPath("$.code")
@@ -47,7 +43,10 @@ class TtsTokenTest {
 
     @Test
     void questionIdZeroIsNotFound() {
-        assertThat(mockMvc.post().uri("/api/v1/interview-sessions/55/questions/0/tts-token"))
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/interview-sessions/55/questions/0/tts-token")
+                                .header("X-ElevenLabs-Api-Key", "key"))
                 .hasStatus(404)
                 .bodyJson()
                 .extractingPath("$.code")
@@ -68,7 +67,7 @@ class TtsTokenTest {
                             assertThat(json)
                                     .extractingPath(PATH + ".responses")
                                     .asMap()
-                                    .containsOnlyKeys("200", "404", "409", "503");
+                                    .containsOnlyKeys("200", "400", "404", "409", "503");
                             assertThat(json)
                                     .extractingPath(
                                             PATH

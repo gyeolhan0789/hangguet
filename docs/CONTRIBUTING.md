@@ -78,8 +78,8 @@ S15P31A301-46/infra/docs/stt-runbook
 | part | 담당 영역 |
 | --- | --- |
 | `fe` | React 면접 화면, 음성 녹음·업로드, WebSocket 상태, JEV, 리포트 UX |
-| `be` | 인증, 지원정보, 면접 Session·Turn·Answer, AI Job 적재, Storage, WebSocket |
-| `ai` | STT/TTS Adapter, Company Pack·RAG, Blueprint, 평가, 꼬리질문, 리포트, AI Job 처리·결과 저장, 실시간 반응 |
+| `be` | 인증, 지원정보, 면접 Session·Turn·Answer, STT·TTS 1회용 토큰, AI Job 적재, Storage, WebSocket |
+| `ai` | Company Pack·RAG, Blueprint, 평가, 꼬리질문, 리포트, AI Job 처리·결과 저장, 실시간 반응 |
 | `infra` | 로컬 환경, CI/CD, 배포, Secret, Storage, 관측, 비용·복구 |
 | `common` | 제품 규칙, OpenAPI·AsyncAPI·JSON Schema, Mock, Cross-part E2E |
 
