@@ -1,8 +1,20 @@
-import { http, HttpResponse } from "next/experimental/testmode/playwright/msw";
+import { http, HttpResponse, type MswFixture } from "next/experimental/testmode/playwright/msw";
+
+import type { SessionCreateRequest } from "../../src/types/api";
 
 import { API_BASE_URL } from "../../src/lib/api/config";
 
-import { APPLICATION, AUTH_TOKENS, HOME, ME, PROBLEM, REFRESHED_TOKENS, SESSION } from "./data";
+import {
+  APPLICATION,
+  AUTH_TOKENS,
+  HOME,
+  ME,
+  PROBLEM,
+  REFRESHED_TOKENS,
+  SESSION,
+  SESSION_PLAN,
+  SESSION_STARTED,
+} from "./data";
 
 /** API 명세 경로(`/api/v1` 뒤) → 앱이 실제로 부르는 주소 */
 export const api = (path: string) => `${API_BASE_URL}${path}`;
@@ -37,4 +49,30 @@ export const defaultHandlers = [
       ? HttpResponse.json(SESSION, { status: 201 })
       : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
   ),
+  http.get(api("/interview-sessions/:sessionId"), () => HttpResponse.json(SESSION_PLAN.GENERATING)),
+  http.post(api("/interview-sessions/:sessionId/plan/retry"), () =>
+    HttpResponse.json({ ...SESSION_PLAN.GENERATING, planProgress: 0 }, { status: 202 }),
+  ),
+  // 5.4도 Idempotency-Key가 필수다.
+  http.post(api("/interview-sessions/:sessionId/start"), ({ request }) =>
+    request.headers.get("Idempotency-Key")
+      ? HttpResponse.json(SESSION_STARTED)
+      : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
+  ),
 ];
+
+/** 5.1 요청을 모아 둔다: 본문과 Idempotency-Key 헤더. respond가 없으면 고른 방식으로 만든 면접(201)을 돌려준다. */
+export function recordSessions(
+  msw: MswFixture,
+  respond?: (body: SessionCreateRequest) => Response,
+) {
+  const requests: { body: SessionCreateRequest; key: string | null }[] = [];
+  msw.use(
+    http.post(api("/interview-sessions"), async ({ request }) => {
+      const body = (await request.json()) as SessionCreateRequest;
+      requests.push({ body, key: request.headers.get("Idempotency-Key") });
+      return respond?.(body) ?? HttpResponse.json({ ...SESSION, mode: body.mode }, { status: 201 });
+    }),
+  );
+  return requests;
+}

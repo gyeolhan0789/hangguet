@@ -141,6 +141,23 @@ export const SESSION = {
   leveledUp: null,
 } as const satisfies SessionResponse;
 
+/** 5.2 면접 조회 200 — Swagger 예시 'S05·S05-E 질문 준비 78%' · 'S05 플랜 생성 실패'. 준비 완료는 예시가 없어 5.4 시작 전 상태로 만든다. */
+export const SESSION_PLAN = {
+  GENERATING: { ...SESSION, planStatus: "GENERATING", planProgress: 78 },
+  READY: { ...SESSION, planStatus: "READY", planProgress: null },
+  FAILED: { ...SESSION, planStatus: "FAILED", planProgress: null },
+} as const satisfies Record<string, SessionResponse>;
+
+/** 5.4 면접 시작 200 — Swagger 예시 */
+export const SESSION_STARTED = {
+  ...SESSION,
+  status: "IN_PROGRESS",
+  planStatus: "READY",
+  planProgress: null,
+  currentQuestion: { id: 301, seq: 1, content: "1분 동안 자기소개 부탁드려요." },
+  startedAt: "2026-10-15T12:00:00+09:00",
+} as const satisfies SessionResponse;
+
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {
   LOGIN_FAILED: {
@@ -210,6 +227,22 @@ export const PROBLEM = {
     detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
     instance: "/api/v1/applications/9",
     code: "APPLICATION_IN_USE",
+  },
+  // Swagger 5.2 · 5.3 · 5.4 404 예시
+  SESSION_NOT_FOUND: {
+    title: "Not Found",
+    status: 404,
+    detail: "면접을 찾을 수 없어요.",
+    instance: "/api/v1/interview-sessions/0",
+    code: "SESSION_NOT_FOUND",
+  },
+  // Swagger 5.4 409 예시
+  PLAN_NOT_READY: {
+    title: "Conflict",
+    status: 409,
+    detail: "면접관이 질문을 준비하고 있어요.",
+    instance: "/api/v1/interview-sessions/55/start",
+    code: "PLAN_NOT_READY",
   },
   EMAIL_DUPLICATED: {
     title: "Conflict",

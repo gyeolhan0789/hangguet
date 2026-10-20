@@ -6,7 +6,7 @@ import { AUTH_TOKENS } from "./mocks/data";
 import { defaultHandlers } from "./mocks/handlers";
 
 export { expect, http, HttpResponse } from "next/experimental/testmode/playwright/msw";
-export { api, problemResponse } from "./mocks/handlers";
+export { api, problemResponse, recordSessions } from "./mocks/handlers";
 
 interface SignInOptions {
   /** 액세스 토큰 쿠키를 넣을지. false면 만료돼 지워진 상태 */
