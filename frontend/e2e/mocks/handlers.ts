@@ -2,7 +2,7 @@ import { http, HttpResponse } from "next/experimental/testmode/playwright/msw";
 
 import { API_BASE_URL } from "../../src/lib/api/config";
 
-import { APPLICATION, AUTH_TOKENS, HOME, ME, REFRESHED_TOKENS } from "./data";
+import { APPLICATION, AUTH_TOKENS, HOME, ME, PROBLEM, REFRESHED_TOKENS, SESSION } from "./data";
 
 /** API 명세 경로(`/api/v1` 뒤) → 앱이 실제로 부르는 주소 */
 export const api = (path: string) => `${API_BASE_URL}${path}`;
@@ -31,4 +31,10 @@ export const defaultHandlers = [
   http.post(api("/applications"), () => HttpResponse.json(APPLICATION, { status: 201 })),
   http.get(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
   http.patch(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
+  // 5.1은 Idempotency-Key(UUID)가 필수다. 없으면 mock 서버처럼 400으로 거절해, 모든 E2E가 헤더를 지키게 한다.
+  http.post(api("/interview-sessions"), ({ request }) =>
+    request.headers.get("Idempotency-Key")
+      ? HttpResponse.json(SESSION, { status: 201 })
+      : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
+  ),
 ];
