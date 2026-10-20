@@ -4,37 +4,11 @@ import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { Avatar } from "@/components/avatar";
 import { MaskIcon } from "@/components/mask-icon";
 import type { MeResponse } from "@/types/api";
 import { logout } from "@/lib/auth/actions";
 import { ROUTES } from "@/lib/routes";
-
-/** 프로필 사진. 사진이 없거나 못 불러오면 아래 깔린 사람 아이콘이 보인다. */
-function Avatar({
-  imageUrl,
-  size,
-  iconSize,
-}: {
-  imageUrl: string | null;
-  size: number;
-  iconSize: number;
-}) {
-  return (
-    <span
-      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface"
-      style={{ width: size, height: size }}
-    >
-      <MaskIcon src="/icons/user.svg" size={iconSize} className="bg-text-3" />
-      {imageUrl && (
-        <span
-          aria-hidden
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url("${imageUrl}")` }}
-        />
-      )}
-    </span>
-  );
-}
 
 const menuItem =
   "group/item flex w-full cursor-pointer items-center gap-2.5 rounded-[10px] p-3 text-[15px] leading-normal font-semibold transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none";
@@ -71,9 +45,14 @@ export function ProfileMenu({ user }: { user: MeResponse }) {
         aria-label="프로필 메뉴"
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex cursor-pointer rounded-full ring-brand transition-shadow ${open ? "ring-2" : ""}`}
+        className="relative flex cursor-pointer rounded-full"
       >
-        <Avatar imageUrl={user.profileImageUrl} size={36} iconSize={20} />
+        <Avatar imageUrl={user.profileImageUrl} size={36} icon="/icons/user.svg" iconSize={20} />
+        {/* Figma C01(18:3110): 열리면 아바타 36 안쪽에 2px brand 테두리(바깥으로 커지지 않는다) */}
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 rounded-full border-2 border-brand transition-opacity ${open ? "opacity-100" : "opacity-0"}`}
+        />
       </button>
 
       <AnimatePresence>
@@ -87,7 +66,12 @@ export function ProfileMenu({ user }: { user: MeResponse }) {
             transition={{ duration: 0.16, ease: "easeOut" }}
           >
             <div className="flex items-center gap-3 p-3">
-              <Avatar imageUrl={user.profileImageUrl} size={40} iconSize={20} />
+              <Avatar
+                imageUrl={user.profileImageUrl}
+                size={40}
+                icon="/icons/user-round.svg"
+                iconSize={20}
+              />
               <div className="flex min-w-0 flex-col leading-normal">
                 <span className="truncate text-[15px] font-extrabold text-text-1">
                   {user.nickname}
