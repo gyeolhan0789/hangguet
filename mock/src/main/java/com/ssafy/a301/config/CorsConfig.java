@@ -22,7 +22,11 @@ public class CorsConfig implements WebMvcConfigurer {
                 .allowedOrigins(allowedOrigins.toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders(
-                        "Authorization", "Content-Type", "Idempotency-Key", "X-Soniox-Api-Key")
+                        "Authorization",
+                        "Content-Type",
+                        "Idempotency-Key",
+                        "X-Soniox-Api-Key",
+                        "X-ElevenLabs-Api-Key")
                 .maxAge(3600);
     }
 }

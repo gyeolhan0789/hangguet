@@ -17,8 +17,8 @@
 ## 1. 구성
 
 ```
-브라우저 ─ Nginx ─┬─ BE(Spring)                    5.11·5.12를 뺀 모든 API
-                  └─ AI 실시간 반응 서비스(FastAPI)  5.11·5.12
+브라우저 ─ Nginx ─┬─ BE(Spring)                    5.11을 뺀 모든 API
+                  └─ AI 실시간 반응 서비스(FastAPI)  5.11
 
 BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_ANSWER · EVALUATE
 
@@ -161,17 +161,12 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 
 ## 6. 실시간 반응 서비스
 
-인증·오류 형식은 CONTRIBUTING 7장, 화면 동작은 API 명세 5.11·5.12를 따른다.
+인증·오류 형식은 CONTRIBUTING 7장, 화면 동작은 API 명세 5.11을 따른다.
 
 **5.11 면접관 리액션**
 - 입력: 질문·채점 기준(`interview_plans`), 보낸 문장·`pauseMs`, 서비스가 따로 두는 Redis의 최근 문장·태도
 - Jev를 호출해 `reaction`·`attitude`·`interrupt`를 정하고, 최근 문장·태도를 Redis에 갱신한다
 - `ttlMs` 안에 답을 받지 못하거나 호출이 실패하면 `reaction: null`, `attitude`는 직전 값으로 200을 준다
-
-**5.12 질문 음성 토큰**
-- ElevenLabs `POST /v1/single-use-token/tts_websocket`로 1회용 토큰을 받는다. 응답에 만료 시각이 없어 `expiresAt`은 발급 시각 + 15분으로 계산한다
-- 면접관(persona)별 `voiceId`·`modelId` 짝은 서비스 설정에 둔다
-- 호출이 3초(임시 값)를 넘거나 429·5xx면 503 `TTS_UNAVAILABLE`
 
 ## 7. 회사 공시 요약 (고도화)
 
@@ -194,7 +189,6 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 | 내용 | 영향 |
 |---|---|
 | GMS가 토큰 확률(logprobs)을 주는지 | 3장 점수 방식(`PROBABILITY`/`FIXED`) |
-| ElevenLabs가 글자별 발음 시각(`alignment`)을 기본으로 주는지(`sync_alignment` 설명 없음) | 6장 5.12, 화면의 입 모양 |
 | Jev 입출력, 말 끊기(`interrupt`)를 Jev가 정하는지 | 6장 5.11 |
 | 군말 목록, 긴 멈춤 기준 시간 | 3장 말하기 분석 |
 | Soniox 시각 기준점(API 명세 5.7) | 3장 말하기 분석 |

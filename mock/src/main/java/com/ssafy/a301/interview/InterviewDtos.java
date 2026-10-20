@@ -253,7 +253,7 @@ public final class InterviewDtos {
             @Schema(description = "이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다") OffsetDateTime expiresAt) {}
 
     public record TtsTokenResponse(
-            @Schema(description = "TTS 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
+            @Schema(description = "ElevenLabs 질문 음성 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
             @Schema(description = "토큰 만료 일시. 지나면 다시 발급받는다") OffsetDateTime expiresAt,
             @Schema(description = "면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다") String voiceId,
             @Schema(description = "음성 합성 모델 id. 서버가 정한다") String modelId) {}

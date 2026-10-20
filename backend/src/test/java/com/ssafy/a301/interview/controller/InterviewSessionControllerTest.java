@@ -8,7 +8,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.auth.config.SecurityConfig;
 import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
 import com.ssafy.a301.interview.service.SttTokenService;
+import com.ssafy.a301.interview.service.TtsTokenService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class InterviewSessionControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private SttTokenService sttTokens;
+    @MockitoBean private TtsTokenService ttsTokens;
     @MockitoBean private UserRepository users;
 
     @Test
@@ -50,5 +53,29 @@ class InterviewSessionControllerTest {
                                 .with(jwt().jwt(token -> token.subject("1"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("temp-key"));
+    }
+
+    @Test
+    void ttsTokenRequiresLogin() throws Exception {
+        mvc.perform(post("/api/v1/interview-sessions/55/questions/303/tts-token"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void ttsTokenUsesLoggedInUser() throws Exception {
+        when(ttsTokens.issue(1, 55, 303))
+                .thenReturn(
+                        new TtsTokenResponse(
+                                "tts-token",
+                                OffsetDateTime.parse("2026-10-15T12:21:12+09:00"),
+                                "voice",
+                                "model"));
+
+        mvc.perform(
+                        post("/api/v1/interview-sessions/55/questions/303/tts-token")
+                                .with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.token").value("tts-token"))
+                .andExpect(jsonPath("$.voiceId").value("voice"));
     }
 }
