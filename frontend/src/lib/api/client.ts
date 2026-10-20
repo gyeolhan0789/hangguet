@@ -2,6 +2,7 @@ import axios from "axios";
 import { cookies } from "next/headers";
 
 import { redirectToSignedOut, redirectToTokenRefresh } from "@/lib/auth/auth-errors";
+import type { IdempotencyHeaders } from "@/types/api";
 
 import { ACCESS_TOKEN_COOKIE } from "./auth-cookies";
 import { defaultConfig } from "./config";
@@ -31,5 +32,6 @@ api.interceptors.response.use(undefined, async (error: unknown) => {
  * 같은 요청을 다시 보낼 때는 처음 만든 키를 그대로 넘긴다.
  */
 export function idempotencyHeaders(key: string = crypto.randomUUID()) {
-  return { "Idempotency-Key": key };
+  // 반환 모양은 IdempotencyHeaders(types/api)로 검사하되, axios headers에 넣을 수 있게 객체 리터럴 타입으로 둔다.
+  return { "Idempotency-Key": key } satisfies IdempotencyHeaders;
 }

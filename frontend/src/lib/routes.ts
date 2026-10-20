@@ -1,3 +1,5 @@
+import type { Persona } from "@/types/api";
+
 // 화면 주소 모음. 화면 번호는 Figma·API 명세 기준이다.
 export const ROUTES = {
   /** S00 랜딩 */
@@ -12,8 +14,10 @@ export const ROUTES = {
   practice: "/practice",
   /** S04 면접관 선택(진행 2단계). 주소에 applicationId(필수) · persona(돌아왔을 때 고른 면접관)를 붙인다. */
   practiceInterviewer: "/practice/interviewer",
-  /** S05-1 면접 방식 선택(진행 3단계, 아직 화면 없음). 주소에 applicationId · persona를 붙인다. */
+  /** S05-1 면접 방식 선택(진행 3단계). 주소에 applicationId · persona를 붙인다. */
   practiceMode: "/practice/mode",
+  /** S05 장치 점검(진행 4단계, 화상만, 아직 화면 없음). 주소에 sessionId를 붙인다. */
+  practiceDevices: "/practice/devices",
   /** 헤더 [연습 기록] (화면 미정) */
   records: "/records",
   /** S09 마이페이지 */
@@ -25,11 +29,18 @@ export const ROUTES = {
 } as const;
 
 /**
- * S04 면접관 선택. S03에서 만든 지원서(4.1)의 id를 들고 간다.
+ * S04 면접관 선택. S03에서 만든 지원서(4.1)의 id를 들고 간다. S05-1 [← 면접관 선택]으로 돌아갈 때는 고른 면접관도 넘긴다.
  * 면접 만들기(5.1)는 면접관 · 면접 방식까지 고른 뒤라, 그때까지 고른 값은 주소로 넘긴다.
  */
-export const interviewerPath = (applicationId: number) =>
-  `${ROUTES.practiceInterviewer}?applicationId=${applicationId}`;
+export const interviewerPath = (applicationId: number, persona?: Persona) =>
+  `${ROUTES.practiceInterviewer}?applicationId=${applicationId}${persona ? `&persona=${persona}` : ""}`;
+
+/** S05 장치 점검(화상). S05-1에서 만든 면접(5.1)의 id를 들고 간다. */
+export const devicesPath = (sessionId: number) =>
+  `${ROUTES.practiceDevices}?sessionId=${sessionId}`;
+
+/** S06 면접(화상) · S06-B 면접(채팅) (아직 화면 없음). 채팅은 S05-1에서 장치 점검 없이 바로 온다. */
+export const interviewPath = (sessionId: number) => `/interview/${sessionId}`;
 
 /** S03 지원서 입력을 S04 [← 지원서 수정]에서 다시 열 때. 그 지원서(4.2)로 칸을 채우고 4.4로 고친다. */
 export const applicationEditPath = (applicationId: number) =>

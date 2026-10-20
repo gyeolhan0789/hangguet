@@ -49,14 +49,16 @@ function PersonaRow({
       variants={rowVariants}
       // 고른 줄은 Figma처럼 2px 테두리만큼 안쪽 여백이 커진다(18:2172: 116px · 안 고른 줄 18:2182: 112px).
       // 좁은 화면(sm 미만)은 여백 · 간격 · 아바타를 줄여 이름과 태그가 줄바꿈되지 않게 한다.
-      // 고른 줄의 배경은 brand-soft 하나뿐이다(다크 18:5719: 페이지 bg 위 brand-soft 8%). 그래서 bg-sub를 깔지 않는다.
-      className={`group relative flex cursor-pointer items-center gap-3 rounded-[20px] has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand sm:gap-5 ${checked ? "px-[18px] py-[22px] sm:px-[26px]" : "bg-bg-sub px-4 py-5 sm:px-6"}`}
+      // 고른 줄의 배경은 brand-soft 하나뿐이다(다크 18:5719: 페이지 bg 위 brand-soft 8%). 그래서 bg-sub를 빼되,
+      // 선택 테두리가 미끄러져 올 때까지 서서히 빠지게 한다.
+      className={`group relative flex cursor-pointer items-center gap-3 rounded-[20px] transition-colors duration-300 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand sm:gap-5 ${checked ? "px-[18px] py-[22px] sm:px-[26px]" : "bg-bg-sub px-4 py-5 sm:px-6"}`}
     >
       {checked && (
+        // 미끄러지는 동안 다른 줄 글자를 덮지 않도록 줄 내용보다 뒤(-z)에 그린다(fieldset이 isolate).
         <motion.span
           layoutId="persona-selected"
           aria-hidden
-          className="absolute inset-0 rounded-[20px] border-2 border-brand bg-brand-soft dark:bg-brand-soft/8"
+          className="absolute inset-0 -z-10 rounded-[20px] border-2 border-brand bg-brand-soft dark:bg-brand-soft/8"
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
         />
       )}
@@ -175,7 +177,7 @@ export function PersonaList({
         initial={reduce ? false : "hidden"}
         animate="shown"
       >
-        <fieldset className="flex flex-col gap-3">
+        <fieldset className="isolate flex flex-col gap-3">
           <legend className="sr-only">면접관</legend>
           {PERSONAS.map((info) => (
             <PersonaRow

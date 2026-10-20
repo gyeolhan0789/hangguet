@@ -28,10 +28,14 @@ const PERSONA_INFO = {
   },
 } satisfies Record<Persona, Omit<PersonaInfo, "persona">>;
 
+/** 5.1이 받는 면접관 값(Figma 순서). 검증 스키마도 이 목록을 쓴다. */
+export const PERSONA_VALUES = Object.keys(PERSONA_INFO) as Persona[];
+
 /** S04에서 고를 수 있는 면접관(Figma 순서) */
-export const PERSONAS: readonly PersonaInfo[] = (Object.keys(PERSONA_INFO) as Persona[]).map(
-  (persona) => ({ persona, ...PERSONA_INFO[persona] }),
-);
+export const PERSONAS: readonly PersonaInfo[] = PERSONA_VALUES.map((persona) => ({
+  persona,
+  ...PERSONA_INFO[persona],
+}));
 
 /** 주소의 persona 값을 읽는다. 5.1이 받는 값이 아니면 null */
 export function parsePersona(value: string | string[] | undefined): Persona | null {

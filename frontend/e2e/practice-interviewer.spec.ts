@@ -203,8 +203,11 @@ test.describe("S04 면접관 선택 · [← 지원서 수정] (4.2 · 4.4)", () 
   }) => {
     let created: ApplicationCreateRequest | undefined;
     msw.use(
-      http.get(api("/applications/:applicationId"), () =>
-        problemResponse(PROBLEM.APPLICATION_NOT_FOUND),
+      // 고칠 지원서 조회(S03)만 404다. 새로 만든 뒤 S04가 하는 조회는 기본 핸들러(지원서 있음)가 받는다.
+      http.get(
+        api("/applications/:applicationId"),
+        () => problemResponse(PROBLEM.APPLICATION_NOT_FOUND),
+        { once: true },
       ),
       http.post(api("/applications"), async ({ request }) => {
         created = (await request.json()) as ApplicationCreateRequest;
@@ -219,6 +222,7 @@ test.describe("S04 면접관 선택 · [← 지원서 수정] (4.2 · 4.4)", () 
     await page.getByLabel("자기소개서").fill("1. 지원 동기");
     await page.getByRole("button", { name: "다음: 면접관 선택" }).click();
 
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("오늘은 누구와 면접할까요?");
     await expect(page).toHaveURL(S04);
     expect(created).toEqual({
       companyName: "△△소프트",

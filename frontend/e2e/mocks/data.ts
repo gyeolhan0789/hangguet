@@ -1,7 +1,7 @@
 // mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/docs)의 응답 예시를 그대로 옮긴 값.
 // E2E는 이 값을 MSW 핸들러 응답으로 돌려준다. Swagger 예시가 바뀌면 같이 바꾼다.
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
-import type { ApplicationResponse, ProblemDetail } from "../../src/types/api";
+import type { ApplicationResponse, ProblemDetail, SessionResponse } from "../../src/types/api";
 
 const ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-access";
 const REFRESHED_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.e2e-refreshed";
@@ -120,6 +120,27 @@ export const APPLICATION = {
   inUse: false,
 } as const satisfies ApplicationResponse;
 
+/** 5.1 면접 만들기 201 — Swagger 예시 */
+export const SESSION = {
+  id: 55,
+  applicationId: 10,
+  companyName: "○○전자",
+  jobTitle: "백엔드 개발자",
+  persona: "DEVIL",
+  mode: "VIDEO",
+  status: "READY",
+  planStatus: "GENERATING",
+  planProgress: 0,
+  analysisStep: null,
+  currentQuestion: null,
+  answeredCount: 0,
+  elapsedSeconds: 0,
+  startedAt: null,
+  endedAt: null,
+  createdAt: "2026-10-15T11:58:30+09:00",
+  leveledUp: null,
+} as const satisfies SessionResponse;
+
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {
   LOGIN_FAILED: {
@@ -164,6 +185,15 @@ export const PROBLEM = {
       { field: "companyName", reason: "1~100자입니다." },
       { field: "coverLetter", reason: "1~3,000자입니다." },
     ],
+  },
+  // 실제 mock 서버 응답(5.1에 Idempotency-Key 헤더 없이 보냈을 때). Swagger 5.1에는 400 예시가 없다.
+  VALIDATION_FAILED_IDEMPOTENCY_KEY: {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/interview-sessions",
+    code: "VALIDATION_FAILED",
+    errors: [{ field: "Idempotency-Key", reason: "필수 헤더입니다." }],
   },
   // Swagger 4.2 · 4.4 404 예시
   APPLICATION_NOT_FOUND: {

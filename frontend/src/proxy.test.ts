@@ -78,6 +78,30 @@ describe("proxy", () => {
   });
 });
 
+describe("proxy 서버 액션 표시", () => {
+  // 화면 주소에 오는 POST는 서버 액션뿐이다(Next 문서 mutating-data). 401 처리(auth-errors)가 이 표시로 갈 길을 정한다.
+  const forwarded = (response: Response) =>
+    response.headers.get("x-middleware-request-x-hk-server-action");
+
+  it("POST(서버 액션)면 서버 액션이라고 넘기고, GET(화면)이면 아니라고 넘긴다", async () => {
+    const post = new NextRequest("http://localhost:3000/practice/mode", {
+      method: "POST",
+      headers: { cookie: "hk_access=a" },
+    });
+
+    expect(forwarded(await proxy(post))).toBe("1");
+    expect(forwarded(await proxy(requestWith("hk_access=a")))).toBe("0");
+  });
+
+  it("밖에서 보낸 표시는 믿지 않고 요청 방식으로 덮어쓴다", async () => {
+    const forged = new NextRequest("http://localhost:3000/home", {
+      headers: { cookie: "hk_access=a", "x-hk-server-action": "1" },
+    });
+
+    expect(forwarded(await proxy(forged))).toBe("0");
+  });
+});
+
 describe("proxy 접근 제어", () => {
   it("로그인하지 않았으면 앱 화면에서 로그인 화면으로 보낸다", async () => {
     const response = await proxy(requestWith(""));
