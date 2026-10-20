@@ -2,7 +2,7 @@ import { http, HttpResponse } from "next/experimental/testmode/playwright/msw";
 
 import { API_BASE_URL } from "../../src/lib/api/config";
 
-import { AUTH_TOKENS, HOME, ME, REFRESHED_TOKENS } from "./data";
+import { APPLICATION, AUTH_TOKENS, HOME, ME, REFRESHED_TOKENS } from "./data";
 
 /** API 명세 경로(`/api/v1` 뒤) → 앱이 실제로 부르는 주소 */
 export const api = (path: string) => `${API_BASE_URL}${path}`;
@@ -28,4 +28,5 @@ export const defaultHandlers = [
   http.post(api("/auth/logout"), () => new HttpResponse(null, { status: 204 })),
   http.get(api("/users/me"), () => HttpResponse.json(ME)),
   http.get(api("/home"), () => HttpResponse.json(HOME.NOT_DONE_TODAY)),
+  http.post(api("/applications"), () => HttpResponse.json(APPLICATION, { status: 201 })),
 ];
