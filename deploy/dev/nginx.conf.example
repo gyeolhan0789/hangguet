@@ -39,9 +39,10 @@ server {
     proxy_set_header X-Forwarded-Host   $host;
     proxy_set_header X-Forwarded-Port   443;
 
-    # 목 서버 (기존 설정과 같다)
+    # 목 서버 (기존 설정과 같고, 아래 리다이렉트만 쿼리 문자열을 유지하게 고쳤다)
+    # return은 쿼리 문자열을 자동으로 붙이지 않으므로 $is_args$args로 직접 붙인다(/mock/be?x=1 → /mock/be/?x=1).
     location = /mock/be {
-        return 308 /mock/be/;
+        return 308 /mock/be/$is_args$args;
     }
 
     location /mock/be/ {
@@ -62,7 +63,7 @@ server {
 
     # 실제 BE
     location = /be {
-        return 308 /be/;
+        return 308 /be/$is_args$args;
     }
 
     location /be/ {
