@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { createAnswerAudioUploadUrl } from "@/lib/interview/actions";
+import { createAnswerAudioUploadUrl, sendReaction } from "@/lib/interview/actions";
 import {
   prepareAnswer,
   submitPreparedAnswer,
@@ -15,6 +15,7 @@ import {
   nextAutoSubmit,
   type AutoSubmitEvent,
 } from "@/lib/interview/auto-submit";
+import { createReactionSender, type ReactionSender } from "@/lib/interview/reaction-sender";
 import type { SpeechActionFailure } from "@/lib/interview/speech-failure";
 import { createAnswerCapture, type AnswerCapture } from "@/lib/stt/answer-capture";
 
@@ -46,6 +47,7 @@ export function useVideoAnswer({
   questionId,
   questionText,
   onSubmitted,
+  onReaction,
 }: VideoAnswerOptions): VideoAnswer {
   const [phase, setPhase] = useState<VideoAnswerPhase>("idle");
   const [startFailure, setStartFailure] = useState<AnswerStartFailure | null>(null);
@@ -59,10 +61,11 @@ export function useVideoAnswer({
   const prepared = useRef<PreparedAnswer | null>(null);
   const auto = useRef(initialAutoSubmitState);
   const ticker = useRef<ReturnType<typeof setInterval> | null>(null);
-  const latest = useRef({ sessionId, questionId, questionText, onSubmitted });
+  const reactions = useRef<ReactionSender | null>(null);
+  const latest = useRef({ sessionId, questionId, questionText, onSubmitted, onReaction });
 
   useEffect(() => {
-    latest.current = { sessionId, questionId, questionText, onSubmitted };
+    latest.current = { sessionId, questionId, questionText, onSubmitted, onReaction };
   });
 
   const moveTo = useCallback((next: VideoAnswerPhase) => {
@@ -73,6 +76,7 @@ export function useVideoAnswer({
   const stt = useAnswerStt({
     sessionId,
     onSpeech: (at) => feed({ type: "speech", at }),
+    onSentence: (sentence) => reactions.current?.send(sentence),
   });
   const sttRef = useRef(stt);
   useEffect(() => {
@@ -84,11 +88,18 @@ export function useVideoAnswer({
     ticker.current = null;
   }, []);
 
+  /** 면접관 리액션 요청을 중지하고, 이미 요청한 응답도 폐기한다(답변 제출 뒤 도착한 응답은 사용하지 않는다) */
+  const stopReactions = useCallback(() => {
+    reactions.current?.stop();
+    reactions.current = null;
+  }, []);
+
   const release = useCallback(() => {
     stopTicker();
+    stopReactions();
     capture.current?.dispose();
     capture.current = null;
-  }, [stopTicker]);
+  }, [stopReactions, stopTicker]);
 
   const deliver = useCallback(
     (outcome: SubmitOutcome) => {
@@ -114,6 +125,7 @@ export function useVideoAnswer({
     feed({ type: "submitStarted" });
     moveTo("submitting");
     stopTicker();
+    stopReactions();
     const stt = sttRef.current;
     await stt.stop();
     const { content, tokens } = stt.getAnswer();
@@ -155,7 +167,7 @@ export function useVideoAnswer({
     deliver(outcome);
     // feed · startListening은 아래에서 정의하는 함수 선언이다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deliver, moveTo, release, stopTicker]);
+  }, [deliver, moveTo, release, stopReactions, stopTicker]);
 
   /** 자동 제출 판단에 이벤트를 전달하고, 7초 · 60초 결정을 실행한다 */
   function feed(event: AutoSubmitEvent) {
@@ -173,6 +185,12 @@ export function useVideoAnswer({
   }
 
   function startListening(current: AnswerCapture, event: AutoSubmitEvent) {
+    const { sessionId: session, questionId: question } = latest.current;
+    reactions.current = createReactionSender({
+      request: (seq, sentence) =>
+        sendReaction(session, question, { seq, text: sentence.text, pauseMs: sentence.pauseMs }),
+      onReaction: (response) => latest.current.onReaction?.(response),
+    });
     sttRef.current.start({
       capture: current,
       fileStartedAt: fileStartedAt.current,

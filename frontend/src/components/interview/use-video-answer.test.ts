@@ -14,6 +14,7 @@ const stt = {
   caption: "",
   answer: { content: "조회 응답 시간을 40% 줄였습니다.", tokens: null as null },
   onSpeech: undefined as ((at: number) => void) | undefined,
+  onSentence: undefined as ((sentence: { text: string; pauseMs: number }) => void) | undefined,
   start: vi.fn(() => calls.push("stt.start")),
   reconnect: vi.fn(() => calls.push("stt.reconnect")),
   stop: vi.fn(async () => {
@@ -22,8 +23,12 @@ const stt = {
   cancel: vi.fn(() => calls.push("stt.cancel")),
 };
 vi.mock("./use-answer-stt", () => ({
-  useAnswerStt: (options: { onSpeech?: (at: number) => void }) => {
+  useAnswerStt: (options: {
+    onSpeech?: (at: number) => void;
+    onSentence?: (sentence: { text: string; pauseMs: number }) => void;
+  }) => {
     stt.onSpeech = options.onSpeech;
+    stt.onSentence = options.onSentence;
     return {
       status: stt.status,
       caption: stt.caption,
@@ -60,7 +65,15 @@ const createAnswerAudioUploadUrl = vi.fn(async () => {
     expiresAt: "2026-10-15T12:16:12+09:00",
   } as const;
 });
+const sendReaction = vi.fn(async (_s: number, _q: number, request: { seq: number }) => ({
+  ok: true as const,
+  seq: request.seq,
+  reaction: null,
+  attitude: { interest: 0.5, trust: 0.5, tension: 0.5 },
+  interrupt: null,
+}));
 vi.mock("@/lib/interview/actions", () => ({
+  sendReaction: (...args: Parameters<typeof sendReaction>) => sendReaction(...args),
   createAnswerAudioUploadUrl: (...args: unknown[]) =>
     (createAnswerAudioUploadUrl as (...a: unknown[]) => unknown)(...args),
 }));
@@ -80,6 +93,7 @@ vi.mock("@/lib/interview/answer-submission", async (importOriginal) => ({
 
 let now = 0;
 const onSubmitted = vi.fn();
+const onReaction = vi.fn();
 
 function render(questionId = 303) {
   return renderHook(
@@ -89,6 +103,7 @@ function render(questionId = 303) {
         questionId: id,
         questionText: "질문",
         onSubmitted,
+        onReaction,
       }),
     { initialProps: { id: questionId } },
   );
@@ -396,6 +411,59 @@ describe("useVideoAnswer 자동 제출 · 60초", () => {
 
     expect(calls).toEqual(["capture.dispose"]);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("useVideoAnswer 5.11 리액션", () => {
+  it("듣는 중 문장이 끝날 때마다 seq를 증가시켜 5.11을 전송하고 응답을 전달한다", async () => {
+    await started();
+
+    await act(async () => {
+      stt.onSentence?.({ text: "경험입니다.", pauseMs: 400 });
+      stt.onSentence?.({ text: "줄였어요.", pauseMs: 300 });
+    });
+
+    expect(sendReaction.mock.calls).toEqual([
+      [55, 303, { seq: 1, text: "경험입니다.", pauseMs: 400 }],
+      [55, 303, { seq: 2, text: "줄였어요.", pauseMs: 300 }],
+    ]);
+    expect(onReaction.mock.calls.map(([r]) => r.seq)).toEqual([1, 2]);
+  });
+
+  it("제출을 시작하면 더 전송하지 않는다(음성 인식 stop 중에 도착한 마지막 문장도)", async () => {
+    const hook = await started();
+    stt.stop.mockImplementationOnce(async () => {
+      calls.push("stt.stop");
+      // stop()은 남은 음성의 최종 결과를 기다리므로 그 사이 끝 감지로 문장이 전달될 수 있다.
+      stt.onSentence?.({ text: "마지막 문장입니다.", pauseMs: 0 });
+    });
+
+    await act(async () => {
+      await hook.result.current.submit();
+    });
+
+    expect(sendReaction).not.toHaveBeenCalled();
+  });
+
+  it("60초 종료 뒤에 뒤늦게 도착한 문장은 전송하지 않는다", async () => {
+    await started();
+    await advance(60_000);
+
+    await act(async () => {
+      stt.onSentence?.({ text: "늦은 문장입니다.", pauseMs: 0 });
+    });
+
+    expect(sendReaction).not.toHaveBeenCalled();
+  });
+
+  it("답변을 시작하기 전에는 전송하지 않는다", async () => {
+    render();
+
+    await act(async () => {
+      stt.onSentence?.({ text: "경험입니다.", pauseMs: 0 });
+    });
+
+    expect(sendReaction).not.toHaveBeenCalled();
   });
 });
 
