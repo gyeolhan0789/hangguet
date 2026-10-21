@@ -9,6 +9,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -24,9 +25,11 @@ public class ElevenLabsClient {
     private static final String MODEL_ID = "eleven_multilingual_v2";
     private static final String DEVIL_VOICE_ID = "DMyrgzQFny3JI1Y1paM5";
 
+    private final String apiKey;
     private final RestClient restClient;
 
-    public ElevenLabsClient() {
+    public ElevenLabsClient(@Value("${elevenlabs.api-key}") String apiKey) {
+        this.apiKey = apiKey;
         JdkClientHttpRequestFactory requestFactory =
                 new JdkClientHttpRequestFactory(
                         HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
@@ -38,7 +41,11 @@ public class ElevenLabsClient {
                         .build();
     }
 
-    public TtsTokenResponse issueToken(String apiKey) {
+    public TtsTokenResponse issueToken() {
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warn("ELEVENLABS_API_KEY가 없어 질문 음성 토큰을 발급하지 못했습니다.");
+            throw new ApiException(ErrorCode.TTS_UNAVAILABLE);
+        }
         try {
             TokenResponse response =
                     restClient

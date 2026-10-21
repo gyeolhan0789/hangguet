@@ -595,15 +595,6 @@ public class InterviewSessionController {
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = STT_TOKEN)))
     @ApiResponse(
-            responseCode = "400",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "VALIDATION_FAILED",
-                                            value = ErrorExamples.VALIDATION_FAILED)))
-    @ApiResponse(
             responseCode = "404",
             content =
                     @Content(
@@ -632,15 +623,9 @@ public class InterviewSessionController {
                                             value = ErrorExamples.STT_UNAVAILABLE)))
     @PostMapping("/{sessionId}/stt-token")
     public SttTokenResponse sttToken(
-            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
-            @Parameter(description = "Soniox API 키. 목 서버에서만 받으며, 실제 백엔드는 서버에 둔 키를 쓴다")
-                    @RequestHeader("X-Soniox-Api-Key")
-                    String sonioxApiKey) {
-        if (sonioxApiKey.isBlank()) {
-            throw new FieldValidationException("X-Soniox-Api-Key", "필수 값입니다.");
-        }
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId) {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
-        return soniox.issueTemporaryKey(sonioxApiKey, sessionId);
+        return soniox.issueTemporaryKey(sessionId);
     }
 
     @Operation(
@@ -709,15 +694,6 @@ public class InterviewSessionController {
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = TTS_TOKEN)))
     @ApiResponse(
-            responseCode = "400",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "VALIDATION_FAILED",
-                                            value = ErrorExamples.VALIDATION_FAILED)))
-    @ApiResponse(
             responseCode = "404",
             content =
                     @Content(
@@ -752,15 +728,9 @@ public class InterviewSessionController {
     public TtsTokenResponse ttsToken(
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
             @Parameter(description = "질문 id. `0`이면 404", example = "303") @PathVariable
-                    long questionId,
-            @Parameter(description = "ElevenLabs API 키. 목 서버에서만 받으며, 실제 백엔드는 서버에 둔 키를 쓴다")
-                    @RequestHeader("X-ElevenLabs-Api-Key")
-                    String elevenLabsApiKey) {
-        if (elevenLabsApiKey.isBlank()) {
-            throw new FieldValidationException("X-ElevenLabs-Api-Key", "필수 값입니다.");
-        }
+                    long questionId) {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         Stub.notFoundIfZero(questionId, ErrorCode.QUESTION_NOT_FOUND);
-        return elevenLabs.issueToken(elevenLabsApiKey);
+        return elevenLabs.issueToken();
     }
 }
