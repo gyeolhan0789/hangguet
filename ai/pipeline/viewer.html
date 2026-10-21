@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>회사 카드 확인</title>
+<style>
+/* 확인용 화면: 왼쪽 회사 목록, 오른쪽 카드 + 근거 원문(인용 위치 강조). 외부 파일 없이 열린다. */
+:root {
+  --bg: #f7f7f9; --panel: #ffffff; --fg: #1d1f24; --muted: #646b78; --line: #e1e3e8;
+  --accent: #5b3fd6; --accent-soft: #efebff; --mark: #ffe58a; --warn: #a15c00;
+  --font: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --mono: Consolas, "D2Coding", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121318; --panel: #1b1d24; --fg: #e8e9ee; --muted: #9aa0ad; --line: #2c2f39;
+  --accent: #a593ff; --accent-soft: #2a2546; --mark: #6b5a12; --warn: #f0b35a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121318; --panel: #1b1d24; --fg: #e8e9ee; --muted: #9aa0ad; --line: #2c2f39;
+  --accent: #a593ff; --accent-soft: #2a2546; --mark: #6b5a12; --warn: #f0b35a; color-scheme: dark }
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--font) }
+header { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
+  display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline }
+header h1 { font-size: 18px; margin: 0 }
+header .stat { color: var(--muted); font-size: 13px }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: calc(100vh - 58px) }
+nav { border-right: 1px solid var(--line); background: var(--panel); padding: 8px }
+nav button { display: flex; justify-content: space-between; width: 100%; padding: 8px 10px; border: 0;
+  background: none; color: var(--fg); font: inherit; text-align: left; border-radius: 6px; cursor: pointer }
+nav button:hover { background: var(--bg) }
+nav button[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600 }
+nav .count { color: var(--muted); font: 12px var(--mono) }
+main { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start }
+.meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font: 12px var(--mono) }
+.meta b { color: var(--fg); font: 600 20px var(--font); margin-right: 8px }
+section h2 { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px }
+.item { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px }
+.item h3 { margin: 0 0 6px; font-size: 15px }
+.item blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); font-size: 14px }
+.item .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted) }
+.item .foot a { color: var(--accent) }
+.item button { border: 1px solid var(--line); background: none; color: var(--accent); font: 12px var(--font);
+  border-radius: 4px; padding: 2px 8px; cursor: pointer }
+.empty { color: var(--warn); font-size: 14px; padding: 8px 0 }
+.source { grid-column: 1 / -1; background: var(--panel); border: 1px solid var(--line); border-radius: 8px }
+.source .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); padding: 8px 8px 0 }
+.source .tabs button { border: 0; background: none; color: var(--muted); font: inherit; padding: 6px 10px; cursor: pointer;
+  border-bottom: 2px solid transparent }
+.source .tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); font-weight: 600 }
+.source pre { margin: 0; padding: 14px; max-height: 420px; overflow: auto; white-space: pre-wrap;
+  font: 13px/1.7 var(--font) }
+mark { background: var(--mark); color: inherit; border-radius: 2px }
+mark.focus { outline: 2px solid var(--accent) }
+.notice { padding: 40px 20px; max-width: 60ch }
+code { font-family: var(--mono) }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr } nav { border-right: 0; border-bottom: 1px solid var(--line);
+  display: flex; overflow-x: auto; gap: 4px } nav button { width: auto; white-space: nowrap; gap: 8px }
+  main { grid-template-columns: 1fr }
+}
+</style>
+</head>
+<body>
+<header><h1>회사 카드 확인</h1><span class="stat" id="stat"></span></header>
+<div class="layout"><nav id="list" aria-label="회사 목록"></nav><main id="view"></main></div>
+<script src="data/viewer_data.js"></script>
+<script>
+const rows = window.VIEWER_DATA;
+let current = null; // 지금 보고 있는 회사 행
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// 검증(verify.py)과 같은 기준: 띄어쓰기·가운뎃점 모양 차이는 무시하고 원문 속 인용 위치를 찾는다
+const DOTS = "ᆞᆆㆍ·‧・•";
+function quotePattern(quote) {
+  const chars = [...quote.replace(/\s+/g, "")].map((c) =>
+    DOTS.includes(c) ? `[${DOTS}]` : c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return chars.length ? new RegExp(chars.join("\\s*")) : null;
+}
+function highlight(text, quotes) {
+  const ranges = [];
+  quotes.forEach((q, i) => {
+    const m = quotePattern(q)?.exec(text);
+    if (m) ranges.push([m.index, m.index + m[0].length, i]);
+  });
+  ranges.sort((a, b) => a[0] - b[0]);
+  let html = "", at = 0;
+  for (const [s, e, i] of ranges) {
+    if (s < at) continue;
+    html += esc(text.slice(at, s)) + `<mark data-q="${i}">${esc(text.slice(s, e))}</mark>`;
+    at = e;
+  }
+  return html + esc(text.slice(at));
+}
+
+if (!rows) {
+  $("view").innerHTML = `<div class="notice">데이터가 없습니다. <code>ai</code> 폴더에서
+    <code>uv run --env-file .env python -m pipeline.run</code>을 실행하면 이 화면이 읽을
+    <code>data/viewer_data.js</code>가 만들어집니다.</div>`;
+} else {
+  const talents = rows.reduce((n, r) => n + r.card.talent.length, 0);
+  const dirs = rows.reduce((n, r) => n + r.card.direction.length, 0);
+  const markets = rows.reduce((n, r) => n + (r.card.market ?? []).length, 0);
+  $("stat").textContent = `회사 ${rows.length}곳 · 인재상 ${talents}개 · 사업 방향 ${dirs}개 · 경쟁·시장 ${markets}개`;
+  $("list").innerHTML = rows.map((r, i) =>
+    `<button data-i="${i}"><span>${esc(r.card.name)}</span>
+     <span class="count">${r.card.talent.length}·${r.card.direction.length}·${(r.card.market ?? []).length}</span></button>`).join("");
+  $("list").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b) show(+b.dataset.i);
+  });
+  show(0);
+}
+
+function show(i) {
+  const r = rows[i], c = r.card;
+  document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.i == i));
+  const items = (field, title) => {
+    const list = c[field] ?? [];
+    const body = list.length ? list.map((it, k) => `
+      <div class="item"><h3>${esc(it.keyword ?? it.summary)}</h3>
+        <blockquote>${esc(it.quote)}</blockquote>
+        <div class="foot"><span>${it.source?.startsWith("http")
+          ? `<a href="${esc(it.source)}" target="_blank" rel="noopener">출처 페이지</a>` : esc(it.source)}</span>
+        <button data-field="${field}" data-k="${k}">원문에서 보기</button></div></div>`).join("")
+      : `<div class="empty">${field === "talent" && !r.talent_text ? "인재상 원문 없음" : "검증을 통과한 항목 없음"}</div>`;
+    return `<section><h2>${title} (${list.length})</h2>${body}</section>`;
+  };
+  $("view").innerHTML = `
+    <div class="meta"><b>${esc(c.name)}</b><span>고유번호 ${esc(c.corp_code)}</span>
+      <span>생성 ${esc(c.generated_at)}</span><span>모델 ${esc(c.model)}</span>
+      <span>프롬프트 ${esc(c.prompt_version)}</span><span>인재상 수집 ${esc(r.talent_collected_at || "-")}</span></div>
+    ${items("talent", "인재상")}${items("direction", "사업 방향")}${items("market", "경쟁·시장")}
+    <div class="source"><div class="tabs" role="tablist">
+      <button role="tab" data-tab="talent">인재상 원문</button>
+      <button role="tab" data-tab="direction">사업 방향 후보 문장</button>
+      <button role="tab" data-tab="market">경쟁·시장 후보 문장</button></div>
+      <pre id="src"></pre></div>`;
+  current = r;
+  tab("direction");
+}
+
+function tab(field) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === field));
+  const text = { talent: current.talent_text, direction: current.business_text, market: current.market_text }[field];
+  $("src").innerHTML = text ? highlight(text, (current.card[field] ?? []).map((it) => it.quote)) : "원문 없음";
+}
+$("view").addEventListener("click", (e) => {
+  if (e.target.dataset.tab) return tab(e.target.dataset.tab);
+  const b = e.target.closest("button[data-field]");
+  if (!b) return;
+  tab(b.dataset.field);
+  const m = $("src").querySelector(`mark[data-q="${b.dataset.k}"]`);
+  if (m) { m.classList.add("focus"); m.scrollIntoView({ block: "center", behavior: "smooth" }); }
+});
+</script>
+</body>
+</html>

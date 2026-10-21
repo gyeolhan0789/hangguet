@@ -7,41 +7,75 @@ import urllib.request
 from datetime import date
 from typing import Any
 
-PROMPT_VERSION = "card-v1"
-OTHER_LIMIT = 6000  # '기타 참고사항'은 회사마다 2천~2만8천 자라 앞부분만 쓴다
+PROMPT_VERSION = "card-v3"
+INPUT_LIMIT = 6000
+
+# card-v1은 '사업의 개요' + '기타 참고사항' 앞부분만 넣어서, 회사 계획 문장(보통 2만~3만 자 뒤
+# 사업부문별 현황)이 빠지고 시장 전망·ESG 문장이 방향으로 뽑혔다. 그래서 '사업의 내용' 전체에서
+# 계획·강화 표현이 있는 문장만 후보로 골라 넣는다.
+_PLAN = re.compile(
+    r"계획|예정|나갈 것|목표로|추진|주력|집중|모색|도모|선도|(강화|확대|확장)(하고|해|할)"
+)
+# 계획 표현이 있어도 면접용 회사 방향이 아닌 문장 (ESG·인증, 환율·금리 같은 재무 위험 관리)
+_SKIP = re.compile(
+    r"탄소|온실가스|RE100|Net ?Zero|ESG|기후|안전보건|환경(경영|보호|규제|영향)|폐가전"
+    r"|인증|정보보호|리스크|위험|환율|통화|금리|차입|이자|대손|보안"
+)
 
 SYSTEM = (
     "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
     "- talent: 인재상 원문에서 회사가 바라는 인재의 특징 1~3개\n"
-    "- direction: 사업보고서 원문에서 회사가 앞으로 집중·강화하려는 방향 1~3개. "
-    "단순한 회사 소개, 매출 숫자, 안전·환경 규제는 고르지 않는다\n"
-    "- quote: 근거가 된 원문 문장을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
+    "- direction: 사업보고서 후보 문장 중 회사가 앞으로 집중·강화하려는 방향 1~3개. "
+    "회사의 핵심 사업과 관련된 것을 고르고, 시장 전망이나 지난 실적만 있는 문장은 고르지 않는다\n"
+    "- quote: 근거가 된 후보 문장을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
+    "- keyword·summary: quote에 적힌 내용만 짧게 다시 쓴다. "
+    "quote에 없는 목적·원인·효과를 덧붙이지 않는다\n"
     "- 원문이 비어 있으면 그 항목은 빈 배열로 둔다\n"
     'JSON으로만 답한다: {"talent": [{"keyword": str, "quote": str}], '
     '"direction": [{"summary": str, "quote": str}]}'
 )
 
 
-def _between(text: str, start: str, end: str) -> str:
-    """start 줄부터 그 뒤 처음 나오는 end 줄 직전까지. 하위 항목도 '1.'처럼 번호가 다시 매겨져서
-    번호가 아니라 대단원 제목 글자로 끝을 찾는다."""
-    head = re.search(start, text, re.M)
-    if not head:
-        return ""
-    tail = re.search(end, text[head.end() :], re.M)
-    return text[head.start() : head.end() + tail.start() if tail else len(text)]
+# 경쟁·시장: 회사의 시장 위치, 주요 고객, 경쟁 요소. 한 번에 넣으면 입력이 1만 자를 넘어
+# 로컬 모델 문맥(10240 토큰)에 빠듯해서 따로 호출한다
+_MARKET = re.compile(
+    r"점유율|경쟁사|경쟁 ?우위|경쟁 ?요소|경쟁력|시장 ?지위|선두|1위|주요 ?고객|매출처|거래처"
+)
+MARKET_SYSTEM = (
+    "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
+    "- market: 사업보고서 후보 문장 중 이 회사의 경쟁 위치를 보여주는 것 1~3개. "
+    "시장 점유율·순위, 주요 고객, 경쟁사 대비 강점, 이 회사 사업의 경쟁 요소를 고른다. "
+    "회사와 관계없는 업계 일반 설명이나 규제 설명은 고르지 않는다\n"
+    "- quote: 근거가 된 후보 문장을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
+    "- summary: quote의 단어로 20자 안팎 명사구를 만든다. quote에 없는 숫자·해석을 쓰지 않는다\n"
+    "- 고를 문장이 없으면 빈 배열로 둔다\n"
+    'JSON으로만 답한다: {"market": [{"summary": str, "quote": str}]}'
+)
+
+
+def _pick(business: str, pattern: re.Pattern[str]) -> str:
+    """'사업의 내용'에서 pattern에 맞는 문장만 한 줄에 하나씩, 앞에서부터 INPUT_LIMIT자까지."""
+    sentences = (s.strip() for s in re.split(r"(?<=다\.)|\n", business))
+    picked = [s for s in sentences if len(s) >= 25 and pattern.search(s) and not _SKIP.search(s)]
+    return "\n".join(picked)[:INPUT_LIMIT]
 
 
 def business_input(business: str) -> str:
-    """'사업의 내용'에서 '1. 사업의 개요' 전체와 '기타 참고사항' 앞부분만 남긴다."""
-    overview = _between(business, r"^1\. .*사업의 ?개요", r"^2\. .*(주요 ?제품|영업의 ?현황)")
-    other = _between(business, r"^\d\. .*기타 ?참고사항", r"\Z")
-    return f"{overview}\n{other[:OTHER_LIMIT]}".strip()
+    return _pick(business, _PLAN)
+
+
+def market_input(business: str) -> str:
+    return _pick(business, _MARKET)
 
 
 def build_messages(name: str, talent_text: str, business_text: str) -> list[dict[str, str]]:
-    user = f"회사: {name}\n\n[인재상 원문]\n{talent_text}\n\n[사업보고서 원문]\n{business_text}"
+    user = f"회사: {name}\n\n[인재상 원문]\n{talent_text}\n\n[사업보고서 문장]\n{business_text}"
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+
+
+def build_market_messages(name: str, market_text: str) -> list[dict[str, str]]:
+    user = f"회사: {name}\n\n[사업보고서 문장]\n{market_text}"
+    return [{"role": "system", "content": MARKET_SYSTEM}, {"role": "user", "content": user}]
 
 
 def parse_reply(content: str) -> dict[str, Any]:
@@ -82,4 +116,5 @@ def to_card(
         "model": os.environ.get("LLM_MODEL", ""),
         "talent": [{**t, "source": talent_source} for t in llm.get("talent", [])],
         "direction": [{**d, "source": report_source} for d in llm.get("direction", [])],
+        "market": [{**m, "source": report_source} for m in llm.get("market", [])],
     }

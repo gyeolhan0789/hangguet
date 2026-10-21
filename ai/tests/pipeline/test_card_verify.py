@@ -1,34 +1,37 @@
 import json
 from pathlib import Path
 
-from pipeline.card import PROMPT_VERSION, build_messages, business_input, parse_reply, to_card
+from pipeline.card import (
+    PROMPT_VERSION,
+    build_messages,
+    business_input,
+    market_input,
+    parse_reply,
+    to_card,
+)
 from pipeline.verify import normalize, verify_card
 
 FIXTURES = Path(__file__).parent / "fixtures"
 # 2026-10-19 로컬 qwen3:8b가 카카오뱅크 자료로 만든 실제 응답 (인재상 원문은 비워서 보냄)
 REPLY = (FIXTURES / "llm_reply_kakaobank.json").read_text(encoding="utf-8")
 
-# 하위 항목 번호가 '1.'부터 다시 매겨지는 실제 사업보고서 구조를 줄인 샘플
-BUSINESS = """II. 사업의 내용
-1. 사업의 개요
-당사는 메모리 반도체 기업입니다.
-2. 주요 제품 및 서비스
-DRAM
-6. 주요계약 및 연구개발활동
-1. 연구개발 담당조직
-7. 기타 참고사항
-1. 산업의 특성
-AI 인프라 확장으로 고대역폭 메모리 수요가 늘고 있습니다.
-2. 산업의 성장성
-"""
+# 실제 사업보고서 문장을 줄인 샘플. 한 줄에 문장이 붙어 있는 경우도 있다
+BUSINESS = (
+    "1. 사업의 개요\n"
+    "당사는 메모리 반도체를 생산하는 글로벌 반도체 기업입니다.\n"
+    "2026년에도 제품 경쟁력을 기반으로 AI 시대를 선도해 나갈 계획입니다."
+    "HBM4를 적기에 공급 확대하여 고객 수요에 적극 대응할 계획입니다.\n"
+    "당사는 2050년까지 탄소중립을 달성하기 위한 노력을 지속적으로 추진할 계획입니다.\n"
+    "당사는 환율변동 리스크를 최소화하는데 주력하고 있습니다.\n"
+)
 
 
-def test_business_input_keeps_overview_and_whole_other_section() -> None:
-    text = business_input(BUSINESS)
-    assert text.startswith("1. 사업의 개요")
-    assert "메모리 반도체 기업" in text
-    assert "DRAM" not in text  # 2~6은 뺀다
-    assert "고대역폭 메모리 수요" in text  # '7.' 안의 '1. 산업의 특성'에서 끊기지 않음
+def test_business_input_keeps_only_company_plan_sentences() -> None:
+    lines = business_input(BUSINESS).split("\n")
+    assert lines == [
+        "2026년에도 제품 경쟁력을 기반으로 AI 시대를 선도해 나갈 계획입니다.",
+        "HBM4를 적기에 공급 확대하여 고객 수요에 적극 대응할 계획입니다.",
+    ]  # 소개 문장, 탄소중립(ESG), 환율(재무 위험) 문장은 뺀다
 
 
 def test_build_messages_includes_both_sources() -> None:
@@ -84,3 +87,28 @@ def test_normalize_empty_quote_is_dropped() -> None:
     kept, _ = verify_card({"talent": [{"keyword": "x", "quote": " "}]}, {"talent": "x"})
     assert kept["talent"] == []
     assert normalize(" a\tb\n") == "ab"
+
+
+def test_market_input_keeps_company_position_sentences() -> None:
+    business = (
+        "당사의 2025년 DRAM 시장 점유율은 약 36% 수준으로 업계 1위를 유지하고 있습니다.\n"
+        "당사는 2026년에 신규 공장을 가동할 계획입니다.\n"
+        "당사는 경쟁사 대비 우수한 원가 경쟁력으로 환율 위험에 대응하고 있습니다.\n"
+    )
+    assert market_input(business) == (
+        "당사의 2025년 DRAM 시장 점유율은 약 36% 수준으로 업계 1위를 유지하고 있습니다."
+    )  # 계획 문장은 사업 방향 쪽, 환율(재무 위험) 문장은 뺀다
+
+
+def test_verify_drops_summary_with_numbers_not_in_quote() -> None:
+    # 실제 응답에서 모델이 인용에 없는 점유율·연차를 요약에 지어냈다
+    source = "당사는 2006년 TV 판매 1위를 달성한 이후 20년 연속으로 1위를 지키고 있습니다."
+    card = {
+        "market": [
+            {"summary": "TV 20년 연속 1위", "quote": source},
+            {"summary": "TV 점유율 29%로 1위", "quote": source},
+        ]
+    }
+    kept, dropped = verify_card(card, {"market": source})
+    assert [m["summary"] for m in kept["market"]] == ["TV 20년 연속 1위"]
+    assert [m["summary"] for m in dropped] == ["TV 점유율 29%로 1위"]

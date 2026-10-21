@@ -7,7 +7,7 @@ import pytest
 from pipeline import card, dart, run
 
 REPORT = """<TITLE AASSOCNOTE="D-0-2-0-0">II. 사업의 내용</TITLE>
-<P>1. 사업의 개요</P><P>당사는 AI 인프라 사업에 집중합니다.</P>
+<P>1. 사업의 개요</P><P>당사는 AI 인프라 사업에 더욱 집중할 계획입니다.</P>
 <P>2. 주요 제품 및 서비스</P><P>서버</P>
 <TITLE AASSOCNOTE="D-0-3-0-0">III. 재무에 관한 사항</TITLE>"""
 
@@ -27,7 +27,7 @@ def test_build_one_writes_card_and_drops_made_up_quotes(
     reply = {
         "talent": [{"keyword": "협업", "quote": "우리는 협업합니다."}],
         "direction": [
-            {"summary": "AI 인프라", "quote": "당사는 AI 인프라 사업에 집중합니다."},
+            {"summary": "AI 인프라", "quote": "당사는 AI 인프라 사업에 더욱 집중할 계획입니다."},
             {"summary": "지어냄", "quote": "당사는 우주 사업에 진출합니다."},
         ],
     }
