@@ -51,3 +51,45 @@ def test_build_one_fails_when_nothing_passes(
     with pytest.raises(ValueError):
         run.build_one({"name": "테스트"}, tmp_path)
     assert not (tmp_path / "cards").exists()
+
+
+def test_refresh_recent_replaces_only_recent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    old = {
+        "corp_code": "00000001",
+        "name": "테스트",
+        "generated_at": "2026-10-01",
+        "talent": [{"keyword": "협업", "quote": "우리는 협업합니다.", "source": "url"}],
+        "direction": [],
+        "market": [],
+        "recent": [{"summary": "지난 이슈", "quote": "옛 기사", "source": "old"}],
+    }
+    (tmp_path / "cards").mkdir()
+    (tmp_path / "cards" / "00000001.json").write_text(json.dumps(old, ensure_ascii=False), "utf-8")
+    (tmp_path / "news").mkdir()
+    article = {
+        "title": "테스트, 신제품 출시",
+        "summary": "출시했다.",
+        "url": "u1",
+        "published": "2026-10-21",
+        "group": 0,
+    }
+    (tmp_path / "news" / "테스트.json").write_text(
+        json.dumps({"items": [article]}, ensure_ascii=False), "utf-8"
+    )
+    reply = {"recent": [{"summary": "신제품 출시", "quote": "테스트, 신제품 출시"}]}
+    monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
+
+    out = run.refresh_recent({"name": "테스트"}, tmp_path)
+
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["talent"] == old["talent"]  # 최근 이슈 말고는 그대로
+    assert [(r["summary"], r["source"]) for r in saved["recent"]] == [("신제품 출시", "u1")]
+
+
+def test_refresh_recent_builds_whole_card_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(run, "build_one", lambda company, data: data / "built")
+    assert run.refresh_recent({"name": "새회사"}, tmp_path) == tmp_path / "built"
