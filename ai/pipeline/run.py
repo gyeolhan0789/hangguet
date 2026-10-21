@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from pipeline import card, dart, extract, verify
+from pipeline import card, dart, extract, verify, viewer
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -21,9 +21,11 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     """회사 하나의 카드를 만들어 data/cards/{고유번호}.json에 저장한다."""
     name = company["name"]
     corp_code, report = dart.fetch_report(name, data / "raw")
-    business = card.business_input(extract.business_section(report))
+    section = extract.business_section(report)
+    business, market = card.business_input(section), card.market_input(section)
     talent = company.get("talent_text", "")
     llm = card.call_llm(card.build_messages(name, talent, business))
+    llm |= card.call_llm(card.build_market_messages(name, market))
     result = card.to_card(
         llm,
         corp_code=corp_code,
@@ -31,9 +33,11 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         talent_source=company.get("talent_url", ""),
         report_source=REPORT_SOURCE,
     )
-    result, dropped = verify.verify_card(result, {"talent": talent, "direction": business})
+    result, dropped = verify.verify_card(
+        result, {"talent": talent, "direction": business, "market": market}
+    )
     for item in dropped:
-        log.warning("%s: 원문에 없는 인용이라 버림 [%s] %s", name, item["field"], item.get("quote"))
+        log.warning("%s: 검증 실패로 버림 [%s] %s", name, item["field"], item.get("quote"))
     if not result["talent"] and not result["direction"]:
         raise ValueError(f"{name}: 검증을 통과한 항목이 없다")
     out = data / "cards" / f"{corp_code}.json"
@@ -57,6 +61,7 @@ def main() -> None:
         except Exception:
             log.exception("실패 %s", company["name"])
             failed.append(company["name"])
+    log.info("확인 화면 데이터 → %s (pipeline/viewer.html로 열기)", viewer.write(DATA))
     if failed:
         raise SystemExit(f"실패한 회사: {', '.join(failed)}")
 

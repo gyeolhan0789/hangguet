@@ -52,6 +52,16 @@ uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 - 원문에 없는 인용으로 버린 항목은 WARNING 로그로 남는다
 - 이미 받은 사업보고서는 다시 받지 않는다
 
+## 확인 화면
+
+```bash
+cd ai
+uv run python -m pipeline.viewer
+```
+
+카드와 근거 원문을 묶어 로컬 서버(http://127.0.0.1:8765/viewer.html)를 띄우고 브라우저로 연다.
+인용 위치가 원문에 강조된다. 끄려면 Ctrl+C. `pipeline.run`도 끝날 때 화면 데이터를 갱신한다.
+
 ## 데이터
 
 수집한 원문은 `data/raw/`, 만든 카드는 `data/cards/`에 저장하며 둘 다 git에서 제외한다.
