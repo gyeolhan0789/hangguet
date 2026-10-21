@@ -17,6 +17,8 @@ import type {
   AnswerAudioUploadUrlRequest,
   AnswerRequest,
   AnswerResponse,
+  ReactionRequest,
+  ReactionResponse,
   SessionCreateRequest,
   SessionResponse,
   SttTokenResponse,
@@ -279,6 +281,41 @@ export async function submitVideoAnswer(
       inputType: data.inputType,
       createdAt: data.createdAt,
       isLastQuestion: data.isLastQuestion,
+    };
+  } catch (error) {
+    // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
+}
+
+// 기준: Swagger 5.11 면접관 리액션(POST …/reactions → 200 ReactionResponse · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND
+// · 409 ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE) · API 명세 5.11(서버가 정하지 못하면 reaction null로 200,
+// Nginx 502 · 504면 리액션 없이 진행, 전송한 글은 저장하지 않는다)
+
+/** 5.11 결과. 성공이면 리액션 · 태도 · 말 끊기, 실패면 code · status */
+export type ReactionActionResult = ({ ok: true } & ReactionResponse) | SpeechActionFailure;
+
+/** 5.11 답변 도중 전송한 문장(화상) 또는 입력 글(채팅)에 대한 면접관 리액션을 요청한다. Idempotency-Key는 없다 */
+export async function sendReaction(
+  sessionId: number,
+  questionId: number,
+  request: ReactionRequest,
+): Promise<ReactionActionResult> {
+  if (!idSchema.safeParse(sessionId).success || !idSchema.safeParse(questionId).success) {
+    return toSpeechActionFailure();
+  }
+  try {
+    const { data } = await api.post<ReactionResponse>(
+      endpoints.interviews.reactions(sessionId, questionId),
+      request,
+    );
+    return {
+      ok: true,
+      seq: data.seq,
+      reaction: data.reaction,
+      attitude: data.attitude,
+      interrupt: data.interrupt,
     };
   } catch (error) {
     // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
