@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { AUTO_SUBMIT_SILENCE_MS, NO_SPEECH_TIMEOUT_MS } from "@/lib/interview/auto-submit";
 import type { SpeechActionFailure } from "@/lib/interview/speech-failure";
 import type { ReactionResponse } from "@/types/api";
 
@@ -14,6 +15,7 @@ import type {
 } from "./video-answer-contract";
 
 // 기준: video-answer-contract.ts(화상 답변 훅 계약) · Swagger 5.11 면접관 리액션 200 예시(리액션 있음)
+// · auto-submit.ts(자동 제출 7초 · 말 없이 종료 60초는 실제 구현과 같은 상수를 사용한다)
 // 화면(S06) 개발용 목 훅이다. 실제 구현과 달리 서버 API · 마이크 · Soniox를 호출하지 않고, 시나리오에 따라 미리 정한 상태와 자막을 순서대로 반환한다.
 // 실제 구현(useVideoAnswer)이 병합되면 화면은 import만 변경한다.
 
@@ -46,14 +48,6 @@ const WORDS = SCRIPT.flatMap((sentence, index) =>
 export const MOCK_START_DELAY_MS = 300;
 export const MOCK_WORD_INTERVAL_MS = 300;
 export const MOCK_SUBMIT_DELAY_MS = 500;
-
-/**
- * 마지막 말소리 뒤 자동 제출까지(API 명세 5.7, 임시 값). 실제 구현의 auto-submit.ts와 같은 값이며,
- * auto-submit.ts가 병합되면 그 상수를 가져오도록 변경한다.
- */
-export const AUTO_SUBMIT_SILENCE_MS = 7_000;
-/** 말을 시작하지 않은 채 음성 인식을 종료하기까지(API 명세 5.7, 임시 값). 위와 같이 auto-submit.ts 병합 후 변경한다 */
-export const NO_SPEECH_TIMEOUT_MS = 60_000;
 
 const SUBMIT_FAILURE: SpeechActionFailure = { ok: false, code: "INTERNAL_ERROR", status: 500 };
 

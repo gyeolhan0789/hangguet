@@ -1,9 +1,9 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AUTO_SUBMIT_SILENCE_MS, NO_SPEECH_TIMEOUT_MS } from "@/lib/interview/auto-submit";
+
 import {
-  AUTO_SUBMIT_SILENCE_MS,
-  NO_SPEECH_TIMEOUT_MS,
   MOCK_START_DELAY_MS,
   MOCK_SUBMIT_DELAY_MS,
   MOCK_WORD_INTERVAL_MS,

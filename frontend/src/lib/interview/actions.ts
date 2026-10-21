@@ -13,10 +13,13 @@ import {
 } from "@/lib/api/problem-detail";
 import { devicesPath, interviewPath, ROUTES } from "@/lib/routes";
 import type {
+  AnswerAudioContentType,
+  AnswerAudioUploadUrlRequest,
   SessionCreateRequest,
   SessionResponse,
   SttTokenResponse,
   TtsTokenResponse,
+  UploadUrlResponse,
 } from "@/types/api";
 
 import {
@@ -175,6 +178,45 @@ export async function issueTtsToken(
       expiresAt: data.expiresAt,
       voiceId: data.voiceId,
       modelId: data.modelId,
+    };
+  } catch (error) {
+    // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
+}
+
+// 기준: Swagger 5.6 답변 음성 업로드 주소(POST …/questions/{questionId}/answer-audio/upload-url + AnswerAudioUploadUrlRequest
+// → 200 UploadUrlResponse · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · 409 INVALID_SESSION_STATE) · API 명세 5.6(objectKey는
+// 5.7 audioObjectKey로 전송한다) · API 명세 1장(400 VALIDATION_FAILED · 500 INTERNAL_ERROR 공통, Nginx 502 · 504는 상태 코드로 판단)
+
+/** 5.6 결과. 성공이면 답변 음성을 PUT할 주소 · 5.7에 전송할 objectKey · 주소 만료 일시, 실패면 code · status */
+export type AnswerAudioUploadUrlActionResult =
+  ({ ok: true } & UploadUrlResponse) | SpeechActionFailure;
+
+/**
+ * 5.6 화상 답변 음성을 업로드할 주소를 발급받는다. 수신한 uploadUrl로 브라우저가 S3에 직접 PUT한다(AGENTS.md 예외).
+ * contentType은 답변 녹음(AnswerCapture.start)이 결정한 녹음 형식을 그대로 전달한다.
+ */
+export async function createAnswerAudioUploadUrl(
+  sessionId: number,
+  questionId: number,
+  contentType: AnswerAudioContentType,
+): Promise<AnswerAudioUploadUrlActionResult> {
+  if (!idSchema.safeParse(sessionId).success || !idSchema.safeParse(questionId).success) {
+    return toSpeechActionFailure();
+  }
+  const body: AnswerAudioUploadUrlRequest = { contentType };
+  try {
+    const { data } = await api.post<UploadUrlResponse>(
+      endpoints.interviews.answerAudioUploadUrl(sessionId, questionId),
+      body,
+    );
+    return {
+      ok: true,
+      uploadUrl: data.uploadUrl,
+      objectKey: data.objectKey,
+      expiresAt: data.expiresAt,
     };
   } catch (error) {
     // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
