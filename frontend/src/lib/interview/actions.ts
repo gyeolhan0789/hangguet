@@ -12,7 +12,12 @@ import {
   type FormActionResult,
 } from "@/lib/api/problem-detail";
 import { devicesPath, interviewPath, ROUTES } from "@/lib/routes";
-import type { SessionCreateRequest, SessionResponse, SttTokenResponse } from "@/types/api";
+import type {
+  SessionCreateRequest,
+  SessionResponse,
+  SttTokenResponse,
+  TtsTokenResponse,
+} from "@/types/api";
 
 import {
   idempotencyKeySchema,
@@ -135,6 +140,42 @@ export async function issueSttToken(sessionId: number): Promise<SttTokenActionRe
   try {
     const { data } = await api.post<SttTokenResponse>(endpoints.interviews.sttToken(sessionId));
     return { ok: true, token: data.token, expiresAt: data.expiresAt };
+  } catch (error) {
+    // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
+}
+
+// 기준: Swagger 5.12 질문 음성 토큰(POST …/questions/{questionId}/tts-token → 200 TtsTokenResponse · 404 SESSION_NOT_FOUND
+// · QUESTION_NOT_FOUND · 409 INVALID_SESSION_STATE · 503 TTS_UNAVAILABLE) · API 명세 5.12(토큰은 연결 1회에만 사용할 수 있으므로
+// 연결할 때마다 새로 발급받는다, 503 · 502 · 504면 질문 글만 보여 주고 계속) · API 명세 1장(400 · 500 공통)
+
+/** 5.12 결과. 성공이면 ElevenLabs 연결용 1회용 토큰과 면접관 음성 · 모델 id, 실패면 code · status */
+export type TtsTokenActionResult = ({ ok: true } & TtsTokenResponse) | SpeechActionFailure;
+
+/**
+ * 5.12 ElevenLabs 질문 음성 1회용 토큰을 발급받는다. 질문 음성에 연결할 때마다 새로 호출한다.
+ * 토큰은 이 반환값으로만 브라우저에 전달한다(store · localStorage · props에 저장하지 않는다).
+ */
+export async function issueTtsToken(
+  sessionId: number,
+  questionId: number,
+): Promise<TtsTokenActionResult> {
+  if (!idSchema.safeParse(sessionId).success || !idSchema.safeParse(questionId).success) {
+    return toSpeechActionFailure();
+  }
+  try {
+    const { data } = await api.post<TtsTokenResponse>(
+      endpoints.interviews.ttsToken(sessionId, questionId),
+    );
+    return {
+      ok: true,
+      token: data.token,
+      expiresAt: data.expiresAt,
+      voiceId: data.voiceId,
+      modelId: data.modelId,
+    };
   } catch (error) {
     // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
     unstable_rethrow(error);
