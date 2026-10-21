@@ -33,12 +33,20 @@ def _unzip(data: bytes, prefer: str | None = None) -> bytes:
 
 
 def find_corp_code(corp_xml: bytes, name: str) -> str:
-    """고유번호 목록에서 상장사(종목코드 있음) 중 회사명이 정확히 같은 회사를 찾는다."""
-    for item in ElementTree.fromstring(corp_xml).iter("list"):
-        listed = (item.findtext("stock_code") or "").strip()
-        if listed and (item.findtext("corp_name") or "").strip() == name:
-            return (item.findtext("corp_code") or "").strip()
-    raise LookupError(f"상장사 목록에 없는 회사명: {name}")
+    """회사명이 정확히 같은 회사의 고유번호. 같은 이름이 여럿이면 상장사(종목코드 있음).
+
+    비상장사(미래에셋자산운용 등)도 사업보고서를 내는 곳이 있어서, 상장사가 없으면 같은 이름의
+    비상장사가 하나뿐일 때만 쓴다.
+    """
+    same = [
+        item
+        for item in ElementTree.fromstring(corp_xml).iter("list")
+        if (item.findtext("corp_name") or "").strip() == name
+    ]
+    listed = [i for i in same if (i.findtext("stock_code") or "").strip()]
+    if listed or len(same) == 1:
+        return ((listed or same)[0].findtext("corp_code") or "").strip()
+    raise LookupError(f"고유번호 목록에 없거나 비상장 동명 회사가 여럿인 회사명: {name}")
 
 
 def latest_annual_report(listing: dict[str, Any]) -> str:
