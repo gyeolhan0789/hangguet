@@ -7,6 +7,7 @@ import type {
   ProblemDetail,
   SessionCreateRequest,
   SessionResponse,
+  TtsTokenResponse,
 } from "@/types/api";
 
 import type { SessionCreateValues } from "./schemas";
@@ -34,7 +35,8 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const { createSession, issueSttToken, retryPlan, startSession } = await import("./actions");
+const { createSession, issueSttToken, issueTtsToken, retryPlan, startSession } =
+  await import("./actions");
 
 const KEY = "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70";
 const values = {
@@ -389,4 +391,105 @@ describe("issueSttToken (5.10 실시간 음성 인식 토큰)", () => {
     expect(await issueSttToken(id)).toEqual({ ok: false, code: null, status: null });
     expect(post).not.toHaveBeenCalled();
   });
+});
+
+describe("issueTtsToken (5.12 질문 음성 토큰)", () => {
+  it("1회용 토큰 · 만료 일시 · 면접관 음성 id · 모델 id를 반환한다", async () => {
+    // Swagger 5.12 200 예시
+    const data = {
+      token: "…",
+      expiresAt: "2026-10-15T12:21:12+09:00",
+      voiceId: "…",
+      modelId: "…",
+    } satisfies TtsTokenResponse;
+    post.mockResolvedValue({ data });
+
+    expect(await issueTtsToken(55, 303)).toEqual({ ok: true, ...data });
+    // 5.12는 본문 · Idempotency-Key가 없다.
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/questions/303/tts-token");
+  });
+
+  // Swagger 5.12 오류 예시 · API 명세 1장 공통 오류(500)
+  it.each([
+    {
+      title: "Bad Request",
+      status: 400,
+      detail: "입력값을 확인해 주세요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
+      code: "VALIDATION_FAILED",
+    },
+    SESSION_NOT_FOUND,
+    {
+      title: "Not Found",
+      status: 404,
+      detail: "질문을 찾을 수 없어요.",
+      instance: "/api/v1/interview-sessions/55/questions/0/tts-token",
+      code: "QUESTION_NOT_FOUND",
+    },
+    {
+      title: "Conflict",
+      status: 409,
+      detail: "지금은 할 수 없는 요청이에요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
+      code: "INVALID_SESSION_STATE",
+    },
+    {
+      title: "Internal Server Error",
+      status: 500,
+      detail: "잠시 후 다시 시도해 주세요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
+      code: "INTERNAL_ERROR",
+    },
+    {
+      title: "Service Unavailable",
+      status: 503,
+      detail: "질문 음성을 불러오지 못했어요. 글로 보여 드릴게요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
+      code: "TTS_UNAVAILABLE",
+    },
+  ] satisfies ProblemDetail[])("$code($status)면 code와 status를 반환한다", async (problem) => {
+    post.mockRejectedValue(axiosProblem(problem));
+
+    expect(await issueTtsToken(55, 303)).toEqual({
+      ok: false,
+      code: problem.code,
+      status: problem.status,
+    });
+  });
+
+  it.each([502, 504])("본문 없는 %s(Nginx)면 code 없이 status만 반환한다", async (status) => {
+    post.mockRejectedValue(axiosStatusOnly(status));
+
+    expect(await issueTtsToken(55, 303)).toEqual({ ok: false, code: null, status });
+  });
+
+  it("응답이 전혀 없으면(연결 거부 · 시간 초과) code · status 모두 null", async () => {
+    post.mockRejectedValue(axiosNoResponse());
+
+    expect(await issueTtsToken(55, 303)).toEqual({ ok: false, code: null, status: null });
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면으로 이동시키면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(issueTtsToken(55, 303)).rejects.toBe(signedOut);
+  });
+
+  it.each([
+    { sessionId: 0, questionId: 303 },
+    { sessionId: 55, questionId: 0 },
+    { sessionId: 55, questionId: -1 },
+    { sessionId: 1.5, questionId: 303 },
+  ])(
+    "면접 id $sessionId · 질문 id $questionId: 잘못된 id면 서버에 전송하지 않고 code · status 모두 null",
+    async ({ sessionId, questionId }) => {
+      expect(await issueTtsToken(sessionId, questionId)).toEqual({
+        ok: false,
+        code: null,
+        status: null,
+      });
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
 });
