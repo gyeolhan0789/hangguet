@@ -48,8 +48,11 @@ com.ssafy.a301
 │  ├─ repository   PracticeLogRepository
 │  └─ domain       PracticeLog, Streak
 ├─ application
+│  ├─ controller   ApplicationController
+│  ├─ service      ApplicationService
 │  ├─ dto          ApplicationDtos
 │  ├─ mapper       ApplicationMapper
+│  ├─ repository   ApplicationRepository
 │  └─ domain       Application
 ├─ interview
 │  ├─ controller   InterviewSessionController
@@ -74,7 +77,7 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
@@ -97,6 +100,8 @@ com.ssafy.a301
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
+- 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
+- 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
 - ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(홈·통계), `ix_interview_sessions_application`(지원서 사용 여부), `uk_interview_questions_session_seq`(질문 순서 중복 방지)
@@ -117,7 +122,7 @@ com.ssafy.a301
 ## 5. 처리 흐름
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
-1. 지원서 소유 확인 → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
+1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
 2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
 3. 완료 → Redis `planStatus=READY` / 실패 → `FAILED`
 4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(ERD 반영 대기 B-9). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**

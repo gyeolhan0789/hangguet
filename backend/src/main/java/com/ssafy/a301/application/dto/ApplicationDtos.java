@@ -2,6 +2,7 @@ package com.ssafy.a301.application.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 
@@ -36,6 +37,7 @@ public final class ApplicationDtos {
                             maxLength = 100,
                             nullable = true)
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
+                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String companyName,
             @Schema(
                             description = "지원 직무",
@@ -44,6 +46,7 @@ public final class ApplicationDtos {
                             maxLength = 100,
                             nullable = true)
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
+                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String jobTitle,
             @Schema(
                             description = "자기소개서",
@@ -52,6 +55,7 @@ public final class ApplicationDtos {
                             maxLength = 3000,
                             nullable = true)
                     @Size(min = 1, max = 3000, message = "1~3,000자입니다.")
+                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String coverLetter) {}
 
     public record ApplicationResponse(

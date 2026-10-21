@@ -216,6 +216,19 @@ class ApiSpecTest {
     }
 
     @Test
+    void whitespaceOnlyApplicationUpdateIsRejected() {
+        assertThat(
+                        mockMvc.patch()
+                                .uri("/api/v1/applications/10")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{ \"companyName\": \"   \" }"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.errors[0].field")
+                .isEqualTo("companyName");
+    }
+
+    @Test
     void withdrawIsPost() {
         assertThat(
                         mockMvc.post()
