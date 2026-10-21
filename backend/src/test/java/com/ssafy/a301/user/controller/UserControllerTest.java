@@ -60,7 +60,8 @@ class UserControllerTest {
                     patch("/api/v1/users/me/password"),
                     post("/api/v1/users/me/profile-image/upload-url"),
                     put("/api/v1/users/me/profile-image"),
-                    delete("/api/v1/users/me/profile-image")
+                    delete("/api/v1/users/me/profile-image"),
+                    post("/api/v1/users/me")
                 }) {
             mvc.perform(request.contentType(MediaType.APPLICATION_JSON).content("{}"))
                     .andExpect(status().isUnauthorized())
@@ -199,6 +200,39 @@ class UserControllerTest {
                                 "{\"objectKey\":\"profile/7/b.png\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("FILE_NOT_FOUND"));
+    }
+
+    @Test
+    void withdrawalIsNoContent() throws Exception {
+        mvc.perform(json(post("/api/v1/users/me"), "{\"password\":\"abcd1234\"}"))
+                .andExpect(status().isNoContent());
+        verify(service).withdraw(7L, "abcd1234");
+    }
+
+    @Test
+    void withdrawalWithWrongPasswordIsPasswordMismatch() throws Exception {
+        doThrow(new ApiException(ErrorCode.PASSWORD_MISMATCH))
+                .when(service)
+                .withdraw(7L, "wrong123");
+        mvc.perform(json(post("/api/v1/users/me"), "{\"password\":\"wrong123\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_MISMATCH"));
+    }
+
+    @Test
+    void withdrawalWithoutPasswordIsValidationError() throws Exception {
+        mvc.perform(json(post("/api/v1/users/me"), "{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+        verify(service, never()).withdraw(anyLong(), anyString());
+    }
+
+    @Test
+    void tooLongWithdrawalPasswordIsValidationError() throws Exception {
+        mvc.perform(json(post("/api/v1/users/me"), "{\"password\":\"" + "a1".repeat(32) + "b\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("password"));
+        verify(service, never()).withdraw(anyLong(), anyString());
     }
 
     @Test

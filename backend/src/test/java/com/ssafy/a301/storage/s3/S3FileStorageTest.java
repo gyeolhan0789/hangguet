@@ -65,6 +65,11 @@ class S3FileStorageTest {
     }
 
     @Test
+    void missingKeyHasNoDownloadUrl() {
+        assertThat(storage.presignDownload(null)).isNull();
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void existsReflectsHeadObject() {
         when(s3.headObject(any(Consumer.class))).thenReturn(HeadObjectResponse.builder().build());

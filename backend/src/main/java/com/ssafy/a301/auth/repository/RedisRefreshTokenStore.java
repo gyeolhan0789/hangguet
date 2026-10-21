@@ -5,13 +5,20 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
+/**
+ * refresh:{SHA-256(token)} → 회원 id. 탈퇴 때 모든 기기 토큰을 지울 수 있도록 refresh-user:{userId} 정렬 집합에 회원별 토큰 키를
+ * 만료 시각(epoch 초)을 점수로 남긴다. 발급할 때 만료 시각이 지난 키를 정리하므로 쓰지 않게 된 기기의 키가 쌓이지 않는다.
+ */
 @Component
 public class RedisRefreshTokenStore implements RefreshTokenStore {
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -33,19 +40,48 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        redis.opsForValue().set(key(token), Long.toString(userId), properties.refreshTtl());
+        String key = key(token);
+        redis.opsForValue().set(key, Long.toString(userId), properties.refreshTtl());
+        String userKey = userKey(userId);
+        long now = Instant.now().getEpochSecond();
+        redis.opsForZSet().removeRangeByScore(userKey, Double.NEGATIVE_INFINITY, now);
+        redis.opsForZSet().add(userKey, key, now + properties.refreshTtl().toSeconds());
+        redis.expire(userKey, properties.refreshTtl());
         return token;
     }
 
     @Override
     public Long consume(String token) {
-        String value = redis.opsForValue().getAndDelete(key(token));
-        return value == null ? null : Long.valueOf(value);
+        String key = key(token);
+        String value = redis.opsForValue().getAndDelete(key);
+        if (value == null) {
+            return null;
+        }
+        long userId = Long.parseLong(value);
+        redis.opsForZSet().remove(userKey(userId), key);
+        return userId;
     }
 
     @Override
     public void revoke(String token, long userId) {
-        redis.execute(REVOKE, List.of(key(token)), Long.toString(userId));
+        String key = key(token);
+        Long deleted = redis.execute(REVOKE, List.of(key), Long.toString(userId));
+        if (deleted != null && deleted > 0) {
+            redis.opsForZSet().remove(userKey(userId), key);
+        }
+    }
+
+    @Override
+    public void revokeAll(long userId) {
+        String userKey = userKey(userId);
+        Set<String> keys = redis.opsForZSet().range(userKey, 0, -1);
+        List<String> targets = new ArrayList<>(keys == null ? Set.of() : keys);
+        targets.add(userKey);
+        redis.delete(targets);
+    }
+
+    private static String userKey(long userId) {
+        return "refresh-user:" + userId;
     }
 
     // Redis에도 원본 bearer credential을 저장하지 않는다.

@@ -1,6 +1,7 @@
 package com.ssafy.a301.auth.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.offset;
 
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import java.net.URI;
@@ -10,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -215,8 +217,97 @@ class RedisAuthIntegrationTest {
         remember(body(otherRefresh).path("refreshToken").asText());
     }
 
+    @Test
+    void withdrawalRevokesEveryDeviceAndBlocksAccess() throws Exception {
+        Account account = signup();
+        var secondLogin =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        String secondToken = remember(body(secondLogin).path("refreshToken").asText());
+        assertThat(redis.opsForZSet().range(userKey(account.id()), 0, -1))
+                .contains(key(account.refresh()), key(secondToken));
+
+        var withdrawal =
+                post("/api/v1/users/me", Map.of("password", "testPass1234"), account.access());
+        assertThat(withdrawal.statusCode()).isEqualTo(204);
+        assertThat(redis.hasKey(key(account.refresh()))).isFalse();
+        assertThat(redis.hasKey(key(secondToken))).isFalse();
+        assertThat(redis.hasKey(userKey(account.id()))).isFalse();
+
+        var refresh = post("/api/v1/auth/token/refresh", Map.of("refreshToken", secondToken), null);
+        assertThat(refresh.statusCode()).isEqualTo(401);
+        assertThat(body(refresh).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(login.statusCode()).isEqualTo(401);
+        assertThat(body(login).path("code").asText()).isEqualTo("LOGIN_FAILED");
+        var me = get("/api/v1/users/me", account.access());
+        assertThat(me.statusCode()).isEqualTo(401);
+        assertThat(body(me).path("code").asText()).isEqualTo("UNAUTHORIZED");
+
+        Account again = signup(account.email());
+        assertThat(again.id()).isNotEqualTo(account.id());
+    }
+
+    @Test
+    void withdrawalWithWrongPasswordKeepsAccount() throws Exception {
+        Account account = signup();
+        var withdrawal =
+                post("/api/v1/users/me", Map.of("password", "wrongPass123"), account.access());
+        assertThat(withdrawal.statusCode()).isEqualTo(400);
+        assertThat(body(withdrawal).path("code").asText()).isEqualTo("PASSWORD_MISMATCH");
+        assertThat(redis.hasKey(key(account.refresh()))).isTrue();
+        assertThat(get("/api/v1/users/me", account.access()).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void logoutAndRefreshRemoveTokenFromUserIndex() throws Exception {
+        Account account = signup();
+        var rotated =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        String next = remember(body(rotated).path("refreshToken").asText());
+        String access = body(rotated).path("accessToken").asText();
+        assertThat(redis.opsForZSet().range(userKey(account.id()), 0, -1))
+                .containsExactly(key(next));
+
+        post("/api/v1/auth/logout", Map.of("refreshToken", next), access);
+        assertThat(redis.opsForZSet().range(userKey(account.id()), 0, -1)).isEmpty();
+    }
+
+    @Test
+    void issuingPrunesExpiredKeysFromUserIndex() throws Exception {
+        Account account = signup();
+        String stale = "refresh:stale-" + UUID.randomUUID();
+        redis.opsForZSet().add(userKey(account.id()), stale, 1);
+
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        String token = remember(body(login).path("refreshToken").asText());
+
+        assertThat(redis.opsForZSet().range(userKey(account.id()), 0, -1))
+                .containsExactlyInAnyOrder(key(account.refresh()), key(token));
+        Double expiresAt = redis.opsForZSet().score(userKey(account.id()), key(token));
+        assertThat(expiresAt)
+                .isCloseTo(
+                        (double)
+                                (Instant.now().getEpochSecond()
+                                        + properties.refreshTtl().toSeconds()),
+                        offset(60.0));
+    }
+
     private Account signup() throws Exception {
-        String email = "redis-it-" + UUID.randomUUID() + "@example.com";
+        return signup("redis-it-" + UUID.randomUUID() + "@example.com");
+    }
+
+    private Account signup(String email) throws Exception {
         emails.add(email);
         List<Map<String, String>> agreements =
                 List.of("TERMS", "PRIVACY", "RECORDING").stream()
@@ -237,9 +328,11 @@ class RedisAuthIntegrationTest {
                         null);
         assertThat(response.statusCode()).isEqualTo(201);
         JsonNode body = body(response);
+        long id = body.path("user").path("id").asLong();
+        tokenKeys.add(userKey(id));
         return new Account(
                 email,
-                body.path("user").path("id").asLong(),
+                id,
                 body.path("accessToken").asText(),
                 remember(body.path("refreshToken").asText()));
     }
@@ -255,6 +348,10 @@ class RedisAuthIntegrationTest {
                         .formatHex(
                                 MessageDigest.getInstance("SHA-256")
                                         .digest(token.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String userKey(long userId) {
+        return "refresh-user:" + userId;
     }
 
     private URI uri(String endpoint) {
@@ -279,6 +376,16 @@ class RedisAuthIntegrationTest {
             throws Exception {
         return http.send(
                 request(endpoint, payload, accessToken), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> get(String endpoint, String accessToken) throws Exception {
+        return http.send(
+                HttpRequest.newBuilder(uri(endpoint))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Authorization", "Bearer " + accessToken)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private JsonNode body(HttpResponse<String> response) {

@@ -126,11 +126,6 @@ public class AuthService {
                 accessTokens.issue(user.getId(), user.getNickname()),
                 refreshTokens.issue(user.getId()),
                 properties.accessTtl().toSeconds(),
-                UserMapper.toSummary(user, profileImageUrl(user)));
-    }
-
-    private String profileImageUrl(User user) {
-        String key = user.getProfileImageKey();
-        return key == null ? null : storage.presignDownload(key);
+                UserMapper.toSummary(user, storage.presignDownload(user.getProfileImageKey())));
     }
 }

@@ -203,6 +203,19 @@ class ApiSpecTest {
     }
 
     @Test
+    void tooLongWithdrawalPasswordIsRejected() {
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/users/me")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{ \"password\": \"" + "a1".repeat(32) + "b\" }"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.errors[0].field")
+                .isEqualTo("password");
+    }
+
+    @Test
     void withdrawIsPost() {
         assertThat(
                         mockMvc.post()
