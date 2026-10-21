@@ -9,6 +9,9 @@ __pycache__/
 # 파이프라인 수집 원문·생성 카드
 pipeline/data/
 
+# Airflow 실행 로그
+airflow/logs/
+
 # Tool cache
 .mypy_cache/
 .pytest_cache/
