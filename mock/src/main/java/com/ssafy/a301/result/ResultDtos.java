@@ -64,7 +64,7 @@ public final class ResultDtos {
 
     @Schema(description = "음성 지표. 값을 구하지 못한 항목은 null")
     public record SpeechMetrics(
-            @Schema(description = "1분당 군말('음', '어') 횟수", nullable = true, example = "2.1")
+            @Schema(description = "1분당 군말 횟수(목록은 AI 명세 3장)", nullable = true, example = "2.1")
                     BigDecimal fillerPerMin,
             @Schema(description = "문장 중간에 길게 멈춘 횟수", nullable = true, example = "3")
                     Integer longPauseCount,
