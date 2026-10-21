@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { axiosNoResponse, axiosProblem, axiosStatusOnly } from "@/test/axios-problem";
 import type {
+  AnswerResponse,
   IdempotencyHeaders,
   ProblemDetail,
   SessionCreateRequest,
@@ -43,6 +44,7 @@ const {
   issueTtsToken,
   retryPlan,
   startSession,
+  submitVideoAnswer,
 } = await import("./actions");
 
 const KEY = "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70";
@@ -599,6 +601,135 @@ describe("createAnswerAudioUploadUrl (5.6 답변 음성 업로드 주소)", () =
     "면접 id $sessionId · 질문 id $questionId: 잘못된 id면 서버에 전송하지 않고 code · status 모두 null",
     async ({ sessionId, questionId }) => {
       expect(await createAnswerAudioUploadUrl(sessionId, questionId, "audio/webm")).toEqual({
+        ok: false,
+        code: null,
+        status: null,
+      });
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("submitVideoAnswer (5.7 화상 답변 제출)", () => {
+  // Swagger 5.7 화상 예시를 줄인 본문
+  const body = {
+    content: "조회 응답 시간을 40% 줄였습니다.",
+    audioObjectKey: "sessions/55/answers/303.webm",
+    tokens: [{ text: "조회", startMs: 0, endMs: 280 }],
+  };
+
+  it("VOICE로 content · audioObjectKey · tokens를 같은 Idempotency-Key와 전송하고 접수 결과를 반환한다", async () => {
+    // Swagger 5.7 202 예시
+    const data = {
+      id: 903,
+      questionId: 303,
+      inputType: "VOICE",
+      createdAt: "2026-10-15T12:08:40+09:00",
+      isLastQuestion: false,
+    } satisfies AnswerResponse;
+    post.mockResolvedValue({ data });
+
+    expect(await submitVideoAnswer(55, 303, body, KEY)).toEqual({ ok: true, ...data });
+    expect(post).toHaveBeenCalledWith(
+      "/interview-sessions/55/questions/303/answer",
+      { inputType: "VOICE", ...body },
+      { headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders },
+    );
+  });
+
+  it("tokens가 null이면(400 조건으로 생략) tokens를 전송하지 않는다", async () => {
+    post.mockResolvedValue({
+      data: { id: 1, questionId: 303, inputType: "VOICE", createdAt: "", isLastQuestion: true },
+    });
+
+    await submitVideoAnswer(55, 303, { ...body, tokens: null }, KEY);
+
+    expect(post.mock.calls[0][1]).toEqual({
+      inputType: "VOICE",
+      content: body.content,
+      audioObjectKey: body.audioObjectKey,
+    });
+  });
+
+  // Swagger 5.7 오류 예시 · API 명세 5.7 · 1장 공통 오류
+  it.each([
+    {
+      title: "Bad Request",
+      status: 400,
+      detail: "입력값을 확인해 주세요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/answer",
+      code: "VALIDATION_FAILED",
+    },
+    SESSION_NOT_FOUND,
+    {
+      title: "Not Found",
+      status: 404,
+      detail: "업로드한 파일을 찾을 수 없어요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/answer",
+      code: "FILE_NOT_FOUND",
+    },
+    {
+      title: "Conflict",
+      status: 409,
+      detail: "이미 답변한 질문이에요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/answer",
+      code: "ANSWER_ALREADY_SUBMITTED",
+    },
+    {
+      title: "Conflict",
+      status: 409,
+      detail: "이미 처리된 요청이에요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/answer",
+      code: "IDEMPOTENCY_KEY_REUSED",
+    },
+    {
+      title: "Internal Server Error",
+      status: 500,
+      detail: "잠시 후 다시 시도해 주세요.",
+      instance: "/api/v1/interview-sessions/55/questions/303/answer",
+      code: "INTERNAL_ERROR",
+    },
+  ] satisfies ProblemDetail[])("$code($status)면 code와 status를 반환한다", async (problem) => {
+    post.mockRejectedValue(axiosProblem(problem));
+
+    expect(await submitVideoAnswer(55, 303, body, KEY)).toEqual({
+      ok: false,
+      code: problem.code,
+      status: problem.status,
+    });
+  });
+
+  it.each([502, 504])("본문 없는 %s(Nginx)면 code 없이 status만 반환한다", async (status) => {
+    post.mockRejectedValue(axiosStatusOnly(status));
+
+    expect(await submitVideoAnswer(55, 303, body, KEY)).toEqual({ ok: false, code: null, status });
+  });
+
+  it("응답이 전혀 없으면 code · status 모두 null", async () => {
+    post.mockRejectedValue(axiosNoResponse());
+
+    expect(await submitVideoAnswer(55, 303, body, KEY)).toEqual({
+      ok: false,
+      code: null,
+      status: null,
+    });
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면으로 이동시키면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(submitVideoAnswer(55, 303, body, KEY)).rejects.toBe(signedOut);
+  });
+
+  it.each([
+    { sessionId: 0, questionId: 303, key: KEY },
+    { sessionId: 55, questionId: 0, key: KEY },
+    { sessionId: 55, questionId: 303, key: "not-a-uuid" },
+  ])(
+    "면접 id $sessionId · 질문 id $questionId · 키 $key: 잘못된 값이면 서버에 전송하지 않는다",
+    async ({ sessionId, questionId, key }) => {
+      expect(await submitVideoAnswer(sessionId, questionId, body, key)).toEqual({
         ok: false,
         code: null,
         status: null,

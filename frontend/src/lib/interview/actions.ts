@@ -15,9 +15,12 @@ import { devicesPath, interviewPath, ROUTES } from "@/lib/routes";
 import type {
   AnswerAudioContentType,
   AnswerAudioUploadUrlRequest,
+  AnswerRequest,
+  AnswerResponse,
   SessionCreateRequest,
   SessionResponse,
   SttTokenResponse,
+  TranscriptToken,
   TtsTokenResponse,
   UploadUrlResponse,
 } from "@/types/api";
@@ -217,6 +220,65 @@ export async function createAnswerAudioUploadUrl(
       uploadUrl: data.uploadUrl,
       objectKey: data.objectKey,
       expiresAt: data.expiresAt,
+    };
+  } catch (error) {
+    // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
+}
+
+// 기준: Swagger 5.7 답변 제출(POST …/answer + Idempotency-Key → 202 AnswerResponse · 400 VALIDATION_FAILED
+// · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · FILE_NOT_FOUND · 409 ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE
+// · IDEMPOTENCY_KEY_REUSED) · API 명세 5.7(화상은 VOICE, content 1~10,000자, audioObjectKey 필수, tokens는 선택 항목)
+// · API 명세 1장(Nginx 502 · 504는 상태 코드로 판단)
+
+/** 5.7 화상 답변 본문. 다시 전송할 때 같은 키와 함께 그대로 전송하도록 한 번 생성해 고정한다 */
+export interface VideoAnswerBody {
+  content: string;
+  audioObjectKey: string;
+  tokens: TranscriptToken[] | null;
+}
+
+/** 5.7 결과. 성공이면 접수된 답변(마지막 질문인지 포함), 실패면 code · status */
+export type AnswerActionResult = ({ ok: true } & AnswerResponse) | SpeechActionFailure;
+
+/**
+ * 5.7 화상 답변을 제출한다. 다시 전송할 때는 같은 idempotencyKey와 같은 body를 전달한다(본문이 달라지면 409 IDEMPOTENCY_KEY_REUSED).
+ * tokens가 null이면 전송하지 않는다(400 조건에 해당해 생략한 경우, API 명세 5.7).
+ */
+export async function submitVideoAnswer(
+  sessionId: number,
+  questionId: number,
+  body: VideoAnswerBody,
+  idempotencyKey: string,
+): Promise<AnswerActionResult> {
+  if (
+    !idSchema.safeParse(sessionId).success ||
+    !idSchema.safeParse(questionId).success ||
+    !idempotencyKeySchema.safeParse(idempotencyKey).success
+  ) {
+    return toSpeechActionFailure();
+  }
+  const request: AnswerRequest = {
+    inputType: "VOICE",
+    content: body.content,
+    audioObjectKey: body.audioObjectKey,
+    ...(body.tokens && { tokens: body.tokens }),
+  };
+  try {
+    const { data } = await api.post<AnswerResponse>(
+      endpoints.interviews.answer(sessionId, questionId),
+      request,
+      { headers: idempotencyHeaders(idempotencyKey) },
+    );
+    return {
+      ok: true,
+      id: data.id,
+      questionId: data.questionId,
+      inputType: data.inputType,
+      createdAt: data.createdAt,
+      isLastQuestion: data.isLastQuestion,
     };
   } catch (error) {
     // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
