@@ -95,6 +95,18 @@ export interface SttTokenResponse {
   expiresAt: OffsetDateTime;
 }
 
+/** 5.12 질문 음성 토큰 (200) */
+export interface TtsTokenResponse {
+  /** ElevenLabs 질문 음성 1회용 토큰. 연결 1번에만 쓸 수 있다 */
+  token: string;
+  /** 토큰 만료 일시. 지나면 다시 발급받는다 */
+  expiresAt: OffsetDateTime;
+  /** 면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다 */
+  voiceId: string;
+  /** 음성 합성 모델 id. 서버가 정한다 */
+  modelId: string;
+}
+
 /** 리액션 종류. state 면접관 상태 · expression 표정 · gesture 동작 */
 export type ReactionType = "state" | "expression" | "gesture";
 export type ReactionState = "idle" | "listening" | "thinking" | "speaking";
