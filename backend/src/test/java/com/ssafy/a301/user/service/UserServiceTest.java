@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
@@ -32,8 +34,11 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import software.amazon.awssdk.core.exception.SdkClientException;
 
 class UserServiceTest {
@@ -46,6 +51,9 @@ class UserServiceTest {
     private final AccessTokens access = mock(AccessTokens.class);
     private final S3FileStorage storage = mock(S3FileStorage.class);
     private final UploadKeyStore uploadKeys = mock(UploadKeyStore.class);
+    private final RefreshTokenStore refreshTokens = mock(RefreshTokenStore.class);
+    // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
+    private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private UserService service;
     private User user;
 
@@ -64,10 +72,13 @@ class UserServiceTest {
                         storage,
                         new S3Properties(
                                 "bucket", "ap-northeast-2", UPLOAD_TTL, Duration.ofHours(1)),
-                        uploadKeys);
+                        uploadKeys,
+                        refreshTokens,
+                        new TransactionTemplate(txManager));
         user = new User("a@test.com", "hash", "이전닉네임");
         ReflectionTestUtils.setField(user, "id", USER_ID);
         when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
+        when(users.findActiveForUpdate(USER_ID)).thenReturn(Optional.of(user));
         when(practiceLogs.findPracticeDatesByUserId(USER_ID)).thenReturn(List.of());
     }
 
@@ -81,7 +92,6 @@ class UserServiceTest {
 
         assertThat(me.currentStreak()).isEqualTo(2);
         assertThat(me.profileImageUrl()).isNull();
-        verify(storage, never()).presignDownload(anyString());
     }
 
     @Test
@@ -95,6 +105,7 @@ class UserServiceTest {
     @Test
     void withdrawnUserIsUnauthorized() {
         when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.empty());
+        when(users.findActiveForUpdate(USER_ID)).thenReturn(Optional.empty());
 
         assertCode(() -> service.me(USER_ID), ErrorCode.UNAUTHORIZED);
         assertCode(() -> service.changeNickname(USER_ID, "새닉네임"), ErrorCode.UNAUTHORIZED);
@@ -107,7 +118,7 @@ class UserServiceTest {
         var response = service.changeNickname(USER_ID, " 새닉네임 ");
 
         assertThat(user.getNickname()).isEqualTo("새닉네임");
-        verify(users).save(user);
+        verify(txManager).commit(any());
         assertThat(response.nickname()).isEqualTo("새닉네임");
         assertThat(response.accessToken()).isEqualTo("new-access");
         assertThat(response.expiresIn()).isEqualTo(3600);
@@ -121,7 +132,7 @@ class UserServiceTest {
         service.changePassword(USER_ID, "current1", "newpass1");
 
         assertThat(user.getPasswordHash()).isEqualTo("new-hash");
-        verify(users).save(user);
+        verify(txManager).commit(any());
     }
 
     @Test
@@ -132,7 +143,7 @@ class UserServiceTest {
                 () -> service.changePassword(USER_ID, "wrong123", "newpass1"),
                 ErrorCode.PASSWORD_MISMATCH);
         assertThat(user.getPasswordHash()).isEqualTo("hash");
-        verify(users, never()).save(any());
+        verify(txManager, never()).commit(any());
     }
 
     @Test
@@ -169,7 +180,7 @@ class UserServiceTest {
                         FieldValidationException.class,
                         ex -> assertThat(ex.field()).isEqualTo("objectKey"));
         verify(storage, never()).exists(anyString());
-        verify(users, never()).save(any());
+        verify(txManager, never()).commit(any());
     }
 
     @Test
@@ -181,7 +192,7 @@ class UserServiceTest {
         assertCode(
                 () -> service.registerProfileImage(USER_ID, "profile/7/b.png"),
                 ErrorCode.FILE_NOT_FOUND);
-        verify(users, never()).save(any());
+        verify(txManager, never()).commit(any());
     }
 
     @Test
@@ -196,8 +207,9 @@ class UserServiceTest {
 
         assertThat(user.getProfileImageKey()).isEqualTo("profile/7/new.png");
         assertThat(me.profileImageUrl()).isEqualTo("https://s3/new");
-        verify(users).save(user);
-        verify(storage).delete("profile/7/old.png");
+        var order = inOrder(txManager, storage);
+        order.verify(txManager).commit(any());
+        order.verify(storage).delete("profile/7/old.png");
     }
 
     @Test
@@ -220,14 +232,60 @@ class UserServiceTest {
         service.deleteProfileImage(USER_ID);
 
         assertThat(user.getProfileImageKey()).isNull();
-        verify(users).save(user);
+        verify(txManager).commit(any());
+    }
+
+    @Test
+    void withdrawalMarksUserAndRevokesAllTokens() {
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+
+        service.withdraw(USER_ID, "abcd1234");
+
+        assertThat(user.isWithdrawn()).isTrue();
+        var order = inOrder(txManager, refreshTokens);
+        order.verify(txManager).commit(any());
+        order.verify(refreshTokens).revokeAll(USER_ID);
+    }
+
+    @Test
+    void withdrawalWithWrongPasswordChangesNothing() {
+        when(passwords.matches("wrong123", "hash")).thenReturn(false);
+
+        assertCode(() -> service.withdraw(USER_ID, "wrong123"), ErrorCode.PASSWORD_MISMATCH);
+        assertThat(user.isWithdrawn()).isFalse();
+        verify(txManager, never()).commit(any());
+        verify(txManager).rollback(any());
+        verify(refreshTokens, never()).revokeAll(USER_ID);
+    }
+
+    @Test
+    void softDeleteKeepsPersonalDataAndProfileImage() {
+        user.changeProfileImage("profile/7/a.png");
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+
+        service.withdraw(USER_ID, "abcd1234");
+
+        assertThat(user.getEmail()).isEqualTo("a@test.com");
+        assertThat(user.getNickname()).isEqualTo("이전닉네임");
+        assertThat(user.getProfileImageKey()).isEqualTo("profile/7/a.png");
+        verify(storage, never()).delete(anyString());
+    }
+
+    @Test
+    void withdrawalSucceedsEvenIfTokenCleanupFails() {
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+        doThrow(new RedisConnectionFailureException("down")).when(refreshTokens).revokeAll(USER_ID);
+
+        service.withdraw(USER_ID, "abcd1234");
+
+        assertThat(user.isWithdrawn()).isTrue();
+        verify(txManager).commit(any());
     }
 
     @Test
     void deletingWithoutImageDoesNothing() {
         service.deleteProfileImage(USER_ID);
 
-        verify(users, never()).save(any());
         verify(storage, never()).delete(anyString());
     }
 

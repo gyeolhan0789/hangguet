@@ -7,6 +7,7 @@ import com.ssafy.a301.user.dto.UserDtos.PasswordChangeRequest;
 import com.ssafy.a301.user.dto.UserDtos.ProfileImageRequest;
 import com.ssafy.a301.user.dto.UserDtos.ProfileImageUploadUrlRequest;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
+import com.ssafy.a301.user.dto.UserDtos.WithdrawRequest;
 import com.ssafy.a301.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -86,6 +87,18 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteProfileImage(@AuthenticationPrincipal Jwt jwt) {
         service.deleteProfileImage(userId(jwt));
+    }
+
+    @Operation(
+            summary = "2.7 회원 탈퇴",
+            description = "비밀번호를 확인하고 탈퇴 처리한 뒤 모든 기기의 토큰을 무효로 만든다. 되돌릴 수 없고, 이메일은 재가입에 쓸 수 있다.")
+    @ApiResponse(responseCode = "204", description = "탈퇴")
+    @ApiResponse(responseCode = "400", description = "PASSWORD_MISMATCH: 비밀번호 틀림")
+    @PostMapping
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void withdraw(
+            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody WithdrawRequest request) {
+        service.withdraw(userId(jwt), request.password());
     }
 
     private static long userId(Jwt jwt) {

@@ -96,7 +96,8 @@ public final class UserDtos {
                     String objectKey) {}
 
     public record WithdrawRequest(
-            @Schema(description = "본인 확인용 비밀번호", example = "abcd1234")
+            @Schema(description = "본인 확인용 비밀번호", example = "abcd1234", maxLength = 64)
                     @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 64, message = "최대 64자입니다.")
                     String password) {}
 }

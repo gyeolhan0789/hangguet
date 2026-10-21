@@ -39,7 +39,11 @@ public class S3FileStorage {
                 presigned.url().toString(), OffsetDateTime.ofInstant(presigned.expiration(), KST));
     }
 
+    /** 키가 없으면(파일을 등록하지 않았으면) null */
     public String presignDownload(String objectKey) {
+        if (objectKey == null) {
+            return null;
+        }
         return presigner
                 .presignGetObject(
                         request ->
