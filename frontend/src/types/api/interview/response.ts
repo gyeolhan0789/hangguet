@@ -89,10 +89,22 @@ export interface AnswerResponse {
 
 /** 5.10 실시간 음성 인식 토큰 (200) */
 export interface SttTokenResponse {
-  /** STT 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다 */
+  /** Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 연결할 때마다 새로 받는다 */
+  token: string;
+  /** 이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다 */
+  expiresAt: OffsetDateTime;
+}
+
+/** 5.12 질문 음성 토큰 (200) */
+export interface TtsTokenResponse {
+  /** ElevenLabs 질문 음성 1회용 토큰. 연결 1번에만 쓸 수 있다 */
   token: string;
   /** 토큰 만료 일시. 지나면 다시 발급받는다 */
   expiresAt: OffsetDateTime;
+  /** 면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다 */
+  voiceId: string;
+  /** 음성 합성 모델 id. 서버가 정한다 */
+  modelId: string;
 }
 
 /** 리액션 종류. state 면접관 상태 · expression 표정 · gesture 동작 */

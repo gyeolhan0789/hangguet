@@ -37,6 +37,7 @@ const RESPONSE_TYPES = {
   "POST /interview-sessions/{sessionId}/analysis/retry 202": "SessionResponse",
   "POST /interview-sessions/{sessionId}/stt-token 200": "SttTokenResponse",
   "POST /interview-sessions/{sessionId}/questions/{questionId}/reactions 200": "ReactionResponse",
+  "POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token 200": "TtsTokenResponse",
   "POST /interview-sessions/{sessionId}/recordings/upload-url 200": "UploadUrlResponse",
   "POST /interview-sessions/{sessionId}/recordings 201": "RecordingResponse",
   "GET /interview-sessions/{sessionId}/result 200": "ResultResponse",

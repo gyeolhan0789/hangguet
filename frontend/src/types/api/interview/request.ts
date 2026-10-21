@@ -21,12 +21,12 @@ export interface IdempotencyHeaders {
   "Idempotency-Key": string;
 }
 
-/** 5.2~5.11 · 6.1~6.4 경로 값 */
+/** 5.2~5.12 · 6.1~6.4 경로 값 */
 export interface SessionPath {
   sessionId: number;
 }
 
-/** 5.6 · 5.7 · 5.11 경로 값 */
+/** 5.6 · 5.7 · 5.11 · 5.12 경로 값 */
 export interface QuestionPath extends SessionPath {
   questionId: number;
 }
@@ -55,6 +55,18 @@ export interface AnswerRequest {
   content: string;
   /** 답변 음성 키. VOICE일 때 필수. 5.6에서 받은 objectKey */
   audioObjectKey?: string | null;
+  /** 음성 인식(5.10)이 확정한 토큰과 말한 시각. VOICE일 때만 보내며 없어도 된다. 말하기 지표 계산에 쓴다. 최대 10,000개 */
+  tokens?: TranscriptToken[] | null;
+}
+
+/** 5.7 tokens 원소 */
+export interface TranscriptToken {
+  /** 음성 인식이 확정한 토큰 글자. 단어 일부, 공백, 앞에 공백이 붙은 단어일 수 있다. 필수 */
+  text: string;
+  /** 토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준. 필수, 0 이상 */
+  startMs: number;
+  /** 토큰을 말하기 끝낸 시각(밀리초). 필수, startMs 이상 */
+  endMs: number;
 }
 
 /** 5.11 POST …/questions/{questionId}/reactions 본문 */
@@ -67,4 +79,4 @@ export interface ReactionRequest {
   pauseMs: number;
 }
 
-// 5.2 · 5.3 · 5.5 · 5.9 · 5.10은 본문이 없다. 5.4 · 5.8은 본문 없이 IdempotencyHeaders만 보낸다.
+// 5.2 · 5.3 · 5.5 · 5.9 · 5.10 · 5.12는 본문이 없다. 5.4 · 5.8은 본문 없이 IdempotencyHeaders만 보낸다.
