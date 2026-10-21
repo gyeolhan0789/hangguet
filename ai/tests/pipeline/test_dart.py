@@ -5,7 +5,7 @@ import pytest
 
 from pipeline.dart import find_corp_code, latest_annual_report
 
-# 2026-10-19 DART에서 받은 실제 응답 일부 (고유번호 목록은 두 회사 항목만 남김)
+# 2026-10-19 DART에서 받은 실제 응답 일부 (고유번호 목록은 세 회사 항목만 남김)
 FIXTURES = Path(__file__).parent / "fixtures"
 CORP_XML = (FIXTURES / "corpcode_sample.xml").read_bytes()
 LISTING = json.loads((FIXTURES / "list_kakao.json").read_text(encoding="utf-8"))
@@ -15,6 +15,11 @@ def test_find_corp_code_picks_listed_company_among_same_names() -> None:
     # '카카오'는 비상장(00918444)과 상장(00258801) 두 개가 있다
     assert find_corp_code(CORP_XML, "카카오") == "00258801"
     assert find_corp_code(CORP_XML, "삼성전자") == "00126380"
+
+
+def test_find_corp_code_unlisted_company_with_unique_name() -> None:
+    # 미래에셋자산운용은 비상장이지만 사업보고서를 낸다
+    assert find_corp_code(CORP_XML, "미래에셋자산운용") == "00259776"
 
 
 def test_find_corp_code_unknown_name() -> None:

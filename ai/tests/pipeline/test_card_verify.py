@@ -5,7 +5,9 @@ from pipeline.card import (
     PROMPT_VERSION,
     build_messages,
     business_input,
+    link_articles,
     market_input,
+    news_input,
     parse_reply,
     to_card,
 )
@@ -112,3 +114,61 @@ def test_verify_drops_summary_with_numbers_not_in_quote() -> None:
     kept, dropped = verify_card(card, {"market": source})
     assert [m["summary"] for m in kept["market"]] == ["TV 20년 연속 1위"]
     assert [m["summary"] for m in dropped] == ["TV 점유율 29%로 1위"]
+
+
+def test_link_articles_attaches_source_article() -> None:
+    articles = [
+        {
+            "title": "카카오, AI 비전 인코더 공개",
+            "summary": "오픈소스로 푼다.",
+            "url": "u1",
+            "published": "2026-10-21",
+        },
+        {
+            "title": "카카오, 카나나 출시",
+            "summary": "정식 출시했다.",
+            "url": "u2",
+            "published": "2026-10-20",
+        },
+    ]
+    recent = [
+        {"summary": "카나나 출시", "quote": "카카오,카나나 출시"},  # 띄어쓰기 차이는 무시
+        {"summary": "지어냄", "quote": "카카오, 우주 진출"},
+    ]
+    linked = link_articles(recent, articles)
+    assert [(r["summary"], r["source"], r["published"]) for r in linked] == [
+        ("카나나 출시", "u2", "2026-10-20")
+    ]
+
+
+def test_news_input_one_line_per_event_biggest_first() -> None:
+    def art(title: str, g: int) -> dict[str, object]:
+        return {
+            "title": title,
+            "summary": "요약",
+            "url": title,
+            "published": "2026-10-21",
+            "group": g,
+        }
+
+    text = news_input([art("버즈 온 출시", 0), art("ELB 펀드 출시", 1), art("ELB 펀드 첫선", 1)])
+    assert text.split("\n")[::2] == [
+        "[2026-10-21 · 기사 2건] ELB 펀드 출시",
+        "[2026-10-21 · 기사 1건] 버즈 온 출시",
+    ]
+
+
+def test_link_articles_keeps_one_per_event() -> None:
+    # 실제로 크래프톤 지스타 묶음(31건)에서 기사 두 개가 따로 뽑혔다
+    def art(title: str, g: int) -> dict[str, object]:
+        return {"title": title, "summary": "", "url": title, "published": "2026-10-21", "group": g}
+
+    articles = [art("지스타 신작 기대", 0), art("지스타 5종 출품", 0), art("타래 시연", 1)]
+    recent = [
+        {"summary": s, "quote": s} for s in ("지스타 신작 기대", "지스타 5종 출품", "타래 시연")
+    ]
+    linked = link_articles(recent, articles)
+    assert [(r["summary"], r["articles"]) for r in linked] == [
+        ("지스타 신작 기대", 2),
+        ("타래 시연", 1),
+    ]
