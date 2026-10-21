@@ -89,9 +89,9 @@ export interface AnswerResponse {
 
 /** 5.10 실시간 음성 인식 토큰 (200) */
 export interface SttTokenResponse {
-  /** STT 회사 연결용 1회용 토큰. 연결 1번에만 쓸 수 있다 */
+  /** Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 연결할 때마다 새로 받는다 */
   token: string;
-  /** 토큰 만료 일시. 지나면 다시 발급받는다 */
+  /** 이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다 */
   expiresAt: OffsetDateTime;
 }
 
