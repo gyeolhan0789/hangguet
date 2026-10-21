@@ -9,7 +9,7 @@ import json
 import logging
 from pathlib import Path
 
-from pipeline import card, dart, extract, verify, viewer
+from pipeline import card, dart, extract, news, verify, viewer
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -26,6 +26,10 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     talent = company.get("talent_text", "")
     llm = card.call_llm(card.build_messages(name, talent, business))
     llm |= card.call_llm(card.build_market_messages(name, market))
+    articles = news.load(name, data)
+    news_text = card.news_input(articles)
+    if news_text:
+        llm |= card.call_llm(card.build_recent_messages(name, news_text))
     result = card.to_card(
         llm,
         corp_code=corp_code,
@@ -34,8 +38,9 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         report_source=REPORT_SOURCE,
     )
     result, dropped = verify.verify_card(
-        result, {"talent": talent, "direction": business, "market": market}
+        result, {"talent": talent, "direction": business, "market": market, "recent": news_text}
     )
+    result["recent"] = card.link_articles(result["recent"], articles)
     for item in dropped:
         log.warning("%s: 검증 실패로 버림 [%s] %s", name, item["field"], item.get("quote"))
     if not result["talent"] and not result["direction"]:

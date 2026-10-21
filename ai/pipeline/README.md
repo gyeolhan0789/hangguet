@@ -1,10 +1,12 @@
 # 회사 카드 파이프라인 (MVP)
 
-회사의 사업보고서와 인재상을 모아, 출처가 달린 회사 카드(JSON)를 만든다.
+회사의 사업보고서·인재상·최근 기사를 모아, 출처가 달린 회사 카드(JSON)를 만든다.
+카드 항목: 인재상(`talent`), 사업 방향(`direction`), 경쟁·시장(`market`), 최근 이슈(`recent`).
 
 ```
-companies.json → ① 공시 수집 → ② 사업의 내용 추출 → ③ LLM 요약(원문 인용) → ④ 인용 검증
-              → data/cards/{고유번호}.json
+companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
+⑤ 뉴스 수집(규칙으로 거르기 → 같은 사건 묶기) ───────┴→ ③ LLM 요약(원문 인용) → ④ 인용 검증
+                                                      → data/cards/{고유번호}.json
 ```
 
 ## 회사 목록
@@ -15,7 +17,7 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 → ③ LLM
 그것도 없으면 비워 둔다(카드에 사업 방향만 남는다).
 
 ```json
-[{"name": "삼성전자", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문", "talent_collected_at": "2026-10-20"}]
+[{"name": "삼성전자", "news_query": "기사 검색어(회사명과 다를 때만)", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문", "talent_collected_at": "2026-10-20"}]
 ```
 
 ## 환경변수
@@ -29,6 +31,8 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 → ③ LLM
 | `LLM_MODEL` | 모델 이름 |
 | `LLM_API_KEY` | API 키 (로컬 모델은 비움) |
 | `LLM_REASONING_EFFORT` | 생각 모드가 있는 모델에서 끌 때 `none` (GMS는 비움) |
+| `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | developers.naver.com 애플리케이션의 검색 API 키 |
+| `EMBED_URL`, `EMBED_MODEL` | 기사 묶기용 embeddings 주소·모델 (비우면 로컬 Ollama `bge-m3`, `ollama pull bge-m3`) |
 
 로컬 개발 (Ollama, qwen3:8b · 입력 길이 10240 토큰 설정 모델):
 
@@ -44,6 +48,7 @@ GMS가 발급되면 `LLM_CHAT_URL`, `LLM_MODEL`, `LLM_API_KEY`만 바꾼다.
 
 ```bash
 cd ai
+uv run --env-file .env python -m pipeline.news             # 최근 기사 수집 (날마다, 먼저)
 uv run --env-file .env python -m pipeline.run              # companies.json 전체
 uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 ```
@@ -51,6 +56,15 @@ uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 - 한 회사가 실패해도 나머지는 계속하고, 끝에 실패한 회사를 알려 준다
 - 원문에 없는 인용으로 버린 항목은 WARNING 로그로 남는다
 - 이미 받은 사업보고서는 다시 받지 않는다
+- 기사를 아직 안 모은 회사는 최근 이슈 없이 만든다
+
+## 뉴스 수집 규칙
+
+- 네이버 뉴스 검색 API로 관련도순 100건. 기사 본문은 받지 않고 제목·요약·링크·날짜만 저장
+- 버리는 기사: 30일 지난 기사, 제목에 회사 이름이 없는 기사, 주가·시황·증권사·광고·이벤트 기사(`news.py`의 `_NOISE`)
+- 한 번에 2~3일치만 잡혀서 날마다 모아 쌓는다(같은 제목은 하나, 30일 지나면 삭제)
+- 같은 사건 묶기: 제목 임베딩(bge-m3) 유사도가 묶음 첫 기사와 0.65 이상이면 같은 묶음.
+  LLM에는 묶음마다 최신 기사 1건과 기사 수만 넣는다
 
 ## 확인 화면
 
@@ -64,4 +78,4 @@ uv run python -m pipeline.viewer
 
 ## 데이터
 
-수집한 원문은 `data/raw/`, 만든 카드는 `data/cards/`에 저장하며 둘 다 git에서 제외한다.
+수집한 원문은 `data/raw/`, 기사는 `data/news/`, 만든 카드는 `data/cards/`에 저장하며 모두 git에서 제외한다.

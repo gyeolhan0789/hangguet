@@ -68,6 +68,10 @@ code { font-family: var(--mono) }
 <script>
 const rows = window.VIEWER_DATA;
 let current = null; // 지금 보고 있는 회사 행
+// 카드 항목과 그 항목의 근거 원문(viewer.py가 넣는 키)
+const FIELDS = [["talent", "인재상"], ["direction", "사업 방향"], ["market", "경쟁·시장"], ["recent", "최근 이슈"]];
+const SOURCES = { talent: "talent_text", direction: "business_text", market: "market_text", recent: "news_text" };
+const count = (r, f) => (r.card[f] ?? []).length;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -99,13 +103,11 @@ if (!rows) {
     <code>uv run --env-file .env python -m pipeline.run</code>을 실행하면 이 화면이 읽을
     <code>data/viewer_data.js</code>가 만들어집니다.</div>`;
 } else {
-  const talents = rows.reduce((n, r) => n + r.card.talent.length, 0);
-  const dirs = rows.reduce((n, r) => n + r.card.direction.length, 0);
-  const markets = rows.reduce((n, r) => n + (r.card.market ?? []).length, 0);
-  $("stat").textContent = `회사 ${rows.length}곳 · 인재상 ${talents}개 · 사업 방향 ${dirs}개 · 경쟁·시장 ${markets}개`;
+  const total = (f) => rows.reduce((n, r) => n + count(r, f), 0);
+  $("stat").textContent = `회사 ${rows.length}곳 · ` + FIELDS.map(([f, t]) => `${t} ${total(f)}개`).join(" · ");
   $("list").innerHTML = rows.map((r, i) =>
     `<button data-i="${i}"><span>${esc(r.card.name)}</span>
-     <span class="count">${r.card.talent.length}·${r.card.direction.length}·${(r.card.market ?? []).length}</span></button>`).join("");
+     <span class="count">${FIELDS.map(([f]) => count(r, f)).join("·")}</span></button>`).join("");
   $("list").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (b) show(+b.dataset.i);
@@ -121,7 +123,7 @@ function show(i) {
     const body = list.length ? list.map((it, k) => `
       <div class="item"><h3>${esc(it.keyword ?? it.summary)}</h3>
         <blockquote>${esc(it.quote)}</blockquote>
-        <div class="foot"><span>${it.source?.startsWith("http")
+        <div class="foot"><span>${it.published ? esc(it.published) + " · " : ""}${it.articles ? `기사 ${it.articles}건 · ` : ""}${it.source?.startsWith("http")
           ? `<a href="${esc(it.source)}" target="_blank" rel="noopener">출처 페이지</a>` : esc(it.source)}</span>
         <button data-field="${field}" data-k="${k}">원문에서 보기</button></div></div>`).join("")
       : `<div class="empty">${field === "talent" && !r.talent_text ? "인재상 원문 없음" : "검증을 통과한 항목 없음"}</div>`;
@@ -131,11 +133,9 @@ function show(i) {
     <div class="meta"><b>${esc(c.name)}</b><span>고유번호 ${esc(c.corp_code)}</span>
       <span>생성 ${esc(c.generated_at)}</span><span>모델 ${esc(c.model)}</span>
       <span>프롬프트 ${esc(c.prompt_version)}</span><span>인재상 수집 ${esc(r.talent_collected_at || "-")}</span></div>
-    ${items("talent", "인재상")}${items("direction", "사업 방향")}${items("market", "경쟁·시장")}
+    ${FIELDS.map(([f, t]) => items(f, t)).join("")}
     <div class="source"><div class="tabs" role="tablist">
-      <button role="tab" data-tab="talent">인재상 원문</button>
-      <button role="tab" data-tab="direction">사업 방향 후보 문장</button>
-      <button role="tab" data-tab="market">경쟁·시장 후보 문장</button></div>
+      ${FIELDS.map(([f, t]) => `<button role="tab" data-tab="${f}">${t} 원문</button>`).join("")}</div>
       <pre id="src"></pre></div>`;
   current = r;
   tab("direction");
@@ -143,7 +143,7 @@ function show(i) {
 
 function tab(field) {
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === field));
-  const text = { talent: current.talent_text, direction: current.business_text, market: current.market_text }[field];
+  const text = current[SOURCES[field]];
   $("src").innerHTML = text ? highlight(text, (current.card[field] ?? []).map((it) => it.quote)) : "원문 없음";
 }
 $("view").addEventListener("click", (e) => {

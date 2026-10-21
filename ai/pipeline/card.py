@@ -1,13 +1,16 @@
-"""③ 카드 요약: LLM으로 인재상·사업 방향을 요약하고 원문 문장을 인용하게 한다."""
+"""③ 카드 요약: 인재상·사업 방향·경쟁·시장·최근 이슈를 LLM으로 요약하고 원문을 인용하게 한다."""
 
 import json
 import os
 import re
 import urllib.request
+from collections import Counter
 from datetime import date
 from typing import Any
 
-PROMPT_VERSION = "card-v3"
+from pipeline.verify import normalize
+
+PROMPT_VERSION = "card-v4"
 INPUT_LIMIT = 6000
 
 # card-v1은 '사업의 개요' + '기타 참고사항' 앞부분만 넣어서, 회사 계획 문장(보통 2만~3만 자 뒤
@@ -78,6 +81,56 @@ def build_market_messages(name: str, market_text: str) -> list[dict[str, str]]:
     return [{"role": "system", "content": MARKET_SYSTEM}, {"role": "user", "content": user}]
 
 
+# 최근 이슈: news.py가 규칙으로 거르고 같은 사건끼리 묶은(group) 기사에서 묶음마다 1건만 넣는다.
+# 8B 모델에 '같은 사건은 하나만'이라고 시키면 지키지 못해서 묶기는 임베딩으로 했다.
+# 남은 주가·연예·일정 기사를 빼는 판단은 모델에 맡긴다
+RECENT_SYSTEM = (
+    "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
+    "- recent: 최근 기사 중 이 회사의 사업·제품·투자·전략·조직 변화를 보여주는 이슈 1~3개. "
+    "기사 수가 많을수록 크게 다뤄진 이슈다. "
+    "주가·증권사 전망, 연예·인물 이야기, 이벤트, 다른 회사가 주인공인 기사는 고르지 않는다\n"
+    "- quote: 고른 기사의 제목이나 요약 한 줄을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
+    "- summary: quote의 단어로 20자 안팎 명사구를 만든다. quote에 없는 숫자·해석을 쓰지 않는다\n"
+    "- 고를 기사가 없으면 빈 배열로 둔다\n"
+    'JSON으로만 답한다: {"recent": [{"summary": str, "quote": str}]}'
+)
+
+
+def news_input(articles: list[dict[str, Any]]) -> str:
+    """같은 사건 묶음마다 최신 기사 1건: '[날짜 · 기사 N건] 제목' 줄과 요약 줄. 큰 묶음부터."""
+    sizes = Counter(a.get("group") for a in articles)
+    firsts = {a.get("group", n): a for n, a in reversed(list(enumerate(articles)))}.values()
+    lines = (
+        f"[{a['published']} · 기사 {sizes[a.get('group')]}건] {a['title']}\n{a['summary']}"
+        for a in sorted(firsts, key=lambda a: -sizes[a.get("group")])
+    )
+    return "\n".join(lines)[:INPUT_LIMIT]
+
+
+def build_recent_messages(name: str, news_text: str) -> list[dict[str, str]]:
+    user = f"회사: {name}\n\n[최근 기사]\n{news_text}"
+    return [{"role": "system", "content": RECENT_SYSTEM}, {"role": "user", "content": user}]
+
+
+def link_articles(
+    recent: list[dict[str, Any]], articles: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """인용이 들어 있는 기사를 찾아 그 기사의 링크·날짜와 같은 사건 기사 수를 붙인다.
+
+    같은 묶음(사건)의 기사가 둘 이상 뽑히면 먼저 나온 것만 남긴다.
+    """
+    sizes = Counter(a.get("group") for a in articles)
+    linked, seen = [], set()
+    for item in recent:
+        quote = normalize(str(item.get("quote", "")))
+        found = next((a for a in articles if quote in normalize(a["title"] + a["summary"])), None)
+        if quote and found and found.get("group") not in seen:
+            seen.add(found.get("group"))
+            source = {"source": found["url"], "published": found["published"]}
+            linked.append({**item, **source, "articles": sizes[found.get("group")]})
+    return linked
+
+
 def parse_reply(content: str) -> dict[str, Any]:
     """모델이 앞에 붙이는 <think> 블록을 지우고 JSON을 읽는다."""
     result: dict[str, Any] = json.loads(re.sub(r"<think>.*?</think>", "", content, flags=re.S))
@@ -117,4 +170,5 @@ def to_card(
         "talent": [{**t, "source": talent_source} for t in llm.get("talent", [])],
         "direction": [{**d, "source": report_source} for d in llm.get("direction", [])],
         "market": [{**m, "source": report_source} for m in llm.get("market", [])],
+        "recent": llm.get("recent", []),  # 출처(기사 링크)는 link_articles가 붙인다
     }

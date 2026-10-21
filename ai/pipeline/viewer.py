@@ -13,7 +13,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from pipeline import card, extract
+from pipeline import card, extract, news
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -38,6 +38,7 @@ def build(data: Path = DATA, companies: Path = HERE / "companies.json") -> list[
                 "talent_collected_at": company.get("talent_collected_at", ""),
                 "business_text": business,
                 "market_text": market,
+                "news_text": card.news_input(news.load(item["name"], data)),
             }
         )
     return rows
