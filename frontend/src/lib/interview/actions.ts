@@ -12,7 +12,7 @@ import {
   type FormActionResult,
 } from "@/lib/api/problem-detail";
 import { devicesPath, interviewPath, ROUTES } from "@/lib/routes";
-import type { SessionCreateRequest, SessionResponse } from "@/types/api";
+import type { SessionCreateRequest, SessionResponse, SttTokenResponse } from "@/types/api";
 
 import {
   idempotencyKeySchema,
@@ -20,6 +20,7 @@ import {
   sessionCreateSchema,
   type SessionCreateValues,
 } from "./schemas";
+import { toSpeechActionFailure, type SpeechActionFailure } from "./speech-failure";
 
 // 기준: Swagger 5.1 면접 만들기(POST /interview-sessions + Idempotency-Key → 201 SessionResponse
 // · 404 APPLICATION_NOT_FOUND · 409 IDEMPOTENCY_KEY_REUSED) · 기획 메모 S05-1(18:1013: [다음]을 누를 때 면접 플랜 생성 시작,
@@ -116,4 +117,27 @@ export async function startSession(
     };
   }
   redirect(interviewPath(sessionId));
+}
+
+// 기준: Swagger 5.10 실시간 음성 인식 토큰(POST …/stt-token → 200 SttTokenResponse · 404 SESSION_NOT_FOUND
+// · 409 INVALID_SESSION_STATE · 503 STT_UNAVAILABLE) · API 명세 5.10(키는 연결 1회에만 사용할 수 있으므로 연결할 때마다 새로 발급받는다)
+// · API 명세 1장(400 VALIDATION_FAILED · 500 INTERNAL_ERROR 공통, Nginx 502 · 504는 상태 코드로 판단)
+
+/** 5.10 결과. 성공이면 Soniox 연결용 임시 키와 연결 시작 기한, 실패면 code · status */
+export type SttTokenActionResult = ({ ok: true } & SttTokenResponse) | SpeechActionFailure;
+
+/**
+ * 5.10 Soniox 실시간 음성 인식 임시 키를 발급받는다. 음성 인식에 연결할 때마다 새로 호출한다.
+ * 키는 이 반환값으로만 브라우저에 전달한다(store · localStorage · props에 저장하지 않는다).
+ */
+export async function issueSttToken(sessionId: number): Promise<SttTokenActionResult> {
+  if (!idSchema.safeParse(sessionId).success) return toSpeechActionFailure();
+  try {
+    const { data } = await api.post<SttTokenResponse>(endpoints.interviews.sttToken(sessionId));
+    return { ok: true, token: data.token, expiresAt: data.expiresAt };
+  } catch (error) {
+    // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 재전파한다.
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
 }

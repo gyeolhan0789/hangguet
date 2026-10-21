@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { axiosProblem } from "@/test/axios-problem";
+import { axiosNoResponse, axiosProblem, axiosStatusOnly } from "@/test/axios-problem";
 import type {
   IdempotencyHeaders,
   ProblemDetail,
@@ -34,7 +34,7 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const { createSession, retryPlan, startSession } = await import("./actions");
+const { createSession, issueSttToken, retryPlan, startSession } = await import("./actions");
 
 const KEY = "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70";
 const values = {
@@ -307,6 +307,86 @@ describe("startSession (5.4 면접 시작)", () => {
     { label: "UUID가 아닌 멱등 키", id: 55, key: "not-a-uuid" },
   ])("$label은 서버에 보내지 않는다", async ({ id, key }) => {
     expect(await startSession(id, key)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("issueSttToken (5.10 실시간 음성 인식 토큰)", () => {
+  it("임시 키와 연결 시작 기한을 반환한다", async () => {
+    // Swagger 5.10 200 예시
+    post.mockResolvedValue({ data: { token: "…", expiresAt: "2026-10-15T12:16:00+09:00" } });
+
+    expect(await issueSttToken(55)).toEqual({
+      ok: true,
+      token: "…",
+      expiresAt: "2026-10-15T12:16:00+09:00",
+    });
+    // 5.10은 본문 · Idempotency-Key가 없다.
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/stt-token");
+  });
+
+  // Swagger 5.10 오류 예시 · API 명세 1장 공통 오류(400 · 500)
+  it.each([
+    {
+      title: "Bad Request",
+      status: 400,
+      detail: "입력값을 확인해 주세요.",
+      instance: "/api/v1/interview-sessions/55/stt-token",
+      code: "VALIDATION_FAILED",
+    },
+    SESSION_NOT_FOUND,
+    {
+      title: "Conflict",
+      status: 409,
+      detail: "지금은 할 수 없는 요청이에요.",
+      instance: "/api/v1/interview-sessions/55/stt-token",
+      code: "INVALID_SESSION_STATE",
+    },
+    {
+      title: "Internal Server Error",
+      status: 500,
+      detail: "잠시 후 다시 시도해 주세요.",
+      instance: "/api/v1/interview-sessions/55/stt-token",
+      code: "INTERNAL_ERROR",
+    },
+    {
+      title: "Service Unavailable",
+      status: 503,
+      detail: "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      instance: "/api/v1/interview-sessions/55/stt-token",
+      code: "STT_UNAVAILABLE",
+    },
+  ] satisfies ProblemDetail[])("$code($status)면 code와 status를 돌려준다", async (problem) => {
+    post.mockRejectedValue(axiosProblem(problem));
+
+    expect(await issueSttToken(55)).toEqual({
+      ok: false,
+      code: problem.code,
+      status: problem.status,
+    });
+  });
+
+  it("본문 없는 502(Nginx)면 code 없이 status만 반환한다", async () => {
+    post.mockRejectedValue(axiosStatusOnly(502));
+
+    expect(await issueSttToken(55)).toEqual({ ok: false, code: null, status: 502 });
+  });
+
+  it("응답이 전혀 없으면(연결 거부 · 시간 초과) code · status 모두 null", async () => {
+    post.mockRejectedValue(axiosNoResponse());
+
+    expect(await issueSttToken(55)).toEqual({ ok: false, code: null, status: null });
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면으로 이동시키면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(issueSttToken(55)).rejects.toBe(signedOut);
+  });
+
+  it.each([0, -1, 1.5])("면접 id가 %s면 서버에 보내지 않고 code · status 모두 null", async (id) => {
+    expect(await issueSttToken(id)).toEqual({ ok: false, code: null, status: null });
     expect(post).not.toHaveBeenCalled();
   });
 });
