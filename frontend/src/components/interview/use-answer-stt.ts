@@ -14,6 +14,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { issueSttToken } from "@/lib/interview/actions";
 import type { AnswerCapture } from "@/lib/stt/answer-capture";
 import {
+  applySentenceResult,
+  beginSentenceConnection,
+  createSentenceState,
+  handleEndpoint,
+  type Sentence,
+  type SentenceState,
+} from "@/lib/stt/sentence-end";
+import {
   applyResult,
   beginConnection,
   createTranscript,
@@ -110,6 +118,8 @@ export interface AnswerSttOptions {
   sessionId: number;
   /** 말소리 신호: 한 연결 안에서 비공백 토큰 end_ms 최댓값이 늘어난 result를 수신한 시각(performance.now) */
   onSpeech?: (at: number) => void;
+  /** 문장 끝(API 명세 5.11)마다 그 문장. 화상 5.11 리액션을 전송할 때 사용한다 */
+  onSentence?: (sentence: Sentence) => void;
 }
 
 interface ActiveRecording {
@@ -142,7 +152,7 @@ function buildContext(questionText: string): TranscriptionContext {
   return { general: CONTEXT_GENERAL, terms: CONTEXT_TERMS, text: questionText };
 }
 
-export function useAnswerStt({ sessionId, onSpeech }: AnswerSttOptions): AnswerStt {
+export function useAnswerStt({ sessionId, onSpeech, onSentence }: AnswerSttOptions): AnswerStt {
   const [status, setStatus] = useState<AnswerSttStatus>("idle");
   const [caption, setCaption] = useState("");
   const active = useRef<ActiveRecording | null>(null);
@@ -150,10 +160,13 @@ export function useAnswerStt({ sessionId, onSpeech }: AnswerSttOptions): AnswerS
   const transcript = useRef<Transcript>(createTranscript());
   /** AuthError(401)로 record()를 다시 호출한 적이 있는지. start · reconnect마다 한 번만 다시 호출한다 */
   const authRetried = useRef(false);
-  const latest = useRef({ sessionId, onSpeech });
+  const sentence = useRef<SentenceState>(createSentenceState());
+  /** 마지막 result의 total_audio_proc_ms. 끝 감지 때 pauseMs를 계산한다 */
+  const procMs = useRef(0);
+  const latest = useRef({ sessionId, onSpeech, onSentence });
 
   useEffect(() => {
-    latest.current = { sessionId, onSpeech };
+    latest.current = { sessionId, onSpeech, onSentence };
   });
 
   /** 현재 녹음을 폐기한다. 이후 그 녹음에서 발생하는 이벤트는 모두 무시한다 */
@@ -201,6 +214,7 @@ export function useAnswerStt({ sessionId, onSpeech }: AnswerSttOptions): AnswerS
         const sttStartedAt = target.capture.getSttStartedAt();
         const offsetMs = sttStartedAt === null ? null : sttStartedAt - target.fileStartedAt;
         transcript.current = beginConnection(transcript.current, offsetMs);
+        sentence.current = beginSentenceConnection(sentence.current);
         setCaption(getCaption(transcript.current));
       };
 
@@ -223,11 +237,20 @@ export function useAnswerStt({ sessionId, onSpeech }: AnswerSttOptions): AnswerS
         if (signal.aborted) return;
         const before = transcript.current.speechEndMs;
         transcript.current = applyResult(transcript.current, result.tokens);
+        sentence.current = applySentenceResult(sentence.current, result.tokens);
+        procMs.current = result.total_audio_proc_ms;
         setCaption(getCaption(transcript.current));
         const after = transcript.current.speechEndMs;
         if (after !== null && (before === null || after > before)) {
           latest.current.onSpeech?.(performance.now());
         }
+      });
+      // SDK는 같은 응답의 result를 먼저 전송하고 끝 감지(<end>)를 별도로 전달한다.
+      recording.on("endpoint", () => {
+        if (signal.aborted) return;
+        const step = handleEndpoint(sentence.current, procMs.current);
+        sentence.current = step.state;
+        if (step.sentence) latest.current.onSentence?.(step.sentence);
       });
       recording.on("error", (error) => {
         // 정리(abort)로 발생하는 오류는 실패가 아니다.
@@ -252,6 +275,7 @@ export function useAnswerStt({ sessionId, onSpeech }: AnswerSttOptions): AnswerS
     (next: AnswerSttStart) => {
       answer.current = next;
       transcript.current = createTranscript();
+      sentence.current = createSentenceState();
       setCaption("");
       authRetried.current = false;
       open();
