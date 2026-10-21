@@ -10,6 +10,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -23,9 +24,11 @@ public class SonioxClient {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     private static final Duration TOKEN_TTL = Duration.ofMinutes(5);
 
+    private final String apiKey;
     private final RestClient restClient;
 
-    public SonioxClient() {
+    public SonioxClient(@Value("${soniox.api-key}") String apiKey) {
+        this.apiKey = apiKey;
         JdkClientHttpRequestFactory requestFactory =
                 new JdkClientHttpRequestFactory(
                         HttpClient.newBuilder().connectTimeout(TIMEOUT).build());
@@ -37,7 +40,11 @@ public class SonioxClient {
                         .build();
     }
 
-    public SttTokenResponse issueTemporaryKey(String apiKey, long sessionId) {
+    public SttTokenResponse issueTemporaryKey(long sessionId) {
+        if (apiKey == null || apiKey.isBlank()) {
+            LOG.warn("SONIOX_API_KEY가 없어 음성 인식 임시 키를 발급하지 못했습니다.");
+            throw new ApiException(ErrorCode.STT_UNAVAILABLE);
+        }
         try {
             KeyResponse response =
                     restClient
