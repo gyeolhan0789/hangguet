@@ -71,7 +71,7 @@ export const interviewEndpoints = {
   analysisRetry: (sessionId: Id) => `/interview-sessions/${sessionId}/analysis/retry`,
   /** 5.10 POST 실시간 음성 인식 토큰 */
   sttToken: (sessionId: Id) => `/interview-sessions/${sessionId}/stt-token`,
-  /** 5.11 POST 면접관 리액션 (화상 면접에서 문장이 끝날 때마다. Swagger에만 있고 API 명세 문서에는 아직 없음) */
+  /** 5.11 POST 면접관 리액션 (화상은 문장이 끝날 때마다, 채팅은 입력이 중지될 때마다) */
   reactions: (sessionId: Id, questionId: Id) =>
     `/interview-sessions/${sessionId}/questions/${questionId}/reactions`,
   /** 5.12 POST 질문 음성 토큰 */

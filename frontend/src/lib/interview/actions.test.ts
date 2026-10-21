@@ -5,6 +5,7 @@ import { axiosNoResponse, axiosProblem, axiosStatusOnly } from "@/test/axios-pro
 import type {
   AnswerResponse,
   IdempotencyHeaders,
+  ReactionResponse,
   ProblemDetail,
   SessionCreateRequest,
   SessionResponse,
@@ -43,6 +44,7 @@ const {
   issueSttToken,
   issueTtsToken,
   retryPlan,
+  sendReaction,
   startSession,
   submitVideoAnswer,
 } = await import("./actions");
@@ -737,4 +739,79 @@ describe("submitVideoAnswer (5.7 화상 답변 제출)", () => {
       expect(post).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("sendReaction (5.11 면접관 리액션)", () => {
+  // Swagger 5.11 화상 요청 예시
+  const request = { seq: 3, text: "그래서 조회 응답 시간을 40% 줄였습니다.", pauseMs: 420 };
+
+  it("seq · text · pauseMs를 전송하고(Idempotency-Key 없음) 리액션 · 태도 · 말 끊기를 반환한다", async () => {
+    const data = {
+      seq: 3,
+      reaction: {
+        type: "gesture",
+        state: null,
+        expression: null,
+        gesture: "nod",
+        intensity: 0.6,
+        durationMs: 1200,
+        ttlMs: 3000,
+        source: "server",
+      },
+      attitude: { interest: 0.7, trust: 0.6, tension: 0.2 },
+      interrupt: null,
+    } satisfies ReactionResponse;
+    post.mockResolvedValue({ data });
+
+    expect(await sendReaction(55, 303, request)).toEqual({ ok: true, ...data });
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/questions/303/reactions", request);
+  });
+
+  it("서버가 리액션을 정하지 못해 reaction이 null이어도 그대로 반환한다", async () => {
+    const data = {
+      seq: 3,
+      reaction: null,
+      attitude: { interest: 0.5, trust: 0.5, tension: 0.5 },
+      interrupt: null,
+    } satisfies ReactionResponse;
+    post.mockResolvedValue({ data });
+
+    expect(await sendReaction(55, 303, request)).toEqual({ ok: true, ...data });
+  });
+
+  it("409 ANSWER_ALREADY_SUBMITTED면 code와 status를 반환한다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "이미 답변한 질문이에요.",
+        instance: "/api/v1/interview-sessions/55/questions/303/reactions",
+        code: "ANSWER_ALREADY_SUBMITTED",
+      }),
+    );
+
+    expect(await sendReaction(55, 303, request)).toEqual({
+      ok: false,
+      code: "ANSWER_ALREADY_SUBMITTED",
+      status: 409,
+    });
+  });
+
+  it.each([502, 504])("본문 없는 %s(Nginx)면 status만 반환한다", async (status) => {
+    post.mockRejectedValue(axiosStatusOnly(status));
+
+    expect(await sendReaction(55, 303, request)).toEqual({ ok: false, code: null, status });
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면으로 이동시키면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+
+    await expect(sendReaction(55, 303, request)).rejects.toBe(signedOut);
+  });
+
+  it("잘못된 id면 서버에 전송하지 않는다", async () => {
+    expect(await sendReaction(0, 303, request)).toEqual({ ok: false, code: null, status: null });
+    expect(post).not.toHaveBeenCalled();
+  });
 });
