@@ -143,10 +143,14 @@ def load(name: str, data: Path) -> list[dict[str, Any]]:
     return items
 
 
+def collect(company: dict[str, str], data: Path) -> list[dict[str, Any]]:
+    """회사 하나의 기사를 모아 data/news/{회사명}.json에 쌓는다."""
+    query = company.get("news_query", company["name"])
+    return fetch_news(query, data / "news" / f"{company['name']}.json")
+
+
 if __name__ == "__main__":
     # cd ai && uv run --env-file .env python -m pipeline.news
     here = Path(__file__).parent
     for company in json.loads((here / "companies.json").read_text(encoding="utf-8")):
-        query = company.get("news_query", company["name"])
-        items = fetch_news(query, here / "data" / "news" / f"{company['name']}.json")
-        print(f"{company['name']} ({query}): {len(items)}건")
+        print(f"{company['name']}: {len(collect(company, here / 'data'))}건")

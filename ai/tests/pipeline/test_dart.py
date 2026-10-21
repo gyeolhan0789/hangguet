@@ -1,8 +1,11 @@
+import io
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
 
+from pipeline import dart
 from pipeline.dart import find_corp_code, latest_annual_report
 
 # 2026-10-19 DART에서 받은 실제 응답 일부 (고유번호 목록은 세 회사 항목만 남김)
@@ -41,3 +44,43 @@ def test_latest_annual_report_missing() -> None:
 def test_latest_annual_report_api_error() -> None:
     with pytest.raises(RuntimeError):
         latest_annual_report({"status": "020", "message": "요청 제한 초과"})
+
+
+def test_fetch_report_downloads_again_only_when_new_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    latest = {"rcept_no": "20260314000001"}
+    calls: list[str] = []
+
+    def fake_get(path: str, **params: str) -> bytes:
+        calls.append(path)
+        if path == "corpCode.xml":
+            return _zip({"CORPCODE.xml": CORP_XML})
+        if path == "list.json":
+            item = {"report_nm": "사업보고서", "rcept_no": latest["rcept_no"]}
+            return json.dumps({"status": "000", "list": [item]}).encode()
+        rcept_no = params["rcept_no"]
+        return _zip({f"{rcept_no}.xml": f"보고서 {rcept_no}".encode()})
+
+    monkeypatch.setattr(dart, "_get", fake_get)
+
+    assert dart.fetch_report("카카오", tmp_path) == ("00258801", "보고서 20260314000001")
+    dart.fetch_report("카카오", tmp_path)  # 같은 사업보고서면 원문을 다시 받지 않는다
+    latest["rcept_no"] = "20270313000002"  # 이듬해 새 사업보고서
+    assert dart.fetch_report("카카오", tmp_path)[1] == "보고서 20270313000002"
+    assert calls == [
+        "corpCode.xml",
+        "list.json",
+        "document.xml",
+        "list.json",
+        "list.json",
+        "document.xml",
+    ]
+
+
+def _zip(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
