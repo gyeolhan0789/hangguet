@@ -289,6 +289,9 @@ export const ANSWER = {
   isLastQuestion: false,
 } as const satisfies AnswerResponse;
 
+/** 6.3 면접 결과 · 6.4 다시보기 200 — Swagger 예시. 단위 테스트와 같은 값을 쓴다. */
+export { REPLAY, RESULT } from "../../src/test/result-examples";
+
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {
   LOGIN_FAILED: {
@@ -366,6 +369,22 @@ export const PROBLEM = {
     detail: "면접을 찾을 수 없어요.",
     instance: "/api/v1/interview-sessions/0",
     code: "SESSION_NOT_FOUND",
+  },
+  // Swagger 6.3 409 예시
+  RESULT_NOT_READY: {
+    title: "Conflict",
+    status: 409,
+    detail: "결과를 만들고 있어요.",
+    instance: "/api/v1/interview-sessions/55/result",
+    code: "RESULT_NOT_READY",
+  },
+  // Swagger 6.3 409 예시
+  NO_RESULT: {
+    title: "Conflict",
+    status: 409,
+    detail: "답변 없이 끝난 면접은 결과가 없어요.",
+    instance: "/api/v1/interview-sessions/55/result",
+    code: "NO_RESULT",
   },
   // Swagger 5.4 409 예시
   PLAN_NOT_READY: {

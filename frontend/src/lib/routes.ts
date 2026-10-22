@@ -48,6 +48,12 @@ export const devicesPath = (sessionId: number) =>
 /** S06 면접(화상) · S06-B 면접(채팅) · S06-E 종료 확인 · S06-1 결과 분석 중. 채팅은 S05-1에서 장치 점검 없이 바로 온다. */
 export const interviewPath = (sessionId: number) => `/interview/${sessionId}`;
 
+/** S07 피드백 결과(6.3). 결과가 나오면(COMPLETED) S06-1에서 넘어온다. */
+export const resultPath = (sessionId: number) => `/interview/${sessionId}/result`;
+
+/** S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. */
+export const replayPath = (sessionId: number) => `/interview/${sessionId}/replay`;
+
 /** S03 지원서 입력을 S04 [← 지원서 수정]에서 다시 열 때. 그 지원서(4.2)로 칸을 채우고 4.4로 고친다. */
 export const applicationEditPath = (applicationId: number) =>
   `${ROUTES.practice}?applicationId=${applicationId}`;

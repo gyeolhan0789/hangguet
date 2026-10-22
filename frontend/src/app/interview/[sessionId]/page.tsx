@@ -4,7 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { getCurrentQuestion, getSession, parseSessionId } from "@/lib/interview/queries";
-import { ROUTES } from "@/lib/routes";
+import { ROUTES, resultPath } from "@/lib/routes";
 
 import { InterviewRoom } from "./_components/interview-room";
 
@@ -14,6 +14,7 @@ export const metadata: Metadata = { title: "면접 · 한끗" };
 // 기준: Figma S06(18:2497) · S06-B(18:2574) · S06-E(18:4226) · S06-1(18:4437) · Swagger 5.2 면접 조회 · 5.5 지금 질문
 // · API 명세 5.2(새로고침 · 재연결 때도 이 응답으로 화면을 다시 그린다)
 // 면접이 없으면 S05와 같이 처음 단계(S03)로 보낸다. 다음 질문 · 결과 분석을 기다릴 때는 화면이 2초마다 다시 그려 5.2를 다시 부른다.
+// 결과가 나오면(COMPLETED) S07 피드백 결과로 넘어간다(Figma 흐름 S06 → S07 · API 명세 6.3 200 COMPLETED).
 async function Interview({ params }: Pick<PageProps<"/interview/[sessionId]">, "params">) {
   // 면접은 요청할 때마다 새로 그린다(5.2 · 5.5는 매번 달라 미리 그려 둘 수 없다). 동적 경로(sessionId)라 이것이 없으면
   // Next가 요청 때 셸을 한 번 더 그리면서 5.2 · 5.5를 두 번씩 부른다(E2E로 확인).
@@ -22,6 +23,7 @@ async function Interview({ params }: Pick<PageProps<"/interview/[sessionId]">, "
   const sessionId = parseSessionId(raw);
   const session = sessionId === null ? null : await getSession(sessionId);
   if (!session) redirect(ROUTES.practice);
+  if (session.status === "COMPLETED") redirect(resultPath(session.id));
   // 면접 중이면 지금 답할 질문은 5.5로 받는다(다음 질문을 만드는 중이면 null).
   const question = session.status === "IN_PROGRESS" ? await getCurrentQuestion(session.id) : null;
 
