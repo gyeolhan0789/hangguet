@@ -16,6 +16,12 @@ interface Part {
   last: number[] | null;
 }
 
+/**
+ * 모델에 들어 있던 원래 법선. 법선 자리는 계산한 값으로 바꿔 끼우므로, 같은 모델로 장면을 다시 만들 때(Activity로 돌아오기 등)
+ * 바뀐 법선이 아니라 원래 법선을 기준으로 삼게 처음 것을 기억해 둔다.
+ */
+const originalNormals = new WeakMap<BufferGeometry, BufferAttribute>();
+
 /** 얼굴 메시 묶음(같은 머리를 이루는 메시들)의 법선 갱신 함수를 만든다. 표정이 바뀐 프레임에만 다시 계산한다. */
 export function createFaceSurface(meshes: Mesh[]): () => void {
   const groups = new Map<string, number>();
@@ -24,7 +30,8 @@ export function createFaceSurface(meshes: Mesh[]): () => void {
   for (const mesh of meshes) {
     const geometry = mesh.geometry;
     const position = geometry.attributes.position;
-    const normal = geometry.attributes.normal;
+    const normal = originalNormals.get(geometry) ?? (geometry.attributes.normal as BufferAttribute);
+    originalNormals.set(geometry, normal);
     const base = new Float32Array(position.count * 3);
     const fallback = new Float32Array(position.count * 3);
     const group = new Uint32Array(position.count);

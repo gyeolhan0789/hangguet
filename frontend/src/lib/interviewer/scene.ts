@@ -21,11 +21,13 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
+import { LoadError, withRetry } from "./retry";
 import { setupStorm, type Storm } from "./storm";
 
 // 면접관 3D 장면(three.js). 모델 · 표정 규칙 · 자세 구간을 불러와 캔버스에 그린다. 화면(React)과 따로 두어 브라우저에서만 불러온다.
 // 기준: 면접관 3D 모델 웹 미리보기(office_animation/web app.js: 조명 · 톤 매핑 · 표정 · 자세 진행도 · 최종 검증 FINAL_PREVIEW_REPORT.json)
 // · 면접관 표현 모듈 결정 ③-3(박연수/interviewer-avatar decisions.md: 렌더 크기 = 표시 크기 × 기기 배율, 실패 시 정지 이미지)
+// · 사용자 결정(2026-10-22: 모델 받기는 시간 제한 없이 상태로 판단, 실패 상태에 따라 자동 재시도)
 // · three.js 매뉴얼 How to dispose of objects · WebGLRenderer.setAnimationLoop(정리할 때 루프를 멈춘 뒤 dispose)
 
 /** 모델 파일 묶음 */
@@ -69,30 +71,54 @@ interface InterviewerAssets {
 /** 미리 불러 둔 모델(GLB 주소 → 불러오는 중이거나 다 불러온 결과). 장면을 만들 때 꺼내 쓰고 지운다. */
 const preloaded = new Map<string, Promise<InterviewerAssets>>();
 
-/** 모델 · 표정 규칙 · 자세 구간을 내려받아 해석한다(meshopt 압축 풀기 포함). */
-function loadAssets(model: InterviewerModel): Promise<InterviewerAssets> {
+/** 받은 비율(0~1)을 알려 준다. 모델 GLB가 대부분이라 GLB 기준으로 센다 */
+export type LoadProgress = (ratio: number) => void;
+
+/**
+ * 모델 · 표정 규칙 · 자세 구간을 내려받아 해석한다(meshopt 압축 풀기 포함).
+ * 파일마다 실패 상태에 따라 다시 받는다(withRetry: 오프라인이면 다시 연결될 때까지 기다리고, 네트워크 오류 · 5xx는 최대 5번).
+ */
+function loadAssets(
+  model: InterviewerModel,
+  onProgress?: LoadProgress,
+): Promise<InterviewerAssets> {
   const fetchJson = <T>(url: string) =>
-    fetch(url).then((response) => {
-      if (!response.ok) throw new Error(`${url} ${response.status}`);
-      return response.json() as Promise<T>;
-    });
+    withRetry(() =>
+      fetch(url).then((response) => {
+        if (!response.ok) throw new LoadError(`${url} ${response.status}`, response.status);
+        return response.json() as Promise<T>;
+      }),
+    );
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   return Promise.all([
-    new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(model.glb),
+    withRetry(() =>
+      loader.loadAsync(model.glb, (event) => {
+        if (event.total > 0) onProgress?.(event.loaded / event.total);
+      }),
+    ),
     fetchJson<FaceRules>(model.faceRules),
     fetchJson<PoseSegments>(model.animation),
   ]).then(([gltf, rules, pose]) => ({ gltf, rules, pose }));
 }
 
 /**
- * 면접 화면에 오기 전(S05 장치 점검)에 모델을 미리 내려받아 해석해 둔다. 이미 불러오는 중이면 아무것도 하지 않는다.
+ * 면접 화면에 오기 전(S05 장치 점검)에 모델을 미리 내려받아 해석해 둔다. 이미 불러오는 중이면 그 결과를 함께 기다린다.
  * 화면 사이 이동(클라이언트 이동)에서는 이 결과가 남아 있어, 면접 화면은 GPU에 올려 그리기만 하면 된다.
+ * 다 받으면 끝나고, 다시 해도 안 되면 실패로 끝난다(이때 목록에서 지워 다음에 처음부터 다시 받게 한다).
  */
-export function preloadInterviewerAssets(model: InterviewerModel) {
-  if (preloaded.has(model.glb)) return;
-  const loading = loadAssets(model);
-  // 실패하면 지워, 면접 화면이 처음부터 다시 불러오게 한다.
-  loading.catch(() => preloaded.delete(model.glb));
-  preloaded.set(model.glb, loading);
+export function preloadInterviewerAssets(
+  model: InterviewerModel,
+  onProgress?: LoadProgress,
+): Promise<void> {
+  let loading = preloaded.get(model.glb);
+  if (!loading) {
+    loading = loadAssets(model, onProgress);
+    preloaded.set(model.glb, loading);
+    loading.catch(() => {
+      if (preloaded.get(model.glb) === loading) preloaded.delete(model.glb);
+    });
+  }
+  return loading.then(() => undefined);
 }
 
 /** 미리 불러 둔 모델을 꺼낸다(한 장면에서만 쓴다). 없으면 지금 불러온다. */
@@ -100,6 +126,11 @@ function takeAssets(model: InterviewerModel): Promise<InterviewerAssets> {
   const loading = preloaded.get(model.glb);
   preloaded.delete(model.glb);
   return loading ?? loadAssets(model);
+}
+
+/** 꺼냈지만 장면에 쓰지 않은 모델을 되돌려 둔다(다음 장면이 다시 받지 않고 쓴다). */
+function returnAssets(model: InterviewerModel, assets: InterviewerAssets) {
+  if (!preloaded.has(model.glb)) preloaded.set(model.glb, Promise.resolve(assets));
 }
 
 /** 렌더 배율 상한(미리보기 검증값 1.5: 평균 프레임 25ms) */
@@ -158,6 +189,8 @@ export async function createInterviewerScene({
 
   let mixer: AnimationMixer | null = null;
   let storm: Storm | null = null;
+  /** 이 장면이 꺼내 쓴 모델. 정리할 때 GPU 자원만 놓고 캐시에 되돌려 둔다 */
+  let assets: InterviewerAssets | null = null;
   const release = () => {
     renderer.setAnimationLoop(null);
     storm?.dispose();
@@ -171,6 +204,9 @@ export async function createInterviewerScene({
     renderer.dispose();
     renderer.forceContextLoss();
     canvas.removeEventListener("webglcontextlost", lost);
+    // 해석한 모델(형상 · 텍스처 원본)은 남아 있어 다음 장면이 GPU에 다시 올려 쓸 수 있다. Next는 떠난 화면을 숨겨 두었다가(Activity)
+    // 돌아오면 효과를 다시 실행하므로, 되돌려 두면 다시 받거나 해석하지 않는다(drei useGLTF.preload와 같은 모듈 캐시 방식).
+    if (assets) returnAssets(model, assets);
   };
   const lost = (event: Event) => {
     event.preventDefault();
@@ -179,8 +215,10 @@ export async function createInterviewerScene({
   canvas.addEventListener("webglcontextlost", lost);
 
   try {
-    const { gltf, rules, pose } = await takeAssets(model);
+    assets = await takeAssets(model);
+    // 다 받기 전에 화면을 떠났으면(개발 모드에서는 효과가 두 번 실행되며 첫 번째가 바로 정리된다) release가 모델을 되돌려 둔다.
     signal.throwIfAborted();
+    const { gltf, rules, pose } = assets;
     scene.add(gltf.scene);
 
     // 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점에 멈춰 둔다.

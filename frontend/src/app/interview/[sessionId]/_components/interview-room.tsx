@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
+import { useOnline } from "@/components/use-online";
 import { startSession } from "@/lib/interview/actions";
 import { PERSONAS } from "@/lib/interview/personas";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
@@ -45,6 +46,7 @@ export function InterviewRoom({
   const reset = useInterviewStore((state) => state.reset);
   const answeredQuestionId = useInterviewStore((state) => state.answeredQuestionId);
   const [refreshing, startRefresh] = useTransition();
+  const online = useOnline();
   const interviewer = PERSONAS.find((info) => info.persona === session.persona)?.name ?? "";
 
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
@@ -78,11 +80,12 @@ export function InterviewRoom({
 
   // 다음 질문 · 결과 분석을 기다리는 동안 2초마다 다시 그려 서버 컴포넌트가 5.2를 다시 부르게 한다.
   // 다시 그리기가 끝난 뒤에 다음 조회를 예약해 요청이 겹치지 않게 한다(S05 질문 준비와 같은 방식).
+  // 인터넷이 끊기면 조회를 멈췄다가 다시 연결되면 이어서 한다.
   useEffect(() => {
-    if (!waiting || refreshing) return;
+    if (!waiting || refreshing || !online) return;
     const timer = setTimeout(() => startRefresh(() => router.refresh()), SESSION_POLL_MS);
     return () => clearTimeout(timer);
-  }, [waiting, refreshing, router]);
+  }, [waiting, refreshing, online, router]);
 
   return (
     <>
