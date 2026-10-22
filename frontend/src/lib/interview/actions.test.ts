@@ -1,8 +1,12 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
+import { redirectTo } from "@/test/redirect";
+
 import { axiosNoResponse, axiosProblem, axiosStatusOnly } from "@/test/axios-problem";
 import type {
+  AnswerRequest,
+  AnswerResponse,
   IdempotencyHeaders,
   ProblemDetail,
   SessionCreateRequest,
@@ -34,7 +38,8 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const { createSession, issueSttToken, retryPlan, startSession } = await import("./actions");
+const { createSession, endSession, issueSttToken, retryPlan, startSession, submitTextAnswer } =
+  await import("./actions");
 
 const KEY = "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70";
 const values = {
@@ -99,7 +104,7 @@ describe("createSession (5.1 면접 만들기)", () => {
     post.mockResolvedValue({ data: { ...session, mode: "VIDEO" } });
 
     await expect(createSession({ ...values, mode: "CHAT" }, KEY)).rejects.toThrow(
-      "REDIRECT /interview/55",
+      redirectTo("/interview/55"),
     );
   });
 
@@ -115,7 +120,7 @@ describe("createSession (5.1 면접 만들기)", () => {
       }),
     );
 
-    await expect(createSession(values, KEY)).rejects.toThrow("REDIRECT /practice");
+    await expect(createSession(values, KEY)).rejects.toThrow(redirectTo("/practice"));
   });
 
   it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 서버 문구와 함께 새 키가 필요하다고 알린다", async () => {
@@ -202,7 +207,7 @@ describe("retryPlan (5.3 면접 플랜 재생성)", () => {
   it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
     post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
 
-    await expect(retryPlan(55)).rejects.toThrow("REDIRECT /practice");
+    await expect(retryPlan(55)).rejects.toThrow(redirectTo("/practice"));
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
@@ -229,7 +234,7 @@ describe("startSession (5.4 면접 시작)", () => {
   it("멱등 키와 함께 면접을 시작하고 S06 면접 화면으로 간다", async () => {
     post.mockResolvedValue({ data: { ...session, status: "IN_PROGRESS", planStatus: "READY" } });
 
-    await expect(startSession(55, KEY)).rejects.toThrow("REDIRECT /interview/55");
+    await expect(startSession(55, KEY)).rejects.toThrow(redirectTo("/interview/55"));
     expect(post).toHaveBeenCalledWith("/interview-sessions/55/start", undefined, {
       headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders,
     });
@@ -292,7 +297,7 @@ describe("startSession (5.4 면접 시작)", () => {
   it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
     post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
 
-    await expect(startSession(55, KEY)).rejects.toThrow("REDIRECT /practice");
+    await expect(startSession(55, KEY)).rejects.toThrow(redirectTo("/practice"));
   });
 
   it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 그대로 이동한다", async () => {
@@ -387,6 +392,242 @@ describe("issueSttToken (5.10 실시간 음성 인식 토큰)", () => {
 
   it.each([0, -1, 1.5])("면접 id가 %s면 서버에 보내지 않고 code · status 모두 null", async (id) => {
     expect(await issueSttToken(id)).toEqual({ ok: false, code: null, status: null });
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+// Swagger 5.7 · 5.8 409 예시(코드별 문구 · instance 그대로)
+const CONFLICT = {
+  ANSWER_ALREADY_SUBMITTED: {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 답변한 질문이에요.",
+    instance: "/api/v1/interview-sessions/55/questions/303/answer",
+    code: "ANSWER_ALREADY_SUBMITTED",
+  },
+  INVALID_SESSION_STATE: {
+    title: "Conflict",
+    status: 409,
+    detail: "지금은 할 수 없는 요청이에요.",
+    instance: "/api/v1/interview-sessions/55/start",
+    code: "INVALID_SESSION_STATE",
+  },
+  IDEMPOTENCY_KEY_REUSED: {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 처리된 요청이에요.",
+    instance: "/api/v1/interview-sessions",
+    code: "IDEMPOTENCY_KEY_REUSED",
+  },
+} satisfies Record<string, ProblemDetail>;
+
+// Swagger 5.7 404 QUESTION_NOT_FOUND 예시
+const QUESTION_NOT_FOUND = {
+  title: "Not Found",
+  status: 404,
+  detail: "질문을 찾을 수 없어요.",
+  instance: "/api/v1/interview-sessions/55/questions/0/answer",
+  code: "QUESTION_NOT_FOUND",
+} satisfies ProblemDetail;
+
+// Swagger 5.8 예시: 202 'S06-E 답변한 2개까지 → S06-1' · 200 '답변 0개 → 홈'
+const ENDED_ANALYZING = {
+  ...session,
+  status: "ANALYZING",
+  planStatus: "READY",
+  planProgress: null,
+  analysisStep: "ORGANIZING_ANSWERS",
+  answeredCount: 2,
+  elapsedSeconds: 522,
+  startedAt: "2026-10-15T12:00:00+09:00",
+  endedAt: "2026-10-15T12:08:42+09:00",
+  leveledUp: true,
+} satisfies SessionResponse;
+const ENDED_ABORTED = {
+  ...session,
+  status: "ABORTED",
+  planStatus: "READY",
+  planProgress: null,
+  answeredCount: 0,
+  elapsedSeconds: 95,
+  startedAt: "2026-10-15T12:00:00+09:00",
+  endedAt: "2026-10-15T12:01:35+09:00",
+  leveledUp: false,
+} satisfies SessionResponse;
+
+describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
+  // Swagger 5.7 202 예시(id 903 · 질문 303)를 채팅(TEXT)으로 바꾼 것
+  const answer = {
+    id: 903,
+    questionId: 303,
+    inputType: "TEXT",
+    createdAt: "2026-10-15T12:08:40+09:00",
+    isLastQuestion: false,
+  } satisfies AnswerResponse;
+
+  it("TEXT 답변을 멱등 키와 함께 내고, 화면을 다시 그려 다음 질문을 기다린다", async () => {
+    post.mockResolvedValue({ data: answer });
+
+    expect(await submitTextAnswer(55, 303, { content: "캐시를 바꿨어요" }, KEY)).toEqual({
+      isLastQuestion: false,
+    });
+    expect(post).toHaveBeenCalledWith(
+      "/interview-sessions/55/questions/303/answer",
+      { inputType: "TEXT", content: "캐시를 바꿨어요" } satisfies AnswerRequest,
+      { headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders },
+    );
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("마지막 질문이었으면 isLastQuestion을 그대로 돌려준다(화면이 5.8을 부른다)", async () => {
+    post.mockResolvedValue({ data: { ...answer, isLastQuestion: true } });
+
+    expect(await submitTextAnswer(55, 303, { content: "끝" }, KEY)).toEqual({
+      isLastQuestion: true,
+    });
+  });
+
+  it.each([
+    ["", "필수 값입니다."],
+    ["   ", "필수 값입니다."],
+    ["가".repeat(1001), "채팅 답변은 1~1,000자입니다."],
+  ])("답변 %j은 보내지 않고 칸 오류 '%s'", async (content, message) => {
+    expect(await submitTextAnswer(55, 303, { content }, KEY)).toEqual({
+      fieldErrors: { content: message },
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("1,000자는 보낸다", async () => {
+    post.mockResolvedValue({ data: answer });
+    await submitTextAnswer(55, 303, { content: "가".repeat(1000) }, KEY);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("400 VALIDATION_FAILED(content)면 서버 문구를 칸 오류로 돌려준다", async () => {
+    post.mockRejectedValue(
+      axiosProblem({
+        title: "Bad Request",
+        status: 400,
+        detail: "입력값을 확인해 주세요.",
+        instance: "/api/v1/interview-sessions/55/questions/303/answer",
+        code: "VALIDATION_FAILED",
+        errors: [{ field: "content", reason: "채팅 답변은 1~1,000자입니다." }],
+      }),
+    );
+
+    expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
+      fieldErrors: { content: "채팅 답변은 1~1,000자입니다." },
+    });
+  });
+
+  it.each([CONFLICT.ANSWER_ALREADY_SUBMITTED, CONFLICT.INVALID_SESSION_STATE, QUESTION_NOT_FOUND])(
+    "$status $code면 서버 문구를 돌려주고, 화면을 다시 그려 지금 상태를 받는다",
+    async (problem) => {
+      post.mockRejectedValue(axiosProblem(problem));
+
+      expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
+        formError: problem.detail,
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("같은 키를 다른 답변에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 새 키가 필요하다고 알린다", async () => {
+    post.mockRejectedValue(axiosProblem(CONFLICT.IDEMPOTENCY_KEY_REUSED));
+
+    expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
+      formError: "이미 처리된 요청이에요.",
+      keyReused: true,
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
+    post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
+    await expect(submitTextAnswer(55, 303, { content: "답" }, KEY)).rejects.toThrow(
+      redirectTo("/practice"),
+    );
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
+    post.mockRejectedValue(new Error("network"));
+    expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
+      formError: "잠시 후 다시 시도해 주세요.",
+    });
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+    await expect(submitTextAnswer(55, 303, { content: "답" }, KEY)).rejects.toBe(signedOut);
+  });
+
+  it.each([
+    { label: "양수가 아닌 면접 id", id: 0, question: 303, key: KEY },
+    { label: "양수가 아닌 질문 id", id: 55, question: 0, key: KEY },
+    { label: "UUID가 아닌 멱등 키", id: 55, question: 303, key: "not-a-uuid" },
+  ])("$label은 서버에 보내지 않는다", async ({ id, question, key }) => {
+    expect(await submitTextAnswer(id, question, { content: "답" }, key)).toEqual({
+      formError: "잠시 후 다시 시도해 주세요.",
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe("endSession (5.8 면접 끝내기)", () => {
+  it("답변이 있으면(202 ANALYZING) 화면을 다시 그려 S06-1로 바꾸고, 레벨업을 돌려준다(화면이 기억)", async () => {
+    post.mockResolvedValue({ data: ENDED_ANALYZING });
+
+    expect(await endSession(55, KEY)).toEqual({ leveledUp: true });
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/end", undefined, {
+      headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders,
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("답변 없이 끝났으면(200 ABORTED) 홈으로 간다", async () => {
+    post.mockResolvedValue({ data: ENDED_ABORTED });
+    await expect(endSession(55, KEY)).rejects.toThrow(redirectTo("/home"));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("이미 끝난 면접이면(409 INVALID_SESSION_STATE) 서버 문구를 돌려주고 화면을 다시 그린다", async () => {
+    post.mockRejectedValue(axiosProblem(CONFLICT.INVALID_SESSION_STATE));
+    expect(await endSession(55, KEY)).toEqual({ formError: "지금은 할 수 없는 요청이에요." });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 새 키가 필요하다고 알린다", async () => {
+    post.mockRejectedValue(axiosProblem(CONFLICT.IDEMPOTENCY_KEY_REUSED));
+    expect(await endSession(55, KEY)).toEqual({
+      formError: "이미 처리된 요청이에요.",
+      keyReused: true,
+    });
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
+    post.mockRejectedValue(new Error("network"));
+    expect(await endSession(55, KEY)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("면접이 없으면(404 SESSION_NOT_FOUND) S03으로 보낸다", async () => {
+    post.mockRejectedValue(axiosProblem(SESSION_NOT_FOUND));
+    await expect(endSession(55, KEY)).rejects.toThrow(redirectTo("/practice"));
+  });
+
+  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out");
+    post.mockRejectedValue(signedOut);
+    await expect(endSession(55, KEY)).rejects.toBe(signedOut);
+  });
+
+  it.each([
+    { label: "양수가 아닌 면접 id", id: 0, key: KEY },
+    { label: "UUID가 아닌 멱등 키", id: 55, key: "not-a-uuid" },
+  ])("$label은 서버에 보내지 않는다", async ({ id, key }) => {
+    expect(await endSession(id, key)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
     expect(post).not.toHaveBeenCalled();
   });
 });

@@ -29,6 +29,12 @@ vi.mock("@/lib/interview/actions", () => ({
   retryPlan: vi.fn(),
 }));
 
+// 면접관 3D 모델 미리 불러오기(three.js · 23MB)는 jsdom에서 받지 않는다. 부르는지만 본다.
+const preloadInterviewer = vi.fn();
+vi.mock("@/lib/interviewer/preload", () => ({
+  preloadInterviewer: (persona: string) => preloadInterviewer(persona),
+}));
+
 function setDevices(overrides: Partial<DeviceCheck> = {}) {
   devices = {
     stream: null,
@@ -75,6 +81,13 @@ afterEach(() => {
 });
 
 describe("DevicesCheck (S05 장치 점검 화면)", () => {
+  it("화면에 들어오면 면접관 3D 모델을 미리 불러 둔다(면접 화면에서 바로 그리게)", () => {
+    setDevices();
+    setVoice();
+    render(checkView("GENERATING"));
+    expect(preloadInterviewer).toHaveBeenCalledWith("DEVIL");
+  });
+
   it("장치 4개가 모두 확인되고 질문 준비가 끝나면 [면접 시작]이 켜진다", () => {
     setDevices();
     setVoice("confirmed");
