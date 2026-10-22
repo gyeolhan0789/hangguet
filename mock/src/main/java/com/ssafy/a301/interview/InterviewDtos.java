@@ -1,5 +1,7 @@
 package com.ssafy.a301.interview;
 
+import com.ssafy.a301.growth.GrowthDtos.Criterion;
+import com.ssafy.a301.growth.GrowthDtos.Grade;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -76,6 +78,33 @@ public final class InterviewDtos {
                     Persona persona,
             @Schema(description = "면접 방식(S05-1)", example = "VIDEO") @NotNull(message = "필수 값입니다.")
                     Mode mode) {}
+
+    public record CriterionGrade(Criterion criterion, Grade grade) {}
+
+    public record SessionListItem(
+            @Schema(description = "면접 id", example = "55") long id,
+            @Schema(description = "지원 회사명", example = "○○전자") String companyName,
+            @Schema(description = "지원 직무", example = "백엔드 개발자") String jobTitle,
+            Persona persona,
+            Mode mode,
+            @Schema(description = "ANALYZING · COMPLETED · FAILED만 포함") SessionStatus status,
+            @Schema(description = "면접 시작 일시. 한국 시간 날짜로 목록을 조회한다") OffsetDateTime startedAt,
+            @Schema(description = "면접 종료 일시") OffsetDateTime endedAt,
+            @Schema(description = "제출한 답변 수. 1 이상", example = "5") int answeredCount,
+            @Schema(description = "6.3의 한 줄 총평. 완료 전이거나 총평이 없으면 null", nullable = true)
+                    String summary,
+            @Schema(description = "완료된 면접의 기준별 등급 4개. 분석 중·실패는 빈 배열")
+                    List<CriterionGrade> criterionGrades) {}
+
+    public record PageMetadata(int size, int number, long totalElements, int totalPages) {}
+
+    public record SessionListSummary(
+            @Schema(description = "날짜와 무관한 본인의 전체 연습 면접 수", example = "4") long totalInterviewCount,
+            @Schema(description = "선택 시작 날짜 전체 연습 시간 합(분). 페이지가 달라도 같다", example = "32")
+                    long practiceMinutes) {}
+
+    public record SessionListResponse(
+            List<SessionListItem> content, PageMetadata page, SessionListSummary summary) {}
 
     public record CurrentQuestion(
             @Schema(description = "질문 id", example = "303") long id,

@@ -1,7 +1,9 @@
 package com.ssafy.a301.interview.controller;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -9,9 +11,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ssafy.a301.auth.config.SecurityConfig;
 import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
+import com.ssafy.a301.interview.service.InterviewSessionListService;
 import com.ssafy.a301.interview.service.SttTokenService;
 import com.ssafy.a301.interview.service.TtsTokenService;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +37,7 @@ class InterviewSessionControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private SttTokenService sttTokens;
     @MockitoBean private TtsTokenService ttsTokens;
+    @MockitoBean private InterviewSessionListService sessionList;
     @MockitoBean private UserRepository users;
 
     @Test
@@ -77,5 +82,29 @@ class InterviewSessionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("tts-token"))
                 .andExpect(jsonPath("$.voiceId").value("voice"));
+    }
+
+    @Test
+    void listValidatesRequiredDateAndPageSize() throws Exception {
+        mvc.perform(get("/api/v1/interview-sessions").with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isBadRequest());
+        mvc.perform(
+                        get("/api/v1/interview-sessions")
+                                .param("practiceDate", "2026-10-21")
+                                .param("size", "21")
+                                .with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void listUsesFiveAsDefaultPageSize() throws Exception {
+        mvc.perform(
+                        get("/api/v1/interview-sessions")
+                                .param("practiceDate", "2026-10-21")
+                                .with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isOk());
+
+        verify(sessionList).list(1, LocalDate.of(2026, 10, 21), 0, 5);
     }
 }

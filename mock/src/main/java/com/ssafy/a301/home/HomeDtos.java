@@ -11,6 +11,11 @@ public final class HomeDtos {
 
     private HomeDtos() {}
 
+    public enum DateBasis {
+        STARTED_AT,
+        ENDED_AT
+    }
+
     @Schema(
             description =
                     "어떤 홈을 그릴지. NOT_DONE_TODAY 오늘 미완료(S02) · DONE_TODAY 오늘 완료(S02-B) · BROKEN 스트릭"
@@ -60,8 +65,8 @@ public final class HomeDtos {
                     String latestJobTitle) {}
 
     public record PracticeLogItem(
-            @Schema(description = "연습한 날") LocalDate practiceDate,
-            @Schema(description = "그날 처음 면접을 마친 일시") OffsetDateTime createdAt) {}
+            @Schema(description = "dateBasis에 따른 연습 날짜") LocalDate practiceDate,
+            @Schema(description = "해당 연습 날짜에 속한 면접 중 처음 마친 일시") OffsetDateTime createdAt) {}
 
     public record PracticeLogsResponse(
             @Schema(description = "그달 연습한 날, 날짜 오름차순. 한 달 최대 31건이라 페이지 없음")

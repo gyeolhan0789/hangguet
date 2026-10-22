@@ -192,6 +192,14 @@ com.ssafy.a301
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
+### 6.4 연습 면접 목록 (5.13)
+
+- 로그인한 회원의 세션 중 답변이 1개 이상이고 `ANALYZING`·`COMPLETED`·`FAILED`인 세션을 조회한다. 날짜는 한국 시간 `started_at` 기준이며 날짜 시작 이상·다음 날 시작 미만 범위를 사용한다. 스트릭은 기존 종료일 기준을 유지하고, 연습 기록 달력은 3.3의 `dateBasis=STARTED_AT`으로 조회한다
+- 세션을 `started_at DESC, id DESC`로 먼저 페이징하고, 해당 페이지의 답변 수·기준별 등급을 일괄 조회한다. 기본 크기는 5(허용 1~20)다. 점수 4개를 join한 행에 직접 페이징하면 세션 중복과 잘못된 전체 건수가 생기므로 피한다
+- 회사·직무는 해당 세션이 참조한 지원서, 총평은 `interview_sessions.summary`, 등급은 `session_scores`에서 읽는다. 새 평가를 생성하지 않는다. 분석 중·실패는 총평 null·등급 빈 배열이다
+- 날짜별 전체 건수·시간 집계는 페이지 제한 없이 계산한다. 보관함 전체 건수는 날짜 필터를 적용하지 않는다. 소유자·탈퇴 여부·연습 면접 조건은 목록과 집계에 동일하게 적용한다
+- 시간은 선택 날짜 전체 세션의 `ended_at − started_at` 초 합 / 60 내림으로 계산한다. `elapsedSeconds`와 혼용하지 않는다
+
 ## 7. Redis 키 **[제안]**
 
 | 키 | 값 | TTL | 쓰는 곳 |
