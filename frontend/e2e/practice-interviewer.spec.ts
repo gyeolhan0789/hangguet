@@ -50,6 +50,19 @@ test.describe("S04 면접관 선택 · 화면", () => {
   });
 });
 
+test.describe("S04 면접관 선택 · 썸네일", () => {
+  test("악마 면접관 썸네일(avatar-devil.webp)을 불러온다", async ({ page }) => {
+    await page.goto(S04);
+    // 썸네일은 장식(alt 없음)이라 이름이 아니라 면접관 목록 안에서 주소로 찾는다.
+    const devil = personaGroup(page).locator('img[src*="avatar-devil.webp"]');
+
+    await expect(devil).toHaveJSProperty("complete", true);
+    expect(
+      await devil.evaluate((element: HTMLImageElement) => element.naturalWidth),
+    ).toBeGreaterThan(0);
+  });
+});
+
 test.describe("S04 면접관 선택 · 고르기", () => {
   test("면접관을 고르면 [다음]이 활성화되고, 누르면 지원서와 고른 면접관을 들고 S05-1 면접 방식으로 간다", async ({
     page,

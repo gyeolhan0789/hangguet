@@ -18,7 +18,7 @@ const PERSONA_INFO = {
     name: "악마 면접관",
     difficulty: "난이도 높음",
     description: "압박 질문과 날카로운 꼬리 질문",
-    avatar: "/practice/avatar-devil.png",
+    avatar: "/practice/avatar-devil.webp",
   },
   COFFEE_CHAT: {
     name: "개발자 커피챗",

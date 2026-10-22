@@ -3,7 +3,7 @@ import type { Persona } from "@/types/api";
 import type { CameraFrame, InterviewerModel } from "./scene";
 
 // 면접관(persona)별 3D 모델. 기준: Swagger 5.1 Persona(DEVIL · COFFEE_CHAT)
-// · 면접관 3D 모델(office_animation web/assets: demon-office-face-restored.glb · face-rules.json · animation-2s.json, 2026-10-21)
+// · 승인된 면접관 3D 모델(three_pose_final/web/assets: demon-native-lips.glb · face-rules-native-lips.json · three-poses.json, 2026-10-22)
 // · Figma S06 Interviewer Scene(18:2498: 면접관 얼굴이 화면 가운데 위, 종이를 든 손 · 책상이 아래)
 
 export interface InterviewerLook {
@@ -34,7 +34,7 @@ const LOOKS = {
     still: "/interview/devil/still.webp",
     // 면접 데모(interview_prototype)의 악마 폭풍 배경 영상(Mixkit #29354, Mixkit Free License)
     storm: "/interview/devil/storm.mp4",
-    // 랜딩 그림 같은 사무실 실내. Figma 이미지 생성(gemini-3.1-flash-image)으로 만들고 창문(크로마키 초록)만 투명하게 뺐다.
+    // 사무실 실내. Figma 이미지 생성(gemini-3.1-flash-image)으로 만들고 창문(크로마키 초록)만 투명하게 뺐다.
     interior: "/interview/devil/office.webp",
   },
   COFFEE_CHAT: null,

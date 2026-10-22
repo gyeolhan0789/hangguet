@@ -28,6 +28,7 @@ import { setupStorm, type Storm } from "./storm";
 // 기준: 면접관 3D 모델 웹 미리보기(office_animation/web app.js: 조명 · 톤 매핑 · 표정 · 자세 진행도 · 최종 검증 FINAL_PREVIEW_REPORT.json)
 // · 면접관 표현 모듈 결정 ③-3(박연수/interviewer-avatar decisions.md: 렌더 크기 = 표시 크기 × 기기 배율, 실패 시 정지 이미지)
 // · 사용자 결정(2026-10-22: 모델 받기는 시간 제한 없이 상태로 판단, 실패 상태에 따라 자동 재시도)
+// · 사용자 요청(2026-10-22: 승인된 three_pose_final/web의 모델 · 표정 규칙 · 세 자세/여섯 전환 데이터로 교체)
 // · three.js 매뉴얼 How to dispose of objects · WebGLRenderer.setAnimationLoop(정리할 때 루프를 멈춘 뒤 dispose)
 
 /** 모델 파일 묶음 */
@@ -41,8 +42,9 @@ export interface InterviewerModel {
 }
 
 interface PoseSegments {
-  seconds: number;
-  segments: Record<"down" | "up", { start: number; end: number }>;
+  poses: ("read" | "rest" | "tilt")[];
+  segments: Record<string, { start: number; end: number; seconds: number }>;
+  poseEndpoints: Record<"read" | "rest" | "tilt", [string, number]>;
 }
 
 /** 카메라 위치 · 바라보는 점(모델 좌표, 미터) */
@@ -146,7 +148,7 @@ const disposeMaterial = (material: Material) => {
 
 /**
  * 면접관 장면을 만든다. 모델을 다 불러오면 첫 장면을 그리고 돌려준다.
- * 자세는 종이를 들고 읽는 자세(구간 down의 시작)로 둔다(Figma S06 · S06-B 면접관 장면).
+ * 자세는 내보낸 poseEndpoints.read에 맞춰 종이를 들고 읽는 자세로 둔다(Figma S06 · S06-B 면접관 장면).
  * onLost는 그리는 도중 WebGL 컨텍스트를 잃었을 때 부른다.
  */
 export async function createInterviewerScene({
@@ -232,7 +234,9 @@ export async function createInterviewerScene({
     action.clampWhenFinished = true;
     action.play();
     action.paused = true;
-    action.time = start + pose.segments.down.start;
+    const [readRoute, readProgress] = pose.poseEndpoints.read;
+    const readSegment = pose.segments[readRoute];
+    action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
     mixer.update(0);
 
     // 표정: 규칙에 있는 메시(WEB_<이름> 아래)를 찾아 셰이프 키 세기를 넣는다.
