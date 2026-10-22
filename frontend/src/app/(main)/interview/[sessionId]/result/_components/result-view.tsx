@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 
+import { todayKst } from "@/lib/date";
 import type { ResultResponse } from "@/types/api";
 
 import { CriteriaScores } from "./criteria-scores";
@@ -24,7 +25,11 @@ export function ResultView({ result }: { result: ResultResponse }) {
         <QuestionFeedback sessionId={result.id} answers={result.answers} />
         <div ref={end} aria-hidden className="h-px" />
       </div>
-      <ResultActionBar sessionId={result.id} end={end} />
+      <ResultActionBar
+        sessionId={result.id}
+        reviewDate={todayKst(new Date(result.endedAt))}
+        end={end}
+      />
     </>
   );
 }

@@ -64,9 +64,11 @@ export function InterviewRoom({
 
   // 다른 면접에 들어오면 지난 면접의 모달 · 답한 질문 · 레벨업을 지운다.
   // 떠날 때는 지우지 않는다: 5.8의 레벨업(leveledUp)을 결과 화면(S08)까지 기억해야 한다(API 명세 5.8).
+  // 이미 끝낸 면접(S06-1 결과 분석 중)을 새로고침해 들어온 것이면 그 면접의 레벨업이므로 남긴다.
+  const [enteredEnded] = useState(analyzing);
   useEffect(() => {
-    reset();
-  }, [reset]);
+    reset({ keepLeveledUp: enteredEnded });
+  }, [reset, enteredEnded]);
 
   // 채팅: 질문 준비가 끝나면(5.2 planStatus READY) 면접을 자동으로 시작한다(5.4). 별도 대기 화면은 없다(API 명세 5.4).
   useEffect(() => {

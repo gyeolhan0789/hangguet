@@ -64,8 +64,12 @@ export const mypagePath = (month: string) => `${ROUTES.mypage}?month=${month}`;
 /** S09 프로필 사진 ✎ → S09-1 설정의 프로필 사진 줄(모션 메모 S09) */
 export const PROFILE_IMAGE_ANCHOR = "profile-image";
 
-/** S08 날짜별 성장 리뷰 (아직 화면 없음). practiceDate는 YYYY-MM-DD */
+/** S08 날짜별 성장 리뷰(S08-B 설문 · S08-C 첫 면접 포함). practiceDate는 YYYY-MM-DD */
 export const growthReviewPath = (practiceDate: string) => `/reviews/${practiceDate}`;
+
+/** S07 [오늘의 성장 리뷰 보기]: 면접을 막 마치고 들어오는 오늘 성장 리뷰. 그날 첫 면접이면 'N일째 달성!'을 먼저 띄운다 */
+export const finishedReviewPath = (practiceDate: string) =>
+  `${growthReviewPath(practiceDate)}?from=result`;
 
 /** 로그인하지 않아도 볼 수 있는 화면 */
 export const PUBLIC_PATHS: readonly string[] = [ROUTES.landing, ROUTES.login, ROUTES.signup];
