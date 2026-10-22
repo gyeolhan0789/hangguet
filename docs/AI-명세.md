@@ -259,15 +259,17 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 
 ### 6.3 면접방 메시지 형식 **[제안]**
 
-LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하), 질문은 `seq`로 가리킨다. 메시지 종류와 화면 동작은 API 명세 면접방 메시지를 따른다.
+LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `seq`(질문 순서 1~5)로 가리키고, 리액션·채팅 입력은 `seq`를 메시지 순번으로 사용하므로 질문을 `questionSeq`로 가리킨다. 메시지 종류와 화면 동작은 API 명세 면접방 메시지를 따른다.
+
+모든 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메시지 표의 메시지 이름)과 `sessionId`(면접 id)를 담는다. 아래 표의 필드는 공통 필드를 제외한 것이다.
 
 | RPC 메서드 | 방향 | 필드 |
 |---|---|---|
 | `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만. `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0) |
-| `interview.reaction` | 에이전트 → 화면 | `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단 못 하면 null), `attitude`(`interest`·`trust`), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
-| `interview.answerState` | 에이전트 → 화면 | `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` |
-| `interview.answerSubmit` | 화면 → 에이전트 | 없음. 응답 `{ "accepted": true }`, 이미 제출 중이면 `false` |
-| `interview.chatInput` | 화면 → 에이전트 | `seq`(그 답변 안에서 1부터), `text`(입력 칸 전체, 1,000자 이하), `pauseMs` |
+| `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단 못 하면 null), `attitude`(`interest`·`trust`), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
+| `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` |
+| `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false` |
+| `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs` |
 
 - RPC 오류: `2001 EMPTY_ANSWER`(한마디도 안 함), `2002 NOT_ANSWERING`(질문 음성 재생 중 등). 1001~1999는 LiveKit 예약
 - 발음 시각이 15KiB를 넘으면 나눠 보낼지 텍스트 스트림을 쓸지 **[미정]**
