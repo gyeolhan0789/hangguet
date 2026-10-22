@@ -36,7 +36,7 @@ def collect_news(company: dict[str, str]) -> dict[str, str]:
     return company
 
 
-# GPU가 하나라 Ollama를 쓰는 작업은 llm 풀(크기 1)로 한 번에 하나씩
+# LLM을 부르는 작업은 llm 풀(크기 1)로 한 번에 하나씩
 @task(map_index_template=BY_NAME, pool="llm", **RETRY)
 def refresh_recent(company: dict[str, str]) -> str:
     _name(company)

@@ -19,9 +19,11 @@ from pipeline import dart, storage
 
 API = "https://openapi.naver.com/v1/search/news.json"
 DAYS = 30
-# bge-m3 제목 유사도: 같은 사건 0.62~0.95, 다른 사건은 0.65 언저리부터 섞임. 0.70과 비교해 보니
-# 0.65가 같은 사건을 덜 나누고 묶음 안에 다른 사건도 없었다(2026-10-21, 10곳)
-SAME_EVENT = 0.65
+# 같은 사건 기준값은 임베딩 모델마다 다르다 (실제 기사 제목 646개, 쌍 약 6만 개로 측정).
+# text-embedding-3-large(GMS): 0.58 이상이면 거의 같은 사건 (2026-10-22)
+# bge-m3(로컬 Ollama): 0.65. 로컬로 되돌리면 SAME_EVENT=0.65
+# text-embedding-3-small은 0.50~0.60에서 같은 사건·다른 사건이 섞여 쓰지 않는다
+SAME_EVENT = float(os.environ.get("SAME_EVENT", "0.58"))
 # 회사 이야기가 아닌 기사: 주가·시황, 증권사(현대차증권 등 다른 회사·애널리스트), 광고·이벤트·퀴즈.
 # '코스피'는 뺐다: "코스피200 연계 펀드 출시" 같은 상품 기사까지 버려졌다
 _NOISE = re.compile(
@@ -87,12 +89,15 @@ def merge(
 
 
 def embed(texts: list[str]) -> list[list[float]]:
-    """OpenAI 호환 embeddings 호출. 기본은 로컬 Ollama의 bge-m3(한국어 지원)."""
+    """OpenAI 호환 embeddings 호출. 기본은 로컬 Ollama bge-m3, GMS는 EMBED_API_KEY로 인증."""
     payload = {"model": os.environ.get("EMBED_MODEL", "bge-m3"), "input": texts}
+    headers = {"Content-Type": "application/json"}
+    if key := os.environ.get("EMBED_API_KEY"):
+        headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(
         os.environ.get("EMBED_URL", "http://localhost:11434/v1/embeddings"),
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=300) as res:
         return [d["embedding"] for d in json.loads(res.read())["data"]]

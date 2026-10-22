@@ -14,6 +14,7 @@ PROMPT_VERSION = "card-v4"
 INPUT_LIMIT = 6000
 NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
 MAX_OUTPUT_TOKENS = 1500
+REASONING_TOKENS = 2000  # gpt-5 계열 추론 몫
 
 # card-v1은 '사업의 개요' + '기타 참고사항' 앞부분만 넣어서, 회사 계획 문장(보통 2만~3만 자 뒤
 # 사업부문별 현황)이 빠지고 시장 전망·ESG 문장이 방향으로 뽑혔다. 그래서 '사업의 내용' 전체에서
@@ -156,6 +157,10 @@ def call_llm(messages: list[dict[str, str]]) -> dict[str, Any]:
     }
     if effort := os.environ.get("LLM_REASONING_EFFORT"):
         payload["reasoning_effort"] = effort
+    if payload["model"].startswith("gpt-5"):
+        # gpt-5 계열은 temperature 고정 불가, 출력 제한 이름이 다르고 추론 토큰도 여기에 포함된다
+        del payload["temperature"], payload["max_tokens"]
+        payload["max_completion_tokens"] = MAX_OUTPUT_TOKENS + REASONING_TOKENS
     headers = {"Content-Type": "application/json"}
     if key := os.environ.get("LLM_API_KEY"):
         headers["Authorization"] = f"Bearer {key}"

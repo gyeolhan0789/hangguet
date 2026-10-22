@@ -30,19 +30,33 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 | `LLM_CHAT_URL` | OpenAI 호환 chat completions 주소 |
 | `LLM_MODEL` | 모델 이름 |
 | `LLM_API_KEY` | API 키 (로컬 모델은 비움) |
-| `LLM_REASONING_EFFORT` | 생각 모드가 있는 모델에서 끌 때 `none` (GMS는 비움) |
+| `LLM_REASONING_EFFORT` | 생각 모드가 있는 로컬 모델에서 끌 때 `none` (gpt-4 계열은 비움) |
 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | developers.naver.com 애플리케이션의 검색 API 키 |
-| `EMBED_URL`, `EMBED_MODEL` | 기사 묶기용 embeddings 주소·모델 (비우면 로컬 Ollama `bge-m3`, `ollama pull bge-m3`) |
+| `EMBED_URL`, `EMBED_MODEL`, `EMBED_API_KEY` | 기사 묶기용 embeddings 주소·모델·키 (비우면 로컬 Ollama `bge-m3`) |
+| `SAME_EVENT` | 같은 사건 묶기 기준값. 기본 0.58(text-embedding-3-large), bge-m3면 0.65 |
 
-로컬 개발 (Ollama, qwen3:8b · 입력 길이 10240 토큰 설정 모델):
+기본 설정 (SSAFY GMS, 2026-10-22 모델 비교로 선택):
 
 ```
-LLM_CHAT_URL=http://localhost:11434/v1/chat/completions
-LLM_MODEL=qwen3-8b-ctx
-LLM_REASONING_EFFORT=none
+LLM_CHAT_URL=https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
+LLM_MODEL=gpt-4.1-mini
+LLM_API_KEY=GMS 키
+EMBED_URL=https://gms.ssafy.io/gmsapi/api.openai.com/v1/embeddings
+EMBED_MODEL=text-embedding-3-large
+EMBED_API_KEY=GMS 키
 ```
 
-GMS가 발급되면 `LLM_CHAT_URL`, `LLM_MODEL`, `LLM_API_KEY`만 바꾼다.
+로컬 개발 (Ollama, GPU 필요): `LLM_CHAT_URL=http://localhost:11434/v1/chat/completions`,
+`LLM_MODEL=qwen3-8b-ctx`(입력 길이 10240 토큰 설정), `LLM_REASONING_EFFORT=none`, `SAME_EVENT=0.65`,
+`LLM_API_KEY`·`EMBED_*`는 지운다 (`ollama pull bge-m3`).
+
+| 모델 비교 (11곳) | 인용 검증 통과 | 시간 |
+|---|---|---|
+| qwen3 8B (로컬) | 110/125 (경쟁·시장 21/26) | 6분 27초 |
+| gpt-4.1-mini (선택) | 124/129 (인재상·사업방향·경쟁·시장 100%) | 1분 23초 |
+| gpt-4o-mini | 123/126 | 2분 15초 |
+| gpt-5-mini | 134/137 (회사 소개 문장을 고르고 최근 이슈를 지시보다 많이 냄) | 2분 44초 |
+| gpt-5-nano | 134/149 (사업방향·경쟁·시장을 적게 찾음) | 1분 31초 |
 
 ## 실행
 
@@ -64,9 +78,9 @@ uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 
 - 네이버 뉴스 검색 API로 관련도순 100건. 기사 본문은 받지 않고 제목·요약·링크·날짜만 저장
 - 버리는 기사: 30일 지난 기사, 제목에 회사 이름이 없는 기사, 주가·시황·증권사·광고·이벤트 기사(`news.py`의 `_NOISE`)
-- 한 번에 2~3일치만 잡혀서 날마다 모아 쌓는다(같은 제목은 하나, 30일 지나면 삭제)
-- 같은 사건 묶기: 제목 임베딩(bge-m3) 유사도가 묶음 첫 기사와 0.65 이상이면 같은 묶음.
-  LLM에는 묶음마다 최신 기사 1건과 기사 수만 넣는다
+- 한 번에 2~3일치만 잡혀서 날마다 모아 쌓는다(같은 제목은 하나, 30일 지난 기사는 빠짐)
+- 같은 사건 묶기: 제목 임베딩 유사도가 묶음 첫 기사와 `SAME_EVENT` 이상이면 같은 묶음.
+  LLM에는 큰 묶음부터 12개까지, 묶음마다 최신 기사 1건과 기사 수만 넣는다
 
 ## 확인 화면
 
