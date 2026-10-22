@@ -58,6 +58,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
+- 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
+  - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
+  - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
+  - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 
 ```json
 { "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "answerId": 903,
@@ -75,15 +79,28 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 |---|---|---|---|
 | `plan.progress` | 분석 작업자 | `progress`(50 등) | `planProgress` |
 | `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, `planStatus: READY` |
-| `plan.failed` | 분석 작업자 | `reason` | `planStatus: FAILED` |
+| `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
 | `evaluation.completed` | 분석 작업자 | 4장 | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
-| `evaluation.failed` | 분석 작업자 | `reason` | `FAILED` |
+| `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
-| `recording.mergeFailed` | 분석 작업자 | `reason` | 다시보기 처리 **[미정]**(API 명세 B-19) |
+| `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | 다시보기 처리 **[미정]**(API 명세 B-19) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
 | `answer.completed` | 면접 에이전트 | `seq`, `content`, `tokens`, `endReason`(6.2) | `answers` 저장, SCORE_ANSWER 작업 등록 |
+
+**실패 이유(`reason`)** 실패 결과 메시지는 아래 값 중 하나를 담는다. BE가 값으로 처리를 나눌 수 있도록 자유 문장을 사용하지 않는다.
+
+| 값 | 결과 메시지 | 뜻 |
+|---|---|---|
+| `GMS_UNAVAILABLE` | `plan.failed` · `evaluation.failed` | GMS 호출이 재시도 후에도 실패했거나 재시도 대상이 아닌 오류 응답을 수신함(5장) |
+| `INVALID_OUTPUT` | `plan.failed` · `evaluation.failed` | GMS 출력이 재시도 후에도 검증을 통과하지 못함(2·5장) |
+| `TIMED_OUT` | `plan.failed` · `evaluation.failed` | BE 최대 대기 시간을 넘음(5장) |
+| `TRACK_NOT_FOUND` | `recording.mergeFailed` | 원본 위치에 트랙 파일이 없음(7장) |
+| `STORAGE_ERROR` | `recording.mergeFailed` | 녹화 저장소에서 다운로드하거나 업로드하지 못함 |
+| `MERGE_ERROR` | `recording.mergeFailed` | ffmpeg가 트랙을 합치지 못함 |
+| `INVALID_JOB` | 세 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
+| `INTERNAL_ERROR` | 세 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
 
 **중복 · 늦은 결과는 BE가 거른다**
 
@@ -200,13 +217,18 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ## 5. 실패 처리
 
-| 상황 | 처리 |
-|---|---|
-| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 보내지 않고 EVALUATE에 맡긴다 |
-| 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 |
-| 확률만 없음 | 그 항목만 `FIXED`로 점수를 내고 로그를 남긴다 |
-| 결과 큐에 넣기 실패 | 짧은 간격으로 재시도. 같은 결과가 두 번 가도 BE가 거른다(1.4) |
-| 작업자 중단·메시지 유실 | 최대 대기 시간이 지나면 BE가 5.2 조회 때 `FAILED`로 바꾼다(값은 API 명세 B-11) |
+| 상황 | 처리 | `reason` |
+|---|---|---|
+| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
+| 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
+| 확률만 없음 | 그 항목만 `FIXED`로 점수를 내고 로그를 남긴다 | — |
+| BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 작업 시작부터 계산한다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
+| 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
+| 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
+| 결과 큐에 넣기 실패 | 짧은 간격으로 재시도한다. 같은 결과가 두 번 전송돼도 BE가 제외한다(1.4) | — |
+| 작업자 중단·메시지 유실 | 최대 대기 시간이 지나면 BE가 5.2 조회 때 `FAILED`로 변경한다(값은 API 명세 B-11) | — |
+
+녹화 합치기의 실패 이유는 7장.
 
 `FAILED`가 되면 화면은 5.3(플랜)·5.9(결과)로 다시 시도한다. 면접 에이전트의 실패 처리는 6.5.
 
@@ -299,7 +321,7 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
 - **시작** 5.8(화상). 면접 중이 아니라 끝난 뒤 큐 작업으로 하므로 면접 중 CPU를 쓰지 않는다
 - **입력(작업 메시지)** 원본 트랙 위치(S3 `recordings/raw/{sessionId}/…`, BE가 녹화를 시작할 때 정함), 결과 위치(`recordings/{sessionId}.mp4`) **[제안]**
 - **처리** ffmpeg로 합쳐 S3에 올린다
-- **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`. 다시보기 처리는 **[미정]**(API 명세 B-19)
+- **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. 다시보기 처리는 **[미정]**(API 명세 B-19)
 
 ## 8. 회사 공시 요약 (고도화)
 
