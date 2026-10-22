@@ -2,8 +2,10 @@ package com.ssafy.a301.common.idempotency;
 
 import io.swagger.v3.oas.models.media.StringSchema;
 import io.swagger.v3.oas.models.parameters.HeaderParameter;
+import java.time.Duration;
 import org.springdoc.core.customizers.OperationCustomizer;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -16,14 +18,18 @@ public class IdempotencyConfig implements WebMvcConfigurer {
             "멱등 키(UUID). 같은 키·같은 본문이면 처음 결과를 그대로 반환, 같은 키·다른 본문이면 409 IDEMPOTENCY_KEY_REUSED";
 
     private final ObjectProvider<IdempotencyStore> store;
+    private final Duration waitTimeout;
 
-    public IdempotencyConfig(ObjectProvider<IdempotencyStore> store) {
+    public IdempotencyConfig(
+            ObjectProvider<IdempotencyStore> store,
+            @Value("${idempotency.wait-timeout:10s}") Duration waitTimeout) {
         this.store = store;
+        this.waitTimeout = waitTimeout;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new IdempotencyInterceptor(store));
+        registry.addInterceptor(new IdempotencyInterceptor(store, waitTimeout));
     }
 
     @Bean

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.parameters.Parameter;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.web.method.HandlerMethod;
@@ -11,7 +12,8 @@ import org.springframework.web.method.HandlerMethod;
 class IdempotencyConfigTest {
     private final IdempotencyConfig config =
             new IdempotencyConfig(
-                    new StaticListableBeanFactory().getBeanProvider(IdempotencyStore.class));
+                    new StaticListableBeanFactory().getBeanProvider(IdempotencyStore.class),
+                    Duration.ofSeconds(10));
 
     @Test
     void swaggerShowsRequiredKeyHeaderOnlyOnIdempotentApi() throws Exception {
