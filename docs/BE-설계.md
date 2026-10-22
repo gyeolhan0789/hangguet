@@ -56,13 +56,14 @@ com.ssafy.a301
 │  └─ domain       Application
 ├─ interview
 │  ├─ controller   InterviewSessionController
-│  ├─ service      SttTokenService, TtsTokenService
+│  ├─ service      SttTokenService, TtsTokenService, AiJobService·AiJobPublisher(Outbox), SessionRuntimeService
 │  ├─ dto          InterviewDtos
 │  ├─ mapper       InterviewMapper
-│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository
+│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository,
+│  │               AiJobRepository, AiJobQueue·RedisAiJobQueue, SessionRuntimeStore·RedisSessionRuntimeStore
 │  ├─ stt          SonioxClient
 │  ├─ tts          ElevenLabsClient
-│  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·상태 enum
+│  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·AI 작업·상태 enum
 ├─ result
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
@@ -73,12 +74,12 @@ com.ssafy.a301
 │  └─ domain       UploadPurpose
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
 ├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
-└─ config          OpenApiConfig
+└─ config          OpenApiConfig, SchedulingConfig
 ```
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
@@ -94,6 +95,7 @@ com.ssafy.a301
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 화면에 낸 시점에 행 생성** **[결정]**. `(session_id, seq)` UNIQUE **[제안]** |
+| `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준(JSONB). AI 분석 작업자(PLAN)가 쓰고 BE는 읽기만 한다(`@Immutable`). `claims`·버전은 AI만 써서 매핑하지 않음 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 5.7 화상 확정 토큰)는 BE가 저장. `evaluation`(JSONB, SCORE_ANSWER 판정)은 AI 분석 작업자만 쓰므로 엔티티에 매핑하지 않는다(BE가 답변을 고쳐도 덮어쓰지 않도록) |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | `ANSWER_AUDIO`(5.7, answer 연결) · `SESSION_VIDEO`(6.2, 면접당 1개는 서비스에서 확인). `object_key` UNIQUE |
@@ -123,8 +125,15 @@ com.ssafy.a301
 
 ## 5. 처리 흐름
 
+### 5.0 AI 작업 전송 (Outbox) **[결정]**
+1. 업무 트랜잭션 안에서 `AiJobService.enqueue(AiJob.plan/scoreAnswer/evaluate(...))`로 `ai_job_outbox`에 넣는다. 트랜잭션 밖에서 부르면 예외(업무가 롤백되면 작업도 남지 않음)
+2. 커밋 직후 `AiJobPublisher`가 Redis `ai:jobs`에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
+3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
+4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. 작업자가 AI 명세 1.3의 버림 조건으로 거른다
+5. 작업자는 `BLMOVE ai:jobs ai:jobs:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
+
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
-1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
+1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다
 2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
 3. 완료 → Redis `planStatus=READY` / 실패 → `FAILED`
 4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**
@@ -189,7 +198,8 @@ com.ssafy.a301
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
-| `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds |
+| `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`(작업자도 씀)·`pausedSeconds`(BE만 씀). 값이 없으면 필드 없음. 각자 자기 필드만 `HSET`/`HDEL` **[결정]** | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
+| `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·5.7·5.8·5.9 (5.0) |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5·5.7·6.2에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
@@ -247,4 +257,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변 음성·녹화 업로드(5.6·6.1)의 S3 연동, 면접 AI 모듈 어댑터
 4. 후속 API의 인증 사용자 식별·리소스 소유권 검증
-5. 비동기 작업(플랜 생성 · 다음 질문 · 결과 생성 · 시선 분석) 실행 방식: `@Async` / 메시지 큐 중 선택 **[미정]**
+5. 시선 분석(6.2) 실행 주체와 방식(B-14). 플랜·채점·결과 생성은 Outbox + Redis 작업 큐로 결정(5.0)
