@@ -43,9 +43,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
-| 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` | `interview_questions`, `answers`(화상) |
+| 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` | `interview_questions`, `answers`(화상, `speech` 포함) |
 
-`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다.
+`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)는 스키마에 없어 BE 마이그레이션으로 추가한다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다.
 
 ### 1.2 Redis 진행 상태
 
@@ -68,7 +68,8 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 { "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "answerId": 903,
   "mode": "VIDEO", "seq": 3,
   "question": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거",
-  "content": "조회 쿼리 실행 계획을 보고…", "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ] }
+  "content": "조회 쿼리 실행 계획을 보고…", "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
+  "speech": { "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 } }
 ```
 
 ### 1.4 결과 메시지 (AI → BE) **[제안]**
@@ -88,7 +89,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | 다시보기 처리 **[미정]**(API 명세 B-19) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
-| `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `endReason`(6.2) | `answers` 저장, SCORE_ANSWER 작업 등록 |
+| `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 
 **실패 이유(`reason`)** 실패 결과 메시지는 아래 값 중 하나를 담는다. BE가 값으로 처리를 나눌 수 있도록 자유 문장을 사용하지 않는다.
 
@@ -143,12 +144,12 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 중 답변마다 말하기 분석과 평가 STEP 01(기준별 판정)을 미리 한다. 다음 질문을 막지 않고, 실패해도 면접은 계속된다(EVALUATE가 마저 채점).
 
 - **시작** BE가 답변을 저장한 직후(화상은 `answer.completed`, 채팅은 5.7). `answers.evaluation`이 비어 있을 때만 작업을 넣는다
-- **입력(작업 메시지)** `answerId`, `mode`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), 답변 음성 위치(화상) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
-- **말하기 분석(화상만)** 입력은 `tokens`와 답변 음성
-  - 답변 음성은 Egress가 녹화한 지원자 음성 트랙이다. 트랙에서 그 답변 구간을 잘라 쓸지, 답변별로 따로 저장할지, 그 경우 `tokens` 시각을 무엇 기준으로 둘지는 **[미정]**(API 명세 B-19)
-  - 말하기 지표는 답변 음성으로 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, 6.3 `speechMetrics`에서 `gazeRatio`를 뺀 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 쓰지 않는다
+- **입력(작업 메시지)** `answerId`, `mode`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
+- **말하기 분석(화상만)** 입력은 `tokens`와 작업 메시지의 `speech`
+  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 사용하지 않는다
   - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
-  - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를, 음성으로 말끝 흐림·억양 폭을 구한다
+  - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를 구한다
+  - 말끝 흐림·억양 폭은 면접 에이전트가 답변을 듣는 동안 실시간 음성으로 계산해 `answer.completed`로 전송한 값(6.2)을 그대로 사용한다. 답변 음성 파일은 사용하지 않는다
   - `tokens`가 없거나 구하지 못한 지표는 비워 둔다
 
 | 지표(`speech` 키) | 계산 |
@@ -189,7 +190,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·답변 음성 위치·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -263,7 +264,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 질문마다 다음을 반복한다(1~5번).
 
 1. **질문** `question.started` 결과 메시지(`seq`, `startedAt`)를 보내고, 면접방 메시지 `question`(`started`)을 보낸 뒤 질문 글을 TTS로 말한다. 다 말하면 `question`(`ended`), 합성에 실패하면 `failed`
-2. **듣기(화상)** 지원자 음성을 STT로 받아 확정 토큰과 시각을 모은다. 자막은 보내지 않는다
+2. **듣기(화상)** 지원자 음성을 STT로 수신해 확정 토큰과 시각을 수집한다. 같은 음성으로 말끝 흐림·억양 폭(3장)을 계산한다. 자막은 전송하지 않는다
 3. **리액션** 화상은 문장이 끝날 때마다(문장 끝 기준은 API 명세 면접방 메시지), 채팅은 `chat.input`을 받을 때마다 Jev로 판단해 `reaction`을 보낸다(6.4)
 4. **답변 끝(화상)** 마지막 말소리 뒤 7초 침묵(임시 값) 또는 `answer.submit`이면 답변을 끝낸다. 한마디도 안 했으면 끝내지 않고, 60초(임시 값) 동안 말을 시작하지 않으면 `answer.state`(`timedOut`)를 보낸다
 5. **답변 전달(화상)** `answer.completed` 결과 메시지를 보내고 `answer.state`(`submitted`)를 보낸다
@@ -273,12 +274,14 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
   "answerStartedAt": "2026-10-22T14:02:18.250+09:00",
   "content": "조회 쿼리 실행 계획을 보고…",
   "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
+  "speech": { "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 },
   "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12+09:00" }
 ```
 
 - `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 녹화 시작 시각과의 차이로 답변 위치를 구한다
 - `content`: 답변 글. 1~10,000자(BE와 같은 UTF-16 단위). 넘는 답변은 잘라 전송하지 않는다. 채점 대상 글이 변경되기 때문이다
 - `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 제외한다. 10,000개 이하, `0 ≤ startMs ≤ endMs`. STT가 재연결돼도 시각은 `answerStartedAt` 기준으로 이어서 계산한다. 토큰이 없으면 null
+- `speech`: 말끝 흐림 비율 `trailingOffRatio`·억양 폭 `pitchRangeSt`(계산은 3장 표). 구하지 못한 값은 null
 - `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
 - **채팅** 답변은 화면이 5.7로 BE에 낸다. 에이전트가 다음 질문으로 넘어갈 신호는 화면이 5.7 성공 뒤 `answer.submit`을 보내는 것으로 한다 **[제안]**
