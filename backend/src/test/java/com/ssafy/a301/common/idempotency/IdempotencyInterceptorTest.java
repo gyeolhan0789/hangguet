@@ -9,9 +9,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.GlobalExceptionHandler;
-import java.util.HashMap;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -19,6 +23,7 @@ import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -37,15 +42,19 @@ class IdempotencyInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        mvc =
-                MockMvcBuilders.standaloneSetup(controller)
-                        .setControllerAdvice(new GlobalExceptionHandler())
-                        .addInterceptors(
-                                new IdempotencyInterceptor(
-                                        new StaticListableBeanFactory(Map.of("store", store))
-                                                .getBeanProvider(IdempotencyStore.class)))
-                        .addFilters(new IdempotencyFilter())
-                        .build();
+        mvc = mvc(Duration.ofSeconds(5));
+    }
+
+    private MockMvc mvc(Duration waitTimeout) {
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .addInterceptors(
+                        new IdempotencyInterceptor(
+                                new StaticListableBeanFactory(Map.of("store", store))
+                                        .getBeanProvider(IdempotencyStore.class),
+                                waitTimeout))
+                .addFilters(new IdempotencyFilter())
+                .build();
     }
 
     @Test
@@ -111,11 +120,67 @@ class IdempotencyInterceptorTest {
     }
 
     @Test
-    void sameKeyWhileProcessingIsConflict() throws Exception {
+    void sameKeyWhileProcessingWaitsForFirstResponse() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        controller.duringCall = () -> await(release);
+
+        CompletableFuture<MockHttpServletResponse> first =
+                perform(create(7, KEY, "{\"name\":\"a\"}"));
+        store.awaitBegins(1);
+        CompletableFuture<MockHttpServletResponse> second =
+                perform(create(7, KEY, "{\"name\":\"a\"}"));
+        // 두 번째 요청이 처리 중 표시를 보고 기다리기 시작한 뒤 첫 요청을 끝낸다
+        store.awaitBegins(2);
+        release.countDown();
+
+        assertThat(first.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo(201);
+        MockHttpServletResponse replayed = second.get(5, TimeUnit.SECONDS);
+        assertThat(replayed.getStatus()).isEqualTo(201);
+        assertThat(replayed.getContentAsString()).isEqualTo(first.get().getContentAsString());
+        assertThat(controller.calls).hasValue(1);
+    }
+
+    @Test
+    void waitingRequestRunsWhenFirstFails() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        controller.duringFlaky = () -> await(release);
+
+        CompletableFuture<MockHttpServletResponse> first = perform(flaky());
+        store.awaitBegins(1);
+        CompletableFuture<MockHttpServletResponse> second = perform(flaky());
+        store.awaitBegins(2);
+        release.countDown();
+
+        assertThat(first.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo(409);
+        assertThat(second.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo(202);
+        assertThat(controller.calls).hasValue(2);
+    }
+
+    @Test
+    void sameKeyStillProcessingAfterWaitIsConflict() throws Exception {
+        MockMvc shortWait = mvc(Duration.ofMillis(300));
         controller.duringCall =
                 () -> {
                     try {
-                        mvc.perform(create(7, KEY, "{\"name\":\"a\"}"))
+                        shortWait
+                                .perform(create(7, KEY, "{\"name\":\"a\"}"))
+                                .andExpect(status().isConflict())
+                                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
+                    } catch (Exception ex) {
+                        throw new AssertionError(ex);
+                    }
+                };
+
+        shortWait.perform(create(7, KEY, "{\"name\":\"a\"}")).andExpect(status().isCreated());
+        assertThat(controller.calls).hasValue(1);
+    }
+
+    @Test
+    void differentRequestWithProcessingKeyIsConflictWithoutWaiting() throws Exception {
+        controller.duringCall =
+                () -> {
+                    try {
+                        mvc.perform(create(7, KEY, "{\"name\":\"b\"}"))
                                 .andExpect(status().isConflict())
                                 .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
                     } catch (Exception ex) {
@@ -124,7 +189,8 @@ class IdempotencyInterceptorTest {
                 };
 
         mvc.perform(create(7, KEY, "{\"name\":\"a\"}")).andExpect(status().isCreated());
-        assertThat(controller.calls).hasValue(1);
+        // 다른 요청은 기다리지 않으므로 대기 시간(5초) 안에 바로 끝난다
+        assertThat(store.begins).hasValue(2);
     }
 
     @Test
@@ -162,6 +228,31 @@ class IdempotencyInterceptorTest {
                 .content(body);
     }
 
+    private CompletableFuture<MockHttpServletResponse> perform(
+            MockHttpServletRequestBuilder request) {
+        return CompletableFuture.supplyAsync(
+                () -> {
+                    try {
+                        return mvc.perform(request).andReturn().getResponse();
+                    } catch (Exception ex) {
+                        throw new IllegalStateException(ex);
+                    }
+                });
+    }
+
+    private static MockHttpServletRequestBuilder flaky() {
+        return post("/things/flaky").principal(user(7)).header(Idempotent.HEADER, KEY);
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(ex);
+        }
+    }
+
     private static UsernamePasswordAuthenticationToken user(long id) {
         return new UsernamePasswordAuthenticationToken(Long.toString(id), null);
     }
@@ -170,6 +261,7 @@ class IdempotencyInterceptorTest {
     static class SampleController {
         final AtomicInteger calls = new AtomicInteger();
         Runnable duringCall = () -> {};
+        Runnable duringFlaky = () -> {};
 
         @Idempotent
         @PostMapping("/things")
@@ -194,6 +286,17 @@ class IdempotencyInterceptorTest {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
 
+        // 처음 부르면 실패하고 그다음부터 성공한다
+        @Idempotent
+        @PostMapping("/things/flaky")
+        ResponseEntity<Void> flaky() {
+            if (calls.incrementAndGet() == 1) {
+                duringFlaky.run();
+                throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+            }
+            return ResponseEntity.accepted().build();
+        }
+
         @PostMapping("/things/plain")
         void plain() {
             calls.incrementAndGet();
@@ -202,12 +305,29 @@ class IdempotencyInterceptorTest {
 
     /** RedisIdempotencyStore와 같은 규칙의 메모리 저장소. */
     static class InMemoryStore implements IdempotencyStore {
-        final Map<String, IdempotencyRecord> records = new HashMap<>();
+        final Map<String, IdempotencyRecord> records = new ConcurrentHashMap<>();
+        final AtomicInteger begins = new AtomicInteger();
 
         @Override
         public IdempotencyRecord begin(long userId, UUID key, String fingerprint) {
-            return records.putIfAbsent(
-                    userId + ":" + key, IdempotencyRecord.processing(fingerprint));
+            IdempotencyRecord existing =
+                    records.putIfAbsent(
+                            userId + ":" + key, IdempotencyRecord.processing(fingerprint));
+            synchronized (this) {
+                begins.incrementAndGet();
+                notifyAll();
+            }
+            return existing;
+        }
+
+        // begin이 count번 이상 불릴 때까지 기다린다
+        synchronized void awaitBegins(int count) throws InterruptedException {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            while (begins.get() < count) {
+                long left = deadline - System.nanoTime();
+                assertThat(left).as("begin 호출 대기").isPositive();
+                TimeUnit.NANOSECONDS.timedWait(this, left);
+            }
         }
 
         @Override

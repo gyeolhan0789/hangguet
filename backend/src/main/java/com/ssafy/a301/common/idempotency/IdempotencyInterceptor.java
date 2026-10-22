@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.util.HexFormat;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
@@ -22,18 +23,23 @@ import org.springframework.web.util.WebUtils;
  *
  * <ol>
  *   <li>처리 전에 처리 중 표시를 잡는다
- *   <li>이미 끝난 같은 요청이면 저장한 응답을 그대로 돌려준다. 다른 요청이거나 아직 처리 중이면 409
+ *   <li>이미 끝난 같은 요청이면 저장한 응답을 그대로 돌려준다. 다른 요청이면 409
+ *   <li>같은 요청이 아직 처리 중이면 끝날 때까지 기다린다(최대 대기 시간). 성공했으면 그 응답을 돌려주고, 실패해 처리 중 표시가 지워졌으면 이번 요청이 처리한다.
+ *       기다려도 끝나지 않으면 409. 화면이 409를 받으면 새 키를 쓰므로, 바로 409를 주면 같은 면접이 두 번 만들어질 수 있다
  *   <li>2xx로 끝나면 응답을 저장하고, 실패하면 처리 중 표시를 지워 다시 시도할 수 있게 한다
  * </ol>
  */
 public class IdempotencyInterceptor implements HandlerInterceptor {
     private static final String ATTRIBUTE = IdempotencyInterceptor.class.getName() + ".pending";
+    private static final Duration POLL_INTERVAL = Duration.ofMillis(100);
 
     // 저장소는 멱등 API를 처음 처리할 때 찾는다. 멱등 API가 없는 컨트롤러 테스트는 Redis 없이 뜬다
     private final ObjectProvider<IdempotencyStore> store;
+    private final Duration waitTimeout;
 
-    public IdempotencyInterceptor(ObjectProvider<IdempotencyStore> store) {
+    public IdempotencyInterceptor(ObjectProvider<IdempotencyStore> store, Duration waitTimeout) {
         this.store = store;
+        this.waitTimeout = waitTimeout;
     }
 
     @Override
@@ -47,7 +53,7 @@ public class IdempotencyInterceptor implements HandlerInterceptor {
         UUID key = key(request);
         long userId = Long.parseLong(request.getUserPrincipal().getName());
         String fingerprint = fingerprint(request);
-        IdempotencyRecord existing = store.getObject().begin(userId, key, fingerprint);
+        IdempotencyRecord existing = waitWhileProcessing(userId, key, fingerprint);
         if (existing == null) {
             request.setAttribute(ATTRIBUTE, new Pending(userId, key, fingerprint));
             return true;
@@ -84,6 +90,25 @@ public class IdempotencyInterceptor implements HandlerInterceptor {
                                 status,
                                 response.getContentType(),
                                 new String(body.getContentAsByteArray(), StandardCharsets.UTF_8)));
+    }
+
+    // 처리 중 표시를 잡을 때까지(null), 또는 끝난 기록이나 다른 요청의 기록을 볼 때까지 다시 시도한다
+    private IdempotencyRecord waitWhileProcessing(long userId, UUID key, String fingerprint) {
+        long deadline = System.nanoTime() + waitTimeout.toNanos();
+        IdempotencyRecord existing = store.getObject().begin(userId, key, fingerprint);
+        while (existing != null
+                && existing.fingerprint().equals(fingerprint)
+                && !existing.isCompleted()
+                && System.nanoTime() < deadline) {
+            try {
+                Thread.sleep(POLL_INTERVAL);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            existing = store.getObject().begin(userId, key, fingerprint);
+        }
+        return existing;
     }
 
     private static UUID key(HttpServletRequest request) {
