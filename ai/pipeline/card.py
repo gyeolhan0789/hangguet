@@ -12,6 +12,8 @@ from pipeline.verify import normalize
 
 PROMPT_VERSION = "card-v4"
 INPUT_LIMIT = 6000
+NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
+MAX_OUTPUT_TOKENS = 1500
 
 # card-v1은 '사업의 개요' + '기타 참고사항' 앞부분만 넣어서, 회사 계획 문장(보통 2만~3만 자 뒤
 # 사업부문별 현황)이 빠지고 시장 전망·ESG 문장이 방향으로 뽑혔다. 그래서 '사업의 내용' 전체에서
@@ -97,14 +99,18 @@ RECENT_SYSTEM = (
 
 
 def news_input(articles: list[dict[str, Any]]) -> str:
-    """같은 사건 묶음마다 최신 기사 1건: '[날짜 · 기사 N건] 제목' 줄과 요약 줄. 큰 묶음부터."""
+    """같은 사건 묶음마다 최신 기사 1건: '[날짜 · 기사 N건] 제목' 줄과 요약 줄.
+
+    큰 묶음부터 NEWS_EVENTS개까지만 넣는다. 카카오 기사가 32묶음으로 쌓이자 6000자에서 기사
+    중간이 잘린 입력에 모델이 같은 말을 반복하다 멈췄다("token repeat limit", 2026-10-22).
+    """
     sizes = Counter(a.get("group") for a in articles)
     firsts = {a.get("group", n): a for n, a in reversed(list(enumerate(articles)))}.values()
-    lines = (
+    biggest = sorted(firsts, key=lambda a: -sizes[a.get("group")])[:NEWS_EVENTS]
+    return "\n".join(
         f"[{a['published']} · 기사 {sizes[a.get('group')]}건] {a['title']}\n{a['summary']}"
-        for a in sorted(firsts, key=lambda a: -sizes[a.get("group")])
+        for a in biggest
     )
-    return "\n".join(lines)[:INPUT_LIMIT]
 
 
 def build_recent_messages(name: str, news_text: str) -> list[dict[str, str]]:
@@ -144,6 +150,9 @@ def call_llm(messages: list[dict[str, str]]) -> dict[str, Any]:
         "messages": messages,
         "response_format": {"type": "json_object"},
         "temperature": 0,
+        # 모델이 같은 말을 끝없이 반복하면 5분 시간 초과까지 기다렸다(카카오, 2026-10-22).
+        # 카드 응답은 길어야 수백 토큰이라 넘으면 바로 끊는다(잘린 JSON은 파싱 오류로 실패)
+        "max_tokens": MAX_OUTPUT_TOKENS,
     }
     if effort := os.environ.get("LLM_REASONING_EFFORT"):
         payload["reasoning_effort"] = effort
