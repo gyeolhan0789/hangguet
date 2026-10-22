@@ -52,7 +52,7 @@ class RedisSessionRuntimeStoreIntegrationTest {
         redis.opsForHash().put(KEY, "planStatus", "READY");
         redis.opsForHash().delete(KEY, "planProgress");
         // BE: 결과 생성 시작
-        store.startAnalysis(SESSION_ID);
+        store.startAnalysis(SESSION_ID, Instant.ofEpochMilli(2_000L));
         // 작업자: 단계 갱신
         redis.opsForHash().put(KEY, "analysisStep", "SCORING");
 

@@ -27,6 +27,15 @@ class StreakTest {
     }
 
     @Test
+    void badgeLevelChangesAtOneThreeSixEightFourteenDays() {
+        int[] levels = new int[16];
+        for (int streak = 0; streak < levels.length; streak++) {
+            levels[streak] = Streak.badgeLevel(streak);
+        }
+        assertThat(levels).containsExactly(0, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5);
+    }
+
+    @Test
     void isZeroWhenYesterdayIsMissing() {
         assertThat(Streak.current(List.of(TODAY.minusDays(2)), TODAY)).isZero();
         assertThat(Streak.current(List.of(), TODAY)).isZero();

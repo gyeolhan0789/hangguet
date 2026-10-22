@@ -54,6 +54,8 @@ ai-job:
   republish-interval: 5s
   # 플랜 생성 최대 대기 시간. 넘으면 5.2 조회 때 FAILED로 바꾼다(B-11 임시 값)
   plan-timeout: 3m
+  # 결과 생성 최대 대기 시간. 넘으면 5.2 조회 때 면접을 FAILED로 바꾼다(B-11 임시 값)
+  analysis-timeout: 10m
 
 # 자격 증명은 AWS 기본 공급자(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수 등)에서 읽는다.
 storage:

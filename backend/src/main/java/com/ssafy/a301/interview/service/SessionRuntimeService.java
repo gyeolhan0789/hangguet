@@ -15,14 +15,17 @@ public class SessionRuntimeService {
     private final SessionRuntimeStore store;
     private final InterviewPlanRepository plans;
     private final Duration planTimeout;
+    private final Duration analysisTimeout;
 
     public SessionRuntimeService(
             SessionRuntimeStore store,
             InterviewPlanRepository plans,
-            @Value("${ai-job.plan-timeout:3m}") Duration planTimeout) {
+            @Value("${ai-job.plan-timeout:3m}") Duration planTimeout,
+            @Value("${ai-job.analysis-timeout:10m}") Duration analysisTimeout) {
         this.store = store;
         this.plans = plans;
         this.planTimeout = planTimeout;
+        this.analysisTimeout = analysisTimeout;
     }
 
     /**
@@ -55,8 +58,18 @@ public class SessionRuntimeService {
         store.startPlan(sessionId, now);
     }
 
-    public void startAnalysis(long sessionId) {
-        store.startAnalysis(sessionId);
+    public void startAnalysis(long sessionId, Instant now) {
+        store.startAnalysis(sessionId, now);
+    }
+
+    /**
+     * 결과 생성이 최대 대기 시간(ai-job.analysis-timeout, B-11 임시 값)을 넘겼는지. 면접 상태(DB)를 FAILED로 바꾸는 일은 면접 행을 잠근
+     * 서비스가 한다. 시작 시각이 없으면 기다린다.
+     */
+    public boolean isAnalysisTimedOut(long sessionId, Instant now) {
+        return store.findAnalysisStartedAt(sessionId)
+                .map(startedAt -> startedAt.plus(analysisTimeout).isBefore(now))
+                .orElse(false);
     }
 
     // 시작 시각이 없으면(기록 전 키) 기다린다

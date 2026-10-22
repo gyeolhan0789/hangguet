@@ -10,6 +10,23 @@ public final class Streak {
 
     private Streak() {}
 
+    /** 뱃지 구간 0 / 1–2 / 3–5 / 6–7 / 8–13 / 14+일을 0~5로 준다(BE 설계 6.1). 구간이 바뀌면 레벨업이다 */
+    public static int badgeLevel(int streak) {
+        if (streak >= 14) {
+            return 5;
+        }
+        if (streak >= 8) {
+            return 4;
+        }
+        if (streak >= 6) {
+            return 3;
+        }
+        if (streak >= 3) {
+            return 2;
+        }
+        return streak >= 1 ? 1 : 0;
+    }
+
     /** 오늘 기록이 있으면 오늘부터, 없으면 어제부터 거꾸로 빠짐없이 이어진 날 수. 어제도 없으면 0 */
     public static int current(Collection<LocalDate> practiceDates, LocalDate today) {
         Set<LocalDate> days = new HashSet<>(practiceDates);

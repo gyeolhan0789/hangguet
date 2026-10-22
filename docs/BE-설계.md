@@ -58,7 +58,8 @@ com.ssafy.a301
 │  └─ domain       Application
 ├─ interview
 │  ├─ controller   InterviewSessionController
-│  ├─ service      AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
+│  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9), AnswerService(5.7 채팅),
+│  │               AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
 │  │               AiResultConsumer(결과 큐 처리, 예정), InterviewRoomService(면접방, 예정)
 │  ├─ dto          InterviewDtos
 │  ├─ mapper       InterviewMapper
@@ -81,7 +82,7 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 면접 만들기~지금 질문(5.1~5.5) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
 - 5.10·5.12 Controller·Service와 `interview/stt`·`interview/tts`는 지울 대상이다(12장)
 
@@ -165,11 +166,12 @@ com.ssafy.a301
 ### 5.4 끝내기 · 결과 생성 (5.8, 5.9)
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 그날(한국 시간, `ended_at` 기준) 처음일 때만 저장
    - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
-   - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다 **[제안]**. 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
-   - 답변 ≥1이면 EVALUATE, 화상이면 MERGE_RECORDING을 enqueue한다
+   - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
+   - 답변 ≥1이면 Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각) → EVALUATE enqueue. 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue한다(면접방 연동 때 추가)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
    - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
+   - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
      - 채점 대상: 기준 4개(직무 적합성 · 자소서 검증 · 논리성 · 전달력)
      - 판단 근거: 인재상 부합 · 사업·직무 연결 · 질문 의도 · 구체성을 종합
@@ -235,7 +237,7 @@ com.ssafy.a301
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
-| `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. 마지막으로 보낸 EVALUATE `jobId` 필드 추가 **[제안]**(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
+| `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. 마지막으로 보낸 EVALUATE `jobId` 필드 추가 **[제안]**(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 **[제안]** | 없음 | 5.5 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
@@ -293,7 +295,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
-1. 남은 API(5.7~5.9, 5.14, 3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
+1. 남은 API(5.14, 3.x, 6.x, 7.x)의 Controller·Service·Repository 구현. 5.8의 면접방 삭제·녹화 중지·MERGE_RECORDING은 면접방 연동 때(2번)
 2. 면접방: LiveKit 서버 API 어댑터(입장 토큰·에이전트 배정·방 삭제·Egress), 5.4 응답 `room`, 5.14(5.6)
 3. AI 연동: 작업 메시지에 내용 담기, `MERGE_RECORDING` 작업 추가(5.0), 결과 큐 처리 `AiResultConsumer`(5.5), `InterviewPlan` 저장 가능하게 바꾸기(3장)
 4. 지울 것: 5.10·5.12 Controller·Service, `SonioxClient`·`ElevenLabsClient`, Soniox·ElevenLabs 설정(키는 AI로 이동)
