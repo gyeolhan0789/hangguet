@@ -45,6 +45,10 @@ soniox:
 elevenlabs:
   api-key: ${ELEVENLABS_API_KEY:}
 
+# 커밋 직후 큐(ai:jobs)에 넣지 못한 AI 작업을 다시 보내는 주기
+ai-job:
+  republish-interval: 5s
+
 # 자격 증명은 AWS 기본 공급자(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수 등)에서 읽는다.
 storage:
   s3:

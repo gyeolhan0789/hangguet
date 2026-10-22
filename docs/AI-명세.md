@@ -43,7 +43,8 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 
 ### 1.2 Redis 진행 상태
 
-- BE의 면접 진행 상태(`SessionRuntime`)를 함께 쓴다. 작업자는 `planStatus`·`planProgress`·`analysisStep`만 바꾸고 `pausedSeconds`는 건드리지 않는다. 키 이름은 BE가 정한다
+- BE의 면접 진행 상태(`SessionRuntime`)를 함께 쓴다. 작업자는 `planStatus`·`planProgress`·`analysisStep`만 바꾸고 `pausedSeconds`는 건드리지 않는다
+- 키는 Redis Hash `session:{sessionId}:runtime`이다. 필드마다 `HSET`으로 쓰고 값을 비울 때는 `HDEL`한다(값은 enum 이름·정수 문자열). 키 생성과 TTL은 BE가 맡는다
 - Redis 값이 없으면 `interview_plans` 행이 있을 때 `planStatus`를 `READY`로 본다
 
 ### 1.3 작업 메시지
@@ -53,7 +54,8 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 ```
 
 - `jobType`: `PLAN` · `SCORE_ANSWER` · `EVALUATE`. `answerId`는 `SCORE_ANSWER`만
-- `jobId`는 추적용이다. 중복·늦은 메시지는 작업마다 정한 버림 조건과 조건부 쓰기로 막는다
+- 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+- `jobId`는 UUID 문자열이며 추적용이다. `answerId`가 없는 작업은 필드가 없다. BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. 중복·늦은 메시지는 작업마다 정한 버림 조건과 조건부 쓰기로 막는다
 
 | 경우 | 예 | 처리 |
 |---|---|---|

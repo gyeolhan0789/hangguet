@@ -61,6 +61,8 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     environment 'JWT_SECRET', 'test-only-signing-secret-at-least-32-bytes'
+    // 테스트 중 AI 작업 재발행이 다른 테스트의 Outbox 행을 실제 Redis로 보내지 않게 사실상 끈다
+    systemProperty 'ai-job.republish-interval', '1h'
     finalizedBy tasks.named('jacocoTestReport')
 }
 
