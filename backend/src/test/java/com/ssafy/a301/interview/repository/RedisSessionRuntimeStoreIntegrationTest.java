@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
+import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -42,7 +43,7 @@ class RedisSessionRuntimeStoreIntegrationTest {
 
     @Test
     void workerAndBeFieldsDoNotOverwriteEachOther() {
-        store.startPlan(SESSION_ID);
+        store.startPlan(SESSION_ID, Instant.ofEpochMilli(1_000L));
         assertThat(store.find(SESSION_ID))
                 .contains(new SessionRuntime(PlanStatus.GENERATING, 0, null, 0));
         assertThat(redis.getExpire(KEY)).isGreaterThan(23 * 60 * 60L);
@@ -64,9 +65,25 @@ class RedisSessionRuntimeStoreIntegrationTest {
         redis.opsForHash().put(KEY, "planStatus", "FAILED");
         redis.opsForHash().put(KEY, "pausedSeconds", "12");
 
-        store.startPlan(SESSION_ID);
+        store.startPlan(SESSION_ID, Instant.ofEpochMilli(1_000L));
 
         assertThat(store.find(SESSION_ID))
                 .contains(new SessionRuntime(PlanStatus.GENERATING, 0, null, 12));
+    }
+
+    @Test
+    void timeoutFailsOnlyStillGeneratingPlan() {
+        store.startPlan(SESSION_ID, Instant.ofEpochMilli(1_000L));
+        assertThat(store.findPlanStartedAt(SESSION_ID)).contains(Instant.ofEpochMilli(1_000L));
+
+        store.failPlanIfGenerating(SESSION_ID);
+        assertThat(store.find(SESSION_ID))
+                .contains(new SessionRuntime(PlanStatus.FAILED, null, null, 0));
+
+        // 작업자가 먼저 READY로 바꿨으면 그대로 둔다
+        redis.opsForHash().put(KEY, "planStatus", "READY");
+        store.failPlanIfGenerating(SESSION_ID);
+        assertThat(store.find(SESSION_ID))
+                .contains(new SessionRuntime(PlanStatus.READY, null, null, 0));
     }
 }

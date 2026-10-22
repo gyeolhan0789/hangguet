@@ -313,7 +313,7 @@
 - **200**: 답할 질문 있음
 - **202 / QUESTION_GENERATING**: 다음 질문 생성 중. 오류가 아니라 본문은 `{ "code": "QUESTION_GENERATING" }`만. 2초 뒤(임시 값) 다시 부른다
 - **404 / SESSION_NOT_FOUND**
-- **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
+- **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아니거나 5개 질문에 모두 답함(더 낼 질문이 없다. 화면은 5.8로 끝낸다)
 
 질문 음성은 5.12로 받는다.
 
