@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { interviewerBackdrop, interviewerLook } from "./models";
@@ -17,6 +20,13 @@ describe("면접관별 3D 모델 · 배경", () => {
       interior: "/interview/devil/office.webp",
     });
     expect(interviewerBackdrop("DEVIL")).toBe("storm");
+  });
+
+  it("악마 면접관의 모델 · 정지 그림 · 배경 파일이 public에 있다", () => {
+    const look = interviewerLook("DEVIL")!;
+    for (const file of [...Object.values(look.model), look.still, look.storm, look.interior]) {
+      expect(existsSync(join(process.cwd(), "public", file!)), file).toBe(true);
+    }
   });
 
   it("커피챗 면접관은 아직 3D 모델 · 배경이 없다", () => {

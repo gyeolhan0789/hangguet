@@ -93,6 +93,147 @@ test.describe("S00 랜딩 · 로그인 전", () => {
   });
 });
 
+test.describe("S00 랜딩 · 히어로 면접관 배경", () => {
+  // 근거: 사용자 결정(2026-10-22: 하늘 · 실내(창문만 투명) · 면접관 3장을 겹치고, 멀수록 덜 움직이는 깊이를 준다)
+  //   · Figma 모션 메모 S00(마우스 패럴랙스 ±12px, 배경 scale 1 → 1.04 → 1 · 8초, 번개 순간 brightness 1 → 1.4 → 1)
+  // motion은 숨쉬기 · 번개를 브라우저 애니메이션(WAAPI)으로 돌리고 이 시간은 Playwright 시계로 넘길 수 없다.
+  // 그래서 애니메이션을 멈추고 재생 위치를 직접 옮겨 보거나, 걸린 애니메이션의 키프레임을 본다(실제 시간을 기다리지 않는다).
+  const backdrop = (page: Page) => page.getByTestId("hero-backdrop");
+  const layers = (page: Page) => page.getByTestId("hero-layer");
+  /** 층마다의 이동(px) */
+  const shifts = (page: Page, axis: "m41" | "m42") =>
+    layers(page).evaluateAll(
+      (elements, key) =>
+        elements.map((element) => new DOMMatrix(getComputedStyle(element).transform)[key]),
+      axis,
+    );
+  /** 배경 상자에 걸린 애니메이션의 키프레임 값(속성 이름별) */
+  const backdropAnimations = (page: Page) =>
+    backdrop(page).evaluate((element) =>
+      element.getAnimations().map((animation) => {
+        const effect = animation.effect as KeyframeEffect;
+        return {
+          keyframes: effect.getKeyframes().map(({ transform, filter, scale }) => ({
+            transform,
+            filter,
+            scale,
+          })),
+          iterations: effect.getTiming().iterations,
+        };
+      }),
+    );
+
+  test("하늘 → 실내 → 면접관 순서(뒤에서 앞)로 3장을 겹치고, 모두 불러온다", async ({ page }) => {
+    await page.goto("/");
+
+    const images = layers(page).locator("img");
+    await expect(images).toHaveCount(3);
+    const sources = await images.evaluateAll((elements) =>
+      elements.map((image) => /hero-(\w+)/.exec((image as HTMLImageElement).src)?.[1]),
+    );
+    expect(sources).toEqual(["sky", "interior", "devil"]);
+    for (const image of await images.all()) {
+      await expect(image).toHaveJSProperty("complete", true);
+      expect(
+        await image.evaluate((element: HTMLImageElement) => element.naturalWidth),
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  test("배경은 천천히 커졌다 작아진다(scale 1 → 1.04 → 1, 한 번에 4초씩 왕복)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    // 끝없이 반복하는 확대 애니메이션을 찾아 멈추고, 재생 위치를 옮겨 가며 크기를 본다.
+    const scaleAt = (time: number) =>
+      backdrop(page).evaluate((element, at) => {
+        const breathing = element
+          .getAnimations()
+          .find((animation) => animation.effect?.getTiming().iterations === Infinity)!;
+        breathing.pause();
+        breathing.currentTime = at;
+        return new DOMMatrix(getComputedStyle(element).transform).a;
+      }, time);
+    await expect
+      .poll(() => backdropAnimations(page).then((list) => list.length))
+      .toBeGreaterThan(0);
+
+    expect(await scaleAt(0)).toBeCloseTo(1, 3);
+    expect(await scaleAt(4000)).toBeCloseTo(1.04, 3);
+    expect(await scaleAt(8000)).toBeCloseTo(1, 3);
+  });
+
+  test("번개가 치면(첫 번개 2초 뒤) 세 층을 감싼 배경 전체가 brightness 1 → 1.4 → 1로 밝아진다", async ({
+    page,
+  }) => {
+    // 첫 번개를 일으키는 2초 타이머(setTimeout)는 시계로 넘긴다.
+    await page.clock.install();
+    await page.goto("/");
+    await expect(layers(page)).toHaveCount(3);
+
+    await page.clock.runFor(2000);
+
+    await expect
+      .poll(async () =>
+        (await backdropAnimations(page)).some((animation) =>
+          animation.keyframes.some(({ filter }) => filter === "brightness(1.4)"),
+        ),
+      )
+      .toBe(true);
+    // 밝기가 걸린 상자 안에 세 층이 모두 있다.
+    await expect(backdrop(page).getByTestId("hero-layer")).toHaveCount(3);
+  });
+
+  test("마우스를 움직이면 멀리 있는 층일수록 덜 움직인다(하늘 0.3 · 실내 0.6 · 면접관 1배)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(layers(page)).toHaveCount(3);
+
+    // 층 이동은 스프링으로 따라가지만, 세 층이 같은 값에 배율만 곱하므로 비율은 어느 순간에나 같다.
+    // 하이드레이션 전에 움직이면 이벤트를 놓치므로, 비율이 나올 때까지 마우스를 다시 움직인다.
+    await expect(async () => {
+      await page.mouse.move(0, 0);
+      await page.mouse.move(1270, 700);
+      const [sky, interior, devil] = await shifts(page, "m41");
+      expect(devil).toBeGreaterThan(0);
+      expect(sky / devil).toBeCloseTo(0.3, 2);
+      expect(interior / devil).toBeCloseTo(0.6, 2);
+    }).toPass();
+  });
+
+  test("스크롤하면 멀리 있는 층일수록 많이 내려가 천천히 지나가 보인다(하늘 120 : 실내 60 : 면접관 0)", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(layers(page)).toHaveCount(3);
+
+    await page.mouse.wheel(0, 400);
+
+    // 마우스를 움직이지 않았으므로 세로 이동은 스크롤 깊이뿐이다. 같은 진행도에 거리만 곱하므로 비율은 늘 같다.
+    await expect
+      .poll(async () => {
+        const [sky, interior, devil] = await shifts(page, "m42");
+        return sky > 0 && Math.abs(sky - interior * 2) < 0.5 && devil === 0;
+      })
+      .toBe(true);
+  });
+
+  test("동작 줄이기를 켜면 숨쉬기 · 번개 · 마우스 깊이를 하지 않는다", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.clock.install();
+    await page.goto("/");
+    await expect(layers(page)).toHaveCount(3);
+
+    await page.mouse.move(0, 0);
+    await page.mouse.move(1270, 700);
+    await page.clock.runFor(2000);
+
+    expect(await backdropAnimations(page)).toEqual([]);
+    expect(await shifts(page, "m41")).toEqual([0, 0, 0]);
+  });
+});
+
 test.describe("S00 랜딩 · OS 다크 모드", () => {
   test.use({ colorScheme: "dark" });
 

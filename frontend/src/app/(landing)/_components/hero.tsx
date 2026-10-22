@@ -3,6 +3,7 @@
 import {
   animate,
   motion,
+  type MotionValue,
   useMotionValue,
   useReducedMotion,
   useScroll,
@@ -47,6 +48,18 @@ const HERO_EMBERS: readonly Ember[] = [
   [502.5, 663.5, 2.5, 0.18],
 ];
 
+/**
+ * 면접관 배경 3장(하늘 · 실내 · 면접관)의 깊이. 멀수록 덜 움직여 깊이감을 낸다(패럴랙스).
+ * mouse는 마우스 패럴랙스(Figma 모션 메모 ±12px)에 곱하는 배율로, 맨 앞 면접관이 Figma 값 그대로 움직인다.
+ * scroll은 스크롤로 내려가는 거리(px). 멀수록 많이 내려가 천천히 지나가 보인다.
+ * 기준: 사용자 결정(2026-10-22: 랜딩은 3장을 겹치고 층마다 깊이를 준다)
+ */
+const DEPTH = {
+  sky: { mouse: 0.3, scroll: 120 },
+  interior: { mouse: 0.6, scroll: 60 },
+  devil: { mouse: 1, scroll: 0 },
+} as const;
+
 const SPEECH = "흐음~ ○○ 프로젝트라. 거기서 '직접' 한 부분만 쏙 골라서 말해볼래요?";
 
 const appear = (delay: number) =>
@@ -84,6 +97,21 @@ function FloatChip({
   );
 }
 
+/** 배경 한 층의 위치: 마우스 패럴랙스(x · y)에 깊이 배율을 곱하고, 스크롤한 만큼 깊이에 따라 아래로 내린다. */
+function useDepth(
+  x: MotionValue<number>,
+  y: MotionValue<number>,
+  scroll: MotionValue<number>,
+  depth: (typeof DEPTH)[keyof typeof DEPTH],
+) {
+  return {
+    x: useTransform(x, (value) => value * depth.mouse),
+    y: useTransform([y, scroll], ([mouse, progress]: number[]) => {
+      return mouse * depth.mouse + progress * depth.scroll;
+    }),
+  };
+}
+
 export function Hero() {
   const sectionRef = useRef<HTMLElement>(null);
   const flashRef = useRef<HTMLDivElement>(null);
@@ -107,6 +135,11 @@ export function Hero() {
   const px = useSpring(useTransform(mouseX, [-1, 1], [-12, 12]), spring);
   const py = useSpring(useTransform(mouseY, [-1, 1], [-12, 12]), spring);
   const rotateY = useSpring(useTransform(mouseX, [-1, 1], [-3, 3]), spring);
+
+  // ① 깊이: 층마다 마우스 패럴랙스 배율과 스크롤로 내려가는 거리를 달리한다.
+  const sky = useDepth(px, py, scrollYProgress, DEPTH.sky);
+  const interior = useDepth(px, py, scrollYProgress, DEPTH.interior);
+  const devil = useDepth(px, py, scrollYProgress, DEPTH.devil);
 
   function handleMouseMove(e: MouseEvent<HTMLElement>) {
     if (reduce) return;
@@ -142,26 +175,50 @@ export function Hero() {
       onMouseMove={handleMouseMove}
       className="relative h-svh min-h-[720px] overflow-hidden bg-night"
     >
-      {/* ① 배경 면접관 — 영상이 준비되기 전까지 정지 이미지 */}
+      {/* ① 배경 면접관 — 하늘 · 실내(창문만 뚫림) · 면접관 3장을 겹쳐 층마다 다르게 움직인다 */}
+      {/* 층은 가장자리가 비지 않게 조금 크게 깔아 둔다. 넘친 부분이 왼쪽 그라데이션 밖으로 비치지 않게 자른다. */}
       <motion.div
-        className="absolute inset-y-0 right-0 left-0 lg:left-[27.8%]"
+        className="absolute inset-y-0 right-0 left-0 overflow-hidden lg:left-[27.8%]"
         style={{ scale: bgScale, opacity: bgOpacity }}
       >
-        <motion.div className="absolute inset-0" style={{ x: px, y: py, rotateY }}>
+        <motion.div className="absolute inset-0" style={{ rotateY }}>
+          {/* 번개 밝기(Figma 1 → 1.4 → 1)는 세 층을 함께 감싼 이 상자에 건다. */}
           <motion.div
             ref={photoRef}
+            data-testid="hero-backdrop"
             className="absolute inset-0"
-            animate={reduce ? undefined : { scale: [1, 1.04, 1] }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+            // 천천히 커졌다 작아진다(Figma 1 → 1.04 → 1 · 8초). 0 → 값 → 0 키프레임은 Motion 14에서 그려지지 않을 수 있어
+            // 1 → 1.04를 왕복(mirror)한다(4초씩).
+            animate={reduce ? undefined : { scale: 1.04 }}
+            transition={{ duration: 4, repeat: Infinity, repeatType: "mirror", ease: "easeInOut" }}
           >
-            <Image
-              src="/landing/interviewer.jpg"
-              alt=""
-              fill
-              preload
-              sizes="(min-width: 1024px) 72vw, 100vw"
-              className="object-cover"
-            />
+            {(
+              [
+                { src: "/landing/hero-sky.webp", depth: sky, lcp: false },
+                { src: "/landing/hero-interior.webp", depth: interior, lcp: false },
+                { src: "/landing/hero-devil.webp", depth: devil, lcp: true },
+              ] as const
+            ).map(({ src, depth, lcp }) => (
+              // 층이 움직여도 가장자리가 비지 않게 조금 크게 깐다(좁은 화면에서도 마우스 패럴랙스 최대 12px보다 크게).
+              <motion.div
+                key={src}
+                data-testid="hero-layer"
+                className="absolute -inset-[max(3%,16px)]"
+                style={{ x: depth.x, y: depth.y }}
+              >
+                <Image
+                  src={src}
+                  alt=""
+                  fill
+                  // 맨 앞 면접관 층만 미리 받고(LCP 후보), 나머지 층도 바로 받는다(Next 문서: preload는 한 장에만).
+                  preload={lcp}
+                  loading={lcp ? undefined : "eager"}
+                  // 세로로 긴 틀을 object-cover로 채우면 높이에 맞춰 커지므로, 넉넉한 크기를 고르게 한다.
+                  sizes="(min-width: 1024px) 100vw, 200vh"
+                  className="object-cover"
+                />
+              </motion.div>
+            ))}
           </motion.div>
         </motion.div>
       </motion.div>
