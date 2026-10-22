@@ -329,7 +329,11 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
 화상 면접이 끝나면 Egress가 저장한 트랙(지원자 영상·음성, 면접관 음성)을 mp4 하나로 합친다(운영 배포 계획 4.3).
 
 - **시작** 5.8(화상). 면접 중이 아니라 끝난 뒤 큐 작업으로 하므로 면접 중 CPU를 쓰지 않는다
-- **입력(작업 메시지)** 원본 트랙 위치(S3 `recordings/raw/{sessionId}/…`, BE가 녹화를 시작할 때 정함), 결과 위치(`recordings/{sessionId}.mp4`) **[제안]**
+- **입력(작업 메시지)**
+  - `rawPrefix`: 원본 트랙 위치. S3 `recordings/raw/{sessionId}/`로 시작하고, BE가 녹화를 시작할 때 정한다
+  - `objectKey`: 결과 위치 `recordings/{sessionId}.mp4`
+  - 다른 면접의 녹화를 읽거나 덮어쓰지 않도록, 두 값이 그 작업 `sessionId`의 위치가 아니면 형식 오류(1.3)로 처리한다
+- **원본 트랙 파일** `rawPrefix` 아래 `candidate-video.webm`(지원자 영상), `candidate-audio.ogg`(지원자 음성), `interviewer-audio.ogg`(면접관 음성). BE가 Egress 트랙 녹화를 시작할 때 이 이름으로 저장한다
 - **처리** ffmpeg로 합쳐 S3에 올린다
 - **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. 다시보기 처리는 **[미정]**(API 명세 B-19)
 
@@ -356,5 +360,6 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 |---|---|
 | GMS가 토큰 확률(logprobs)을 주는지 | 3장 점수 방식(`PROBABILITY`/`FIXED`) |
 | Jev 질문 구성(리액션·태도·말 끊기를 어떤 질문 유형으로 물을지), 한국어 답변에서의 정확도, 응답 시간 | 6.4 |
+| LiveKit Egress 트랙 녹화의 실제 파일 형식과 저장 완료 시점 | 7장 원본 트랙 파일 |
 | LiveKit Soniox 플러그인에서 확정 토큰·토큰 시각·끝 감지(`<end>`)를 그대로 받을 수 있는지 | 6.2 `tokens`, 문장 끝 판단, 3장 말하기 분석 |
 | LiveKit ElevenLabs 플러그인에서 글자별 발음 시각을 받을 수 있는지(문서에서 확인한 것은 자막 맞춤 `use_tts_aligned_transcript`뿐) | 6.3 `alignment` |
