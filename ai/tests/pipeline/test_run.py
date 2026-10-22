@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from pipeline import card, dart, run
+from pipeline import card, dart, run, storage
 
 REPORT = """<TITLE AASSOCNOTE="D-0-2-0-0">II. 사업의 내용</TITLE>
 <P>1. 사업의 개요</P><P>당사는 AI 인프라 사업에 더욱 집중할 계획입니다.</P>
@@ -14,7 +14,7 @@ REPORT = """<TITLE AASSOCNOTE="D-0-2-0-0">II. 사업의 내용</TITLE>
 
 @pytest.fixture
 def fake_sources(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dart, "fetch_report", lambda name, raw: ("00000001", REPORT))
+    monkeypatch.setattr(dart, "fetch_report", lambda name: ("00000001", REPORT))
 
 
 def _fake_llm(reply: dict[str, Any]) -> Any:
@@ -67,7 +67,6 @@ def test_refresh_recent_replaces_only_recent(
     }
     (tmp_path / "cards").mkdir()
     (tmp_path / "cards" / "00000001.json").write_text(json.dumps(old, ensure_ascii=False), "utf-8")
-    (tmp_path / "news").mkdir()
     article = {
         "title": "테스트, 신제품 출시",
         "summary": "출시했다.",
@@ -75,9 +74,7 @@ def test_refresh_recent_replaces_only_recent(
         "published": "2026-10-21",
         "group": 0,
     }
-    (tmp_path / "news" / "테스트.json").write_text(
-        json.dumps({"items": [article]}, ensure_ascii=False), "utf-8"
-    )
+    storage.put("processed/news/00000001.json", json.dumps({"items": [article]}).encode())
     reply = {"recent": [{"summary": "신제품 출시", "quote": "테스트, 신제품 출시"}]}
     monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
 
@@ -93,3 +90,24 @@ def test_refresh_recent_builds_whole_card_when_missing(
 ) -> None:
     monkeypatch.setattr(run, "build_one", lambda company, data: data / "built")
     assert run.refresh_recent({"name": "새회사"}, tmp_path) == tmp_path / "built"
+
+
+def test_build_one_keeps_card_when_recent_issues_fail(
+    fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    reply = {
+        "talent": [],
+        "direction": [
+            {"summary": "AI 인프라", "quote": "당사는 AI 인프라 사업에 더욱 집중할 계획입니다."}
+        ],
+    }
+    monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
+
+    def broken(name: str, code: str) -> list[dict[str, str]]:
+        raise TimeoutError("timed out")  # 모델이 반복하다 시간 초과
+
+    monkeypatch.setattr(run, "recent_issues", broken)
+
+    saved = json.loads(run.build_one({"name": "테스트"}, tmp_path).read_text(encoding="utf-8"))
+    assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
+    assert saved["recent"] == []

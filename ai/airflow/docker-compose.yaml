@@ -1,4 +1,4 @@
-# 회사 카드 파이프라인용 로컬 Airflow 3.3
+# 회사 카드 파이프라인용 로컬 Airflow 3.3 + MinIO(원문 저장소)
 # 공식 docker-compose(3.3.2)에서 Celery·Redis·워커·트리거러·Flower를 빼고 LocalExecutor로 줄였다.
 # 띄우기: cd ai/airflow && docker compose up -d  → http://localhost:8080
 x-airflow-common: &airflow-common
@@ -19,6 +19,11 @@ x-airflow-common: &airflow-common
     PYTHONPATH: /opt/ai
     LLM_CHAT_URL: http://host.docker.internal:11434/v1/chat/completions
     EMBED_URL: http://host.docker.internal:11434/v1/embeddings
+    # 원문 저장소 MinIO (로컬 전용 계정)
+    S3_ENDPOINT: http://minio:9000
+    S3_ACCESS_KEY: &minio-user local-minio
+    S3_SECRET_KEY: &minio-password local-minio-password
+    S3_BUCKET: &bucket company-pipeline
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -26,6 +31,8 @@ x-airflow-common: &airflow-common
   depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy
+    minio-init:
+      condition: service_completed_successfully
 
 services:
   # Airflow 실행 기록용 DB (회사 카드 메인 DB와 별개)
@@ -43,6 +50,31 @@ services:
       retries: 5
       start_period: 5s
     restart: always
+
+  # 원문 저장소. 공식 minio/minio 이미지 배포가 끝나 MinIO 원본 코드로 만든 Chainguard 이미지를 쓴다
+  # (무료는 latest 태그만 있다). 저장소 localhost:9000, 웹 화면 localhost:9001
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: *minio-user
+      MINIO_ROOT_PASSWORD: *minio-password
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    restart: always
+
+  # 처음 한 번: 버킷 생성 (이미 있으면 그대로)
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    command: ["mb", "--ignore-existing", "local/company-pipeline"]
+    environment:
+      MC_HOST_local: http://local-minio:local-minio-password@minio:9000
+    depends_on:
+      - minio
+    restart: on-failure  # MinIO가 아직 준비 전이면 다시 시도
 
   airflow-apiserver:
     <<: *airflow-common
@@ -90,3 +122,4 @@ services:
 
 volumes:
   postgres-db-volume:
+  minio-data:

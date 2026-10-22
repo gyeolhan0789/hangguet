@@ -13,7 +13,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any
 
-from pipeline import card, extract, news
+from pipeline import card, dart, extract, news
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -25,10 +25,10 @@ def build(data: Path = DATA, companies: Path = HERE / "companies.json") -> list[
     rows = []
     for path in sorted((data / "cards").glob("*.json")):
         item = json.loads(path.read_text(encoding="utf-8"))
-        report = data / "raw" / item["corp_code"] / "report.xml"
+        report = dart.latest_report(item["corp_code"])
         business = market = ""
-        if report.exists():
-            section = extract.business_section(report.read_text(encoding="utf-8", errors="replace"))
+        if report:
+            section = extract.business_section(report)
             business, market = card.business_input(section), card.market_input(section)
         company = talents.get(item["name"], {})
         rows.append(
@@ -38,7 +38,7 @@ def build(data: Path = DATA, companies: Path = HERE / "companies.json") -> list[
                 "talent_collected_at": company.get("talent_collected_at", ""),
                 "business_text": business,
                 "market_text": market,
-                "news_text": card.news_input(news.load(item["name"], data)),
+                "news_text": card.news_input(news.load(item["corp_code"])),
             }
         )
     return rows
