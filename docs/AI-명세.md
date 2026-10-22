@@ -267,7 +267,7 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
 |---|---|---|
 | `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만. `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0) |
 | `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단 못 하면 null), `attitude`(`interest`·`trust`), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
-| `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` |
+| `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` · `submitFailed` |
 | `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false` |
 | `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs` |
 
@@ -288,7 +288,7 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
 | Jev 늦음·실패 | 그 문장은 리액션 없이 넘어감(6.4) |
 | STT 끊김 | 재연결하며 `sttReconnecting`. 실패하면 `sttFailed`, 화면 처리는 **[미정]** |
 | TTS 실패 | `question`에 `failed`. 화면은 질문 글로 진행 |
-| 결과 큐에 넣기 실패 | 재시도. 같은 결과가 두 번 가도 BE가 거른다 |
+| 결과 큐에 넣기 실패 | 재시도(5장). 답변 완료(`answer.completed`)가 재시도 후에도 실패하면 `answer.state`로 `submitFailed`를 전송하고, 화면 처리는 **[미정]**. 같은 결과가 두 번 가도 BE가 거른다 |
 | 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]** |
 | 동시 면접 상한 초과 | 배정을 거절한다. BE · 화면 처리 **[미정]**(API 명세 B-17) |
 
