@@ -8,7 +8,7 @@ import { ResultView } from "./result-view";
 // 기준: Figma S07 피드백 결과(18:2620) · 기획 메모 S07(18:762) · 모션 메모 S07(18:2705: 하단 [오늘의 성장 리뷰 보기]는
 // 페이지 끝에 닿으면 한 번 통통) · Swagger 6.3 200 예시
 // · API 명세 6.3(기준 이름 · 등급 문구는 화면이 바꾼다, 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다)
-// · 사용자 결정(2026-10-22: [전체 펼치기] ↔ '전체 접기', 펼친 질문의 [자세히 보기] → S07-1, [오늘의 성장 리뷰 보기]는 이동 없음)
+// · 사용자 결정(2026-10-22: [전체 펼치기] ↔ '전체 접기', 펼친 질문의 [자세히 보기] → S07-1, [오늘의 성장 리뷰 보기]는 면접이 끝난 날의 성장 리뷰(S08)로)
 // 화면에 보이는 것과 이동 주소만 본다. 실제 6.3 요청 · 화면 이동은 E2E(result.spec.ts)가 본다.
 
 // 동작 줄이기 설정과, 하단 버튼 통통(useAnimate의 animate)만 바꾼다. 나머지 motion은 그대로 쓴다.
@@ -157,7 +157,7 @@ describe("ResultView (S07 피드백 결과)", () => {
     expect(screen.getByRole("button", { name: "전체 접기" })).toBeDefined();
   });
 
-  it("펼친 질문의 [자세히 보기] · 아래 [면접 다시보기]는 S07-1로 가고, [오늘의 성장 리뷰 보기]는 이동하지 않는 버튼이다", () => {
+  it("펼친 질문의 [자세히 보기] · 아래 [면접 다시보기]는 S07-1로, [오늘의 성장 리뷰 보기]는 면접이 끝난 날(한국 시간)의 S08로 간다", () => {
     render(<ResultView result={RESULT} />);
 
     expect(screen.getByRole("link", { name: "자세히 보기" }).getAttribute("href")).toBe(
@@ -166,8 +166,23 @@ describe("ResultView (S07 피드백 결과)", () => {
     expect(screen.getByRole("link", { name: "면접 다시보기" }).getAttribute("href")).toBe(
       "/interview/55/replay",
     );
-    expect(screen.getByRole("button", { name: "오늘의 성장 리뷰 보기" })).toBeDefined();
-    expect(screen.queryByRole("link", { name: "오늘의 성장 리뷰 보기" })).toBeNull();
+    // 예시 endedAt 2026-10-15T12:18:00+09:00
+    expect(screen.getByRole("link", { name: "오늘의 성장 리뷰 보기" }).getAttribute("href")).toBe(
+      "/reviews/2026-10-15?from=result",
+    );
+  });
+
+  // 성장 리뷰는 면접이 끝난 날(한국 시간) 기준이다(API 명세 5.13).
+  it.each([
+    ["한국 시간 23:59(UTC 14:59)에 끝나면 그날", "2026-10-15T14:59:00Z", "2026-10-15"],
+    ["한국 시간 자정(UTC 15:00)에 끝나면 다음 날", "2026-10-15T15:00:00Z", "2026-10-16"],
+    ["한국 시간 00:30(UTC 15:30)에 끝나면 다음 날", "2026-10-15T15:30:00Z", "2026-10-16"],
+  ])("%s의 성장 리뷰로 간다", (_, endedAt, date) => {
+    render(<ResultView result={{ ...RESULT, endedAt }} />);
+
+    expect(screen.getByRole("link", { name: "오늘의 성장 리뷰 보기" }).getAttribute("href")).toBe(
+      `/reviews/${date}?from=result`,
+    );
   });
 
   describe("[오늘의 성장 리뷰 보기] 통통(모션 메모 S07)", () => {
@@ -180,11 +195,12 @@ describe("ResultView (S07 피드백 결과)", () => {
       reachEnd();
 
       expect(motion.bounce).toHaveBeenCalledTimes(1);
-      expect(motion.bounce).toHaveBeenCalledWith(
-        screen.getByRole("button", { name: "오늘의 성장 리뷰 보기" }),
-        { scale: [1, 1.06, 1] },
-        { duration: 0.4, ease: "easeOut" },
-      );
+      // 1 → 1.06 → 1을 두 번에 나눠 움직인다(Motion 14 버그를 피하려고).
+      const button = screen.getByRole("link", { name: "오늘의 성장 리뷰 보기" });
+      expect(motion.bounce).toHaveBeenCalledWith([
+        [button, { scale: 1.06 }, { duration: 0.2, ease: "easeOut" }],
+        [button, { scale: 1 }, { duration: 0.2, ease: "easeIn" }],
+      ]);
     });
 
     it("동작 줄이기를 켰으면 튀지 않는다", () => {

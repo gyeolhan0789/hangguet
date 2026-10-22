@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion, type Variants } from "motion
 import Image from "next/image";
 import { useMemo, useState } from "react";
 
+import { ConfettiBurst } from "@/components/confetti-burst";
 import { MaskIcon } from "@/components/mask-icon";
 import { useLockScroll } from "@/components/use-lock-scroll";
 import { seeded } from "@/lib/seeded";
@@ -48,55 +49,6 @@ const CONFETTI_COUNT = 56;
 const BURST_AT = 0.95;
 const CONTENT_AT = 1.15;
 
-interface Piece {
-  color: string;
-  shape: "rect" | "circle";
-  w: number;
-  h: number;
-  x: number[];
-  y: number[];
-  rotate: number[];
-  duration: number;
-}
-
-/**
- * 종이폭죽: 초속도 + 중력 + 공기 저항으로 궤적을 미리 계산해 keyframes로 재생한다(데모와 같은 방식).
- * 위·옆으로 펑 → 금방 느려짐 → 좌우로 살랑이며 떨어지고 → 마지막에 사라진다.
- */
-function makeConfetti(colors: string[]): Piece[] {
-  return Array.from({ length: CONFETTI_COUNT }, (_, i) => {
-    const angle = -Math.PI / 2 + (seeded(i, 1) - 0.5) * Math.PI * 1.1;
-    const speed = 380 + seeded(i, 2) * 420;
-    let vx = Math.cos(angle) * speed;
-    let vy = Math.sin(angle) * speed;
-    let px = 0;
-    let py = 0;
-    const steps = 14;
-    const dt = 0.12;
-    const x = [0];
-    const y = [0];
-    for (let s = 1; s <= steps; s++) {
-      vx *= 0.82;
-      vy = vy * 0.82 + 900 * dt;
-      px += vx * dt + Math.sin(s * 0.9 + i) * 6;
-      py += vy * dt;
-      x.push(Math.round(px));
-      y.push(Math.round(py));
-    }
-    const spin = (seeded(i, 3) - 0.5) * 900;
-    return {
-      color: colors[i % colors.length],
-      shape: seeded(i, 4) > 0.7 ? "circle" : "rect",
-      w: 6 + Math.round(seeded(i, 5) * 6),
-      h: 10 + Math.round(seeded(i, 6) * 14),
-      x,
-      y,
-      rotate: x.map((_, s) => Math.round((spin * s) / steps)),
-      duration: 1.6 + seeded(i, 7) * 0.8,
-    };
-  });
-}
-
 function Badge({ tier, size, icon }: { tier: StreakTier; size: number; icon: number }) {
   return (
     <span
@@ -133,8 +85,8 @@ export function LevelUp({ days, onContinue }: { days: number; onContinue?: () =>
   const tier = tierOf(days);
   const previous = previousTierOf(tier);
   const next = nextTierOf(tier);
-  const confetti = useMemo(
-    () => makeConfetti([tier.from, tier.to, next?.from ?? "#FFFFFF", "#FFFFFF"]),
+  const confettiColors = useMemo(
+    () => [tier.from, tier.to, next?.from ?? "#FFFFFF", "#FFFFFF"],
     [tier, next],
   );
 
@@ -252,33 +204,7 @@ export function LevelUp({ days, onContinue }: { days: number; onContinue?: () =>
                   )}
                 </span>
                 {/* 종이폭죽: 뱃지 가운데에서 펑 */}
-                {!reduce && (
-                  <span aria-hidden className="pointer-events-none absolute top-1/2 left-1/2">
-                    {confetti.map((piece, i) => (
-                      <motion.span
-                        key={i}
-                        className={`absolute ${piece.shape === "circle" ? "rounded-full" : "rounded-[2px]"}`}
-                        style={{
-                          width: piece.w,
-                          height: piece.shape === "circle" ? piece.w : piece.h,
-                          background: piece.color,
-                          marginLeft: -piece.w / 2,
-                          marginTop: -piece.h / 2,
-                        }}
-                        initial={{ opacity: 0 }}
-                        animate={{
-                          x: piece.x,
-                          y: piece.y,
-                          rotate: piece.rotate,
-                          opacity: piece.x.map((_, s, all) =>
-                            s === 0 ? 1 : s > (all.length * 2) / 3 ? 0 : 1,
-                          ),
-                        }}
-                        transition={{ duration: piece.duration, delay: BURST_AT, ease: "linear" }}
-                      />
-                    ))}
-                  </span>
-                )}
+                <ConfettiBurst colors={confettiColors} count={CONFETTI_COUNT} delay={BURST_AT} />
               </motion.span>
               {/* 가운데 맞춤용 빈자리 (Figma Balance) */}
               <span className="hidden w-[100px] sm:block" />

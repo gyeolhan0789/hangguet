@@ -16,6 +16,10 @@ const nextConfig: NextConfig = {
     // 빌드할 때 코드의 process.env.E2E_BUILD를 이 값으로 바꿔 넣는다.
     // 일반 빌드에서는 "0"이 되어 E2E 전용 분기(src/lib/today.ts)가 결과물에서 빠진다.
     E2E_BUILD: e2eBuild ? "1" : "0",
+    // S08-B 설문 구글폼 주소. 배포 환경 변수로 받고, E2E 빌드에서는 테스트용 주소를 쓴다(새 탭은 테스트가 가로챈다).
+    NEXT_PUBLIC_SURVEY_URL:
+      process.env.NEXT_PUBLIC_SURVEY_URL ??
+      (e2eBuild ? "https://forms.test/hankkeut-survey?userId={userId}&streak={streak}" : ""),
   },
   experimental: {
     // E2E(Playwright)에서 서버가 보내는 API 요청을 테스트가 가로채 mock 응답을 주게 한다.

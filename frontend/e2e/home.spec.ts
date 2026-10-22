@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 import { E2E_TODAY_HEADER } from "../src/lib/today";
 
-import { AUTH_TOKENS, HOME, ME, PROBLEM } from "./mocks/data";
+import { AUTH_TOKENS, GROWTH_REVIEW, HOME, ME, PROBLEM } from "./mocks/data";
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S02 홈(S02 · S02-B · S02-C · S02-D) · S02-1 홈 진입 인트로 · C01 공통 헤더 · 로그아웃
@@ -12,7 +12,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 // - S02-1 인트로는 기획 메모의 '하루 1회' 대신 홈에 들어올 때마다 보여 주기로 했다.
 //   오늘 완료는 제외한다('N일째 달성!'은 면접을 마친 순간에 띄울 연출이고, 그 화면은 아직 없다).
 //   첫 방문도 끊김처럼 0일 전환을 보여 준다.
-// - [연습 시작] → S03, 성장 리뷰 → S08, [마이페이지] → S09는 화면이 아직 없어 이동할 주소만 확인한다.
+// - [연습 시작] → S03, [마이페이지] → S09는 이동할 주소만 확인한다. 최근 성장 리뷰 → S08은 눌러 들어가 지난 날짜 리뷰까지 확인한다.
 
 /** 서버가 홈을 그릴 '오늘'. 실제 날짜에 따라 결과가 바뀌지 않도록 모든 테스트에서 고정한다(월요일). */
 const TODAY = "2026-10-19";
@@ -287,6 +287,34 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
     await expect(
       main.getByRole("link", { name: "10.13 △△소프트 논리성 +4 성장 리뷰 보기" }),
     ).toHaveAttribute("href", "/reviews/2026-10-13");
+  });
+
+  test("최근 성장 리뷰를 누르면 그날의 S08을 지난 날짜 문구('이날' · [홈으로])로 보여 준다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/home"), () => HttpResponse.json(HOME.NOT_DONE_TODAY)),
+      // 7.1: Swagger 'S08 오늘의 성장 리뷰' 예시를 10월 14일 리뷰로 쓴다.
+      http.get(api("/growth-reviews/:practiceDate"), () =>
+        HttpResponse.json({ ...GROWTH_REVIEW.S08, practiceDate: "2026-10-14" }),
+      ),
+    );
+    // 인트로 연출은 이 테스트가 보는 것이 아니라 동작 줄이기로 짧게 넘긴다.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/home");
+    await waitForIntro(page);
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "10.14 ○○전자 전달력 +8 성장 리뷰 보기" })
+      .click();
+
+    await expect(page).toHaveURL("/reviews/2026-10-14");
+    await expect(page.getByText("10월 14일 · 면접 1회 · 18분")).toBeVisible();
+    await expect(page.getByRole("region", { name: "이날 나아진 점" })).toBeVisible();
+    await expect(page.getByText("오늘도 연습해 볼까요?")).toBeVisible();
+    await expect(page.getByRole("link", { name: "홈으로" })).toBeVisible();
   });
 
   test("S02 남은 시간은 1초마다 줄어든다", async ({ page }) => {
