@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { redirectTo } from "@/test/redirect";
+
 import { axiosProblem } from "@/test/axios-problem";
 import type {
   ApplicationCreateRequest,
@@ -64,7 +66,7 @@ describe("createApplication (4.1 지원서 작성)", () => {
 
     await expect(
       createApplication({ ...values, companyName: "  ○○전자 ", jobTitle: "백엔드 개발자\n" }),
-    ).rejects.toThrow("REDIRECT /practice/interviewer?applicationId=10");
+    ).rejects.toThrow(redirectTo("/practice/interviewer?applicationId=10"));
 
     expect(post).toHaveBeenCalledWith("/applications", values);
   });
@@ -142,7 +144,7 @@ describe("updateApplication (4.4 지원서 수정, S04 [← 지원서 수정])",
 
     await expect(
       updateApplication(10, { ...values, companyName: " ○○전자 본사 " }),
-    ).rejects.toThrow("REDIRECT /practice/interviewer?applicationId=10");
+    ).rejects.toThrow(redirectTo("/practice/interviewer?applicationId=10"));
 
     expect(patch).toHaveBeenCalledWith("/applications/10", {
       ...values,

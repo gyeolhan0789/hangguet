@@ -2,7 +2,10 @@
 // E2E는 이 값을 MSW 핸들러 응답으로 돌려준다. Swagger 예시가 바뀌면 같이 바꾼다.
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
 import type {
+  AnswerResponse,
   ApplicationResponse,
+  PendingResponse,
+  QuestionResponse,
   MeResponse,
   PracticeLogsResponse,
   ProblemDetail,
@@ -203,6 +206,88 @@ export const SESSION_STARTED = {
   currentQuestion: { id: 301, seq: 1, content: "1분 동안 자기소개 부탁드려요." },
   startedAt: "2026-10-15T12:00:00+09:00",
 } as const satisfies SessionResponse;
+
+/** 5.2 면접 조회 200 — Swagger 예시 'S06·S06-B 면접 중' · 'S06 다음 질문 생성 중' · 'S06-1 결과 분석 중' */
+export const SESSION_INTERVIEW = {
+  IN_PROGRESS: {
+    ...SESSION,
+    status: "IN_PROGRESS",
+    planStatus: "READY",
+    planProgress: null,
+    currentQuestion: { id: 303, seq: 3, content: "가장 큰 기술적 문제는 무엇이었나요?" },
+    answeredCount: 2,
+    elapsedSeconds: 522,
+    startedAt: "2026-10-15T12:00:00+09:00",
+  },
+  NEXT_QUESTION_GENERATING: {
+    ...SESSION,
+    status: "IN_PROGRESS",
+    planStatus: "READY",
+    planProgress: null,
+    currentQuestion: null,
+    answeredCount: 3,
+    elapsedSeconds: 640,
+    startedAt: "2026-10-15T12:00:00+09:00",
+  },
+  ANALYZING: {
+    ...SESSION,
+    status: "ANALYZING",
+    planStatus: "READY",
+    planProgress: null,
+    analysisStep: "SCORING",
+    answeredCount: 5,
+    elapsedSeconds: 1080,
+    startedAt: "2026-10-15T12:00:00+09:00",
+    endedAt: "2026-10-15T12:18:00+09:00",
+  },
+} as const satisfies Record<string, SessionResponse>;
+
+/** 5.8 면접 끝내기 — Swagger 예시 202 'S06-E 답변한 2개까지 → S06-1' · 200 '답변 0개 → 홈' */
+export const SESSION_ENDED = {
+  ANALYZING: {
+    ...SESSION,
+    status: "ANALYZING",
+    planStatus: "READY",
+    planProgress: null,
+    analysisStep: "ORGANIZING_ANSWERS",
+    answeredCount: 2,
+    elapsedSeconds: 522,
+    startedAt: "2026-10-15T12:00:00+09:00",
+    endedAt: "2026-10-15T12:08:42+09:00",
+    leveledUp: true,
+  },
+  ABORTED: {
+    ...SESSION,
+    status: "ABORTED",
+    planStatus: "READY",
+    planProgress: null,
+    answeredCount: 0,
+    elapsedSeconds: 95,
+    startedAt: "2026-10-15T12:00:00+09:00",
+    endedAt: "2026-10-15T12:01:35+09:00",
+    leveledUp: false,
+  },
+} as const satisfies Record<string, SessionResponse>;
+
+/** 5.5 지금 질문 — Swagger 예시 200(질문 303) · 202(다음 질문 생성 중) */
+export const QUESTION_CURRENT = {
+  id: 303,
+  seq: 3,
+  content: "흐음~ ○○ 프로젝트라. 거기서 '직접' 한 부분만 쏙 골라서 말해볼래요?",
+  createdAt: "2026-10-15T12:06:12+09:00",
+} as const satisfies QuestionResponse;
+export const QUESTION_GENERATING = {
+  code: "QUESTION_GENERATING",
+} as const satisfies PendingResponse;
+
+/** 5.7 답변 제출 202 — Swagger 예시(id 903 · 질문 303)를 채팅(TEXT)으로 바꾼 것 */
+export const ANSWER = {
+  id: 903,
+  questionId: 303,
+  inputType: "TEXT",
+  createdAt: "2026-10-15T12:08:40+09:00",
+  isLastQuestion: false,
+} as const satisfies AnswerResponse;
 
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {

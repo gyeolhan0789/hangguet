@@ -1,13 +1,15 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
 import type { CheckStatus } from "@/lib/devices/media";
 import { createSession, startSession } from "@/lib/interview/actions";
+import { preloadInterviewer } from "@/lib/interviewer/preload";
 import { modePath } from "@/lib/routes";
+import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type { SessionResponse } from "@/types/api";
 
 import { CameraPreview } from "./camera-preview";
@@ -20,6 +22,7 @@ import { useVoiceCheck, type VoiceCheck } from "./use-voice-check";
 // 기준: Figma S05 장치 점검(18:2333: 단계 4 · 왼쪽 카메라 미리보기 600 · 오른쪽 체크 목록(제목 26 · 카메라 · 마이크 · 스피커
 // · 네트워크 · 질문 준비) · [← 면접 방식] · [면접 시작 →]) · S05-E 권한 거부(18:4013)
 // · 기획 메모 S05(18:752: 생성 완료 + 장치 모두 ✓일 때만 [면접 시작] 활성화, 권한 거부 시 안내 모달 + 다시 시도)
+// · 사용자 결정(2026-10-22: 면접관 3D 모델도 다 받아야 [면접 시작] 활성화)
 // · 기획 메모 S05-E(18:3468: [채팅으로 면접 보기] → S06-B) · Swagger 5.1 면접 만들기 · 5.4 면접 시작(Idempotency-Key)
 
 /** 체크 줄 설명(Figma S05 · S05-E 문구. 확인 중 · 장치 없음 · 사용 중 · 끊김 · 미지원은 Figma에 없어 새로 정함) */
@@ -87,6 +90,18 @@ export function DevicesCheck({
   const [startKey, setStartKey] = useState(() => crypto.randomUUID());
   const [chatKey, setChatKey] = useState(() => crypto.randomUUID());
 
+  // 질문을 준비하는 동안 면접관 3D 모델을 미리 받아 둔다(면접 화면에서 바로 그리도록).
+  useEffect(() => {
+    preloadInterviewer(persona);
+  }, [persona]);
+  // 다른 면접관의 상태가 남아 있으면 아직 받기 전으로 본다.
+  const modelStatus = useInterviewerPreloadStore((state) =>
+    state.persona === persona ? state.status : "idle",
+  );
+  const modelProgress = useInterviewerPreloadStore((state) =>
+    state.persona === persona ? state.progress : 0,
+  );
+
   const { camera, mic, network } = devices;
   const denied = camera === "denied" || mic === "denied";
   const micOn = mic === "ok";
@@ -98,7 +113,8 @@ export function DevicesCheck({
     micOn &&
     voice.status === "confirmed" &&
     network === "ok" &&
-    planStatus === "READY";
+    planStatus === "READY" &&
+    modelStatus === "ready";
 
   // 권한 거부가 아닌 실패(장치 없음 · 사용 중 · 끊김)는 줄 안의 [다시 확인]으로 다시 요청한다.
   const retryButton = (status: CheckStatus) =>
@@ -180,7 +196,13 @@ export function DevicesCheck({
               />
             </ul>
 
-            <PlanProgress sessionId={sessionId} status={planStatus} progress={planProgress} />
+            <PlanProgress
+              sessionId={sessionId}
+              status={planStatus}
+              progress={planProgress}
+              model={{ status: modelStatus, progress: modelProgress }}
+              onRetryModel={() => preloadInterviewer(persona)}
+            />
 
             <AnimatePresence initial={false}>
               {formError && (

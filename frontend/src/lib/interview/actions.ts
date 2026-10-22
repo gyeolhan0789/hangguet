@@ -28,9 +28,11 @@ import type {
 } from "@/types/api";
 
 import {
+  answerTextSchema,
   idempotencyKeySchema,
   idSchema,
   sessionCreateSchema,
+  type AnswerTextValues,
   type SessionCreateValues,
 } from "./schemas";
 import { toSpeechActionFailure, type SpeechActionFailure } from "./speech-failure";
@@ -40,6 +42,8 @@ import { toSpeechActionFailure, type SpeechActionFailure } from "./speech-failur
 // 화상 → S05 장치 점검 · 채팅 → S05 건너뛰고 바로 면접)
 
 export interface SessionActionResult extends FormActionResult<never> {
+  /** 5.8 면접 끝내기 응답의 레벨업(API 명세 5.8: 이 응답에만 값이 있어 화면이 기억한다) */
+  leveledUp?: boolean | null;
   /** 409 IDEMPOTENCY_KEY_REUSED: 이 키를 다른 요청에 이미 썼다. 다시 보낼 때는 새 키를 만든다. */
   keyReused?: true;
 }
@@ -153,6 +157,108 @@ export async function issueSttToken(sessionId: number): Promise<SttTokenActionRe
     unstable_rethrow(error);
     return toSpeechActionFailure(error);
   }
+}
+
+// 기준: Swagger 5.7 답변 제출(POST …/questions/{questionId}/answer + Idempotency-Key → 202 AnswerResponse
+// · 400 VALIDATION_FAILED · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · 409 ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE
+// · IDEMPOTENCY_KEY_REUSED) · API 명세 5.7(S06-B [보내기], 다음 질문은 5.5로 받는다)
+
+export interface TextAnswerActionResult extends SessionActionResult {
+  fieldErrors?: { content?: string };
+  /** 제출에 성공했고 마지막 질문이었으면 true → 화면이 면접 끝내기(5.8)를 부른다 */
+  isLastQuestion?: boolean;
+}
+
+/**
+ * 5.7 채팅 답변을 낸다. 성공하면 S06-B를 다시 그려(refresh) 5.5로 다음 질문을 기다린다.
+ * 다시 보낼 때는 같은 idempotencyKey를 넘긴다.
+ */
+export async function submitTextAnswer(
+  sessionId: number,
+  questionId: number,
+  values: AnswerTextValues,
+  idempotencyKey: string,
+): Promise<TextAnswerActionResult> {
+  const parsed = answerTextSchema.safeParse(values);
+  if (!parsed.success) {
+    return { fieldErrors: { content: parsed.error.issues[0].message } };
+  }
+  if (
+    !idSchema.safeParse(sessionId).success ||
+    !idSchema.safeParse(questionId).success ||
+    !idempotencyKeySchema.safeParse(idempotencyKey).success
+  ) {
+    return { formError: RETRY_LATER };
+  }
+
+  const body: AnswerRequest = { inputType: "TEXT", content: parsed.data.content };
+  let data: AnswerResponse;
+  try {
+    ({ data } = await api.post<AnswerResponse>(
+      endpoints.interviews.answer(sessionId, questionId),
+      body,
+      {
+        headers: idempotencyHeaders(idempotencyKey),
+      },
+    ));
+  } catch (error) {
+    unstable_rethrow(error);
+    const code = getProblemDetail(error)?.code;
+    if (code === "SESSION_NOT_FOUND") redirect(ROUTES.practice);
+    // 이미 낸 답변 · 면접이 이미 끝남 · 지나간 질문이면 화면이 아는 상태가 낡았다. 다시 그려 5.2로 지금 상태를 받는다.
+    if (
+      code === "ANSWER_ALREADY_SUBMITTED" ||
+      code === "INVALID_SESSION_STATE" ||
+      code === "QUESTION_NOT_FOUND"
+    ) {
+      refresh();
+    }
+    return {
+      ...toFormActionResult(error, ["content"]),
+      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+    };
+  }
+  refresh();
+  return { isLastQuestion: data.isLastQuestion };
+}
+
+// 기준: Swagger 5.8 면접 끝내기(POST …/end + Idempotency-Key → 202 SessionResponse(ANALYZING) · 200 SessionResponse(ABORTED)
+// · 404 SESSION_NOT_FOUND · 409 INVALID_SESSION_STATE · IDEMPOTENCY_KEY_REUSED)
+// · API 명세 5.8(마지막 답변 후 자동 · S06-E [끝내기] · 답변 0개면 ABORTED, 화면은 홈으로) · 기획 메모 S06-E(18:3508: 끝내기 → S06-1)
+
+/**
+ * 5.8 면접을 끝낸다. 답변이 있으면(ANALYZING) 화면을 다시 그려 S06-1 결과 분석 중으로 바꾸고,
+ * 답변 없이 끝났으면(ABORTED) 홈으로 간다. 다시 보낼 때는 같은 idempotencyKey를 넘긴다.
+ */
+export async function endSession(
+  sessionId: number,
+  idempotencyKey: string,
+): Promise<SessionActionResult> {
+  if (
+    !idSchema.safeParse(sessionId).success ||
+    !idempotencyKeySchema.safeParse(idempotencyKey).success
+  ) {
+    return { formError: RETRY_LATER };
+  }
+  let data: SessionResponse;
+  try {
+    ({ data } = await api.post<SessionResponse>(endpoints.interviews.end(sessionId), undefined, {
+      headers: idempotencyHeaders(idempotencyKey),
+    }));
+  } catch (error) {
+    unstable_rethrow(error);
+    const code = getProblemDetail(error)?.code;
+    if (code === "SESSION_NOT_FOUND") redirect(ROUTES.practice);
+    // 이미 끝난 면접이면 화면이 아는 상태가 낡았다. 다시 그려 5.2로 지금 상태를 받는다.
+    if (code === "INVALID_SESSION_STATE") refresh();
+    return {
+      ...toFormActionResult(error, []),
+      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+    };
+  }
+  if (data.status === "ABORTED") redirect(ROUTES.home);
+  refresh();
+  return { leveledUp: data.leveledUp };
 }
 
 // 기준: Swagger 5.12 질문 음성 토큰(POST …/questions/{questionId}/tts-token → 200 TtsTokenResponse · 404 SESSION_NOT_FOUND
