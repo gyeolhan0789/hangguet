@@ -23,4 +23,9 @@ public interface AnswerRepository extends JpaRepository<Answer, Long> {
             group by a.question.session.id
             """)
     List<SessionAnswerCount> countBySessionIds(@Param("sessionIds") Collection<Long> sessionIds);
+
+    boolean existsByQuestionId(Long questionId);
+
+    /** 면접에서 지금까지 낸 답변 수 */
+    int countByQuestionSessionId(Long sessionId);
 }

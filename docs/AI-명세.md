@@ -44,7 +44,7 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 ### 1.2 Redis 진행 상태
 
 - BE의 면접 진행 상태(`SessionRuntime`)를 함께 쓴다. 작업자는 `planStatus`·`planProgress`·`analysisStep`만 바꾸고 `pausedSeconds`는 건드리지 않는다
-- 키는 Redis Hash `session:{sessionId}:runtime`이다. 필드마다 `HSET`으로 쓰고 값을 비울 때는 `HDEL`한다(값은 enum 이름·정수 문자열). 키 생성과 TTL은 BE가 맡는다
+- 키는 Redis Hash `session:{sessionId}:runtime`이다. 필드마다 `HSET`으로 쓰고 값을 비울 때는 `HDEL`한다(값은 enum 이름·정수 문자열). 키 생성과 TTL은 BE가 맡는다. `planStartedAt`은 BE만 쓰는 필드라 작업자는 무시한다
 - Redis 값이 없으면 `interview_plans` 행이 있을 때 `planStatus`를 `READY`로 본다
 
 ### 1.3 작업 메시지

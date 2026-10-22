@@ -24,6 +24,8 @@ import org.hibernate.type.SqlTypes;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InterviewPlan {
+    // 면접 질문 수는 5개로 고정이다(API 명세 5.2, AI 명세 2장)
+    public static final int QUESTION_COUNT = 5;
 
     @Id
     @Column(name = "session_id")
