@@ -292,6 +292,9 @@ export const ANSWER = {
 /** 6.3 면접 결과 · 6.4 다시보기 200 — Swagger 예시. 단위 테스트와 같은 값을 쓴다. */
 export { REPLAY, RESULT } from "../../src/test/result-examples";
 
+/** 7.1 날짜별 성장 리뷰 200 — Swagger 예시. 단위 테스트와 같은 값을 쓴다. */
+export { GROWTH_REVIEW } from "../../src/test/growth-review-examples";
+
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
 export const PROBLEM = {
   LOGIN_FAILED: {
@@ -369,6 +372,14 @@ export const PROBLEM = {
     detail: "면접을 찾을 수 없어요.",
     instance: "/api/v1/interview-sessions/0",
     code: "SESSION_NOT_FOUND",
+  },
+  // Swagger 7.1 404 예시
+  GROWTH_REVIEW_NOT_FOUND: {
+    title: "Not Found",
+    status: 404,
+    detail: "그날의 성장 리뷰가 없어요.",
+    instance: "/api/v1/growth-reviews/2026-10-01",
+    code: "GROWTH_REVIEW_NOT_FOUND",
   },
   // Swagger 6.3 409 예시
   RESULT_NOT_READY: {

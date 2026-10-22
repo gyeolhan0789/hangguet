@@ -3,7 +3,7 @@ import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import { E2E_TODAY_HEADER } from "../src/lib/today";
 
-import { ME, PRACTICE_LOGS_FIGMA, STATS } from "./mocks/data";
+import { GROWTH_REVIEW, ME, PRACTICE_LOGS_FIGMA, STATS } from "./mocks/data";
 import { api, expect, http, HttpResponse, test } from "./test";
 
 // S09 마이페이지
@@ -104,13 +104,26 @@ test.describe("S09 마이페이지 · 스트릭 달력", () => {
     await expect(main(page).getByText("이번 달 10일 연습 · 지금 5일 연속!")).toBeVisible();
   });
 
-  test("연습한 날을 누르면 그날의 S08 성장 리뷰로 간다", async ({ page, msw }) => {
+  test("연습한 날을 누르면 그날의 S08 성장 리뷰를 지난 날짜 문구('이날' · [홈으로])로 보여 준다", async ({
+    page,
+    msw,
+  }) => {
     recordMonths(msw);
+    // 7.1: Swagger 'S08 오늘의 성장 리뷰' 예시를 10월 1일 리뷰로 쓴다.
+    msw.use(
+      http.get(api("/growth-reviews/:practiceDate"), () =>
+        HttpResponse.json({ ...GROWTH_REVIEW.S08, practiceDate: "2026-10-01" }),
+      ),
+    );
     await page.goto("/mypage");
 
     await calendar(page).getByRole("link", { name: "10월 1일 연습함" }).click();
 
     await expect(page).toHaveURL("/reviews/2026-10-01");
+    await expect(page.getByText("10월 1일 · 면접 1회 · 18분")).toBeVisible();
+    await expect(page.getByRole("region", { name: "이날 나아진 점" })).toBeVisible();
+    await expect(page.getByText("오늘도 연습해 볼까요?")).toBeVisible();
+    await expect(page.getByRole("link", { name: "홈으로" })).toBeVisible();
   });
 
   test("‹ · ›로 달을 옮기면 그 달(month)로 3.3을 다시 불러 보여 준다", async ({ page, msw }) => {

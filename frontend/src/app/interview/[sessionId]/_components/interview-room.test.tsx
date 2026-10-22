@@ -198,4 +198,20 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       leveledUp: null,
     });
   });
+
+  it("이미 끝낸 면접(S06-1 결과 분석 중)에 새로고침해 들어오면 그 면접의 레벨업은 남긴다", () => {
+    useInterviewStore.setState({ endOpen: true, answeredQuestionId: 1, leveledUp: true });
+    render(
+      <InterviewRoom
+        session={{ ...SESSION, status: "ANALYZING", analysisStep: "SCORING" }}
+        currentQuestion={null}
+      />,
+    );
+
+    expect(useInterviewStore.getState()).toMatchObject({
+      endOpen: false,
+      answeredQuestionId: null,
+      leveledUp: true,
+    });
+  });
 });
