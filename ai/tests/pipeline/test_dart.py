@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import dart
+from pipeline import dart, storage
 from pipeline.dart import find_corp_code, latest_annual_report
 
 # 2026-10-19 DART에서 받은 실제 응답 일부 (고유번호 목록은 세 회사 항목만 남김)
@@ -47,7 +47,7 @@ def test_latest_annual_report_api_error() -> None:
 
 
 def test_fetch_report_downloads_again_only_when_new_report(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     latest = {"rcept_no": "20260314000001"}
     calls: list[str] = []
@@ -64,10 +64,15 @@ def test_fetch_report_downloads_again_only_when_new_report(
 
     monkeypatch.setattr(dart, "_get", fake_get)
 
-    assert dart.fetch_report("카카오", tmp_path) == ("00258801", "보고서 20260314000001")
-    dart.fetch_report("카카오", tmp_path)  # 같은 사업보고서면 원문을 다시 받지 않는다
+    assert dart.fetch_report("카카오") == ("00258801", "보고서 20260314000001")
+    dart.fetch_report("카카오")  # 같은 사업보고서면 원문을 다시 받지 않는다
     latest["rcept_no"] = "20270313000002"  # 이듬해 새 사업보고서
-    assert dart.fetch_report("카카오", tmp_path)[1] == "보고서 20270313000002"
+    assert dart.fetch_report("카카오")[1] == "보고서 20270313000002"
+    assert storage.keys("raw/dart/reports/00258801/") == [
+        "raw/dart/reports/00258801/20260314000001.xml",
+        "raw/dart/reports/00258801/20270313000002.xml",
+    ]  # 지난 보고서도 남는다
+    assert dart.latest_report("00258801") == "보고서 20270313000002"
     assert calls == [
         "corpCode.xml",
         "list.json",

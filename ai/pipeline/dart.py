@@ -6,13 +6,16 @@ import os
 import urllib.parse
 import urllib.request
 import zipfile
-from datetime import date, timedelta
-from pathlib import Path
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from xml.etree import ElementTree
 
+from pipeline import storage
+
 API = "https://opendart.fss.or.kr/api"
 CORPCODE_DAYS = 30
+CORPCODE_KEY = "reference/corpcode.xml"
+REPORTS = "raw/dart/reports/"
 
 
 def _get(path: str, **params: str) -> bytes:
@@ -60,24 +63,25 @@ def latest_annual_report(listing: dict[str, Any]) -> str:
     raise LookupError("최근 1년 안에 사업보고서가 없다")
 
 
-def fetch_report(name: str, raw_dir: Path) -> tuple[str, str]:
-    """회사의 최신 사업보고서 원문을 raw_dir에 저장하고 (고유번호, 원문)을 돌려준다.
+def corp_code(name: str) -> str:
+    """회사명 → DART 고유번호. 고유번호 목록(reference/corpcode.xml)은 CORPCODE_DAYS일마다 갱신."""
+    updated = storage.modified(CORPCODE_KEY)
+    if updated is None or updated < datetime.now(UTC) - timedelta(days=CORPCODE_DAYS):
+        storage.put(CORPCODE_KEY, _unzip(_get("corpCode.xml")))
+    return find_corp_code(storage.get(CORPCODE_KEY) or b"", name)
 
-    공시 목록은 매번 조회하고, 접수번호가 바뀌었을 때(새 사업보고서)만 원문을 다시 받는다.
-    고유번호 목록은 CORPCODE_DAYS일마다 새로 받는다(그 사이 새로 등록된 회사).
+
+def fetch_report(name: str) -> tuple[str, str]:
+    """회사의 최신 사업보고서 원문을 저장소에 두고 (고유번호, 원문)을 돌려준다.
+
+    공시 목록은 매번 조회하고, 그 접수번호의 원문이 저장소에 없을 때(새 사업보고서)만 받는다.
     """
-    corp_file = raw_dir / "CORPCODE.xml"
-    stale = date.today() - timedelta(days=CORPCODE_DAYS)
-    if not corp_file.exists() or date.fromtimestamp(corp_file.stat().st_mtime) < stale:
-        raw_dir.mkdir(parents=True, exist_ok=True)
-        corp_file.write_bytes(_unzip(_get("corpCode.xml")))
-    corp_code = find_corp_code(corp_file.read_bytes(), name)
-
+    code = corp_code(name)
     begin = (date.today() - timedelta(days=365)).strftime("%Y%m%d")
     listing = json.loads(
         _get(
             "list.json",
-            corp_code=corp_code,
+            corp_code=code,
             bgn_de=begin,
             pblntf_ty="A",
             pblntf_detail_ty="A001",
@@ -85,10 +89,16 @@ def fetch_report(name: str, raw_dir: Path) -> tuple[str, str]:
         )
     )
     rcept_no = latest_annual_report(listing)
-    report_file = raw_dir / corp_code / "report.xml"
-    rcept_file = raw_dir / corp_code / "rcept_no.txt"  # report.xml이 어느 사업보고서인지
-    if not report_file.exists() or not rcept_file.exists() or rcept_file.read_text() != rcept_no:
-        report_file.parent.mkdir(parents=True, exist_ok=True)
-        report_file.write_bytes(_unzip(_get("document.xml", rcept_no=rcept_no), f"{rcept_no}.xml"))
-        rcept_file.write_text(rcept_no)
-    return corp_code, report_file.read_text(encoding="utf-8", errors="replace")
+    key = f"{REPORTS}{code}/{rcept_no}.xml"
+    report = storage.get(key)
+    if report is None:
+        report = _unzip(_get("document.xml", rcept_no=rcept_no), f"{rcept_no}.xml")
+        storage.put(key, report)
+    return code, report.decode("utf-8", errors="replace")
+
+
+def latest_report(code: str) -> str | None:
+    """저장소에 있는 가장 최근 사업보고서 원문 (접수번호가 날짜순이라 정렬 마지막)."""
+    found = storage.keys(f"{REPORTS}{code}/")
+    data = storage.get(found[-1]) if found else None
+    return data.decode("utf-8", errors="replace") if data else None
