@@ -2,6 +2,8 @@
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { redirectTo } from "@/test/redirect";
+
 const post = vi.fn();
 const get = vi.fn();
 vi.mock("@/lib/api/client", () => ({ api: { post, get } }));
@@ -46,7 +48,7 @@ describe("login", () => {
     post.mockResolvedValue({ data: tokens });
 
     await expect(login({ email: "a@ssafy.com", password: "abcd1234" })).rejects.toThrow(
-      "REDIRECT /home",
+      redirectTo("/home"),
     );
 
     expect(post).toHaveBeenCalledWith("/auth/login", {
@@ -152,7 +154,7 @@ describe("logout", () => {
     cookieStore.get.mockReturnValue({ value: "refresh" });
     post.mockResolvedValue({ status: 204 });
 
-    await expect(logout()).rejects.toThrow("REDIRECT /");
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
 
     expect(post).toHaveBeenCalledWith("/auth/logout", { refreshToken: "refresh" });
     expect(cookieStore.delete).toHaveBeenCalledWith("hk_access");

@@ -1,6 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { redirectTo } from "@/test/redirect";
+
 import type { RefreshResponse } from "@/types/api";
 
 // 요청 헤더(proxy가 넘긴 주소 · 서버 액션 표시)와 쿠키
@@ -73,7 +75,7 @@ describe("pathAfterSignedOut (UNAUTHORIZED로 쿠키를 지운 뒤 갈 곳)", ()
 describe("redirectToSignedOut (401 UNAUTHORIZED)", () => {
   it("화면을 그리는 중이면 쿠키를 지우는 Route Handler로 보낸다", async () => {
     await expect(redirectToSignedOut()).rejects.toThrow(
-      "REDIRECT /api/auth/signed-out?next=%2Fpractice%2Fmode%3FapplicationId%3D10",
+      redirectTo("/api/auth/signed-out?next=%2Fpractice%2Fmode%3FapplicationId%3D10"),
     );
     expect(cookieStore.delete).not.toHaveBeenCalled();
   });
@@ -82,7 +84,7 @@ describe("redirectToSignedOut (401 UNAUTHORIZED)", () => {
     asServerAction();
     cookieJar.set("hk_access", "a").set("hk_refresh", "r");
 
-    await expect(redirectToSignedOut()).rejects.toThrow("REDIRECT /login");
+    await expect(redirectToSignedOut()).rejects.toThrow(redirectTo("/login"));
     expect([...cookieJar.keys()]).toEqual([]);
   });
 });
@@ -90,7 +92,7 @@ describe("redirectToSignedOut (401 UNAUTHORIZED)", () => {
 describe("redirectToTokenRefresh (401 TOKEN_EXPIRED)", () => {
   it("화면을 그리는 중이면 재발급 Route Handler로 보낸다", async () => {
     await expect(redirectToTokenRefresh()).rejects.toThrow(
-      "REDIRECT /api/auth/refresh?next=%2Fpractice%2Fmode%3FapplicationId%3D10",
+      redirectTo("/api/auth/refresh?next=%2Fpractice%2Fmode%3FapplicationId%3D10"),
     );
     expect(refreshTokens).not.toHaveBeenCalled();
   });
@@ -112,7 +114,7 @@ describe("redirectToTokenRefresh (401 TOKEN_EXPIRED)", () => {
     });
 
     await expect(redirectToTokenRefresh()).rejects.toThrow(
-      "REDIRECT /practice/mode?applicationId=10",
+      redirectTo("/practice/mode?applicationId=10"),
     );
     expect(refreshTokens).toHaveBeenCalledWith("refresh-1");
     expect(cookieJar.get("hk_access")).toBe("access-2");
@@ -125,7 +127,7 @@ describe("redirectToTokenRefresh (401 TOKEN_EXPIRED)", () => {
     cookieJar.set("hk_access", "a").set("hk_refresh", "bad");
     refreshTokens.mockResolvedValue(null);
 
-    await expect(redirectToTokenRefresh()).rejects.toThrow("REDIRECT /login");
+    await expect(redirectToTokenRefresh()).rejects.toThrow(redirectTo("/login"));
     expect([...cookieJar.keys()]).toEqual([]);
   });
 });
