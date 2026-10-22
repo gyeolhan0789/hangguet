@@ -73,10 +73,17 @@ async function checkVoice(page: Page) {
   await expect(speaker).toContainText("확인됨");
 }
 
+/** 노드가 하나도 없는 가장 작은 glTF. 받기 · 해석은 바로 끝나고, 면접 화면에서는 동작이 없어 정지 이미지가 된다 */
+const EMPTY_GLTF = {
+  status: 200,
+  contentType: "model/gltf+json",
+  body: '{"asset":{"version":"2.0"}}',
+};
+
 test.beforeEach(async ({ signIn, page }) => {
   await signIn();
-  // S05는 면접관 3D 모델(32MB)을 미리 받는다. 그것을 보는 테스트 밖에서는 받지 않게 막는다.
-  await page.route("**/interview/devil/interviewer.glb", (route) => route.abort());
+  // S05는 면접관 3D 모델(32MB)을 다 받아야 [면접 시작]이 켜진다. 그것을 보는 테스트 밖에서는 빈 모델로 바로 받게 한다.
+  await page.route("**/interview/devil/interviewer.glb", (route) => route.fulfill(EMPTY_GLTF));
 });
 
 test.describe("S05 장치 점검 · 화면", () => {
@@ -194,11 +201,64 @@ test.describe("S05 장치 점검 · 질문 준비(5.2 · 5.3)", () => {
     );
     await page.goto(S05);
     const main = page.getByRole("main");
-    await expect(main.getByText("질문을 준비하지 못했어요")).toBeVisible();
+    await expect(main.getByText("면접 준비에 실패했어요")).toBeVisible();
 
     await main.getByRole("button", { name: "다시 시도" }).click();
     await expect(main.getByText("면접관이 질문을 준비하고 있어요")).toBeVisible();
     expect(retried).toEqual([String(SESSION.id)]);
+  });
+});
+
+test.describe("S05 장치 점검 · 면접관 모델 받기", () => {
+  test("모델을 받지 못하면(404) 질문 준비가 끝나도 '면접 준비에 실패했어요'를 보여 주고, [다시 시도]는 모델만 다시 받는다", async ({
+    page,
+    msw,
+  }) => {
+    planIs(msw, "READY");
+    const retried: string[] = [];
+    msw.use(
+      http.post(api("/interview-sessions/:sessionId/plan/retry"), ({ params }) => {
+        retried.push(String(params.sessionId));
+        return HttpResponse.json(SESSION_PLAN.GENERATING, { status: 202 });
+      }),
+    );
+    // 404는 다시 받아도 같아 자동으로 다시 받지 않는다(받은 횟수로 확인).
+    const models: number[] = [];
+    let missing = true;
+    await page.route("**/interview/devil/interviewer.glb", (route) => {
+      models.push(Date.now());
+      return missing ? route.fulfill({ status: 404 }) : route.fulfill(EMPTY_GLTF);
+    });
+    await page.goto(S05);
+    const main = page.getByRole("main");
+    await expect(main.getByText("면접 준비에 실패했어요")).toBeVisible();
+    await expect(startButton(page)).toBeDisabled();
+    expect(models).toHaveLength(1);
+
+    missing = false;
+    await main.getByRole("button", { name: "다시 시도" }).click();
+    await expect(main.getByText("면접관이 질문을 준비했어요")).toBeVisible();
+    expect(models).toHaveLength(2);
+    expect(retried).toEqual([]);
+  });
+
+  test("연결이 끊겨 받지 못하면 실패를 띄우지 않고 다시 받아, 받으면 준비를 마친다", async ({
+    page,
+    msw,
+  }) => {
+    planIs(msw, "READY");
+    const models: number[] = [];
+    await page.route("**/interview/devil/interviewer.glb", (route) => {
+      models.push(Date.now());
+      return models.length === 1 ? route.abort("connectionreset") : route.fulfill(EMPTY_GLTF);
+    });
+    await page.goto(S05);
+    const main = page.getByRole("main");
+
+    // 첫 재시도 간격은 설계상 2초 미만(1초 + 무작위 1초 미만, retry.ts)이다. 기다리는 한도는 그보다 넉넉히 둔다.
+    await expect(main.getByText("면접관이 질문을 준비했어요")).toBeVisible({ timeout: 15_000 });
+    expect(models).toHaveLength(2);
+    await expect(main.getByText("면접 준비에 실패했어요")).toHaveCount(0);
   });
 });
 
@@ -240,26 +300,20 @@ test.describe("S05 장치 점검 · 면접 시작(5.4)", () => {
       models.push(route.request().url());
       return route.continue();
     });
-    // 시계는 그대로 흐르게 두고(녹음 · 재생), 면접 화면에 들어가면 멈춘다(아래).
-    await page.clock.install();
     await page.goto(S05);
     await expect.poll(() => models.length).toBe(1);
 
     await expect(row(page, "네트워크")).toContainText("확인됨");
     await checkVoice(page);
-    // 면접 화면에 들어가기 전에 시계를 멈추고, 화면이 보일 때까지만 50ms씩 직접 진행한다.
-    // 그래서 면접 화면의 10초 제한(정지 이미지로 바꾸기)이 소프트웨어 WebGL의 처리 시간과 겨루지 않는다.
-    // 10초 제한 자체는 컴포넌트 테스트(interviewer-stage.test.tsx)가 경계까지 본다.
-    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    // 다 받아야 켜진다.
+    await expect(page.getByRole("main").getByText("면접관이 질문을 준비했어요")).toBeVisible({
+      timeout: 60_000,
+    });
     await startButton(page).click();
     const stage = page.getByTestId("interviewer-stage");
-    await expect(async () => {
-      await page.clock.runFor(50);
-      await expect(stage).toBeVisible({ timeout: 50 });
-    }).toPass();
 
     await expect(page).toHaveURL(`/interview/${SESSION.id}`);
-    // 결과는 늘 ready다. SwiftShader의 셰이더 컴파일 처리 시간만큼 기다리는 시간을 길게 둔다.
+    // 시간 제한이 없어 결과는 늘 ready다. SwiftShader의 셰이더 컴파일 처리 시간만큼 기다리는 시간을 길게 둔다.
     await expect(stage).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
     expect(models).toHaveLength(1);
   });

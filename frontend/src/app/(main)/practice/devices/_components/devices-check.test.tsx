@@ -1,8 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { motionValue } from "motion/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionActionResult } from "@/lib/interview/actions";
+import { useInterviewerPreloadStore, type PreloadStatus } from "@/stores/interviewer-preload-store";
 import type { SessionCreateRequest } from "@/types/api";
 
 import { DevicesCheck } from "./devices-check";
@@ -11,6 +12,7 @@ import type { VoiceCheck } from "./use-voice-check";
 
 // 기준: 기획 메모 S05(18:752: 생성 완료 + 장치 모두 ✓일 때만 [면접 시작] 활성화) · Figma S05 · S05-E
 // · Swagger 5.4 면접 시작 · 5.1 면접 만들기(Idempotency-Key, 409 IDEMPOTENCY_KEY_REUSED면 새 키)
+// · 사용자 결정(2026-10-22: 면접관 3D 모델도 다 받아야 [면접 시작] 활성화, 실패하면 '면접 준비에 실패했어요')
 // 장치 점검 hook(브라우저 장치)과 서버 액션 경계를 바꿔, 화면이 상태를 어떻게 보여 주고 무엇을 보내는지 본다.
 // 실제 장치 · 서버 흐름은 E2E(practice-devices.spec.ts)가 맡는다.
 
@@ -29,7 +31,7 @@ vi.mock("@/lib/interview/actions", () => ({
   retryPlan: vi.fn(),
 }));
 
-// 면접관 3D 모델 미리 불러오기(three.js · 23MB)는 jsdom에서 받지 않는다. 부르는지만 본다.
+// 면접관 3D 모델 미리 불러오기(three.js · 32MB)는 jsdom에서 받지 않는다. 부르는지만 보고, 받기 상태는 저장소에 직접 넣는다.
 const preloadInterviewer = vi.fn();
 vi.mock("@/lib/interviewer/preload", () => ({
   preloadInterviewer: (persona: string) => preloadInterviewer(persona),
@@ -75,6 +77,14 @@ const row = (title: string) =>
     .find((item) => within(item).queryByText(title, { exact: true }))!;
 const UUID = /^[0-9a-f-]{36}$/;
 
+function setModel(status: PreloadStatus, persona: "DEVIL" | "COFFEE_CHAT" = "DEVIL") {
+  useInterviewerPreloadStore.setState({ persona, status, progress: status === "ready" ? 1 : 0.4 });
+}
+
+beforeEach(() => {
+  setModel("ready");
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -88,7 +98,7 @@ describe("DevicesCheck (S05 장치 점검 화면)", () => {
     expect(preloadInterviewer).toHaveBeenCalledWith("DEVIL");
   });
 
-  it("장치 4개가 모두 확인되고 질문 준비가 끝나면 [면접 시작]이 켜진다", () => {
+  it("장치 4개가 모두 확인되고 질문 준비 · 면접관 모델 받기가 끝나면 [면접 시작]이 켜진다", () => {
     setDevices();
     setVoice("confirmed");
     renderCheck("READY");
@@ -105,12 +115,38 @@ describe("DevicesCheck (S05 장치 점검 화면)", () => {
     { label: "오프라인", devices: { network: "offline" }, voice: "confirmed", plan: "READY" },
     { label: "질문 준비 중", devices: {}, voice: "confirmed", plan: "GENERATING" },
     { label: "질문 준비 실패", devices: {}, voice: "confirmed", plan: "FAILED" },
+    { label: "모델 받는 중", devices: {}, voice: "confirmed", plan: "READY", model: "loading" },
+    { label: "모델 받기 실패", devices: {}, voice: "confirmed", plan: "READY", model: "failed" },
   ] as const)("$label이면 [면접 시작]이 꺼져 있다", (state) => {
     setDevices(state.devices);
     setVoice(state.voice);
+    if ("model" in state && state.model) setModel(state.model);
     renderCheck(state.plan);
 
     expect(startButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  it("다른 면접관의 모델을 다 받은 상태가 남아 있어도, 이 면접관 것을 받기 전이면 꺼져 있다", () => {
+    setDevices();
+    setVoice("confirmed");
+    setModel("ready", "COFFEE_CHAT");
+    renderCheck("READY");
+
+    expect(startButton().hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("0%")).toBeDefined();
+  });
+
+  it("모델 받기에 실패하면 '면접 준비에 실패했어요'와 [다시 시도]로 모델을 다시 받는다", () => {
+    setDevices();
+    setVoice("confirmed");
+    setModel("failed");
+    renderCheck("READY");
+    preloadInterviewer.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+
+    expect(screen.getByText("면접 준비에 실패했어요")).toBeDefined();
+    expect(preloadInterviewer).toHaveBeenCalledWith("DEVIL");
   });
 
   it("[면접 시작]은 멱등 키와 함께 5.4를 부르고, 실패 문구를 보여 준다. 같은 키로 다시 보낸다", async () => {

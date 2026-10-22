@@ -61,13 +61,17 @@ const QUESTION: CurrentQuestion = {
   content: "흐음~ ○○ 프로젝트라. 거기서 '직접' 한 부분만 쏙 골라서 말해볼래요?",
 };
 
+let online = true;
 beforeEach(() => {
   vi.useFakeTimers();
   useInterviewStore.getState().reset();
+  online = true;
+  vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
 });
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -91,6 +95,19 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     act(() => vi.advanceTimersByTime(SESSION_POLL_MS - 1));
     expect(refresh).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("인터넷이 끊기면 다시 조회하지 않고, 다시 연결되면 2초 뒤 이어서 조회한다", () => {
+    online = false;
+    render(<InterviewRoom session={SESSION} currentQuestion={null} />);
+
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 5));
+    expect(refresh).not.toHaveBeenCalled();
+
+    online = true;
+    act(() => window.dispatchEvent(new Event("online")));
+    waitPoll();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 

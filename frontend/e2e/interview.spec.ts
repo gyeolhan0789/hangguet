@@ -32,7 +32,8 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 //
 // 시간을 기다리는 단언은 두지 않는다:
 // - mock은 "몇 번째 요청인가"가 아니라 테스트가 바꾸는 값을 돌려주고, 단계는 테스트가 단언한 뒤에 넘긴다.
-// - 2초 다시 조회 · 1초 경과 시간 · 10초 3D 제한은 Playwright Clock으로 시간을 직접 진행시킨다.
+// - 2초 다시 조회 · 1초 경과 시간은 Playwright Clock으로 시간을 직접 진행시킨다.
+// - 3D는 시간 제한이 없고(사용자 결정 2026-10-22) 상태로만 끝나, 처리 시간만큼 기다린다.
 
 const S06 = `/interview/${SESSION_INTERVIEW.IN_PROGRESS.id}`;
 const GLB = "**/interview/devil/interviewer.glb";
@@ -69,8 +70,11 @@ function interviewIs(
   );
 }
 
-/** 3D 모델(32MB)을 받지 않게 막는다. 3D 대신 정지 이미지가 나온다(3D를 보는 테스트 밖에서 쓴다). */
-const skip3d = (page: Page) => page.route(GLB, (route) => route.abort());
+/**
+ * 3D 모델(32MB)을 받지 않게 404로 답한다. 404는 다시 받지 않아(retry.ts) 바로 정지 이미지가 나온다
+ * (3D를 보는 테스트 밖에서 쓴다).
+ */
+const skip3d = (page: Page) => page.route(GLB, (route) => route.fulfill({ status: 404 }));
 
 /** 다음 다시 조회(2초)를 기다리지 않고 바로 일으킨다. */
 const nextPoll = (page: Page) => page.clock.fastForward(POLL_MS);
@@ -245,22 +249,17 @@ test.describe("S06 면접 화면", () => {
       await gate;
       await route.continue();
     });
-    // 시계를 멈춰 10초 제한(정지 이미지로 바꾸기)이 소프트웨어 WebGL의 처리 시간과 겨루지 않게 한다.
-    // 10초 제한 자체는 컴포넌트 테스트(interviewer-stage.test.tsx)가 경계까지 본다.
-    await page.clock.install();
-    await page.clock.pauseAt(new Date(Date.now() + 1000));
     await page.goto(S06);
-    await stepUntilVisible(page, page.getByRole("status", { name: "면접관을 불러오는 중" }));
+    await expect(page.getByRole("status", { name: "면접관을 불러오는 중" })).toBeVisible();
 
     await expect(stage(page)).toHaveAttribute("data-state", "loading");
     await expect(page.getByRole("img", { name: "악마 면접관" })).toBeVisible();
     release();
 
-    // 시간 제한은 멈춰 두었으므로 결과는 늘 ready다. 다만 SwiftShader는 32MB 모델 해석 · 셰이더 컴파일에 십수 초가 걸려
+    // 시간 제한이 없어 결과는 늘 ready다. 다만 SwiftShader는 32MB 모델 해석 · 셰이더 컴파일에 십수 초가 걸려
     // 기다리는 시간만 길게 둔다(제한과 겨루는 것이 아니라 처리 시간이다).
     await expect(stage(page)).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
     await expect(page.getByRole("status", { name: "면접관을 불러오는 중" })).toHaveCount(0);
-    await page.clock.runFor(100);
     await expect(stage(page).locator("canvas")).toBeVisible();
     // 악마 면접관은 폭풍 배경(먹구름 번개 영상 · 창문이 뚫린 실내 그림 · 비네트)을 깐다.
     await expect(page.getByTestId("storm-vignette")).toBeVisible();
