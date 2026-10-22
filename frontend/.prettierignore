@@ -5,3 +5,7 @@ coverage/
 next-env.d.ts
 package-lock.json
 AGENTS.md
+# 면접관 3D 모델과 함께 내보낸 파일(Blender에서 만든 그대로 둔다)
+public/interview/*/*.json
+# three.js 예제에서 가져온 코드(MIT). 원본 그대로 둔다.
+src/lib/interviewer/vendor/

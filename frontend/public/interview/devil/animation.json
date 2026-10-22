@@ -1,0 +1,15 @@
+{
+  "seconds": 2,
+  "fps": 24,
+  "segments": {
+    "down": {
+      "start": 0,
+      "end": 2
+    },
+    "up": {
+      "start": 2.0833333333333335,
+      "end": 4.083333333333333
+    }
+  },
+  "method": "Independent place and pickup paths. 25 exact body samples each, interpolated; face controls separate."
+}

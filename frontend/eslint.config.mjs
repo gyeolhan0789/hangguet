@@ -24,6 +24,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "test-results/**",
     "playwright-report/**",
+    // three.js 예제에서 가져온 코드(MIT). 원본 그대로 둔다.
+    "src/lib/interviewer/vendor/**",
   ]),
 ]);
 
