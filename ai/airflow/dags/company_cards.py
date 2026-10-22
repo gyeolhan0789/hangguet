@@ -32,7 +32,7 @@ def companies() -> list[dict[str, str]]:
 # Ollama 임베딩이 400, 네이버 검색 API가 429를 냈다(2026-10-21 첫 실행)
 @task(map_index_template=BY_NAME, pool="llm", **RETRY)
 def collect_news(company: dict[str, str]) -> dict[str, str]:
-    print(f"{_name(company)}: 기사 {len(news.collect(company, run.DATA))}건")
+    print(f"{_name(company)}: 기사 {len(news.collect(company))}건")
     return company
 
 
@@ -55,6 +55,13 @@ def write_viewer() -> str:
     return str(viewer.write(run.DATA))
 
 
+# 회사별 작업이 하나라도 실패하면 실행 전체를 실패로 표시한다. 마지막 작업(write_viewer)이
+# all_done이라 이게 없으면 카카오가 3번 다 실패해도 실행이 성공으로 보였다(2026-10-21)
+@task
+def all_companies_ok() -> None:
+    pass
+
+
 @dag(
     schedule="0 13 * * *",  # 노트북이 켜져 있는 점심시간
     start_date=pendulum.datetime(2026, 10, 21, tz="Asia/Seoul"),
@@ -63,7 +70,7 @@ def write_viewer() -> str:
 )
 def company_news_daily() -> None:
     refreshed = refresh_recent.expand(company=collect_news.expand(company=companies()))
-    refreshed >> write_viewer()
+    refreshed >> [write_viewer(), all_companies_ok()]
 
 
 @dag(
@@ -73,7 +80,8 @@ def company_news_daily() -> None:
 )
 def company_cards_full() -> None:
     # 새 회사도 최근 이슈가 채워지게 기사를 먼저 모은다
-    build_card.expand(company=collect_news.expand(company=companies())) >> write_viewer()
+    built = build_card.expand(company=collect_news.expand(company=companies()))
+    built >> [write_viewer(), all_companies_ok()]
 
 
 company_news_daily()

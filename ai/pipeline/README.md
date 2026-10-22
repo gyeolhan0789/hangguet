@@ -80,4 +80,4 @@ uv run python -m pipeline.viewer
 
 ## 데이터
 
-수집한 원문은 `data/raw/`, 기사는 `data/news/`, 만든 카드는 `data/cards/`에 저장하며 모두 git에서 제외한다.
+원문·기사는 `storage.py`로 저장한다. `S3_ENDPOINT`가 있으면 MinIO, 없으면 `data/` 폴더에 같은 경로(`reference/`·`raw/`·`processed/`)로 둔다. 경로 구조는 [Airflow README](../airflow/README.md#데이터-minio-버킷-company-pipeline). 만든 카드는 `data/cards/`에 저장한다. `data/`는 git에서 제외한다.
