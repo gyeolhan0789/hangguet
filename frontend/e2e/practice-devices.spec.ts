@@ -20,7 +20,14 @@ const S05 = `/practice/devices?sessionId=${SESSION.id}`;
 
 test.use({
   channel: "chromium",
-  launchOptions: { args: ["--use-fake-device-for-media-stream"] },
+  // 면접 화면으로 넘어가 3D 면접관을 그리는 테스트가 있어 소프트웨어 WebGL(SwiftShader)도 켠다.
+  launchOptions: {
+    args: [
+      "--use-fake-device-for-media-stream",
+      "--use-angle=swiftshader",
+      "--enable-unsafe-swiftshader",
+    ],
+  },
   permissions: ["camera", "microphone"],
 });
 
@@ -66,8 +73,10 @@ async function checkVoice(page: Page) {
   await expect(speaker).toContainText("확인됨");
 }
 
-test.beforeEach(async ({ signIn }) => {
+test.beforeEach(async ({ signIn, page }) => {
   await signIn();
+  // S05는 면접관 3D 모델(32MB)을 미리 받는다. 그것을 보는 테스트 밖에서는 받지 않게 막는다.
+  await page.route("**/interview/devil/interviewer.glb", (route) => route.abort());
 });
 
 test.describe("S05 장치 점검 · 화면", () => {
@@ -218,6 +227,41 @@ test.describe("S05 장치 점검 · 면접 시작(5.4)", () => {
     await expect(page).toHaveURL(`/interview/${SESSION.id}`);
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("화면에 들어오면 면접관 3D 모델을 미리 받아 두고, 면접 화면은 다시 받지 않고 바로 그린다", async ({
+    page,
+    msw,
+  }) => {
+    planIs(msw, "READY");
+    // 나중에 건 route가 먼저 받는다: 막지 않고 보내되 몇 번 받는지 센다(route는 HTTP 캐시를 끄므로 받은 만큼 세어진다).
+    const models: string[] = [];
+    await page.route("**/interview/devil/interviewer.glb", (route) => {
+      models.push(route.request().url());
+      return route.continue();
+    });
+    // 시계는 그대로 흐르게 두고(녹음 · 재생), 면접 화면에 들어가면 멈춘다(아래).
+    await page.clock.install();
+    await page.goto(S05);
+    await expect.poll(() => models.length).toBe(1);
+
+    await expect(row(page, "네트워크")).toContainText("확인됨");
+    await checkVoice(page);
+    // 면접 화면에 들어가기 전에 시계를 멈추고, 화면이 보일 때까지만 50ms씩 직접 진행한다.
+    // 그래서 면접 화면의 10초 제한(정지 이미지로 바꾸기)이 소프트웨어 WebGL의 처리 시간과 겨루지 않는다.
+    // 10초 제한 자체는 컴포넌트 테스트(interviewer-stage.test.tsx)가 경계까지 본다.
+    await page.clock.pauseAt(new Date(Date.now() + 1000));
+    await startButton(page).click();
+    const stage = page.getByTestId("interviewer-stage");
+    await expect(async () => {
+      await page.clock.runFor(50);
+      await expect(stage).toBeVisible({ timeout: 50 });
+    }).toPass();
+
+    await expect(page).toHaveURL(`/interview/${SESSION.id}`);
+    // 결과는 늘 ready다. SwiftShader의 셰이더 컴파일 처리 시간만큼 기다리는 시간을 길게 둔다.
+    await expect(stage).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
+    expect(models).toHaveLength(1);
   });
 
   test("5.4가 실패하면(409 PLAN_NOT_READY) 서버 문구를 보여 주고 이 화면에 머문다", async ({

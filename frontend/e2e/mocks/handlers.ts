@@ -11,6 +11,7 @@ import {
   ME,
   PRACTICE_LOGS,
   PROBLEM,
+  QUESTION_CURRENT,
   REFRESHED_TOKENS,
   SESSION,
   SESSION_PLAN,
@@ -61,6 +62,9 @@ export const defaultHandlers = [
       : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
   ),
   http.get(api("/interview-sessions/:sessionId"), () => HttpResponse.json(SESSION_PLAN.GENERATING)),
+  http.get(api("/interview-sessions/:sessionId/questions/current"), () =>
+    HttpResponse.json(QUESTION_CURRENT),
+  ),
   http.post(api("/interview-sessions/:sessionId/plan/retry"), () =>
     HttpResponse.json({ ...SESSION_PLAN.GENERATING, planProgress: 0 }, { status: 202 }),
   ),
