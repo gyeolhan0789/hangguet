@@ -6,6 +6,7 @@
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
 > - API 번호(1.1, 5.10 등)는 Swagger 요약 앞 번호와 같다
 > - 면접 AI 내부 처리(작업·입출력·실패)는 [AI 명세](AI-명세.md)
+> - 연습 기록 화면의 API 구성·호출 흐름·구현 상태는 [연습 기록 API](연습기록-API.md)
 
 ## 목차
 
@@ -21,7 +22,7 @@
 - **일시** ISO 8601 오프셋 포함(`2026-10-15T12:00:00+09:00`), **날짜** `YYYY-MM-DD`(한국 시간)
 - **인증** `Authorization: Bearer {accessToken}`. 1.1~1.4만 토큰 없이 호출. 회원은 토큰으로만 식별(본문·경로로 회원 id를 받지 않음). 액세스 토큰은 JWT(HS256)이고 `sub`(회원 id)·`nickname`·`iat`·`exp`를 담는다. 리프레시 토큰은 JWT가 아닌 불투명한 문자열
 - 다른 회원의 리소스는 존재 여부를 숨기기 위해 **404**. 탈퇴한 회원의 데이터는 조회되지 않음
-- **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`
+- **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`. 5.13 연습 면접 목록은 페이지와 무관한 집계를 담는 `summary`를 추가한다
 - **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가. Nginx가 직접 주는 502·504는 본문 형식을 보장하지 않아 상태 코드로 판단한다
 - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
 - **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
@@ -53,7 +54,7 @@
 | 2.7 | 회원 탈퇴 | `POST /users/me` | S09-1 |
 | 3.1 | 홈 | `GET /home` | S02 · S02-B · S02-C · S02-D, S02-1 |
 | 3.2 | 통계 | `GET /users/me/stats` | S09 |
-| 3.3 | 연습 달력 | `GET /practice-logs` | S09 |
+| 3.3 | 연습 달력 | `GET /practice-logs` | S09, 연습 기록(`/records`) |
 | 4.1 | 지원서 작성 | `POST /applications` | S03 |
 | 4.2 | 지원서 조회 | `GET /applications/{applicationId}` | S03, S04, S05-1 |
 | 4.3 | 지원서 목록 | `GET /applications` | S03 |
@@ -71,6 +72,7 @@
 | 5.10 | 실시간 음성 인식 토큰 | `POST /interview-sessions/{sessionId}/stt-token` | S06 |
 | 5.11 | 면접관 리액션 | `POST /interview-sessions/{sessionId}/questions/{questionId}/reactions` | S06 · S06-B |
 | 5.12 | 질문 음성 토큰 | `POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token` | S06 · S06-B |
+| 5.13 | 연습 면접 목록 | `GET /interview-sessions` | 연습 기록(`/records`) |
 | 6.1 | 녹화 업로드 주소 | `POST /interview-sessions/{sessionId}/recordings/upload-url` | S06 |
 | 6.2 | 녹화 등록 | `POST /interview-sessions/{sessionId}/recordings` | S06 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
@@ -202,12 +204,14 @@
 
 #### 3.3 연습 달력
 
-**화면 — S09 마이페이지 › 스트릭 달력** → 날짜 클릭 시 7.1
+**화면 — S09 마이페이지 › 스트릭 달력, 연습 기록(`/records`) › 날짜 탐색 달력**. S09 날짜 클릭은 7.1, 연습 기록의 날짜 선택은 5.13을 조회한다.
+
+`month`는 필수(`YYYY-MM`), `dateBasis`는 선택이다. 생략하거나 `ENDED_AT`이면 기존 스트릭과 같은 종료일 기준, `STARTED_AT`이면 연습 기록 목록과 같은 시작일 기준이다. 기준에 맞는 날짜로 묶어 하루당 1건을 반환한다. 연습 인정은 두 기준 모두 답변 1개 이상인 면접을 끝낸 뒤이며, 스트릭의 종료일 정책은 바꾸지 않는다.
 
 "이번 달 10일 연습"은 `content` 개수, "지금 7일 연속"은 3.2 `currentStreak`, 연속일 띠는 날짜가 이어지는지로 화면이 그린다.
 
 - **200**: 항상. 없으면 빈 배열
-- **400 / VALIDATION_FAILED**: `month` 형식 오류
+- **400 / VALIDATION_FAILED**: `month` 형식 오류 또는 지원하지 않는 `dateBasis`
 
 ### 4. 지원서
 
@@ -427,6 +431,27 @@
 - **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**: 질문이 경로의 면접에 속하지 않거나 아직 내지 않은 질문
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아님
 - **503 / TTS_UNAVAILABLE**: TTS 회사 토큰 발급 실패
+
+#### 5.13 연습 면접 목록
+
+**화면 — 연습 기록(`/records`) › 달력 날짜 선택 › 면접별 카드**
+
+쿼리 `practiceDate`는 필수(`YYYY-MM-DD`). 한국 시간의 면접 **시작일**로 조회한다. `page`는 0부터(기본 0), `size`는 1~20(기본 5)이다. 본인의 답변 1개 이상인 연습 면접(`ANALYZING`·`COMPLETED`·`FAILED`)만 포함하고 `startedAt` 내림차순, 같은 시각이면 `id` 내림차순으로 준다. `READY`·`IN_PROGRESS`·`ABORTED`는 포함하지 않는다. 21일 23:50 시작·22일 00:10 종료 면접은 21일 목록에만 들어간다.
+
+- `content`: 면접별 `id`, 회사·직무, 면접관(`persona`), 방식(`mode`), 상태(`status`), 시작·종료 시각, 답변 수(`answeredCount`), 한 줄 총평(`summary`), 기준별 등급(`criterionGrades[{ criterion, grade }]`). 질문별 답변·상세 피드백·말하기 지표·영상 주소는 넣지 않는다
+- `content[].summary`: 6.3 결과의 한 줄 총평과 같다. `COMPLETED`라도 총평이 없으면 null이고, 화면은 그 문장 영역을 숨긴다
+- `criterionGrades`: `COMPLETED` 면접의 6.3 `sessionScores`에서 기준·등급만 가져온다. 화면은 점수 대신 좋아요·보통·아쉬워요로 표시한다. `ANALYZING`·`FAILED`는 총평 null·등급 빈 배열이며 상태 안내만 표시한다
+- `page.totalElements`: 선택 날짜의 전체 연습 면접 수. 페이지를 바꿔도 같다
+- 최상위 `summary.totalInterviewCount`: 날짜 필터와 무관한 본인의 전체 연습 면접 수. 상단 보관함 건수에 쓴다
+- 최상위 `summary.practiceMinutes`: 선택 날짜 **전체** 연습 시간(분). Σ(`endedAt − startedAt`)의 초 합을 60으로 나눠 소수점 아래를 버린다. 연결이 끊겨 멈춘 시간도 포함하며, 5.2의 `elapsedSeconds`와 의미가 다르다. 페이지를 바꿔도 같다
+
+화면 연결 시 한국 시간 오늘을 선택하고 3.3 달력(`dateBasis=STARTED_AT`)·5.13 목록을 조회한다. 카드별로 6.3을 미리 호출하지 않는다. [상세 피드백]은 `id`로 6.3, [다시보기]는 6.4를 조회하는 화면으로 연결한다. 성장 리뷰(7.1)는 기존 종료일 기준이므로 시작일 목록과 구분해 안내해야 한다. 자정을 넘긴 면접은 기록 목록과 리뷰의 집계 날짜가 다를 수 있다. 분석 중·실패 기록만 있는 날짜나 해당 날짜에 종료된 면접이 없으면 성장 리뷰가 없을 수 있다(7.1의 404). 프론트 구현은 이번 브랜치 범위에 포함하지 않는다.
+
+- **200**: 항상. 기록 없는 날짜는 빈 `content`, `page.totalElements: 0`, `page.totalPages: 0`, `summary.practiceMinutes: 0`. 전체 보관함 건수는 유지한다. 범위를 넘는 페이지도 빈 `content`와 실제 전체 건수·집계를 준다
+- **400 / VALIDATION_FAILED**: 날짜 누락·잘못된 날짜·음수 페이지·`size` 범위 오류
+- **500 / INTERNAL_ERROR**: 완료 상태인데 기준별 평가 4개가 모두 저장되지 않은 경우. 불완전한 결과를 정상 평가로 표시하지 않는다
+
+목 서버는 `2026-10-21`에 자정을 넘겨 종료한 완료 면접·분석 중 예시, `2026-10-20`에 실패·총평 없는 완료 예시를 준다. 그 외 날짜는 빈 목록이며, 전체 보관함 건수는 4다. 3.3은 `STARTED_AT`에서 20·21일, 기본 `ENDED_AT`에서 20·21·22일을 표시한다.
 
 ### 6. 녹화 · 결과 · 다시보기
 

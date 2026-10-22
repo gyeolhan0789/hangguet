@@ -1,6 +1,8 @@
 package com.ssafy.a301.interview.dto;
 
 import com.ssafy.a301.interview.domain.AnalysisStep;
+import com.ssafy.a301.interview.domain.Criterion;
+import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.Persona;
@@ -13,6 +15,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
+import java.util.List;
 
 public final class InterviewDtos {
 
@@ -69,6 +72,31 @@ public final class InterviewDtos {
                                             + " null",
                             nullable = true)
                     Boolean leveledUp) {}
+
+    public record CriterionGrade(Criterion criterion, Grade grade) {}
+
+    public record SessionListItem(
+            @Schema(description = "면접 id", example = "55") long id,
+            @Schema(description = "지원 회사명", example = "○○전자") String companyName,
+            @Schema(description = "지원 직무", example = "백엔드 개발자") String jobTitle,
+            Persona persona,
+            InterviewMode mode,
+            SessionStatus status,
+            @Schema(description = "면접 시작 일시") OffsetDateTime startedAt,
+            @Schema(description = "면접 종료 일시") OffsetDateTime endedAt,
+            @Schema(description = "실제로 제출한 답변 수", example = "5") int answeredCount,
+            @Schema(description = "완료된 면접의 한 줄 총평", nullable = true) String summary,
+            @Schema(description = "완료된 면접의 평가 기준별 등급") List<CriterionGrade> criterionGrades) {}
+
+    public record PageMetadata(int size, int number, long totalElements, int totalPages) {}
+
+    public record SessionListSummary(
+            @Schema(description = "보관함 전체 연습 면접 수", example = "23") long totalInterviewCount,
+            @Schema(description = "선택한 면접 시작 날짜의 총 연습 시간(분, 초 단위 합계를 내림)", example = "30")
+                    long practiceMinutes) {}
+
+    public record SessionListResponse(
+            List<SessionListItem> content, PageMetadata page, SessionListSummary summary) {}
 
     public record QuestionResponse(
             @Schema(description = "질문 id", example = "303") long id,
