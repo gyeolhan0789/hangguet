@@ -13,15 +13,15 @@
 - 카드가 없는 회사는 `company_news_daily`에서도 카드 전체를 만든다
 - 카드 전체 생성은 프롬프트를 바꿨을 때, 새 사업보고서가 나왔을 때 쓴다. 사업보고서는 DART 접수번호가 바뀌었을 때만 다시 받는다
 - 실패하면 5분 뒤 2번까지 다시 시도한다. 한 회사가 실패해도 다른 회사는 계속 진행한다
-- Ollama를 쓰는 작업(기사 묶기 임베딩, LLM 요약)은 `llm` 풀(크기 1)로 한 번에 하나씩 돈다. 11곳이 동시에 몰리면 Ollama 임베딩이 400, 네이버 검색 API가 429를 냈다
+- LLM·임베딩을 부르는 작업은 `llm` 풀(크기 1)로 한 번에 하나씩 돈다. 11곳이 동시에 몰리면 임베딩 400, 네이버 검색 API 429가 났다
 - 노트북이 꺼져 있던 날은 몰아서 돌리지 않는다(catchup 끔)
 - 회사별 작업이 하나라도 실패하면 실행 전체가 실패로 표시된다(`all_companies_ok`). 확인 화면 갱신은 실패해도 돈다
 
 ## 준비
 
 - Docker Desktop 실행
-- Ollama 실행 (`qwen3-8b-ctx`, `bge-m3`). 컨테이너에서 `host.docker.internal:11434`로 부른다
-- `ai/.env`에 `DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `LLM_MODEL` ([pipeline/README.md](../pipeline/README.md))
+- `ai/.env`에 GMS 설정 (요약 gpt-4.1-mini, 임베딩 text-embedding-3-large). 로컬 Ollama로 돌리려면 [pipeline/README.md](../pipeline/README.md)의 로컬 설정
+- `ai/.env`에 `DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `LLM_*`, `EMBED_*` ([pipeline/README.md](../pipeline/README.md))
 
 ## 켜기·끄기
 

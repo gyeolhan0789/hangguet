@@ -15,10 +15,8 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
     # 로컬 전용: 로그인 없이 관리자로 접속 (포트도 127.0.0.1에만 연다)
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
-    # 파이프라인 코드(ai/pipeline)를 import하고, 노트북 Ollama를 부른다 (.env의 localhost 주소를 덮어씀)
+    # 파이프라인 코드(ai/pipeline)를 import한다. LLM·임베딩은 .env의 GMS 설정을 그대로 쓴다
     PYTHONPATH: /opt/ai
-    LLM_CHAT_URL: http://host.docker.internal:11434/v1/chat/completions
-    EMBED_URL: http://host.docker.internal:11434/v1/embeddings
     # 원문 저장소 MinIO (로컬 전용 계정)
     S3_ENDPOINT: http://minio:9000
     S3_ACCESS_KEY: &minio-user local-minio
@@ -112,10 +110,10 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  # 처음 한 번: 실행 기록 DB 테이블 생성, LLM 호출 줄 세우기용 풀(크기 1) 생성
+  # 처음 한 번: 실행 기록 DB 테이블 생성, LLM·임베딩 호출 줄 세우기용 풀(크기 1) 생성
   airflow-init:
     <<: *airflow-common
-    command: ["bash", "-c", "airflow pools set llm 1 'Ollama GPU 하나, Ollama 호출 작업은 한 번에 하나'"]
+    command: ["bash", "-c", "airflow pools set llm 1 'LLM·임베딩 호출 작업은 한 번에 하나 (네이버 API 429 방지 포함)'"]
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: "true"
