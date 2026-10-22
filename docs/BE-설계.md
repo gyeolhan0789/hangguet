@@ -59,10 +59,10 @@ com.ssafy.a301
 │  ├─ service      SttTokenService, TtsTokenService
 │  ├─ dto          InterviewDtos
 │  ├─ mapper       InterviewMapper
-│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository
+│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository
 │  ├─ stt          SonioxClient
 │  ├─ tts          ElevenLabsClient
-│  └─ domain       면접·질문·답변·녹화·점수·음성 지표·상태 enum
+│  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·상태 enum
 ├─ result
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
@@ -72,12 +72,13 @@ com.ssafy.a301
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
 │  └─ domain       UploadPurpose
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
+├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
 └─ config          OpenApiConfig
 ```
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 음성 인식·질문 음성 토큰(5.10·5.12) Controller·Service와 Soniox·ElevenLabs 어댑터, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다. API에서 받는 값이 더 좁은 녹화 종류(`SESSION_VIDEO`만)는 DTO 전용 enum을 둔다
@@ -93,7 +94,8 @@ com.ssafy.a301
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 화면에 낸 시점에 행 생성** **[결정]**. `(session_id, seq)` UNIQUE **[제안]** |
-| `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움 |
+| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준(JSONB). AI 분석 작업자(PLAN)가 쓰고 BE는 읽기만 한다(`@Immutable`). `claims`·버전은 AI만 써서 매핑하지 않음 |
+| `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 5.7 화상 확정 토큰)는 BE가 저장. `evaluation`(JSONB, SCORE_ANSWER 판정)은 AI 분석 작업자만 쓰므로 엔티티에 매핑하지 않는다(BE가 답변을 고쳐도 덮어쓰지 않도록) |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | `ANSWER_AUDIO`(5.7, answer 연결) · `SESSION_VIDEO`(6.2, 면접당 1개는 서비스에서 확인). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
@@ -125,7 +127,7 @@ com.ssafy.a301
 1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `SessionRuntime.generating()`
 2. 플랜 생성은 **비동기**(면접 AI 모듈 호출). 진행률을 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
 3. 완료 → Redis `planStatus=READY` / 실패 → `FAILED`
-4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(ERD 반영 대기 B-9). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**
+4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**
 
 ### 5.2 질문 출제 (5.4, 5.7 이후)
 - 다음 질문이 정해지는 순간 `InterviewQuestion(seq = 이전 + 1)`을 저장한다. 그 전까지 5.5는 202 `QUESTION_GENERATING`을 준다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
@@ -189,15 +191,20 @@ com.ssafy.a301
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | `SessionRuntime` JSON | 면접 종료 + 1일 | 5.x. planStatus·planProgress·analysisStep·pausedSeconds |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5·5.7·6.2에서 "본인에게 발급된 키"인지 확인 |
-| `idem:{userId}:{Idempotency-Key}` | 요청 본문 해시 + 첫 응답(상태·본문) | 24시간 | 5.1·5.4·5.7·5.8 (8장) |
+| `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
 ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제외라 지금은 쓰지 않는다.
 
-## 8. 멱등성 **[제안]**
-1. 요청 처리 전에 `idem:` 키를 `SET NX`로 잡는다(처리 중 표시)
-2. 이미 있고 본문 해시가 같으면 저장된 첫 응답을 그대로 돌려준다. 해시가 다르면 409 `IDEMPOTENCY_KEY_REUSED`
-3. 처리가 끝나면 응답을 저장한다. 처리 중 실패하면 키를 지워 재시도를 허용한다
-4. 같은 키로 동시에 들어온 두 번째 요청이 아직 처리 중이면 409로 응답한다(처리 중 표시 확인)
+## 8. 멱등성 **[결정]**
+
+컨트롤러 메서드에 `@Idempotent`를 붙이면 `IdempotencyInterceptor`가 처리하고, Swagger에 필수 `Idempotency-Key` 헤더가 표시된다. `IdempotencyFilter`는 이 헤더가 있는 요청만 본문을 미리 읽고 응답을 모아 둔다.
+
+1. 헤더가 없거나 UUID가 아니면 400 `VALIDATION_FAILED`(`errors[].field`: `Idempotency-Key`)
+2. 요청 지문 = SHA-256(메서드 + 경로 + 본문). 같은 키를 다른 API에 쓰면 다른 요청으로 본다
+3. 처리 전에 `idem:` 키를 `SET NX`로 잡는다(처리 중 표시, 1분). 서버가 처리 도중 멈춰도 1분 뒤 같은 키로 다시 시도할 수 있다
+4. 이미 있고 지문이 같으며 처리가 끝났으면 저장한 첫 응답(상태·본문)을 그대로 돌려준다. 컨트롤러는 실행하지 않는다
+5. 지문이 다르거나 아직 처리 중이면 409 `IDEMPOTENCY_KEY_REUSED`(처리 중도 같은 code. 화면은 같은 키로 잠시 뒤 다시 보내면 첫 응답을 받는다)
+6. 2xx로 끝나면 응답을 24시간 저장한다. 4xx·5xx로 끝나면 처리 중 표시를 지워 같은 키로 다시 시도할 수 있게 한다(끝난 기록은 지우지 않음)
 
 ## 9. 인증
 

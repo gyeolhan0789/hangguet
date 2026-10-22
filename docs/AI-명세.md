@@ -39,7 +39,7 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 | EVALUATE | 5.8(답변 ≥1)·5.9 | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | 공시 요약 적재 | 공시 파이프라인 | 회사 요약 Table |
 
-`interview_plans`, `answers.tokens`, `answers.evaluation`, 회사 요약 Table은 ERD 반영 대기다(API 명세 B-9).
+`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 반영했다. 형식은 이 문서 2·3장을 따른다. 회사 요약 Table은 ERD 반영 대기다(API 명세 B-9).
 
 ### 1.2 Redis 진행 상태
 
