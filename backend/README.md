@@ -44,6 +44,7 @@ backend/
 │  │  │  ├─ home/                      # 홈·연습 기록: dto·mapper·domain
 │  │  │  ├─ growth/dto/                # 성장 리뷰 응답
 │  │  │  ├─ common/error/              # 공통 오류 코드·예외·오류 응답 처리
+│  │  │  ├─ common/idempotency/        # Idempotency-Key 멱등성 처리
 │  │  │  └─ config/                    # Swagger 공통 설정
 │  │  └─ resources/
 │  │     ├─ application.yml            # 애플리케이션 설정

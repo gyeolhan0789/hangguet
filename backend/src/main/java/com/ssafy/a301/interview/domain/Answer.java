@@ -12,12 +12,17 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.util.List;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
-/** 답변. 질문 하나에 답변 하나. 점수·피드백은 결과를 만들 때 채운다. */
+/**
+ * 답변. 질문 하나에 답변 하나. 점수·피드백은 결과를 만들 때 채운다. 채점 결과(evaluation)는 AI 분석 작업자만 쓰므로 매핑하지 않는다(BE가 덮어쓰지 않도록).
+ */
 @Entity
 @Table(name = "answers")
 @Getter
@@ -40,6 +45,11 @@ public class Answer {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
+    // 화상 답변의 확정 토큰과 말한 시각. 채팅이거나 보내지 않으면 null
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private List<AnswerToken> tokens;
+
     // 0~100. 결과 생성 전에는 null
     private Integer score;
 
@@ -54,9 +64,18 @@ public class Answer {
     private OffsetDateTime createdAt;
 
     public Answer(InterviewQuestion question, InputType inputType, String content) {
+        this(question, inputType, content, null);
+    }
+
+    public Answer(
+            InterviewQuestion question,
+            InputType inputType,
+            String content,
+            List<AnswerToken> tokens) {
         this.question = question;
         this.inputType = inputType;
         this.content = content;
+        this.tokens = tokens;
     }
 
     public void evaluate(int score, String goodPoint, String improvePoint) {
