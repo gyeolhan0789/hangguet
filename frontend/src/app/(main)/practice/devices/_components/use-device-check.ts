@@ -1,9 +1,10 @@
 "use client";
 
-import { useMotionValue, type MotionValue } from "motion/react";
+import type { MotionValue } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { mediaFailure, micLevel, type CheckStatus, type DeviceFailure } from "@/lib/devices/media";
+import { useMicLevel } from "@/components/use-mic-level";
+import { mediaFailure, type CheckStatus, type DeviceFailure } from "@/lib/devices/media";
 
 // 기준: Figma S05(18:2333) 카메라 · 마이크 · 네트워크 체크 줄과 미리보기 · S05-E(18:4013) 권한 거부
 // · 모션 메모 S05(18:2492: 위에서부터 하나씩 확인(stagger 0.25s) · 마이크 레벨은 requestAnimationFrame + Motion value)
@@ -48,7 +49,7 @@ export function useDeviceCheck(): DeviceCheck {
   const [mic, setMic] = useState<CheckStatus>("checking");
   const [network, setNetwork] = useState<NetworkStatus>("checking");
   const [rechecking, setRechecking] = useState(false);
-  const level = useMotionValue(0);
+  const level = useMicLevel(stream);
   // 요청할 때마다 1씩 늘린다. 늦게 끝난 이전 요청 · 떠난 화면의 결과는 버린다.
   const run = useRef(0);
   const current = useRef<MediaStream | null>(null);
@@ -134,31 +135,6 @@ export function useDeviceCheck(): DeviceCheck {
       audio.forEach((track) => track.removeEventListener("ended", onAudioEnded));
     };
   }, [stream]);
-
-  // 마이크 레벨: 매 프레임 입력 파형의 크기를 재서 Motion value에 넣는다(리렌더 없이 막대만 바뀐다).
-  useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) return;
-    const context = new AudioContext();
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 1024;
-    context.createMediaStreamSource(stream).connect(analyser);
-    const samples = new Float32Array(analyser.fftSize);
-    // 사용자 동작 전에 만든 AudioContext는 멈춰 있을 수 있어, 처음 누를 때 다시 깨운다.
-    const resume = () => void context.resume();
-    resume();
-    window.addEventListener("pointerdown", resume, { once: true });
-    let frame = requestAnimationFrame(function tick() {
-      analyser.getFloatTimeDomainData(samples);
-      level.set(micLevel(samples));
-      frame = requestAnimationFrame(tick);
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("pointerdown", resume);
-      level.set(0);
-      void context.close();
-    };
-  }, [stream, level]);
 
   return { stream, camera, mic, network, level, rechecking, recheck };
 }

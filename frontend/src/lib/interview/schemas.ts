@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { AnswerRequest } from "@/types/api";
+
 import { MODE_VALUES } from "./modes";
 import { PERSONA_VALUES } from "./personas";
 
@@ -18,3 +20,19 @@ export const sessionCreateSchema = z.object({
 export const idempotencyKeySchema = z.uuid();
 
 export type SessionCreateValues = z.infer<typeof sessionCreateSchema>;
+
+// 기준: Swagger 5.7 AnswerRequest(TEXT: content 1~1,000자 필수) · API 명세 5.7(400 VALIDATION_FAILED: TEXT 1,000자 초과)
+// Figma S06-B에는 검증 문구가 없어, 문구는 mock 5.7 400 VALIDATION_FAILED reason과 같게 쓴다(공백만 넣어도 '필수 값입니다.').
+
+/** 채팅 답변 최대 글자 수(5.7 TEXT). Figma S06-B 입력창 '0 / 1,000' */
+export const ANSWER_TEXT_MAX = 1000;
+
+/** S06-B 채팅 답변. 공백만 넣은 답변은 낼 수 없다(빈 답변은 낼 수 없다 — API 명세 5.7). */
+export const answerTextSchema = z.object({
+  content: z
+    .string()
+    .refine((value) => value.trim().length > 0, "필수 값입니다.")
+    .refine((value) => value.length <= ANSWER_TEXT_MAX, "채팅 답변은 1~1,000자입니다."),
+}) satisfies z.ZodType<Pick<AnswerRequest, "content">>;
+
+export type AnswerTextValues = z.infer<typeof answerTextSchema>;

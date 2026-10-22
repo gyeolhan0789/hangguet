@@ -1,12 +1,13 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useState, useTransition, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, useTransition, type FormEvent, type ReactNode } from "react";
 
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
 import type { CheckStatus } from "@/lib/devices/media";
 import { createSession, startSession } from "@/lib/interview/actions";
+import { preloadInterviewer } from "@/lib/interviewer/preload";
 import { modePath } from "@/lib/routes";
 import type { SessionResponse } from "@/types/api";
 
@@ -86,6 +87,9 @@ export function DevicesCheck({
   // 5.4 · 5.1 멱등 키: 같은 요청을 다시 보내면 같은 키, 409 IDEMPOTENCY_KEY_REUSED면 새 키
   const [startKey, setStartKey] = useState(() => crypto.randomUUID());
   const [chatKey, setChatKey] = useState(() => crypto.randomUUID());
+
+  // 질문을 준비하는 동안 면접관 3D 모델을 미리 받아 둔다(면접 화면에서 바로 그리도록).
+  useEffect(() => preloadInterviewer(persona), [persona]);
 
   const { camera, mic, network } = devices;
   const denied = camera === "denied" || mic === "denied";
