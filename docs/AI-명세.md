@@ -39,11 +39,12 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 | EVALUATE | 5.8(답변 ≥1)·5.9 | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | 공시 요약 적재 | 공시 파이프라인 | 회사 요약 Table |
 
-`interview_plans`, `answers.tokens`, `answers.evaluation`, 회사 요약 Table은 ERD 반영 대기다(API 명세 B-9).
+`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 반영했다. 형식은 이 문서 2·3장을 따른다. 회사 요약 Table은 ERD 반영 대기다(API 명세 B-9).
 
 ### 1.2 Redis 진행 상태
 
-- BE의 면접 진행 상태(`SessionRuntime`)를 함께 쓴다. 작업자는 `planStatus`·`planProgress`·`analysisStep`만 바꾸고 `pausedSeconds`는 건드리지 않는다. 키 이름은 BE가 정한다
+- BE의 면접 진행 상태(`SessionRuntime`)를 함께 쓴다. 작업자는 `planStatus`·`planProgress`·`analysisStep`만 바꾸고 `pausedSeconds`는 건드리지 않는다
+- 키는 Redis Hash `session:{sessionId}:runtime`이다. 필드마다 `HSET`으로 쓰고 값을 비울 때는 `HDEL`한다(값은 enum 이름·정수 문자열). 키 생성과 TTL은 BE가 맡는다
 - Redis 값이 없으면 `interview_plans` 행이 있을 때 `planStatus`를 `READY`로 본다
 
 ### 1.3 작업 메시지
@@ -53,7 +54,8 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 ```
 
 - `jobType`: `PLAN` · `SCORE_ANSWER` · `EVALUATE`. `answerId`는 `SCORE_ANSWER`만
-- `jobId`는 추적용이다. 중복·늦은 메시지는 작업마다 정한 버림 조건과 조건부 쓰기로 막는다
+- 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+- `jobId`는 UUID 문자열이며 추적용이다. `answerId`가 없는 작업은 필드가 없다. BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. 중복·늦은 메시지는 작업마다 정한 버림 조건과 조건부 쓰기로 막는다
 
 | 경우 | 예 | 처리 |
 |---|---|---|
@@ -94,9 +96,18 @@ BE ─ Redis 작업 큐 ─ AI 분석 작업자                  PLAN · SCORE_A
 - **시작** 5.7. `answers.evaluation`이 이미 있으면 버리고, 쓸 때도 `evaluation IS NULL`일 때만 쓴다
 - **말하기 분석(화상만)** 입력은 `answers.tokens`와 답변 음성 파일(`recordings`의 `ANSWER_AUDIO`)
   - 말하기 지표는 답변 음성으로 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, 6.3 `speechMetrics`에서 `gazeRatio`를 뺀 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 쓰지 않는다
-  - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다
+  - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를, 음성 파일로 말끝 흐림·억양 폭을 구한다
   - `tokens`가 없거나 구하지 못한 지표는 비워 둔다
+
+| 지표(`speech` 키) | 계산 |
+|---|---|
+| 군말 수 `fillerCount` | 단어에서 문장부호를 뺀 글이 망설임 소리(음·어·아·에·으·흠, 같은 글자를 늘인 "음음"·"어어" 포함)면 센다. 담화 표지(그·저·이제·뭐·막·약간·좀·그냥·그러니까·이렇게·뭔가)는 단어 끝에 쉼표·마침표·말줄임표가 붙어 혼자 끊길 때만 센다("그 사람"의 "그"는 세지 않는다) |
+| 긴 멈춤 수 `longPauseCount` | 문장 중간에서 앞 단어 끝부터 다음 단어 시작까지 2초 이상 쉰 횟수. 앞 단어가 문장 끝(API 명세 5.11의 종결어미 기준)이면 문장 사이 쉼이라 세지 않는다. 화상 자동 제출(7초, API 명세 5.7)과는 다른 기준이다 |
+| 말한 시간 `speakingMs` | 첫 단어 시작부터 마지막 단어 끝까지에서 긴 멈춤 시간을 뺀 값(밀리초) |
+| 말 속도 `syllablesPerMin` | 한글 음절 수 ÷ 말한 분(정수로 반올림). 영문·숫자는 세지 않는다. 말한 시간이 0이면 비워 둔다 |
+
+군말 목록과 2초는 로컬 실측(조용한 곳에서 망설임 소리·담화 표지가 모두 전사됨) 결과와 한국어 구어의 군말·쉼 쓰임을 근거로 정한 초안이다. 면접 단위 집계는 4장 `speech_metrics` 집계를 따른다.
 - **판정 입력** 질문, 채점 기준(`interview_plans.questions[seq].criteria`), 답변 `content`. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다. 고도화에서는 회사 공시 요약을 더한다
 - **판정** 채점 기준을 잣대로 평가 항목 4개를 3단계로 판정한다(G-Eval)
   - 항목마다 판정 이유와 3단계(`level` 1 아쉬워요 · 2 보통 · 3 좋아요)를 받는다
@@ -190,5 +201,4 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 |---|---|
 | GMS가 토큰 확률(logprobs)을 주는지 | 3장 점수 방식(`PROBABILITY`/`FIXED`) |
 | Jev 질문 구성(리액션·태도·말 끊기를 어떤 질문 유형으로 물을지), 한국어 답변에서의 정확도, 응답 시간 | 6장 5.11 |
-| 군말 목록, 긴 멈춤 기준 시간 | 3장 말하기 분석 |
 | Soniox 시각 기준점(API 명세 5.7) | 3장 말하기 분석 |

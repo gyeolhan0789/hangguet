@@ -20,12 +20,12 @@ class ApiSpecTest {
     @Autowired private MockMvcTester mockMvc;
 
     @Test
-    void docsListAll38ApisInSpecNumberOrder() {
+    void docsListAll39ApisInSpecNumberOrder() {
         assertThat(mockMvc.get().uri("/v3/api-docs"))
                 .bodyJson()
                 .extractingPath("$.paths.*.*.summary")
                 .asArray()
-                .hasSize(38)
+                .hasSize(39)
                 .startsWith("1.1 이메일 사용 가능 여부")
                 .endsWith("7.2 최근 성장 리뷰");
     }

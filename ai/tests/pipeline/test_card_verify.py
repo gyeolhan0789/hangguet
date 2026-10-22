@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+
+from pipeline import card
 from pipeline.card import (
     PROMPT_VERSION,
     build_messages,
@@ -172,3 +175,19 @@ def test_link_articles_keeps_one_per_event() -> None:
         ("지스타 신작 기대", 2),
         ("타래 시연", 1),
     ]
+
+
+def test_news_input_keeps_biggest_events_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "NEWS_EVENTS", 1)
+
+    def art(title: str, g: int) -> dict[str, object]:
+        return {
+            "title": title,
+            "summary": "요약",
+            "url": title,
+            "published": "2026-10-21",
+            "group": g,
+        }
+
+    text = news_input([art("작은 이슈", 0), art("큰 이슈", 1), art("큰 이슈 후속", 1)])
+    assert text == "[2026-10-21 · 기사 2건] 큰 이슈\n요약"

@@ -46,6 +46,8 @@ GMS가 발급되면 `LLM_CHAT_URL`, `LLM_MODEL`, `LLM_API_KEY`만 바꾼다.
 
 ## 실행
 
+자동 실행(매일 13:00 뉴스·최근 이슈, 버튼으로 카드 전체 생성)은 [Airflow](../airflow/README.md)로 한다. 직접 실행할 때:
+
 ```bash
 cd ai
 uv run --env-file .env python -m pipeline.news             # 최근 기사 수집 (날마다, 먼저)
@@ -55,7 +57,7 @@ uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 
 - 한 회사가 실패해도 나머지는 계속하고, 끝에 실패한 회사를 알려 준다
 - 원문에 없는 인용으로 버린 항목은 WARNING 로그로 남는다
-- 이미 받은 사업보고서는 다시 받지 않는다
+- 사업보고서는 DART 접수번호가 바뀌었을 때(새 보고서·정정 보고서)만 다시 받는다
 - 기사를 아직 안 모은 회사는 최근 이슈 없이 만든다
 
 ## 뉴스 수집 규칙
@@ -78,4 +80,4 @@ uv run python -m pipeline.viewer
 
 ## 데이터
 
-수집한 원문은 `data/raw/`, 기사는 `data/news/`, 만든 카드는 `data/cards/`에 저장하며 모두 git에서 제외한다.
+원문·기사는 `storage.py`로 저장한다. `S3_ENDPOINT`가 있으면 MinIO, 없으면 `data/` 폴더에 같은 경로(`reference/`·`raw/`·`processed/`)로 둔다. 경로 구조는 [Airflow README](../airflow/README.md#데이터-minio-버킷-company-pipeline). 만든 카드는 `data/cards/`에 저장한다. `data/`는 git에서 제외한다.

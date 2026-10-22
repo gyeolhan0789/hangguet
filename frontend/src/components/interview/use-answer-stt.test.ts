@@ -73,6 +73,7 @@ vi.mock("@/lib/interview/actions", () => ({
 const recordings = sdk.recordings;
 const last = () => recordings[recordings.length - 1];
 const onSpeech = vi.fn();
+const onSentence = vi.fn();
 let sttStartedAt: number | null = null;
 let now = 0;
 const source = {} as AudioSource;
@@ -93,7 +94,7 @@ function token(text: string, startMs: number, endMs: number, isFinal = true): Re
 
 function started(answer: Partial<AnswerSttStart> = {}) {
   const capture = fakeCapture();
-  const hook = renderHook(() => useAnswerStt({ sessionId: 7, onSpeech }));
+  const hook = renderHook(() => useAnswerStt({ sessionId: 7, onSpeech, onSentence }));
   act(() =>
     hook.result.current.start({ capture, fileStartedAt: 1000, questionText: "질문", ...answer }),
   );
@@ -108,6 +109,7 @@ beforeEach(() => {
   recordings.length = 0;
   issueSttToken.mockReset();
   onSpeech.mockReset();
+  onSentence.mockReset();
   sttStartedAt = null;
   now = 0;
   vi.spyOn(performance, "now").mockImplementation(() => now);
@@ -240,6 +242,60 @@ describe("useAnswerStt 말소리 신호(onSpeech)", () => {
 
     expect(onSpeech).toHaveBeenCalledTimes(2);
     expect(onSpeech).toHaveBeenLastCalledWith(7000);
+  });
+});
+
+describe("useAnswerStt 문장 끝(onSentence, API 명세 5.11)", () => {
+  function result(tokens: RealtimeToken[], totalAudioProcMs: number) {
+    return { tokens, final_audio_proc_ms: totalAudioProcMs, total_audio_proc_ms: totalAudioProcMs };
+  }
+
+  it("끝 감지가 발생하면 종결어미로 끝난 확정 글과 pauseMs(total_audio_proc_ms − 마지막 end_ms)를 전달한다", () => {
+    started();
+    emit("connected");
+    emit("result", result([token(" 경험입니다.", 1500, 2000)], 3150));
+    expect(onSentence).not.toHaveBeenCalled();
+
+    emit("endpoint");
+
+    expect(onSentence).toHaveBeenCalledExactlyOnceWith({ text: "경험입니다.", pauseMs: 1150 });
+  });
+
+  it("종결어미로 끝나지 않으면 전달하지 않고 다음 끝 감지까지 이어 붙인다", () => {
+    started();
+    emit("connected");
+    emit("result", result([token(" 몰랐는데,", 0, 1000)], 4000));
+    emit("endpoint");
+    emit("result", result([token(" 찾았습니다.", 5000, 5600)], 6700));
+    emit("endpoint");
+
+    expect(onSentence.mock.calls).toEqual([[{ text: "몰랐는데, 찾았습니다.", pauseMs: 1100 }]]);
+  });
+
+  it("자동 재연결(session_restart) 뒤에는 앞 연결의 end_ms를 폐기해, 새 토큰 없이 끝 감지가 발생하면 pauseMs를 0으로 전송한다", () => {
+    started();
+    emit("connected");
+    emit("result", result([token(" 줄였어요.", 200, 500)], 600));
+    emit("session_restart");
+    // 새 연결의 시각은 0부터 다시 시작해 앞 연결의 end_ms(500)와 비교할 수 없다.
+    emit("result", result([], 3_000));
+    emit("endpoint");
+
+    expect(onSentence).toHaveBeenCalledExactlyOnceWith({ text: "줄였어요.", pauseMs: 0 });
+  });
+
+  it("새 답변을 시작하면 앞 답변의 이어 붙이던 글을 폐기한다", () => {
+    const { hook, capture } = started();
+    emit("connected");
+    emit("result", result([token(" 그래서", 0, 500)], 900));
+    emit("endpoint");
+
+    act(() => hook.result.current.start({ capture, fileStartedAt: 1000, questionText: "질문" }));
+    emit("connected");
+    emit("result", result([token(" 줄였어요.", 0, 600)], 1000));
+    emit("endpoint");
+
+    expect(onSentence).toHaveBeenCalledExactlyOnceWith({ text: "줄였어요.", pauseMs: 400 });
   });
 });
 

@@ -15,6 +15,8 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
+from pipeline import dart, storage
+
 API = "https://openapi.naver.com/v1/search/news.json"
 DAYS = 30
 # bge-m3 제목 유사도: 같은 사건 0.62~0.95, 다른 사건은 0.65 언저리부터 섞임. 0.70과 비교해 보니
@@ -119,34 +121,39 @@ def group(vectors: list[list[float]], threshold: float = SAME_EVENT) -> list[int
     return groups
 
 
-def fetch_news(query: str, out: Path) -> list[dict[str, Any]]:
-    """검색해 고른 기사를 out(JSON)에 쌓고, 같은 사건 기사끼리 group 번호를 붙여 저장한다."""
-    old = json.loads(out.read_text(encoding="utf-8"))["items"] if out.exists() else []
-    items: list[dict[str, Any]] = merge(old, select(_get(query), query, date.today()), date.today())
+def load(code: str) -> list[dict[str, Any]]:
+    """정리해 둔 최근 기사(processed/news). 아직 안 모았으면 빈 목록(카드에 최근 이슈 없음)."""
+    data = storage.get(f"processed/news/{code}.json")
+    items: list[dict[str, Any]] = json.loads(data)["items"] if data else []
+    return items
+
+
+def collect(company: dict[str, str]) -> list[dict[str, Any]]:
+    """회사 하나의 기사를 모은다.
+
+    네이버 응답은 그대로 raw/news/{고유번호}/{날짜}.json에 남기고, 거르고 합쳐 같은 사건끼리
+    묶은 최근 기사를 processed/news/{고유번호}.json에 덮어쓴다.
+    """
+    query = company.get("news_query", company["name"])
+    code = dart.corp_code(company["name"])
+    today = date.today()
+    response = _get(query)
+    storage.put(f"raw/news/{code}/{today.isoformat()}.json", _dump(response))
+    items: list[dict[str, Any]] = merge(load(code), select(response, query, today), today)
     if items:
         for item, g in zip(items, group(embed([i["title"] for i in items])), strict=True):
             item["group"] = g
-    out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"query": query, "collected_at": datetime.now().isoformat(timespec="seconds")}
-    out.write_text(
-        json.dumps({**payload, "items": items}, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    storage.put(f"processed/news/{code}.json", _dump({**payload, "items": items}))
     return items
 
 
-def load(name: str, data: Path) -> list[dict[str, Any]]:
-    """모아 둔 기사. 아직 안 모았으면 빈 목록(카드에 최근 이슈 없음)."""
-    path = data / "news" / f"{name}.json"
-    items: list[dict[str, Any]] = (
-        json.loads(path.read_text(encoding="utf-8"))["items"] if path.exists() else []
-    )
-    return items
+def _dump(data: dict[str, Any]) -> bytes:
+    return json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
 
 
 if __name__ == "__main__":
     # cd ai && uv run --env-file .env python -m pipeline.news
     here = Path(__file__).parent
     for company in json.loads((here / "companies.json").read_text(encoding="utf-8")):
-        query = company.get("news_query", company["name"])
-        items = fetch_news(query, here / "data" / "news" / f"{company['name']}.json")
-        print(f"{company['name']} ({query}): {len(items)}건")
+        print(f"{company['name']}: {len(collect(company))}건")

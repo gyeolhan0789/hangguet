@@ -1,0 +1,125 @@
+# 회사 카드 파이프라인용 로컬 Airflow 3.3 + MinIO(원문 저장소)
+# 공식 docker-compose(3.3.2)에서 Celery·Redis·워커·트리거러·Flower를 빼고 LocalExecutor로 줄였다.
+# 띄우기: cd ai/airflow && docker compose up -d  → http://localhost:8080
+x-airflow-common: &airflow-common
+  image: apache/airflow:3.3.2-python3.13
+  env_file:
+    - ../.env # DART_API_KEY, NAVER_CLIENT_ID/SECRET, LLM_* (git 제외)
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: local-only-jwt-secret
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
+    # 로컬 전용: 로그인 없이 관리자로 접속 (포트도 127.0.0.1에만 연다)
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+    # 파이프라인 코드(ai/pipeline)를 import하고, 노트북 Ollama를 부른다 (.env의 localhost 주소를 덮어씀)
+    PYTHONPATH: /opt/ai
+    LLM_CHAT_URL: http://host.docker.internal:11434/v1/chat/completions
+    EMBED_URL: http://host.docker.internal:11434/v1/embeddings
+    # 원문 저장소 MinIO (로컬 전용 계정)
+    S3_ENDPOINT: http://minio:9000
+    S3_ACCESS_KEY: &minio-user local-minio
+    S3_SECRET_KEY: &minio-password local-minio-password
+    S3_BUCKET: &bucket company-pipeline
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ../pipeline:/opt/ai/pipeline
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+    minio-init:
+      condition: service_completed_successfully
+
+services:
+  # Airflow 실행 기록용 DB (회사 카드 메인 DB와 별개)
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  # 원문 저장소. 공식 minio/minio 이미지 배포가 끝나 MinIO 원본 코드로 만든 Chainguard 이미지를 쓴다
+  # (무료는 latest 태그만 있다). 저장소 localhost:9000, 웹 화면 localhost:9001
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: *minio-user
+      MINIO_ROOT_PASSWORD: *minio-password
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    restart: always
+
+  # 처음 한 번: 버킷 생성 (이미 있으면 그대로)
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    command: ["mb", "--ignore-existing", "local/company-pipeline"]
+    environment:
+      MC_HOST_local: http://local-minio:local-minio-password@minio:9000
+    depends_on:
+      - minio
+    restart: on-failure  # MinIO가 아직 준비 전이면 다시 시도
+
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  # LocalExecutor라 작업도 스케줄러 안에서 돈다
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  # 처음 한 번: 실행 기록 DB 테이블 생성, LLM 호출 줄 세우기용 풀(크기 1) 생성
+  airflow-init:
+    <<: *airflow-common
+    command: ["bash", "-c", "airflow pools set llm 1 'Ollama GPU 하나, Ollama 호출 작업은 한 번에 하나'"]
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+
+volumes:
+  postgres-db-volume:
+  minio-data:
