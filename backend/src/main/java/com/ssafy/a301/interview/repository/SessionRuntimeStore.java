@@ -21,6 +21,9 @@ public interface SessionRuntimeStore {
     /** 최대 대기 시간이 지난 플랜 생성을 실패로 바꾼다. 그 사이 작업자가 상태를 바꿨으면 그대로 둔다. */
     void failPlanIfGenerating(long sessionId);
 
-    /** 5.8·5.9 결과 생성 시작: analysisStep ORGANIZING_ANSWERS */
-    void startAnalysis(long sessionId);
+    /** 5.8·5.9 결과 생성 시작: analysisStep ORGANIZING_ANSWERS, 시작 시각(BE만 씀) */
+    void startAnalysis(long sessionId, Instant now);
+
+    /** 결과 생성을 시작한 시각. 기록이 없으면 비어 있다. */
+    Optional<Instant> findAnalysisStartedAt(long sessionId);
 }

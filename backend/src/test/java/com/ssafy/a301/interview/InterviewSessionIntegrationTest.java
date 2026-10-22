@@ -30,6 +30,8 @@ import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +55,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 실제 PostgreSQL로 5.1~5.5 흐름(만들기 → 조회 → 시작 → 지금 질문)과 소유권·상태 오류를 확인한다. Redis 진행 상태는 메모리 저장소, 작업 큐와 멱등
- * 키 저장소는 가짜로 바꾼다. 만든 회원과 데이터만 지운다.
+ * 실제 PostgreSQL로 5.1~5.9 흐름(만들기 → 조회 → 시작 → 답변 → 끝내기 → 결과 재생성)과 소유권·상태 오류를 확인한다. Redis 진행 상태는 메모리
+ * 저장소, 작업 큐·멱등 키 저장소는 가짜로 바꾼다. 만든 회원과 데이터만 지운다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -75,6 +77,7 @@ class InterviewSessionIntegrationTest {
     @BeforeEach
     void setUp() {
         runtimes.values.clear();
+        runtimes.analysisStartedAt.clear();
     }
 
     @AfterEach
@@ -90,6 +93,7 @@ class InterviewSessionIntegrationTest {
                     "DELETE FROM interview_questions WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM interview_plans WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM ai_job_outbox WHERE session_id IN (" + sessionsOfUser + ")");
+            jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
             jdbc.update("DELETE FROM users WHERE id = ?", id);
@@ -261,6 +265,234 @@ class InterviewSessionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
     }
 
+    @Test
+    void chatAnswerIsSavedOnceUntilLastQuestion() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "CHAT");
+        long first = currentQuestionId(user, sessionId);
+
+        mvc.perform(submit(user, sessionId, first, text("답1")))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.questionId").value(first))
+                .andExpect(jsonPath("$.inputType").value("TEXT"))
+                .andExpect(jsonPath("$.isLastQuestion").value(false));
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        job.getJobType() == AiJobType.SCORE_ANSWER
+                                                && job.getSessionId() == sessionId
+                                                && job.getAnswerId() != null));
+        mvc.perform(submit(user, sessionId, first, text("다시")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ANSWER_ALREADY_SUBMITTED"));
+
+        // 다음 질문은 에이전트가 말할 때(question.started) 생긴다. 여기서는 직접 만든다
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId + "/questions/current")))
+                .andExpect(status().isAccepted());
+        for (int seq = 2; seq <= 5; seq++) {
+            ask(sessionId, seq);
+            long question = currentQuestionId(user, sessionId);
+            mvc.perform(submit(user, sessionId, question, text("답" + seq)))
+                    .andExpect(status().isAccepted())
+                    .andExpect(jsonPath("$.isLastQuestion").value(seq == 5));
+        }
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.answeredCount").value(5))
+                .andExpect(jsonPath("$.currentQuestion").doesNotExist());
+    }
+
+    @Test
+    void answerValidationFollowsInterviewMode() throws Exception {
+        long user = newUser();
+        long chat = started(user, "CHAT");
+        long question = currentQuestionId(user, chat);
+
+        mvc.perform(submit(user, chat, question, Map.of("inputType", "VOICE", "content", "답")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("inputType"));
+        mvc.perform(submit(user, chat, question, text("가".repeat(1_001))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("content"));
+        mvc.perform(submit(user, chat, -1L, text("답")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("QUESTION_NOT_FOUND"));
+
+        // 화상 답변은 결과 큐로 저장하므로 화상 면접에서 이 API를 부르면 400
+        long video = started(user, "VIDEO");
+        mvc.perform(submit(user, video, currentQuestionId(user, video), text("답")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("inputType"));
+    }
+
+    @Test
+    void endWithAnswersStartsAnalysisAndLevelsUpOncePerDay() throws Exception {
+        long user = newUser();
+        long first = started(user, "CHAT");
+        mvc.perform(submit(user, first, currentQuestionId(user, first), text("답")))
+                .andExpect(status().isAccepted());
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + first + "/end"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("ANALYZING"))
+                .andExpect(jsonPath("$.analysisStep").value("ORGANIZING_ANSWERS"))
+                .andExpect(jsonPath("$.answeredCount").value(1))
+                .andExpect(jsonPath("$.endedAt").exists())
+                .andExpect(jsonPath("$.leveledUp").value(true));
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        job.getJobType() == AiJobType.EVALUATE
+                                                && job.getSessionId() == first));
+        assertThat(practiceDates(user)).containsExactly(today());
+
+        // 같은 날 두 번째 면접은 연습 기록이 늘지 않아 레벨업도 없다
+        long second = started(user, "CHAT");
+        mvc.perform(submit(user, second, currentQuestionId(user, second), text("답")))
+                .andExpect(status().isAccepted());
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + second + "/end"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.leveledUp").value(false));
+        assertThat(practiceDates(user)).containsExactly(today());
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + second + "/end"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+    }
+
+    @Test
+    void thirdDayInARowLevelsUp() throws Exception {
+        long user = newUser();
+        for (int daysAgo = 1; daysAgo <= 2; daysAgo++) {
+            jdbc.update(
+                    "INSERT INTO practice_logs (user_id, practice_date, created_at) VALUES (?, ?,"
+                            + " now())",
+                    user,
+                    today().minusDays(daysAgo));
+        }
+        long sessionId = started(user, "CHAT");
+        mvc.perform(submit(user, sessionId, currentQuestionId(user, sessionId), text("답")))
+                .andExpect(status().isAccepted());
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(jsonPath("$.leveledUp").value(true));
+    }
+
+    @Test
+    void endWithoutAnswersIsAbortedWithoutPractice() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "CHAT");
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ABORTED"))
+                .andExpect(jsonPath("$.analysisStep").doesNotExist())
+                .andExpect(jsonPath("$.leveledUp").value(false));
+        assertThat(practiceDates(user)).isEmpty();
+    }
+
+    @Test
+    void analysisFailsAfterTimeoutAndCanBeRetried() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "CHAT");
+        mvc.perform(submit(user, sessionId, currentQuestionId(user, sessionId), text("답")))
+                .andExpect(status().isAccepted());
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(status().isAccepted());
+        String retry = "/api/v1/interview-sessions/" + sessionId + "/analysis/retry";
+
+        mvc.perform(as(user, post(retry)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+
+        // 작업자가 10분 넘게 결과를 만들지 못했다
+        runtimes.analysisStartedAt.put(sessionId, Instant.now().minusSeconds(601));
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"))
+                .andExpect(jsonPath("$.analysisStep").doesNotExist());
+
+        mvc.perform(as(user, post(retry)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("ANALYZING"))
+                .andExpect(jsonPath("$.analysisStep").value("ORGANIZING_ANSWERS"));
+        verify(queue, times(2))
+                .push(
+                        argThat(
+                                job ->
+                                        job.getJobType() == AiJobType.EVALUATE
+                                                && job.getSessionId() == sessionId));
+    }
+
+    // 플랜까지 준비해 시작한 면접
+    private long started(long userId, String mode) throws Exception {
+        String body =
+                mvc.perform(createRequest(userId, newApplication(userId), mode))
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        long sessionId = json.readTree(body).path("id").asLong();
+        planReady(sessionId);
+        mvc.perform(
+                        as(
+                                userId,
+                                idempotent(
+                                        post(
+                                                "/api/v1/interview-sessions/"
+                                                        + sessionId
+                                                        + "/start"))))
+                .andExpect(status().isOk());
+        return sessionId;
+    }
+
+    private long currentQuestionId(long userId, long sessionId) throws Exception {
+        String body =
+                mvc.perform(
+                                as(
+                                        userId,
+                                        get(
+                                                "/api/v1/interview-sessions/"
+                                                        + sessionId
+                                                        + "/questions/current")))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        return json.readTree(body).path("id").asLong();
+    }
+
+    private MockHttpServletRequestBuilder submit(
+            long userId, long sessionId, long questionId, Map<String, Object> body) {
+        return as(
+                        userId,
+                        idempotent(
+                                post(
+                                        "/api/v1/interview-sessions/"
+                                                + sessionId
+                                                + "/questions/"
+                                                + questionId
+                                                + "/answer")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(body));
+    }
+
+    private static Map<String, Object> text(String content) {
+        return Map.of("inputType", "TEXT", "content", content);
+    }
+
+    private List<LocalDate> practiceDates(long userId) {
+        return jdbc.queryForList(
+                "SELECT practice_date FROM practice_logs WHERE user_id = ?",
+                LocalDate.class,
+                userId);
+    }
+
+    private static LocalDate today() {
+        return LocalDate.now(ZoneId.of("Asia/Seoul"));
+    }
+
     private long create(long userId, long applicationId) throws Exception {
         String body =
                 mvc.perform(createRequest(userId, applicationId))
@@ -274,6 +506,11 @@ class InterviewSessionIntegrationTest {
     }
 
     private MockHttpServletRequestBuilder createRequest(long userId, long applicationId) {
+        return createRequest(userId, applicationId, "VIDEO");
+    }
+
+    private MockHttpServletRequestBuilder createRequest(
+            long userId, long applicationId, String mode) {
         return as(userId, idempotent(post("/api/v1/interview-sessions")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -281,7 +518,7 @@ class InterviewSessionIntegrationTest {
                                 Map.of(
                                         "applicationId", applicationId,
                                         "persona", "DEVIL",
-                                        "mode", "VIDEO")));
+                                        "mode", mode)));
     }
 
     // AI 작업자가 플랜을 만든 것처럼 플랜 행과 READY를 남긴다
@@ -359,6 +596,7 @@ class InterviewSessionIntegrationTest {
     static class InMemoryRuntimeStore implements SessionRuntimeStore {
         final Map<Long, SessionRuntime> values = new ConcurrentHashMap<>();
         final Map<Long, Instant> planStartedAt = new ConcurrentHashMap<>();
+        final Map<Long, Instant> analysisStartedAt = new ConcurrentHashMap<>();
 
         @Override
         public Optional<SessionRuntime> find(long sessionId) {
@@ -387,7 +625,7 @@ class InterviewSessionIntegrationTest {
         }
 
         @Override
-        public void startAnalysis(long sessionId) {
+        public void startAnalysis(long sessionId, Instant now) {
             values.computeIfPresent(
                     sessionId,
                     (id, runtime) ->
@@ -396,6 +634,12 @@ class InterviewSessionIntegrationTest {
                                     runtime.planProgress(),
                                     AnalysisStep.ORGANIZING_ANSWERS,
                                     runtime.pausedSeconds()));
+            analysisStartedAt.put(sessionId, now);
+        }
+
+        @Override
+        public Optional<Instant> findAnalysisStartedAt(long sessionId) {
+            return Optional.ofNullable(analysisStartedAt.get(sessionId));
         }
     }
 }

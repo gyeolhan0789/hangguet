@@ -16,8 +16,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * BE 설계 7장의 session:{sessionId}:runtime Hash. 필드는 planStatus·planProgress·analysisStep(작업자도 씀)과
- * pausedSeconds·planStartedAt(BE만 씀)이고, 값이 없으면 필드가 없다. 필드마다 HSET하므로 작업자와 BE가 서로의 값을 덮어쓰지 않는다. BE가 쓸
- * 때마다 TTL을 1일로 다시 잡아, 결과 생성을 시작한(면접 종료) 뒤 1일이 지나면 사라진다.
+ * pausedSeconds·planStartedAt·analysisStartedAt(BE만 씀)이고, 값이 없으면 필드가 없다. 필드마다 HSET하므로 작업자와 BE가 서로의
+ * 값을 덮어쓰지 않는다. BE가 쓸 때마다 TTL을 1일로 다시 잡아, 결과 생성을 시작한(면접 종료) 뒤 1일이 지나면 사라진다.
  */
 @Component
 public class RedisSessionRuntimeStore implements SessionRuntimeStore {
@@ -28,6 +28,8 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     static final String PAUSED_SECONDS = "pausedSeconds";
     // 플랜 생성을 시작한 시각(epoch 밀리초). 최대 대기 시간 확인용
     static final String PLAN_STARTED_AT = "planStartedAt";
+    // 결과 생성을 시작한 시각(epoch 밀리초). 최대 대기 시간 확인용
+    static final String ANALYSIS_STARTED_AT = "analysisStartedAt";
 
     // 아직 GENERATING일 때만 FAILED로 바꾼다. 확인과 쓰기 사이에 작업자가 READY로 바꿨으면 그대로 둔다
     private static final DefaultRedisScript<Long> FAIL_PLAN =
@@ -76,8 +78,7 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
 
     @Override
     public Optional<Instant> findPlanStartedAt(long sessionId) {
-        return Optional.ofNullable(hash().get(key(sessionId), PLAN_STARTED_AT))
-                .map(value -> Instant.ofEpochMilli(Long.parseLong(value)));
+        return findInstant(sessionId, PLAN_STARTED_AT);
     }
 
     @Override
@@ -86,10 +87,26 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     }
 
     @Override
-    public void startAnalysis(long sessionId) {
+    public void startAnalysis(long sessionId, Instant now) {
         String key = key(sessionId);
-        hash().put(key, ANALYSIS_STEP, AnalysisStep.ORGANIZING_ANSWERS.name());
+        hash().putAll(
+                        key,
+                        Map.of(
+                                ANALYSIS_STEP,
+                                AnalysisStep.ORGANIZING_ANSWERS.name(),
+                                ANALYSIS_STARTED_AT,
+                                Long.toString(now.toEpochMilli())));
         redis.expire(key, TTL);
+    }
+
+    @Override
+    public Optional<Instant> findAnalysisStartedAt(long sessionId) {
+        return findInstant(sessionId, ANALYSIS_STARTED_AT);
+    }
+
+    private Optional<Instant> findInstant(long sessionId, String field) {
+        return Optional.ofNullable(hash().get(key(sessionId), field))
+                .map(value -> Instant.ofEpochMilli(Long.parseLong(value)));
     }
 
     private HashOperations<String, String, String> hash() {

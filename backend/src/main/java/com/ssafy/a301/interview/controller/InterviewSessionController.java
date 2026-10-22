@@ -1,6 +1,9 @@
 package com.ssafy.a301.interview.controller;
 
 import com.ssafy.a301.common.idempotency.Idempotent;
+import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
+import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.PendingResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
@@ -8,6 +11,7 @@ import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
+import com.ssafy.a301.interview.service.AnswerService;
 import com.ssafy.a301.interview.service.InterviewSessionListService;
 import com.ssafy.a301.interview.service.InterviewSessionService;
 import com.ssafy.a301.interview.service.SttTokenService;
@@ -44,16 +48,85 @@ public class InterviewSessionController {
     private final SttTokenService sttTokens;
     private final TtsTokenService ttsTokens;
     private final InterviewSessionListService sessionList;
+    private final AnswerService answers;
 
     public InterviewSessionController(
             InterviewSessionService sessions,
             SttTokenService sttTokens,
             TtsTokenService ttsTokens,
-            InterviewSessionListService sessionList) {
+            InterviewSessionListService sessionList,
+            AnswerService answers) {
         this.sessions = sessions;
         this.sttTokens = sttTokens;
         this.ttsTokens = ttsTokens;
         this.sessionList = sessionList;
+        this.answers = answers;
+    }
+
+    @Operation(
+            summary = "5.7 답변 제출(채팅)",
+            description =
+                    "채팅 면접의 답변 글을 낸다. 질문마다 한 번만 낼 수 있다. 다음 질문은 AI 에이전트가 면접방 메시지로 알린다. 화상"
+                            + " 답변은 이 API를 쓰지 않는다.")
+    @ApiResponse(responseCode = "202", description = "접수")
+    @ApiResponse(
+            responseCode = "400",
+            description = "VALIDATION_FAILED: content 1~1,000자 아님 · inputType이 TEXT가 아님(화상 면접)")
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND · QUESTION_NOT_FOUND")
+    @ApiResponse(
+            responseCode = "409",
+            description =
+                    "ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE: IN_PROGRESS가 아님 ·"
+                            + " IDEMPOTENCY_KEY_REUSED")
+    @Idempotent
+    @PostMapping("/{sessionId}/questions/{questionId}/answer")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public AnswerResponse submitAnswer(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId,
+            @Parameter(description = "질문 id", example = "303") @PathVariable long questionId,
+            @Valid @RequestBody AnswerRequest request) {
+        return answers.submit(userId(jwt), sessionId, questionId, request);
+    }
+
+    @Operation(
+            summary = "5.8 면접 끝내기",
+            description = "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200).")
+    @ApiResponse(
+            responseCode = "202",
+            description = "답변 ≥1. status ANALYZING",
+            content = @Content(schema = @Schema(implementation = SessionResponse.class)))
+    @ApiResponse(
+            responseCode = "200",
+            description = "답변 0. status ABORTED",
+            content = @Content(schema = @Schema(implementation = SessionResponse.class)))
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
+    @ApiResponse(
+            responseCode = "409",
+            description = "INVALID_SESSION_STATE: IN_PROGRESS가 아님 · IDEMPOTENCY_KEY_REUSED")
+    @Idempotent
+    @PostMapping("/{sessionId}/end")
+    public ResponseEntity<SessionResponse> end(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
+        SessionResponse ended = sessions.end(userId(jwt), sessionId);
+        return ResponseEntity.status(
+                        ended.status() == SessionStatus.ANALYZING
+                                ? HttpStatus.ACCEPTED
+                                : HttpStatus.OK)
+                .body(ended);
+    }
+
+    @Operation(summary = "5.9 결과 재생성")
+    @ApiResponse(responseCode = "202", description = "재생성 시작. status ANALYZING")
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
+    @ApiResponse(responseCode = "409", description = "INVALID_SESSION_STATE: FAILED가 아님")
+    @PostMapping("/{sessionId}/analysis/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public SessionResponse retryAnalysis(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
+        return sessions.retryAnalysis(userId(jwt), sessionId);
     }
 
     @Operation(summary = "5.13 연습 면접 목록", description = "선택한 한국 날짜에 시작한 본인 면접 기록을 최근 순으로 준다.")

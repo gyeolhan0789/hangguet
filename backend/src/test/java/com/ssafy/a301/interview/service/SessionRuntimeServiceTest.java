@@ -24,7 +24,7 @@ class SessionRuntimeServiceTest {
     private final SessionRuntimeStore store = mock(SessionRuntimeStore.class);
     private final InterviewPlanRepository plans = mock(InterviewPlanRepository.class);
     private final SessionRuntimeService service =
-            new SessionRuntimeService(store, plans, Duration.ofMinutes(3));
+            new SessionRuntimeService(store, plans, Duration.ofMinutes(3), Duration.ofMinutes(10));
 
     @Test
     void storedPlanStatusIsUsedAsIs() {
@@ -94,6 +94,24 @@ class SessionRuntimeServiceTest {
         assertThat(service.current(55L, AFTER))
                 .isEqualTo(new SessionRuntime(PlanStatus.READY, null, null, 0));
         verify(store, never()).failPlanIfGenerating(55L);
+    }
+
+    @Test
+    void analysisTimesOutAfterTenMinutes() {
+        when(store.findAnalysisStartedAt(55L)).thenReturn(Optional.of(STARTED));
+
+        assertThat(service.isAnalysisTimedOut(55L, STARTED.plus(Duration.ofMinutes(10)))).isFalse();
+        assertThat(
+                        service.isAnalysisTimedOut(
+                                55L, STARTED.plus(Duration.ofMinutes(10)).plusSeconds(1)))
+                .isTrue();
+    }
+
+    @Test
+    void analysisWithoutStartTimeKeepsWaiting() {
+        when(store.findAnalysisStartedAt(55L)).thenReturn(Optional.empty());
+
+        assertThat(service.isAnalysisTimedOut(55L, AFTER.plus(Duration.ofDays(1)))).isFalse();
     }
 
     @Test

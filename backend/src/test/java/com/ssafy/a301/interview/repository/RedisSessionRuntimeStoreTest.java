@@ -85,10 +85,20 @@ class RedisSessionRuntimeStoreTest {
     }
 
     @Test
-    void startAnalysisSetsOnlyAnalysisStepAndRefreshesTtl() {
-        store.startAnalysis(55L);
+    void startAnalysisSetsOnlyAnalysisFieldsAndRefreshesTtl() {
+        store.startAnalysis(55L, Instant.ofEpochMilli(2_000L));
 
-        verify(hashes).put(KEY, "analysisStep", "ORGANIZING_ANSWERS");
+        verify(hashes)
+                .putAll(
+                        KEY,
+                        Map.of("analysisStep", "ORGANIZING_ANSWERS", "analysisStartedAt", "2000"));
         verify(redis).expire(KEY, Duration.ofDays(1));
+    }
+
+    @Test
+    void readsAnalysisStartedAt() {
+        when(hashes.get(KEY, "analysisStartedAt")).thenReturn("2000");
+
+        assertThat(store.findAnalysisStartedAt(55L)).contains(Instant.ofEpochMilli(2_000L));
     }
 }

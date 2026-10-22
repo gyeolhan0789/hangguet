@@ -12,6 +12,7 @@ import com.ssafy.a301.auth.config.SecurityConfig;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
+import com.ssafy.a301.interview.service.AnswerService;
 import com.ssafy.a301.interview.service.InterviewSessionListService;
 import com.ssafy.a301.interview.service.InterviewSessionService;
 import com.ssafy.a301.interview.service.SttTokenService;
@@ -38,6 +39,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class InterviewSessionControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private InterviewSessionService sessions;
+    @MockitoBean private AnswerService answers;
     @MockitoBean private IdempotencyStore idempotency;
     @MockitoBean private SttTokenService sttTokens;
     @MockitoBean private TtsTokenService ttsTokens;
