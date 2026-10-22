@@ -88,7 +88,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | 다시보기 처리 **[미정]**(API 명세 B-19) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
-| `answer.completed` | 면접 에이전트 | `seq`, `content`, `tokens`, `endReason`(6.2) | `answers` 저장, SCORE_ANSWER 작업 등록 |
+| `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `endReason`(6.2) | `answers` 저장, SCORE_ANSWER 작업 등록 |
 
 **실패 이유(`reason`)** 실패 결과 메시지는 아래 값 중 하나를 담는다. BE가 값으로 처리를 나눌 수 있도록 자유 문장을 사용하지 않는다.
 
@@ -270,12 +270,15 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 
 ```json
 { "type": "answer.completed", "sessionId": 55, "seq": 3,
+  "answerStartedAt": "2026-10-22T14:02:18.250+09:00",
   "content": "조회 쿼리 실행 계획을 보고…",
   "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
   "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12+09:00" }
 ```
 
-- `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 뺀다. 시각 기준은 **[미정]**(3장, API 명세 B-19)
+- `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 녹화 시작 시각과의 차이로 답변 위치를 구한다
+- `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 제외한다. STT가 재연결돼도 시각은 `answerStartedAt` 기준으로 이어서 계산한다
+- `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
 - **채팅** 답변은 화면이 5.7로 BE에 낸다. 에이전트가 다음 질문으로 넘어갈 신호는 화면이 5.7 성공 뒤 `answer.submit`을 보내는 것으로 한다 **[제안]**
 - 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기와의 순서는 API 명세 B-18 **[미정]**
