@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 
+import { reportBrowserError } from "@/lib/monitoring/browser-events";
+
 /**
  * 로그인 후 화면(홈 등)을 그리다 생긴 예상 밖 오류(API 500 등). 헤더는 그대로 두고 본문만 바꾼다.
  * Figma에 오류 화면이 없어 기존 색·글씨 토큰으로 최소한만 그린다.
@@ -15,6 +17,7 @@ export default function MainError({
 }) {
   useEffect(() => {
     console.error(error);
+    reportBrowserError("boundary");
   }, [error]);
 
   return (

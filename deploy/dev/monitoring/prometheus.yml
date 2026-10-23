@@ -1,0 +1,54 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: a301-be
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - a301-dev-be:8081
+
+  - job_name: a301-fe
+    metrics_path: /api/monitoring/metrics
+    static_configs:
+      - targets:
+          - a301-dev-fe:3000
+
+  - job_name: a301-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: [http://a301-dev-fe:3000/api/health]
+        labels:
+          service: fe
+      - targets: [http://a301-dev-be:8081/actuator/health]
+        labels:
+          service: be
+      - targets: [http://a301-dev-ai:8000/health]
+        labels:
+          service: ai
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: a301-dev-blackbox:9115
+
+  # FE 헬스 라우트와 별도로 실제 첫 화면의 HTTP 응답을 확인한다.
+  - job_name: a301-fe-page
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: [http://a301-dev-fe:3000/]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: a301-dev-blackbox:9115
