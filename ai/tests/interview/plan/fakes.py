@@ -40,3 +40,12 @@ class FakeChat:
         if isinstance(outcome, Exception):
             raise outcome
         return GmsResult(content=outcome, token_logprobs=None, model="gms-served")
+
+
+def question(seq: Any, claim_id: str = "c1") -> dict[str, Any]:
+    return {
+        "seq": seq,
+        "content": f"{seq}번 질문의 근거는 무엇인가?",
+        "criteria": "원인 분석 · 수치 근거",
+        "claimId": claim_id,
+    }
