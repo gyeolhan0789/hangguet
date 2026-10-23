@@ -1,4 +1,9 @@
-"""Soniox 원본 확정 토큰을 시각과 함께 수집한다."""
+"""Soniox에 음성을 전송하고, 수신한 응답을 전사 상태(Transcript)에 반영한다.
+
+확정 토큰 고르기·시각 보정은 app.interview.realtime.transcript가 담당하고,
+이 모듈은 Soniox 연결과 화면 갱신만 맡는다.
+같은 응답을 두 곳에서 따로 해석하면 한쪽만 변경됐을 때 화면 글과 답변 글이 어긋나기 때문이다.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
+
+from app.interview.realtime.transcript import Transcript, soniox_tokens
 
 log = logging.getLogger(__name__)
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
@@ -32,44 +39,35 @@ class SttSettings:
         return cls(api_key=key, model=env.get("SONIOX_STT_MODEL") or "stt-rt-v5")
 
 
-@dataclass(frozen=True)
-class SttToken:
-    text: str
-    # 공백·문장부호 등 시각이 없는 토큰도 글을 잃지 않고 보존한다.
-    start_ms: int | None
-    end_ms: int | None
-
-
 class SonioxSTT:
     def __init__(
         self, settings: SttSettings, *, on_update: Callable[[str, str], None] | None = None
     ) -> None:
         self.settings = settings
-        self.tokens: list[SttToken] = []
-        self.interim_text = ""
+        # 연결 하나의 전사 상태다.
+        # 자동 재연결이 없으므로 연결 시작 시각(offset)은 0이다
+        self.transcript = Transcript()
+        self.transcript.begin_connection(0)
         self._on_update = on_update
 
     @property
     def text(self) -> str:
-        return "".join(token.text for token in self.tokens)
+        """확정 글."""
+        return self.transcript.confirmed_text
+
+    @property
+    def interim_text(self) -> str:
+        """마지막 응답의 미확정 글."""
+        return self.transcript.interim_text
 
     def accept_response(self, response: dict[str, Any]) -> bool:
         """중간 결과는 교체하고 확정 토큰만 누적한다. 종료 응답이면 True."""
         if response.get("error_code") or response.get("error_message"):
             # 공급자 메시지에는 입력값이 포함될 수 있어 원문을 로그에 남기지 않는다.
             raise SttError(f"Soniox STT 오류 (code={response.get('error_code', 'unknown')})")
-        interim = []
-        confirmed = 0
-        for token in response.get("tokens", []):
-            text = token["text"]
-            if text in ("<end>", "<fin>"):
-                continue
-            if token["is_final"]:
-                self.tokens.append(SttToken(text, token.get("start_ms"), token.get("end_ms")))
-                confirmed += 1
-            else:
-                interim.append(text)
-        self.interim_text = "".join(interim)
+        before = self.transcript.final_count
+        self.transcript.apply(soniox_tokens(response))
+        confirmed = self.transcript.final_count - before
         if self._on_update is not None:
             self._on_update(self.text, self.interim_text)
         if confirmed:

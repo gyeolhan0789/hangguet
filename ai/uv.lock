@@ -15,6 +15,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "fastapi" },
     { name = "livekit-agents" },
+    { name = "numpy" },
     { name = "redis" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -33,6 +34,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.14,<4" },
     { name = "fastapi", specifier = ">=0.143.0" },
     { name = "livekit-agents", specifier = ">=1.4,<2" },
+    { name = "numpy", specifier = ">=2.5.4" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]

@@ -105,7 +105,7 @@ def test_only_selected_participants_microphone_is_subscribed() -> None:
             patch("app.agent.main.SonioxSTT") as factory,
         ):
             factory.return_value.run = AsyncMock(side_effect=recognizing)
-            factory.return_value.tokens = []
+            factory.return_value.transcript.final_count = 0
             await transcribe_participant(ctx, closed, SttSettings(api_key="test"))
         assert mic.set_subscribed.call_count == 2
         camera.set_subscribed.assert_not_called()
@@ -231,7 +231,7 @@ def test_audio_stream_errors_still_remove_listeners(failure: str) -> None:
             else:
                 factory.return_value = stream
             stt.return_value.run = AsyncMock()
-            stt.return_value.tokens = []
+            stt.return_value.transcript.final_count = 0
             with pytest.raises(RuntimeError, match=f"stream {failure} failed"):
                 await transcribe_participant(ctx, asyncio.Event(), SttSettings("test"))
         assert ctx.room.off.call_count == 2
