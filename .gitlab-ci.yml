@@ -500,6 +500,7 @@ mock-deploy:
   variables:
     IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
     DEV_BE_HOST_PORT: "18081"
+    DEV_BE_MANAGEMENT_HOST_PORT: "18084"
     DEV_FE_HOST_PORT: "18082"
     DEV_AI_HOST_PORT: "18083"
     DEV_KEEP_IMAGES: "3"                                        # 롤백용으로 남길 이미지 수
@@ -522,7 +523,7 @@ be-deploy:
         - deploy/dev/**/*
   variables:
     DEV_SERVICE: "a301-dev-be"
-    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_BE_HOST_PORT}/actuator/health"
+    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_BE_MANAGEMENT_HOST_PORT}/actuator/health"
   environment:
     name: dev/be
     url: https://hangguet.yobistory.com/be/docs
