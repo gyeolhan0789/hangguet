@@ -5,9 +5,6 @@ import com.ssafy.a301.growth.GrowthDtos.Grade;
 import com.ssafy.a301.interview.InterviewDtos.Mode;
 import com.ssafy.a301.interview.InterviewDtos.Persona;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -15,34 +12,6 @@ import java.util.List;
 public final class ResultDtos {
 
     private ResultDtos() {}
-
-    @Schema(description = "파일 종류. SESSION_VIDEO 면접 녹화 영상")
-    public enum RecordingType {
-        SESSION_VIDEO
-    }
-
-    public record RecordingUploadUrlRequest(
-            @Schema(
-                            description = "영상 형식",
-                            allowableValues = {"video/webm", "video/mp4"},
-                            example = "video/webm")
-                    @NotBlank(message = "필수 값입니다.")
-                    @Pattern(
-                            regexp = "video/webm|video/mp4",
-                            message = "video/webm·video/mp4만 가능합니다.")
-                    String contentType) {}
-
-    public record RecordingCreateRequest(
-            @Schema(description = "파일 종류", example = "SESSION_VIDEO") @NotNull(message = "필수 값입니다.")
-                    RecordingType recordingType,
-            @Schema(description = "6.1에서 받은 objectKey", example = "sessions/55/session.webm")
-                    @NotBlank(message = "필수 값입니다.")
-                    String objectKey) {}
-
-    public record RecordingResponse(
-            @Schema(description = "파일 id", example = "77") long id,
-            RecordingType recordingType,
-            @Schema(description = "업로드를 마친 일시") OffsetDateTime createdAt) {}
 
     public record SessionScore(
             Criterion criterion,

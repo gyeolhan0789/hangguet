@@ -87,20 +87,10 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "이미 답변한 질문이에요.",
               "instance": "/api/v1/interview-sessions/55/questions/303/answer", "code": "ANSWER_ALREADY_SUBMITTED" }\
             """;
-    public static final String STT_UNAVAILABLE =
+    public static final String ROOM_UNAVAILABLE =
             """
-            { "title": "Service Unavailable", "status": 503, "detail": "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
-              "instance": "/api/v1/interview-sessions/55/stt-token", "code": "STT_UNAVAILABLE" }\
-            """;
-    public static final String TTS_UNAVAILABLE =
-            """
-            { "title": "Service Unavailable", "status": 503, "detail": "질문 음성을 불러오지 못했어요. 글로 보여 드릴게요.",
-              "instance": "/api/v1/interview-sessions/55/questions/303/tts-token", "code": "TTS_UNAVAILABLE" }\
-            """;
-    public static final String RECORDING_ALREADY_EXISTS =
-            """
-            { "title": "Conflict", "status": 409, "detail": "이미 녹화가 등록된 면접이에요.",
-              "instance": "/api/v1/interview-sessions/55/recordings", "code": "RECORDING_ALREADY_EXISTS" }\
+            { "title": "Service Unavailable", "status": 503, "detail": "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/interview-sessions/55/start", "code": "ROOM_UNAVAILABLE" }\
             """;
     public static final String RESULT_NOT_READY =
             """

@@ -50,7 +50,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiResultService {
     private static final Logger LOG = LoggerFactory.getLogger(AiResultService.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    // 답변 글 길이(UTF-16, 5.7 VOICE와 같음)와 토큰 수 상한(AI 명세 6.2)
+    // 답변 글 길이(UTF-16)와 토큰 수 상한(AI 명세 6.2)
     private static final int MAX_ANSWER_LENGTH = 10_000;
     private static final int MAX_TOKEN_COUNT = 10_000;
     // 총평·기준 코멘트(VARCHAR(255), 글자 수)

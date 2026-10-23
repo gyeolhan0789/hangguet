@@ -39,9 +39,3 @@ mock:
     # 목 서버는 토큰을 검사하지 않으므로 서명 키는 개발용 기본값을 쓴다
     secret: ${MOCK_JWT_SECRET:a301-mock-jwt-signing-key-for-local-dev}
     access-token-ttl: 1h
-
-# 실제 BE와 같이 외부 API 키는 서버 환경 변수로만 받는다. 없으면 5.10은 STT_UNAVAILABLE, 5.12는 TTS_UNAVAILABLE(503)이다.
-soniox:
-  api-key: ${SONIOX_API_KEY:}
-elevenlabs:
-  api-key: ${ELEVENLABS_API_KEY:}

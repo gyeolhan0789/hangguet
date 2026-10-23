@@ -133,21 +133,16 @@ public final class InterviewDtos {
                     String contentType) {}
 
     public record AnswerRequest(
-            @Schema(description = "VOICE(화상) | TEXT(채팅). 면접 방식(mode)과 같아야 한다", example = "VOICE")
-                    @NotNull(message = "필수 값입니다.")
-                    InputType inputType,
             @Schema(
                             description =
-                                    "답변 글. 채팅은 입력한 글(1~1,000자), 화상은 실시간 음성 인식(5.10)의 최종"
-                                            + " 결과(1~10,000자)")
+                                    "TEXT(채팅)만 가능하다. 화상 답변은 AI 에이전트가 면접방에서 받아 저장하므로 이 API를 쓰지 않는다",
+                            example = "TEXT")
+                    @NotNull(message = "필수 값입니다.")
+                    InputType inputType,
+            @Schema(description = "입력한 답변 글(1~1,000자)")
                     @NotBlank(message = "필수 값입니다.")
-                    @Size(max = 10_000, message = "TEXT 1~1,000자, VOICE 1~10,000자입니다.")
-                    String content,
-            @Schema(
-                            description = "답변 음성 키. VOICE일 때 필수. 5.6에서 받은 objectKey",
-                            nullable = true,
-                            example = "sessions/55/answers/303.webm")
-                    String audioObjectKey) {}
+                    @Size(max = 1_000, message = "채팅 답변은 1~1,000자입니다.")
+                    String content) {}
 
     public record AnswerResponse(
             @Schema(description = "답변 id", example = "903") long id,

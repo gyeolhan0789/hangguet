@@ -3,44 +3,26 @@ package com.ssafy.a301.result;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.result.ResultDtos.RecordingCreateRequest;
-import com.ssafy.a301.result.ResultDtos.RecordingResponse;
-import com.ssafy.a301.result.ResultDtos.RecordingUploadUrlRequest;
 import com.ssafy.a301.result.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.ResultDtos.ResultResponse;
-import com.ssafy.a301.user.UserDtos.UploadUrlResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "6. 녹화 · 결과 · 다시보기")
+@Tag(name = "6. 결과 · 다시보기")
 @RestController
 @RequestMapping("/api/v1/interview-sessions/{sessionId}")
 public class ResultController {
 
     private static final String SESSION_ID = "면접 id. `0`이면 404(뼈대 서버)";
 
-    private static final String UPLOAD_URL =
-            """
-            { "uploadUrl": "https://…s3…?X-Amz-Signature=…", "objectKey": "sessions/55/session.webm",
-              "expiresAt": "2026-10-15T12:48:00+09:00" }\
-            """;
-    private static final String RECORDING =
-            """
-            { "id": 77, "recordingType": "SESSION_VIDEO", "createdAt": "2026-10-15T12:18:30+09:00" }\
-            """;
     private static final String RESULT =
             """
             { "id": 55, "persona": "DEVIL", "mode": "VIDEO", "companyName": "○○전자", "jobTitle": "백엔드 개발자",
@@ -85,71 +67,6 @@ public class ResultController {
 
     public ResultController(Stub stub) {
         this.stub = stub;
-    }
-
-    @Operation(summary = "6.1 녹화 업로드 주소", description = "녹화 영상을 올릴 주소를 준다. 응답 형식은 2.4와 같다.")
-    @ApiResponse(
-            responseCode = "200",
-            content = @Content(examples = @ExampleObject(value = UPLOAD_URL)))
-    @ApiResponse(
-            responseCode = "404",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "SESSION_NOT_FOUND",
-                                            value = ErrorExamples.SESSION_NOT_FOUND)))
-    @ApiResponse(
-            responseCode = "409",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "INVALID_SESSION_STATE",
-                                            value = ErrorExamples.INVALID_SESSION_STATE)))
-    @PostMapping("/recordings/upload-url")
-    public UploadUrlResponse recordingUploadUrl(
-            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
-            @Valid @RequestBody RecordingUploadUrlRequest request) {
-        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
-        return stub.read(UPLOAD_URL, UploadUrlResponse.class);
-    }
-
-    @Operation(summary = "6.2 녹화 등록", description = "올린 녹화 영상을 면접에 등록한다. 면접마다 1개만 등록할 수 있다.")
-    @ApiResponse(
-            responseCode = "201",
-            content = @Content(examples = @ExampleObject(value = RECORDING)))
-    @ApiResponse(
-            responseCode = "404",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples = {
-                                @ExampleObject(
-                                        name = "SESSION_NOT_FOUND",
-                                        value = ErrorExamples.SESSION_NOT_FOUND),
-                                @ExampleObject(
-                                        name = "FILE_NOT_FOUND",
-                                        value = ErrorExamples.FILE_NOT_FOUND)
-                            }))
-    @ApiResponse(
-            responseCode = "409",
-            content =
-                    @Content(
-                            mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "RECORDING_ALREADY_EXISTS",
-                                            value = ErrorExamples.RECORDING_ALREADY_EXISTS)))
-    @PostMapping("/recordings")
-    @ResponseStatus(HttpStatus.CREATED)
-    public RecordingResponse registerRecording(
-            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
-            @Valid @RequestBody RecordingCreateRequest request) {
-        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
-        return stub.read(RECORDING, RecordingResponse.class);
     }
 
     @Operation(
