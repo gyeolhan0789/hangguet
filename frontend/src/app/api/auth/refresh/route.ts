@@ -1,8 +1,9 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 import { clearAuthCookies, REFRESH_TOKEN_COOKIE, setAuthCookies } from "@/lib/api/auth-cookies";
 import { refreshTokens } from "@/lib/api/token-refresh";
 import { markJustRefreshed, safeNextPath } from "@/lib/auth/auth-errors";
+import { redirectToPath } from "@/lib/auth/redirect-to-path";
 import { ROUTES } from "@/lib/routes";
 
 // 화면을 그리는 도중 API가 401 TOKEN_EXPIRED를 주면 여기로 온다(src/lib/auth/auth-errors.ts).
@@ -13,13 +14,13 @@ export async function GET(request: NextRequest) {
   const tokens = refreshToken ? await refreshTokens(refreshToken) : null;
 
   if (!tokens) {
-    const response = NextResponse.redirect(new URL(ROUTES.login, request.url));
+    const response = redirectToPath(ROUTES.login);
     clearAuthCookies(response.cookies);
     return response;
   }
 
   const next = safeNextPath(request.nextUrl.searchParams.get("next"));
-  const response = NextResponse.redirect(new URL(next, request.url));
+  const response = redirectToPath(next);
   setAuthCookies(response.cookies, tokens);
   markJustRefreshed(response.cookies);
   return response;
