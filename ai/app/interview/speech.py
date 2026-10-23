@@ -25,6 +25,10 @@ _HANGUL_SYLLABLE = re.compile(r"[가-힣]")
 # AI 명세 3장: 문장 중간 2초 이상이면 긴 멈춤
 LONG_PAUSE_MS = 2_000
 
+# speech_metrics 컬럼 NUMERIC(5, 2)의 소수 자리(BE V1 마이그레이션).
+# 답변별 음성 지표와 면접 단위 집계가 같은 컬럼에 저장되므로 두 계산이 이 값 하나를 사용한다
+METRIC_DIGITS = 2
+
 
 class SpeechMetrics(TypedDict):
     """answers.evaluation.speech 중 토큰으로 계산하는 키(AI 명세 3장)."""
