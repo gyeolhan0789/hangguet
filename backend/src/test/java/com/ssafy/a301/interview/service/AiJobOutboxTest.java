@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.AiJobType;
@@ -16,8 +17,10 @@ import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AiJobRepository;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -34,6 +37,8 @@ class AiJobOutboxTest {
     @Autowired private AiJobRepository jobs;
     @Autowired private TransactionTemplate transactions;
     @MockitoBean private AiJobQueue queue;
+    // 면접 데이터 없이 Outbox만 확인하므로 메시지는 jobId만 담는다
+    @MockitoBean private AiJobMessages messages;
     private final List<UUID> created = new ArrayList<>();
 
     @AfterEach
@@ -45,7 +50,7 @@ class AiJobOutboxTest {
     void committedJobIsSentAfterCommit() {
         UUID id = enqueue(AiJob.scoreAnswer(-55L, -903L));
 
-        verify(queue).push(argThat(job -> job.getId().equals(id)));
+        verify(queue).push(argThat(message -> id.toString().equals(message.get("jobId"))));
         AiJob saved = jobs.findById(id).orElseThrow();
         assertThat(saved.getJobType()).isEqualTo(AiJobType.SCORE_ANSWER);
         assertThat(saved.getAnswerId()).isEqualTo(-903L);
@@ -81,8 +86,15 @@ class AiJobOutboxTest {
         publisher.republish();
         publisher.republish();
 
-        verify(queue, times(1)).push(argThat(job -> job.getId().equals(id)));
+        verify(queue, times(1))
+                .push(argThat(message -> id.toString().equals(message.get("jobId"))));
         assertThat(jobs.findById(id).orElseThrow().getPublishedAt()).isNotNull();
+    }
+
+    @BeforeEach
+    void setUp() {
+        when(messages.of(any()))
+                .thenAnswer(call -> Map.of("jobId", call.<AiJob>getArgument(0).getId().toString()));
     }
 
     private UUID enqueue(AiJob job) {

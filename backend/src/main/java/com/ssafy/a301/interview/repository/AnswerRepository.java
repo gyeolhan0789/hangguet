@@ -28,4 +28,10 @@ public interface AnswerRepository extends JpaRepository<Answer, Long> {
 
     /** 면접에서 지금까지 낸 답변 수 */
     int countByQuestionSessionId(Long sessionId);
+
+    /** 결과 생성 작업 메시지용. 질문을 함께 가져와 질문 순서대로 준다 */
+    @Query(
+            "select a from Answer a join fetch a.question q where q.session.id = :sessionId"
+                    + " order by q.seq")
+    List<Answer> findWithQuestionBySessionId(@Param("sessionId") long sessionId);
 }
