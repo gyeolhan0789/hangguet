@@ -450,27 +450,27 @@ mock-deploy:
 # - develop에 파트 폴더나 deploy/dev/ 변경이 병합되면 바뀐 서비스만 다시 빌드·실행합니다.
 #   postgres·redis는 BE를 띄울 때 함께 뜨고, 설정이 바뀌지 않으면 다시 만들지 않아 데이터가 남습니다.
 # - 목 서버와 같은 배포 전용 러너(태그 a301-mock-deploy)가 호스트 Docker로 직접 빌드·실행합니다.
-# - 세 잡이 같은 resource_group이라 한 번에 하나씩 돕니다. N100에서 Gradle·Next 빌드가 겹치지 않게 합니다.
+# - 배포 잡이 같은 resource_group이라 한 번에 하나씩 돕니다. N100에서 빌드가 겹치지 않게 합니다.
 # - 비밀값 DB_PASSWORD, JWT_SECRET은 GitLab CI/CD Variables(Protected·Masked, Environment scope dev/*)에서 받습니다.
-#   compose가 파일 전체를 읽으므로 세 잡 모두 두 값이 필요합니다.
+#   compose가 파일 전체를 읽으므로 모든 개발 배포 잡에 두 값이 필요합니다.
 #   외부 API 키 SONIOX_API_KEY도 Variables에서 받아 BE에 넘깁니다(없어도 배포는 됩니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
 # - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai에서 이전 배포를 Re-deploy 합니다(그 커밋으로 다시 빌드).
 
-# 헬스체크: DEV_HEALTH_URL이 UP이 될 때까지 기다리고, 안 되면 로그를 남기고 실패합니다.
+# 헬스체크: 서비스별 정상 응답을 기다리고, 안 되면 로그를 남기고 실패합니다.
 # 배포 잡(.dev-deploy)과 FE API 전환 잡(.fe-api-switch)이 함께 씁니다.
 .dev-health-check:
   script:
     - |
       HEALTHY=0
       for i in $(seq 1 "$DEV_HEALTH_TRIES"); do
-        if curl -fsS "$DEV_HEALTH_URL" 2>/dev/null | grep -q '"UP"'; then
+        if curl -fsS "$DEV_HEALTH_URL" 2>/dev/null | grep -q "$DEV_HEALTH_PATTERN"; then
           HEALTHY=1; break
         fi
         sleep 2
       done
       if [ "$HEALTHY" -ne 1 ]; then
-        echo "FAIL: ${DEV_HEALTH_URL} 가 $((DEV_HEALTH_TRIES * 2))초 안에 UP이 되지 않았습니다."
+        echo "FAIL: ${DEV_HEALTH_URL} 가 $((DEV_HEALTH_TRIES * 2))초 안에 정상 응답을 반환하지 않았습니다."
         docker compose -f deploy/dev/compose.yml logs --tail 100 "$DEV_SERVICE"
         exit 1
       fi
@@ -502,6 +502,8 @@ mock-deploy:
     DEV_BE_HOST_PORT: "18081"
     DEV_FE_HOST_PORT: "18082"
     DEV_AI_HOST_PORT: "18083"
+    DEV_AI_AGENT_HOST_PORT: "18084"
+    DEV_HEALTH_PATTERN: '"UP"'
     DEV_KEEP_IMAGES: "3"                                        # 롤백용으로 남길 이미지 수
     DEV_HEALTH_TRIES: "60"                                      # 2초 간격으로 확인할 횟수
   script:
@@ -579,6 +581,7 @@ fe-deploy:
     DEV_FE_HOST_PORT: "18082"
     DEV_HEALTH_URL: "http://127.0.0.1:${DEV_FE_HOST_PORT}/api/health"
     DEV_HEALTH_TRIES: "30"
+    DEV_HEALTH_PATTERN: '"UP"'
   script:
     - !reference [.fe-api-target, script]
     - |
@@ -615,6 +618,24 @@ ai-deploy:
     DEV_HEALTH_URL: "http://127.0.0.1:${DEV_AI_HOST_PORT}/health"
   environment:
     name: dev/ai
+
+# AI 에이전트: FastAPI와 별도로 실행하며 LiveKit SDK의 상태 확인 응답은 OK입니다.
+ai-agent-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/**/*
+        - .gitlab-ci.yml
+  before_script:
+    - 'test -n "$LIVEKIT_API_KEY" && test -n "$LIVEKIT_API_SECRET" || { echo "FAIL: LiveKit API 키와 시크릿이 필요합니다."; exit 1; }'
+  variables:
+    DEV_SERVICE: "a301-dev-ai-agent"
+    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_AI_AGENT_HOST_PORT}/"
+    DEV_HEALTH_PATTERN: '^OK$'
+  environment:
+    name: dev/ai-agent
 
 ## FE ##
 
