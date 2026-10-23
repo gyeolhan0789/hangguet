@@ -14,6 +14,8 @@ RUN npm ci --no-audit --no-fund
 FROM node:24-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_A301_DEV_MONITORING=0
+ENV NEXT_PUBLIC_A301_DEV_MONITORING=$NEXT_PUBLIC_A301_DEV_MONITORING
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

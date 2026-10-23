@@ -158,7 +158,7 @@ def _dump(data: dict[str, Any]) -> bytes:
 
 
 if __name__ == "__main__":
-    # cd ai && uv run --env-file .env python -m pipeline.news
+    # cd company-pipeline && uv run --env-file .env python -m pipeline.news
     here = Path(__file__).parent
     for company in json.loads((here / "companies.json").read_text(encoding="utf-8")):
         print(f"{company['name']}: {len(collect(company))}건")

@@ -1,4 +1,4 @@
-"""회사 카드 파이프라인 DAG. 작업 내용은 ai/pipeline 코드를 그대로 부른다.
+"""회사 카드 파이프라인 DAG. 작업 내용은 company-pipeline/pipeline 코드를 그대로 부른다.
 
 - company_news_daily: 매일 13:00(KST) 회사별 기사 수집 → 최근 이슈 갱신 → 확인 화면 데이터 갱신
 - company_cards_full: 수동 실행. 회사별 기사 수집 → 카드 전체 생성 (프롬프트·보고서 변경, 회사 추가)

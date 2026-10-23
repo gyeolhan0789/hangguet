@@ -38,7 +38,8 @@ MAX_RETRY_AFTER_SECONDS = 60.0
 # 질문 생성·채점·결과 생성이 같은 횟수를 사용하도록 GMS 호출 모듈 한 곳에 둔다
 STRUCTURE_RETRIES = 1
 
-# 추론 모델이 JSON 앞에 추가하는 사고 과정 블록. ai/pipeline/card.py의 parse_reply와 같은 처리다
+# 추론 모델이 JSON 앞에 추가하는 사고 과정 블록.
+# company-pipeline/pipeline/card.py의 parse_reply와 같은 처리다
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S)
 
 
@@ -214,7 +215,10 @@ class GmsClient:
 
 
 def urllib_transport(url: str, api_key: str | None) -> Transport:
-    """urllib로 전송한다(ai/pipeline/card.py와 같은 방식이라 HTTP 의존성을 추가하지 않는다)."""
+    """urllib로 전송한다.
+
+    company-pipeline/pipeline/card.py와 같은 방식이라 HTTP 의존성을 추가하지 않는다.
+    """
 
     def send(payload: dict[str, Any]) -> HttpResponse:
         headers = {"Content-Type": "application/json"}

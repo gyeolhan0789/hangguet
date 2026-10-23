@@ -63,7 +63,7 @@ def test_llm_returns_connection_values() -> None:
 
 
 def test_llm_api_key_is_optional() -> None:
-    """ai/pipeline/card.py와 같이 키가 없으면 인증 헤더 없이 호출할 수 있게 한다."""
+    """company-pipeline/pipeline/card.py와 같이 키가 없으면 인증 헤더 없이 호출할 수 있게 한다."""
     assert load_settings(LLM).llm().api_key is None
 
 

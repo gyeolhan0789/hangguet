@@ -1,0 +1,41 @@
+[project]
+name = "a301-company-pipeline"
+version = "0.1.0"
+description = "회사 카드 파이프라인 (DART·뉴스·인재상 → 회사 카드)"
+requires-python = ">=3.13"
+dependencies = [
+    "boto3>=1.43",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]
+
+# 배포용 패키지를 만들지 않는 애플리케이션 프로젝트다.
+[tool.uv]
+package = false
+
+# 검사 규칙은 ai/pyproject.toml과 같게 맞춘다.
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import 정렬, N: Naming, B: bugbear, UP: 최신 문법, SIM: 단순화
+select = ["E", "W", "F", "I", "N", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["pipeline", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[[tool.mypy.overrides]]
+module = ["boto3"]
+ignore_missing_imports = true
