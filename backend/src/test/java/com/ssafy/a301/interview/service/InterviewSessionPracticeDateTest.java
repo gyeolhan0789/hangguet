@@ -24,6 +24,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -55,6 +56,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private SessionRuntimeService runtimes;
     @Mock private AiJobService aiJobs;
     @Mock private TransactionTemplate transactions;
+    @Mock private InterviewRoom rooms;
     @InjectMocks private InterviewSessionService service;
 
     @BeforeEach
