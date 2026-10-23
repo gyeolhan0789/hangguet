@@ -97,7 +97,7 @@ AI 서버가 필요한 기능을 계약된 API 형태로 제공하면, AI 서버
 ┌─ Lightsail (SSAFY 지급) ────────────────────────────────────────────────────┐
 │  cloudflared ─┬─▶ Nginx ─▶ FE ─▶ BE ─▶ PostgreSQL · Redis                    │
 │               ├─▶ LiveKit(7880)                                              │
-│               └─▶ Grafana (grafana.hangguet.co.kr, Cloudflare Access)        │
+│               └─▶ Grafana (grafana.hangguet.co.kr, Grafana 로그인)           │
 │                                                                              │
 │  LiveKit ◀── UDP 7882 · TCP 7881 ── 브라우저(카메라 · 마이크 / 면접관 음성)   │
 │     ▲                                                                        │
@@ -124,7 +124,7 @@ AI 서버가 필요한 기능을 계약된 API 형태로 제공하면, AI 서버
 5. **면접 진행**: LiveKit → AI 에이전트(사용자 음성 구독) → STT → Jev → LiveKit → 브라우저. 질문은 면접 전에 만든 플랜의 5개를 TTS로 읽어 면접관 음성으로 발행한다(면접 중 LLM 호출 없음). 리액션은 LiveKit 데이터 메시지로 브라우저에 보내고, 브라우저가 아바타를 움직인다. 질문을 말하기 시작한 시각과 인식한 답변은 에이전트가 Redis 결과 큐로 보내고 BE가 저장한다. 채팅은 STT 없이 화면이 답변 글을 BE에 보낸다
 6. **채점 · 결과**: BE가 필요한 데이터를 담아 Redis 작업 큐에 넣고, AI 분석 작업자가 GMS로 처리해 진행 상태와 결과를 Redis 결과 큐에 넣는다. BE가 꺼내 DB와 Redis 진행 상태에 쓴다. 화면은 2초마다 BE에 상태를 묻는다(지금 명세와 같음)
 7. **녹화 · 다시보기(화상만)**: 면접이 시작되면 BE가 Egress 녹화를 시작한다 → Egress가 트랙(사용자 영상 · 음성, 면접관 음성)을 S3 `recordings/raw/`에 바로 올린다 → 면접이 끝나면 AI 분석 작업자가 ffmpeg로 하나의 mp4로 합쳐 `recordings/`에 올리고, Redis 결과 큐로 완료를 알린다(BE가 DB에 기록) → 다시보기(6.4)는 BE가 준 Presigned URL로 브라우저가 S3에서 바로 재생한다(4.3)
-8. **모니터링**: Prometheus가 서버 · 컨테이너 · LiveKit · Egress 지표를 모으고, 팀원은 `grafana.hangguet.co.kr`(Cloudflare Access 로그인)로 본다(3.3)
+8. **모니터링**: Prometheus가 서버 · 컨테이너 · LiveKit · Egress 지표를 모으고, 팀원은 `grafana.hangguet.co.kr`(Grafana 자체 로그인)로 본다(3.3)
 
 외부 API 키(Soniox · ElevenLabs · Jev · GMS)는 모두 서버(AI)에만 있다. 브라우저는 외부 서비스에 직접 붙지 않는다.
 
@@ -145,7 +145,9 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | 접속 | pem으로 SSH | SSAFY가 pem만 준다 |
 | 런타임 | Docker Engine + Compose plugin | 개발 서버와 같은 방식으로 띄운다 |
 | compose | 프로젝트 `a301-prod`, 파일 `deploy/prod/compose.yml`, 컨테이너 이름 `a301-prod-*` **[제안]** | 개발 서버(`a301-dev-*`)와 이름이 겹치지 않고 어느 환경인지 바로 보인다 |
-| 메모리 | 컨테이너마다 `mem_limit`. 스왑 4GB를 만든다(지금 스왑 없음) **[제안]** | 한 서비스가 메모리를 다 써도 다른 서비스(특히 DB)가 같이 죽지 않게 한다 |
+| 메모리 | 컨테이너마다 `mem_limit` **[제안]**. 스왑 4GB(`vm.swappiness=10`) 만들어 둠 | 한 서비스가 메모리를 다 써도 다른 서비스(특히 DB)가 같이 죽지 않게 한다. 스왑은 메모리가 정말 부족할 때만 쓰게 우선순위를 낮췄다 |
+| 시간대 | `Asia/Seoul`로 바꿔 둠 | 서버 로그와 매일 돌릴 DB 백업 시각을 한국 시간으로 읽기 위해. 앱은 이미 한국 시간으로 응답하므로 영향 없다 |
+| 셋팅 결과 | Ubuntu 24.04.4 · 4코어 · 15GB(처음 사용 약 0.6GB) · 디스크 309GB · 공인 IP `13.209.81.168`. Docker 29.9 + Compose v5.6(공식 저장소, 기본 로그 10MB × 3). 배포 폴더 `/opt/a301`(러너 계정 전용) | 기본 셋팅 기록. 다시 만들 일이 생기면 이 값과 비교한다 |
 | 로그 | json-file 10MB × 3(개발 서버와 같음) | 로그가 디스크를 채우지 않게 한다 |
 | CPU 버스트 | Lightsail 플랜은 버스트형(기준 CPU 사용률이 있음)이다. 미디어 중계 · AI가 기준치를 넘겨 CPU를 오래 쓰면 크레딧이 바닥나 서버 전체가 느려지므로 플랜의 기준치를 확인한다 **[확인 필요]** | 동시 면접 수를 정할 때 이 기준치가 상한이 된다 |
 
@@ -178,10 +180,14 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 | node-exporter | 서버 CPU · 메모리 · 디스크 · 네트워크 |
 | cAdvisor | 컨테이너별 CPU · 메모리(어느 서비스가 무거운지) |
 | LiveKit · Egress 내장 지표 | 면접방 · 참가자 수, 패킷 손실, 녹화 상태. `livekit.yaml`의 `prometheus_port`로 내보낸다 |
-| Grafana | 대시보드. `grafana.hangguet.co.kr`을 Tunnel로 열고 **Cloudflare Access**(팀원 이메일만 로그인)로 막는다 |
+| Grafana | 대시보드. `grafana.hangguet.co.kr`을 Tunnel로 열고 **Grafana 자체 로그인**(아이디 · 비밀번호)으로 막는다 **[결정]** |
 
 - 의도: 서버 한 대에 모든 서비스가 있으므로, 느려졌을 때 "어느 컨테이너 때문인지"를 바로 알아야 한다. 그래야 그 서비스만 떼어 낼지(MSA) 판단할 수 있다(1.1)
-- 왜 Cloudflare Access: Grafana에는 서버 내부 정보가 다 보이므로 팀원만 볼 수 있어야 한다. 포트를 열지 않고 Tunnel 앞에서 로그인을 걸 수 있다
+- 왜 Grafana 자체 로그인: 팀원이 Cloudflare 계정이나 이메일 인증 없이 아이디 · 비밀번호로 바로 들어갈 수 있다. 대신 로그인 화면이 인터넷에 열리므로 아래를 지킨다 **[제안]**
+  - 관리자 비밀번호는 `GRAFANA_ADMIN_PASSWORD`(7장)로 길고 무작위로 둔다. 기본값(`admin/admin`)으로 뜨지 않게 한다
+  - 회원가입(`GF_USERS_ALLOW_SIGN_UP=false`)과 익명 접근(`GF_AUTH_ANONYMOUS_ENABLED=false`)을 끈다. 둘 다 Grafana 기본값도 꺼져 있지만 compose에 명시한다
+  - 팀원은 관리자 계정을 같이 쓰지 않고 각자 계정(보기 권한)을 만든다. 누가 무엇을 바꿨는지 남는다
+  - 로그인 시도 제한(Grafana 기본 기능)을 끄지 않는다
 - BE 지표(요청 수 · 응답 시간)는 Spring Actuator에 Prometheus 내보내기를 추가해야 한다(BE 작업, **[미정]**)
 - 로그 수집(Loki)은 MVP에서 빼고 `docker logs`로 본다 **[제안]**. 왜: 메모리를 더 쓰고, MVP 규모에서는 `docker logs`로 충분하다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**
@@ -214,6 +220,12 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 | 개발에서는 **실제 사용자 음성 · 영상을 쓰지 않는다**(테스트 데이터만) | 개발 미디어는 외부 서비스(LiveKit Cloud)를 거친다. CONTRIBUTING 7장의 실제 사용자 데이터 취급 원칙과 같은 취지 |
 
 **개발에서 미리 확인할 수 없는 것**: 운영의 포트 · TURN/TLS 443 · 인증서(4.2), Egress 자원 사용량(4.3)은 Cloud가 대신 처리하므로 개발에서는 드러나지 않는다. Lightsail을 받으면 운영 서버에서 따로 시험한다(11장). Cloud 무료 구간 한도도 가끔 확인한다.
+
+**확인 결과**: SSAFY 와이파이에서 LiveKit Connection Test 성공(Cloud 서버 v1.13.10, 리전 Japan, TURN 연결, 음성 · 영상 송수신). 접속 문제가 생기면 이 결과와 비교한다.
+
+**로컬 개발용 키**: 개발용 LiveKit Cloud 키는 인프라(해준)에게 요청한다. 채팅이나 레포에 공유하지 않는다.
+
+**Cloud 무료 구간(Build 요금제, 매달 1일 초기화)**: 대략 WebRTC 참가 5,000분 · 에이전트 세션 1,000분 · 트랙 녹화 60분 · 하향 전송 50GB. **한도를 넘으면 요금이 나가는 게 아니라 요청이 실패한다**(다음 달까지 면접방 · 녹화가 막힘). 정확한 값은 Cloud 대시보드의 요금 화면에서 확인한다. 그래서 개발 시험은 **면접 1~2분짜리로 짧게** 하고, 녹화는 동작만 확인한다. 긴 녹화 시험은 운영 셀프 호스팅에서 한다(한도 없음).
 
 ### 4.1 구성 **[제안]**
 
@@ -253,6 +265,8 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 - 인증서는 Let's Encrypt로 받는다. 서버에서 `certbot` + Cloudflare DNS 플러그인(DNS-01)을 쓰면 80번 포트를 열 필요가 없다. 갱신은 cron으로 하고, 갱신 뒤 LiveKit을 다시 띄운다(`--deploy-hook`)
 - Cloudflare API 토큰은 `hangguet.co.kr` 영역의 DNS 편집 권한만 준다. 왜: 토큰이 새도 다른 설정은 못 바꾸게 한다
 - 서버의 443은 다른 용도로 쓰지 않는다(웹은 Tunnel로 받으므로 비어 있다). 왜 443인가: 엄격한 방화벽도 HTTPS 포트(443)는 거의 열어 두기 때문이다
+- **확인 결과**: 인증서는 `/etc/letsencrypt/live/turn.hangguet.co.kr/`에 발급했고 자동 갱신 시험을 통과했다. 갱신 뒤 LiveKit을 재시작하는 스크립트를 `/etc/letsencrypt/renewal-hooks/deploy/restart-livekit.sh`에 두었다. LiveKit 컨테이너에는 `/etc/letsencrypt`를 통째로 읽기 전용으로 넣는다(`live/`의 파일이 `archive/`를 가리키는 링크라 파일 하나만 넣으면 링크가 끊긴다)
+- **확인 결과**: 시험용 LiveKit으로 Connection Test를 한 결과 **SSAFY 와이파이(TURN)와 핫스팟 모두 접속 · 음성 · 영상 송수신 성공**. LiveKit TURN의 중계 포트 범위(30000~40000)는 **바깥에 열지 않아도** 동작했다
 
 ### 4.3 서버 녹화 · 다시보기 **[결정]**(구성은 **[제안]**)
 
@@ -281,7 +295,7 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 |---|---|
 | `hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-nginx:80` |
 | `rtc.hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-livekit:7880`(WebSocket) |
-| `grafana.hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-grafana:3000` + Cloudflare Access(팀원만) |
+| `grafana.hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-grafana:3000` (Grafana 자체 로그인, 3.3) |
 | `turn.hangguet.co.kr` | **프록시 끔(회색 구름)** A 레코드 → Lightsail 공인 IP(TURN/TLS는 Cloudflare를 거칠 수 없다) |
 
 - 가비아에서 구매, 네임서버는 Cloudflare로 위임 완료
@@ -327,6 +341,9 @@ sudo ufw status numbered
   - 배포 뒤 `sudo ss -tulpn`으로 바깥 주소(`0.0.0.0` · `[::]`)에 열린 포트가 22 · 443 · 3478 · 7881 · 7882뿐인지 확인한다
 - 그 밖의 포트(80 · 7880 · 5432 · 6379 · 3000 · 9090 등)는 열지 않는다. 웹 · 시그널링 · Grafana는 Tunnel로만 받는다
 - **SSAFY 강의실 네트워크에서 접속 테스트**를 한다. UDP 7882 → TCP 7881 → TURN(UDP 3478 → TLS 443) 순서로 넘어가는지 확인한다. LiveKit 연결 테스트 페이지(`livekit-cli` 또는 공식 Connection Test)로 어떤 경로로 붙었는지 볼 수 있다
+- **확인 결과(실측)**
+  - SSAFY 와이파이는 **바깥으로 나가는 TCP를 80 · 443 · 8080만 허용**한다(3478 · 5349 · 7880 · 7881 · 8443은 막힘). 그래서 강의실에서는 TCP 7881이 안 되고 **TURN/TLS 443이 사실상 유일한 길**이다
+  - Lightsail 쪽: SSAFY 와이파이에서 443 접속 성공, 핫스팟에서 443 · 7881 접속 성공 → **Lightsail 방화벽(SSAFY 관리)도 이 포트들을 열어 두었다**. UDP는 LiveKit Connection Test로 확인했다(4.2)
 
 ## 6. 저장소 · 권한
 
@@ -335,7 +352,7 @@ sudo ufw status numbered
 | 리소스 | 내용 | 왜 |
 |---|---|---|
 | S3 버킷 하나 (우리 AWS 계정) | 접두사 `profile/` · `recordings/raw/`(트랙 원본) · `recordings/`(합친 mp4) · `backup/`. Block Public Access 켬. 브라우저 업로드 · 재생은 Presigned URL. 버킷 이름 **[미정]** | 버킷 하나에 접두사로 나누면 권한을 접두사 단위로 줄 수 있다. 공개를 막고 Presigned URL로만 주면 남의 파일을 볼 수 없다 |
-| Docker Hub (운영 이미지) | **비공개 저장소** 하나(예: `<팀 계정>/a301`)에 서비스를 태그로 구분한다: `be-<커밋 SHA>` · `fe-<커밋 SHA>` · `ai-<커밋 SHA>` **[결정]**(이름은 **[제안]**) | 무료 플랜은 비공개 저장소가 1개라 태그로 나눈다. 공개 저장소는 쓰지 않는다(이미지 안에 코드가 그대로 들어 있다) |
+| Docker Hub (운영 이미지) | **비공개 저장소 `hanggeut/a301`**에 서비스를 태그로 구분한다: `be-<커밋 SHA>` · `fe-<커밋 SHA>` · `ai-<커밋 SHA>` **[결정]**. 토큰은 push용(Read & Write, `a301-ci-push`)과 pull용(Read-only, `a301-prod-pull`) 두 개 | 무료 플랜은 비공개 저장소가 1개라 태그로 나눈다. 공개 저장소는 쓰지 않는다(이미지 안에 코드가 그대로 들어 있다). 토큰을 나눠 운영 서버의 토큰이 새도 이미지를 바꿔치기할 수 없게 한다 |
 
 녹화 원본은 Egress가, 합친 영상은 AI 분석 작업자가 S3에 올린다(4.3). 채점에 쓸 답변별 음성을 녹화 원본에서 잘라 쓸지 따로 저장할지는 12장에서 정한다.
 
@@ -367,9 +384,9 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
 | `GRAFANA_ADMIN_PASSWORD` | O | Grafana |
 | AWS 키(6.2) | O | 각 사용처 |
-| `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만 |
+| `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만. 이 작업에도 `prod/` 환경 이름을 붙여야 읽힌다(8.1) |
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
-| `DOCKERHUB_USERNAME` · `DOCKERHUB_REPO` | X | 빌드 · 배포 작업 |
+| 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
 | `LLM_CHAT_URL` · `LLM_MODEL` | X | AI |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |
@@ -395,6 +412,8 @@ develop → Release MR → master
 |---|---|
 | **운영 서버만 Docker Hub를 쓴다** **[결정]**. 개발 서버(develop → 미니PC)는 지금처럼 미니PC 러너가 그 자리에서 빌드해 띄운다(`deploy/dev/compose.yml`의 `build`) | 개발 서버는 빌드하는 곳과 도는 곳이 같아 레지스트리를 거칠 필요가 없다. 운영 서버는 다른 곳이라 이미지를 받아 와야 한다 |
 | SSAFY GitLab은 Container Registry가 꺼져 있어 외부 레지스트리(Docker Hub)를 쓴다 | GitLab 레지스트리를 쓸 수 없다 |
+| Docker Hub 로그인은 **작업마다 임시 폴더**(`DOCKER_CONFIG=$(mktemp -d)`)에서 하고, 작업이 끝나면 로그아웃하고 지운다 | 로그인 정보가 서버(`~/.docker/config.json`)에 암호화되지 않은 채 남지 않게 한다 |
+| 이미지 빌드 작업에 `environment: { name: prod/build, action: prepare }`를 붙인다 **[제안]** | push 토큰 범위가 `prod/*`라 이 이름이 있어야 읽힌다. develop 파이프라인에서는 push 토큰이 보이지 않는다 |
 | 운영 서버에서는 빌드하지 않는다 | Gradle · Next 빌드가 서비스 메모리를 잡아먹어 서비스가 죽을 수 있다 |
 | 같은 이미지를 환경만 바꿔 띄우므로 이미지에 환경별 값을 넣지 않는다. FE가 브라우저에 알려 줄 값(LiveKit 주소 등)도 빌드 때 박는 `NEXT_PUBLIC_*` 대신 실행 시점 값(BE 응답이나 서버 환경 변수)으로 넘긴다 **[제안]** | 값을 빌드 때 넣으면 환경마다 이미지를 다시 만들어야 하고, 같은 이미지로 롤백할 수 없다 |
 | Lightsail에 **protected** GitLab 러너(shell executor)를 둔다. master 파이프라인만 실행한다 | 아무 브랜치에서나 운영 서버 명령이 돌면 안 된다. 러너가 GitLab에 먼저 접속하므로 포트를 열 필요가 없다 |
@@ -409,7 +428,7 @@ develop → Release MR → master
 # 저장소 하나에 서비스를 태그 접두사(be-/fe-/ai-)로 나누므로 접두사마다 최신 3개만 남긴다.
 # docker image ls는 만든 시각이 최신인 것부터 보여 준다. 돌고 있는 컨테이너의 이미지는 docker rmi가 거부해 남는다.
 for svc in be fe ai; do
-  docker image ls "$DOCKERHUB_REPO" --format '{{.Tag}} {{.ID}}' \
+  docker image ls hanggeut/a301 --format '{{.Tag}} {{.ID}}' \
     | awk -v p="$svc-" 'index($1, p) == 1 && !seen[$2]++ { print $2 }' \
     | tail -n +4 | xargs -r docker rmi || true
 done
@@ -447,15 +466,20 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 
 ### 준비
 
-- [ ] pem · IP 받기, 플랜 확인, Docker 설치, 스왑
-- [ ] 포트 열기(UDP 7882 · 3478, TCP 7881 · 443), 바깥 네트워크와 SSAFY 강의실에서 확인
-- [ ] Cloudflare `a301-prod` 터널(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`), Cloudflare Access(Grafana), `turn.hangguet.co.kr` DNS(프록시 끔)
-- [ ] TURN 인증서: certbot + Cloudflare DNS 플러그인 발급, 자동 갱신 · LiveKit 재시작 hook
-- [ ] Docker Hub 비공개 저장소 · push/pull 토큰, S3 버킷, IAM 키(6.2)
-- [ ] Lightsail에 protected 러너 등록
+- [x] pem · IP 받기, Docker 설치, 스왑, 시간대
+- [ ] Lightsail 플랜의 CPU 기준치 확인
+- [x] 포트 열기(UDP 7882 · 3478, TCP 7881 · 443), 바깥 네트워크와 SSAFY 와이파이에서 확인
+- [x] Cloudflare `a301-prod` 터널(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`), `turn.hangguet.co.kr` DNS(프록시 끔), Always Use HTTPS
+- [x] TURN 인증서: certbot + Cloudflare DNS 플러그인 발급, 자동 갱신 · LiveKit 재시작 hook
+- [x] 시험용 LiveKit으로 TURN · UDP 접속 확인(SSAFY 와이파이 · 핫스팟)
+- [x] 시험용 컨테이너(`a301-prod-livekit`, `cloudflared-try`) · 네트워크(`a301-try`) · `~/livekit-try` 정리. **정식 이름으로 띄운 시험 컨테이너가 남으면 CI 배포와 충돌한다**
+- [x] Docker Hub 비공개 저장소(`hanggeut/a301`) · push/pull 토큰 · GitLab 변수. 미니PC push, Lightsail pull 성공, pull 토큰으로 push가 막히는 것(`insufficient scopes`)까지 확인
+- [ ] S3 버킷, IAM 키(6.2)
+- [x] Lightsail에 protected 러너 등록(`a301-prod`, shell)
+- [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
 - [ ] `deploy/prod/compose.yml` · `livekit.yaml` · Egress 설정 · Prometheus 설정 · Nginx 설정, CI 작업(이미지 빌드 · `prod-deploy`)
-- [ ] Grafana 대시보드(서버 · 컨테이너 · LiveKit)
-- [ ] GitLab 변수(`prod/*`) 등록
+- [ ] Grafana 대시보드(서버 · 컨테이너 · LiveKit), 팀원 계정
+- [ ] GitLab 변수(`prod/*`) 등록: `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문) 등록함. 나머지(DB · JWT · 외부 API · AWS · Docker Hub · Grafana)는 남음
 
 ### 먼저 develop에 들어가야 하는 것
 
@@ -466,7 +490,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 
 - [ ] Release MR(develop → master), 배포
 - [ ] 스모크 테스트: 가입 → 로그인 → 지원서 → 면접 만들기 → 면접방 입장 → 면접관 질문 음성 → 답변 인식 → 리액션 → 끝내기 → 결과 → 다시보기
-- [ ] TURN 접속 확인: UDP를 막은 네트워크(또는 SSAFY 강의실)에서 면접방 입장
+- [ ] TURN 접속 확인: 실제 서비스(정식 배포)로 SSAFY 강의실에서 면접방 입장(시험용 LiveKit으로는 확인함, 4.2)
 - [ ] Grafana에서 면접 1건 동안 CPU · 메모리 확인(동시 면접 수 판단 근거)
 - [ ] DB 백업 1회 · 복원 확인, 롤백 1회 확인
 
@@ -507,9 +531,6 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 항목 | 상태 |
 |---|---|
 | Lightsail 플랜의 CPU 기준치 | 확인 필요 |
-| ufw로 연 7881 · 7882가 바깥에서 실제로 들어오는지(클라우드 쪽 방화벽 여부) | ufw를 연 뒤 바깥 네트워크에서 확인 |
-| SSAFY 강의실 네트워크에서 어떤 경로(UDP · TCP · TURN)로 붙는지 | 확인 필요 |
-| LiveKit 내장 TURN의 릴레이 포트 범위를 따로 열어야 하는지 | LiveKit 문서로 확인 |
 | 동시 녹화 수 · Egress 메모리 | **[미정]** 실측 |
 | AI 에이전트 · 분석 작업자 메모리, 동시 면접 수 | **[미정]** 실측 |
 | 리액션 데이터 메시지 형식(12장) | **[미정]** (AI · FE) |
@@ -518,7 +539,8 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | BE 지표 내보내기, 알림 기준 | **[미정]** |
 | 운영 BE Swagger 공개, S3 버킷 이름, 녹화 · 백업 보관 기간 | **[미정]** |
 | 구조도 | 새 구조로 다시 그린다. `architecture-draft.webp`는 이전 초안 |
-| LiveKit Cloud 무료 구간 한도 · 팀 계정 소유자 | 확인 필요 (인프라) |
+| LiveKit Cloud 무료 구간 정확한 값(대략은 4.0) · 팀 계정 소유자 | 대시보드 요금 화면에서 확인 (인프라) |
+| 개발용 녹화 저장소 | 개발에서는 LiveKit Cloud 서버가 S3에 직접 올리므로 운영 버킷의 `aws:SourceIp` 조건(6.2)에 막힌다. 개발용 버킷(또는 접두사)과 IAM 키를 따로 둔다 **[제안]** (인프라) |
 | 개발 서버 LiveKit을 미니PC 셀프 호스팅으로 바꿀지 | 앞 장비(통신사 공유기) 관리자 계정을 알게 되면 DMZ(→ ipTIME `192.168.45.235`) 설정 후 전환 |
 
 ## 14. 변경 기록
@@ -532,3 +554,5 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 맨 위 · 각 장 | 수정 규칙과 결정별 이유(`왜:`) 추가 | 팀원이 이 문서를 기준으로 자기 파트를 고칠 때, 결정의 이유를 보고 바꿔도 되는지 판단할 수 있게 |
 | BE | 1.1 · 2 · 3.2 · 4.3 · 7 · 12 · 13 | AI → BE 전달을 BE 내부 API에서 Redis 결과 큐로 변경. AI는 DB를 읽지도 않고 입력은 작업 메시지 · 배정 메타데이터로 받음. 진행 상태도 BE만 씀. 내부 API 토큰 삭제 | 분석 작업이 이미 Redis 큐라 결과도 같은 길로 받으면 내부 API 노출 · 인증 문제가 없고, DB를 BE 한 곳에서만 다루게 된다 |
 | 인프라 | 1 · 4.0 · 7 · 13 | 개발은 LiveKit Cloud, 운영은 셀프 호스팅으로 나눔. LiveKit 팀원 규칙(환경 변수, Cloud 전용 기능 금지, SDK 버전, 웹훅, 테스트 데이터) 추가 | 개발 서버(미니PC)가 이중 NAT 뒤에 있어 바깥에서 미디어 포트로 들어올 수 없고, 앞 장비 관리자 계정을 몰라 해결할 수 없어서. 코드는 같게 두고 주소 · 키만 바꾸기 위해 규칙을 정함 |
+| 인프라 | 3.1 · 3.3 · 4.0 · 4.2 · 5.1 · 5.2 · 11 · 13 | Lightsail 기본 셋팅 결과 기록(OS · Docker · 방화벽 · 러너 · Cloudflare · TURN 인증서). Grafana를 Cloudflare Access에서 Grafana 자체 로그인으로 변경. 시험용 LiveKit으로 TURN · UDP 접속 확인 결과와 SSAFY 와이파이 포트 실측, LiveKit Cloud 무료 구간 · 로컬 키 요청 방법 추가. 확인이 끝난 13장 항목 3개를 지우고 해당 장으로 옮김 | 운영 서버를 실제로 셋팅하며 확인한 사실을 남겨, 팀원이 같은 확인을 반복하지 않고 접속 문제가 생겼을 때 비교 기준으로 쓰게 하려고. Grafana는 팀원이 별도 인증 없이 들어갈 수 있게 하려고 |
+| 인프라 | 6.1 · 7 · 8.1 · 8.2 · 11 | Docker Hub 연동 완료(비공개 저장소 `hanggeut/a301`, push · pull 토큰 분리, GitLab 변수 `prod/*`). 로그인은 작업마다 임시 폴더에서 하고 지우는 방식, 빌드 작업에 `prod/build` 환경 이름을 붙이는 방식 추가. 계정 · 저장소 이름은 변수가 아니라 CI 파일에 적기로 함 | 운영 이미지를 받아 올 경로를 미리 확인하고, 토큰이 서버나 develop 파이프라인에 새지 않게 하려고 |
