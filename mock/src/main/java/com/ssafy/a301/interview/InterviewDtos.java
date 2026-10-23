@@ -3,13 +3,9 @@ package com.ssafy.a301.interview;
 import com.ssafy.a301.growth.GrowthDtos.Criterion;
 import com.ssafy.a301.growth.GrowthDtos.Grade;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -157,7 +153,15 @@ public final class InterviewDtos {
                                     "이번에 끝낸 면접의 한국 시간 시작 날짜로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이"
                                             + " 있고, 그 외에는 null",
                             nullable = true)
-                    Boolean leveledUp) {}
+                    Boolean leveledUp,
+            @Schema(description = "면접방 입장 정보. 5.4 응답에만 값이 있고, 그 외에는 null", nullable = true)
+                    RoomResponse room) {}
+
+    @Schema(description = "면접방(LiveKit) 입장 정보(5.4·5.14)")
+    public record RoomResponse(
+            @Schema(description = "면접방 주소", example = "wss://rtc.hangguet.co.kr") String url,
+            @Schema(description = "입장 토큰. 이 면접의 방 하나·본인에게만 권한이 있다") String token,
+            @Schema(description = "토큰 만료 일시. 지나면 5.14로 다시 받는다") OffsetDateTime expiresAt) {}
 
     public record QuestionResponse(
             @Schema(description = "질문 id", example = "303") long id,
@@ -165,53 +169,14 @@ public final class InterviewDtos {
             @Schema(description = "질문 내용") String content,
             @Schema(description = "질문을 낸 일시") OffsetDateTime createdAt) {}
 
-    public record AnswerAudioUploadUrlRequest(
-            @Schema(
-                            description = "녹음 형식",
-                            allowableValues = {"audio/webm", "audio/ogg", "audio/mp4"},
-                            example = "audio/webm")
-                    @NotBlank(message = "필수 값입니다.")
-                    @Pattern(
-                            regexp = "audio/webm|audio/ogg|audio/mp4",
-                            message = "audio/webm·audio/ogg·audio/mp4만 가능합니다.")
-                    String contentType) {}
-
     public record AnswerRequest(
-            @Schema(description = "VOICE(화상) | TEXT(채팅). 면접 방식(mode)과 같아야 한다", example = "VOICE")
+            @Schema(description = "TEXT(채팅)만 가능하다. 화상 답변은 이 API를 쓰지 않는다", example = "TEXT")
                     @NotNull(message = "필수 값입니다.")
                     InputType inputType,
-            @Schema(
-                            description =
-                                    "답변 글. 채팅은 입력한 글(1~1,000자), 화상은 실시간 음성 인식(5.10)의 최종"
-                                            + " 결과(1~10,000자)")
+            @Schema(description = "입력한 답변 글(1~1,000자)")
                     @NotBlank(message = "필수 값입니다.")
-                    @Size(max = 10_000, message = "TEXT 1~1,000자, VOICE 1~10,000자입니다.")
-                    String content,
-            @Schema(
-                            description = "답변 음성 키. VOICE일 때 필수. 5.6에서 받은 objectKey",
-                            nullable = true,
-                            example = "sessions/55/answers/303.webm")
-                    String audioObjectKey,
-            @Schema(
-                            description =
-                                    "음성 인식(5.10)이 확정한 토큰과 말한 시각. VOICE일 때만 보내며 없어도 된다."
-                                            + " 말하기 지표 계산에 쓴다",
-                            nullable = true)
-                    @Size(max = 10_000, message = "최대 10,000개입니다.")
-                    List<@NotNull(message = "필수 값입니다.") @Valid TranscriptToken> tokens) {}
-
-    public record TranscriptToken(
-            @Schema(description = "음성 인식이 확정한 토큰 글자. 단어 일부, 공백, 앞에 공백이 붙은 단어일 수 있다", example = "응답")
-                    @NotEmpty(message = "필수 값입니다.")
-                    String text,
-            @Schema(description = "토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준", example = "320")
-                    @NotNull(message = "필수 값입니다.")
-                    @PositiveOrZero(message = "0 이상입니다.")
-                    Integer startMs,
-            @Schema(description = "토큰을 말하기 끝낸 시각(밀리초). startMs 이상", example = "600")
-                    @NotNull(message = "필수 값입니다.")
-                    @PositiveOrZero(message = "0 이상입니다.")
-                    Integer endMs) {}
+                    @Size(max = 1_000, message = "1~1,000자입니다.")
+                    String content) {}
 
     public record AnswerResponse(
             @Schema(description = "답변 id", example = "903") long id,
@@ -220,86 +185,6 @@ public final class InterviewDtos {
             @Schema(description = "제출 일시") OffsetDateTime createdAt,
             @Schema(description = "마지막 질문이었으면 true → 화면이 면접 끝내기(5.8) 호출. false면 다음 질문을 기다린다")
                     boolean isLastQuestion) {}
-
-    @Schema(description = "면접관이 말을 끊는 이유. OFF_TOPIC 질문과 관계없는 이야기 · TOO_LONG 너무 긴 답변")
-    public enum InterruptReason {
-        OFF_TOPIC,
-        TOO_LONG
-    }
-
-    public record ReactionRequest(
-            @Schema(description = "답변 안에서 보낸 순서(1부터). 화상은 몇 번째 문장, 채팅은 몇 번째 입력", example = "3")
-                    @NotNull(message = "필수 값입니다.")
-                    @Positive(message = "1 이상입니다.")
-                    Integer seq,
-            @Schema(
-                            description = "화상은 음성 인식이 확정한 문장, 채팅은 입력 칸의 글 전체(1~1,000자)",
-                            example = "그래서 조회 응답 시간을 40% 줄였습니다.")
-                    @NotBlank(message = "필수 값입니다.")
-                    @Size(max = 1_000, message = "1~1,000자입니다.")
-                    String text,
-            @Schema(description = "화상은 문장을 말한 뒤 쉰 시간, 채팅은 입력을 멈춘 시간(밀리초)", example = "420")
-                    @NotNull(message = "필수 값입니다.")
-                    @PositiveOrZero(message = "0 이상입니다.")
-                    Integer pauseMs) {}
-
-    public record Reaction(
-            @Schema(
-                            description = "리액션 종류. state 면접관 상태 · expression 표정 · gesture 동작",
-                            allowableValues = {"state", "expression", "gesture"},
-                            example = "gesture")
-                    String type,
-            @Schema(
-                            description = "type이 state일 때만 값",
-                            allowableValues = {"idle", "listening", "thinking", "speaking"},
-                            nullable = true)
-                    String state,
-            @Schema(
-                            description = "type이 expression일 때만 값",
-                            allowableValues = {"smile", "frown", "smirk"},
-                            nullable = true)
-                    String expression,
-            @Schema(
-                            description = "type이 gesture일 때만 값",
-                            allowableValues = {"small_nod", "nod", "tilt"},
-                            nullable = true)
-                    String gesture,
-            @Schema(description = "세기(0~1). 표정 이미지 방식은 무시한다", nullable = true, example = "0.6")
-                    Double intensity,
-            @Schema(description = "리액션을 유지하는 시간(밀리초)", example = "1200") int durationMs,
-            @Schema(description = "요청을 보낸 뒤 이 시간이 지나 도착하면 버린다(밀리초)", example = "1500") int ttlMs,
-            @Schema(description = "리액션을 정한 곳. 이 API는 항상 server", example = "server")
-                    String source) {}
-
-    public record Attitude(
-            @Schema(description = "관심(0~1)", example = "0.7") double interest,
-            @Schema(description = "신뢰(0~1)", example = "0.6") double trust,
-            @Schema(description = "긴장(0~1)", example = "0.2") double tension) {}
-
-    public record Interrupt(
-            InterruptReason reason,
-            @Schema(description = "면접관이 하는 말. 자막으로 보여 준다", example = "질문으로 다시 돌아가 볼게요.")
-                    String text) {}
-
-    public record ReactionResponse(
-            @Schema(description = "요청의 seq. 응답이 순서와 다르게 오면 가장 큰 seq의 응답만 쓴다", example = "3")
-                    int seq,
-            @Schema(description = "보낸 글에 대한 면접관 리액션. 반응하지 않을 때는 null", nullable = true)
-                    Reaction reaction,
-            @Schema(description = "지금까지 답변을 듣고 쌓인 면접관 태도. 표정이 서서히 바뀌는 데 쓴다") Attitude attitude,
-            @Schema(description = "면접관이 말을 끊을 때만 값이 있다. 채팅은 항상 null", nullable = true)
-                    Interrupt interrupt) {}
-
-    public record SttTokenResponse(
-            @Schema(description = "Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 연결할 때마다 새로 받는다")
-                    String token,
-            @Schema(description = "이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다") OffsetDateTime expiresAt) {}
-
-    public record TtsTokenResponse(
-            @Schema(description = "ElevenLabs 질문 음성 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
-            @Schema(description = "토큰 만료 일시. 지나면 다시 발급받는다") OffsetDateTime expiresAt,
-            @Schema(description = "면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다") String voiceId,
-            @Schema(description = "음성 합성 모델 id. 서버가 정한다") String modelId) {}
 
     @Schema(description = "202 대기 상태 본문(오류 아님)")
     public record PendingResponse(@Schema(example = "QUESTION_GENERATING") String code) {}

@@ -84,7 +84,7 @@ public final class UserDtos {
                     @Max(value = 5_242_880, message = "5MB 이하만 올릴 수 있습니다.")
                     Long size) {}
 
-    @Schema(description = "업로드 주소(2.4·5.6·6.1 공통). 받은 주소로 파일을 PUT한 뒤 등록 API에 objectKey를 보낸다")
+    @Schema(description = "업로드 주소(2.4). 받은 주소로 파일을 PUT한 뒤 등록 API에 objectKey를 보낸다")
     public record UploadUrlResponse(
             @Schema(description = "파일을 PUT할 임시 주소") String uploadUrl,
             @Schema(description = "올린 파일의 키. 등록 API에 그대로 보낸다") String objectKey,
