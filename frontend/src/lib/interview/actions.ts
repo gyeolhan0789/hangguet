@@ -19,6 +19,7 @@ import type {
   AnswerResponse,
   ReactionRequest,
   ReactionResponse,
+  RoomResponse,
   SessionCreateRequest,
   SessionResponse,
   SttTokenResponse,
@@ -36,6 +37,21 @@ import {
   type SessionCreateValues,
 } from "./schemas";
 import { toSpeechActionFailure, type SpeechActionFailure } from "./speech-failure";
+
+// 기준: 웹 Swagger 5.14 POST /interview-sessions/{sessionId}/room-token · RoomResponse.
+// 면접 시작 후 화면 진입·새로고침·재입장 시 사용한다. 토큰은 브라우저 메모리에서만 사용한다.
+export type RoomTokenActionResult = ({ ok: true } & RoomResponse) | SpeechActionFailure;
+
+export async function issueRoomToken(sessionId: number): Promise<RoomTokenActionResult> {
+  if (!idSchema.safeParse(sessionId).success) return toSpeechActionFailure();
+  try {
+    const { data } = await api.post<RoomResponse>(endpoints.interviews.roomToken(sessionId));
+    return { ok: true, url: data.url, token: data.token, expiresAt: data.expiresAt };
+  } catch (error) {
+    unstable_rethrow(error);
+    return toSpeechActionFailure(error);
+  }
+}
 
 // 기준: Swagger 5.1 면접 만들기(POST /interview-sessions + Idempotency-Key → 201 SessionResponse
 // · 404 APPLICATION_NOT_FOUND · 409 IDEMPOTENCY_KEY_REUSED) · 기획 메모 S05-1(18:1013: [다음]을 누를 때 면접 플랜 생성 시작,

@@ -378,8 +378,9 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `DB_PASSWORD` | O | postgres, BE(AI는 DB에 접속하지 않는다) |
 | `JWT_SECRET` | O | BE |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
-| Soniox · ElevenLabs · Jev 키 | O | AI 에이전트(이름은 AI 파트가 정함). 지금 BE에 있는 `SONIOX_API_KEY` · `ELEVENLABS_API_KEY`는 AI로 옮긴다 |
-| `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`ai/pipeline/README.md`](../../ai/pipeline/README.md))과 같게 한다 |
+| `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
+| `ELEVENLABS_API_KEY` · `JEV_API_KEY` | O | AI 에이전트 연결 예정. 현재 AI 공통 설정의 변수 이름 |
+| `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`company-pipeline/pipeline/README.md`](../../company-pipeline/pipeline/README.md))과 같게 한다 |
 | `CLOUDFLARE_TUNNEL_TOKEN` | O | cloudflared |
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
 | `GRAFANA_ADMIN_PASSWORD` | O | Grafana |
@@ -388,6 +389,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
 | `LLM_CHAT_URL` · `LLM_MODEL` | X | AI |
+| `SONIOX_STT_MODEL` | X | AI 에이전트. 현재 기본값 `stt-rt-v5` |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |
 
@@ -396,6 +398,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | 이름 (dev) | 비밀 | 값 |
 |---|---|---|
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | LiveKit Cloud 프로젝트에서 발급한 키 |
+| `SONIOX_API_KEY` | O | `dev/*` 범위에서 `dev/ai-agent`에 전달. 없으면 에이전트 배포 잡이 실패한다 |
 | `LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL` | X | `wss://a301-dev-gdbmpfm5.livekit.cloud` (브라우저 · 서버 모두 이 주소). 비밀이 아니라 `deploy/dev/compose.yml`에 적는다 |
 
 ## 8. 빌드 · 배포 (CI/CD)

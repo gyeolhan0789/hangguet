@@ -77,9 +77,9 @@ S15P31A301-46/infra/docs/stt-runbook
 
 | part | 담당 영역 |
 | --- | --- |
-| `fe` | React 면접 화면, 음성 녹음·업로드, WebSocket 상태, JEV, 리포트 UX |
-| `be` | 인증, 지원정보, 면접 Session·Turn·Answer, STT·TTS 1회용 토큰, AI Job 적재, Storage, WebSocket |
-| `ai` | Company Pack·RAG, Blueprint, 평가, 꼬리질문, 리포트, AI Job 처리·결과 저장, 실시간 반응 |
+| `fe` | React 면접 화면, LiveKit 접속·미디어 송출·메시지 수신, 리포트 UX |
+| `be` | 인증, 지원정보, 면접 Session·Turn·Answer, LiveKit 입장 토큰·방·에이전트 배정, AI 작업 요청·결과 저장, Storage |
+| `ai` | 질문 생성·평가·리포트 작업, LiveKit 에이전트의 STT·TTS·Jev, 결과 큐 전송 |
 | `infra` | 로컬 환경, CI/CD, 배포, Secret, Storage, 관측, 비용·복구 |
 | `common` | 제품 규칙, OpenAPI·AsyncAPI·JSON Schema, Mock, Cross-part E2E |
 
@@ -309,7 +309,7 @@ MR 본문은 [`.gitlab/merge_request_templates/Default.md`](../.gitlab/merge_req
 - 마이크 권한 거부, Upload 실패, WebSocket 재연결을 처리한다.
 - 중복 클릭으로 Answer·Job이 중복 생성되지 않는다.
 - Keyboard·접근성·Chrome/Edge 주요 흐름을 확인한다.
-- GMS를 직접 호출하지 않는다. AI Service는 Nginx가 AI Service로 보내는 API([API 명세](API-명세.md) 1장)로만 호출하고, STT·TTS Provider에는 BE가 발급한 1회용 토큰으로만 직접 연결한다.
+- GMS·STT·TTS·Jev는 AI 서버가 호출한다. FE는 BE API로 업무를 처리하고, BE가 발급한 면접방 입장 토큰으로 LiveKit에 접속해 미디어·메시지를 주고받는다. AI 서버에 업무 HTTP API를 추가하지 않는다.
 
 ### 6.2 BE
 
@@ -364,16 +364,13 @@ estimatedCost
 
 ## 7. 음성·WebSocket·AI Job 금지사항
 
-- 음성 Binary를 BE·AI Service의 WebSocket Payload로 전송하지 않는다. 1회용 토큰으로 STT·TTS Provider에 직접 연결하는 경우는 제외한다.
+- 브라우저 음성·영상은 LiveKit으로 송출한다. 에이전트가 마이크를 구독해 Soniox WebSocket으로 전달하며, 별도 BE·AI 업무 WebSocket으로 음성을 중계하지 않는다.
 - 음성 Binary를 BE Application Body로 중계하지 않는다.
 - 실제 사용자 음성·Transcript·자소서를 Git·Fixture·CI Artifact에 넣지 않는다.
-- WebSocket Event를 전달 성공의 유일한 근거로 사용하지 않는다. REST 상태 조회로 복구할 수 있어야 한다.
+- 답변 저장·면접 진행의 확정 상태는 BE API로 복구할 수 있어야 한다. 실시간 STT 표시는 저장 성공을 의미하지 않으며, 현재 새로고침 후 이전 자막은 복원하지 않는다.
 - 동일 `idempotencyKey`로 Answer·AI Job이 중복 생성되지 않아야 한다.
 - FE에서 GMS·STT·TTS Provider Credential을 보유하지 않는다.
-- AI Service는 아래 범위에서만 사용자 DB와 JWT를 다룬다. 그 밖의 조회·저장은 하지 않는다.
-  - 실시간 반응 Service(면접 중 즉시 응답 API, 예: 5.11): BE와 같은 키로 JWT를 검증하고, [API 명세](API-명세.md) 1장 공통 규약(인증, 404, 실패 응답, 공통 오류)을 BE와 똑같이 따른다. 검증 오류는 422가 아니라 400 `VALIDATION_FAILED`로 응답한다. 인증·소유·상태 확인과 반응 입력에 필요한 `users`·`interview_sessions`·`interview_questions`·`answers`·`interview_plans`만 읽는다.
-  - 분석 Worker(Redis 작업 큐 기반 질문 생성·채점): 지원서·면접·회사 요약(고도화) Table을 읽고, `interview_plans`, `answers`의 평가 Column, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`에만 쓴다.
-  - 공시 요약 적재 Worker(고도화, S3 → 메인 DB): 회사 요약 Table에만 쓴다.
+- 면접 AI 에이전트·분석 작업자는 사용자 DB에 직접 접속하거나 로그인 JWT를 검증하지 않는다. BE가 인증·소유권을 확인하고 필요한 입력을 작업 메시지·에이전트 배정 정보로 전달한다. DB 저장과 면접 상태 변경도 BE가 담당한다.
 - 미등록 Prompt·Model·Rubric Version으로 운영 요청을 처리하지 않는다.
 
 ## 8. 충돌 해결과 변경 관리

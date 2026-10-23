@@ -13,6 +13,13 @@ export type PlanStatus = "GENERATING" | "READY" | "FAILED";
 /** 결과 생성 단계(S06-1 체크 목록). ORGANIZING_ANSWERS 답변 정리 → SCORING 기준별 분석 → WRITING_FEEDBACK 피드백 작성 */
 export type AnalysisStep = "ORGANIZING_ANSWERS" | "SCORING" | "WRITING_FEEDBACK";
 
+/** 웹 Swagger 5.14 면접방 입장 정보. 로그인 토큰과 별개로 이 방에만 사용할 수 있다. */
+export interface RoomResponse {
+  url: string;
+  token: string;
+  expiresAt: OffsetDateTime;
+}
+
 /** 지금 답할 질문 */
 export interface CurrentQuestion {
   /** 질문 id */

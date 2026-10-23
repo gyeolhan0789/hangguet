@@ -41,7 +41,7 @@ const GLB = "**/interview/devil/interviewer.glb";
 const POLL_MS = 2000;
 
 test.use({
-  channel: "chromium",
+  channel: process.env.PLAYWRIGHT_CHANNEL || "chromium",
   launchOptions: {
     args: [
       "--use-fake-device-for-media-stream",

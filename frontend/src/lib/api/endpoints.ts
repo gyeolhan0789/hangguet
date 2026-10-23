@@ -59,6 +59,8 @@ export const interviewEndpoints = {
   planRetry: (sessionId: Id) => `/interview-sessions/${sessionId}/plan/retry`,
   /** 5.4 POST 면접 시작 (Idempotency-Key 필수) */
   start: (sessionId: Id) => `/interview-sessions/${sessionId}/start`,
+  /** 5.14 POST 면접방 입장 토큰 */
+  roomToken: (sessionId: Id) => `/interview-sessions/${sessionId}/room-token`,
   /** 5.5 GET 지금 질문 */
   currentQuestion: (sessionId: Id) => `/interview-sessions/${sessionId}/questions/current`,
   /** 5.6 POST 답변 음성 업로드 주소 */
