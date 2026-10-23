@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import aiohttp
 import pytest
 
-from app.agent.stt import SAMPLE_RATE, SONIOX_URL, SonioxSTT, SttError, SttSettings, SttToken
+from app.agent.stt import SAMPLE_RATE, SONIOX_URL, SonioxSTT, SttError, SttSettings
+from app.common.answer import SpeechToken
 
 
 def test_final_tokens_accumulate_while_interim_is_replaced() -> None:
@@ -32,7 +33,10 @@ def test_final_tokens_accumulate_while_interim_is_replaced() -> None:
     )
     assert stt.text == "안녕하세요 저는"
     assert stt.interim_text == " 개발자"
-    assert stt.tokens == [SttToken("안녕하세요", 100, 800), SttToken(" 저는", 900, 1200)]
+    assert stt.transcript.answer_tokens() == (
+        SpeechToken("안녕하세요", 100, 800),
+        SpeechToken(" 저는", 900, 1200),
+    )
 
 
 def test_control_tokens_are_excluded_and_missing_timing_is_preserved() -> None:
@@ -49,7 +53,10 @@ def test_control_tokens_are_excluded_and_missing_timing_is_preserved() -> None:
         }
     )
     assert stt.text == "답변."
-    assert stt.tokens[-1] == SttToken(".", None, None)
+    assert stt.transcript.final_count == 2
+    # 시각 없는 토큰도 글은 보존하고,
+    # 답변 토큰(tokens)은 범위(AI 명세 6.2)를 벗어나므로 생성하지 않는다
+    assert stt.transcript.answer_tokens() is None
     assert stt.interim_text == ""
 
 
@@ -66,14 +73,34 @@ def test_updates_include_replacement_interim_and_preserve_confirmed_timings() ->
             ]
         }
     )
-    stt.accept_response({"tokens": [{"text": " 저는", "is_final": True}], "finished": True})
+    stt.accept_response(
+        {
+            "tokens": [{"text": " 저는", "is_final": True, "start_ms": 600, "end_ms": 900}],
+            "finished": True,
+        }
+    )
     assert [call.args for call in updates.call_args_list] == [
         ("", "안녕"),
         ("", "안녕하세요"),
         ("안녕하세요", " 저는"),
         ("안녕하세요 저는", ""),
     ]
-    assert stt.tokens[0] == SttToken("안녕하세요", 10, 500)
+    assert stt.transcript.answer_tokens() == (
+        SpeechToken("안녕하세요", 10, 500),
+        SpeechToken(" 저는", 600, 900),
+    )
+
+
+def test_confirmed_text_for_screen_keeps_spaces() -> None:
+    """화면은 확정 글 뒤에 미확정 글을 이어 표시하므로 확정 글의 공백을 제거하지 않는다."""
+    updates = Mock()
+    stt = SonioxSTT(SttSettings("secret"), on_update=updates)
+    stt.accept_response(
+        {"tokens": [{"text": " 네", "is_final": True}, {"text": " ", "is_final": True}]}
+    )
+
+    assert stt.text == " 네 "
+    assert updates.call_args.args == (" 네 ", "")
 
 
 @pytest.mark.parametrize("env", [{}, {"SONIOX_API_KEY": "  "}])
@@ -169,7 +196,7 @@ def test_stream_sends_pcm_then_end_and_collects_final_flush() -> None:
             b"\x02\x03",
         ]
         ws.send_str.assert_awaited_once_with("")
-        assert stt.tokens == [SttToken("마지막", 0, 50)]
+        assert stt.transcript.answer_tokens() == (SpeechToken("마지막", 0, 50),)
         assert ws.exited
         context.__aexit__.assert_awaited_once()
 

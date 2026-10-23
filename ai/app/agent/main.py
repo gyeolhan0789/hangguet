@@ -150,7 +150,7 @@ async def transcribe_participant(
             try:
                 await publisher.aclose()
             finally:
-                log.info("STT 수집 종료", extra={"token_count": len(stt.tokens)})
+                log.info("STT 수집 종료", extra={"token_count": stt.transcript.final_count})
     return participant_left and not closed.is_set()
 
 
