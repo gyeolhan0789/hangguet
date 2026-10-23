@@ -132,14 +132,19 @@ public final class ErrorExamples {
             { "title": "Not Found", "status": 404, "detail": "회원을 찾을 수 없어요.",
               "instance": "/api/v1/admin/streak-freeze-grants", "code": "USER_NOT_FOUND" }\
             """;
+    public static final String STREAK_FREEZE_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "유지권을 찾을 수 없어요.",
+              "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_NOT_FOUND" }\
+            """;
     public static final String STREAK_FREEZE_NOT_AVAILABLE =
             """
-            { "title": "Conflict", "status": 409, "detail": "쓸 수 있는 유지권이 없어요.",
+            { "title": "Conflict", "status": 409, "detail": "이미 썼거나 기간이 지난 유지권이에요.",
               "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_NOT_AVAILABLE" }\
             """;
     public static final String STREAK_FREEZE_DATE_NOT_ALLOWED =
             """
-            { "title": "Conflict", "status": 409, "detail": "유지권으로 메울 수 없는 날짜예요.",
+            { "title": "Conflict", "status": 409, "detail": "이미 연습한 날이라 메울 수 없어요.",
               "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_DATE_NOT_ALLOWED" }\
             """;
 

@@ -92,15 +92,16 @@ public final class AdminDtos {
                     OffsetDateTime endsAt,
             @Schema(description = "작성 일시") OffsetDateTime createdAt) {}
 
-    public record UnreadNotice(
+    public record NoticeItem(
             @Schema(description = "공지 id", example = "3") long id,
             @Schema(description = "공지 제목", example = "10월 점검 안내") String title,
             @Schema(description = "공지 본문") String content,
-            @Schema(description = "게시 시작 일시") OffsetDateTime startsAt) {}
+            @Schema(description = "게시 시작 일시") OffsetDateTime startsAt,
+            @Schema(description = "이 회원이 확인(8.9)했으면 true(확인함), 아니면 false(확인 안 함)") boolean read) {}
 
-    public record UnreadNoticesResponse(
-            @Schema(description = "게시 중인데 확인하지 않은 공지, 최신순(게시 시작 일시 내림차순). 없으면 빈 배열")
-                    List<UnreadNotice> content) {}
+    public record NoticesResponse(
+            @Schema(description = "게시 중인 공지, 최신순(게시 시작 일시 내림차순). 없으면 빈 배열")
+                    List<NoticeItem> content) {}
 
     // 8.10 ~ 8.12 스트릭 유지권 배포
 
@@ -123,9 +124,12 @@ public final class AdminDtos {
             @Schema(description = "한 사람에게 주는 유지권 개수", example = "1", minimum = "1")
                     @Min(value = 1, message = "1 이상입니다.")
                     int quantity,
-            @Schema(description = "이 날짜(한국 시간)에 지급한다. 지급받은 때부터 2주 동안 쓸 수 있다")
+            @Schema(description = "이 날짜(한국 시간)에 지급한다. 유효기간은 지급 날짜부터 2주다")
                     @NotNull(message = "필수 값입니다.")
                     LocalDate grantDate,
+            @Schema(description = "유지권으로 메울 수 있는 날짜(한국 시간). 받은 회원은 이 날짜만 연습한 날로 메울 수 있다")
+                    @NotNull(message = "필수 값입니다.")
+                    LocalDate fillableDate,
             @Schema(
                             description = "배포 사유. 관리 페이지에만 보인다",
                             example = "10월 점검 보상",
@@ -140,6 +144,7 @@ public final class AdminDtos {
             @Schema(description = "받는 회원 수", example = "120") int targetCount,
             @Schema(description = "한 사람에게 주는 개수", example = "1") int quantity,
             @Schema(description = "지급 날짜(한국 시간)") LocalDate grantDate,
+            @Schema(description = "메울 수 있는 날짜(한국 시간)") LocalDate fillableDate,
             @Schema(description = "배포 사유", nullable = true) String reason,
             @Schema(description = "배포 상태") GrantStatus status,
             @Schema(description = "배포한 관리자 이름", example = "운영자") String adminName,
@@ -157,8 +162,9 @@ public final class AdminDtos {
 
     public record StreakFreezeItem(
             @Schema(description = "유지권 id", example = "31") long id,
+            @Schema(description = "메울 수 있는 날짜(한국 시간)") LocalDate fillableDate,
             @Schema(description = "지급받은 일시") OffsetDateTime grantedAt,
-            @Schema(description = "만료 일시. 받은 때부터 2주") OffsetDateTime expiresAt) {}
+            @Schema(description = "만료 일시. 지급 날짜부터 2주") OffsetDateTime expiresAt) {}
 
     public record MyStreakFreezesResponse(
             @Schema(description = "지금 쓸 수 있는 유지권 개수", example = "2") int availableCount,
@@ -166,8 +172,9 @@ public final class AdminDtos {
                     List<StreakFreezeItem> freezes) {}
 
     public record StreakFreezeUseRequest(
-            @Schema(description = "유지권으로 메울 빠진 날(한국 시간). 오늘 이전 날짜만") @NotNull(message = "필수 값입니다.")
-                    LocalDate practiceDate) {}
+            @Schema(description = "쓸 유지권 id(8.13). 그 유지권의 메울 수 있는 날짜를 메운다", example = "31")
+                    @NotNull(message = "필수 값입니다.")
+                    Long freezeId) {}
 
     public record StreakFreezeUseResponse(
             @Schema(description = "메운 날짜(한국 시간). 연습 기록(3.3)과 스트릭에 연습한 날로 들어간다")

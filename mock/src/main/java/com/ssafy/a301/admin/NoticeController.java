@@ -1,6 +1,6 @@
 package com.ssafy.a301.admin;
 
-import com.ssafy.a301.admin.AdminDtos.UnreadNoticesResponse;
+import com.ssafy.a301.admin.AdminDtos.NoticesResponse;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -23,15 +23,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/notices")
 public class NoticeController {
 
-    private static final String UNREAD =
+    private static final String NOTICES =
             """
             { "content": [
                 { "id": 3, "title": "10월 점검 안내", "content": "10월 30일 02:00~04:00 서비스 점검이 있어요.",
-                  "startsAt": "2026-10-23T09:00:00+09:00" },
+                  "startsAt": "2026-10-23T09:00:00+09:00", "read": false },
                 { "id": 2, "title": "채팅 면접이 열렸어요", "content": "이제 글로도 면접을 볼 수 있어요.",
-                  "startsAt": "2026-10-20T09:00:00+09:00" } ] }\
+                  "startsAt": "2026-10-20T09:00:00+09:00", "read": true } ] }\
             """;
-    private static final String UNREAD_EMPTY = "{ \"content\": [] }";
+    private static final String EMPTY = "{ \"content\": [] }";
 
     private final Stub stub;
 
@@ -40,24 +40,24 @@ public class NoticeController {
     }
 
     @Operation(
-            summary = "8.8 확인하지 않은 공지",
-            description = "게시 중인데 이 회원이 확인(8.9)하지 않은 공지를 최신순(게시 시작 일시 내림차순)으로 준다. 화면은 차례대로 보여 준다.")
+            summary = "8.8 공지 목록",
+            description = "게시 중인 공지를 최신순(게시 시작 일시 내림차순)으로 준다. 공지마다 이 회원의 확인(8.9) 여부(read)를 함께 준다.")
     @ApiResponse(
             responseCode = "200",
             content =
                     @Content(
                             examples = {
-                                @ExampleObject(name = "확인하지 않은 공지 2개", value = UNREAD),
-                                @ExampleObject(name = "모두 확인함", value = UNREAD_EMPTY)
+                                @ExampleObject(name = "확인 안 함 1개 · 확인함 1개", value = NOTICES),
+                                @ExampleObject(name = "공지 없음", value = EMPTY)
                             }))
-    @GetMapping("/unread")
-    public UnreadNoticesResponse unread() {
-        return stub.read(UNREAD, UnreadNoticesResponse.class);
+    @GetMapping
+    public NoticesResponse notices() {
+        return stub.read(NOTICES, NoticesResponse.class);
     }
 
     @Operation(
             summary = "8.9 공지 확인",
-            description = "[확인]을 누른 공지를 기록한다. 그 공지는 8.8에 다시 나오지 않는다. 이미 확인했어도 204다.")
+            description = "[확인]을 누른 공지를 기록한다. 8.8에서 그 공지는 read가 true가 된다. 이미 확인했어도 204다.")
     @ApiResponse(responseCode = "204")
     @ApiResponse(
             responseCode = "404",
