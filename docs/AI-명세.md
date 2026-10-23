@@ -317,6 +317,7 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
 - 발음 시각이 15KiB를 넘으면 나눠 보낼지 텍스트 스트림을 쓸지 **[미정]**
 - 말 끊기(`interrupt`)의 `text`는 에이전트가 음성으로도 말한다
 - `reaction.durationMs`는 1,200ms다. 리액션이 없을 때와 `durationMs`가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다
+- `reaction` 객체는 키를 항상 모두 담고, 해당하지 않는 값은 null이다. 표정이면 `gesture`가, 동작이면 `expression`·`intensity`가 null이다. 화면이 키가 있는지 분기하지 않고 같은 형식으로 읽게 하기 위해서다
 
 ### 6.4 리액션 판단 (Jev)
 
