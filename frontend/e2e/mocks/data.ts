@@ -7,7 +7,10 @@ import type {
   PendingResponse,
   QuestionResponse,
   MeResponse,
+  MyStreakFreezesResponse,
   NicknameChangeResponse,
+  NoticesResponse,
+  StreakFreezeUseResponse,
   PracticeLogsResponse,
   ProblemDetail,
   SessionResponse,
@@ -469,3 +472,53 @@ export const PROBLEM = {
     code: "INTERNAL_ERROR",
   },
 } as const satisfies Record<string, ProblemDetail>;
+
+/** 8.8 공지 목록 200 — Swagger 예시 '확인 안 함 1개 · 확인함 1개'(최신순) */
+export const NOTICES = {
+  content: [
+    {
+      id: 3,
+      title: "10월 점검 안내",
+      content: "10월 30일 02:00~04:00 서비스 점검이 있어요.",
+      startsAt: "2026-10-23T09:00:00+09:00",
+      read: false,
+    },
+    {
+      id: 2,
+      title: "채팅 면접이 열렸어요",
+      content: "이제 글로도 면접을 볼 수 있어요.",
+      startsAt: "2026-10-20T09:00:00+09:00",
+      read: true,
+    },
+  ],
+} satisfies NoticesResponse;
+
+/** 8.8 공지 목록 200 — Swagger 예시 '공지 없음'. 다른 화면 테스트에 공지 모달이 뜨지 않도록 기본값으로 쓴다 */
+export const NOTICES_EMPTY = { content: [] } satisfies NoticesResponse;
+
+/** 8.13 내 스트릭 유지권 200 — Swagger 예시 '2개 있음'. 고른 유지권을 구분하도록 둘째는 다른 날짜(테스트 값)로 바꿨다 */
+export const STREAK_FREEZES = {
+  availableCount: 2,
+  freezes: [
+    {
+      id: 31,
+      fillableDate: "2026-10-19",
+      grantedAt: "2026-10-20T00:00:00+09:00",
+      expiresAt: "2026-11-03T00:00:00+09:00",
+    },
+    {
+      id: 32,
+      fillableDate: "2026-10-22",
+      grantedAt: "2026-10-23T00:00:00+09:00",
+      expiresAt: "2026-11-06T00:00:00+09:00",
+    },
+  ],
+} satisfies MyStreakFreezesResponse;
+
+/** 8.14 유지권 사용 200 — Swagger 예시 */
+export const STREAK_FREEZE_USED = {
+  practiceDate: "2026-10-19",
+  freezeId: 31,
+  availableCount: 1,
+  currentStreak: 9,
+} satisfies StreakFreezeUseResponse;

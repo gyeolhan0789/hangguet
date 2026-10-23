@@ -6,10 +6,8 @@ import type { ReactNode } from "react";
 import { MaskIcon } from "@/components/mask-icon";
 import { useToastStore } from "@/stores/toast-store";
 
-// 기준: Figma S09 Achievements · Coming Soon(18:3075: bg-sub · line 테두리 · 둥글기 24 · 높이 400 · 배지 64 surface 3개(아이콘 24)
-// · '업적' 18 ExtraBold text-2 · '추가 예정' 칩 · 15 Medium text-3) · Application · Coming Soon(18:3094: 둥글기 20 · 패딩 24/20
-// · 자물쇠 48(둥글기 14) · '지원 관리' 17 ExtraBold · '개발 중' 칩 · 14 Medium text-3)
-// · 기획 메모 S09(18:1173: 업적 · 지원 관리는 MVP 제외, 비활성 노출 · 클릭 불가) · 모션 메모 S09(18:3109: 클릭 시 살짝 흔들림
+// 기준: Figma S09 Application · Coming Soon(18:3094: 둥글기 20 · 패딩 24/20 · 자물쇠 48(둥글기 14) · '지원 관리' 17 ExtraBold
+// · '개발 중' 칩 · 14 Medium text-3) · 기획 메모 S09(18:1173: 지원 관리는 MVP 제외, 비활성 노출 · 클릭 불가. 업적 자리는 스트릭 유지권) · 모션 메모 S09(18:3109: 클릭 시 살짝 흔들림
 // + 토스트 '열심히 만들고 있어요!')
 
 const COMING_SOON_TOAST = "열심히 만들고 있어요!";
@@ -44,34 +42,6 @@ function Chip({ children }: { children: ReactNode }) {
     <span className="rounded-full bg-surface px-2.5 py-1 text-xs leading-normal font-bold tracking-[-0.2px] whitespace-nowrap text-text-3">
       {children}
     </span>
-  );
-}
-
-const BADGES = ["/mypage/icon-badge.svg", "/mypage/icon-lock.svg", "/mypage/icon-badge.svg"];
-
-export function AchievementsCard() {
-  return (
-    <ComingSoonCard className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3.5 rounded-3xl px-7 py-12 lg:h-[400px] lg:py-7">
-      <span className="flex gap-3.5">
-        {BADGES.map((icon, i) => (
-          <span
-            key={i}
-            className="flex size-16 items-center justify-center rounded-full bg-surface"
-          >
-            <MaskIcon src={icon} size={24} className="bg-text-3" />
-          </span>
-        ))}
-      </span>
-      <span className="flex items-center gap-2">
-        <span className="text-lg leading-normal font-extrabold tracking-[-0.2px] text-text-2">
-          업적
-        </span>
-        <Chip>추가 예정</Chip>
-      </span>
-      <span className="text-center text-[15px] leading-normal font-medium tracking-[-0.2px] text-text-3">
-        연습할수록 쌓이는 배지를 준비하고 있어요!
-      </span>
-    </ComingSoonCard>
   );
 }
 

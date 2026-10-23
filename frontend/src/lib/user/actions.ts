@@ -22,6 +22,8 @@ import type {
   PasswordChangeRequest,
   ProfileImageRequest,
   ProfileImageUploadUrlRequest,
+  StreakFreezeUseRequest,
+  StreakFreezeUseResponse,
   UploadUrlResponse,
   WithdrawRequest,
 } from "@/types/api";
@@ -176,4 +178,33 @@ export async function withdraw(
   }
   clearAuthCookies(await cookies());
   redirect(ROUTES.landing);
+}
+
+export interface StreakFreezeActionResult {
+  /** 메운 결과(남은 개수 · 메운 뒤의 스트릭) */
+  used?: StreakFreezeUseResponse;
+  /** 서버 문구(404 STREAK_FREEZE_NOT_FOUND · 409 STREAK_FREEZE_NOT_AVAILABLE · 409 STREAK_FREEZE_DATE_NOT_ALLOWED) */
+  error?: string;
+}
+
+/**
+ * 8.14 유지권 사용 → 그 유지권의 메울 수 있는 날짜가 연습한 날로 들어간다. 기준: 기획 메모 S09-2([메우기] → 8.14 → S09-3,
+ * 실패는 서버 문구) · StreakFreezeUseRequest · StreakFreezeUseResponse. 스트릭 · 달력 · 유지권 박스가 바뀌도록 refresh로 다시 그린다.
+ */
+export async function applyStreakFreeze(freezeId: number): Promise<StreakFreezeActionResult> {
+  if (!Number.isSafeInteger(freezeId) || freezeId < 1) return { error: RETRY_LATER };
+
+  const body: StreakFreezeUseRequest = { freezeId };
+  let data: StreakFreezeUseResponse;
+  try {
+    ({ data } = await api.post<StreakFreezeUseResponse>(endpoints.streakFreezes.use, body));
+  } catch (error) {
+    unstable_rethrow(error);
+    const problem = getProblemDetail(error);
+    // 서버가 거절했으면(이미 썼거나 만료 · 없음 · 이미 연습한 날) 박스가 서버 상태와 같아지도록 다시 그린다
+    if (problem) refresh();
+    return { error: problem?.detail ?? RETRY_LATER };
+  }
+  refresh();
+  return { used: data };
 }

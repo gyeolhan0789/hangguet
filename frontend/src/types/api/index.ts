@@ -15,3 +15,5 @@ export type * from "./result/request";
 export type * from "./result/response";
 export type * from "./growth/request";
 export type * from "./growth/response";
+export type * from "./admin/request";
+export type * from "./admin/response";

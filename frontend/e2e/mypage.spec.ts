@@ -7,8 +7,8 @@ import { ME, PRACTICE_LOGS_FIGMA, SESSION_LIST, STATS } from "./mocks/data";
 import { api, expect, http, HttpResponse, test } from "./test";
 
 // S09 마이페이지
-// 근거: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 업적, 날짜 클릭 → 그날의 S08(사용자 결정 2026-10-23으로 그날을 고른 연습 기록),
-//   업적 · 지원 관리는 비활성 · 클릭 불가) · 모션 메모 S09(18:3109: 클릭 시 흔들림 + 토스트 '열심히 만들고 있어요!', ✎ → S09-1 프로필 사진)
+// 근거: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 스트릭 유지권, 날짜 클릭 → 그날의 S08(사용자 결정 2026-10-23으로 그날을 고른 연습 기록),
+//   지원 관리는 비활성 · 클릭 불가) · 모션 메모 S09(18:3109: 클릭 시 흔들림 + 토스트 '열심히 만들고 있어요!', ✎ → S09-1 프로필 사진)
 //   · Swagger 2.1 내 정보 · 3.2 통계 · 3.3 연습 달력(month=YYYY-MM)
 // 달력 칸 계산(띠 · 주 경계 · 오늘 · 앞날)과 시간 표기는 단위 테스트(calendar.test.ts)가, 카운트업 · 월 슬라이드 연출은 브라우저 화면 확인이 맡는다.
 
@@ -141,20 +141,18 @@ test.describe("S09 마이페이지 · 스트릭 달력", () => {
   });
 });
 
-test.describe("S09 마이페이지 · 준비 중(업적 · 지원 관리)", () => {
-  for (const name of [/업적/, /지원 관리/]) {
-    test(`${name.source} 카드를 누르면 기능 없이 토스트 '열심히 만들고 있어요!'가 뜬다`, async ({
-      page,
-    }) => {
-      await page.goto("/mypage");
-      const card = main(page).getByRole("button", { name });
+test.describe("S09 마이페이지 · 준비 중(지원 관리)", () => {
+  test("지원 관리 카드를 누르면 기능 없이 토스트 '열심히 만들고 있어요!'가 뜬다", async ({
+    page,
+  }) => {
+    await page.goto("/mypage");
+    const card = main(page).getByRole("button", { name: /지원 관리/ });
 
-      await card.click();
+    await card.click();
 
-      await expect(
-        page.getByRole("status").filter({ hasText: "열심히 만들고 있어요!" }),
-      ).toBeVisible();
-      await expect(page).toHaveURL("/mypage");
-    });
-  }
+    await expect(
+      page.getByRole("status").filter({ hasText: "열심히 만들고 있어요!" }),
+    ).toBeVisible();
+    await expect(page).toHaveURL("/mypage");
+  });
 });

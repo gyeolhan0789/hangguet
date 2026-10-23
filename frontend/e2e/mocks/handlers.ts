@@ -12,6 +12,7 @@ import {
   HOME,
   ME,
   NICKNAME_CHANGED,
+  NOTICES_EMPTY,
   PRACTICE_LOGS,
   PROBLEM,
   QUESTION_CURRENT,
@@ -25,6 +26,8 @@ import {
   SESSION_PLAN,
   SESSION_STARTED,
   STATS,
+  STREAK_FREEZE_USED,
+  STREAK_FREEZES,
   UPLOAD_URL,
 } from "./data";
 
@@ -61,6 +64,10 @@ export const defaultHandlers = [
   http.get(api("/users/me/stats"), () => HttpResponse.json(STATS)),
   http.get(api("/practice-logs"), () => HttpResponse.json(PRACTICE_LOGS)),
   http.get(api("/home"), () => HttpResponse.json(HOME.NOT_DONE_TODAY)),
+  http.get(api("/notices"), () => HttpResponse.json(NOTICES_EMPTY)),
+  http.post(api("/notices/:noticeId/read"), () => new HttpResponse(null, { status: 204 })),
+  http.get(api("/users/me/streak-freezes"), () => HttpResponse.json(STREAK_FREEZES)),
+  http.post(api("/users/me/streak-freezes/use"), () => HttpResponse.json(STREAK_FREEZE_USED)),
   http.post(api("/applications"), () => HttpResponse.json(APPLICATION, { status: 201 })),
   http.get(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
   http.patch(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),

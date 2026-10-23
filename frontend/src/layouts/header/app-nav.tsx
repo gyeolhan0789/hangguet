@@ -2,9 +2,11 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { MaskIcon } from "@/components/mask-icon";
-import type { MeResponse } from "@/types/api";
+import type { MeResponse, NoticeItem } from "@/types/api";
 import { ROUTES } from "@/lib/routes";
 
+import { NoticeBell } from "./notice-bell";
+import { NoticePopup } from "./notice-popup";
 import { ProfileMenu } from "./profile-menu";
 
 /** 헤더 스트릭 알약. 0일(끊김·첫 방문)이면 회색 (Figma S02-C · S02-D 헤더) */
@@ -30,9 +32,10 @@ function StreakPill({ days }: { days: number }) {
   );
 }
 
-// Figma C/App Header 오른쪽: 홈 · 연습 기록 · 스트릭 · 프로필 (간격 28).
+// Figma C/App Header 오른쪽: 홈 · 연습 기록 · 스트릭 · 프로필 · 공지 (간격 28). 공지 버튼은 다크 모드 토글 바로 왼쪽(기획 메모 C01).
 // 헤더가 붙이는 다크 모드 토글과의 간격도 28이 되도록 오른쪽에 12를 더한다(헤더 기본 간격 16).
-export function AppNav({ user }: { user: MeResponse }) {
+// 확인 안 한 공지는 앱에 들어오면 C02 모달로 차례대로 띄운다(NoticePopup). 랜딩(S00)처럼 공지를 넘기지 않으면 공지 버튼이 없다.
+export function AppNav({ user, notices }: { user: MeResponse; notices?: NoticeItem[] }) {
   return (
     <nav aria-label="주요 메뉴" className="flex items-center gap-4 pr-3 sm:gap-7">
       <Link
@@ -49,6 +52,12 @@ export function AppNav({ user }: { user: MeResponse }) {
       </Link>
       <StreakPill days={user.currentStreak} />
       <ProfileMenu user={user} />
+      {notices && (
+        <>
+          <NoticeBell notices={notices} />
+          <NoticePopup notices={notices} />
+        </>
+      )}
     </nav>
   );
 }
@@ -60,6 +69,7 @@ export function AppNavSkeleton() {
       <span className="hidden h-5 w-8 rounded-[10px] bg-surface sm:block" />
       <span className="hidden h-5 w-16 rounded-[10px] bg-surface sm:block" />
       <span className="h-[34px] w-16 rounded-full bg-surface" />
+      <span className="size-9 rounded-full bg-surface" />
       <span className="size-9 rounded-full bg-surface" />
     </div>
   );
