@@ -633,6 +633,7 @@ ai-deploy:
     name: dev/ai
 
 # 모니터링은 앱 Compose와 별도로 실행한다. 앱 배포가 함께 있으면 BE 배포를 기다려 a301-dev 네트워크를 확보한다.
+# GitLab 변수 DEV_GRAFANA_ADMIN_PASSWORD는 dev/monitoring 환경에만 제공한다.
 # Nginx 설정과 Cloudflare Tunnel의 호스트 이름 등록은 미니PC/Cloudflare에서 별도로 적용한다.
 monitoring-deploy:
   stage: deploy
@@ -647,15 +648,18 @@ monitoring-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - deploy/dev/monitoring/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
       when: manual
       allow_failure: true
   variables:
     DEV_GRAFANA_HOST_PORT: "18090"
-    GRAFANA_ROOT_URL: "https://hanggeut-grafana.yobistory.com/"
+    GRAFANA_ROOT_URL: "https://hangguet-grafana.yobistory.com/"
   environment:
     name: dev/monitoring
-    url: https://hanggeut-grafana.yobistory.com/
+    url: https://hangguet-grafana.yobistory.com/
   script:
     - |
       for NETWORK in a301-dev server_public-network; do
