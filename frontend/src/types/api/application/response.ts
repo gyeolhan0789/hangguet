@@ -1,4 +1,4 @@
-// 4. 지원서 응답. 기준: mock ApplicationDtos · ApplicationController.
+// 4. 지원서 응답. 기준: 웹 Swagger 4.1 ~ 4.4.
 import type { OffsetDateTime, Page } from "../common";
 
 /** 4.1 지원서 작성(201) · 4.2 조회(200) · 4.4 수정(200) */

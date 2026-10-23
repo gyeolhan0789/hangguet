@@ -12,7 +12,17 @@ const adapter = vi.fn(async (config: InternalAxiosRequestConfig): Promise<AxiosR
     data:
       refreshStatus === 200
         ? { accessToken: `access-from-${refreshToken}`, refreshToken: "refresh-2", expiresIn: 3600 }
-        : { status: 401, code: "REFRESH_TOKEN_INVALID" },
+        : refreshStatus === 401
+          ? // 웹 Swagger 1.4 401 예시
+            {
+              title: "Unauthorized",
+              status: 401,
+              detail: "다시 로그인해 주세요.",
+              instance: "/api/v1/auth/token/refresh",
+              code: "REFRESH_TOKEN_INVALID",
+            }
+          : // 웹 Swagger 공통 500
+            { title: "Internal Server Error", status: 500, code: "INTERNAL_ERROR" },
     status: refreshStatus,
     statusText: "",
     headers: {},
@@ -67,7 +77,7 @@ describe("proxy", () => {
     expect(adapter).toHaveBeenCalledTimes(1);
   });
 
-  it("재발급이 실패하면 토큰 쿠키를 지우고 로그인 화면으로 보낸다", async () => {
+  it("다시 로그인해야 하면(401 REFRESH_TOKEN_INVALID) 토큰 쿠키를 지우고 로그인 화면으로 보낸다", async () => {
     refreshStatus = 401;
 
     const response = await proxy(requestWith("hk_refresh=refresh-bad"));
@@ -75,6 +85,21 @@ describe("proxy", () => {
     expect(response.headers.get("location")).toBe("http://localhost:3000/login");
     expect(response.cookies.get("hk_access")?.value).toBe("");
     expect(response.cookies.get("hk_refresh")?.value).toBe("");
+  });
+
+  it("그 밖의 실패(500 INTERNAL_ERROR)면 쿠키를 지우지 않고 로그인으로 보내지도 않으며, 다음 요청은 다시 재발급한다", async () => {
+    refreshStatus = 500;
+
+    const response = await proxy(requestWith("hk_refresh=refresh-flaky"));
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.cookies.get("hk_access")).toBeUndefined();
+    expect(response.cookies.get("hk_refresh")).toBeUndefined();
+
+    refreshStatus = 200;
+    const retried = await proxy(requestWith("hk_refresh=refresh-flaky"));
+    expect(adapter).toHaveBeenCalledTimes(2);
+    expect(retried.cookies.get("hk_access")?.value).toBe("access-from-refresh-flaky");
   });
 });
 

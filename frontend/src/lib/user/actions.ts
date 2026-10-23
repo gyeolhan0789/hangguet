@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
 
-import { clearAuthCookies } from "@/lib/api/auth-cookies";
+import { clearAuthCookies, setAccessTokenCookie } from "@/lib/api/auth-cookies";
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
 import {
@@ -17,6 +17,7 @@ import {
 import { ROUTES } from "@/lib/routes";
 import type {
   MeResponse,
+  NicknameChangeResponse,
   NicknameRequest,
   PasswordChangeRequest,
   ProfileImageRequest,
@@ -37,7 +38,7 @@ import {
   type WithdrawValues,
 } from "./schemas";
 
-// 기준: Swagger 2.2 닉네임 변경(PATCH /users/me → 200 MeResponse) · 2.3 비밀번호 변경(PATCH /users/me/password → 204
+// 기준: 웹 Swagger 2.2 닉네임 변경(PATCH /users/me → 200 NicknameChangeResponse) · 2.3 비밀번호 변경(PATCH /users/me/password → 204
 // · 400 PASSWORD_MISMATCH) · 2.4 프로필 사진 업로드 주소(POST …/profile-image/upload-url → 200 UploadUrlResponse)
 // · 2.5 프로필 사진 등록(PUT …/profile-image → 200 MeResponse · 404 FILE_NOT_FOUND) · 2.6 프로필 사진 삭제(DELETE → 204)
 // · 2.7 회원 탈퇴(POST /users/me → 204 · 400 PASSWORD_MISMATCH) · Figma S09-1 설정(18:3157) · 기획 메모 S09-1(18:1251)
@@ -47,7 +48,7 @@ export interface UserActionResult<F extends string = never> extends FormActionRe
   ok?: true;
 }
 
-/** zod 검증 실패를 칸별 첫 오류로 바꾼다(폼과 같은 문구 = mock reason). */
+/** zod 검증 실패를 칸별 첫 오류로 바꾼다(폼과 같은 문구). */
 function fieldErrorsOf<F extends string>(error: z.ZodError): Partial<Record<F, string>> {
   const errors: Partial<Record<F, string>> = {};
   for (const issue of error.issues) {
@@ -69,12 +70,15 @@ export async function changeNickname(
   if (!parsed.success) return { fieldErrors: fieldErrorsOf(parsed.error) };
 
   const body: NicknameRequest = parsed.data;
+  let data: NicknameChangeResponse;
   try {
-    await api.patch<MeResponse>(endpoints.users.me, body);
+    ({ data } = await api.patch<NicknameChangeResponse>(endpoints.users.me, body));
   } catch (error) {
     unstable_rethrow(error);
     return toFormActionResult(error, NICKNAME_FIELDS);
   }
+  // 토큰의 nickname이 바뀌도록 새 액세스 토큰을 준다. 리프레시 토큰은 그대로 쓴다(웹 Swagger 2.2).
+  setAccessTokenCookie(await cookies(), data);
   refresh();
   return { ok: true };
 }

@@ -126,4 +126,9 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             "select s from InterviewSession s join fetch s.application"
                     + " where s.id = :id and s.user.id = :userId")
     Optional<InterviewSession> findForUpdate(@Param("id") long id, @Param("userId") long userId);
+
+    /** AI 결과를 저장할 때 쓴다(회원 요청이 아니라 회원 id가 없음). 요청 처리(5.7·5.8)와 겹쳐도 면접 상태를 한 번에 하나씩 바꾼다. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from InterviewSession s where s.id = :id")
+    Optional<InterviewSession> findByIdForUpdate(@Param("id") long id);
 }

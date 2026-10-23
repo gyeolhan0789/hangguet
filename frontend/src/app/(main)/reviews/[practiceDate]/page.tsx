@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { getMe } from "@/lib/auth/session";
+import { isDate } from "@/lib/date";
 import { getGrowthReview } from "@/lib/growth/queries";
 import { ROUTES } from "@/lib/routes";
 import { serverToday } from "@/lib/today";
@@ -13,18 +14,8 @@ import { ReviewView } from "./_components/review-view";
 export const metadata: Metadata = { title: "성장 리뷰 · 한끗" };
 
 // S08 오늘의 성장 리뷰 · S08-B 설문 유도 · S08-C 첫 면접. 기준: Figma S08(18:2710) · S08-B(18:4578) · S08-C(18:4720)
-// · Swagger 7.1 날짜별 성장 리뷰(404 GROWTH_REVIEW_NOT_FOUND: 그날 연습 기록 또는 결과가 없음)
-// · API 명세 7.1(화면 — S08(오늘), S08-C(첫 면접), S09 달력 날짜, S02 최근 리뷰 [보기])
+// · 웹 Swagger 7.1 날짜별 성장 리뷰(경로 값은 한국 시간 면접 시작 날짜 · 404 GROWTH_REVIEW_NOT_FOUND)
 // · 사용자 결정(2026-10-22: 그날 리뷰가 없거나 주소의 날짜가 잘못됐으면 홈으로)
-
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** 주소의 YYYY-MM-DD가 실제 있는 날짜인지 */
-function isDate(value: string): boolean {
-  if (!DATE.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
 
 async function Review({
   params,

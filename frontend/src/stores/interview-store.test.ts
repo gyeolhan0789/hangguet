@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { useInterviewStore } from "./interview-store";
 
-// 기준: API 명세 5.8(leveledUp은 5.8 응답에만 있어 화면이 S08까지 기억한다)
+// 기준: 웹 Swagger leveledUp(5.8 응답에만 값이 있어 화면이 S08까지 기억한다)
 
 const KEY = "hankkeut:interview";
 

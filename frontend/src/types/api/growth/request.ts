@@ -1,4 +1,4 @@
-// 7. 성장 리뷰 요청. 기준: mock GrowthReviewController.
+// 7. 성장 리뷰 요청. 기준: 웹 Swagger 7.1 · 7.2.
 import type { LocalDate, PageQuery } from "../common";
 
 /** 7.1 GET /growth-reviews/{practiceDate} 경로 값 */

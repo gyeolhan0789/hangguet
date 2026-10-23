@@ -1,7 +1,7 @@
 import { getHttpStatus, getProblemDetail } from "@/lib/api/problem-detail";
 
-// 기준: Swagger 5.10 실시간 음성 인식 토큰 · 5.12 질문 음성 토큰 · 5.6 답변 음성 업로드 주소 · API 명세 1장(실패 응답: 화면 분기는 code,
-// Nginx가 직접 주는 502 · 504는 본문 형식을 보장하지 않아 상태 코드로 판단)
+// 기준: Swagger 5.10 실시간 음성 인식 토큰 · 5.12 질문 음성 토큰 · 5.6 답변 음성 업로드 주소 · 웹 Swagger ProblemDetail(화면 분기는 code)
+// · 본문이 ProblemDetail이 아닌 실패(Nginx가 직접 주는 502 · 504 등)는 code 없이 상태 코드만 넘긴다
 // "use server" 파일은 async 함수만 내보낼 수 있어, 서버 액션들이 함께 쓰는 실패 모양과 분류 함수를 여기 둔다.
 
 /**

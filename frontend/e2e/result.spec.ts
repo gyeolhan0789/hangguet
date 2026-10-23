@@ -3,7 +3,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S07 피드백 결과
 // 근거: Figma S07(18:2620) · 기획 메모 S07(18:762) · 모션 메모 S07(18:2705) · Swagger 6.3 면접 결과(200 · 404 · 409 예시)
-//   · API 명세 6.3(RESULT_NOT_READY면 S06-1로, 첫 번째 WEAK · NORMAL 질문만 펼친다)
+//   · 웹 Swagger 6.3 · RESULT_NOT_READY면 S06-1로, 첫 번째 WEAK · NORMAL 질문만 펼친다
 //   · 사용자 결정(2026-10-22: 404 · NO_RESULT면 S03으로, 펼친 질문의 [자세히 보기] → S07-1)
 // 화면 부품의 경계는 컴포넌트 테스트(result-view.test.tsx)가 맡고, 여기서는 6.3 응답에 따른 화면과 이동을 본다.
 

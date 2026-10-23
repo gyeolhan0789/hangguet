@@ -1,4 +1,4 @@
-// 6. 녹화 · 결과 · 다시보기 요청. 기준: mock ResultDtos · ResultController.
+// 6. 녹화 · 결과 · 다시보기 요청. 기준: 웹 Swagger 6.1 · 6.2.
 // 경로 값은 면접 진행과 같다(../interview/request의 SessionPath).
 
 /** 파일 종류. SESSION_VIDEO 면접 녹화 영상 */

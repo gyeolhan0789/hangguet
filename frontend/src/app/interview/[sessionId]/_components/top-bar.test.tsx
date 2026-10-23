@@ -7,7 +7,7 @@ import type { SessionResponse } from "@/types/api";
 import { TopBar } from "./top-bar";
 
 // 기준: Figma S06 Persona Pill · Progress Pill · End Button(18:2502 · 18:2508 · 18:2513) · Swagger 5.2
-// · API 명세 5.2(전체 질문 수 5)
+// · Figma S06 '질문 3 / 5'(전체 질문 수 5)
 
 // Swagger 5.2 200 예시
 const SESSION: SessionResponse = {
@@ -33,12 +33,16 @@ const SESSION: SessionResponse = {
 /** 5.5 지금 질문(Swagger 5.2 예시의 질문 303 · 3번) */
 const QUESTION = SESSION.currentQuestion;
 
+let online = true;
 beforeEach(() => {
   vi.useFakeTimers();
   useInterviewStore.getState().reset();
+  online = true;
+  vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -62,6 +66,22 @@ describe("TopBar (S06 · S06-B 위 막대)", () => {
 
     rerender(<TopBar session={{ ...SESSION, status: "ANALYZING" }} question={null} />);
     act(() => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("08:45")).toBeTruthy();
+  });
+
+  it("연결이 끊긴 동안은 경과 시간이 멈추고, 다시 연결되면 이어서 는다(웹 Swagger elapsedSeconds)", () => {
+    render(<TopBar session={SESSION} question={QUESTION} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(screen.getByText("08:44")).toBeTruthy();
+
+    online = false;
+    act(() => window.dispatchEvent(new Event("offline")));
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByText("08:44")).toBeTruthy();
+
+    online = true;
+    act(() => window.dispatchEvent(new Event("online")));
+    act(() => vi.advanceTimersByTime(1000));
     expect(screen.getByText("08:45")).toBeTruthy();
   });
 

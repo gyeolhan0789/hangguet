@@ -99,8 +99,8 @@ describe("EndModal (S06-E 면접 종료 확인)", () => {
     expect(endSession.mock.calls[1][1]).toBe(endSession.mock.calls[0][1]);
   });
 
-  it("키를 이미 썼다고 하면(keyReused) 다음에는 새 키로 보낸다", async () => {
-    endSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keyReused: true });
+  it("키를 이미 썼다고 하면(keySpent) 다음에는 새 키로 보낸다", async () => {
+    endSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
     render(<EndModal sessionId={55} answeredCount={2} />);
     const end = screen.getByRole("button", { name: "끝내기" });
 

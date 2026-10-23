@@ -84,6 +84,8 @@ const session = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // 앞 테스트의 응답 구현까지 비운다(clearAllMocks는 호출 기록만 지운다).
+  post.mockReset();
 });
 
 describe("sessionCreateSchema", () => {
@@ -136,7 +138,7 @@ describe("createSession (5.1 면접 만들기)", () => {
     await expect(createSession(values, KEY)).rejects.toThrow(redirectTo("/practice"));
   });
 
-  it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 서버 문구와 함께 새 키가 필요하다고 알린다", async () => {
+  it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 서버 문구와 함께 새 키가 필요하다고 알린다(keySpent)", async () => {
     // Swagger 5.1 409 예시
     const problem = {
       title: "Conflict",
@@ -149,12 +151,12 @@ describe("createSession (5.1 면접 만들기)", () => {
 
     expect(await createSession(values, KEY)).toEqual({
       formError: problem.detail,
-      keyReused: true,
+      keySpent: true,
     });
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    post.mockRejectedValue(new Error("network"));
+    post.mockRejectedValue(axiosNoResponse());
 
     expect(await createSession(values, KEY)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
   });
@@ -202,7 +204,7 @@ describe("retryPlan (5.3 면접 플랜 재생성)", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("이미 다시 준비 중이거나 끝났으면(409 PLAN_NOT_FAILED) 실패로 보지 않고 다시 그리기만 한다", async () => {
+  it("이미 다시 준비 중이거나 끝났으면(409 PLAN_NOT_FAILED) 다시 그리고 서버 문구를 돌려준다", async () => {
     post.mockRejectedValue(
       axiosProblem({
         title: "Conflict",
@@ -213,7 +215,7 @@ describe("retryPlan (5.3 면접 플랜 재생성)", () => {
       }),
     );
 
-    expect(await retryPlan(55)).toEqual({});
+    expect(await retryPlan(55)).toEqual({ formError: "면접 준비가 실패한 상태가 아니에요." });
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -224,7 +226,7 @@ describe("retryPlan (5.3 면접 플랜 재생성)", () => {
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
-    post.mockRejectedValue(new Error("network"));
+    post.mockRejectedValue(axiosNoResponse());
 
     expect(await retryPlan(55)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
     expect(refresh).not.toHaveBeenCalled();
@@ -264,7 +266,10 @@ describe("startSession (5.4 면접 시작)", () => {
       }),
     );
 
-    expect(await startSession(55, KEY)).toEqual({ formError: "면접관이 질문을 준비하고 있어요." });
+    expect(await startSession(55, KEY)).toEqual({
+      formError: "면접관이 질문을 준비하고 있어요.",
+      keySpent: true,
+    });
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -279,7 +284,10 @@ describe("startSession (5.4 면접 시작)", () => {
       }),
     );
 
-    expect(await startSession(55, KEY)).toEqual({ formError: "지금은 할 수 없는 요청이에요." });
+    expect(await startSession(55, KEY)).toEqual({
+      formError: "지금은 할 수 없는 요청이에요.",
+      keySpent: true,
+    });
   });
 
   it("같은 키를 다른 요청에 썼으면(409 IDEMPOTENCY_KEY_REUSED) 새 키가 필요하다고 알린다", async () => {
@@ -288,20 +296,20 @@ describe("startSession (5.4 면접 시작)", () => {
         title: "Conflict",
         status: 409,
         detail: "이미 처리된 요청이에요.",
-        instance: "/api/v1/interview-sessions/55/start",
+        instance: "/api/v1/interview-sessions",
         code: "IDEMPOTENCY_KEY_REUSED",
       }),
     );
 
     expect(await startSession(55, KEY)).toEqual({
       formError: "이미 처리된 요청이에요.",
-      keyReused: true,
+      keySpent: true,
     });
     expect(refresh).not.toHaveBeenCalled();
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
-    post.mockRejectedValue(new Error("network"));
+    post.mockRejectedValue(axiosNoResponse());
 
     expect(await startSession(55, KEY)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
     expect(refresh).not.toHaveBeenCalled();
@@ -343,7 +351,7 @@ describe("issueSttToken (5.10 실시간 음성 인식 토큰)", () => {
     expect(post).toHaveBeenCalledWith("/interview-sessions/55/stt-token");
   });
 
-  // Swagger 5.10 오류 예시 · API 명세 1장 공통 오류(400 · 500)
+  // 웹 Swagger 5.10 오류 예시의 code · detail(instance는 테스트 값) · 공통 오류(400 · 500)
   it.each([
     {
       title: "Bad Request",
@@ -531,6 +539,7 @@ describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
 
     expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
       fieldErrors: { content: "채팅 답변은 1~1,000자입니다." },
+      keySpent: true,
     });
   });
 
@@ -541,6 +550,7 @@ describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
 
       expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
         formError: problem.detail,
+        keySpent: true,
       });
       expect(refresh).toHaveBeenCalledTimes(1);
     },
@@ -551,7 +561,7 @@ describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
 
     expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
       formError: "이미 처리된 요청이에요.",
-      keyReused: true,
+      keySpent: true,
     });
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -564,7 +574,7 @@ describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    post.mockRejectedValue(new Error("network"));
+    post.mockRejectedValue(axiosNoResponse());
     expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
       formError: "잠시 후 다시 시도해 주세요.",
     });
@@ -607,7 +617,10 @@ describe("endSession (5.8 면접 끝내기)", () => {
 
   it("이미 끝난 면접이면(409 INVALID_SESSION_STATE) 서버 문구를 돌려주고 화면을 다시 그린다", async () => {
     post.mockRejectedValue(axiosProblem(CONFLICT.INVALID_SESSION_STATE));
-    expect(await endSession(55, KEY)).toEqual({ formError: "지금은 할 수 없는 요청이에요." });
+    expect(await endSession(55, KEY)).toEqual({
+      formError: "지금은 할 수 없는 요청이에요.",
+      keySpent: true,
+    });
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
@@ -615,12 +628,12 @@ describe("endSession (5.8 면접 끝내기)", () => {
     post.mockRejectedValue(axiosProblem(CONFLICT.IDEMPOTENCY_KEY_REUSED));
     expect(await endSession(55, KEY)).toEqual({
       formError: "이미 처리된 요청이에요.",
-      keyReused: true,
+      keySpent: true,
     });
   });
 
   it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
-    post.mockRejectedValue(new Error("network"));
+    post.mockRejectedValue(axiosNoResponse());
     expect(await endSession(55, KEY)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -645,6 +658,47 @@ describe("endSession (5.8 면접 끝내기)", () => {
   });
 });
 
+// 기준: 웹 Swagger Idempotency-Key("같은 키·같은 본문이면 처음 결과를 그대로 반환") · ProblemDetail(실패는 code로 구분)
+// 서버가 ProblemDetail로 답했으면 새 키(keySpent), 응답을 못 받았거나 본문이 ProblemDetail이 아니면 같은 키로 다시 보낸다.
+describe("멱등 키를 쓰는 액션(5.1 · 5.4 · 5.7 · 5.8)의 새 키 경계", () => {
+  const actions = [
+    ["createSession", () => createSession(values, KEY)],
+    ["startSession", () => startSession(55, KEY)],
+    ["submitTextAnswer", () => submitTextAnswer(55, 303, { content: "답" }, KEY)],
+    ["endSession", () => endSession(55, KEY)],
+  ] as const;
+
+  it.each(actions)(
+    "%s: 500 INTERNAL_ERROR(ProblemDetail)면 서버 문구와 함께 새 키가 필요하다",
+    async (_, run) => {
+      post.mockRejectedValue(
+        axiosProblem({
+          status: 500,
+          code: "INTERNAL_ERROR",
+          detail: "잠시 후 다시 시도해 주세요.",
+        }),
+      );
+
+      expect(await run()).toEqual({ formError: "잠시 후 다시 시도해 주세요.", keySpent: true });
+    },
+  );
+
+  it.each(actions)(
+    "%s: 본문 없는 502(ProblemDetail 아님)면 같은 키로 다시 보낸다",
+    async (_, run) => {
+      post.mockRejectedValue(axiosStatusOnly(502));
+
+      expect(await run()).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    },
+  );
+
+  it.each(actions)("%s: 응답을 못 받았으면(연결 오류) 같은 키로 다시 보낸다", async (_, run) => {
+    post.mockRejectedValue(axiosNoResponse());
+
+    expect(await run()).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+  });
+});
+
 describe("issueTtsToken (5.12 질문 음성 토큰)", () => {
   it("1회용 토큰 · 만료 일시 · 면접관 음성 id · 모델 id를 반환한다", async () => {
     // Swagger 5.12 200 예시
@@ -661,7 +715,7 @@ describe("issueTtsToken (5.12 질문 음성 토큰)", () => {
     expect(post).toHaveBeenCalledWith("/interview-sessions/55/questions/303/tts-token");
   });
 
-  // Swagger 5.12 오류 예시 · API 명세 1장 공통 오류(500)
+  // 웹 Swagger 5.12 오류 예시의 code · detail(instance는 테스트 값) · 공통 오류(500)
   it.each([
     {
       title: "Bad Request",
@@ -766,7 +820,7 @@ describe("createAnswerAudioUploadUrl (5.6 답변 음성 업로드 주소)", () =
     );
   });
 
-  // Swagger 5.6 오류 예시 · API 명세 1장 공통 오류(400 · 500)
+  // 웹 Swagger 5.6 오류 예시의 code · detail(instance는 테스트 값) · 공통 오류(400 · 500)
   it.each([
     {
       title: "Bad Request",
@@ -894,7 +948,7 @@ describe("submitVideoAnswer (5.7 화상 답변 제출)", () => {
     });
   });
 
-  // Swagger 5.7 오류 예시 · API 명세 5.7 · 1장 공통 오류
+  // 웹 Swagger 5.7 오류 예시의 code · detail(instance는 테스트 값) · 공통 오류
   it.each([
     {
       title: "Bad Request",

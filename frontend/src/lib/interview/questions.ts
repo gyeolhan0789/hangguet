@@ -1,4 +1,4 @@
-// 기준: API 명세 5.2("질문 3 / 5"의 전체 질문 수는 5개로 고정) · AI 명세(질문 seq 1~5로 정확히 5개)
+// 기준: 웹 Swagger CurrentQuestion.seq("질문 3 / 5"의 3) · Figma S06 "질문 3 / 5"(전체 질문 수 5 고정)
 
 /** 면접 한 번의 질문 수. S06 · S06-B 위 '질문 3 / 5'의 5 */
 export const TOTAL_QUESTIONS = 5;

@@ -1,4 +1,4 @@
-// 1. 인증 요청. 기준: mock AuthDtos · AuthController(develop, S15P31A301-104 반영).
+// 1. 인증 요청. 기준: 웹 Swagger 1.1 ~ 1.5.
 
 /** 약관 종류. TERMS 이용약관 · PRIVACY 개인정보 수집·이용 · RECORDING 면접 녹화·음성 이용 */
 export type TermsType = "TERMS" | "PRIVACY" | "RECORDING";

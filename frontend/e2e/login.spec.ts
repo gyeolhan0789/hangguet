@@ -8,7 +8,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 // S01 로그인 · 로그인 상태 유지(proxy)
 // 근거: Figma S01 와이어프레임 · 디자인, S01 기획 메모
 //   (S00에서 진입 / 자동 로그인 유지 → 스트릭이 끊기지 않게 / 로그인 성공 → S02 홈),
-//   API 명세 1.3 로그인 · 1.4 토큰 재발급
+//   웹 Swagger 1.3 로그인 · 1.4 토큰 재발급
 
 const EMAIL = "a@ssafy.com";
 const PASSWORD = "abcd1234";
@@ -297,8 +297,8 @@ test.describe("접근 제어 · 로그인 상태 유지", () => {
   });
 });
 
-// API 명세 1장 공통 오류: 401 TOKEN_EXPIRED면 토큰을 재발급한 뒤 다시 요청한다.
-// mock 서버는 토큰을 검사하지 않아 TOKEN_EXPIRED를 주지 않으므로, mock ErrorCode 형식으로 테스트에서 만든다.
+// 웹 Swagger 공통 오류 401 TOKEN_EXPIRED: 토큰을 재발급한 뒤 다시 요청한다.
+// 목 서버는 토큰을 검사하지 않아 TOKEN_EXPIRED를 주지 않으므로, ProblemDetail 형식으로 테스트에서 만든다.
 // 액세스 토큰은 JWT(sub · nickname · iat · exp, 명세 1장)라 exp로 만료를 알 수 있다.
 const jwtWithExp = (exp: number) =>
   `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(
@@ -405,8 +405,8 @@ test.describe("접근 제어 · 토큰 만료 (TOKEN_EXPIRED)", () => {
   });
 });
 
-// API 명세 1장 공통 오류: 401 UNAUTHORIZED(토큰 없음 · 위조 · 탈퇴). mock 서버는 토큰을 검사하지 않아
-// 이 응답을 주지 않으므로, mock ErrorCode(401 "로그인이 필요해요.") 형식으로 테스트에서 만든다.
+// 웹 Swagger 공통 오류 401 UNAUTHORIZED. 목 서버는 토큰을 검사하지 않아(웹 Swagger 설명)
+// 이 응답을 주지 않으므로, ProblemDetail 형식으로 테스트에서 만든다.
 test.describe("접근 제어 · 인증 실패 (UNAUTHORIZED)", () => {
   test("홈 API가 UNAUTHORIZED면 남은 쿠키를 지우고 로그인 화면으로 보내며, 로그인 화면에 머물 수 있다", async ({
     page,

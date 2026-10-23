@@ -1,6 +1,6 @@
 import type { HomeResponse } from "@/types/api";
 
-// API 명세 3.1 Swagger 예시와 같은 값 (테스트용). 오늘은 2026-10-15로 본다.
+// 웹 Swagger 3.1 예시와 같은 값 (테스트용). 오늘은 2026-10-15로 본다.
 export const FIXTURE_TODAY = "2026-10-15";
 
 export const HOME_NOT_DONE: HomeResponse = {
@@ -38,6 +38,12 @@ export const HOME_DONE: HomeResponse = {
     { criterion: "DELIVERY", delta: 8 },
     { criterion: "LOGIC", delta: 4 },
   ],
+  nextActions: ["꼬리 질문엔 근거부터 짧게", "직무 적합성 질문 1개 더 연습하기"],
+  nextActionsDate: "2026-10-15",
+  recentReviews: [
+    { practiceDate: "2026-10-15", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
+    { practiceDate: "2026-10-14", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
+  ],
 };
 
 export const HOME_BROKEN: HomeResponse = {
@@ -46,6 +52,7 @@ export const HOME_BROKEN: HomeResponse = {
   currentStreak: 0,
   bestStreak: 7,
   practiceDates: ["2026-10-10", "2026-10-11", "2026-10-12"],
+  nextActionsDate: "2026-10-12",
   recentReviews: [
     { practiceDate: "2026-10-12", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
     { practiceDate: "2026-10-11", companyName: "△△소프트", criterion: "LOGIC", delta: 4 },

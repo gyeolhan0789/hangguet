@@ -1,4 +1,4 @@
-// mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/docs)의 응답 예시를 그대로 옮긴 값.
+// 웹 mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/v3/api-docs)의 응답 예시를 그대로 옮긴 값.
 // E2E는 이 값을 MSW 핸들러 응답으로 돌려준다. Swagger 예시가 바뀌면 같이 바꾼다.
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
 import type {
@@ -7,6 +7,7 @@ import type {
   PendingResponse,
   QuestionResponse,
   MeResponse,
+  NicknameChangeResponse,
   PracticeLogsResponse,
   ProblemDetail,
   SessionResponse,
@@ -42,6 +43,13 @@ export const ME = {
   currentStreak: 7,
 } satisfies MeResponse;
 
+/** 2.2 닉네임 변경 200 — 웹 Swagger 예시(내 정보 + 토큰의 nickname이 바뀐 새 액세스 토큰) */
+export const NICKNAME_CHANGED = {
+  ...ME,
+  accessToken: "eyJhbGciOiJIUzI1NiJ9.e2e-nickname",
+  expiresIn: 3600,
+} satisfies NicknameChangeResponse;
+
 /** 3.2 통계 200 — Swagger 예시 */
 export const STATS = {
   currentStreak: 7,
@@ -51,17 +59,17 @@ export const STATS = {
   latestJobTitle: "백엔드 개발자",
 } satisfies StatsResponse;
 
-/** 3.3 연습 달력 200 — Swagger 예시(2026-10-01 · 02) */
+/** 3.3 연습 달력 200 — 웹 Swagger 예시 '한국 시간 시작일 기준'(2026-10-20 · 21) */
 export const PRACTICE_LOGS = {
   content: [
-    { practiceDate: "2026-10-01", createdAt: "2026-10-01T21:12:00+09:00" },
-    { practiceDate: "2026-10-02", createdAt: "2026-10-02T20:40:00+09:00" },
+    { practiceDate: "2026-10-20", createdAt: "2026-10-20T20:10:00+09:00" },
+    { practiceDate: "2026-10-21", createdAt: "2026-10-21T19:42:00+09:00" },
   ],
 } satisfies PracticeLogsResponse;
 
 /**
  * 3.3 연습 달력 — Figma S09 스트릭 달력(18:2930)과 같은 10월(1~3 · 6~12일 연습, 오늘 13일).
- * Swagger 예시는 두 날뿐이라, 띠가 주를 넘어가는 모양을 보려고 Figma 그림의 날짜로 만든다(createdAt은 예시와 같은 시각).
+ * 웹 Swagger 예시는 두 날뿐이라, 띠가 주를 넘어가는 모양을 보려고 Figma 그림의 날짜로 만든다(createdAt은 테스트 값).
  */
 export const PRACTICE_LOGS_FIGMA = {
   content: ["01", "02", "03", "06", "07", "08", "09", "10", "11", "12"].map((day) => ({
@@ -295,7 +303,10 @@ export { REPLAY, RESULT } from "../../src/test/result-examples";
 /** 7.1 날짜별 성장 리뷰 200 — Swagger 예시. 단위 테스트와 같은 값을 쓴다. */
 export { GROWTH_REVIEW } from "../../src/test/growth-review-examples";
 
-/** 실패 응답 (RFC 9457 ProblemDetail + code) — Swagger 예시 · mock ErrorCode 문구 */
+/** 5.13 연습 면접 목록 · 5.15 월별 연습 면접 횟수 200 — 웹 Swagger 예시 · 웹 목 서버 실제 응답. 단위 테스트와 같은 값을 쓴다. */
+export { SESSION_CALENDAR, SESSION_LIST } from "../../src/test/session-list-examples";
+
+/** 실패 응답 (RFC 9457 ProblemDetail + code) — 웹 Swagger 예시 */
 export const PROBLEM = {
   LOGIN_FAILED: {
     title: "Unauthorized",
@@ -435,7 +446,7 @@ export const PROBLEM = {
     instance: "/api/v1/auth/token/refresh",
     code: "REFRESH_TOKEN_INVALID",
   },
-  // Swagger에 예시가 없어 mock ErrorCode(401 "로그인이 만료됐어요.")와 공통 오류 형식으로 만든다.
+  // 웹 Swagger에 예시가 없어 공통 오류(401 TOKEN_EXPIRED)를 ProblemDetail 형식으로 만든다(detail은 테스트 값).
   TOKEN_EXPIRED: {
     title: "Unauthorized",
     status: 401,

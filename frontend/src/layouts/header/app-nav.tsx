@@ -56,7 +56,7 @@ export function AppNav({ user }: { user: MeResponse }) {
 /** 내 정보를 불러오는 동안 (Figma S02-1 Home Skeleton 헤더) */
 export function AppNavSkeleton() {
   return (
-    <div aria-hidden className="flex items-center gap-6 pr-2">
+    <div aria-hidden data-testid="app-nav-skeleton" className="flex items-center gap-6 pr-2">
       <span className="hidden h-5 w-8 rounded-[10px] bg-surface sm:block" />
       <span className="hidden h-5 w-16 rounded-[10px] bg-surface sm:block" />
       <span className="h-[34px] w-16 rounded-full bg-surface" />

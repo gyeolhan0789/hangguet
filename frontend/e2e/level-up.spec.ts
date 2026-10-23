@@ -16,7 +16,7 @@ import { recordScreens, screens } from "./screen-log";
 import { api, expect, http, HttpResponse, test } from "./test";
 
 // 면접 끝내기 → 성장 리뷰의 스트릭 레벨업(S02-L)
-// 근거: API 명세 5.8(leveledUp은 5.8 응답에만 있어 화면이 S08까지 기억한다) · Figma 흐름 S06-E → S06-1 → S07 → S08(18:134)
+// 근거: 웹 Swagger leveledUp(5.8 응답에만 값이 있어 화면이 S08까지 기억한다) · Figma 흐름 S06-E → S06-1 → S07 → S08(18:134)
 //   · 기획 메모 S02-1(완료 'N일째 달성!') · S02-L 레벨업 · 스트릭 뱃지 단계(불씨 1-2 · 활활 3-5 · 황금 6-7 · 푸른 8-13 · 전설 14+)
 //   · 사용자 결정(2026-10-22: 레벨업은 5.8에서 넘어온 값으로 띄우고, 새로고침해도 남기며, 레벨업을 넘기면 지운다)
 // 경우: 단계가 바뀌는 날(3 · 6 · 8 · 14일째, leveledUp true) · 바로 전날(2 · 5 · 7 · 13일째, false) · 새로고침
@@ -27,24 +27,24 @@ const SESSION_ID = SESSION_INTERVIEW.IN_PROGRESS.id;
 const GLB = "**/interview/devil/interviewer.glb";
 /** 화면이 결과 분석을 다시 조회하는 간격(interview-room SESSION_POLL_MS) */
 const POLL_MS = 2000;
-/** 6.3 예시 면접이 끝난 날. S07 [오늘의 성장 리뷰 보기]는 이날 리뷰로 간다 */
-const ENDED_ON = "2026-10-15";
+/** 6.3 예시 면접을 시작한 날. S07 [오늘의 성장 리뷰 보기]는 이날 리뷰로 간다(웹 Swagger 7.1: 면접 시작 날짜) */
+const STARTED_ON = "2026-10-15";
 const STORE_KEY = "hankkeut:interview";
 
 /** 채팅 면접(Swagger 5.2 '면접 중' 예시의 방식만 CHAT으로 바꾼 것). 카메라 없이 끝낼 수 있다 */
 const CHAT: SessionResponse = { ...SESSION_INTERVIEW.IN_PROGRESS, mode: "CHAT" };
 
-/** ENDED_ON이 그날 첫 면접이고 N일째인 리뷰(Swagger 7.1 S08 예시에서 날짜 · 스트릭만 바꾼 것) */
+/** STARTED_ON이 그날 첫 면접이고 N일째인 리뷰(Swagger 7.1 S08 예시에서 날짜 · 스트릭만 바꾼 것) */
 function reviewOn(days: number): GrowthReviewResponse {
-  const end = new Date(`${ENDED_ON}T00:00:00Z`);
+  const start = new Date(`${STARTED_ON}T00:00:00Z`);
   const practiceDates = Array.from({ length: Math.min(days, 7) }, (_, i) => {
-    const date = new Date(end);
-    date.setUTCDate(end.getUTCDate() - i);
+    const date = new Date(start);
+    date.setUTCDate(start.getUTCDate() - i);
     return date.toISOString().slice(0, 10);
   }).reverse();
   return {
     ...GROWTH_REVIEW.S08,
-    practiceDate: ENDED_ON,
+    practiceDate: STARTED_ON,
     comparedDate: practiceDates.at(-2) ?? null,
     streakOnDate: days,
     practiceDates,
@@ -115,7 +115,7 @@ test.describe("면접 끝내기 → 성장 리뷰 레벨업", () => {
 
   test.beforeEach(async ({ page, signIn }) => {
     await signIn();
-    await page.setExtraHTTPHeaders({ [E2E_TODAY_HEADER]: ENDED_ON });
+    await page.setExtraHTTPHeaders({ [E2E_TODAY_HEADER]: STARTED_ON });
     // 3D 모델(32MB)을 받지 않는다. 404면 바로 정지 이미지가 나온다.
     await page.route(GLB, (route) => route.fulfill({ status: 404 }));
     await recordScreens(page);
@@ -143,7 +143,7 @@ test.describe("면접 끝내기 → 성장 리뷰 레벨업", () => {
       await dialog.getByRole("button", { name: "계속하기" }).click();
       await expect(dialog).toHaveCount(0);
       await expect(reviewTitle(page, days)).toBeVisible();
-      await expect(page).toHaveURL(`/reviews/${ENDED_ON}`);
+      await expect(page).toHaveURL(`/reviews/${STARTED_ON}`);
       // 'N일째 달성!' → 레벨업 → 리뷰 차례로 나왔다.
       const shown = await screens(page);
       const celebrated = order(shown, `status:${days}일째 달성!`);
@@ -169,7 +169,7 @@ test.describe("면접 끝내기 → 성장 리뷰 레벨업", () => {
       await page.getByRole("link", { name: "오늘의 성장 리뷰 보기" }).click();
       // 리뷰는 축하가 모두 끝나야 나온다. 레벨업이 있었다면 리뷰 대신 레벨업이 떠 있다.
       await expect(reviewTitle(page, days)).toBeVisible();
-      await expect(page).toHaveURL(`/reviews/${ENDED_ON}`);
+      await expect(page).toHaveURL(`/reviews/${STARTED_ON}`);
       // 'N일째 달성!'은 나왔고, 리뷰가 나오기까지 레벨업은 한 번도 나오지 않았다.
       const shown = await screens(page);
       expect(order(shown, `status:${days}일째 달성!`)).toBeGreaterThanOrEqual(0);
