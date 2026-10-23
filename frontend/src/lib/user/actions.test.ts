@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { axiosProblem } from "@/test/axios-problem";
+import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
 import type {
   MeResponse,
   NicknameChangeResponse,
@@ -9,6 +9,7 @@ import type {
   PasswordChangeRequest,
   ProblemDetail,
   ProfileImageUploadUrlRequest,
+  StreakFreezeUseResponse,
   WithdrawRequest,
 } from "@/types/api";
 
@@ -41,6 +42,7 @@ const cookieStore = { set: vi.fn(), delete: vi.fn() };
 vi.mock("next/headers", () => ({ cookies: async () => cookieStore }));
 
 const {
+  applyStreakFreeze,
   changeNickname,
   changePassword,
   createProfileImageUploadUrl,
@@ -268,6 +270,52 @@ describe("withdraw (2.7 회원 탈퇴)", () => {
     expect(await withdraw({ password: " " })).toEqual({
       fieldErrors: { password: "필수 값입니다." },
     });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyStreakFreeze (8.14 유지권 사용)", () => {
+  // Swagger 8.14 200 · 409 예시
+  const USED = {
+    practiceDate: "2026-10-19",
+    freezeId: 31,
+    availableCount: 1,
+    currentStreak: 9,
+  } satisfies StreakFreezeUseResponse;
+  const DATE_NOT_ALLOWED = {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 연습한 날이라 메울 수 없어요.",
+    instance: "/api/v1/users/me/streak-freezes/use",
+    code: "STREAK_FREEZE_DATE_NOT_ALLOWED",
+  } satisfies ProblemDetail;
+
+  it("유지권 id를 보내 메우고, 스트릭 · 달력 · 유지권 박스가 바뀌도록 다시 그린다", async () => {
+    api.post.mockResolvedValue({ data: USED });
+
+    expect(await applyStreakFreeze(31)).toEqual({ used: USED });
+    expect(api.post).toHaveBeenCalledWith("/users/me/streak-freezes/use", { freezeId: 31 });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("이미 연습한 날(409)이면 서버 문구를 돌려주고, 박스가 서버 상태와 같아지도록 다시 그린다", async () => {
+    api.post.mockRejectedValue(axiosProblem(DATE_NOT_ALLOWED));
+
+    expect(await applyStreakFreeze(31)).toEqual({ error: DATE_NOT_ALLOWED.detail });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 다시 그리지 않는다", async () => {
+    api.post.mockRejectedValue(axiosNoResponse());
+
+    expect(await applyStreakFreeze(31)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("유지권 id가 1 이상의 정수가 아니면 보내지 않는다", async () => {
+    for (const id of [0, -1, 2.5]) {
+      expect(await applyStreakFreeze(id)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
+    }
     expect(api.post).not.toHaveBeenCalled();
   });
 });
