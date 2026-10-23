@@ -20,7 +20,7 @@
 # - POSTGRES_DB·POSTGRES_USER·DB_PASSWORD는 DB 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 DB에서도 직접 바꿔야 한다.
 #
 # 자원: 미니PC의 다른 컨테이너와 메모리를 나눠 쓰므로 컨테이너마다 상한을 둔다.
-# 헬스체크용 포트는 루프백에만 연다(BE 18081, FE 18082, AI 18083, 에이전트 18084).
+# 헬스체크용 포트는 루프백에만 연다(BE 18081, FE 18082, AI 18083). 에이전트는 컨테이너 내부에서 확인한다.
 name: a301-dev
 
 x-logging: &logging
@@ -133,8 +133,6 @@ services:
     container_name: a301-dev-ai-agent
     restart: unless-stopped
     command: ["python", "-m", "app.agent.main", "start"]
-    ports:
-      - "127.0.0.1:${DEV_AI_AGENT_HOST_PORT:-18084}:8081"
     environment:
       <<: *livekit-env
       LIVEKIT_AGENT_NAME: a301-interviewer
