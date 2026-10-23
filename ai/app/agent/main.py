@@ -1,5 +1,43 @@
-# 예정: LiveKit 면접 에이전트의 실행 진입점. FastAPI·생성/평가와 별도 프로세스로 실행한다.
-# LiveKit 주소·키는 환경변수로 받고, Cloud와 자체 서버에 같은 프로그램을 연결한다.
-# 배정받은 질문을 진행하고 Soniox STT·ElevenLabs TTS를 직접 연결한다.
-# 화상 답변과 질문 진행 정보를 BE에 전달하고, 답변 저장 성공을 확인한 뒤 진행한다.
-# 질문 식별자·결과 순서·재접속·종료 계약을 확정한 뒤 구현한다. DB 저장·녹화는 맡지 않는다.
+"""LiveKit 연결 전용 에이전트. 이름을 지정해 배정한 방에만 참가한다."""
+
+import asyncio
+import logging
+import os
+
+from livekit import rtc
+from livekit.agents import AgentServer, AutoSubscribe, JobContext, cli
+
+log = logging.getLogger(__name__)
+server = AgentServer(num_idle_processes=0)
+
+
+async def entrypoint(ctx: JobContext) -> None:
+    closed = asyncio.Event()
+
+    def on_disconnected(_reason: rtc.DisconnectReason) -> None:
+        closed.set()
+
+    async def on_shutdown() -> None:
+        closed.set()
+
+    ctx.room.on("disconnected", on_disconnected)
+    ctx.add_shutdown_callback(on_shutdown)
+    try:
+        # 연결 확인 단계이므로 지원자의 음성·영상 트랙은 구독하지 않는다.
+        await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
+        log.info("LiveKit 방 참가 완료", extra={"room": ctx.room.name})
+        await closed.wait()
+    finally:
+        ctx.room.off("disconnected", on_disconnected)
+        log.info("LiveKit 방 연결 종료")
+
+
+server.rtc_session(entrypoint, agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "a301-interviewer"))
+
+
+def main() -> None:
+    cli.run_app(server)
+
+
+if __name__ == "__main__":
+    main()

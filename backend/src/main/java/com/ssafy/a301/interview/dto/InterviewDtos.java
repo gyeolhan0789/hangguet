@@ -72,7 +72,15 @@ public final class InterviewDtos {
                                     "이번에 끝낸 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이 있고, 그 외에는"
                                             + " null",
                             nullable = true)
-                    Boolean leveledUp) {}
+                    Boolean leveledUp,
+            @Schema(description = "면접방 입장 정보. 5.4 응답에만 값이 있고, 그 외에는 null", nullable = true)
+                    RoomResponse room) {}
+
+    @Schema(description = "면접방(LiveKit) 입장 정보(5.4·5.14)")
+    public record RoomResponse(
+            @Schema(description = "면접방 주소", example = "wss://rtc.hangguet.co.kr") String url,
+            @Schema(description = "입장 토큰. 이 면접의 방 하나·본인에게만 권한이 있다") String token,
+            @Schema(description = "토큰 만료 일시. 지나면 5.14로 다시 받는다") OffsetDateTime expiresAt) {}
 
     public record CriterionGrade(Criterion criterion, Grade grade) {}
 
@@ -148,17 +156,6 @@ public final class InterviewDtos {
             @Schema(description = "제출 일시") OffsetDateTime createdAt,
             @Schema(description = "마지막 질문이었으면 true → 화면이 면접 끝내기(5.8) 호출. false면 다음 질문을 기다린다")
                     boolean isLastQuestion) {}
-
-    public record SttTokenResponse(
-            @Schema(description = "Soniox 실시간 음성 인식 1회용 임시 키. 연결 1번에만 쓸 수 있어 답변마다 새로 받는다")
-                    String token,
-            @Schema(description = "이 시각 전에 연결을 시작해야 한다. 지나면 다시 발급받는다") OffsetDateTime expiresAt) {}
-
-    public record TtsTokenResponse(
-            @Schema(description = "ElevenLabs 질문 음성 1회용 토큰. 연결 1번에만 쓸 수 있다") String token,
-            @Schema(description = "토큰 만료 일시. 지나면 다시 발급받는다") OffsetDateTime expiresAt,
-            @Schema(description = "면접관 음성 id. 면접관(persona)에 맞춰 서버가 정한다") String voiceId,
-            @Schema(description = "음성 합성 모델 id. 서버가 정한다") String modelId) {}
 
     @Schema(description = "202 대기 상태 본문(오류 아님)")
     public record PendingResponse(@Schema(example = "QUESTION_GENERATING") String code) {}

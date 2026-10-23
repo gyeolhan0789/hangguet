@@ -86,7 +86,6 @@ com.ssafy.a301
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
 - 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
-- 5.10·5.12 Controller·Service와 `interview/stt`·`interview/tts`는 지울 대상이다(12장)
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다
@@ -148,13 +147,13 @@ com.ssafy.a301
 4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
-1. 5.4 한 트랜잭션: `start(now)` → 커밋 뒤 면접방 준비(5.6)
-   - 입장 토큰을 만들어 응답 `room`에 담는다 **[제안]**
-   - AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
-   - 화상이면 Egress 트랙 녹화를 시작한다. 원본 위치(`recordings/raw/{sessionId}/`)는 BE가 정한다
-   - 배정·녹화 시작이 실패했을 때 처리는 **[미정]**(API 명세 B-17)
+1. 5.4 한 트랜잭션(면접 행 잠금): `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+   - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
+   - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
+   - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 `READY`로 둔다 **[결정]**(B-17). 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
+   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 5초
 2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`) → `InterviewQuestion(seq, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
-3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면 202 `QUESTION_GENERATING`(계속 둘지 **[미정]**, API 명세 B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
+3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
@@ -197,11 +196,15 @@ com.ssafy.a301
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
 11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 다시보기 처리(B-19)가 정해질 때까지 경고 로그만 남긴다
 
-### 5.6 면접방 (LiveKit) **[제안]**
-- 입장 토큰(5.4·5.14): 방 `interview-{sessionId}` 하나, 참가자 = 회원. 화상은 마이크·카메라 송출·수신·메시지, 채팅은 수신·메시지만. 유효 시간 **[미정]**(API 명세 B-20). LiveKit API 키·시크릿으로 서명(외부 호출 없음)
-- 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름·방 이름·배정 정보, AI 명세 6.1)
-- 면접 종료: `RoomService.DeleteRoom`
-- 녹화: Egress 트랙 녹화 시작·종료(화상만). 녹화 원본은 Egress가 S3에 바로 올린다(10장)
+### 5.6 면접방 (LiveKit)
+- 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`
+- 입장 토큰(5.4·5.14): 방 `interview-{sessionId}` 하나, 참가자 이름 `candidate`. 화상은 마이크·카메라 송출·수신·메시지, 채팅은 수신·메시지만. 유효 시간 10분(`livekit.token-ttl`) **[결정]**(API 명세 B-20). LiveKit API 키·시크릿으로 서명(외부 호출 없음)
+- 방 만들기: `RoomService.CreateRoom`. 빈 방은 10분 뒤 닫힌다(`empty_timeout`·`departure_timeout`)
+- 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름 `a301-interviewer`·방 이름·배정 정보, AI 명세 6.1)
+- 면접 종료(5.8 커밋 뒤): `RoomService.DeleteRoom`. 에이전트가 나가고 녹화도 끝난다. 실패해도 5.8은 성공으로 두고 로그만 남긴다
+- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{publisher_identity}-{track_type}`이다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
+  - `{track_type}`은 `video`·`audio`(소문자, Egress `track_worker.go`)
+  - S3 키는 `LIVEKIT_EGRESS_S3_ACCESS_KEY`·`LIVEKIT_EGRESS_S3_SECRET`(버킷·리전은 `S3_BUCKET`·`AWS_REGION`)로 요청에 담는다. LiveKit Cloud(개발)는 저장소가 없으면 방 만들기를 400 `egress request missing output`으로 거절한다(확인함). 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅, 운영 배포 계획 6.2)
 - LiveKit 웹훅은 쓰지 않는다 **[제안]**(팀원 안 「Egress 종료 웹훅으로 녹화 등록」과 다름). 원본 위치는 BE가 녹화를 시작할 때 정하므로 종료 알림 없이도 합치기 작업에 넣을 수 있다
 
 ## 6. 계산 규칙 (저장하지 않음)
@@ -312,9 +315,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
-1. 남은 API(5.14, 3.x, 6.x, 7.x)의 Controller·Service·Repository 구현. 5.8의 면접방 삭제·녹화 중지는 면접방 연동 때(2번)
-2. 면접방: LiveKit 서버 API 어댑터(입장 토큰·에이전트 배정·방 삭제·Egress), 5.4 응답 `room`, 5.14(5.6)
+1. 남은 API(3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
+2. 면접방: 동시 면접 상한 거절(B-17), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후)
-4. 지울 것: 5.10·5.12 Controller·Service, `SonioxClient`·`ElevenLabsClient`, Soniox·ElevenLabs 설정(키는 AI로 이동)
-5. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-6. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
+5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
