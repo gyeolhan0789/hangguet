@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
+import { useInterviewRoom } from "@/components/interview/use-interview-room";
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { retryPlan, startSession } from "@/lib/interview/actions";
@@ -14,6 +15,7 @@ import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
 import { AnalyzingView } from "./analyzing-view";
+import { AnswerCaption } from "./answer-caption";
 import { ChatPanel } from "./chat-panel";
 import { EndModal } from "./end-modal";
 import { QuestionBubble } from "./question-bubble";
@@ -147,7 +149,11 @@ export function InterviewRoom({
 
             <TopBar session={session} question={question} />
             {session.mode === "VIDEO" ? (
-              <VideoInterview interviewer={interviewer} question={question} />
+              <VideoInterview
+                sessionId={session.id}
+                interviewer={interviewer}
+                question={question}
+              />
             ) : (
               <Dialog bottom="pb-[5px]">
                 {planFailed ? (
@@ -227,18 +233,22 @@ function Dialog({ bottom, children }: { bottom: string; children: React.ReactNod
 
 /** S06 화상: 내 카메라 · 질문 말풍선 · 마이크 · 마이크 끊김 토스트 */
 function VideoInterview({
+  sessionId,
   interviewer,
   question,
 }: {
+  sessionId: number;
   interviewer: string;
   question: CurrentQuestion | null;
 }) {
   const { stream, level } = useInterviewMedia();
+  const stt = useInterviewRoom(sessionId, stream);
   return (
     <>
       <SelfCamera stream={stream} />
       <Dialog bottom="pb-[68px]">
         <QuestionBubble interviewer={interviewer} question={question} />
+        <AnswerCaption {...stt} onRetry={stt.retry} />
         <VideoControls level={level} />
       </Dialog>
       <MicToast level={level} />

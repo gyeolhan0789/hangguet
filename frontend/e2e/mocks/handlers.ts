@@ -87,6 +87,15 @@ export const defaultHandlers = [
       ? HttpResponse.json(SESSION_STARTED)
       : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
   ),
+  // RTC 외부 연결을 사용하지 않는 화면 테스트의 기본값. 실제 연결 시나리오는 별도 방으로 덮어쓴다.
+  http.post(api("/interview-sessions/:sessionId/room-token"), () =>
+    problemResponse({
+      title: "Conflict",
+      status: 409,
+      code: "INVALID_SESSION_STATE",
+      detail: "지금은 할 수 없는 요청이에요.",
+    }),
+  ),
   // 5.7 답변 제출 202(채팅 TEXT로 바꾼 예시) · 5.8 면접 끝내기 202 'S06-E 답변한 2개까지 → S06-1'
   http.post(api("/interview-sessions/:sessionId/questions/:questionId/answer"), () =>
     HttpResponse.json(ANSWER, { status: 202 }),

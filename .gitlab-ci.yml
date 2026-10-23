@@ -693,6 +693,7 @@ ai-agent-deploy:
         - .gitlab-ci.yml
   before_script:
     - 'test -n "$LIVEKIT_API_KEY" && test -n "$LIVEKIT_API_SECRET" || { echo "FAIL: LiveKit API 키와 시크릿이 필요합니다."; exit 1; }'
+    - 'test -n "$SONIOX_API_KEY" || { echo "FAIL: SONIOX_API_KEY가 필요합니다."; exit 1; }'
   variables:
     DEV_SERVICE: "a301-dev-ai-agent"
     DEV_HEALTH_SOURCE: "container"

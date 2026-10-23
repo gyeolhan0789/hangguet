@@ -46,6 +46,7 @@ const {
   createSession,
   endSession,
   issueSttToken,
+  issueRoomToken,
   issueTtsToken,
   retryPlan,
   sendReaction,
@@ -86,6 +87,38 @@ beforeEach(() => {
   vi.clearAllMocks();
   // 앞 테스트의 응답 구현까지 비운다(clearAllMocks는 호출 기록만 지운다).
   post.mockReset();
+});
+
+describe("issueRoomToken (5.14 면접방 입장)", () => {
+  it("서버 API로 입장 정보를 받아 클라이언트에 필요한 필드만 반환한다", async () => {
+    const room = {
+      url: "wss://room.test",
+      token: "room-only",
+      expiresAt: "2026-10-23T15:00:00+09:00",
+    };
+    post.mockResolvedValue({ data: room });
+    expect(await issueRoomToken(55)).toEqual({ ok: true, ...room });
+    expect(post).toHaveBeenCalledWith("/interview-sessions/55/room-token");
+  });
+
+  it("잘못된 id는 API에 보내지 않는다", async () => {
+    expect(await issueRoomToken(0)).toEqual({ ok: false, code: null, status: null });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [404, "SESSION_NOT_FOUND"],
+    [409, "INVALID_SESSION_STATE"],
+  ] as const)("%i 오류 코드를 보존한다", async (status, code) => {
+    post.mockRejectedValue(axiosProblem({ status, code, title: "오류", instance: "/room-token" }));
+    expect(await issueRoomToken(55)).toEqual({ ok: false, status, code });
+  });
+
+  it("인증 redirect 신호를 실패 결과로 바꾸지 않는다", async () => {
+    const signal = new RedirectSignal("sign in");
+    post.mockRejectedValue(signal);
+    await expect(issueRoomToken(55)).rejects.toBe(signal);
+  });
 });
 
 describe("sessionCreateSchema", () => {
