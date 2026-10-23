@@ -53,6 +53,14 @@ describe("safeNextPath (재발급 뒤 돌아갈 주소)", () => {
     expect(safeNextPath("https://evil.example")).toBe("/home");
     expect(safeNextPath("//evil.example")).toBe("/home");
     expect(safeNextPath("/\\evil.example")).toBe("/home");
+    // 브라우저는 탭 · 줄바꿈을 지우고 읽어 '//evil.example'(다른 사이트)이 된다
+    expect(safeNextPath("/\t/evil.example")).toBe("/home");
+    expect(safeNextPath("/\n/evil.example")).toBe("/home");
+    expect(safeNextPath("/\t\\evil.example")).toBe("/home");
+  });
+
+  it("한글 등은 퍼센트 인코딩한 경로로 돌려준다(Location 헤더에 넣을 수 있게)", () => {
+    expect(safeNextPath("/records?q=한끗")).toBe("/records?q=%ED%95%9C%EB%81%97");
   });
 });
 
@@ -69,6 +77,7 @@ describe("pathAfterSignedOut (UNAUTHORIZED로 쿠키를 지운 뒤 갈 곳)", ()
 
   it("다른 사이트 주소는 받지 않는다", () => {
     expect(pathAfterSignedOut("//evil.example")).toBe("/login");
+    expect(pathAfterSignedOut("/\t/evil.example")).toBe("/login");
   });
 });
 
