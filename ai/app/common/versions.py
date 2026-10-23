@@ -54,7 +54,7 @@ class VersionRegistry:
 
 
 REGISTRY = VersionRegistry(
-    prompts=frozenset(),
+    prompts=frozenset({"plan-v1"}),
     models=frozenset({"gpt-4.1-mini"}),
     rubrics=frozenset(),
 )

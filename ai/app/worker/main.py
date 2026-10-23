@@ -8,18 +8,21 @@
 작업이 끝나기 전에 강제 종료돼도 작업은 처리 중 리스트에 남아 다음 시작 때 다시 처리된다.
 """
 
+import functools
 import logging
 import os
 import signal
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import FrameType
 from typing import Protocol
 
 from redis import RedisError
 
+from app.common.gms import GmsClient
 from app.common.redis import create_redis
 from app.common.settings import Settings, load_settings
+from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import ReceiveResult, RedisJobQueue
 from app.worker.results import ResultPublisher
@@ -37,6 +40,21 @@ class JobReceiver(Protocol):
     def receive_once(self) -> ReceiveResult: ...
 
 
+def lazy_gms_client(settings: Settings) -> Callable[[], GmsClient]:
+    """GMS 클라이언트를 처음 사용할 때 생성한다.
+
+    시작 시점에 생성하면 LLM_* 값이 없을 때 작업자가 종료돼
+    GMS를 사용하지 않는 작업까지 처리되지 않는다.
+    처음 사용할 때 생성하면 GMS를 사용하는 작업만 실패한다.
+    """
+
+    @functools.cache
+    def client() -> GmsClient:
+        return GmsClient.from_settings(settings)
+
+    return client
+
+
 def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher:
     """작업 종류별 처리 함수를 등록한 분배기를 생성한다.
 
@@ -44,7 +62,10 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     AI는 DB에 접속하지 않으므로 처리 함수에 넘기는 출력 수단은 결과 전송기 하나다(AI 명세 1장).
     등록 전에 도착한 작업은 처리 중 리스트에 남아 등록 뒤 재시작할 때 처리된다.
     """
-    return Dispatcher()
+    dispatcher = Dispatcher()
+    client = lazy_gms_client(settings)
+    register_plan_handler(dispatcher, PlanJobHandler(results, gms_plan_chat(client)))
+    return dispatcher
 
 
 class Worker:

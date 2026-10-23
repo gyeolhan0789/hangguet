@@ -45,6 +45,7 @@ class InvalidJobError(ValueError):
 # AI 명세 2장: 질문은 seq 1~5로 정확히 5개다
 MIN_SEQ = 1
 MAX_SEQ = 5
+QUESTION_COUNT = MAX_SEQ - MIN_SEQ + 1
 
 # BE @NotBlank(Hibernate Validator 9)는 Java String.isBlank로 검사한다.
 # isBlank는 Character.isWhitespace 기준이라 줄 바꿈 없는 공백(NBSP 등)을 공백으로 보지 않는다
