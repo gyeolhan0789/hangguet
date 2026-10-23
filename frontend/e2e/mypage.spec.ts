@@ -3,11 +3,11 @@ import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import { E2E_TODAY_HEADER } from "../src/lib/today";
 
-import { GROWTH_REVIEW, ME, PRACTICE_LOGS_FIGMA, STATS } from "./mocks/data";
+import { ME, PRACTICE_LOGS_FIGMA, SESSION_LIST, STATS } from "./mocks/data";
 import { api, expect, http, HttpResponse, test } from "./test";
 
 // S09 마이페이지
-// 근거: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 업적, 날짜 클릭 → 그날의 S08,
+// 근거: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 업적, 날짜 클릭 → 그날의 S08(사용자 결정 2026-10-23으로 그날을 고른 연습 기록),
 //   업적 · 지원 관리는 비활성 · 클릭 불가) · 모션 메모 S09(18:3109: 클릭 시 흔들림 + 토스트 '열심히 만들고 있어요!', ✎ → S09-1 프로필 사진)
 //   · Swagger 2.1 내 정보 · 3.2 통계 · 3.3 연습 달력(month=YYYY-MM)
 // 달력 칸 계산(띠 · 주 경계 · 오늘 · 앞날)과 시간 표기는 단위 테스트(calendar.test.ts)가, 카운트업 · 월 슬라이드 연출은 브라우저 화면 확인이 맡는다.
@@ -53,19 +53,6 @@ test.describe("S09 마이페이지 · 프로필 · 통계", () => {
     );
   });
 
-  test("면접 기록이 없어 최근 직무가 없으면(latestJobTitle null) 직무 칩을 보여 주지 않는다", async ({
-    page,
-    msw,
-  }) => {
-    msw.use(
-      http.get(api("/users/me/stats"), () => HttpResponse.json({ ...STATS, latestJobTitle: null })),
-    );
-    await page.goto("/mypage");
-
-    await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(ME.nickname);
-    await expect(main(page).getByText(/준비 중/)).toHaveCount(0);
-  });
-
   test("통계 타일 4개: 현재 스트릭 · 최장 스트릭 · 총 면접 · 총 연습 시간(분 → 시간 · 분)", async ({
     page,
   }) => {
@@ -87,7 +74,7 @@ test.describe("S09 마이페이지 · 스트릭 달력", () => {
     msw,
   }) => {
     const months = recordMonths(msw);
-    // '지금 N일 연속'은 3.2 통계의 currentStreak에서 온다(API 명세 3.3). 헤더(2.1)의 값과 구분되게 바꿔 둔다.
+    // '지금 N일 연속'은 3.2 통계의 currentStreak에서 온다(웹 Swagger 3.2). 헤더(2.1)의 값과 구분되게 바꿔 둔다.
     msw.use(
       http.get(api("/users/me/stats"), () => HttpResponse.json({ ...STATS, currentStreak: 5 })),
     );
@@ -104,26 +91,29 @@ test.describe("S09 마이페이지 · 스트릭 달력", () => {
     await expect(main(page).getByText("이번 달 10일 연습 · 지금 5일 연속!")).toBeVisible();
   });
 
-  test("연습한 날을 누르면 그날의 S08 성장 리뷰를 지난 날짜 문구('이날' · [홈으로])로 보여 준다", async ({
+  test("연습한 날을 누르면 그날을 고른 연습 기록으로 가 그날 면접 목록을 보여 준다", async ({
     page,
     msw,
   }) => {
     recordMonths(msw);
-    // 7.1: Swagger 'S08 오늘의 성장 리뷰' 예시를 10월 1일 리뷰로 쓴다.
+    // 5.13: Swagger '완료·분석 중' 예시를 10월 1일 목록으로 쓴다. 물은 쿼리를 모아 둔다.
+    const sessionQueries: Record<string, string>[] = [];
     msw.use(
-      http.get(api("/growth-reviews/:practiceDate"), () =>
-        HttpResponse.json({ ...GROWTH_REVIEW.S08, practiceDate: "2026-10-01" }),
-      ),
+      http.get(api("/interview-sessions"), ({ request }) => {
+        sessionQueries.push(Object.fromEntries(new URL(request.url).searchParams));
+        return HttpResponse.json(SESSION_LIST.DAILY);
+      }),
     );
     await page.goto("/mypage");
 
     await calendar(page).getByRole("link", { name: "10월 1일 연습함" }).click();
 
-    await expect(page).toHaveURL("/reviews/2026-10-01");
-    await expect(page.getByText("10월 1일 · 면접 1회 · 18분")).toBeVisible();
-    await expect(page.getByRole("region", { name: "이날 나아진 점" })).toBeVisible();
-    await expect(page.getByText("오늘도 연습해 볼까요?")).toBeVisible();
-    await expect(page.getByRole("link", { name: "홈으로" })).toBeVisible();
+    await expect(page).toHaveURL("/records?date=2026-10-01");
+    await expect(main(page).getByRole("heading", { level: 2, name: "10월 1일" })).toBeVisible();
+    await expect(
+      main(page).getByRole("region", { name: "면접 목록" }).getByRole("article"),
+    ).toHaveCount(2);
+    expect(sessionQueries).toContainEqual({ practiceDate: "2026-10-01", page: "0", size: "5" });
   });
 
   test("‹ · ›로 달을 옮기면 그 달(month)로 3.3을 다시 불러 보여 준다", async ({ page, msw }) => {

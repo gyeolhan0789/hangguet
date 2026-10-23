@@ -13,8 +13,8 @@ import {
   tierChipTone,
 } from "./review";
 
-// 기준: API 명세 7.1(S08 '오늘 나아진 점'은 delta > 0인 기준, 자소서 검증은 delta 없이 comment만, S08-C는 grade로 기준점,
-// 설문 유도는 3 · 7 · 21일째) · GrowthReviewResponse(practiceDates: 그날 포함 최근 7일 중 연습한 날) · Swagger 7.1 예시
+// 기준: S08 '오늘 나아진 점'은 delta > 0인 기준, 자소서 검증은 delta 없이 comment만, S08-C는 grade로 기준점,
+// 설문 유도는 3 · 7 · 21일째 · GrowthReviewResponse(practiceDates: 그날 포함 최근 7일 중 연습한 날) · Swagger 7.1 예시
 // · 사용자 결정(2026-10-22: 자소서 검증은 '좋아요'일 때만 [통과], 칩 문구 '{단계 이름} · N일째', 지난 날짜는 '오늘' 대신 그날 요일)
 
 // Swagger 7.1 'S08 오늘의 성장 리뷰' 예시의 기준 4개

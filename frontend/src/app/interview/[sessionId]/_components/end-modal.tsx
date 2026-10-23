@@ -13,7 +13,7 @@ import { useInterviewStore } from "@/stores/interview-store";
 // · 버튼 높이 52 · 둥글기 14 · 간격 10 · 위 8: [끝내기](#f2f4f6 · 16 Bold #f04452) · [계속하기](brand-strong · 16 Bold 흰색))
 // · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기)을 강조, 끝내기 → S06-1, 답변 0개면 '결과 없이 나가요' 문구 + 스트릭 미인정)
 // · 모션 메모 S06-E(18:4318: 배경 dim 페이드 + 모달 팝, 답변 0개일 때는 '결과 없이 나가요 · 스트릭 미인정' 문구로 교체)
-// · Swagger 5.8 면접 끝내기 · API 명세 5.8(답변 ≥1이면 그날 연습으로 인정, 0개면 결과 · 연습 인정 없이 끝남)
+// · 웹 Swagger 5.8 면접 끝내기(답변이 1개 이상이면 결과 분석 시작, 없으면 결과 없이 끝남)
 // S06 계열은 라이트 · 다크 구분 없는 화면이라, 모달 색은 테마에 따라 바뀌는 토큰 대신 Figma 값을 그대로 쓴다.
 
 /** S06-E 면접 종료 확인 모달 */
@@ -49,7 +49,7 @@ export function EndModal({
     key.current ??= crypto.randomUUID();
     startEnd(async () => {
       const result = await endSession(sessionId, key.current!);
-      if (result.keyReused) key.current = null;
+      if (result.keySpent) key.current = null;
       if (result.formError) setError(result.formError);
       else {
         setLeveledUp(result.leveledUp ?? null);

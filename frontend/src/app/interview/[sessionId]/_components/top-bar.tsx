@@ -4,6 +4,8 @@ import { motion } from "motion/react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
+import { useOnline } from "@/components/use-online";
+
 import { PERSONAS } from "@/lib/interview/personas";
 import { formatElapsed, TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import { useInterviewStore } from "@/stores/interview-store";
@@ -14,7 +16,7 @@ import type { CurrentQuestion, SessionResponse } from "@/types/api";
 // · 18:2508 Progress Pill(360×44 · '질문 3 / 5' 15 Bold · 트랙 120×4 흰색 20% · 채움 brand · '08:42' 15 SemiBold 흰색 70%)
 // · 18:2513 End Button(높이 44 · rgba(255,90,90,.15) · 테두리 rgba(255,90,90,.4) · phone-off 16 · '면접 종료' 15 Bold #ff8a8a)
 // · Swagger 5.2(persona · companyName · jobTitle · currentQuestion.seq · answeredCount · elapsedSeconds · status)
-// · API 명세 5.2(전체 질문 수 5 고정) · 모션 메모 S06(18:2569: [답변 완료] → 상단 진행 바 width 증가)
+// · Figma S06 '질문 3 / 5'(전체 질문 수 5 고정) · 모션 메모 S06(18:2569: [답변 완료] → 상단 진행 바 width 증가)
 // · 기획 메모 S06-E(18:3508: [면접 종료] → 종료 확인) · 기획 메모 S06-F(18:3575: 멈춤 상태에서 타이머 정지)
 
 const pill =
@@ -34,6 +36,7 @@ export function TopBar({
   question: CurrentQuestion | null;
 }) {
   const openEnd = useInterviewStore((state) => state.openEnd);
+  const online = useOnline();
   const persona = PERSONAS.find((info) => info.persona === session.persona);
   const mark = MARK[session.persona];
   // 질문을 기다리는 동안(currentQuestion 없음)은 마지막으로 답한 질문 번호를 둔다.
@@ -60,7 +63,11 @@ export function TopBar({
         className={`${pill} order-last h-11 w-full justify-center gap-3.5 px-[18px] md:absolute md:top-5 md:left-1/2 md:order-none md:w-[360px] md:-translate-x-1/2`}
       >
         <ProgressPill seq={seq} />
-        <Elapsed seconds={session.elapsedSeconds} running={session.status === "IN_PROGRESS"} />
+        <Elapsed
+          seconds={session.elapsedSeconds}
+          // 연결이 끊긴 동안은 멈춘다(웹 Swagger elapsedSeconds: 연결이 끊겨 멈춘 시간은 빠진다).
+          running={session.status === "IN_PROGRESS" && online}
+        />
       </div>
 
       <button
@@ -104,7 +111,7 @@ function ProgressPill({ seq }: { seq: number }) {
   );
 }
 
-/** 면접 경과 시간. 5.2 elapsedSeconds에서 시작해 면접 중(IN_PROGRESS)에만 1초마다 는다. */
+/** 면접 경과 시간. 5.2 elapsedSeconds에서 시작해 면접 중(IN_PROGRESS)이고 연결돼 있을 때만 1초마다 는다. */
 function Elapsed({ seconds, running }: { seconds: number; running: boolean }) {
   // 다시 그려 5.2 값이 바뀌면 그 값에서 다시 센다.
   const [base, setBase] = useState(seconds);

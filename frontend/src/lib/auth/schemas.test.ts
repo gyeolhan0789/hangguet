@@ -42,6 +42,15 @@ describe("signupSchema", () => {
     expect(firstError(result)).toBe("password");
   });
 
+  it("규칙에 맞지 않는 비밀번호는 웹 Swagger 1.2 VALIDATION_FAILED reason과 같은 문구다", () => {
+    const result = signupSchema.safeParse({
+      ...validSignup,
+      password: "abcdefgh",
+      passwordConfirm: "abcdefgh",
+    });
+    expect(result.error?.issues[0]?.message).toBe("8~64자, 영문과 숫자를 모두 포함해야 합니다.");
+  });
+
   it("비밀번호 확인이 다르면 확인 칸 오류로 막는다", () => {
     const result = signupSchema.safeParse({ ...validSignup, passwordConfirm: "abcd12345" });
     expect(firstError(result)).toBe("passwordConfirm");

@@ -100,7 +100,7 @@ export function HomeView({ home, today }: { home: HomeResponse; today: string })
             variant="secondary"
           />
           <Cards>
-            <TodayImprovedCard home={home} today={today} />
+            <TodayImprovedCard home={home} />
             <RecentReviewsCard reviews={home.recentReviews} />
           </Cards>
         </main>
@@ -148,4 +148,6 @@ export function HomeView({ home, today }: { home: HomeResponse; today: string })
         </main>
       );
   }
+  // 웹 Swagger 3.1 homeState 4개 밖의 값이면 빈 화면 대신 오류 화면((main)/error.tsx)으로 보낸다.
+  throw new Error(`알 수 없는 홈 상태: ${String(home.homeState)}`);
 }

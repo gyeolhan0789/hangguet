@@ -12,8 +12,8 @@ import { finishedReviewPath, replayPath } from "@/lib/routes";
 // · [오늘의 성장 리뷰 보기] 나머지 폭 · brand-strong · 흰 글자 18 Bold · arrow-right 20)
 // · 기획 메모 S07(18:762: 하단 [오늘의 성장 리뷰 보기]는 스크롤해도 고정) · 기획 메모 S07-1(18:3638: S07 [면접 다시보기]로 진입)
 // · 모션 메모 S07(18:2705: 하단 [오늘의 성장 리뷰 보기]는 스크롤해도 고정, 페이지 끝에 닿으면 한 번 통통)
-// · Figma 흐름 S07 → S08(18:134) · API 명세 5.13(성장 리뷰(7.1)는 면접이 끝난 날(종료일) 기준)
-// · 사용자 결정(2026-10-22: [오늘의 성장 리뷰 보기]는 면접이 끝난 날의 성장 리뷰(S08)로 간다)
+// · Figma 흐름 S07 → S08(18:134) · 웹 Swagger 7.1(practiceDate는 한국 시간 면접 시작 날짜, 자정을 넘어 끝나도 시작일)
+// · 사용자 결정(2026-10-23: 날짜는 면접 시작 기준 — 6.3에 리뷰 날짜 필드가 없어 startedAt으로 정한다)
 
 /** 결과 화면 아래에 붙는 버튼 막대. 페이지 끝(end)이 보이면 [오늘의 성장 리뷰 보기]가 한 번 통통 튄다. */
 export function ResultActionBar({
@@ -22,7 +22,7 @@ export function ResultActionBar({
   end,
 }: {
   sessionId: number;
-  /** 면접이 끝난 날(한국 시간 YYYY-MM-DD). 이날의 성장 리뷰로 간다 */
+  /** 면접을 시작한 날(한국 시간 YYYY-MM-DD). 이날의 성장 리뷰로 간다 */
   reviewDate: string;
   end: RefObject<HTMLElement | null>;
 }) {

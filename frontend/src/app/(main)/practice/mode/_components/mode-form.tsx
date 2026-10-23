@@ -47,8 +47,8 @@ export function ModeForm({
     startTransition(async () => {
       const result = await createSession({ applicationId, persona, mode }, idempotencyKeys[mode]);
       if (result.formError) setFormError(result.formError);
-      // 409: 이 키는 다른 요청에 이미 쓰였다. 다음에 다시 누를 때는 새 키로 보낸다.
-      if (result.keyReused) {
+      // 서버가 실패로 답했으면 다음에 다시 누를 때는 새 키로 보낸다(같은 키·같은 본문이면 처음 결과를 그대로 반환).
+      if (result.keySpent) {
         setIdempotencyKeys((keys) => ({ ...keys, [mode]: crypto.randomUUID() }));
       }
     });

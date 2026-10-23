@@ -3,8 +3,8 @@ import { tierOf, withAlpha, type StreakTier } from "@/lib/streak";
 import type { CriterionReview, GrowthReviewResponse } from "@/types/api";
 
 // S08 · S08-B · S08-C 표시 규칙.
-// 기준: API 명세 7.1(S08 '오늘 나아진 점'은 delta > 0인 기준, 자소서 검증(COVER_LETTER)은 delta 없이 comment만(grade가 GOOD이면
-// '막힘 없이 통과'), S08-C는 delta 대신 grade로 기준점, 설문 유도(S08-B, 3 · 7 · 21일째)는 화면이 streakOnDate로 판단)
+// 기준: 웹 Swagger 7.1 · S08 '오늘 나아진 점'은 delta > 0인 기준, 자소서 검증(COVER_LETTER)은 delta 없이 comment만(grade가 GOOD이면
+// '막힘 없이 통과'), S08-C는 delta 대신 grade로 기준점, 설문 유도(S08-B, 3 · 7 · 21일째)는 화면이 streakOnDate로 판단
 // · GrowthReviewResponse.practiceDates(그날 포함 최근 7일 중 연습한 날) · Figma S08(18:2710) · S08-B(18:4578) · S08-C(18:4720)
 // · 사용자 결정(2026-10-22: 자소서 검증은 '좋아요'일 때만 [통과]로 보여 주고 아니면 넣지 않는다, 지난 날짜는 '오늘' 문구를 그날 문구로)
 

@@ -24,7 +24,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 // 근거: Figma S06(18:2497) · S06-B(18:2574) · S06-E(18:4226) · S06-1(18:4437) · 기획 · 모션 메모 S06 · S06-B · S06-E · S06-1
 //   · Swagger 5.2 면접 조회 · 5.4 면접 시작(채팅은 질문 준비가 끝나면 자동) · 5.5 지금 질문(202 다음 질문 생성 중)
 //   · 5.7 답변 제출(TEXT · Idempotency-Key) · 5.8 면접 끝내기(202 ANALYZING · 200 ABORTED)
-//   · API 명세 1장(2초마다 다시 확인 — 다음 질문 5.5, 질문 준비 · 결과 분석 5.2) · 5.8(마지막 답변 후 자동, 답변 0개면 홈)
+//   · 웹 Swagger 5.2 · 5.5(2초마다(임시 값) 다시 확인 — 다음 질문 5.5, 질문 준비 · 결과 분석 5.2) · 5.8(답변 0개 → 홈)
 //   · 면접관 표현 결정 ③-3(실패 시 정지 이미지)
 // 실시간 음성 인식(STT) · 질문 음성(TTS) · 리액션은 아직 연결하지 않았다.
 // 서버 액션의 응답별 처리는 단위 테스트(interview/actions.test.ts), 화면 부품 · 시간 경계는 컴포넌트 테스트가 맡는다.
@@ -507,6 +507,63 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByTestId("lightning-flash")).toHaveCount(0);
     await expect(page.getByTestId("storm-vignette")).toHaveCount(0);
     await expect(page.locator('img[src*="icon-flame"]')).toHaveCount(0);
+  });
+
+  test("채팅: 질문 준비가 실패했으면(5.2 planStatus FAILED) '면접 준비에 실패했어요' · [다시 시도]를 보이고, 누르면 5.3으로 다시 준비한다", async ({
+    page,
+    msw,
+  }) => {
+    await skip3d(page);
+    // Swagger 5.2 'S05 플랜 생성 실패' 예시의 방식만 CHAT으로 바꾼 것. 5.3을 받으면 다시 준비 중(GENERATING)이 된다.
+    const state = { plan: "FAILED" as keyof typeof SESSION_PLAN };
+    const retried: string[] = [];
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId"), () =>
+        HttpResponse.json({ ...SESSION_PLAN[state.plan], mode: "CHAT" }),
+      ),
+      http.post(api("/interview-sessions/:sessionId/plan/retry"), ({ params }) => {
+        retried.push(String(params.sessionId));
+        state.plan = "GENERATING";
+        return HttpResponse.json(
+          { ...SESSION_PLAN.GENERATING, mode: "CHAT", planProgress: 0 },
+          { status: 202 },
+        );
+      }),
+    );
+    await page.goto(S06);
+
+    const prepare = page.getByRole("region", { name: "면접 준비" });
+    await expect(prepare).toContainText("면접 준비에 실패했어요");
+    await expect(thinking(page)).toHaveCount(0);
+
+    await prepare.getByRole("button", { name: "다시 시도" }).click();
+
+    await expect(thinking(page)).toBeVisible();
+    await expect(prepare).toHaveCount(0);
+    expect(retried).toEqual([String(SESSION_PLAN.FAILED.id)]);
+  });
+
+  test("답변 없이 끝난 면접(5.2 ABORTED)에 들어오면 홈으로 보낸다", async ({ page, msw }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId"), () =>
+        HttpResponse.json(SESSION_ENDED.ABORTED),
+      ),
+    );
+    await page.goto(S06);
+
+    await expect(page).toHaveURL("/home");
+  });
+
+  test("시작 전 화상 면접(5.2 VIDEO · READY)에 들어오면 S05 장치 점검으로 보낸다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId"), () => HttpResponse.json(SESSION_PLAN.READY)),
+    );
+    await page.goto(S06);
+
+    await expect(page).toHaveURL(`/practice/devices?sessionId=${SESSION_PLAN.READY.id}`);
   });
 
   test("없는 면접(404 SESSION_NOT_FOUND)이면 S03 지원서 입력으로 보낸다", async ({ page, msw }) => {

@@ -1,10 +1,10 @@
 import type { AnswerFeedback, Criterion, Grade, OffsetDateTime, ReplayItem } from "@/types/api";
 
 // S07 · S07-1 화면 표시 규칙.
-// 기준: API 명세 6.3(기준 이름 JOB_FIT → 직무 적합성 · COVER_LETTER → 자소서 검증 · LOGIC → 논리성 · DELIVERY → 전달력,
-// grade 문구는 화면이 바꾼다, 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다) · 기획 메모 S07(18:762: 좋아요 · 보통 · 아쉬워요)
+// 기준: 기준 이름 JOB_FIT → 직무 적합성 · COVER_LETTER → 자소서 검증 · LOGIC → 논리성 · DELIVERY → 전달력,
+// grade 문구는 화면이 바꾼다, 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다 · 기획 메모 S07(18:762: 좋아요 · 보통 · 아쉬워요)
 // · ResultResponse.startedAt('18분'은 endedAt과의 차이) · ReplayItem.questionCreatedAt(startedAt과의 차이(초)가 영상 속 질문 위치)
-// · ReplayResponse.startedAt(상단 날짜) · API 명세 6.4(자막은 재생 위치가 속한 질문(questionCreatedAt ≤ 위치 < 다음 질문)의 answer)
+// · ReplayResponse.startedAt(상단 날짜) · 자막은 재생 위치가 속한 질문(questionCreatedAt ≤ 위치 < 다음 질문)의 answer
 
 export const CRITERION_LABEL: Record<Criterion, string> = {
   JOB_FIT: "직무 적합성",

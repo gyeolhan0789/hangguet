@@ -10,7 +10,7 @@ import { ResultView } from "./_components/result-view";
 
 export const metadata: Metadata = { title: "피드백 결과 · 한끗" };
 
-// S07 피드백 결과. 기준: Figma S07(18:2620) · Swagger 6.3 면접 결과 · API 명세 6.3(RESULT_NOT_READY면 화면은 S06-1로)
+// S07 피드백 결과. 기준: Figma S07(18:2620) · 웹 Swagger 6.3 면접 결과(409 RESULT_NOT_READY · NO_RESULT) · RESULT_NOT_READY면 S06-1 분석 중 화면으로
 // · 사용자 결정(2026-10-22: 면접이 없거나(404) 결과가 없으면(NO_RESULT) 다른 면접 화면과 같이 S03 지원서 입력으로 보낸다)
 async function Result({ params }: Pick<PageProps<"/interview/[sessionId]/result">, "params">) {
   const { sessionId: raw } = await params;

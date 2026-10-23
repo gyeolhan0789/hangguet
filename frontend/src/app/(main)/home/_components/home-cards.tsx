@@ -70,16 +70,20 @@ export function NextActionCard({ home }: { home: HomeResponse }) {
   );
 }
 
-/** S02-B '오늘 나아진 점' → 오늘 성장 리뷰(S08) */
-export function TodayImprovedCard({ home, today }: { home: HomeResponse; today: string }) {
-  if (home.todayImprovements.length === 0) return null;
+/**
+ * S02-B '오늘 나아진 점' → 오늘 성장 리뷰(S08).
+ * 날짜는 FE의 오늘이 아니라 응답의 가장 최근 성장 리뷰 날짜(웹 Swagger 3.1: 오늘의 집계는 한국 시간 면접 시작 날짜 기준)를 쓴다.
+ */
+export function TodayImprovedCard({ home }: { home: HomeResponse }) {
+  const [latest] = home.recentReviews;
+  if (home.todayImprovements.length === 0 || !latest) return null;
   return (
     <FeatureCard
       icon="/home/icon-sparkles-sm.svg"
       label="오늘 나아진 점"
       title={home.todayImprovements.map(formatImprovement).join(" · ")}
       footer="오늘의 성장 리뷰 보기 →"
-      href={growthReviewPath(today)}
+      href={growthReviewPath(latest.practiceDate)}
     />
   );
 }
@@ -88,8 +92,7 @@ export function TodayImprovedCard({ home, today }: { home: HomeResponse; today: 
 export function LastPracticeCard({ home }: { home: HomeResponse }) {
   const [last] = home.recentReviews;
   if (!last) return null;
-  // 첫 연습일이라 오른 점수가 없으면 회사명을 대신 보여 준다.
-  const detail = formatReviewImprovement(last) ?? last.companyName;
+  const detail = formatReviewImprovement(last);
   return (
     <FeatureCard
       icon="/home/icon-history.svg"
@@ -102,19 +105,11 @@ export function LastPracticeCard({ home }: { home: HomeResponse }) {
 }
 
 function ReviewRow({ review }: { review: RecentReviewItem }) {
-  // 첫 연습일이라 오른 점수가 없으면 점수 칩을 빼고 날짜 · 회사명만 보여 준다.
   const improvement = formatReviewImprovement(review);
   return (
     <Link
       href={growthReviewPath(review.practiceDate)}
-      aria-label={[
-        shortDate(review.practiceDate),
-        review.companyName,
-        improvement,
-        "성장 리뷰 보기",
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${improvement} 성장 리뷰 보기`}
       className="flex items-center justify-between gap-3 py-2.5"
     >
       <span className="flex min-w-0 items-center gap-3 leading-normal font-semibold">
@@ -122,11 +117,9 @@ function ReviewRow({ review }: { review: RecentReviewItem }) {
         <span className="truncate text-base text-text-1">{review.companyName}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        {improvement && (
-          <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
-            {improvement}
-          </span>
-        )}
+        <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
+          {improvement}
+        </span>
         <MaskIcon src="/home/icon-chevron-right.svg" size={18} className="bg-text-3" />
       </span>
     </Link>

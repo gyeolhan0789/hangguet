@@ -17,7 +17,9 @@ export const getMe = cache(async (): Promise<MeResponse | null> => {
     const { data } = await api.get<MeResponse>(endpoints.users.me);
     return data;
   } catch (error) {
-    if (getProblemDetail(error)?.status === 401) return null;
+    // 웹 Swagger 공통 401(UNAUTHORIZED · TOKEN_EXPIRED). 실패는 HTTP 상태가 아니라 code로 구분한다.
+    const code = getProblemDetail(error)?.code;
+    if (code === "UNAUTHORIZED" || code === "TOKEN_EXPIRED") return null;
     throw error;
   }
 });

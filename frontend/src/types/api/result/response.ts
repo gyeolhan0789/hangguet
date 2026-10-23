@@ -1,5 +1,5 @@
-// 6. 녹화 · 결과 · 다시보기 응답. 기준: mock ResultDtos · ResultController.
-// 자바 BigDecimal도 JSON 숫자로 온다.
+// 6. 녹화 · 결과 · 다시보기 응답. 기준: 웹 Swagger 6.3 · 6.4.
+// 소수도 JSON 숫자로 온다.
 import type { OffsetDateTime } from "../common";
 import type { Criterion, Grade } from "../growth/response";
 import type { Mode, Persona } from "../interview/request";
@@ -17,12 +17,12 @@ export interface RecordingResponse {
 /** 평가 기준 하나의 결과 */
 export interface SessionScore {
   criterion: Criterion;
-  /** 점수(0~100). 자소서 검증은 답변이 자소서와 명확하게 충돌한 개수만큼 100점에서 차감(B-10) */
+  /** 점수(0~100). */
   score: number;
   /** 3단계 */
   grade: Grade;
   /** 한 줄 설명. 성장 리뷰의 "다음에 해볼 것"에도 쓰인다 */
-  comment: string | null;
+  comment: string;
 }
 
 /** 질문별 피드백 */
@@ -39,26 +39,20 @@ export interface AnswerFeedback {
   score: number;
   /** 3단계 */
   grade: Grade;
-  /** 잘한 점 */
+  /** 잘한 점. 없으면 null(웹 Swagger 6.3 예시 4번 질문) */
   goodPoint: string | null;
-  /** 아쉬운 점. 성장 리뷰의 "다음에 해볼 것"에도 쓰인다 */
-  improvePoint: string | null;
+  /** 아쉬운 점 */
+  improvePoint: string;
 }
 
-/** 음성 지표. 값을 구하지 못한 항목은 null */
+/** 음성 지표(화상 면접). 웹 Swagger 6.3에는 필드 설명 없이 예시 값만 있다 */
 export interface SpeechMetrics {
-  /** 1분당 군말('음', '어') 횟수 */
-  fillerPerMin: number | null;
-  /** 문장 중간에 길게 멈춘 횟수 */
-  longPauseCount: number | null;
-  /** 일반 성인 말 속도와의 차이(%, 기준은 AI 명세 4장) */
-  speedDeviationPct: number | null;
-  /** 말끝을 흐린 문장 비율(%) */
-  trailingOffRatio: number | null;
-  /** 억양 변화 폭(세미톤) */
-  pitchRangeSt: number | null;
-  /** 말하는 동안 면접관을 바라본 시간 비율(%). 녹화 영상으로 구하므로 녹화가 없으면 null */
-  gazeRatio: number | null;
+  fillerPerMin: number;
+  longPauseCount: number;
+  speedDeviationPct: number;
+  trailingOffRatio: number;
+  pitchRangeSt: number;
+  gazeRatio: number;
 }
 
 /** 6.3 면접 결과 (200) */
@@ -71,7 +65,7 @@ export interface ResultResponse {
   companyName: string;
   /** 지원 직무 */
   jobTitle: string;
-  /** 맨 위 한 줄 총평 */
+  /** 맨 위 한 줄 총평. 없으면 null(웹 Swagger 5.13 "평가·총평은 6.3 결과의 요약"이고, 웹 목 서버 5.13 실제 응답에 총평 없는 COMPLETED(id 52)가 있다) */
   summary: string | null;
   /** 면접 시작 일시. 화면의 "18분"은 endedAt과의 차이 */
   startedAt: OffsetDateTime;
@@ -93,14 +87,14 @@ export interface ReplayItem {
   seq: number;
   /** 질문 내용 */
   question: string;
-  /** 질문을 낸 일시. startedAt과의 차이(초)가 영상 속 질문 위치(마커). 1~2초 오차 */
+  /** 질문을 낸 일시. startedAt과의 차이(초)가 영상 속 질문 위치(마커) */
   questionCreatedAt: OffsetDateTime;
   /** 답변 글. 재생 중 자막(답변 단위) */
-  answer: string | null;
+  answer: string;
   /** 답변 제출 일시 */
-  answerCreatedAt: OffsetDateTime | null;
+  answerCreatedAt: OffsetDateTime;
   /** 질문별 3단계 */
-  grade: Grade | null;
+  grade: Grade;
 }
 
 /** 6.4 다시보기 (200) */
@@ -116,7 +110,7 @@ export interface ReplayResponse {
   jobTitle: string;
   /** 녹화 기준 시각(면접 시작 일시). 상단 날짜도 이 값 */
   startedAt: OffsetDateTime;
-  /** 녹화 영상 임시 주소(만료됨). 채팅이거나 녹화가 없거나 보관 기간이 지났으면 null */
+  /** 녹화 영상 주소. 채팅이면 null(웹 Swagger 6.4) */
   videoUrl: string | null;
   /** 질문 순 */
   items: ReplayItem[];

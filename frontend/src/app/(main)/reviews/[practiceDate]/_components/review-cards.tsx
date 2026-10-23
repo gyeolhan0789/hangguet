@@ -24,7 +24,7 @@ import type { CriterionReview, Grade } from "@/types/api";
 //   · 아쉬워요 danger · calendar-clock 14 + '내일부터 나아진 점을 비교해 드려요' 13 SemiBold text-3)
 // · 모션 메모 S08(18:2843: 나아진 점 줄 stagger 0.1s 등장, +8 · +4 칩 카운트업, '다음에 해볼 것' 카드는 살짝 기울었다 펴지며 등장
 //   (rotate -2 → 0)) · 모션 메모 S08-C(18:4831: '오늘의 기준점' 4줄 stagger 0.08s, 하단 안내 문구 페이드인)
-// · API 명세 7.1 · GrowthReviewResponse(criteria · nextActions)
+// · 웹 Swagger 7.1 · GrowthReviewResponse(criteria · nextActions)
 // · 사용자 결정(2026-10-22: '다음에 해볼 것'은 nextActions를 큰 글씨로만 보여 주고 회색 점 목록은 뺀다, 지난 날짜는 '오늘' 대신 '이날')
 
 const BASE_COLOR: Record<Grade, string> = {
@@ -119,11 +119,9 @@ export function ImprovedCard({ criteria, today }: { criteria: CriterionReview[];
                 {item.kind === "pass" ? "통과" : <CountUp value={item.delta} />}
               </span>
             </span>
-            {item.review.comment && (
-              <span className="text-[15px] leading-normal font-medium break-keep text-text-2">
-                {item.review.comment}
-              </span>
-            )}
+            <span className="text-[15px] leading-normal font-medium break-keep text-text-2">
+              {item.review.comment}
+            </span>
           </motion.li>
         ))}
       </motion.ul>

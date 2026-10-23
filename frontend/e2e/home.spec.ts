@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
+import { addDays } from "../src/lib/date";
 import { E2E_TODAY_HEADER } from "../src/lib/today";
 
 import { AUTH_TOKENS, GROWTH_REVIEW, HOME, ME, PROBLEM } from "./mocks/data";
@@ -8,7 +9,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S02 홈(S02 · S02-B · S02-C · S02-D) · S02-1 홈 진입 인트로 · C01 공통 헤더 · 로그아웃
 // 근거: Figma S02 · S02-B · S02-C · S02-D · C01 디자인과 기획 메모, 모션 메모(S02-1 · S02-D · C01),
-//   API 명세 3.1 홈(Swagger 예시 4개) · 2.1 내 정보 · 1.5 로그아웃
+//   웹 Swagger 3.1 홈(예시 4개) · 2.1 내 정보 · 1.5 로그아웃
 // - S02-1 인트로는 기획 메모의 '하루 1회' 대신 홈에 들어올 때마다 보여 주기로 했다.
 //   오늘 완료는 제외한다('N일째 달성!'은 면접을 마친 순간에 띄울 연출이고, 그 화면은 아직 없다).
 //   첫 방문도 끊김처럼 0일 전환을 보여 준다.
@@ -245,7 +246,12 @@ test.describe("S02-1 홈 진입 인트로 · 불꽃 단계 경계값", () => {
   });
 });
 
+// 상태별 화면은 웹 Swagger 3.1 예시 그대로 본다. 예시의 날짜(연습일 · 오늘 나아진 점 · 최근 리뷰)는 2026-10-15가 '오늘'이라
+// 서버의 '오늘'도 그날로 맞춘다(이번 주 7칸은 practiceDates로만 정해지므로).
+const EXAMPLE_TODAY = "2026-10-15";
+
 test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
+  test.use({ extraHTTPHeaders: { [E2E_TODAY_HEADER]: EXAMPLE_TODAY } });
   test.beforeEach(async ({ signIn }) => {
     await signIn();
   });
@@ -262,7 +268,7 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
       }),
     );
     // 오늘 밤 11시: 자정까지 1시간 남았다.
-    await page.clock.setFixedTime(new Date(`${TODAY}T23:00:00+09:00`));
+    await page.clock.setFixedTime(new Date(`${EXAMPLE_TODAY}T23:00:00+09:00`));
     await page.goto("/home");
     await waitForIntro(page);
     const main = page.getByRole("main");
@@ -320,12 +326,12 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
   test("S02 남은 시간은 1초마다 줄어든다", async ({ page }) => {
     // Playwright 시계 문서 권장 순서: install → 페이지가 실제 시간으로 뜨고 인트로가 끝나게 둔다 → pauseAt으로 멈춘 뒤 runFor로 넘긴다.
     // 인트로 도중에 시간을 건너뛰면 Motion 애니메이션이 중간에 멈춰 인트로가 사라지지 않는다.
-    await page.clock.install({ time: new Date(`${TODAY}T23:00:00+09:00`) });
+    await page.clock.install({ time: new Date(`${EXAMPLE_TODAY}T23:00:00+09:00`) });
     await page.goto("/home");
     // 인트로가 뜨기 전에는 status가 없어 waitForIntro가 바로 통과하므로, 뜬 것을 본 뒤 끝나기를 기다린다.
     await expect(intro(page)).toBeVisible();
     await waitForIntro(page);
-    await page.clock.pauseAt(new Date(`${TODAY}T23:00:30+09:00`));
+    await page.clock.pauseAt(new Date(`${EXAMPLE_TODAY}T23:00:30+09:00`));
     const chip = page.getByRole("main").getByText(/^오늘 남은 시간 \d{2}:\d{2}:\d{2}$/);
 
     await expect(chip).toHaveText("오늘 남은 시간 00:59:30");
@@ -357,7 +363,7 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
     await expect(main.getByText("오늘 면접 1회 · 18분")).toBeVisible();
     await expect(main.getByRole("link", { name: /오늘 나아진 점/ })).toHaveAttribute(
       "href",
-      `/reviews/${TODAY}`,
+      `/reviews/${EXAMPLE_TODAY}`,
     );
     await expect(main.getByText("전달력 +8 · 논리성 +4")).toBeVisible();
     await expect(main.getByText("오늘의 성장 리뷰 보기 →")).toBeVisible();
@@ -386,31 +392,6 @@ test.describe("S02 홈 · 상태별 화면 (3.1 homeState)", () => {
     );
     await expect(main.getByText("10.12 · 전달력 +8")).toBeVisible();
     await expect(main.getByText("그때 성장 리뷰 보기 →")).toBeVisible();
-  });
-
-  // 7.2 RecentReviewItem: 첫 연습일이면 criterion · delta가 함께 null(mock DTO · API 명세 7장). Swagger에는 null 예시가 없어 S02-C 예시의 첫 항목만 바꾼다.
-  test("S02-C 지난번 마지막 연습이 첫 연습일이면(criterion · delta null) 점수 대신 회사명을 보여 준다", async ({
-    page,
-    msw,
-  }) => {
-    const [first, second] = HOME.BROKEN.recentReviews;
-    msw.use(
-      http.get(api("/home"), () =>
-        HttpResponse.json({
-          ...HOME.BROKEN,
-          recentReviews: [{ ...first, criterion: null, delta: null }, second],
-        }),
-      ),
-    );
-    await page.goto("/home");
-    await waitForIntro(page);
-    const main = page.getByRole("main");
-
-    await expect(main.getByRole("link", { name: /지난번 마지막 연습/ })).toContainText(
-      "10.12 · ○○전자",
-    );
-    await expect(main.getByRole("link", { name: "10.12 ○○전자 성장 리뷰 보기" })).toBeVisible();
-    await expect(main.getByText(/null|undefined/)).toHaveCount(0);
   });
 
   test("S02-D 첫 방문: 0일째 · '첫 연습' 문구 · 빈 7칸 · [첫 면접 시작하기] · 3단계 안내 · 빈 성장 리뷰", async ({
@@ -471,6 +452,25 @@ test.describe("S02 홈 · 불러오지 못했을 때", () => {
 
     await waitForIntro(page);
     await expect(page.getByRole("heading", { level: 1, name: "7일째" })).toBeVisible();
+  });
+
+  test("내 정보(2.1)가 500이어도 홈 본문은 열리고, 헤더 메뉴만 비운다", async ({ page, msw }) => {
+    let meCalled = false;
+    msw.use(
+      http.get(api("/users/me"), () => {
+        meCalled = true;
+        return problemResponse(PROBLEM.INTERNAL_ERROR);
+      }),
+    );
+    await page.goto("/home");
+
+    await waitForIntro(page);
+    await expect(page.getByRole("heading", { level: 1, name: "7일째" })).toBeVisible();
+    await expect.poll(() => meCalled).toBe(true);
+    // 헤더 메뉴 자리의 스켈레톤이 사라진(2.1 실패를 그린) 뒤에 메뉴가 없는지 본다.
+    await expect(page.getByTestId("app-nav-skeleton")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "프로필 메뉴" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "화면을 불러오지 못했어요" })).toHaveCount(0);
   });
 });
 
@@ -538,7 +538,12 @@ test.describe("S02 홈 · 이번 주 7칸 (요일 · 연습 여부)", () => {
   test("7일 넘게 이어 오면 앞 6칸이 모두 연습함이다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/home"), () =>
-        HttpResponse.json({ ...HOME.NOT_DONE_TODAY, currentStreak: 10, bestStreak: 10 }),
+        HttpResponse.json({
+          ...HOME.NOT_DONE_TODAY,
+          currentStreak: 10,
+          bestStreak: 10,
+          practiceDates: [1, 2, 3, 4, 5, 6].map((days) => addDays(TODAY, -days)).reverse(),
+        }),
       ),
     );
     await page.goto("/home");
@@ -605,21 +610,26 @@ const WEEK_BY_TODAY = [
 ] as const;
 
 test.describe("S02 홈 · 이번 주 7칸 · 오늘 요일별 순서", () => {
-  test.beforeEach(async ({ signIn, msw }) => {
+  test.beforeEach(async ({ signIn }) => {
     await signIn();
-    // 열흘째 이어 오는 중이라 앞 6칸은 모두 연습함
-    msw.use(
-      http.get(api("/home"), () =>
-        HttpResponse.json({ ...HOME.NOT_DONE_TODAY, currentStreak: 10, bestStreak: 10 }),
-      ),
-    );
   });
 
   for (const { today, weekday, past } of WEEK_BY_TODAY) {
     test.describe(`오늘 ${today}`, () => {
       test.use({ extraHTTPHeaders: { [E2E_TODAY_HEADER]: today } });
 
-      test(`오늘이 ${weekday}요일이면 '${past.join(" ")} 오늘' 순서다`, async ({ page }) => {
+      test(`오늘이 ${weekday}요일이면 '${past.join(" ")} 오늘' 순서다`, async ({ page, msw }) => {
+        // 열흘째 이어 오는 중이라 지난 6일 모두 연습했다(practiceDates).
+        msw.use(
+          http.get(api("/home"), () =>
+            HttpResponse.json({
+              ...HOME.NOT_DONE_TODAY,
+              currentStreak: 10,
+              bestStreak: 10,
+              practiceDates: [1, 2, 3, 4, 5, 6].map((days) => addDays(today, -days)).reverse(),
+            }),
+          ),
+        );
         await page.goto("/home");
         await waitForIntro(page);
 
@@ -701,9 +711,11 @@ test.describe("C01 로그아웃 (1.5)", () => {
     msw,
   }) => {
     let body: unknown;
+    let authorization: string | null = null;
     msw.use(
       http.post(api("/auth/logout"), async ({ request }) => {
         body = await request.json();
+        authorization = request.headers.get("Authorization");
         return new HttpResponse(null, { status: 204 });
       }),
     );
@@ -716,6 +728,8 @@ test.describe("C01 로그아웃 (1.5)", () => {
 
     await expect(page).toHaveURL("/");
     expect(body).toEqual({ refreshToken: AUTH_TOKENS.refreshToken });
+    // 1.5는 전역 bearer 보안이라 액세스 토큰을 붙인다(웹 Swagger).
+    expect(authorization).toBe(`Bearer ${AUTH_TOKENS.accessToken}`);
     const names = (await context.cookies()).map((cookie) => cookie.name);
     expect(names).not.toContain(ACCESS_TOKEN_COOKIE);
     expect(names).not.toContain(REFRESH_TOKEN_COOKIE);

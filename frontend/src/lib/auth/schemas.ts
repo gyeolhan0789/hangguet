@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// API 명세 1.2 회원가입 · 1.3 로그인의 입력 조건. 폼(클라이언트)과 서버 액션이 같이 쓴다.
+// 웹 Swagger 1.2 회원가입 · 1.3 로그인의 입력 조건. 폼(클라이언트)과 서버 액션이 같이 쓴다.
 
 export const emailSchema = z
   .string()
@@ -52,7 +52,7 @@ export const signupSchema = z
       .max(PASSWORD_MAX, `비밀번호는 ${PASSWORD_MAX}자까지 쓸 수 있어요.`)
       .refine(
         (value) => PASSWORD_RULES.every((rule) => rule.test(value)),
-        "8자 이상, 영문과 숫자를 모두 넣어 주세요.",
+        "8~64자, 영문과 숫자를 모두 포함해야 합니다.",
       ),
     passwordConfirm: z.string().min(1, "비밀번호를 한 번 더 입력해 주세요."),
     agreements: z.object({ TERMS: agreed, PRIVACY: agreed, RECORDING: agreed }),

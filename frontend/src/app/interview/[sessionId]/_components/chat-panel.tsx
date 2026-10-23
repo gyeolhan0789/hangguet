@@ -14,7 +14,7 @@ import type { CurrentQuestion } from "@/types/api";
 // 기준: Figma S06-B Chat Input(18:2606: 반투명 rgba(14,16,22,.8) · blur 8 · 테두리 흰색 20% · 둥글기 20 · 패딩 18 · 간격 12
 // · '답변을 입력하세요…' 17 Medium 흰색 50% · 빈 줄 44 · 'Enter 전송 · Shift + Enter 줄바꿈 · 0 / 1,000' 13 Medium 흰색 40%
 // · Send 44(brand-strong · send 20)) · S06 STT Bubble(18:2539: 흰색 8% · 테두리 흰색 15% · 둥글기 20 · 18 Medium) — 보낸 답변 말풍선
-// · Swagger 5.7 답변 제출(TEXT · content 1~1,000자) · 5.8 면접 끝내기(isLastQuestion이면 자동 — API 명세 5.8)
+// · 웹 Swagger 5.7 답변 제출(TEXT · content 1~1,000자) · 5.8 면접 끝내기(isLastQuestion이면 자동)
 // · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈)
 // · 모션 메모 S06-B(18:2615: 포커스 시 테두리 주황 + 높이 자동 확장(최대 5줄), 전송: 보낸 답변이 말풍선으로 위로 날아가며 사라짐
 // → 면접관 '생각 중' 점 3개 → 다음 질문 타자 등장)
@@ -81,7 +81,7 @@ export function ChatPanel({
 
     startSubmit(async () => {
       const result = await submitTextAnswer(sessionId, question.id, values, key);
-      if (result.keyReused) answerKey.current = null;
+      if (result.keySpent) answerKey.current = null;
       if (result.fieldErrors?.content) {
         setError("content", { message: result.fieldErrors.content });
         return;
@@ -97,7 +97,7 @@ export function ChatPanel({
       if (result.isLastQuestion) {
         endKey.current ??= crypto.randomUUID();
         const ended = await endSession(sessionId, endKey.current);
-        if (ended.keyReused) endKey.current = null;
+        if (ended.keySpent) endKey.current = null;
         if (ended.formError) setFormError(ended.formError);
         else setLeveledUp(ended.leveledUp ?? null);
       }

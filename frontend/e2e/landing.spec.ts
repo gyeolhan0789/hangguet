@@ -6,7 +6,7 @@ import { AUTH_TOKENS, ME, PROBLEM } from "./mocks/data";
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S00 랜딩
-// 근거: Figma S00 디자인 프로토타입 연결, S00 기획 메모, API 명세 2.1(C01 헤더)
+// 근거: Figma S00 디자인 프로토타입 연결, S00 기획 메모, 웹 Swagger 2.1(C01 헤더)
 test.use({ colorScheme: "light" });
 
 /** 히어로(첫 화면)의 [무료로 시작하기] */
@@ -272,7 +272,7 @@ test.describe("S00 랜딩 · 로그인 후 (C01 헤더)", () => {
     expect(authorization).toBe(`Bearer ${AUTH_TOKENS.accessToken}`);
   });
 
-  // 401 UNAUTHORIZED(토큰 없음 · 위조 · 탈퇴, API 명세 1장): 남은 토큰 쿠키를 지우고 랜딩에 머문다.
+  // 401 UNAUTHORIZED(웹 Swagger 공통 401): 남은 토큰 쿠키를 지우고 랜딩에 머문다.
   test("내 정보가 401(UNAUTHORIZED)이면 쿠키를 지우고 랜딩에서 로그인 전 메뉴를 보여 준다", async ({
     page,
     context,

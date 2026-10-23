@@ -169,7 +169,7 @@ describe("DevicesCheck (S05 장치 점검 화면)", () => {
   it("5.4가 409 IDEMPOTENCY_KEY_REUSED면 다음에는 새 키로 보낸다", async () => {
     setDevices();
     setVoice("confirmed");
-    startSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keyReused: true });
+    startSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
     renderCheck();
 
     fireEvent.click(startButton());
@@ -195,7 +195,7 @@ describe("DevicesCheck (S05 장치 점검 화면)", () => {
   it("[채팅으로 면접 보기]가 실패하면 모달에 문구를 보여 주고, 409 IDEMPOTENCY_KEY_REUSED면 다음에는 새 키로 만든다", async () => {
     setDevices({ camera: "denied", mic: "denied" });
     setVoice("idle");
-    createSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keyReused: true });
+    createSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
     renderCheck();
     const chat = () => screen.getByRole("button", { name: "채팅으로 면접 보기" });
 

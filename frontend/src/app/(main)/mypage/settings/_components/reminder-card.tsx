@@ -8,7 +8,7 @@ import { MaskIcon } from "@/components/mask-icon";
 // 기준: Figma S09-1 Email Reminder · Coming Soon(18:3223: bg-sub · line 테두리 · 둥글기 20 · 패딩 24 · 간격 14 · 메일 44(둥글기 12 · mail 20)
 // · '연습 알림 메일' 16 ExtraBold text-2 · 🔒 '추가 예정' 칩 · 설명 14 Medium text-3 · Disabled Row(opacity .5 · 좌우 16 · 위아래 12
 // · 둥글기 12 · '알림 시간' 15 SemiBold · '매일 21:00' 15 Medium text-3 · Toggle Off 44×26(트랙 line · 손잡이 흰색 20)))
-// · 기획 메모 S09-1(18:1251: 연습 알림 메일은 MVP 제외 → 토글 · 시간 비활성) · API 명세 1장(연습 알림 메일 API 없음)
+// · 기획 메모 S09-1(18:1251: 연습 알림 메일은 MVP 제외 → 토글 · 시간 비활성) · 웹 Swagger(연습 알림 메일 API 없음)
 // · 모션 메모 S09-1(18:3261: 토글 클릭 시 흔들림 + 툴팁 '곧 열려요!' (상태 변경 X))
 
 const TOOLTIP_MS = 1500;

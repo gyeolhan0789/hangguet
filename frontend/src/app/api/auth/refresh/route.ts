@@ -6,7 +6,8 @@ import { markJustRefreshed, safeNextPath } from "@/lib/auth/auth-errors";
 import { ROUTES } from "@/lib/routes";
 
 // 화면을 그리는 도중 API가 401 TOKEN_EXPIRED를 주면 여기로 온다(src/lib/auth/auth-errors.ts).
-// 1.4로 재발급해 쿠키에 저장하고 원래 화면(next)으로 돌려보낸다. 재발급이 안 되면 로그인 화면으로 보낸다.
+// 1.4로 재발급해 쿠키에 저장하고 원래 화면(next)으로 돌려보낸다. 다시 로그인해야 하면(웹 Swagger 1.4 REFRESH_TOKEN_INVALID)
+// 쿠키를 지우고 로그인 화면으로 보낸다. 그 밖의 실패(500 · 연결 오류)는 쿠키를 두고 오류로 넘긴다.
 export async function GET(request: NextRequest) {
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   const tokens = refreshToken ? await refreshTokens(refreshToken) : null;

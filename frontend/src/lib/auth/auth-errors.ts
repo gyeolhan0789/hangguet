@@ -5,7 +5,7 @@ import { clearAuthCookies, REFRESH_TOKEN_COOKIE, setAuthCookies } from "@/lib/ap
 import { refreshTokens } from "@/lib/api/token-refresh";
 import { PUBLIC_PATHS, ROUTES } from "@/lib/routes";
 
-// API 명세 1장 공통 오류(401) 처리.
+// 웹 Swagger 공통 오류(401 UNAUTHORIZED · TOKEN_EXPIRED) 처리.
 // - TOKEN_EXPIRED(만료): 재발급한 뒤 다시 요청한다
 // - UNAUTHORIZED(토큰 없음 · 위조 · 탈퇴): 쿠키를 지운다
 // 화면(서버 컴포넌트)을 그리는 중에는 쿠키를 쓸 수 없으므로(Next 문서 cookies) Route Handler로 보내 처리하고 돌아온다.
@@ -46,7 +46,7 @@ export function safeNextPath(next: string | null): string {
 
 /**
  * 로그인이 풀린 뒤 갈 곳: 로그인 없이 보는 화면(랜딩 등)이면 그 화면에 머물고, 아니면 S01 로그인.
- * (명세 1.4 REFRESH_TOKEN_INVALID "화면은 S01로"와 같은 기준)
+ * (웹 Swagger 1.4 REFRESH_TOKEN_INVALID "다시 로그인해 주세요."와 공통 401 UNAUTHORIZED에 같이 쓴다)
  */
 export function pathAfterSignedOut(next: string | null): string {
   const path = safeNextPath(next);
@@ -69,6 +69,7 @@ export async function redirectToTokenRefresh(): Promise<void> {
 
   if (await inServerAction()) {
     // 재발급해 쿠키에 저장하고 지금 화면을 새 토큰으로 다시 그린다. 하던 일(제출)은 다시 누르면 된다.
+    // 무효(REFRESH_TOKEN_INVALID)가 아닌 실패는 refreshTokens가 던져 오류 화면으로 간다.
     const refreshToken = store.get(REFRESH_TOKEN_COOKIE)?.value;
     const tokens = refreshToken ? await refreshTokens(refreshToken) : null;
     if (!tokens) {
