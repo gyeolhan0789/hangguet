@@ -1,5 +1,6 @@
-// 5. 면접 진행 응답. 기준: mock InterviewDtos · InterviewSessionController.
-import type { OffsetDateTime } from "../common";
+// 5. 면접 진행 응답. 기준: 웹 Swagger 5.1 ~ 5.15.
+import type { LocalDate, OffsetDateTime, Page } from "../common";
+import type { Criterion, Grade } from "../growth/response";
 import type { InputType, Mode, Persona } from "./request";
 
 /** 면접 상태. READY 시작 전 · IN_PROGRESS 면접 중 · ANALYZING 결과 생성 중 · COMPLETED 결과 있음 · ABORTED 답변 없이 끝남 · FAILED 결과 생성 실패 */
@@ -70,7 +71,7 @@ export interface QuestionResponse {
 
 /** 5.5 지금 질문 (202, 오류 아님). 다음 질문을 준비 중이면 2초 뒤(임시 값) 다시 부른다 */
 export interface PendingResponse {
-  /** 대기 이유. 지금은 "QUESTION_GENERATING"(다음 질문 준비 중) 하나다. mock은 enum 없는 문자열 */
+  /** 대기 이유. 지금은 "QUESTION_GENERATING"(다음 질문 준비 중) 하나다. 웹 Swagger는 enum 없이 문자열로 준다 */
   code: string;
 }
 
@@ -165,3 +166,56 @@ export interface ReactionResponse {
 }
 
 // 5.6 답변 음성 업로드 주소(200)는 공통 UploadUrlResponse(../common)
+
+/** 5.13 기준별 등급(6.3 sessionScores에서 기준 · 등급만) */
+export interface CriterionGrade {
+  criterion: Criterion;
+  grade: Grade;
+}
+
+/** 5.13 연습 면접 목록의 면접 하나 */
+export interface SessionListItem {
+  /** 면접 id. [상세 피드백] · [다시보기]의 sessionId */
+  id: number;
+  companyName: string;
+  jobTitle: string;
+  persona: Persona;
+  mode: Mode;
+  /** 본인의 답변 1개 이상인 ANALYZING · COMPLETED · FAILED만 온다(웹 Swagger 5.13) */
+  status: Extract<SessionStatus, "ANALYZING" | "COMPLETED" | "FAILED">;
+  startedAt: OffsetDateTime;
+  endedAt: OffsetDateTime;
+  answeredCount: number;
+  /** 6.3의 한 줄 총평. 없으면 null(웹 Swagger 5.13 예시 · 웹 목 서버 2026-10-20 실제 응답의 COMPLETED id 52) */
+  summary: string | null;
+  /** COMPLETED만 4개. ANALYZING · FAILED는 빈 배열 */
+  criterionGrades: CriterionGrade[];
+}
+
+/** 5.13 페이지와 무관한 집계 */
+export interface SessionListSummary {
+  /** 날짜와 무관한 본인의 전체 연습 면접 수(상단 보관함 건수) */
+  totalInterviewCount: number;
+  /** 선택 날짜 전체 연습 시간(분) */
+  practiceMinutes: number;
+}
+
+/** 5.13 연습 면접 목록 (200). 기록 없는 날짜 · 범위를 넘는 페이지도 200(빈 content) */
+export interface SessionListResponse extends Page<SessionListItem> {
+  summary: SessionListSummary;
+}
+
+/** 5.15 날짜 하나의 연습 면접 수 */
+export interface SessionCalendarDay {
+  /** 한국 시간 면접 시작 날짜 */
+  practiceDate: LocalDate;
+  /** 해당 날짜의 연습 면접 수. 기록이 없으면 0 */
+  interviewCount: number;
+}
+
+/** 5.15 월별 연습 면접 횟수 (200). 조회 월의 모든 날짜를 오름차순으로, 기록이 없는 날짜도 포함한다 */
+export interface SessionCalendarResponse {
+  /** 조회한 월(YYYY-MM) */
+  month: string;
+  content: SessionCalendarDay[];
+}

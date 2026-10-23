@@ -1,7 +1,7 @@
-// S09 마이페이지 스트릭 달력 · 통계 표시 계산. 날짜는 한국 시간 YYYY-MM-DD 문자열로 다룬다(API 명세 1장).
+// S09 마이페이지 스트릭 달력 · 통계 표시 계산. 날짜는 한국 시간 YYYY-MM-DD 문자열로 다룬다(웹 Swagger 3.3).
 // 기준: Figma S09 Streak Calendar(18:2930: 일~토 7칸 · 연습한 날 주황 동그라미 · 연속한 날은 띠로 이어짐(주가 바뀌면 끊김)
 // · 오늘 주황 테두리 · 지난날 · 오늘은 누를 수 있고 앞날은 못 누름) · 기획 메모 S09(18:1173: 연속 연습한 날은 띠로 이어 보여줌)
-// · API 명세 3.3("'이번 달 10일 연습'은 content 개수, 연속일 띠는 날짜가 이어지는지로 화면이 그린다")
+// · 웹 Swagger 3.3 · '이번 달 10일 연습'은 content 개수, 연속일 띠는 날짜가 이어지는지로 화면이 그린다
 
 import { addDays } from "@/lib/date";
 
@@ -19,7 +19,8 @@ export const monthOf = (date: string) => date.slice(0, 7);
 export function shiftMonth(month: string, delta: number): string {
   const [year, m] = month.split("-").map(Number);
   const index = year * 12 + (m - 1) + delta;
-  return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+  // 웹 Swagger 3.3 · 5.15 month는 연도 4자리(YYYY-MM)
+  return `${String(Math.floor(index / 12)).padStart(4, "0")}-${String((index % 12) + 1).padStart(2, "0")}`;
 }
 
 /** YYYY-MM → "2026년 10월" */

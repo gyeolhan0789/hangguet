@@ -6,6 +6,7 @@ import {
   interviewerPath,
   interviewPath,
   modePath,
+  recordsPath,
 } from "./routes";
 
 describe("연습 시작 단계 주소", () => {
@@ -27,5 +28,13 @@ describe("연습 시작 단계 주소", () => {
 
   it("S05 [← 면접 방식]: 그 면접의 지원서 · 면접관으로 S05-1을 연다", () => {
     expect(modePath(10, "COFFEE_CHAT")).toBe("/practice/mode?applicationId=10&persona=COFFEE_CHAT");
+  });
+});
+
+describe("연습 기록 주소", () => {
+  it("날짜(date)를 붙이고, 첫 페이지가 아니면 page도 붙인다", () => {
+    expect(recordsPath("2026-10-21")).toBe("/records?date=2026-10-21");
+    expect(recordsPath("2026-10-21", 0)).toBe("/records?date=2026-10-21");
+    expect(recordsPath("2026-10-21", 2)).toBe("/records?date=2026-10-21&page=2");
   });
 });

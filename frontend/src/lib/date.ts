@@ -1,4 +1,4 @@
-// 날짜는 API 명세 1장대로 한국 시간 기준 YYYY-MM-DD 문자열로 다룬다.
+// 날짜는 웹 Swagger대로 한국 시간 기준 YYYY-MM-DD 문자열로 다룬다.
 
 const KST_DATE = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
@@ -40,4 +40,13 @@ export function untilMidnightKst(now: Date = new Date()): string {
   return [seconds / 3600, (seconds % 3600) / 60, seconds % 60]
     .map((n) => String(Math.floor(n)).padStart(2, "0"))
     .join(":");
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** YYYY-MM-DD가 실제 있는 날짜인지(주소로 받은 날짜를 검사한다). 연도는 웹 Swagger 5.15 month와 같은 0001~9999 */
+export function isDate(value: unknown): value is string {
+  if (typeof value !== "string" || !DATE.test(value) || value.startsWith("0000")) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
