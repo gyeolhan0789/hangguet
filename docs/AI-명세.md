@@ -221,7 +221,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 |---|---|---|
 | `filler_per_min` | `fillerPerMin` | 전체 군말 수 ÷ 전체 말한 분(소수 둘째 자리) |
 | `long_pause_count` | `longPauseCount` | 답변별 합계 |
-| `speed_deviation_pct` | `speedDeviationPct` | 기준 미정(API 명세 B-13) |
+| `speed_deviation_pct` | `speedDeviationPct` | (면접 말 속도 − 265) ÷ 265 × 100(%, 소수 둘째 자리). 면접 말 속도는 답변별 `syllablesPerMin`(3장)을 발화 시간(`speakingMs`)으로 가중한 평균이고, 265는 일반 성인의 대화 말 속도(음절/분)다 |
 | `trailing_off_ratio` · `pitch_range_st` | `trailingOffRatio` · `pitchRangeSt` | 말한 시간으로 가중한 평균 |
 | `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 B-14) |
 
