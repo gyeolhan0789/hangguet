@@ -27,21 +27,29 @@ TRAILING_DROP_DB = 6.0
 # AI 명세 3장: 음 높이 하위 5%·상위 95% 값으로 억양 폭(반음)을 계산한다
 PITCH_PERCENTILES = (5.0, 95.0)
 
-# 음 높이 추정 구간.
-# 성인 말소리의 기본 주파수가 대부분 이 범위에 있어,
+# 음 높이 추정 기준값은 Praat 설명서 pitch analysis by raw autocorrelation의 표준값이다.
+# 필터 없는 같은 자기상관 방식이라 표준값을 그대로 적용할 수 있다
+# 음 높이 범위(Hz).
 # 범위 밖의 주기는 잡음이나 배음으로 보고 제외한다
 MIN_PITCH_HZ = 75.0
-MAX_PITCH_HZ = 400.0
+MAX_PITCH_HZ = 600.0
 # 분석 창(window/frame)과 간격(밀리초).
-# 창은 가장 낮은 음 높이(75Hz, 약 13ms)의 주기가 세 번 들어가는 길이다
+# 창은 가장 낮은 음 높이 주기 3개(3 ÷ 75Hz = 40ms), 간격은 0.75 ÷ 75Hz(10ms)로 Praat와 같다
 FRAME_MS = 40
 HOP_MS = 10
 # 정규화 자기상관의 최댓값이 이 값 미만이면 주기가 뚜렷하지 않은 무성음·잡음으로 보고 제외한다
-VOICING_THRESHOLD = 0.5
-# 이보다 작은 음량(dBFS)의 창은 말소리가 아니라 정적으로 보고 음 높이를 추정하지 않는다
-SILENCE_DBFS = -50.0
-# 유성음 창이 이보다 적으면(약 0.2초) 백분위가 몇 개의 창에 좌우되므로 억양 폭을 구하지 않는다
-MIN_VOICED_FRAMES = 20
+VOICING_THRESHOLD = 0.45
+# 창 안의 최대 진폭이 답변 전체 최대 진폭의 이 비율 미만이면,
+# 정적으로 보고 음 높이를 추정하지 않는다.
+# 절대 음량 대신 비율을 사용해 마이크 음량이 달라도 같은 기준으로 판단한다.
+# Praat는 이 값을 무성음 판단에 반영하지만, 여기서는 해당 창을 제외하는 방식으로 단순화한다
+SILENCE_RATIO = 0.03
+# 발화 구간(첫 단어 시작부터 마지막 단어 끝까지)이 이보다 짧으면 억양 폭을 구하지 않는다(밀리초).
+# 장기 음 높이의 평균·중앙값이 안정되는 시간의 중앙값은 약 10초다.
+# 출처는 Arantes & Eriksson, Speech Prosody 2014이다.
+# 백분위 폭은 분포의 양 끝을 사용하므로 더 긴 시간이 필요할 수 있어,
+# 실제 면접 음성으로 확인한 뒤 조정한다
+MIN_PITCH_SPEECH_MS = 10_000
 
 # 0을 log로 계산하지 않도록 더하는 아주 작은 값
 _EPSILON = 1e-12
@@ -120,16 +128,19 @@ def pitch_range_st(samples: FloatArray, rate: int, words: Sequence[Word]) -> flo
     """단어 구간의 유성음 창에서 추정한 음 높이로 12 × log2(상위 95% ÷ 하위 5%)를 계산한다(반음).
 
     음 높이는 창마다 정규화 자기상관이 가장 큰 주기로 추정한다.
-    말소리 분석에서 널리 쓰는 방식이고 추가 라이브러리 없이 numpy로 계산할 수 있다.
+    Praat의 자기상관 방식과 같은 원리이고 추가 라이브러리 없이 numpy로 계산할 수 있다.
     """
+    if words[-1].end_ms - words[0].start_ms < MIN_PITCH_SPEECH_MS:
+        return None
     window = rate * FRAME_MS // 1000
     hop = rate * HOP_MS // 1000
-    if samples.size < window:
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    if samples.size < window or peak == 0.0:
         return None
     frames = np.lib.stride_tricks.sliding_window_view(samples, window)[::hop]
-    level = 10.0 * np.log10(np.mean(frames**2, axis=1) + _EPSILON)
-    selected = frames[_speech_mask(len(frames), hop, window, rate, words) & (level > SILENCE_DBFS)]
-    if len(selected) < MIN_VOICED_FRAMES:
+    loud = np.max(np.abs(frames), axis=1) >= SILENCE_RATIO * peak
+    selected = frames[_speech_mask(len(frames), hop, window, rate, words) & loud]
+    if len(selected) == 0:
         return None
     centered = selected - selected.mean(axis=1, keepdims=True)
     # 자기상관은 파워 스펙트럼의 역변환이다.
@@ -141,7 +152,7 @@ def pitch_range_st(samples: FloatArray, rate: int, words: Sequence[Word]) -> flo
     normalized = autocorr[:, min_lag : max_lag + 1] / (autocorr[:, :1] + _EPSILON)
     best = np.argmax(normalized, axis=1)
     voiced = normalized[np.arange(len(best)), best] >= VOICING_THRESHOLD
-    if int(voiced.sum()) < MIN_VOICED_FRAMES:
+    if not voiced.any():
         return None
     pitch_hz = rate / (best[voiced] + min_lag)
     low, high = np.percentile(pitch_hz, PITCH_PERCENTILES)

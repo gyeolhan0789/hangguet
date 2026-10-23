@@ -13,6 +13,7 @@ from app.interview.realtime import voice
 from app.interview.realtime.voice import (
     MAX_PITCH_HZ,
     MIN_PITCH_HZ,
+    MIN_PITCH_SPEECH_MS,
     TRAILING_DROP_DB,
     pcm16_samples,
     voice_metrics,
@@ -36,6 +37,9 @@ def sweep(seconds: float, start_hz: float, end_hz: float) -> np.ndarray:
 
 # 한 문장 두 단어: 0~500ms 「정말」, 500~1000ms 「좋았습니다.」
 SENTENCE = (SpeechToken("정말", 0, 500), SpeechToken(" 좋았습니다.", 500, 1000))
+# 억양 폭을 구할 수 있는 최소 발화 구간(10초)의 문장: 0~5초 「정말」, 5~10초 「좋았습니다.」
+LONG = (SpeechToken("정말", 0, 5000), SpeechToken(" 좋았습니다.", 5000, 10000))
+LONG_SECONDS = 10.0
 
 
 def test_last_word_quieter_than_sentence_is_trailing_off() -> None:
@@ -114,7 +118,7 @@ def test_sentence_beyond_received_audio_is_not_judged() -> None:
 
 
 def test_steady_pitch_has_almost_no_range() -> None:
-    metrics = voice_metrics(tone(1.0, 150), RATE, SENTENCE)
+    metrics = voice_metrics(tone(LONG_SECONDS, 150), RATE, LONG)
 
     assert metrics.pitch_range_st is not None
     assert metrics.pitch_range_st < 0.5
@@ -122,9 +126,9 @@ def test_steady_pitch_has_almost_no_range() -> None:
 
 def test_pitch_range_follows_percentiles_in_semitones() -> None:
     """한 옥타브(12반음)를 고르게 오르면 하위 5%·상위 95% 사이는 약 10.8반음이다."""
-    samples = sweep(1.0, 120, 240)
+    samples = sweep(LONG_SECONDS, 120, 240)
 
-    metrics = voice_metrics(samples, RATE, SENTENCE)
+    metrics = voice_metrics(samples, RATE, LONG)
 
     expected = 12 * 0.9
     assert metrics.pitch_range_st == pytest.approx(expected, abs=0.6)
@@ -132,9 +136,9 @@ def test_pitch_range_follows_percentiles_in_semitones() -> None:
 
 def test_pitch_is_measured_only_inside_words() -> None:
     """단어 밖 구간(휴지)의 소리는 억양 폭에 포함하지 않는다."""
-    samples = np.concatenate([tone(1.0, 150), tone(1.0, 300)])
+    samples = np.concatenate([tone(LONG_SECONDS, 150), tone(2.0, 300)])
 
-    metrics = voice_metrics(samples, RATE, SENTENCE)
+    metrics = voice_metrics(samples, RATE, LONG)
 
     assert metrics.pitch_range_st is not None
     assert metrics.pitch_range_st < 0.5
@@ -142,38 +146,72 @@ def test_pitch_is_measured_only_inside_words() -> None:
 
 @pytest.mark.parametrize("hz", [MIN_PITCH_HZ + 5, MAX_PITCH_HZ - 20])
 def test_pitch_inside_range_is_detected(hz: float) -> None:
-    assert voice_metrics(tone(1.0, hz), RATE, SENTENCE).pitch_range_st is not None
+    assert voice_metrics(tone(LONG_SECONDS, hz), RATE, LONG).pitch_range_st is not None
+
+
+def test_high_voice_up_to_600hz_is_measured() -> None:
+    """Praat 표준 상한(600Hz) 안의 높은 음도 그대로 잡는다.
+
+    상한보다 높은 음은 절반 주파수로 잘못 추정돼 억양 폭이 커진다.
+    """
+    samples = sweep(LONG_SECONDS, 300, 550)
+
+    metrics = voice_metrics(samples, RATE, LONG)
+
+    expected = 12 * math.log2(550 / 300) * 0.9
+    assert metrics.pitch_range_st == pytest.approx(expected, abs=0.6)
+
+
+def test_pitch_settings_follow_praat_raw_autocorrelation_standard() -> None:
+    """Praat 설명서 pitch analysis by raw autocorrelation의 표준값과 같다."""
+    assert (MIN_PITCH_HZ, MAX_PITCH_HZ) == (75.0, 600.0)
+    assert (voice.FRAME_MS, voice.HOP_MS) == (40, 10)
+    assert voice.VOICING_THRESHOLD == 0.45
+    assert voice.SILENCE_RATIO == 0.03
 
 
 def test_silence_has_no_pitch_range() -> None:
-    metrics = voice_metrics(np.zeros(RATE), RATE, SENTENCE)
+    metrics = voice_metrics(np.zeros(int(LONG_SECONDS * RATE)), RATE, LONG)
 
     assert metrics.pitch_range_st is None
 
 
 def test_quiet_frames_are_excluded_from_pitch() -> None:
-    """음량이 정적 기준(-50dBFS)보다 작은 창은 주기가 뚜렷해도 음 높이에서 제외한다."""
-    # 뒤 0.5초는 약 -57dBFS의 300Hz다.
+    """최대 진폭이 답변 전체 최대 진폭의 3%보다 작은 창은 주기가 뚜렷해도 음 높이에서 제외한다."""
+    # 뒤 5초는 앞의 0.4% 진폭인 300Hz다.
     # 포함하면 150Hz와 섞여 억양 폭이 약 12반음이 된다
-    samples = np.concatenate([tone(0.5, 150, 0.5), tone(0.5, 300, 0.002)])
+    samples = np.concatenate([tone(5.0, 150, 0.5), tone(5.0, 300, 0.002)])
 
-    metrics = voice_metrics(samples, RATE, SENTENCE)
+    metrics = voice_metrics(samples, RATE, LONG)
 
     assert metrics.pitch_range_st is not None
     assert metrics.pitch_range_st < 1.0
 
 
+def test_quiet_microphone_is_judged_by_ratio_not_absolute_level() -> None:
+    """마이크 음량이 작아도 답변 전체 최대 진폭에 대한 비율로 판단하므로 억양 폭을 구한다."""
+    # 진폭 0.002는 약 -57dBFS로, 절대 음량 기준이었다면 모두 정적으로 제외된다
+    metrics = voice_metrics(tone(LONG_SECONDS, 150, 0.002), RATE, LONG)
+
+    assert metrics.pitch_range_st is not None
+
+
 def test_noise_has_no_pitch_range() -> None:
-    noise = np.random.default_rng(7).normal(0, 0.3, RATE)
+    noise = np.random.default_rng(7).normal(0, 0.3, int(LONG_SECONDS * RATE))
 
-    assert voice_metrics(noise, RATE, SENTENCE).pitch_range_st is None
+    assert voice_metrics(noise, RATE, LONG).pitch_range_st is None
 
 
-def test_too_few_voiced_frames_has_no_pitch_range() -> None:
-    """유성음이 0.2초보다 짧으면 백분위가 몇 개 창에 좌우되므로 구하지 않는다."""
-    tokens = (SpeechToken("네.", 0, 150),)
+def test_speech_shorter_than_10_seconds_has_no_pitch_range() -> None:
+    """발화 구간이 10초보다 짧으면 백분위 폭이 안정되지 않으므로 구하지 않는다."""
+    tokens = (SpeechToken("정말", 0, 5000), SpeechToken(" 좋았습니다.", 5000, 9999))
 
-    assert voice_metrics(tone(0.15, 150), RATE, tokens).pitch_range_st is None
+    assert voice_metrics(tone(LONG_SECONDS, 150), RATE, tokens).pitch_range_st is None
+
+
+def test_speech_of_exactly_10_seconds_has_pitch_range() -> None:
+    assert MIN_PITCH_SPEECH_MS == 10_000
+    assert voice_metrics(tone(LONG_SECONDS, 150), RATE, LONG).pitch_range_st is not None
 
 
 @pytest.mark.parametrize("tokens", [None, ()])
