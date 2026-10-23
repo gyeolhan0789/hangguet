@@ -346,8 +346,10 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
   - `rawPrefix`: 원본 트랙 위치. S3 `recordings/raw/{sessionId}/`로 시작하고, BE가 녹화를 시작할 때 정한다
   - `objectKey`: 결과 위치 `recordings/{sessionId}.mp4`
   - 다른 면접의 녹화를 읽거나 덮어쓰지 않도록, 두 값이 그 작업 `sessionId`의 위치가 아니면 형식 오류(1.3)로 처리한다
-- **원본 트랙 파일** `rawPrefix` 아래 `candidate-video.webm`(지원자 영상), `candidate-audio.ogg`(지원자 음성), `interviewer-audio.ogg`(면접관 음성). BE가 Egress 트랙 녹화를 시작할 때 이 이름으로 저장한다
-- **처리** ffmpeg로 합쳐 S3에 올린다
+- **원본 트랙 파일** `rawPrefix` 아래 `candidate-video.mp4`(지원자 영상, H.264), `candidate-audio.ogg`(지원자 음성), `interviewer-audio.ogg`(면접관 음성). BE가 Egress 트랙 녹화를 시작할 때 이 이름으로 저장한다
+- **처리** 영상은 다시 인코딩하지 않고 그대로 복사하고, 두 음성은 한 트랙으로 혼합해 AAC로 인코딩한 mp4를 `objectKey`에 업로드한다
+  - 화상 면접 화면은 카메라 영상을 H.264로 송출한다. Egress 트랙 녹화는 영상을 다시 인코딩하지 않고 코덱에 맞는 형식으로 저장하므로(H.264는 MP4, Opus는 OGG) 합친 mp4도 브라우저에서 그대로 재생된다
+  - 영상을 다시 인코딩하면 합치기가 면접 길이에 비례해 오래 걸려, 작업을 하나씩 처리하는 작업자에서 뒤에 대기한 작업이 BE 최대 대기 시간을 넘을 수 있다
 - **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. 다시보기 처리는 **[미정]**(API 명세 B-19)
 
 ## 8. 회사 공시 요약 (고도화)
@@ -372,6 +374,6 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 | 내용 | 영향 |
 |---|---|
 | 실제 Jev 호출로 본 한국어 답변 판단 정확도, 서울에서의 응답 시간, 선택지 순서를 변경해도 판단이 같은지(모델 `jev-1.14.0`) | 6.4 |
-| LiveKit Egress 트랙 녹화의 실제 파일 형식과 저장 완료 시점 | 7장 원본 트랙 파일 |
+| LiveKit Egress 트랙 녹화 파일이 저장소에 완성되는 시점(파일 형식은 LiveKit 문서로 확인: H.264는 MP4, Opus는 OGG), 화면이 H.264가 아닌 코덱(VP8 등)으로 송출했을 때 Egress의 저장 결과 | 7장 원본 트랙 파일 |
 | LiveKit Soniox 플러그인에서 확정 토큰·토큰 시각·끝 감지(`<end>`)를 그대로 받을 수 있는지 | 6.2 `tokens`, 문장 끝 판단, 3장 말하기 분석 |
 | LiveKit ElevenLabs 플러그인에서 글자별 발음 시각을 받을 수 있는지(문서에서 확인한 것은 자막 맞춤 `use_tts_aligned_transcript`뿐) | 6.3 `alignment` |
