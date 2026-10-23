@@ -1,0 +1,503 @@
+package com.ssafy.a301.admin;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import com.ssafy.a301.admin.config.AdminPasswordEncoder;
+import com.ssafy.a301.admin.domain.Admin;
+import com.ssafy.a301.admin.repository.AdminRepository;
+import com.ssafy.a301.admin.service.StreakFreezeGrantService;
+import com.ssafy.a301.auth.jwt.AccessTokens;
+import com.ssafy.a301.user.domain.User;
+import com.ssafy.a301.user.repository.UserRepository;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * 실제 PostgreSQL · Redis로 8. 관리자 API를 확인한다. 관리자 토큰과 회원 토큰이 서로의 API에 쓰이지 않는지, 배포 → 지급 → 자동 공지 → 유지권
+ * 사용 → 연습 기록 흐름, 공지 확인, 오류 코드를 본다. 토큰은 실제로 발급해 디코더 검증을 거친다. 만든 데이터만 지운다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+class AdminIntegrationTest {
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final String PASSWORD = "admin-it-pass";
+
+    @Autowired private MockMvc mvc;
+    @Autowired private AdminRepository admins;
+    @Autowired private UserRepository users;
+    @Autowired private AdminPasswordEncoder passwords;
+    @Autowired private AccessTokens accessTokens;
+    @Autowired private StreakFreezeGrantService grantService;
+    @Autowired private JdbcTemplate jdbc;
+    private final JsonMapper json = JsonMapper.builder().build();
+    private final List<Long> userIds = new ArrayList<>();
+    private Admin admin;
+
+    @BeforeEach
+    void createAdmin() {
+        admin =
+                admins.saveAndFlush(
+                        new Admin(
+                                "admin-it-" + UUID.randomUUID(),
+                                passwords.encode(PASSWORD),
+                                "검증 운영자"));
+    }
+
+    @AfterEach
+    void cleanup() {
+        long adminId = admin.getId();
+        String grants = "SELECT id FROM streak_freeze_grants WHERE admin_id = ?";
+        jdbc.update("DELETE FROM streak_freezes WHERE grant_id IN (" + grants + ")", adminId);
+        jdbc.update(
+                "DELETE FROM streak_freeze_grant_targets WHERE grant_id IN (" + grants + ")",
+                adminId);
+        jdbc.update("DELETE FROM streak_freeze_grants WHERE admin_id = ?", adminId);
+        jdbc.update(
+                "DELETE FROM notice_reads WHERE notice_id IN (SELECT id FROM notices WHERE admin_id"
+                        + " = ?)",
+                adminId);
+        jdbc.update("DELETE FROM notices WHERE admin_id = ?", adminId);
+        jdbc.update("DELETE FROM admins WHERE id = ?", adminId);
+        for (long id : userIds) {
+            jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
+            jdbc.update("DELETE FROM users WHERE id = ?", id);
+        }
+    }
+
+    @Test
+    void adminTokenAndUserTokenOnlyWorkOnTheirOwnApis() throws Exception {
+        long user = newUser();
+        String adminToken = login();
+        String userToken = accessTokens.issue(user, "회원");
+
+        mvc.perform(
+                        get("/api/v1/admin/metrics")
+                                .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk());
+        mvc.perform(
+                        get("/api/v1/admin/metrics")
+                                .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        mvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void wrongPasswordIsAdminLoginFailed() throws Exception {
+        mvc.perform(
+                        post("/api/v1/admin/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"loginId\":\"%s\",\"password\":\"틀림\"}"
+                                                .formatted(admin.getLoginId())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("ADMIN_LOGIN_FAILED"));
+    }
+
+    @Test
+    void logoutRevokesThatTokenBeforeItExpires() throws Exception {
+        String token = login();
+
+        mvc.perform(
+                        post("/api/v1/admin/auth/logout")
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+        mvc.perform(get("/api/v1/admin/metrics").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void grantForAllTodayIsGrantedAtOnceWithNotice() throws Exception {
+        long user = newUser();
+        LocalDate today = LocalDate.now(KST);
+        String token = login();
+
+        JsonNode grant =
+                grant(token, "ALL", null, today, today.minusDays(1))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.status").value("GRANTED"))
+                        .andExpect(jsonPath("$.grantedAt").isNotEmpty())
+                        .andExpect(jsonPath("$.adminName").value("검증 운영자"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(StandardCharsets.UTF_8)
+                        .transform(json::readTree);
+
+        JsonNode mine = body(asUser(user, get("/api/v1/users/me/streak-freezes")));
+        assertThat(mine.get("availableCount").asInt()).isEqualTo(1);
+        assertThat(mine.get("freezes").size()).isEqualTo(1);
+        assertThat(mine.get("freezes").get(0).get("fillableDate").asString())
+                .isEqualTo(today.minusDays(1).toString());
+        assertThat(mine.get("freezes").get(0).get("expiresAt").asString())
+                .startsWith(today.plusDays(14).toString());
+        // 이번 배포로 만든 공지(이 관리자가 쓴 것)가 회원 목록에 보인다
+        long noticeId =
+                jdbc.queryForObject(
+                        "SELECT id FROM notices WHERE admin_id = ?", Long.class, admin.getId());
+        JsonNode notice =
+                body(asUser(user, get("/api/v1/notices")))
+                        .get("content")
+                        .valueStream()
+                        .filter(n -> n.get("id").asLong() == noticeId)
+                        .findFirst()
+                        .orElseThrow();
+        LocalDate fillable = today.minusDays(1);
+        LocalDate until = today.plusDays(14);
+        assertThat(notice.get("title").asString()).isEqualTo("스트릭 유지권을 드렸어요");
+        assertThat(notice.get("content").asString())
+                .isEqualTo(
+                        "%d월 %d일을 메울 수 있는 유지권 1개를 드렸어요. 마이페이지에서 %d월 %d일까지 쓸 수 있어요."
+                                .formatted(
+                                        fillable.getMonthValue(),
+                                        fillable.getDayOfMonth(),
+                                        until.getMonthValue(),
+                                        until.getDayOfMonth()));
+        assertThat(notice.get("read").asBoolean()).isFalse();
+        assertThat(grant.get("targetCount").asInt()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void scheduledUsersGrantIsGrantedOnGrantDateWithoutNotice() throws Exception {
+        long user = newUser();
+        LocalDate today = LocalDate.now(KST);
+        String token = login();
+
+        JsonNode grant =
+                grant(token, "USERS", List.of(user), today.plusDays(3), today.plusDays(2))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.status").value("SCHEDULED"))
+                        .andExpect(jsonPath("$.targetCount").value(1))
+                        .andExpect(jsonPath("$.grantedAt").isEmpty())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(StandardCharsets.UTF_8)
+                        .transform(json::readTree);
+        assertThat(
+                        body(asUser(user, get("/api/v1/users/me/streak-freezes")))
+                                .get("availableCount")
+                                .asInt())
+                .isZero();
+
+        // 지급 날짜 전에는 지급 작업이 돌아도 그대로다. grantDue는 공유 DB에서 날짜가 된 모든 배포를 지급한다
+        grantService.grantDue();
+        assertThat(
+                        body(asUser(user, get("/api/v1/users/me/streak-freezes")))
+                                .get("availableCount")
+                                .asInt())
+                .isZero();
+
+        // 지급 날짜가 됐다고 보고 지급 작업을 돌린다
+        jdbc.update(
+                "UPDATE streak_freeze_grants SET grant_date = ? WHERE id = ?",
+                today,
+                grant.get("id").asLong());
+        grantService.grantDue();
+
+        assertThat(
+                        body(asUser(user, get("/api/v1/users/me/streak-freezes")))
+                                .get("availableCount")
+                                .asInt())
+                .isEqualTo(1);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status FROM streak_freeze_grants WHERE id = ?",
+                                String.class,
+                                grant.get("id").asLong()))
+                .isEqualTo("GRANTED");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM notices WHERE admin_id = ?",
+                                Long.class,
+                                admin.getId()))
+                .isZero();
+    }
+
+    @Test
+    void usingFreezeRecordsPracticeDayOnce() throws Exception {
+        long user = newUser();
+        long other = newUser();
+        LocalDate yesterday = LocalDate.now(KST).minusDays(1);
+        String token = login();
+        grant(token, "USERS", List.of(user), LocalDate.now(KST), yesterday, 2)
+                .andExpect(status().isCreated());
+        JsonNode freezes =
+                body(asUser(user, get("/api/v1/users/me/streak-freezes"))).get("freezes");
+        long first = freezes.get(0).get("id").asLong();
+        long second = freezes.get(1).get("id").asLong();
+
+        use(user, first)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.practiceDate").value(yesterday.toString()))
+                .andExpect(jsonPath("$.freezeId").value(first))
+                .andExpect(jsonPath("$.availableCount").value(1))
+                .andExpect(jsonPath("$.currentStreak").value(1));
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM practice_logs WHERE user_id = ? AND"
+                                        + " practice_date = ?",
+                                Long.class,
+                                user,
+                                yesterday))
+                .isEqualTo(1);
+
+        use(user, first)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STREAK_FREEZE_NOT_AVAILABLE"));
+        use(user, second)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("STREAK_FREEZE_DATE_NOT_ALLOWED"));
+        // 실패한 사용은 유지권을 남긴다
+        assertThat(
+                        body(asUser(user, get("/api/v1/users/me/streak-freezes")))
+                                .get("availableCount")
+                                .asInt())
+                .isEqualTo(1);
+        use(other, second)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("STREAK_FREEZE_NOT_FOUND"));
+    }
+
+    @Test
+    void readingNoticeIsRecordedOnce() throws Exception {
+        long user = newUser();
+        String token = login();
+        grant(token, "ALL", null, LocalDate.now(KST), LocalDate.now(KST))
+                .andExpect(status().isCreated());
+        long noticeId =
+                jdbc.queryForObject(
+                        "SELECT id FROM notices WHERE admin_id = ?", Long.class, admin.getId());
+
+        mvc.perform(asUser(user, post("/api/v1/notices/" + noticeId + "/read")))
+                .andExpect(status().isNoContent());
+        mvc.perform(asUser(user, post("/api/v1/notices/" + noticeId + "/read")))
+                .andExpect(status().isNoContent());
+        mvc.perform(asUser(user, post("/api/v1/notices/0/read")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOTICE_NOT_FOUND"));
+
+        JsonNode content = body(asUser(user, get("/api/v1/notices"))).get("content");
+        JsonNode mine =
+                content.valueStream()
+                        .filter(n -> n.get("id").asLong() == noticeId)
+                        .findFirst()
+                        .orElseThrow();
+        assertThat(mine.get("read").asBoolean()).isTrue();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM notice_reads WHERE notice_id = ? AND user_id"
+                                        + " = ?",
+                                Long.class,
+                                noticeId,
+                                user))
+                .isEqualTo(1);
+    }
+
+    @Test
+    void grantRejectsMissingTargets() throws Exception {
+        String token = login();
+        LocalDate today = LocalDate.now(KST);
+
+        grant(token, "USERS", List.of(), today, today)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("userIds"));
+        grant(token, "ALL", null, today, today, 0)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("quantity"));
+        grant(token, "USERS", List.of(0L), today, today)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        grant(token, "ALL", List.of(newUser()), today, today)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("userIds"));
+    }
+
+    @Test
+    void metricsCountsSevenDaysAndFourCriteria() throws Exception {
+        String token = login();
+
+        mvc.perform(get("/api/v1/admin/metrics").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.date").value(LocalDate.now(KST).toString()))
+                .andExpect(jsonPath("$.practice.daily.length()").value(7))
+                .andExpect(
+                        jsonPath("$.practice.daily[6].date").value(LocalDate.now(KST).toString()))
+                .andExpect(jsonPath("$.averageScores.length()").value(4))
+                .andExpect(jsonPath("$.averageScores[0].criterion").value("JOB_FIT"));
+    }
+
+    @Test
+    void scheduledAllGrantMakesNoticeWhenGranted() throws Exception {
+        newUser();
+        LocalDate today = LocalDate.now(KST);
+        String token = login();
+        long id =
+                grant(token, "ALL", null, today.plusDays(3), today)
+                        .andExpect(status().isCreated())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(StandardCharsets.UTF_8)
+                        .transform(json::readTree)
+                        .get("id")
+                        .asLong();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM notices WHERE admin_id = ?",
+                                Long.class,
+                                admin.getId()))
+                .isZero();
+
+        jdbc.update("UPDATE streak_freeze_grants SET grant_date = ? WHERE id = ?", today, id);
+        grantService.grantDue();
+
+        // 공지는 지급 날짜 0시부터 유효기간(2주) 동안 게시한다
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT starts_at = ?::date::timestamp AT TIME ZONE 'Asia/Seoul'"
+                                        + " AND ends_at = (?::date + 14)::timestamp AT TIME ZONE"
+                                        + " 'Asia/Seoul' FROM notices WHERE admin_id = ?",
+                                Boolean.class,
+                                today,
+                                today,
+                                admin.getId()))
+                .isTrue();
+    }
+
+    @Test
+    void noticesShowOnlyPostedOnesNewestFirst() throws Exception {
+        long user = newUser();
+        long adminId = admin.getId();
+        String insert =
+                "INSERT INTO notices (admin_id, title, content, starts_at, ends_at, created_at,"
+                        + " updated_at) VALUES (?, ?, '본문', now() + ?::interval, %s, now(), now())";
+        jdbc.update(insert.formatted("NULL"), adminId, "어제 공지", "-1 day");
+        jdbc.update(insert.formatted("NULL"), adminId, "한 시간 전 공지", "-1 hour");
+        jdbc.update(insert.formatted("now() - interval '1 minute'"), adminId, "끝난 공지", "-2 day");
+        jdbc.update(insert.formatted("NULL"), adminId, "내일 공지", "1 day");
+
+        List<String> titles =
+                body(asUser(user, get("/api/v1/notices")))
+                        .get("content")
+                        .valueStream()
+                        .map(n -> n.get("title").asString())
+                        .filter(t -> t.endsWith(" 공지"))
+                        .toList();
+
+        assertThat(titles).containsExactly("한 시간 전 공지", "어제 공지");
+    }
+
+    private String login() throws Exception {
+        return mvc.perform(
+                        post("/api/v1/admin/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"loginId\":\"%s\",\"password\":\"%s\"}"
+                                                .formatted(admin.getLoginId(), PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.admin.name").value("검증 운영자"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString(StandardCharsets.UTF_8)
+                .transform(json::readTree)
+                .get("accessToken")
+                .asString();
+    }
+
+    private ResultActions grant(
+            String token,
+            String targetType,
+            List<Long> ids,
+            LocalDate grantDate,
+            LocalDate fillable)
+            throws Exception {
+        return grant(token, targetType, ids, grantDate, fillable, 1);
+    }
+
+    private ResultActions grant(
+            String token,
+            String targetType,
+            List<Long> ids,
+            LocalDate grantDate,
+            LocalDate fillable,
+            int quantity)
+            throws Exception {
+        String userIds = ids == null ? "null" : ids.toString();
+        return mvc.perform(
+                post("/api/v1/admin/streak-freeze-grants")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(
+                                """
+                                {"targetType":"%s","userIds":%s,"quantity":%d,
+                                 "grantDate":"%s","fillableDate":"%s","reason":"검증"}\
+                                """
+                                        .formatted(
+                                                targetType,
+                                                userIds,
+                                                quantity,
+                                                grantDate,
+                                                fillable)));
+    }
+
+    private ResultActions use(long user, long freezeId) throws Exception {
+        return mvc.perform(
+                asUser(user, post("/api/v1/users/me/streak-freezes/use"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"freezeId\":" + freezeId + "}"));
+    }
+
+    private JsonNode body(MockHttpServletRequestBuilder request) throws Exception {
+        return json.readTree(
+                mvc.perform(request)
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    private long newUser() {
+        long id =
+                users.saveAndFlush(
+                                new User(
+                                        "admin-it-" + UUID.randomUUID() + "@example.com",
+                                        "hash",
+                                        "관리 검증"))
+                        .getId();
+        userIds.add(id);
+        return id;
+    }
+
+    // 회원 API는 실제 회원 토큰으로 부른다(디코더 검증을 거친다)
+    private MockHttpServletRequestBuilder asUser(
+            long userId, MockHttpServletRequestBuilder request) {
+        return request.header(
+                HttpHeaders.AUTHORIZATION, bearer(accessTokens.issue(userId, "관리 검증")));
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
+    }
+}
