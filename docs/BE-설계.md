@@ -74,9 +74,9 @@ com.ssafy.a301
 │  └─ mapper       ResultMapper
 ├─ growth/dto      GrowthDtos
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
-│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
+│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
-│  ├─ service      AdminAuthService, AdminAccountInitializer(기동 때 환경 변수로 관리자 생성), AdminMetricsService,
+│  ├─ service      AdminAuthService, AdminAccountInitializer(기동 때 환경 변수로 관리자 생성), AdminNoticeService(삭제는 deleted_at), AdminMetricsService,
 │  │               StreakFreezeGrantService · StreakFreezeGrantScheduler(매일 0시 · 기동 때 지급 · 만료), StreakFreezeService, NoticeService
 │  ├─ dto          AdminDtos
 │  ├─ mapper       AdminMapper
@@ -122,7 +122,7 @@ com.ssafy.a301
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
 | `Admin` | `admins` | - | 관리 페이지 계정. 회원과 따로 둔다. 아이디는 삭제하지 않은 관리자끼리만 중복 불가(V5) |
-| `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다 |
+| `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다. 삭제(8.7)는 soft delete: `deleted_at`만 기록하고 관리 목록 · 8.8 · 8.9 · 8.15에서 뺀다. 8.6에서 `endsAt`을 null로 보내면 지운다(안 보내면 그대로) |
 | `NoticeRead` | `notice_reads` | N:1 Notice, N:1 User | 공지 확인(8.9). `(notice_id, user_id)` UNIQUE, `ON CONFLICT`로 넣는다 |
 | `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
 | `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
@@ -130,6 +130,7 @@ com.ssafy.a301
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
 - 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
+- 공지 수정 · 삭제(8.6 · 8.7)는 공지 행을 잠그고(`SELECT … FOR UPDATE`) 한다. 이미 삭제한 공지는 404 `NOTICE_NOT_FOUND`
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
