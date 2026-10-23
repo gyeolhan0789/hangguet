@@ -22,7 +22,7 @@ DART 정식 회사명을 몰라도 된다. 채용 사이트 등을 보고 **회�
 채용 사이트를 자동으로 긁지 않는다(자소설닷컴은 약관에서 자동 수집을 금지한다).
 
 ```bash
-cd ai
+cd company-pipeline
 uv run --env-file .env python -m pipeline.candidates 후보.txt
 ```
 
@@ -46,7 +46,7 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 
 ## 환경변수
 
-`ai/.env`에 넣는다. `.env`는 git에서 제외되어 있다.
+`company-pipeline/.env`에 넣는다. `.env`는 git에서 제외되어 있다.
 
 | 이름 | 내용 |
 |---|---|
@@ -87,7 +87,7 @@ EMBED_API_KEY=GMS 키
 자동 실행(매일 13:00 뉴스·최근 이슈, 버튼으로 카드 전체 생성)은 [Airflow](../airflow/README.md)로 한다. 직접 실행할 때:
 
 ```bash
-cd ai
+cd company-pipeline
 uv run --env-file .env python -m pipeline.news             # 최근 기사 수집 (날마다, 먼저)
 uv run --env-file .env python -m pipeline.run              # companies.json 전체
 uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
@@ -109,7 +109,7 @@ uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
 ## 확인 화면
 
 ```bash
-cd ai
+cd company-pipeline
 uv run --env-file .env python -m pipeline.viewer
 ```
 

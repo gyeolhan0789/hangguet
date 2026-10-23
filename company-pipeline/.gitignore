@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Secret
+.env
+
+# 파이프라인 수집 원문·생성 카드
+pipeline/data/
+
+# Airflow 실행 로그
+airflow/logs/
+
+# Tool cache
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# 테스트 결과 (CI에서 생성)
+junit.xml
