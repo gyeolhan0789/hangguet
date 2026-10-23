@@ -39,6 +39,13 @@ auth:
   access-ttl: 9h
   refresh-ttl: 30d
 
+# 관리 페이지 관리자 계정. 셋 다 있고 같은 아이디가 없으면 기동할 때 만든다(가입 API 없음)
+admin:
+  bootstrap:
+    login-id: ${ADMIN_LOGIN_ID:}
+    password: ${ADMIN_PASSWORD:}
+    name: ${ADMIN_NAME:}
+
 soniox:
   api-key: ${SONIOX_API_KEY:}
 
