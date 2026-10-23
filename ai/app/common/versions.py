@@ -1,0 +1,60 @@
+"""등록된 Prompt·Model·Rubric 버전만 사용하게 한다(AI 명세 9장).
+
+같은 입력으로 결과를 재현하려면 결과에 남긴 버전이 가리키는 내용이 하나여야 한다.
+그래서 버전은 이 모듈에만 등록하고, 등록되지 않은 버전을 요청하면 처리를 시작하기 전에 실패한다.
+작업을 추가할 때 그 작업이 사용하는 버전을 아래 목록에 한 줄씩 등록한다.
+Model은 요청하는 모델 ID(LLM_MODEL)를 등록한다. GMS는 날짜가 포함된 스냅샷 이름으로
+요청을 받지 않으므로(gpt-4.1-mini-2025-04-14로 요청하면 400) 요청은 모델 ID로 하고, 결과에는
+응답에 실린 스냅샷 이름을 기록한다. Model은 작업이 아니라 GMS 클라이언트마다 하나이므로
+클라이언트를 생성할 때 검사한다(app.common.gms).
+"""
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+
+class VersionKind(StrEnum):
+    PROMPT = "Prompt"
+    MODEL = "Model"
+    RUBRIC = "Rubric"
+
+
+class UnregisteredVersionError(LookupError):
+    """등록되지 않은 버전을 요청했다."""
+
+
+@dataclass(frozen=True)
+class Versions:
+    prompt: str
+    rubric: str
+
+
+@dataclass(frozen=True)
+class VersionRegistry:
+    prompts: frozenset[str]
+    models: frozenset[str]
+    rubrics: frozenset[str]
+
+    def require(self, kind: VersionKind, version: str) -> str:
+        registered = {
+            VersionKind.PROMPT: self.prompts,
+            VersionKind.MODEL: self.models,
+            VersionKind.RUBRIC: self.rubrics,
+        }[kind]
+        if version not in registered:
+            raise UnregisteredVersionError(f"등록되지 않은 {kind} 버전: {version}")
+        return version
+
+    def resolve(self, *, prompt: str, rubric: str) -> Versions:
+        """두 버전을 모두 확인한다. 하나라도 등록되지 않았으면 실패한다."""
+        return Versions(
+            prompt=self.require(VersionKind.PROMPT, prompt),
+            rubric=self.require(VersionKind.RUBRIC, rubric),
+        )
+
+
+REGISTRY = VersionRegistry(
+    prompts=frozenset(),
+    models=frozenset({"gpt-4.1-mini"}),
+    rubrics=frozenset(),
+)
