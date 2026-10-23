@@ -13,7 +13,6 @@ AI는 DB를 읽지 않으므로 BE가 작업에 필요한 내용을 메시지에
 
 import json
 import math
-import unicodedata
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -21,7 +20,8 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from app.common.session import InterviewMode
+from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode
 
 
 class JobType(StrEnum):
@@ -40,44 +40,6 @@ class ClaimType(StrEnum):
 
 class InvalidJobError(ValueError):
     """작업 메시지 형식이 틀렸다."""
-
-
-# AI 명세 2장: 질문은 seq 1~5로 정확히 5개다
-MIN_SEQ = 1
-MAX_SEQ = 5
-QUESTION_COUNT = MAX_SEQ - MIN_SEQ + 1
-
-# BE @NotBlank(Hibernate Validator 9)는 Java String.isBlank로 검사한다.
-# isBlank는 Character.isWhitespace 기준이라 줄 바꿈 없는 공백(NBSP 등)을 공백으로 보지 않는다
-JAVA_NON_BREAKING_SPACES = frozenset("\u00a0\u2007\u202f")
-JAVA_CONTROL_WHITESPACE = frozenset("\t\n\x0b\x0c\r\x1c\x1d\x1e\x1f")
-
-
-@dataclass(frozen=True)
-class SpeechToken:
-    """STT가 확정한 토큰과 발화 시각(밀리초).
-
-    단어 일부·공백을 포함한 원래 단위다.
-    """
-
-    text: str
-    start_ms: int
-    end_ms: int
-
-
-@dataclass(frozen=True)
-class VoiceMetrics:
-    """면접 에이전트가 실시간 음성으로 계산한 말끝 흐림·억양 폭(AI 명세 3장, answers.speech).
-
-    구하지 못한 값은 None이다.
-    화상 답변 완료 메시지·채점 작업·결과 생성 작업이 같은 키를 사용한다.
-    """
-
-    trailing_off_ratio: float | None
-    pitch_range_st: float | None
-
-    def to_json(self) -> dict[str, float | None]:
-        return {"trailingOffRatio": self.trailing_off_ratio, "pitchRangeSt": self.pitch_range_st}
 
 
 @dataclass(frozen=True)
@@ -177,18 +139,12 @@ def _seq(data: Mapping[str, Any], path: str = "") -> int:
     return value
 
 
-def _is_java_whitespace(char: str) -> bool:
-    if char in JAVA_NON_BREAKING_SPACES:
-        return False
-    return char in JAVA_CONTROL_WHITESPACE or unicodedata.category(char) in ("Zs", "Zl", "Zp")
-
-
 def _text(data: Mapping[str, Any], key: str, path: str = "") -> str:
     value = data.get(key)
     # 공백뿐인 글은 사용할 내용이 없으므로 빈 값과 같이 처리한다.
     # 공백 기준은 BE @NotBlank와 일치시킨다.
     # 더 넓은 str.strip을 사용하면 BE가 저장한 NBSP 답변 하나 때문에 결과 생성 작업 전체가 폐기된다
-    if not isinstance(value, str) or all(_is_java_whitespace(char) for char in value):
+    if not isinstance(value, str) or is_java_blank(value):
         raise InvalidJobError(f"{path}{key}는 비어 있지 않은 문자열이어야 한다")
     return value
 

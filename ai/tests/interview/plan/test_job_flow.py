@@ -7,10 +7,10 @@ from typing import Any, cast
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
+from app.common.results import KST, RESULT_QUEUE_KEY, ResultPublisher
 from app.interview.plan.job import PlanJobHandler, register_plan_handler
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import PROCESSING_KEY, QUEUE_KEY, ReceiveResult, RedisJobQueue
-from app.worker.results import KST, RESULT_QUEUE_KEY, ResultPublisher
 from tests.interview.plan.fakes import JOB, JOB_ID, FakeChat
 from tests.interview.plan.test_job import CLAIMS, QUESTIONS
 from tests.worker.test_queue import FakeListRedis

@@ -22,15 +22,15 @@ from enum import StrEnum
 
 from redis import Redis
 
-from app.worker.dispatch import Dispatcher, DispatchResult
-from app.worker.messages import InvalidJobError, job_header, parse_job
-from app.worker.results import (
-    FAILED_RESULT_OF_JOB,
+from app.common.results import (
     REASON,
     FailureReason,
     ResultPublisher,
     ResultPublishError,
 )
+from app.worker.dispatch import Dispatcher, DispatchResult
+from app.worker.failures import FAILED_RESULT_OF_JOB
+from app.worker.messages import InvalidJobError, job_header, parse_job
 
 log = logging.getLogger(__name__)
 

@@ -1,6 +1,7 @@
 import json
 import logging
-from datetime import UTC, datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -8,11 +9,9 @@ from redis import ConnectionError as RedisConnectionError
 from redis import Redis, RedisError
 from redis import TimeoutError as RedisTimeoutError
 
-from app.worker.messages import JobType, PlanJob
-from app.worker.results import (
+from app.common.results import (
     AGENT_RESULT_TYPES,
     BACKOFF_SECONDS,
-    FAILED_RESULT_OF_JOB,
     FAILED_RESULT_TYPES,
     KST,
     RESULT_QUEUE_KEY,
@@ -23,16 +22,20 @@ from app.worker.results import (
 )
 
 JOB_ID = "8f0c2a4e-1b3d-4c5f-9a7e-6d8b0c1e2f3a"
-# BE가 작업을 요청한 시각(AI 명세 1.3 requestedAt)
-REQUESTED_AT = datetime(2026, 10, 22, 14, 3, 13, tzinfo=timezone(timedelta(hours=9)))
-PLAN = PlanJob(
-    job_id=JOB_ID,
-    session_id=55,
-    requested_at=REQUESTED_AT,
-    company_name="회사",
-    job_title="직무",
-    cover_letter="자소서",
-)
+
+
+@dataclass(frozen=True)
+class Job:
+    """결과를 전송할 작업(JobRef).
+
+    작업 메시지 형식에 의존하지 않고 필요한 값만 둔다.
+    """
+
+    session_id: int
+    job_id: str
+
+
+PLAN = Job(session_id=55, job_id=JOB_ID)
 NOW = datetime(2026, 10, 22, 14, 3, 12, 987000, tzinfo=KST)
 
 
@@ -146,7 +149,7 @@ def test_retries_after_redis_error_with_backoff(caplog: pytest.LogCaptureFixture
     redis = FakeRedis([RedisConnectionError("reset"), RedisTimeoutError("timeout")])
     sleeps: list[float] = []
 
-    with caplog.at_level(logging.WARNING, logger="app.worker.results"):
+    with caplog.at_level(logging.WARNING, logger="app.common.results"):
         make(redis, sleeps).publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {"progress": 50})
 
     assert redis.calls == 3
@@ -290,12 +293,3 @@ def test_failure_reasons_match_spec_table() -> None:
         "INTERNAL_ERROR",
     ]
     assert all(value == reason.name for value, reason in zip(values, FailureReason, strict=True))
-
-
-def test_score_answer_has_no_failed_result() -> None:
-    """SCORE_ANSWER는 결과 생성이 다시 채점하므로(AI 명세 5장) 실패 결과 종류가 없다."""
-    assert FAILED_RESULT_OF_JOB == {
-        JobType.PLAN: ResultType.PLAN_FAILED,
-        JobType.EVALUATE: ResultType.EVALUATION_FAILED,
-        JobType.MERGE_RECORDING: ResultType.RECORDING_MERGE_FAILED,
-    }

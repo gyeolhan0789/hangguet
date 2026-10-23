@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from app.common.session import QUESTION_COUNT
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.questions import (
     Question,
@@ -9,7 +10,7 @@ from app.interview.plan.questions import (
     parse_questions,
     request_questions,
 )
-from app.worker.messages import QUESTION_COUNT, Claim, ClaimType
+from app.worker.messages import Claim, ClaimType
 from tests.interview.plan.fakes import JOB, FakeChat, question
 
 CLAIMS = (
