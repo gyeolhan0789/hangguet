@@ -2,18 +2,20 @@
 
 브라우저는 file://에서 JSON을 fetch할 수 없어서, 카드와 근거 원문을 data/viewer_data.js로 묶는다.
 
-cd ai && uv run python -m pipeline.viewer   # 데이터를 만들고 로컬 서버를 띄워 브라우저로 연다
+cd ai && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
+화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
 """
 
 import contextlib
 import functools
 import http.server
 import json
+import urllib.parse
 import webbrowser
 from pathlib import Path
 from typing import Any
 
-from pipeline import card, dart, extract, news
+from pipeline import candidates, card, dart, extract, news
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -51,10 +53,90 @@ def write(data: Path = DATA) -> Path:
     return out
 
 
+@functools.cache
+def _corps() -> list[candidates.Corp]:
+    """DART 고유번호 목록(약 11만 개). 첫 검색 때 한 번 읽는다."""
+    return candidates.corps(dart.corpcode_xml())
+
+
+def _registered() -> set[str]:
+    rows = json.loads((HERE / "companies.json").read_text(encoding="utf-8"))
+    return {r["name"] for r in rows}
+
+
+def _corp_json(corp: candidates.Corp) -> dict[str, Any]:
+    return {
+        "name": corp.name,
+        "eng": corp.eng,
+        "code": corp.code,
+        "listed": corp.listed,
+        "registered": corp.name in _registered(),
+    }
+
+
+def _has_report(code: str) -> bool:
+    try:
+        dart.annual_report_no(code)
+    except (LookupError, RuntimeError):
+        return False
+    return True
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    """pipeline 폴더 파일 + 회사 추가 화면용 API (DART 목록에 있는 회사만 추가)."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, directory=str(HERE), **kwargs)
+
+    def _send(self, status: int, body: Any) -> None:
+        data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _by_code(self, code: str) -> candidates.Corp | None:
+        return next((c for c in _corps() if c.code == code), None)
+
+    def do_GET(self) -> None:  # noqa: N802 (http.server 이름)
+        url = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(url.query)
+        arg = q.get("q", q.get("code", [""]))[0]
+        if url.path == "/api/search":  # 자동완성
+            self._send(200, [_corp_json(c) for c in candidates.search(arg, _corps())])
+        elif url.path == "/api/ask":  # 약칭은 AI로 정식명 찾기 (DART 목록에 있을 때만)
+            corp = candidates.ask_official(arg, _corps())
+            self._send(200, _corp_json(corp) if corp else None)
+        elif url.path == "/api/check":  # 고른 회사: 최근 1년 사업보고서가 있는지
+            corp = self._by_code(arg)
+            if corp is None:
+                self._send(404, {"error": "DART 목록에 없는 고유번호"})
+            else:
+                self._send(200, _corp_json(corp) | {"report": _has_report(corp.code)})
+        else:
+            super().do_GET()
+
+    def do_POST(self) -> None:  # noqa: N802
+        if urllib.parse.urlparse(self.path).path != "/api/add":
+            self._send(404, {"error": "없는 주소"})
+            return
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        corp = self._by_code(str(body.get("code", "")))
+        if corp is None:
+            self._send(400, {"error": "DART 목록에 있는 회사만 추가할 수 있다"})
+            return
+        try:  # 사업보고서가 없어도 인재상·최근 이슈만 있는 부분 카드로 추가한다
+            candidates.add(corp, {k: str(v) for k, v in body.items()})
+        except ValueError as e:
+            self._send(409, {"error": str(e)})
+            return
+        self._send(200, {"added": corp.name, "report": _has_report(corp.code)})
+
+
 def serve(port: int = 8765) -> None:
     """pipeline 폴더를 이 컴퓨터에서만 접속되는 주소로 띄운다. Ctrl+C로 끈다."""
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(HERE))
-    with http.server.ThreadingHTTPServer(("127.0.0.1", port), handler) as server:
+    with http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler) as server:
         url = f"http://127.0.0.1:{port}/viewer.html"
         print(f"{url} 열림 (끄려면 Ctrl+C)")
         webbrowser.open(url)

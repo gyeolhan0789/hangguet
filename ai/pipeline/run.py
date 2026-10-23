@@ -46,15 +46,24 @@ def _save(result: dict[str, Any], data: Path) -> Path:
 def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     """회사 하나의 카드를 만들어 data/cards/{고유번호}.json에 저장한다."""
     name = company["name"]
-    corp_code, report = dart.fetch_report(name)
-    section = extract.business_section(report)
-    business, market = card.business_input(section), card.market_input(section)
+    try:
+        corp_code, report = dart.fetch_report(name)
+        section = extract.business_section(report)
+        business, market = card.business_input(section), card.market_input(section)
+    except LookupError:
+        # 사업보고서가 없는 회사(코스콤 등 비상장)는 인재상·최근 이슈만으로 부분 카드를 만든다.
+        # 회사명이 DART에 없으면 여기서 다시 LookupError로 실패한다
+        corp_code, business, market = dart.corp_code(name), "", ""
+        log.info("%s: 최근 1년 사업보고서 없음, 인재상·최근 이슈만 만든다", name)
     talent = company.get("talent_text", "")
     if talent:  # 언제 무슨 문장이었는지 남긴다
         collected = company.get("talent_collected_at") or date.today().isoformat()
         storage.put(f"raw/talent/{corp_code}/{collected}.txt", talent.encode("utf-8"))
-    llm = card.call_llm(card.build_messages(name, talent, business))
-    llm |= card.call_llm(card.build_market_messages(name, market))
+    llm: dict[str, Any] = {}
+    if talent or business:
+        llm |= card.call_llm(card.build_messages(name, talent, business))
+    if market:
+        llm |= card.call_llm(card.build_market_messages(name, market))
     result = card.to_card(
         llm,
         corp_code=corp_code,
@@ -66,14 +75,14 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         result, {"talent": talent, "direction": business, "market": market}
     )
     _log_dropped(name, dropped)
-    if not result["talent"] and not result["direction"]:
-        raise ValueError(f"{name}: 검증을 통과한 항목이 없다")
     try:
         result["recent"] = recent_issues(name, corp_code)
     except (OSError, ValueError):  # LLM 오류·시간 초과·잘린 JSON
         # 사업보고서·인재상 카드는 살리고, 최근 이슈는 다음 매일 실행(refresh_recent)에서 채운다
         log.warning("%s: 최근 이슈 생성 실패, 비워 두고 저장", name, exc_info=True)
         result["recent"] = []
+    if not any(result[k] for k in ("talent", "direction", "market", "recent")):
+        raise ValueError(f"{name}: 검증을 통과한 항목이 없다")
     return _save(result, data)
 
 

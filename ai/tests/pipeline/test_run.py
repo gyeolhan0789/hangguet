@@ -111,3 +111,21 @@ def test_build_one_keeps_card_when_recent_issues_fail(
     saved = json.loads(run.build_one({"name": "테스트"}, tmp_path).read_text(encoding="utf-8"))
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
     assert saved["recent"] == []
+
+
+def test_build_one_partial_card_without_annual_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 코스콤처럼 사업보고서 없이 감사보고서만 내는 비상장사
+    def no_report(name: str) -> tuple[str, str]:
+        raise LookupError("최근 1년 안에 사업보고서가 없다")
+
+    monkeypatch.setattr(dart, "fetch_report", no_report)
+    monkeypatch.setattr(dart, "corp_code", lambda name: "00000002")
+    reply = {"talent": [{"keyword": "도전", "quote": "우리는 도전합니다."}]}
+    monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
+    company = {"name": "비상장", "talent_url": "url", "talent_text": "우리는 도전합니다."}
+
+    saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
+    assert [t["keyword"] for t in saved["talent"]] == ["도전"]
+    assert saved["direction"] == [] and saved["market"] == []

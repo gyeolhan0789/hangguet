@@ -27,4 +27,18 @@
         <stock_code> </stock_code>
         <modify_date>20231130</modify_date>
     </list>
+    <list>
+        <corp_code>00144155</corp_code>
+        <corp_name>SK</corp_name>
+        <corp_eng_name>SK Corporation</corp_eng_name>
+        <stock_code>003600</stock_code>
+        <modify_date>20170630</modify_date>
+    </list>
+    <list>
+        <corp_code>00181712</corp_code>
+        <corp_name>SK</corp_name>
+        <corp_eng_name>SK Inc.</corp_eng_name>
+        <stock_code>034730</stock_code>
+        <modify_date>20240328</modify_date>
+    </list>
     </result>
