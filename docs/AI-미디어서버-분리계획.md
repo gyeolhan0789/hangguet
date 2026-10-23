@@ -7,8 +7,8 @@
 | 구성 | 담당 기능 | 코드 위치 |
 | --- | --- | --- |
 | BE | 업무 API, DB 저장, AI 작업 요청·결과 수신, 면접방·녹화 제어 | `backend/` |
-| AI 에이전트 | Soniox 음성 인식·화면 텍스트 전달. ElevenLabs 질문 음성·Jev 반응·면접 진행은 예정 | `ai/app/agent/` |
-| AI 생성·평가 | GMS 호출로 질문 생성·답변 채점·종합 평가, 말하기 분석, 녹화 트랙 합치기. 에이전트와 별도 실행 | `ai/app/worker/`(실행 진입점), `ai/app/interview/`, `ai/app/recording/`(예정) |
+| AI 에이전트 | Soniox 음성 인식·화면 텍스트 전달. ElevenLabs 질문 음성·Jev 반응·면접 진행은 예정 | `ai/app/agent/`(실행 진입점), `ai/app/interview/realtime/` |
+| AI 생성·평가 | GMS 호출로 질문 생성·답변 채점·종합 평가, 말하기 분석, 녹화 트랙 합치기. 에이전트와 별도 실행 | `ai/app/worker/`(실행 진입점), `ai/app/interview/`(realtime 제외), `ai/app/recording/`(예정) |
 | LiveKit | 화면과 에이전트의 음성·영상·메시지 중계 | 배포 설정 |
 | Egress | 지원자 영상·음성 녹화 | 배포 설정 |
 
