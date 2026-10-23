@@ -11,7 +11,7 @@ public final class GrowthDtos {
     private GrowthDtos() {}
 
     public record RecentReviewItem(
-            @Schema(description = "연습한 날") LocalDate practiceDate,
+            @Schema(description = "면접의 한국 시간 시작 날짜") LocalDate practiceDate,
             @Schema(description = "그날 마지막 면접의 회사명", example = "○○전자") String companyName,
             @Schema(description = "그날 가장 많이 오른 기준. 첫 연습일이면 null", nullable = true)
                     Criterion criterion,
@@ -35,7 +35,7 @@ public final class GrowthDtos {
             @Schema(description = "그날 마지막 면접의 한 줄 설명", nullable = true) String comment) {}
 
     public record GrowthReviewResponse(
-            @Schema(description = "그날") LocalDate practiceDate,
+            @Schema(description = "면접의 한국 시간 시작 날짜") LocalDate practiceDate,
             @Schema(description = "첫 연습일이면 true → S08-C") boolean isFirst,
             @Schema(description = "비교한 직전 연습일. 첫 연습일이면 null", nullable = true)
                     LocalDate comparedDate,

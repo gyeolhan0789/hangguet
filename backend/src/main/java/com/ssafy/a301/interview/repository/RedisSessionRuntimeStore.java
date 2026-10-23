@@ -15,9 +15,10 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 /**
- * BE 설계 7장의 session:{sessionId}:runtime Hash. 필드는 planStatus·planProgress·analysisStep(작업자도 씀)과
- * pausedSeconds·planStartedAt·analysisStartedAt(BE만 씀)이고, 값이 없으면 필드가 없다. 필드마다 HSET하므로 작업자와 BE가 서로의
- * 값을 덮어쓰지 않는다. BE가 쓸 때마다 TTL을 1일로 다시 잡아, 결과 생성을 시작한(면접 종료) 뒤 1일이 지나면 사라진다.
+ * BE 설계 7장의 session:{sessionId}:runtime Hash. 필드는
+ * planStatus·planProgress·analysisStep·pausedSeconds·planStartedAt· analysisStartedAt이고, 값이 없으면 필드가
+ * 없다. BE만 쓰며(AI 진행 상황은 결과 메시지로 받음) 필드마다 HSET해 요청 처리와 결과 처리가 서로의 값을 덮어쓰지 않는다. BE가 쓸 때마다 TTL을 1일로 다시
+ * 잡아, 결과 생성을 시작한(면접 종료) 뒤 1일이 지나면 사라진다.
  */
 @Component
 public class RedisSessionRuntimeStore implements SessionRuntimeStore {
@@ -31,7 +32,7 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     // 결과 생성을 시작한 시각(epoch 밀리초). 최대 대기 시간 확인용
     static final String ANALYSIS_STARTED_AT = "analysisStartedAt";
 
-    // 아직 GENERATING일 때만 FAILED로 바꾼다. 확인과 쓰기 사이에 작업자가 READY로 바꿨으면 그대로 둔다
+    // 아직 GENERATING일 때만 FAILED로 바꾼다. 확인과 쓰기 사이에 플랜 결과가 처리돼 READY가 됐으면 그대로 둔다
     private static final DefaultRedisScript<Long> FAIL_PLAN =
             new DefaultRedisScript<>(
                     "if redis.call('HGET', KEYS[1], 'planStatus') == 'GENERATING' then"
@@ -79,6 +80,21 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     @Override
     public Optional<Instant> findPlanStartedAt(long sessionId) {
         return findInstant(sessionId, PLAN_STARTED_AT);
+    }
+
+    @Override
+    public void updatePlanProgress(long sessionId, int progress) {
+        String key = key(sessionId);
+        hash().put(key, PLAN_PROGRESS, Integer.toString(progress));
+        redis.expire(key, TTL);
+    }
+
+    @Override
+    public void markPlanReady(long sessionId) {
+        String key = key(sessionId);
+        hash().put(key, PLAN_STATUS, PlanStatus.READY.name());
+        hash().delete(key, PLAN_PROGRESS);
+        redis.expire(key, TTL);
     }
 
     @Override

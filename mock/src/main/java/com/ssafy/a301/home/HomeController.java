@@ -1,7 +1,6 @@
 package com.ssafy.a301.home;
 
 import com.ssafy.a301.common.Stub;
-import com.ssafy.a301.home.HomeDtos.DateBasis;
 import com.ssafy.a301.home.HomeDtos.HomeResponse;
 import com.ssafy.a301.home.HomeDtos.PracticeLogsResponse;
 import com.ssafy.a301.home.HomeDtos.StatsResponse;
@@ -66,14 +65,7 @@ public class HomeController {
             """
             { "content": [
                 { "practiceDate": "2026-10-20", "createdAt": "2026-10-20T20:10:00+09:00" },
-                { "practiceDate": "2026-10-21", "createdAt": "2026-10-21T19:42:00+09:00" },
-                { "practiceDate": "2026-10-22", "createdAt": "2026-10-22T00:10:00+09:00" } ] }\
-            """;
-    private static final String STARTED_PRACTICE_LOGS =
-            """
-            { "content": [
-                { "practiceDate": "2026-10-20", "createdAt": "2026-10-20T20:10:00+09:00" },
-                { "practiceDate": "2026-10-21", "createdAt": "2026-10-21T19:42:00+09:00" } ] }
+                { "practiceDate": "2026-10-21", "createdAt": "2026-10-21T19:42:00+09:00" } ] }\
             """;
 
     private final Stub stub;
@@ -84,7 +76,9 @@ public class HomeController {
 
     @Operation(
             summary = "3.1 홈",
-            description = "홈 화면에 필요한 값을 한 번에 준다. 어떤 홈을 보여 줄지는 `homeState`로 구분한다.")
+            description =
+                    "홈 화면에 필요한 값을 한 번에 준다. 어떤 홈을 보여 줄지는 `homeState`로 구분한다."
+                            + " 연습일·스트릭·오늘의 집계는 한국 시간 면접 시작 날짜 기준이다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -100,7 +94,7 @@ public class HomeController {
         return stub.read(HOME_NOT_DONE, HomeResponse.class);
     }
 
-    @Operation(summary = "3.2 통계")
+    @Operation(summary = "3.2 통계", description = "스트릭의 연습일은 한국 시간 면접 시작 날짜 기준이다.")
     @ApiResponse(responseCode = "200", content = @Content(examples = @ExampleObject(value = STATS)))
     @GetMapping("/api/v1/users/me/stats")
     public StatsResponse stats() {
@@ -109,29 +103,24 @@ public class HomeController {
 
     @Operation(
             summary = "3.3 연습 달력",
-            description = "한 달 동안 연습한 날짜 목록. 기본은 종료일(스트릭), STARTED_AT은 연습 기록의 시작일 기준이다.")
+            description =
+                    "한 달 동안 연습한 날짜 목록. 연습일은 한국 시간 면접 시작 날짜 기준이며 스트릭·성장 리뷰와 같다."
+                            + " 자정을 넘어 끝난 면접도 시작 날짜에만 포함한다.")
     @ApiResponse(
             responseCode = "200",
             content =
                     @Content(
-                            examples = {
-                                @ExampleObject(name = "종료일 기준 스트릭", value = PRACTICE_LOGS),
-                                @ExampleObject(name = "시작일 기준 연습 기록", value = STARTED_PRACTICE_LOGS)
-                            }))
+                            examples =
+                                    @ExampleObject(name = "한국 시간 시작일 기준", value = PRACTICE_LOGS)))
     @GetMapping("/api/v1/practice-logs")
     public PracticeLogsResponse practiceLogs(
             @Parameter(description = "조회할 달(YYYY-MM)", example = "2026-10")
                     @RequestParam
                     @Pattern(regexp = "\\d{4}-(0[1-9]|1[0-2])", message = "YYYY-MM 형식입니다.")
-                    String month,
-            @Parameter(description = "기준 시각. ENDED_AT(기본) 스트릭, STARTED_AT 연습 기록")
-                    @RequestParam(defaultValue = "ENDED_AT")
-                    DateBasis dateBasis) {
+                    String month) {
         if (!"2026-10".equals(month)) {
             return new PracticeLogsResponse(List.of());
         }
-        return stub.read(
-                dateBasis == DateBasis.STARTED_AT ? STARTED_PRACTICE_LOGS : PRACTICE_LOGS,
-                PracticeLogsResponse.class);
+        return stub.read(PRACTICE_LOGS, PracticeLogsResponse.class);
     }
 }

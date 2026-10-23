@@ -11,11 +11,6 @@ public final class HomeDtos {
 
     private HomeDtos() {}
 
-    public enum DateBasis {
-        STARTED_AT,
-        ENDED_AT
-    }
-
     @Schema(
             description =
                     "어떤 홈을 그릴지. NOT_DONE_TODAY 오늘 미완료(S02) · DONE_TODAY 오늘 완료(S02-B) · BROKEN 스트릭"
@@ -33,12 +28,14 @@ public final class HomeDtos {
 
     public record HomeResponse(
             HomeState homeState,
-            @Schema(description = "현재 스트릭. 오늘 연습했으면 오늘 포함", example = "7") int currentStreak,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 현재 스트릭. 오늘 연습했으면 오늘 포함", example = "7")
+                    int currentStreak,
             @Schema(description = "가장 길었던 스트릭. S02-C \"지난 최고 기록\"", example = "7") int bestStreak,
-            @Schema(description = "오늘 포함 최근 7일 중 연습한 날. 이번 주 동그라미") List<LocalDate> practiceDates,
-            @Schema(description = "오늘 연습 면접 수. S02-B \"면접 1회\"", example = "0")
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 오늘 포함 최근 7일 중 연습한 날. 이번 주 동그라미")
+                    List<LocalDate> practiceDates,
+            @Schema(description = "한국 시간 오늘 시작한 연습 면접 수. S02-B \"면접 1회\"", example = "0")
                     int todayInterviewCount,
-            @Schema(description = "오늘 연습 면접 시간 합(분). S02-B \"18분\"", example = "0")
+            @Schema(description = "한국 시간 오늘 시작한 연습 면접의 전체 시간 합(분). S02-B \"18분\"", example = "0")
                     int todayPracticeMinutes,
             @Schema(
                             description =
@@ -53,8 +50,8 @@ public final class HomeDtos {
                     List<RecentReviewItem> recentReviews) {}
 
     public record StatsResponse(
-            @Schema(description = "현재 스트릭", example = "7") int currentStreak,
-            @Schema(description = "최장 스트릭", example = "12") int bestStreak,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 현재 스트릭", example = "7") int currentStreak,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 최장 스트릭", example = "12") int bestStreak,
             @Schema(description = "연습 면접 수. \"총 면접 23회\"", example = "23") int totalInterviewCount,
             @Schema(description = "연습 면접 시간 합(분). \"총 연습 시간 6시간 40분\"", example = "400")
                     int totalPracticeMinutes,
@@ -65,7 +62,7 @@ public final class HomeDtos {
                     String latestJobTitle) {}
 
     public record PracticeLogItem(
-            @Schema(description = "dateBasis에 따른 연습 날짜") LocalDate practiceDate,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 연습일") LocalDate practiceDate,
             @Schema(description = "해당 연습 날짜에 속한 면접 중 처음 마친 일시") OffsetDateTime createdAt) {}
 
     public record PracticeLogsResponse(

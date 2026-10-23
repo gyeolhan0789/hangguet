@@ -68,7 +68,10 @@ public final class ResultDtos {
                     BigDecimal fillerPerMin,
             @Schema(description = "문장 중간에 길게 멈춘 횟수", nullable = true, example = "3")
                     Integer longPauseCount,
-            @Schema(description = "평소 말 속도와의 차이(%)", nullable = true, example = "8.5")
+            @Schema(
+                            description = "일반 성인 말 속도와의 차이(%, 기준은 AI 명세 4장)",
+                            nullable = true,
+                            example = "8.5")
                     BigDecimal speedDeviationPct,
             @Schema(description = "말끝을 흐린 문장 비율(%)", nullable = true, example = "12.0")
                     BigDecimal trailingOffRatio,

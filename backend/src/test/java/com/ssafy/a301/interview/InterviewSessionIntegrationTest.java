@@ -14,8 +14,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
-import com.ssafy.a301.interview.domain.AiJobType;
-import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
@@ -26,7 +24,6 @@ import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
-import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Instant;
@@ -35,18 +32,14 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -60,6 +53,7 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@Import(InMemorySessionRuntimeStore.Config.class)
 class InterviewSessionIntegrationTest {
     @Autowired private MockMvc mvc;
     @Autowired private UserRepository users;
@@ -68,7 +62,7 @@ class InterviewSessionIntegrationTest {
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private AnswerRepository answers;
     @Autowired private JdbcTemplate jdbc;
-    @Autowired private InMemoryRuntimeStore runtimes;
+    @Autowired private InMemorySessionRuntimeStore runtimes;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private IdempotencyStore idempotency;
     private final JsonMapper json = JsonMapper.builder().build();
@@ -76,8 +70,7 @@ class InterviewSessionIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        runtimes.values.clear();
-        runtimes.analysisStartedAt.clear();
+        runtimes.clear();
     }
 
     @AfterEach
@@ -113,8 +106,9 @@ class InterviewSessionIntegrationTest {
                 .push(
                         argThat(
                                 job ->
-                                        job.getJobType() == AiJobType.PLAN
-                                                && job.getSessionId() == sessionId));
+                                        "PLAN".equals(job.get("jobType"))
+                                                && Long.valueOf(sessionId)
+                                                        .equals(job.get("sessionId"))));
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.companyName").value("○○전자"))
@@ -170,8 +164,9 @@ class InterviewSessionIntegrationTest {
                 .push(
                         argThat(
                                 job ->
-                                        job.getJobType() == AiJobType.PLAN
-                                                && job.getSessionId() == sessionId));
+                                        "PLAN".equals(job.get("jobType"))
+                                                && Long.valueOf(sessionId)
+                                                        .equals(job.get("sessionId"))));
     }
 
     @Test
@@ -280,9 +275,10 @@ class InterviewSessionIntegrationTest {
                 .push(
                         argThat(
                                 job ->
-                                        job.getJobType() == AiJobType.SCORE_ANSWER
-                                                && job.getSessionId() == sessionId
-                                                && job.getAnswerId() != null));
+                                        "SCORE_ANSWER".equals(job.get("jobType"))
+                                                && Long.valueOf(sessionId)
+                                                        .equals(job.get("sessionId"))
+                                                && job.get("answerId") != null));
         mvc.perform(submit(user, sessionId, first, text("다시")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ANSWER_ALREADY_SUBMITTED"));
@@ -343,8 +339,9 @@ class InterviewSessionIntegrationTest {
                 .push(
                         argThat(
                                 job ->
-                                        job.getJobType() == AiJobType.EVALUATE
-                                                && job.getSessionId() == first));
+                                        "EVALUATE".equals(job.get("jobType"))
+                                                && Long.valueOf(first)
+                                                        .equals(job.get("sessionId"))));
         assertThat(practiceDates(user)).containsExactly(today());
 
         // 같은 날 두 번째 면접은 연습 기록이 늘지 않아 레벨업도 없다
@@ -421,8 +418,9 @@ class InterviewSessionIntegrationTest {
                 .push(
                         argThat(
                                 job ->
-                                        job.getJobType() == AiJobType.EVALUATE
-                                                && job.getSessionId() == sessionId));
+                                        "EVALUATE".equals(job.get("jobType"))
+                                                && Long.valueOf(sessionId)
+                                                        .equals(job.get("sessionId"))));
     }
 
     // 플랜까지 준비해 시작한 면접
@@ -581,65 +579,5 @@ class InterviewSessionIntegrationTest {
     private static MockHttpServletRequestBuilder as(
             long userId, MockHttpServletRequestBuilder request) {
         return request.with(jwt().jwt(token -> token.subject(Long.toString(userId))));
-    }
-
-    @TestConfiguration
-    static class RuntimeConfig {
-        @Bean
-        @Primary
-        InMemoryRuntimeStore inMemoryRuntimeStore() {
-            return new InMemoryRuntimeStore();
-        }
-    }
-
-    /** RedisSessionRuntimeStore 대신 쓰는 메모리 저장소 */
-    static class InMemoryRuntimeStore implements SessionRuntimeStore {
-        final Map<Long, SessionRuntime> values = new ConcurrentHashMap<>();
-        final Map<Long, Instant> planStartedAt = new ConcurrentHashMap<>();
-        final Map<Long, Instant> analysisStartedAt = new ConcurrentHashMap<>();
-
-        @Override
-        public Optional<SessionRuntime> find(long sessionId) {
-            return Optional.ofNullable(values.get(sessionId));
-        }
-
-        @Override
-        public void startPlan(long sessionId, Instant now) {
-            values.put(sessionId, SessionRuntime.generating());
-            planStartedAt.put(sessionId, now);
-        }
-
-        @Override
-        public Optional<Instant> findPlanStartedAt(long sessionId) {
-            return Optional.ofNullable(planStartedAt.get(sessionId));
-        }
-
-        @Override
-        public void failPlanIfGenerating(long sessionId) {
-            values.computeIfPresent(
-                    sessionId,
-                    (id, runtime) ->
-                            runtime.planStatus() == PlanStatus.GENERATING
-                                    ? new SessionRuntime(PlanStatus.FAILED, null, null, 0)
-                                    : runtime);
-        }
-
-        @Override
-        public void startAnalysis(long sessionId, Instant now) {
-            values.computeIfPresent(
-                    sessionId,
-                    (id, runtime) ->
-                            new SessionRuntime(
-                                    runtime.planStatus(),
-                                    runtime.planProgress(),
-                                    AnalysisStep.ORGANIZING_ANSWERS,
-                                    runtime.pausedSeconds()));
-            analysisStartedAt.put(sessionId, now);
-        }
-
-        @Override
-        public Optional<Instant> findAnalysisStartedAt(long sessionId) {
-            return Optional.ofNullable(analysisStartedAt.get(sessionId));
-        }
     }
 }

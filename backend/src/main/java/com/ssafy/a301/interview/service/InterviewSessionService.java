@@ -182,8 +182,8 @@ public class InterviewSessionService {
     }
 
     /**
-     * 5.8. 답변이 있으면 결과 생성을 시작하고 그날(한국 시간, 종료 기준) 처음이면 연습 기록을 남긴다. leveledUp은 이번에 기록이 남아 스트릭 뱃지 구간이
-     * 바뀌었을 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다.
+     * 5.8. 답변이 있으면 결과 생성을 시작하고 시작일(한국 시간)에 처음이면 연습 기록을 남긴다. leveledUp은 이번에 기록이 남아 스트릭 뱃지 구간이 바뀌었을
+     * 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다.
      */
     public SessionResponse end(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();
@@ -197,7 +197,8 @@ public class InterviewSessionService {
                         leveledUp =
                                 recordPractice(
                                         userId,
-                                        session.getEndedAt().atZoneSameInstant(KST).toLocalDate());
+                                        session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
+                                        now.atZoneSameInstant(KST).toLocalDate());
                         startAnalysis(sessionId, now);
                     }
                     return InterviewMapper.toSessionResponse(
@@ -254,15 +255,15 @@ public class InterviewSessionService {
     }
 
     // 그날 처음일 때만 남긴다. 이번에 남겨 뱃지 구간이 바뀌었으면 true
-    private boolean recordPractice(long userId, LocalDate practiceDate) {
+    private boolean recordPractice(long userId, LocalDate practiceDate, LocalDate today) {
         List<LocalDate> before = practiceLogs.findPracticeDatesByUserId(userId);
         if (practiceLogs.insertIfAbsent(userId, practiceDate) == 0) {
             return false;
         }
         List<LocalDate> after = new ArrayList<>(before);
         after.add(practiceDate);
-        return Streak.badgeLevel(Streak.current(before, practiceDate))
-                != Streak.badgeLevel(Streak.current(after, practiceDate));
+        return Streak.badgeLevel(Streak.current(before, today))
+                != Streak.badgeLevel(Streak.current(after, today));
     }
 
     private SessionResponse toResponse(

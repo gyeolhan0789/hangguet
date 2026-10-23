@@ -14,9 +14,12 @@ import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
+import com.ssafy.a301.interview.domain.PlanClaim;
+import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
+import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.domain.UserAgreement;
@@ -25,6 +28,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 class PersistenceTest {
 
     @Autowired private EntityManager em;
+    @Autowired private InterviewPlanRepository plans;
 
     @Test
     void savesAndReadsAllEntities() {
@@ -128,18 +133,23 @@ class PersistenceTest {
     }
 
     @Test
-    void planIsReadByQuestionSeqAndOnePerSession() {
+    void planIsSavedOncePerSessionAndReadBySeq() {
         InterviewSession session = newSession("plan@ssafy.com", InterviewMode.VIDEO);
-        insertPlan(
-                session,
-                """
-                [{"seq": 1, "content": "질문1", "criteria": "기준1", "claimId": "c1"},
-                 {"seq": 2, "content": "질문2", "criteria": "기준2", "claimId": "c1", "extra": true}]
-                """);
+        plans.save(
+                new InterviewPlan(
+                        session.getId(),
+                        List.of(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4)),
+                        List.of(
+                                new PlanQuestion(1, "질문1", "기준1", "c1"),
+                                new PlanQuestion(2, "질문2", "기준2", "c1")),
+                        "plan-v1",
+                        "gms-test"));
+        em.flush();
         em.clear();
 
         InterviewPlan plan = em.find(InterviewPlan.class, session.getId());
-        assertThat(plan.getQuestions()).hasSize(2);
+        assertThat(plan.getClaims())
+                .containsExactly(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4));
         assertThat(plan.question(2))
                 .hasValueSatisfying(
                         q -> {
@@ -147,38 +157,40 @@ class PersistenceTest {
                             assertThat(q.criteria()).isEqualTo("기준2");
                         });
         assertThat(plan.question(3)).isEmpty();
-        assertThatThrownBy(() -> insertPlan(session, "[]"))
+        assertThat(plan.getPromptVersion()).isEqualTo("plan-v1");
+        em.clear();
+        assertThatThrownBy(
+                        () -> {
+                            plans.save(
+                                    new InterviewPlan(
+                                            session.getId(), List.of(), List.of(), "v2", "m2"));
+                            em.flush();
+                        })
                 .hasMessageContaining("interview_plans_pkey");
     }
 
     @Test
-    void answerTokensAreStoredAndEvaluationIsNotOverwritten() {
+    void answerTokensAndFirstEvaluationAreStored() {
         InterviewSession session = newSession("token@ssafy.com", InterviewMode.VIDEO);
-        InterviewQuestion question = new InterviewQuestion(session, 1, "질문");
+        InterviewQuestion question =
+                new InterviewQuestion(
+                        session, 1, "질문", OffsetDateTime.parse("2026-10-15T12:01:00+09:00"));
         em.persist(question);
         List<AnswerToken> tokens =
                 List.of(new AnswerToken("조회", 0, 280), new AnswerToken(" ", 280, 320));
         Answer answer = new Answer(question, InputType.VOICE, "조회 ", tokens);
         em.persist(answer);
+        assertThat(answer.recordEvaluation(Map.of("scoreMethod", "FIXED"))).isTrue();
+        // 같은 채점 결과가 다시 와도 처음 것을 둔다
+        assertThat(answer.recordEvaluation(Map.of("scoreMethod", "PROBABILITY"))).isFalse();
         em.flush();
-        // AI 분석 작업자가 채점 결과를 쓴 뒤 BE가 같은 답변을 고쳐도 지워지지 않아야 한다
-        em.createNativeQuery("UPDATE answers SET evaluation = CAST(? AS jsonb) WHERE id = ?")
-                .setParameter(1, "{\"scoreMethod\": \"FIXED\"}")
-                .setParameter(2, answer.getId())
-                .executeUpdate();
         em.clear();
 
         Answer found = em.find(Answer.class, answer.getId());
         assertThat(found.getTokens()).containsExactlyElementsOf(tokens);
-        found.evaluate(70, "좋음", "아쉬움");
-        em.flush();
-        assertThat(
-                        em.createNativeQuery(
-                                        "SELECT evaluation ->> 'scoreMethod' FROM answers WHERE id"
-                                                + " = ?")
-                                .setParameter(1, answer.getId())
-                                .getSingleResult())
-                .isEqualTo("FIXED");
+        assertThat(found.getEvaluation()).containsEntry("scoreMethod", "FIXED");
+        assertThat(found.getQuestion().getCreatedAt())
+                .isEqualTo(OffsetDateTime.parse("2026-10-15T12:01:00+09:00"));
     }
 
     @Test
@@ -203,16 +215,5 @@ class PersistenceTest {
         em.persist(session);
         em.flush();
         return session;
-    }
-
-    // 플랜은 AI 분석 작업자가 쓰므로 BE 엔티티로 만들지 않고 SQL로 넣는다
-    private void insertPlan(InterviewSession session, String questions) {
-        em.createNativeQuery(
-                        "INSERT INTO interview_plans (session_id, claims, questions,"
-                            + " prompt_version, model_version, created_at) VALUES (?, CAST('[]' AS"
-                            + " jsonb), CAST(? AS jsonb), 'plan-v1', 'gms-test', now())")
-                .setParameter(1, session.getId())
-                .setParameter(2, questions)
-                .executeUpdate();
     }
 }

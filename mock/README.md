@@ -14,7 +14,7 @@ API 명세의 기준은 이 서버의 Swagger와 [API 명세 문서](../docs/API
 - OpenAPI JSON: http://localhost:8080/v3/api-docs
 - 상태 확인: http://localhost:8080/actuator/health
 
-연습 기록은 시작일 기준이다. `GET /api/v1/interview-sessions?practiceDate=2026-10-21`로 자정을 넘겨 끝난 완료 면접·분석 중, `2026-10-20`으로 실패·총평 없는 완료 예시를 확인한다. 그 외 날짜는 빈 목록이다. 기본 `size=5`이며 페이지가 바뀌어도 날짜 전체 집계는 유지된다. `GET /api/v1/practice-logs?month=2026-10&dateBasis=STARTED_AT`은 목록과 같은 20·21일을 표시한다. 달력의 기본값은 종료일 기준이므로 `dateBasis`를 생략하면 20·21·22일이다.
+연습 기록은 시작일 기준이다. `GET /api/v1/interview-sessions?practiceDate=2026-10-21`로 자정을 넘겨 끝난 완료 면접·분석 중, `2026-10-20`으로 실패·총평 없는 완료 예시를 확인한다. 그 외 날짜는 빈 목록이다. 기본 `size=5`이며 페이지가 바뀌어도 날짜 전체 집계는 유지된다. `GET /api/v1/practice-logs?month=2026-10`은 마이페이지·스트릭에서도 시작일 기준으로 20·21일만 표시한다. 날짜 기준 선택 쿼리는 없으며 홈·통계·성장 리뷰도 같은 시작일 기준이다.
 
 ## 검사
 
