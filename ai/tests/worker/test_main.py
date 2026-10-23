@@ -1,3 +1,4 @@
+import json
 import os
 import signal
 import subprocess
@@ -6,15 +7,19 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 from redis import ConnectionError as RedisConnectionError
+from redis import Redis
 
 from app.common.redis import create_redis
+from app.common.session import InterviewMode
 from app.common.settings import load_settings
 from app.worker import main as main_module
+from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
-from app.worker.messages import PlanJob
+from app.worker.messages import PlanJob, ScoreAnswerJob
 from app.worker.queue import ReceiveResult
 from app.worker.results import ResultPublisher
 
@@ -181,21 +186,57 @@ def test_sigterm_during_job_stops_after_job_finishes() -> None:
     assert finished == ["job"]
 
 
+PLAN = PlanJob(
+    job_id="8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
+    session_id=55,
+    requested_at=REQUESTED_AT,
+    company_name="회사",
+    job_title="직무",
+    cover_letter="자소서",
+)
+
+
+class RecordingRedis:
+    def __init__(self) -> None:
+        self.pushed: list[str] = []
+
+    def lpush(self, key: str, *values: str) -> int:
+        self.pushed.extend(values)
+        return len(self.pushed)
+
+
+def test_dispatcher_handles_plan_after_checking_gms_settings() -> None:
+    """PLAN 처리 함수가 등록돼 있다.
+
+    LLM_* 값이 없으면 첫 GMS 호출에서 실패 결과를 전송한다.
+    """
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
+
+    assert dispatcher.dispatch(PLAN) is DispatchResult.HANDLED
+    assert [json.loads(raw)["type"] for raw in redis.pushed] == ["plan.failed"]
+
+
 def test_dispatcher_has_no_handler_until_job_types_are_implemented() -> None:
     """처리 함수가 없는 작업은 미처리로 남아 유실되지 않는다."""
-    job = PlanJob(
+    job = ScoreAnswerJob(
         job_id="8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
         session_id=55,
         requested_at=REQUESTED_AT,
-        company_name="회사",
-        job_title="직무",
-        cover_letter="자소서",
+        answer_id=903,
+        mode=InterviewMode.CHAT,
+        seq=1,
+        question="질문",
+        criteria="기준",
+        content="답변",
+        tokens=None,
+        speech=None,
     )
     settings = load_settings({})
     # 클라이언트 생성은 Redis에 접속하지 않으므로 Redis 없이 분배기를 생성할 수 있다
     results = ResultPublisher(create_redis(settings))
 
-    assert build_dispatcher(settings, results).dispatch(job).value == "NO_HANDLER"
+    assert build_dispatcher(settings, results).dispatch(job) is DispatchResult.NO_HANDLER
 
 
 class ClosableRedis:

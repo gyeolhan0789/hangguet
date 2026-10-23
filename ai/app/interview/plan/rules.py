@@ -30,3 +30,6 @@ MAX_CLAIMS = 10
 
 # AI 명세 2장: claimId가 없는 주장을 가리키면 그 질문만 1회 다시 생성한다
 CLAIM_ID_REGENERATIONS = 1
+
+# AI 명세 2장: STEP 01(주장 추출)이 끝나면 plan.progress(50)를 전송한다
+PROGRESS_AFTER_CLAIMS = 50
