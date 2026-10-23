@@ -12,7 +12,7 @@
 
 ## Runner 배포
 
-`deploy/dev/monitoring/` 변경이 `develop`에 반영되면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. 앱 배포가 같은 파이프라인에 있으면 BE 배포 완료를 기다린다. 다른 `develop` push 파이프라인과 수동 파이프라인에는 `monitoring-deploy` 수동 실행 버튼이 생긴다. 버튼을 누르지 않으면 앱 변경만으로 Grafana를 다시 배포하지 않는다.
+모니터링 Compose·Prometheus·blackbox 설정 또는 Grafana 프로비저닝·대시보드가 `develop`에서 바뀌면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. README나 Nginx 설정 예시만 바뀌면 자동 실행되지 않는다. 앱 배포가 같은 파이프라인에 있으면 BE 배포 완료를 기다린다. 다른 `develop` push 파이프라인과 수동 파이프라인에는 `monitoring-deploy` 수동 실행 버튼이 생긴다. 버튼을 누르지 않으면 앱 변경만으로 Grafana를 다시 배포하지 않는다.
 
 잡은 아래 명령을 실행하고 `http://127.0.0.1:18090/api/health`로 기동을 확인한다. 설정이 그대로라면 `up -d`는 컨테이너를 다시 만들지 않는다.
 
