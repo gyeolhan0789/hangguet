@@ -55,7 +55,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ### 1.3 작업 메시지 (BE → AI)
 
 - 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
-- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`
+- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
@@ -65,7 +65,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
 
 ```json
-{ "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "answerId": 903,
+{ "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "requestedAt": "2026-10-22T14:03:13+09:00", "answerId": 903,
   "mode": "VIDEO", "seq": 3,
   "question": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거",
   "content": "조회 쿼리 실행 계획을 보고…", "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
@@ -236,7 +236,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
 | 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
 | 확률만 없음 | 그 항목만 `FIXED`로 점수를 내고 로그를 남긴다 | — |
-| BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 작업 시작부터 계산한다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
+| BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위해서다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
 | 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
 | 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도한다. 그래도 실패하면 작업을 처리 중 리스트에 남겨 작업자를 다시 시작할 때 다시 처리한다. 같은 결과가 두 번 전송돼도 BE가 제외한다(1.4) | — |
