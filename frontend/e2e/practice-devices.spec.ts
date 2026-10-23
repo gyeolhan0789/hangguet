@@ -43,10 +43,23 @@ const dialog = (page: Page) =>
   page.getByRole("dialog", { name: "카메라 · 마이크 권한이 필요해요" });
 
 /** 5.2가 늘 같은 질문 준비 상태로 답한다. */
+/**
+ * 5.2는 질문 준비 상태(plan)로 답하고, 5.4로 시작한 뒤로는 시작한 면접(IN_PROGRESS)으로 답한다.
+ * 시작 전 화상 면접(READY)이면 면접 화면이 S05로 돌려보내므로, 시작 뒤에는 상태가 바뀌어야 면접 화면이 그려진다.
+ * 5.4를 테스트에서 덮어쓰면 그 핸들러에서 state.started를 켠다.
+ */
 function planIs(msw: MswFixture, plan: keyof typeof SESSION_PLAN) {
+  const state = { started: false };
   msw.use(
-    http.get(api("/interview-sessions/:sessionId"), () => HttpResponse.json(SESSION_PLAN[plan])),
+    http.get(api("/interview-sessions/:sessionId"), () =>
+      HttpResponse.json(state.started ? SESSION_STARTED : SESSION_PLAN[plan]),
+    ),
+    http.post(api("/interview-sessions/:sessionId/start"), () => {
+      state.started = true;
+      return HttpResponse.json(SESSION_STARTED);
+    }),
   );
+  return state;
 }
 
 /**
@@ -267,11 +280,12 @@ test.describe("S05 장치 점검 · 면접 시작(5.4)", () => {
     page,
     msw,
   }) => {
-    planIs(msw, "READY");
+    const plan = planIs(msw, "READY");
     const keys: (string | null)[] = [];
     msw.use(
       http.post(api("/interview-sessions/:sessionId/start"), ({ request }) => {
         keys.push(request.headers.get("Idempotency-Key"));
+        plan.started = true;
         return HttpResponse.json(SESSION_STARTED);
       }),
     );

@@ -16,7 +16,7 @@ import type { AnswerFeedback } from "@/types/api";
 // · 접힌 줄(18:2680: 위아래 18 · 'Q1' 15 ExtraBold text-3 · 질문 16 SemiBold · 등급 14 SemiBold text-3 · chevron 20)
 // · 모션 메모 S07(18:2705: 질문 아코디언 높이 auto 애니메이션, 화살표 rotate 180°)
 // · 접힌 줄 '아쉬워요'의 색은 S07에 예시가 없어 S07-1 질문 줄(18:4564: 아쉬워요 danger)에 맞춘다
-// · API 명세 6.3(질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다) · ResultResponse.answers(질문 순)
+// · 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다 · ResultResponse.answers(질문 순)
 // · 사용자 결정(2026-10-22: 잘한 점 · 아쉬운 점은 고해상도대로 위아래, [전체 펼치기]를 누르면 모두 펼치고 '전체 접기'로 바뀐다,
 //   펼친 질문 오른쪽 아래 [자세히 보기]를 누르면 S07-1 다시보기로 간다)
 

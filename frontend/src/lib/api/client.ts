@@ -28,10 +28,10 @@ api.interceptors.response.use(undefined, async (error: unknown) => {
 });
 
 /**
- * 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)에 필수인 헤더.
- * 같은 요청을 다시 보낼 때는 처음 만든 키를 그대로 넘긴다.
+ * 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)에 필수인 헤더(웹 Swagger Idempotency-Key).
+ * 키는 화면이 만들어 넘긴다. 같은 키·같은 본문이면 서버가 처음 결과를 그대로 돌려준다.
  */
-export function idempotencyHeaders(key: string = crypto.randomUUID()) {
+export function idempotencyHeaders(key: string) {
   // 반환 모양은 IdempotencyHeaders(types/api)로 검사하되, axios headers에 넣을 수 있게 객체 리터럴 타입으로 둔다.
   return { "Idempotency-Key": key } satisfies IdempotencyHeaders;
 }

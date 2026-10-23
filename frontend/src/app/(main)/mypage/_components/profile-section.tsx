@@ -36,14 +36,12 @@ export function ProfileSection({ me, stats }: { me: MeResponse; stats: StatsResp
           <p className="text-[15px] leading-normal font-medium break-keep text-text-3">
             {me.email} · {startedLabel(me.createdAt)}
           </p>
-          {stats.latestJobTitle && (
-            <span className="flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 dark:bg-brand-soft/8">
-              <MaskIcon src="/mypage/icon-briefcase.svg" size={12} className="bg-brand-ink" />
-              <span className="text-xs leading-normal font-bold text-brand-ink">
-                {stats.latestJobTitle} 준비 중
-              </span>
+          <span className="flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 dark:bg-brand-soft/8">
+            <MaskIcon src="/mypage/icon-briefcase.svg" size={12} className="bg-brand-ink" />
+            <span className="text-xs leading-normal font-bold text-brand-ink">
+              {stats.latestJobTitle} 준비 중
             </span>
-          )}
+          </span>
         </div>
       </div>
       <Link

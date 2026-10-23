@@ -1,4 +1,4 @@
-// 5. 면접 진행 요청. 기준: mock InterviewDtos · InterviewSessionController.
+// 5. 면접 진행 요청. 기준: 웹 Swagger 5.1 ~ 5.15.
 
 /** 면접관. DEVIL 악마 면접관 · COFFEE_CHAT 개발자 커피챗 */
 export type Persona = "DEVIL" | "COFFEE_CHAT";
@@ -13,11 +13,11 @@ export type InputType = "VOICE" | "TEXT";
 export type AnswerAudioContentType = "audio/webm" | "audio/ogg" | "audio/mp4";
 
 /**
- * 5.1 · 5.4 · 5.7 · 5.8 필수 헤더. 같은 요청을 다시 보낼 때는 처음 만든 키를 그대로 넘긴다.
- * 같은 키 · 같은 본문 = 처음 결과, 같은 키 · 다른 본문 = 409 IDEMPOTENCY_KEY_REUSED, 헤더 없음 = 400
+ * 5.1 · 5.4 · 5.7 · 5.8 필수 헤더(웹 Swagger). 같은 요청을 다시 보낼 때는 처음 만든 키를 그대로 넘긴다.
+ * 같은 키 · 같은 본문 = 처음 결과를 그대로 반환, 같은 키 · 다른 본문 = 409 IDEMPOTENCY_KEY_REUSED
  */
 export interface IdempotencyHeaders {
-  /** UUID 형식. 아니면 400 */
+  /** 멱등 키(UUID) */
   "Idempotency-Key": string;
 }
 
@@ -80,3 +80,19 @@ export interface ReactionRequest {
 }
 
 // 5.2 · 5.3 · 5.5 · 5.9 · 5.10 · 5.12는 본문이 없다. 5.4 · 5.8은 본문 없이 IdempotencyHeaders만 보낸다.
+
+/** 5.13 GET /interview-sessions 쿼리(연습 면접 목록) */
+export interface SessionListQuery {
+  /** 한국 시간의 면접 시작 날짜. 필수, `YYYY-MM-DD` */
+  practiceDate: string;
+  /** 0부터. 기본 0 */
+  page?: number;
+  /** 1~20. 기본 5 */
+  size?: number;
+}
+
+/** 5.15 GET /interview-sessions/calendar 쿼리(월별 연습 면접 횟수) */
+export interface SessionCalendarQuery {
+  /** 조회 월. 필수, `YYYY-MM`(연도 0001~9999) */
+  month: string;
+}

@@ -27,7 +27,7 @@ export function ResultView({ result }: { result: ResultResponse }) {
       </div>
       <ResultActionBar
         sessionId={result.id}
-        reviewDate={todayKst(new Date(result.endedAt))}
+        reviewDate={todayKst(new Date(result.startedAt))}
         end={end}
       />
     </>

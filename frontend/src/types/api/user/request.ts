@@ -1,8 +1,8 @@
-// 2. 회원 요청. 기준: mock UserDtos · UserController.
+// 2. 회원 요청. 기준: 웹 Swagger 2.2 ~ 2.7.
 
 /** 2.2 PATCH /users/me 본문 */
 export interface NicknameRequest {
-  /** 새 닉네임. 필수, 1~50자, 앞뒤 공백 제거 */
+  /** 새 닉네임. 필수, 최대 50자, 앞뒤 공백 제거(화면은 빈 값을 막는다) */
   nickname: string;
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { formatElapsed, TOTAL_QUESTIONS } from "./questions";
 
-// 기준: API 명세 5.2(전체 질문 수 5 고정) · Figma S06 Progress Pill('08:42')
+// 기준: Figma S06 '질문 3 / 5'(전체 질문 수 5 고정) · Figma S06 Progress Pill('08:42')
 
 describe("formatElapsed", () => {
   it.each([

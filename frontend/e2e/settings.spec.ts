@@ -9,7 +9,7 @@ import type {
   WithdrawRequest,
 } from "../src/types/api";
 
-import { ME, PROBLEM, UPLOAD_URL } from "./mocks/data";
+import { ME, NICKNAME_CHANGED, PROBLEM, UPLOAD_URL } from "./mocks/data";
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S09-1 설정
@@ -70,15 +70,19 @@ test.describe("S09-1 설정 · 닉네임(2.2)", () => {
     msw,
   }) => {
     const bodies: NicknameRequest[] = [];
+    const meAuthorizations: (string | null)[] = [];
     let nickname = ME.nickname;
     msw.use(
       http.patch(api("/users/me"), async ({ request }) => {
         const body = (await request.json()) as NicknameRequest;
         bodies.push(body);
         nickname = body.nickname;
+        return HttpResponse.json({ ...NICKNAME_CHANGED, nickname });
+      }),
+      http.get(api("/users/me"), ({ request }) => {
+        meAuthorizations.push(request.headers.get("Authorization"));
         return HttpResponse.json({ ...ME, nickname });
       }),
-      http.get(api("/users/me"), () => HttpResponse.json({ ...ME, nickname })),
     );
     await page.goto(S09_1);
 
@@ -95,6 +99,8 @@ test.describe("S09-1 설정 · 닉네임(2.2)", () => {
       "새 닉네임",
     );
     expect(bodies).toEqual([{ nickname: "새 닉네임" }]);
+    // 2.2가 준 새 액세스 토큰을 쿠키에 저장해, 다시 그릴 때의 2.1부터 그 토큰을 쓴다(웹 Swagger 2.2).
+    await expect.poll(() => meAuthorizations).toContain(`Bearer ${NICKNAME_CHANGED.accessToken}`);
   });
 
   test("비워 두면 보내지 않고 안내하며, Esc로 편집을 그만둔다", async ({ page, msw }) => {
@@ -102,7 +108,7 @@ test.describe("S09-1 설정 · 닉네임(2.2)", () => {
     msw.use(
       http.patch(api("/users/me"), async ({ request }) => {
         bodies.push(await request.json());
-        return HttpResponse.json(ME);
+        return HttpResponse.json(NICKNAME_CHANGED);
       }),
     );
     await page.goto(S09_1);

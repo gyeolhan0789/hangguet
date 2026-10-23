@@ -7,14 +7,14 @@ import { useState } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { buildCalendar, monthLabel, shiftMonth, type CalendarDay } from "@/lib/user/calendar";
-import { growthReviewPath, mypagePath } from "@/lib/routes";
+import { mypagePath, recordsPath } from "@/lib/routes";
 
 // 기준: Figma S09 Streak Calendar(18:2930: 폭 560 · bg-sub · 둥글기 24 · 패딩 24 · 간격 12 · '스트릭 달력' 18 ExtraBold
 // · ‹ 2026년 10월 › 15 Bold · 요일 13 SemiBold text-3 · 칸 높이 40 · 동그라미 34 · 연습한 날 brand-strong · 13 ExtraBold 흰색
 // · 띠(band) 높이 32 · 오늘 brand 2px 테두리 · brand-ink · 지난날 13 Medium text-2 · 앞날 text-3(누를 수 없음)
 // · '🔥 이번 달 10일 연습 · 지금 7일 연속!' 14 SemiBold text-2)
-// · Swagger 3.3 연습 달력(practiceDate) · API 명세 3.3('이번 달 N일 연습'은 content 개수, '지금 N일 연속'은 3.2 currentStreak)
-// · 기획 메모 S09(18:1173: 날짜 클릭 → 그날의 S08 성장 리뷰) · 모션 메모 S09(18:3109: 연속 띠가 왼쪽 → 오른쪽으로 그려지고(scaleX 0→1)
+// · 웹 Swagger 3.3 연습 달력(practiceDate) · 3.2 통계(currentStreak) — '이번 달 N일 연습'은 content 개수, '지금 N일 연속'은 3.2 currentStreak
+// · 기획 메모 S09(18:1173: 날짜 클릭 → 그날의 S08 성장 리뷰 — 사용자 결정 2026-10-23으로 그날을 고른 연습 기록으로 바꿈) · 모션 메모 S09(18:3109: 연속 띠가 왼쪽 → 오른쪽으로 그려지고(scaleX 0→1)
 // 날짜 동그라미가 차례로 채워짐, 오늘은 링 펄스, 월 이동 시 좌우 슬라이드)
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
@@ -182,7 +182,7 @@ function DayCell({
         <span className={`${circle} ${tone}`}>{content}</span>
       ) : (
         <Link
-          href={growthReviewPath(day.date)}
+          href={recordsPath(day.date)}
           aria-label={name}
           className={`${circle} ${tone} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand`}
         >

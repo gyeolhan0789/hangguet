@@ -1,4 +1,4 @@
-// 2. 회원 응답. 기준: mock UserDtos · UserController.
+// 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.5.
 import type { OffsetDateTime } from "../common";
 
 /** 2.1 내 정보 · 2.5 프로필 사진 등록 (200) */
@@ -7,11 +7,11 @@ export interface MeResponse {
   /** 로그인 아이디 */
   email: string;
   nickname: string;
-  /** 프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null */
+  /** 프로필 사진 주소. 없으면 null(같은 회원의 웹 Swagger 1.2 · 1.3 예시 user.profileImageUrl) */
   profileImageUrl: string | null;
   /** 가입 일시. S09 "2026년 9월 시작" */
   createdAt: OffsetDateTime;
-  /** 현재 스트릭(오늘 또는 어제까지 빠짐없이 이어진 연습일 수). 모든 화면 헤더(C01) "스트릭 7일" */
+  /** 현재 스트릭. 헤더(C01) "스트릭 7일" */
   currentStreak: number;
 }
 

@@ -1,6 +1,6 @@
 import type { Persona } from "@/types/api";
 
-// 화면 주소 모음. 화면 번호는 Figma·API 명세 기준이다.
+// 화면 주소 모음. 화면 번호는 Figma 기준이다.
 export const ROUTES = {
   /** S00 랜딩 */
   landing: "/",
@@ -18,7 +18,7 @@ export const ROUTES = {
   practiceMode: "/practice/mode",
   /** S05 장치 점검(진행 4단계, 화상만). 주소에 sessionId를 붙인다. */
   practiceDevices: "/practice/devices",
-  /** 헤더 [연습 기록] (화면 미정) */
+  /** 연습 기록(헤더 [연습 기록]). 볼 날짜(date) · 페이지(page)는 주소에 붙인다. */
   records: "/records",
   /** S09 마이페이지. 스트릭 달력에서 볼 달은 주소에 month(YYYY-MM)로 붙인다. */
   mypage: "/mypage",
@@ -60,6 +60,13 @@ export const applicationEditPath = (applicationId: number) =>
 
 /** S09 마이페이지의 스트릭 달력을 month(YYYY-MM) 달로 연다. */
 export const mypagePath = (month: string) => `${ROUTES.mypage}?month=${month}`;
+
+/**
+ * 연습 기록을 date(YYYY-MM-DD, 면접 시작일) 날짜 · page(0부터) 페이지로 연다. 첫 페이지는 page를 붙이지 않는다.
+ * S09 스트릭 달력 날짜도 여기로 온다.
+ */
+export const recordsPath = (date: string, page = 0) =>
+  `${ROUTES.records}?date=${date}${page > 0 ? `&page=${page}` : ""}`;
 
 /** S09 프로필 사진 ✎ → S09-1 설정의 프로필 사진 줄(모션 메모 S09) */
 export const PROFILE_IMAGE_ANCHOR = "profile-image";

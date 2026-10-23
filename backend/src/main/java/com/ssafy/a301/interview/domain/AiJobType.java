@@ -7,5 +7,7 @@ public enum AiJobType {
     // 5.7 답변 채점
     SCORE_ANSWER,
     // 5.8·5.9 결과 만들기
-    EVALUATE
+    EVALUATE,
+    // 5.8(화상) 녹화 트랙을 mp4 하나로 합치기
+    MERGE_RECORDING
 }

@@ -1,5 +1,5 @@
-// API 주소 모음. 기준은 목 서버 Swagger(https://hangguet.yobistory.com/mock/be/docs)와 docs/API-명세.md.
-// 모든 주소는 baseURL(`/api/v1`) 뒤에 붙는다. 주석의 번호는 API 명세 번호다.
+// API 주소 모음. 기준은 웹 mock 서버 Swagger(https://hangguet.yobistory.com/mock/be/v3/api-docs).
+// 모든 주소는 baseURL(`/api/v1`) 뒤에 붙는다. 주석의 번호는 Swagger 각 API 이름 앞의 번호다.
 
 type Id = number | string;
 
@@ -49,8 +49,10 @@ export const applicationEndpoints = {
 
 /** 5. 면접 진행 */
 export const interviewEndpoints = {
-  /** 5.1 POST 면접 만들기 (Idempotency-Key 필수) */
+  /** 5.1 POST 면접 만들기 (Idempotency-Key 필수) · 5.13 GET 연습 면접 목록(practiceDate · page · size) */
   root: "/interview-sessions",
+  /** 5.15 GET 월별 연습 면접 횟수(month) */
+  calendar: "/interview-sessions/calendar",
   /** 5.2 GET 면접 조회 */
   detail: (sessionId: Id) => `/interview-sessions/${sessionId}`,
   /** 5.3 POST 면접 플랜 재생성 */

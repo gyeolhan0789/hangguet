@@ -96,9 +96,8 @@ export function ReplayQuestions({
       return;
     }
     setReturning(true);
+    // 답변 칸이 다 접힌 뒤(onExitComplete) 카드를 흔든다.
     setClosing(true);
-    // 접을 답변 칸이 없으면 바로 흔든다(있으면 칸이 다 접힌 뒤 onExitComplete에서).
-    if (!answer) void shakeThenClose();
   }
 
   return (
@@ -216,7 +215,7 @@ function QuestionCard({
       aria-expanded={open}
       // 재생 중인(강조한) 질문을 보조 기술에도 알린다.
       aria-current={highlighted || undefined}
-      aria-controls={open && item.answer ? `replay-answer-${item.questionId}` : undefined}
+      aria-controls={open ? `replay-answer-${item.questionId}` : undefined}
       onClick={onToggle}
       className="relative flex w-full cursor-pointer flex-col gap-1.5 rounded-2xl bg-bg-sub px-4 py-3.5 text-left tracking-[-0.2px]"
     >
@@ -241,15 +240,13 @@ function QuestionCard({
           {formatElapsed(offset)}
         </span>
         <span className="flex-1" />
-        {item.grade && (
-          <span
-            className={`text-xs leading-normal font-bold ${
-              item.grade === "WEAK" ? "text-danger" : "text-text-3"
-            }`}
-          >
-            {GRADE_LABEL[item.grade]}
-          </span>
-        )}
+        <span
+          className={`text-xs leading-normal font-bold ${
+            item.grade === "WEAK" ? "text-danger" : "text-text-3"
+          }`}
+        >
+          {GRADE_LABEL[item.grade]}
+        </span>
         <motion.span
           className="flex shrink-0"
           initial={false}

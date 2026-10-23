@@ -9,8 +9,8 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 // 근거: Figma S01-1 와이어프레임 · 디자인, S01-1 기획 메모
 //   (입력 즉시 검사: 이메일 형식 · 중복, 비밀번호 조건, 확인 일치 → 칸 아래 안내 /
 //    필수 동의 + 모든 칸 통과해야 버튼 활성화 / 가입 완료 → 자동 로그인 → S02-D 첫 방문 홈),
-//   S01-1 모션 메모(규칙 칩 ○ → ✓, 전체 동의 → 하위 체크), API 명세 1.1 이메일 확인 · 1.2 회원가입
-// 필수 동의는 Figma의 2개에 녹화 · 음성 동의를 더한 3개다(API 명세 1.2).
+//   S01-1 모션 메모(규칙 칩 ○ → ✓, 전체 동의 → 하위 체크), 웹 Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입
+// 필수 동의는 Figma의 2개에 녹화 · 음성 동의를 더한 3개다(웹 Swagger 1.2 필수 약관 3개).
 
 const NICKNAME = "면접왕";
 const EMAIL = "a@ssafy.com";
@@ -254,7 +254,7 @@ test.describe("S01-1 회원가입 · 제출 (1.2)", () => {
     );
     await page.goto("/signup");
 
-    // 닉네임 앞뒤 공백은 빼고 보낸다(API 명세 1.2).
+    // 닉네임 앞뒤 공백은 빼고 보낸다(웹 Swagger SignupRequest.nickname).
     await fillValidForm(page, { nickname: `  ${NICKNAME} ` });
     await submitButton(page).click();
 
