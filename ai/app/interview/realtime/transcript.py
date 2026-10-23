@@ -63,6 +63,9 @@ class _FinalToken:
     # 이 토큰을 수신한 연결의 offset이다.
     # 토큰마다 보관해야 재연결 전후의 시각을 각각 보정할 수 있다
     offset_ms: float
+    # 이 토큰을 수신한 연결의 순번이다.
+    # Soniox 시각은 연결마다 0부터 시작하므로 같은 연결의 시각끼리만 비교한다
+    connection: int
 
 
 def _round_ms(value: float) -> int:
@@ -80,8 +83,20 @@ class Transcript:
     def __init__(self) -> None:
         self._finals: list[_FinalToken] = []
         self._interim = ""
+        self._has_interim = False
         self._offset_ms = 0.0
+        self._connection = 0
         self._speech_end_ms: float | None = None
+
+    @property
+    def final_count(self) -> int:
+        """지금까지 수신한 확정 토큰 수."""
+        return len(self._finals)
+
+    @property
+    def has_interim(self) -> bool:
+        """마지막 응답에 미확정 토큰이 남아 있는지."""
+        return self._has_interim
 
     @property
     def confirmed_text(self) -> str:
@@ -116,7 +131,9 @@ class Transcript:
         if offset_ms < 0:
             raise ValueError("offset_ms는 0 이상이어야 한다")
         self._offset_ms = offset_ms
+        self._connection += 1
         self._interim = ""
+        self._has_interim = False
         self._speech_end_ms = None
 
     def apply(self, tokens: Iterable[SonioxToken]) -> None:
@@ -125,21 +142,42 @@ class Transcript:
         확정 토큰은 답변에 연결하고, 미확정 토큰은 화면 자막용 글로만 보관한다.
         """
         interim: list[str] = []
+        has_interim = False
         for token in tokens:
             if token.text in SPECIAL_TOKENS:
                 continue
             if token.is_final:
                 self._finals.append(
-                    _FinalToken(token.text, token.start_ms, token.end_ms, self._offset_ms)
+                    _FinalToken(
+                        token.text, token.start_ms, token.end_ms, self._offset_ms, self._connection
+                    )
                 )
             else:
                 interim.append(token.text)
+                has_interim = True
             if token.text.strip() and token.end_ms is not None:
                 current = self._speech_end_ms
                 self._speech_end_ms = (
                     token.end_ms if current is None else max(current, token.end_ms)
                 )
         self._interim = "".join(interim)
+        self._has_interim = has_interim
+
+    def confirmed_since(self, start: int) -> str:
+        """start번째 확정 토큰부터의 확정 글."""
+        return "".join(token.text for token in self._finals[start:])
+
+    def last_end_ms_since(self, start: int) -> float | None:
+        """start번째 확정 토큰부터 현재 연결에서 수신한 마지막 비공백 토큰의 end_ms(연결 기준).
+
+        시각이 없는 토큰은 건너뛰고, 해당하는 토큰이 없으면 None이다.
+        """
+        for token in reversed(self._finals[start:]):
+            if token.connection != self._connection:
+                return None
+            if token.text.strip() and token.end_ms is not None:
+                return token.end_ms
+        return None
 
     def content(self) -> str:
         """답변 글: 확정 글의 앞뒤 공백을 제거한다."""

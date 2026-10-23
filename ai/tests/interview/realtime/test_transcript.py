@@ -265,3 +265,22 @@ def test_soniox_response_json_is_converted_with_optional_timing() -> None:
 def test_soniox_response_without_tokens_is_empty() -> None:
     """종료 응답(finished)처럼 tokens가 없는 응답도 처리한다."""
     assert soniox_tokens({"finished": True}) == ()
+
+
+def test_pending_token_without_text_still_counts_as_interim() -> None:
+    """문장 끝 판단은 글이 없어도 미확정 토큰이 남아 있으면 기다린다."""
+    transcript = connected(0, [token("네", 0, 200), token("", 200, 300, is_final=False)])
+
+    assert transcript.interim_text == ""
+    assert transcript.has_interim
+    transcript.apply([token(" 맞아요", 300, 600)])
+    assert not transcript.has_interim
+
+
+def test_confirmed_text_and_last_end_since_position() -> None:
+    transcript = connected(0, [token("첫", 0, 100), token(" 둘", 100, 200), token(" ", 200, 250)])
+
+    assert transcript.final_count == 3
+    assert transcript.confirmed_since(1) == " 둘 "
+    assert transcript.last_end_ms_since(1) == 200
+    assert transcript.last_end_ms_since(3) is None
