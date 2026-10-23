@@ -211,7 +211,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `evaluation.completed`에 다음을 담는다 **[제안]**
   - `answers[]`: `answerId`, `score`, `goodPoint`, `improvePoint`, `evaluation`(`COVER_LETTER` 확정본)
   - `sessionScores[]`: `criterion`, `score`, `comment`
-  - `speechMetrics`(화상만, 아래 집계), `summary`
+  - `speechMetrics`(화상만, 채팅은 null, 아래 집계), `summary`
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
 
@@ -219,11 +219,14 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 컬럼 | `speechMetrics` 키 | 계산 |
 |---|---|---|
-| `filler_per_min` | `fillerPerMin` | 전체 군말 수 ÷ 전체 말한 분 |
+| `filler_per_min` | `fillerPerMin` | 전체 군말 수 ÷ 전체 말한 분(소수 둘째 자리) |
 | `long_pause_count` | `longPauseCount` | 답변별 합계 |
 | `speed_deviation_pct` | `speedDeviationPct` | 기준 미정(API 명세 B-13) |
 | `trailing_off_ratio` · `pitch_range_st` | `trailingOffRatio` · `pitchRangeSt` | 말한 시간으로 가중한 평균 |
 | `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 B-14) |
+
+- 값이 있는 답변만으로 계산하고, 모든 답변에 값이 없으면 null이다
+- 컬럼이 `NUMERIC(5, 2)`이므로 999.99를 넘는 값은 구하지 못한 것으로 간주해 null로 전송한다. 상한으로 잘라 전송하면 실제와 다른 지표가 되기 때문이다
 
 ## 5. 실패 처리
 
