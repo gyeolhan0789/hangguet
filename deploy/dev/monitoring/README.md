@@ -6,13 +6,13 @@
 
 - 먼저 `deploy/dev/compose.yml`로 앱을 띄워 `a301-dev` Docker 네트워크를 만든다. 미니PC의 기존 Nginx가 사용하는 `server_public-network`도 필요하다.
 - BE에는 관리 포트 8081이 켜져 있어야 한다. 개발 서버 Compose가 설정한다.
-- GitLab CI/CD Variables에 `GRAFANA_ADMIN_PASSWORD`를 Masked 변수로 등록한다. Environment scope는 `dev/monitoring`으로 둔다. `develop`이 보호 브랜치인 경우 Protected도 적용한다. 명령 기록이나 저장소에 비밀번호를 적지 않는다.
-- Cloudflare Tunnel의 Public Hostname `hanggeut-grafana.yobistory.com`을 미니PC의 **기존 Nginx HTTP 80 서비스**로 연결한다. 기존 `hangguet.yobistory.com`과 같은 Tunnel/Nginx를 사용한다.
+- GitLab CI/CD Variables에 개발 서버 전용 `DEV_GRAFANA_ADMIN_PASSWORD`를 Masked 변수로 등록한다. Environment scope는 `dev/monitoring`으로 둔다. `develop`이 보호 브랜치인 경우 Protected도 적용한다. 운영 서버의 Grafana 비밀번호와 값도 분리한다. 명령 기록이나 저장소에 비밀번호를 적지 않는다.
+- Cloudflare Tunnel의 Public Hostname `hangguet-grafana.yobistory.com`을 미니PC의 **기존 Nginx HTTP 80 서비스**로 연결한다. 기존 `hangguet.yobistory.com`과 같은 Tunnel/Nginx를 사용한다.
 - `nginx.conf.example`의 별도 `server` 블록을 미니PC의 활성 Nginx 설정에 추가한다. 기존 `hangguet.yobistory.com` 블록은 유지한다. 적용 전 `nginx -t`, 적용 후 `nginx -s reload`로 반영한다. Nginx 컨테이너가 `server_public-network`에 연결되어 있어야 한다.
 
 ## Runner 배포
 
-`deploy/dev/monitoring/` 변경이 `develop`에 반영되면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. 앱 배포가 같은 파이프라인에 있으면 BE 배포 완료를 기다린다. 앱 변경만 있을 때는 Grafana를 다시 배포하지 않는다. `develop`의 수동 파이프라인에서는 `monitoring-deploy` 버튼으로 다시 실행할 수 있다.
+`deploy/dev/monitoring/` 변경이 `develop`에 반영되면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. 앱 배포가 같은 파이프라인에 있으면 BE 배포 완료를 기다린다. 다른 `develop` push 파이프라인과 수동 파이프라인에는 `monitoring-deploy` 수동 실행 버튼이 생긴다. 버튼을 누르지 않으면 앱 변경만으로 Grafana를 다시 배포하지 않는다.
 
 잡은 아래 명령을 실행하고 `http://127.0.0.1:18090/api/health`로 기동을 확인한다. 설정이 그대로라면 `up -d`는 컨테이너를 다시 만들지 않는다.
 
@@ -21,7 +21,7 @@ docker compose -f deploy/dev/monitoring/compose.yml config --quiet
 docker compose -f deploy/dev/monitoring/compose.yml up -d
 ```
 
-브라우저 주소는 **https://hanggeut-grafana.yobistory.com/** 이다. 외부 요청은 Cloudflare Tunnel → 기존 Nginx → `a301-dev-grafana:3000`으로 간다. Grafana 로그인은 필수이고 익명 접속은 꺼져 있다. 필요하면 Cloudflare Access 정책을 추가한다. Prometheus와 blackbox exporter는 공용 Nginx 네트워크나 호스트 포트에 연결하지 않는다. Grafana의 `127.0.0.1:18090` 포트는 Runner 헬스체크용으로 유지한다. Grafana 데이터 소스와 대시보드는 `grafana/` 파일에서 자동 등록된다.
+브라우저 주소는 **https://hangguet-grafana.yobistory.com/** 이다. 외부 요청은 Cloudflare Tunnel → 기존 Nginx → `a301-dev-grafana:3000`으로 간다. Grafana 로그인은 필수이고 익명 접속은 꺼져 있다. 필요하면 Cloudflare Access 정책을 추가한다. Prometheus와 blackbox exporter는 공용 Nginx 네트워크나 호스트 포트에 연결하지 않는다. Grafana의 `127.0.0.1:18090` 포트는 Runner 헬스체크용으로 유지한다. Grafana 데이터 소스와 대시보드는 `grafana/` 파일에서 자동 등록된다.
 
 로컬 실행 시에는 비밀번호가 환경 변수에 있어야 한다. Git에 포함되지 않는 루트 `.env`를 사용하는 경우, 위 명령에 모두 `--env-file .env`를 `-f` 앞에 추가한다. `.env`에는 DB·JWT·Grafana 비밀번호가 있으므로 공유하지 않는다. 로컬 접속 주소는 `http://127.0.0.1:18090/`이다.
 
