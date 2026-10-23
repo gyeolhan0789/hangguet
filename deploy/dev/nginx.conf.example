@@ -6,8 +6,9 @@
 # 경로
 # - /mock/be/ → a301-mock:8080       목 서버 (기존 그대로)
 # - /be/      → a301-dev-be:8080     실제 BE. /be를 떼고 넘긴다. Swagger: /be/docs
+# - /admin/   → a301-dev-admin:80   관리 페이지 정적 파일
 # - /         → a301-dev-fe:3000     FE
-# Nginx는 가장 길게 맞는 접두사를 고르므로 /mock/be/와 /be/가 /보다 먼저 잡힌다.
+# Nginx는 가장 길게 맞는 접두사를 고르므로 /mock/be/·/be/·/admin/이 /보다 먼저 잡힌다.
 # AI(a301-dev-ai)는 내부 전용이라 여기에 없다.
 #
 # TLS는 Cloudflare에서 끝나고, cloudflared → Nginx 구간은 HTTP다.
@@ -29,6 +30,7 @@ server {
     resolver 127.0.0.11 valid=10s ipv6=off;
     set $mock_upstream http://a301-mock:8080;
     set $be_upstream   http://a301-dev-be:8080;
+    set $admin_upstream http://a301-dev-admin:80;
     set $fe_upstream   http://a301-dev-fe:3000;
 
     # 세 경로가 같이 쓰는 헤더
@@ -77,6 +79,15 @@ server {
         proxy_set_header X-Forwarded-Port   443;
         # Swagger·리다이렉트 주소 앞에 /be를 붙이게 한다
         proxy_set_header X-Forwarded-Prefix /be;
+    }
+
+    # 관리 페이지. 경로(/admin/)를 유지해 정적 파일 서버에 전달한다.
+    location = /admin {
+        return 308 /admin/$is_args$args;
+    }
+
+    location /admin/ {
+        proxy_pass $admin_upstream;
     }
 
     # 지표는 내부 Prometheus가 FE 컨테이너에 직접 접속한다. 공용 주소에는 노출하지 않는다.

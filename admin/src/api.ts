@@ -32,7 +32,7 @@ async function request<T>(path: string, init: { method?: string; body?: unknown 
   const session = loadSession()
   let response: Response
   try {
-    response = await fetch(`/api/v1${path}`, {
+    response = await fetch(`/be/api/v1${path}`, {
       method: init.method ?? 'GET',
       headers: {
         ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),

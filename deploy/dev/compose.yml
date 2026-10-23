@@ -11,8 +11,8 @@
 # 공용 네트워크에서는 서비스 이름도 주소가 되므로, 다른 프로젝트와 겹치지 않게 서비스 이름을 컨테이너 이름과 같이 a301-dev-*로 짓는다.
 #
 # 값
-# - 비밀값(DB_PASSWORD, JWT_SECRET)은 GitLab CI/CD Variables에서 받는다. 없으면 compose가 바로 실패한다.
-#   compose는 파일 전체를 읽으므로 어느 서비스를 배포하든 두 값이 필요하다.
+# - 비밀값(DB_PASSWORD, JWT_SECRET, ADMIN_LOGIN_ID, ADMIN_PASSWORD)은 GitLab CI/CD Variables에서 받는다.
+#   compose는 파일 전체를 읽으므로 어느 앱 서비스를 배포하든 네 값이 필요하다.
 # - 외부 API 키(SONIOX_API_KEY)도 CI/CD Variables에서 받는다. 없어도 BE는 뜨고 해당 기능만 실패하므로 필수로 두지 않는다.
 # - LiveKit: 개발 서버는 LiveKit Cloud를 쓴다(운영은 셀프 호스팅, 이해준/deploy_plan 4.0). 키·시크릿은 CI/CD Variables,
 #   주소는 비밀이 아니라 이 파일에 적는다. 없어도 BE·AI는 뜨고 면접방 기능만 실패하므로 필수로 두지 않는다.
@@ -103,6 +103,9 @@ services:
       REDIS_HOST: a301-dev-redis
       REDIS_PORT: "6379"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
+      ADMIN_NAME: ${ADMIN_NAME:-운영자}
       # Actuator는 개발 서버에서만 별도 포트로 연다. Nginx는 앱 포트(8080)만 프록시한다.
       MANAGEMENT_SERVER_PORT: "8081"
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
