@@ -142,7 +142,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 숫자 없는 수량 표현(「절반」, 「두 배」, 「3분의 1」 등)도 같은 값으로 인정한다(「절반」 = 50%, 「두 배」 = 200%). 주장이 「50%」이고 원문이 「절반」인 경우도 같다
   - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
-- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
+- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) BE가 만든다. 질문 수는 5개 고정이다
 
 ## 3. SCORE_ANSWER: 답변 채점
@@ -361,7 +361,7 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 
 ## 9. 버전
 
-등록된 Prompt·Model·Rubric 버전만 쓴다(CONTRIBUTING 7장). PLAN은 `plan.completed`에 담아 `interview_plans`에, SCORE_ANSWER는 `evaluation` 안에 담아 `answers.evaluation`에 남긴다. EVALUATE는 로그에만 남긴다(DB 저장은 범위 제외).
+등록된 Prompt·Model·Rubric 버전만 사용한다(CONTRIBUTING 7장). Model은 요청하는 모델 ID(예: `gpt-4.1-mini`)를 등록해 검사하고, 결과에는 GMS 응답에 실린 스냅샷 이름(날짜 포함, 예: `gpt-4.1-mini-2025-04-14`)을 기록한다. GMS는 스냅샷 이름으로 요청을 받지 않으므로 요청은 모델 ID로 하고, 처리한 스냅샷은 응답 이름으로 남긴다. PLAN은 `plan.completed`에 담아 `interview_plans`에, SCORE_ANSWER는 `evaluation` 안에 담아 `answers.evaluation`에 남긴다. EVALUATE는 로그에만 남긴다(DB 저장은 범위 제외).
 
 ## 10. 확인 필요
 
