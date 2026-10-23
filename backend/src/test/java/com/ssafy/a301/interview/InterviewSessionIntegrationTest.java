@@ -2,6 +2,7 @@ package com.ssafy.a301.interview;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -343,6 +344,8 @@ class InterviewSessionIntegrationTest {
                                                 && Long.valueOf(first)
                                                         .equals(job.get("sessionId"))));
         assertThat(practiceDates(user)).containsExactly(today());
+        // 채팅 면접은 녹화가 없다
+        verify(queue, never()).push(argThat(job -> "MERGE_RECORDING".equals(job.get("jobType"))));
 
         // 같은 날 두 번째 면접은 연습 기록이 늘지 않아 레벨업도 없다
         long second = started(user, "CHAT");
@@ -356,6 +359,27 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + second + "/end"))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+    }
+
+    @Test
+    void endVideoWithAnswersAlsoMergesRecording() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "VIDEO");
+        answer(sessionId, 1);
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("ANALYZING"));
+
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        "MERGE_RECORDING".equals(job.get("jobType"))
+                                                && ("recordings/raw/" + sessionId + "/")
+                                                        .equals(job.get("rawPrefix"))
+                                                && ("recordings/" + sessionId + ".mp4")
+                                                        .equals(job.get("objectKey"))));
     }
 
     @Test

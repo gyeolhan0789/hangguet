@@ -200,6 +200,10 @@ public class InterviewSessionService {
                                         session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
                                         now.atZoneSameInstant(KST).toLocalDate());
                         startAnalysis(sessionId, now);
+                        if (session.isVideo()) {
+                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다
+                            aiJobs.enqueue(AiJob.mergeRecording(sessionId));
+                        }
                     }
                     return InterviewMapper.toSessionResponse(
                             session,
@@ -240,10 +244,10 @@ public class InterviewSessionService {
         aiJobs.enqueue(AiJob.plan(sessionId));
     }
 
-    // 트랜잭션 안에서 부른다. 상태를 먼저 기록하고 작업을 Outbox에 넣는다
+    // 트랜잭션 안에서 부른다. 작업을 Outbox에 넣고 그 jobId와 함께 상태를 기록한다(작업은 커밋 뒤에 보내므로 결과가 먼저 오지 않는다)
     private void startAnalysis(long sessionId, OffsetDateTime now) {
-        runtimes.startAnalysis(sessionId, now.toInstant());
-        aiJobs.enqueue(AiJob.evaluate(sessionId));
+        AiJob job = aiJobs.enqueue(AiJob.evaluate(sessionId));
+        runtimes.startAnalysis(sessionId, now.toInstant(), job.getId());
     }
 
     private InterviewSession failAnalysis(long userId, long sessionId) {

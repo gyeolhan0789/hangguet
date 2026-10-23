@@ -1,22 +1,39 @@
 package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.interview.domain.AiJob;
+import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerToken;
+import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.dto.AiResultMessage;
+import com.ssafy.a301.interview.dto.AiResultMessage.CriterionScore;
+import com.ssafy.a301.interview.dto.AiResultMessage.EvaluatedAnswer;
+import com.ssafy.a301.interview.dto.AiResultMessage.SpeechMetrics;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.repository.SessionRuntimeStore;
+import com.ssafy.a301.interview.repository.SessionScoreRepository;
+import com.ssafy.a301.interview.repository.SpeechMetricRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,8 +43,8 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * AI 결과 메시지 하나를 저장한다(AI 명세 1.4, BE 설계 5.5). 같은 메시지가 두 번 오거나 늦게 와도 결과가 같도록 상태 조건과 유일 제약으로 거른다. 결과
- * 생성·녹화 합치기 결과(evaluation.*·recording.*)는 아직 받지 않는다.
+ * AI 결과 메시지 하나를 저장한다(AI 명세 1.4, BE 설계 5.5). 같은 메시지가 두 번 오거나 늦게 와도 결과가 같도록 상태 조건·마지막 EVALUATE
+ * jobId·유일 제약으로 거른다.
  */
 @Service
 public class AiResultService {
@@ -36,6 +53,10 @@ public class AiResultService {
     // 답변 글 길이(UTF-16, 5.7 VOICE와 같음)와 토큰 수 상한(AI 명세 6.2)
     private static final int MAX_ANSWER_LENGTH = 10_000;
     private static final int MAX_TOKEN_COUNT = 10_000;
+    // 총평·기준 코멘트(VARCHAR(255), 글자 수)
+    private static final int MAX_COMMENT_LENGTH = 255;
+    // 말하기 지표 컬럼 NUMERIC(5, 2)
+    private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {
@@ -47,6 +68,9 @@ public class AiResultService {
     private final InterviewQuestionRepository questions;
     private final AnswerRepository answers;
     private final InterviewPlanRepository plans;
+    private final SessionScoreRepository sessionScores;
+    private final SpeechMetricRepository speechMetrics;
+    private final RecordingRepository recordings;
     private final SessionRuntimeStore runtimes;
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
@@ -56,6 +80,9 @@ public class AiResultService {
             InterviewQuestionRepository questions,
             AnswerRepository answers,
             InterviewPlanRepository plans,
+            SessionScoreRepository sessionScores,
+            SpeechMetricRepository speechMetrics,
+            RecordingRepository recordings,
             SessionRuntimeStore runtimes,
             AiJobService aiJobs,
             TransactionTemplate transactions) {
@@ -63,6 +90,9 @@ public class AiResultService {
         this.questions = questions;
         this.answers = answers;
         this.plans = plans;
+        this.sessionScores = sessionScores;
+        this.speechMetrics = speechMetrics;
+        this.recordings = recordings;
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.transactions = transactions;
@@ -83,11 +113,16 @@ public class AiResultService {
                     case "question.started" -> questionStarted(sessionId, message);
                     case "answer.completed" -> answerCompleted(sessionId, message);
                     case "answer.scored" -> answerScored(sessionId, message);
+                    case "evaluation.progress" -> evaluationProgress(sessionId, message);
+                    case "evaluation.completed" -> evaluationCompleted(sessionId, message);
+                    case "evaluation.failed" -> evaluationFailed(sessionId, message);
+                    case "recording.merged" -> recordingMerged(sessionId, message);
+                    case "recording.mergeFailed" -> recordingMergeFailed(sessionId, message);
                     default ->
                             throw new InvalidAiResultException("처리하지 않는 결과 종류: " + message.type());
                 };
         if (outcome == Outcome.DISCARDED) {
-            LOG.info("AI 결과를 버렸다(상태·중복): {} session={}", message.type(), sessionId);
+            LOG.info("AI 결과를 버렸다: {} session={}", message.type(), sessionId);
         }
         return outcome;
     }
@@ -232,6 +267,217 @@ public class AiResultService {
                     }
                     return Outcome.SAVED;
                 });
+    }
+
+    // 결과 생성 중이고 마지막으로 보낸 EVALUATE의 결과일 때만 단계를 남긴다
+    private Outcome evaluationProgress(long sessionId, AiResultMessage message) {
+        AnalysisStep step = required(message.analysisStep(), "analysisStep");
+        String jobId = required(message.jobId(), "jobId");
+        boolean analyzing =
+                sessions.findById(sessionId)
+                        .filter(session -> session.getStatus() == SessionStatus.ANALYZING)
+                        .isPresent();
+        if (!analyzing || !isLatestEvaluate(sessionId, jobId)) {
+            return Outcome.DISCARDED;
+        }
+        runtimes.updateAnalysisStep(sessionId, step);
+        return Outcome.SAVED;
+    }
+
+    // 한 트랜잭션에서 이 면접의 결과를 지우고 다시 쓴 뒤 COMPLETED로 바꾼다(AI 명세 4장)
+    private Outcome evaluationCompleted(long sessionId, AiResultMessage message) {
+        String jobId = required(message.jobId(), "jobId");
+        String summary = withinCommentLength(required(message.summary(), "summary"), "summary");
+        if (summary.isBlank()) {
+            throw new InvalidAiResultException("총평이 비었다: session=" + sessionId);
+        }
+        List<EvaluatedAnswer> evaluated = required(message.answers(), "answers");
+        List<CriterionScore> scores =
+                validScores(required(message.sessionScores(), "sessionScores"));
+        evaluated.forEach(AiResultService::validate);
+        SpeechMetrics metrics = validMetrics(message.speechMetrics());
+        Outcome outcome =
+                transactions.execute(
+                        status -> {
+                            InterviewSession session = lockAnalyzing(sessionId, jobId);
+                            if (session == null) {
+                                return Outcome.DISCARDED;
+                            }
+                            Map<Long, Answer> byId =
+                                    answers.findWithQuestionBySessionId(sessionId).stream()
+                                            .collect(
+                                                    Collectors.toMap(
+                                                            Answer::getId, Function.identity()));
+                            Set<Long> evaluatedIds =
+                                    evaluated.stream()
+                                            .map(EvaluatedAnswer::answerId)
+                                            .collect(Collectors.toSet());
+                            if (evaluatedIds.size() != evaluated.size()
+                                    || !evaluatedIds.equals(byId.keySet())) {
+                                throw new InvalidAiResultException(
+                                        "이 면접의 답변마다 결과가 하나씩 있어야 한다: session=" + sessionId);
+                            }
+                            evaluated.forEach(
+                                    result ->
+                                            byId.get(result.answerId())
+                                                    .completeEvaluation(
+                                                            result.score(),
+                                                            result.goodPoint(),
+                                                            result.improvePoint(),
+                                                            result.evaluation()));
+                            sessionScores.deleteBySessionId(sessionId);
+                            speechMetrics.deleteBySessionId(sessionId);
+                            scores.forEach(
+                                    score ->
+                                            sessionScores.save(
+                                                    new SessionScore(
+                                                            session,
+                                                            score.criterion(),
+                                                            score.score(),
+                                                            score.comment())));
+                            if (session.isVideo() && metrics != null) {
+                                speechMetrics.save(
+                                        new SpeechMetric(
+                                                session,
+                                                metrics.fillerPerMin(),
+                                                metrics.longPauseCount(),
+                                                metrics.speedDeviationPct(),
+                                                metrics.trailingOffRatio(),
+                                                metrics.pitchRangeSt()));
+                            }
+                            session.complete(summary);
+                            return Outcome.SAVED;
+                        });
+        if (outcome == Outcome.SAVED) {
+            runtimes.clearAnalysisStep(sessionId);
+        }
+        return outcome;
+    }
+
+    private Outcome evaluationFailed(long sessionId, AiResultMessage message) {
+        String jobId = required(message.jobId(), "jobId");
+        LOG.warn("결과 생성 실패: session={} reason={}", sessionId, message.reason());
+        Outcome outcome =
+                transactions.execute(
+                        status -> {
+                            InterviewSession session = lockAnalyzing(sessionId, jobId);
+                            if (session == null) {
+                                return Outcome.DISCARDED;
+                            }
+                            session.failAnalysis();
+                            return Outcome.SAVED;
+                        });
+        if (outcome == Outcome.SAVED) {
+            runtimes.clearAnalysisStep(sessionId);
+        }
+        return outcome;
+    }
+
+    // 합친 mp4는 면접마다 하나다. 이미 있거나 화상 면접이 아니면 버린다
+    private Outcome recordingMerged(long sessionId, AiResultMessage message) {
+        String objectKey = required(message.objectKey(), "objectKey");
+        if (!objectKey.equals(Recording.sessionVideoKey(sessionId))) {
+            throw new InvalidAiResultException(
+                    "이 면접의 녹화 위치가 아니다: session=" + sessionId + " objectKey=" + objectKey);
+        }
+        return transactions.execute(
+                status -> {
+                    InterviewSession session = sessions.findById(sessionId).orElse(null);
+                    if (session == null
+                            || !session.isVideo()
+                            || recordings.existsByObjectKey(objectKey)) {
+                        return Outcome.DISCARDED;
+                    }
+                    recordings.save(Recording.sessionVideo(session, objectKey));
+                    return Outcome.SAVED;
+                });
+    }
+
+    // 다시보기를 어떻게 보여 줄지는 API 명세 B-19에서 정한다. 그 전에는 로그만 남긴다
+    private Outcome recordingMergeFailed(long sessionId, AiResultMessage message) {
+        LOG.warn("녹화 합치기 실패: session={} reason={}", sessionId, message.reason());
+        return Outcome.DISCARDED;
+    }
+
+    // 결과 생성 중인 면접 행을 잠근다. 결과 생성 중이 아니거나 마지막으로 보낸 EVALUATE의 결과가 아니면 null
+    private InterviewSession lockAnalyzing(long sessionId, String jobId) {
+        return sessions.findByIdForUpdate(sessionId)
+                .filter(session -> session.getStatus() == SessionStatus.ANALYZING)
+                .filter(session -> isLatestEvaluate(sessionId, jobId))
+                .orElse(null);
+    }
+
+    // 5.9로 다시 만들면 jobId가 바뀐다. 기록이 없으면(만료) 상태 조건만으로 거른다
+    private boolean isLatestEvaluate(long sessionId, String jobId) {
+        return runtimes.findEvaluateJobId(sessionId)
+                .map(latest -> latest.toString().equals(jobId))
+                .orElse(true);
+    }
+
+    private static List<CriterionScore> validScores(List<CriterionScore> scores) {
+        Set<Criterion> criteria =
+                scores.stream().map(CriterionScore::criterion).collect(Collectors.toSet());
+        if (scores.size() != Criterion.values().length
+                || !criteria.containsAll(List.of(Criterion.values()))) {
+            throw new InvalidAiResultException("기준별 점수는 4개 기준에 하나씩이다");
+        }
+        for (CriterionScore score : scores) {
+            validScore(score.score(), "sessionScores.score");
+            if (score.comment() != null) {
+                withinCommentLength(score.comment(), "sessionScores.comment");
+            }
+        }
+        return scores;
+    }
+
+    private static void validate(EvaluatedAnswer answer) {
+        required(answer.answerId(), "answers.answerId");
+        validScore(answer.score(), "answers.score");
+        required(answer.goodPoint(), "answers.goodPoint");
+        required(answer.improvePoint(), "answers.improvePoint");
+        required(answer.evaluation(), "answers.evaluation");
+    }
+
+    private static void validScore(Integer score, String field) {
+        if (required(score, field) < 0 || score > 100) {
+            throw new InvalidAiResultException(field + "는 0~100이다: " + score);
+        }
+    }
+
+    private static String withinCommentLength(String text, String field) {
+        if (text.codePointCount(0, text.length()) > MAX_COMMENT_LENGTH) {
+            throw new InvalidAiResultException(field + "는 255자 이하다");
+        }
+        return text;
+    }
+
+    // 저장할 값(소수 둘째 자리)으로 맞춘다. 채팅이면 null
+    private static SpeechMetrics validMetrics(SpeechMetrics metrics) {
+        if (metrics == null) {
+            return null;
+        }
+        Integer longPauseCount = metrics.longPauseCount();
+        if (longPauseCount != null && longPauseCount < 0) {
+            throw new InvalidAiResultException("longPauseCount는 0 이상이다: " + longPauseCount);
+        }
+        return new SpeechMetrics(
+                metric(metrics.fillerPerMin(), "fillerPerMin"),
+                longPauseCount,
+                metric(metrics.speedDeviationPct(), "speedDeviationPct"),
+                metric(metrics.trailingOffRatio(), "trailingOffRatio"),
+                metric(metrics.pitchRangeSt(), "pitchRangeSt"));
+    }
+
+    // 소수 둘째 자리로 맞춘다. 컬럼에 들어가지 않는 값은 AI가 null로 보내기로 했다(AI 명세 4장)
+    private static BigDecimal metric(BigDecimal value, String field) {
+        if (value == null) {
+            return null;
+        }
+        BigDecimal scaled = value.setScale(2, RoundingMode.HALF_UP);
+        if (scaled.abs().compareTo(MAX_METRIC) > 0) {
+            throw new InvalidAiResultException(field + "는 ±999.99 안이다: " + value);
+        }
+        return scaled;
     }
 
     private boolean isPlanGenerating(long sessionId) {
