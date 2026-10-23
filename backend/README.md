@@ -43,6 +43,8 @@ backend/
 │  │  │  ├─ result/                    # 결과·다시보기: dto·mapper
 │  │  │  ├─ home/                      # 홈·연습 기록: dto·mapper·domain
 │  │  │  ├─ growth/dto/                # 성장 리뷰 응답
+│  │  │  ├─ admin/                     # 관리 페이지(8. 관리자): 관리자 인증 · 홈 집계 · 스트릭 유지권 배포,
+│  │  │  │                             #   회원용 공지(8.8 · 8.9) · 내 유지권(8.13 · 8.14)
 │  │  │  ├─ common/error/              # 공통 오류 코드·예외·오류 응답 처리
 │  │  │  ├─ common/idempotency/        # Idempotency-Key 멱등성 처리
 │  │  │  └─ config/                    # Swagger 공통 설정

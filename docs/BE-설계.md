@@ -73,6 +73,19 @@ com.ssafy.a301
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
 ├─ growth/dto      GrowthDtos
+├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
+│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
+│  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
+│  ├─ service      AdminAuthService, AdminAccountInitializer(기동 때 환경 변수로 관리자 생성), AdminMetricsService,
+│  │               StreakFreezeGrantService · StreakFreezeGrantScheduler(매일 0시 · 기동 때 지급 · 만료), StreakFreezeService, NoticeService
+│  ├─ dto          AdminDtos
+│  ├─ mapper       AdminMapper
+│  ├─ repository   AdminRepository, NoticeRepository, NoticeReadRepository, StreakFreezeGrantRepository,
+│  │               StreakFreezeGrantTargetRepository, StreakFreezeRepository, AdminUserRepository(회원 조회만),
+│  │               AdminMetricsRepository(JPQL 집계), AdminTokenStore · RedisAdminTokenStore(로그아웃한 토큰)
+│  ├─ jwt          AdminTokens(발급자 a301-admin, 유효 시간은 auth.access-ttl)
+│  ├─ config       AdminSecurityConfig(/api/v1/admin/** 전용 필터 체인), AdminProperties, AdminPasswordEncoder(BCrypt)
+│  └─ domain       Admin, Notice, NoticeRead, StreakFreezeGrant, StreakFreezeGrantTarget, StreakFreeze, GrantTarget · GrantStatus · StreakFreezeStatus
 ├─ storage
 │  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
@@ -109,6 +122,12 @@ com.ssafy.a301
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
+| `Admin` | `admins` | - | 관리 페이지 계정. 회원과 따로 둔다. 아이디는 삭제하지 않은 관리자끼리만 중복 불가(V5) |
+| `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다 |
+| `NoticeRead` | `notice_reads` | N:1 Notice, N:1 User | 공지 확인(8.9). `(notice_id, user_id)` UNIQUE, `ON CONFLICT`로 넣는다 |
+| `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
+| `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
+| `StreakFreeze` | `streak_freezes` | N:1 User, N:1 Grant | 유지권 1개. 메울 수 있는 날짜 하나를 연습 기록(`practice_logs`)으로 메운다. 유효기간은 지급 날짜부터 2주 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
 - 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
