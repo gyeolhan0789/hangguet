@@ -51,7 +51,7 @@ export interface SpeechMetrics {
   fillerPerMin: number | null;
   /** 문장 중간에 길게 멈춘 횟수 */
   longPauseCount: number | null;
-  /** 평소 말 속도와의 차이(%) */
+  /** 일반 성인 말 속도와의 차이(%, 기준은 AI 명세 4장) */
   speedDeviationPct: number | null;
   /** 말끝을 흐린 문장 비율(%) */
   trailingOffRatio: number | null;
