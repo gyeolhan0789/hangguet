@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -96,6 +97,43 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             """)
     long countPracticeSessions(
             @Param("userId") long userId, @Param("statuses") Collection<SessionStatus> statuses);
+
+    /** 3.2 통계. 연습 면접 전체의 (종료 − 시작) 초 합. 5.13처럼 면접마다 초 단위로 버린 뒤 더한다. */
+    @Query(
+            value =
+                    """
+                    select cast(coalesce(sum(floor(extract(epoch from (s.ended_at - s.started_at)))), 0)
+                                as bigint)
+                    from interview_sessions s
+                    join users u on u.id = s.user_id
+                    where s.user_id = :userId and u.deleted_at is null
+                      and s.status in ('ANALYZING', 'COMPLETED', 'FAILED')
+                      and s.ended_at is not null
+                      and exists (
+                          select 1 from answers a
+                          join interview_questions q on q.id = a.question_id
+                          where q.session_id = s.id
+                      )
+                    """,
+            nativeQuery = true)
+    long sumPracticeSeconds(@Param("userId") long userId);
+
+    /** 3.2 통계의 직무. 가장 최근에 시작한 연습 면접부터 지원서 직무를 준다. */
+    @Query(
+            """
+            select s.application.jobTitle from InterviewSession s
+            where s.user.id = :userId
+              and s.user.deletedAt is null
+              and s.status in :statuses
+              and exists (
+                  select a.id from Answer a where a.question.session = s
+              )
+            order by s.startedAt desc, s.id desc
+            """)
+    List<String> findPracticeJobTitles(
+            @Param("userId") long userId,
+            @Param("statuses") Collection<SessionStatus> statuses,
+            Limit limit);
 
     @Query(
             """
