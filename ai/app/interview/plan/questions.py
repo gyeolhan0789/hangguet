@@ -78,3 +78,43 @@ def request_questions(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Ques
     """GMS를 한 번 호출해 질문과 채점 기준을 생성한다."""
     result = chat(build_question_messages(job, claims))
     return QuestionSet(parse_questions(result.content), result.model)
+
+
+def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
+    """질문이 정확히 5개이고 seq가 1~5에 하나씩인지 검사하고 seq 순서로 반환한다."""
+    if sorted(q.seq for q in questions) != list(range(MIN_SEQ, MAX_SEQ + 1)):
+        raise PlanOutputError(f"questions는 seq {MIN_SEQ}~{MAX_SEQ}의 {QUESTION_COUNT}개여야 한다")
+    return tuple(sorted(questions, key=lambda q: q.seq))
+
+
+REGENERATE_SYSTEM = (
+    "너는 지원자의 자기소개서 주장을 검증하는 면접 질문 하나를 다시 생성한다. "
+    "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
+    "- claimId: 주장 목록에 있는 id 하나를 그대로 작성한다\n"
+    "- content: 지원자에게 묻는 질문 한 문장\n"
+    "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
+    'JSON으로만 답한다: {"question": {"content": str, "criteria": str, "claimId": str}}'
+)
+
+
+def build_regenerate_messages(
+    job: PlanJob, claims: Sequence[Claim], seq: int
+) -> list[dict[str, str]]:
+    user = (
+        f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
+        f"[주장]\n{claims_text(claims)}\n\n"
+        f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다."
+    )
+    return [{"role": "system", "content": REGENERATE_SYSTEM}, {"role": "user", "content": user}]
+
+
+def request_question(chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int) -> Question:
+    """GMS를 한 번 호출해 seq번 질문 하나를 다시 생성한다.
+
+    seq는 다시 생성하는 질문의 자리이므로 GMS 출력과 관계없이 요청한 seq를 사용한다.
+    """
+    result = chat(build_regenerate_messages(job, claims, seq))
+    item = result.content.get("question")
+    if not isinstance(item, dict):
+        raise PlanOutputError("question이 객체가 아니다")
+    return parse_question({**item, "seq": seq})
