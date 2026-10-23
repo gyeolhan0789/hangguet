@@ -506,7 +506,6 @@ mock-deploy:
   variables:
     IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
     DEV_BE_HOST_PORT: "18081"
-    DEV_BE_MANAGEMENT_HOST_PORT: "18084"
     DEV_FE_HOST_PORT: "18082"
     DEV_AI_HOST_PORT: "18083"
     DEV_HEALTH_PATTERN: '"UP"'
@@ -514,6 +513,15 @@ mock-deploy:
     DEV_HEALTH_TRIES: "60"                                      # 2초 간격으로 확인할 횟수
   script:
     - docker compose -f deploy/dev/compose.yml up -d --build "$DEV_SERVICE"
+    - |
+      if [ "$DEV_SERVICE" = "a301-dev-be" ]; then
+        MANAGEMENT_ADDRESS=$(docker compose -f deploy/dev/compose.yml port "$DEV_SERVICE" 8081)
+        if [ -z "$MANAGEMENT_ADDRESS" ]; then
+          echo "FAIL: BE 관리 포트가 호스트에 할당되지 않았습니다."
+          exit 1
+        fi
+        export DEV_HEALTH_URL="http://${MANAGEMENT_ADDRESS}/actuator/health"
+      fi
     - !reference [.dev-health-check, script]
     # ": "가 있는 한 줄 명령은 YAML이 키-값으로 읽지 않도록 작은따옴표로 감쌉니다.
     - 'echo "OK: ${DEV_SERVICE} ${IMAGE_TAG} 배포 완료"'
@@ -530,7 +538,6 @@ be-deploy:
         - deploy/dev/compose.yml
   variables:
     DEV_SERVICE: "a301-dev-be"
-    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_BE_MANAGEMENT_HOST_PORT}/actuator/health"
   environment:
     name: dev/be
     url: https://hangguet.yobistory.com/be/docs
