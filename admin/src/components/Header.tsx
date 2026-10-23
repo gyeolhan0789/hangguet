@@ -17,7 +17,7 @@ export function Brand({ name, small = false }: { name?: string; small?: boolean 
 }
 
 export function Header({ route, adminName, onLogout }: Props) {
-  const current = route === 'home' ? 'home' : 'grants'
+  const current = route.name.startsWith('notice') ? 'notices' : route.name.startsWith('grant') ? 'grants' : 'home'
 
   // 로그아웃(8.2)이 실패해도 이 화면에서는 토큰을 버린다
   const logout = async () => {
@@ -37,8 +37,12 @@ export function Header({ route, adminName, onLogout }: Props) {
         >
           홈
         </button>
-        {/* 공지 관리(A02)는 아직 없어 누를 수 없다 */}
-        <button type="button" className="nav-item" disabled>
+        <button
+          type="button"
+          className="nav-item"
+          aria-current={current === 'notices' ? 'page' : undefined}
+          onClick={() => navigate('notices')}
+        >
           공지
         </button>
         <button

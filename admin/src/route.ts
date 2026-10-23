@@ -1,21 +1,44 @@
 import { useEffect, useState } from 'react'
 
 // 라우터 라이브러리 없이 주소의 # 뒤로 화면을 고른다
-export type Route = 'home' | 'grants' | 'grant-new'
-
-const PATHS: Record<Route, string> = {
-  home: '#/',
-  grants: '#/streak-freezes',
-  'grant-new': '#/streak-freezes/new',
-}
+export type Route =
+  | { name: 'home' }
+  | { name: 'notices' }
+  | { name: 'notice-new' }
+  | { name: 'notice-edit'; id: number }
+  | { name: 'grants' }
+  | { name: 'grant-new' }
 
 function parse(hash: string): Route {
-  const found = (Object.keys(PATHS) as Route[]).find((r) => PATHS[r] === hash)
-  return found ?? 'home'
+  if (hash === '#/notices') return { name: 'notices' }
+  if (hash === '#/notices/new') return { name: 'notice-new' }
+  const edit = /^#\/notices\/(\d+)\/edit$/.exec(hash)
+  if (edit) return { name: 'notice-edit', id: Number(edit[1]) }
+  if (hash === '#/streak-freezes') return { name: 'grants' }
+  if (hash === '#/streak-freezes/new') return { name: 'grant-new' }
+  return { name: 'home' }
 }
 
-export function navigate(route: Route) {
-  window.location.hash = PATHS[route]
+function toHash(route: Route): string {
+  switch (route.name) {
+    case 'home':
+      return '#/'
+    case 'notices':
+      return '#/notices'
+    case 'notice-new':
+      return '#/notices/new'
+    case 'notice-edit':
+      return `#/notices/${route.id}/edit`
+    case 'grants':
+      return '#/streak-freezes'
+    case 'grant-new':
+      return '#/streak-freezes/new'
+  }
+}
+
+export function navigate(route: Route | Exclude<Route['name'], 'notice-edit'>) {
+  const next = typeof route === 'string' ? ({ name: route } as Route) : route
+  window.location.hash = toHash(next)
 }
 
 export function useRoute(): Route {

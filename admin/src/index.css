@@ -200,6 +200,14 @@ button:disabled {
   color: #fff;
 }
 
+/* Figma A02 줄의 [수정] · [삭제] 64 × 36 */
+.btn-small {
+  width: 64px;
+  height: 36px;
+  padding: 0;
+  font-size: 14px;
+}
+
 .btn:disabled {
   opacity: 0.4;
 }
