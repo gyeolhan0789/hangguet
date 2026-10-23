@@ -52,6 +52,16 @@ public class Recording {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    /** Egress가 원본 트랙을 저장하는 위치(AI 명세 7장). 녹화를 시작할 때와 합치기 작업이 같은 값을 쓴다 */
+    public static String rawPrefix(long sessionId) {
+        return "recordings/raw/" + sessionId + "/";
+    }
+
+    /** 원본 트랙을 합친 mp4 위치(AI 명세 7장) */
+    public static String sessionVideoKey(long sessionId) {
+        return "recordings/" + sessionId + ".mp4";
+    }
+
     public static Recording answerAudio(InterviewSession session, Answer answer, String objectKey) {
         Recording r = new Recording();
         r.session = session;

@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Function;
 import org.springframework.data.redis.core.HashOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -31,6 +32,8 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     static final String PLAN_STARTED_AT = "planStartedAt";
     // 결과 생성을 시작한 시각(epoch 밀리초). 최대 대기 시간 확인용
     static final String ANALYSIS_STARTED_AT = "analysisStartedAt";
+    // 마지막으로 보낸 EVALUATE 작업. 이전 시도의 늦은 결과를 거르는 데 쓴다
+    static final String EVALUATE_JOB_ID = "evaluateJobId";
 
     // 아직 GENERATING일 때만 FAILED로 바꾼다. 확인과 쓰기 사이에 플랜 결과가 처리돼 READY가 됐으면 그대로 둔다
     private static final DefaultRedisScript<Long> FAIL_PLAN =
@@ -103,7 +106,7 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     }
 
     @Override
-    public void startAnalysis(long sessionId, Instant now) {
+    public void startAnalysis(long sessionId, Instant now, UUID evaluateJobId) {
         String key = key(sessionId);
         hash().putAll(
                         key,
@@ -111,8 +114,28 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
                                 ANALYSIS_STEP,
                                 AnalysisStep.ORGANIZING_ANSWERS.name(),
                                 ANALYSIS_STARTED_AT,
-                                Long.toString(now.toEpochMilli())));
+                                Long.toString(now.toEpochMilli()),
+                                EVALUATE_JOB_ID,
+                                evaluateJobId.toString()));
         redis.expire(key, TTL);
+    }
+
+    @Override
+    public Optional<UUID> findEvaluateJobId(long sessionId) {
+        return Optional.ofNullable(hash().get(key(sessionId), EVALUATE_JOB_ID))
+                .map(UUID::fromString);
+    }
+
+    @Override
+    public void updateAnalysisStep(long sessionId, AnalysisStep step) {
+        String key = key(sessionId);
+        hash().put(key, ANALYSIS_STEP, step.name());
+        redis.expire(key, TTL);
+    }
+
+    @Override
+    public void clearAnalysisStep(long sessionId) {
+        hash().delete(key(sessionId), ANALYSIS_STEP);
     }
 
     @Override

@@ -19,6 +19,7 @@ AI 기반 실전 모의면접 서비스
 | [`backend/`](backend) | BE | Java 21, Spring Boot 4.1, PostgreSQL 18, Flyway |
 | [`frontend/`](frontend) | FE | Node 24, Next.js 16, TypeScript, Vitest |
 | [`ai/`](ai) | AI | Python 3.13, FastAPI, uv |
+| [`company-pipeline/`](company-pipeline) | AI (회사 카드 파이프라인, MVP 밖) | Python 3.13, uv, Airflow 3, MinIO |
 
 ## 로컬 실행
 

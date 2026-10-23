@@ -9,6 +9,7 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.CurrentQuestion;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import java.time.OffsetDateTime;
 
@@ -29,6 +30,21 @@ public final class InterviewMapper {
             int answeredCount,
             OffsetDateTime now,
             Boolean leveledUp) {
+        return toSessionResponse(
+                session, runtime, currentQuestion, answeredCount, now, leveledUp, null);
+    }
+
+    /**
+     * @param room 면접방 입장 정보. 5.4 응답에서만 넘기고 그 외에는 null
+     */
+    public static SessionResponse toSessionResponse(
+            InterviewSession session,
+            SessionRuntime runtime,
+            InterviewQuestion currentQuestion,
+            int answeredCount,
+            OffsetDateTime now,
+            Boolean leveledUp,
+            RoomResponse room) {
         boolean generating = runtime.planStatus() == PlanStatus.GENERATING;
         boolean analyzing = session.getStatus() == SessionStatus.ANALYZING;
         boolean inProgress = session.getStatus() == SessionStatus.IN_PROGRESS;
@@ -49,7 +65,8 @@ public final class InterviewMapper {
                 session.getStartedAt(),
                 session.getEndedAt(),
                 session.getCreatedAt(),
-                leveledUp);
+                leveledUp,
+                room);
     }
 
     public static CurrentQuestion toCurrentQuestion(InterviewQuestion question) {

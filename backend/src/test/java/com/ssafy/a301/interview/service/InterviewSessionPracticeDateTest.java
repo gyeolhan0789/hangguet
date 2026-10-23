@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -23,6 +24,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -54,6 +56,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private SessionRuntimeService runtimes;
     @Mock private AiJobService aiJobs;
     @Mock private TransactionTemplate transactions;
+    @Mock private InterviewRoom rooms;
     @InjectMocks private InterviewSessionService service;
 
     @BeforeEach
@@ -66,6 +69,8 @@ class InterviewSessionPracticeDateTest {
                         });
         when(runtimes.current(anyLong(), any()))
                 .thenReturn(new SessionRuntime(PlanStatus.READY, null, null, 0));
+        // 결과 생성 시작 때 Outbox에 넣은 작업의 jobId를 기록한다
+        lenient().when(aiJobs.enqueue(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
     @Test

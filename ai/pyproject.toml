@@ -4,8 +4,8 @@ version = "0.1.0"
 description = "한끗 AI 서버"
 requires-python = ">=3.13"
 dependencies = [
-    "boto3>=1.43",
     "fastapi>=0.143.0",
+    "livekit-agents>=1.4,<2",
     "redis>=8.1.0",
     "uvicorn[standard]>=0.54.0",
 ]
@@ -34,7 +34,7 @@ select = ["E", "W", "F", "I", "N", "B", "UP", "SIM"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["app", "pipeline", "eval", "tests"]
+files = ["app", "eval", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -47,7 +47,3 @@ relative_files = true
 
 [tool.coverage.report]
 show_missing = true
-
-[[tool.mypy.overrides]]
-module = ["boto3"]
-ignore_missing_imports = true
