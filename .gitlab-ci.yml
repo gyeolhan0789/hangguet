@@ -448,7 +448,7 @@ mock-deploy:
 
 # 미니PC 개발 서버 배포 (deploy/dev/compose.yml)
 # - develop에 파트 폴더나 deploy/dev/compose.yml 변경이 병합되면 바뀐 서비스를 다시 빌드·실행합니다.
-#   deploy/dev/monitoring/ 변경은 앱을 다시 빌드하지 않고 monitoring-deploy만 실행합니다.
+#   모니터링 Compose·수집 설정·Grafana 대시보드 변경은 앱을 다시 빌드하지 않고 monitoring-deploy만 실행합니다.
 #   postgres·redis는 BE를 띄울 때 함께 뜨고, 설정이 바뀌지 않으면 다시 만들지 않아 데이터가 남습니다.
 # - 목 서버와 같은 배포 전용 러너(태그 a301-mock-deploy)가 호스트 Docker로 직접 빌드·실행합니다.
 # - 앱 세 잡과 모니터링 잡이 같은 resource_group이라 한 번에 하나씩 돕니다.
@@ -640,7 +640,10 @@ monitoring-deploy:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
-        - deploy/dev/monitoring/**/*
+        - deploy/dev/monitoring/compose.yml
+        - deploy/dev/monitoring/prometheus.yml
+        - deploy/dev/monitoring/blackbox.yml
+        - deploy/dev/monitoring/grafana/**/*
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       when: manual
       allow_failure: true
