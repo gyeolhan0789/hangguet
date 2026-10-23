@@ -36,6 +36,38 @@ class StreakTest {
     }
 
     @Test
+    void bestIsLongestRunInWholeHistory() {
+        List<LocalDate> days =
+                List.of(
+                        TODAY,
+                        TODAY.minusDays(5),
+                        TODAY.minusDays(6),
+                        TODAY.minusDays(7),
+                        TODAY.minusDays(9),
+                        TODAY.minusDays(10));
+        assertThat(Streak.best(days)).isEqualTo(3);
+        assertThat(Streak.current(days, TODAY)).isEqualTo(1);
+    }
+
+    @Test
+    void bestIgnoresOrderAndDuplicatesAndCrossesMonthBoundary() {
+        LocalDate monthEnd = LocalDate.of(2026, 9, 30);
+        assertThat(
+                        Streak.best(
+                                List.of(
+                                        monthEnd.plusDays(1),
+                                        monthEnd,
+                                        monthEnd,
+                                        monthEnd.minusDays(1))))
+                .isEqualTo(3);
+    }
+
+    @Test
+    void bestIsZeroWithoutRecords() {
+        assertThat(Streak.best(List.of())).isZero();
+    }
+
+    @Test
     void isZeroWhenYesterdayIsMissing() {
         assertThat(Streak.current(List.of(TODAY.minusDays(2)), TODAY)).isZero();
         assertThat(Streak.current(List.of(), TODAY)).isZero();
