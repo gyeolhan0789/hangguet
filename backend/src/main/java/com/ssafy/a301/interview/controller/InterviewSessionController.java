@@ -6,17 +6,14 @@ import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.PendingResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
-import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
-import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
 import com.ssafy.a301.interview.service.AnswerService;
 import com.ssafy.a301.interview.service.InterviewSessionListService;
 import com.ssafy.a301.interview.service.InterviewSessionService;
-import com.ssafy.a301.interview.service.SttTokenService;
-import com.ssafy.a301.interview.service.TtsTokenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -48,20 +45,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/interview-sessions")
 public class InterviewSessionController {
     private final InterviewSessionService sessions;
-    private final SttTokenService sttTokens;
-    private final TtsTokenService ttsTokens;
     private final InterviewSessionListService sessionList;
     private final AnswerService answers;
 
     public InterviewSessionController(
             InterviewSessionService sessions,
-            SttTokenService sttTokens,
-            TtsTokenService ttsTokens,
             InterviewSessionListService sessionList,
             AnswerService answers) {
         this.sessions = sessions;
-        this.sttTokens = sttTokens;
-        this.ttsTokens = ttsTokens;
         this.sessionList = sessionList;
         this.answers = answers;
     }
@@ -204,16 +195,21 @@ public class InterviewSessionController {
         return sessions.retryPlan(userId(jwt), sessionId);
     }
 
-    @Operation(summary = "5.4 면접 시작", description = "면접을 시작하고 첫 질문을 준다.")
+    @Operation(
+            summary = "5.4 면접 시작",
+            description = "면접을 시작하고 면접방을 연다. 에이전트를 배정하고 화상이면 녹화를 시작한다. 질문은 에이전트가 면접방에서 낸다.")
     @ApiResponse(
             responseCode = "200",
-            description = "시작(status IN_PROGRESS, currentQuestion = 1번 질문)")
+            description = "시작(status IN_PROGRESS, room = 입장 정보, currentQuestion = null)")
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
     @ApiResponse(
             responseCode = "409",
             description =
                     "PLAN_NOT_READY: 플랜 생성 중이거나 실패 · INVALID_SESSION_STATE: READY가 아님 ·"
                             + " IDEMPOTENCY_KEY_REUSED")
+    @ApiResponse(
+            responseCode = "503",
+            description = "ROOM_UNAVAILABLE: 면접방을 열지 못함(READY 그대로, 다시 시도)")
     @Idempotent
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(
@@ -224,14 +220,14 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.5 지금 질문",
-            description = "지금 답할 질문을 준다. 다음 질문을 준비 중이면 202를 주며, 2초 뒤(임시 값) 다시 부른다.")
+            description = "새로고침·재접속 때 지금 답할 질문을 준다. 에이전트가 다음 질문을 아직 내지 않았으면 202를 준다.")
     @ApiResponse(
             responseCode = "200",
             description = "답할 질문 있음",
             content = @Content(schema = @Schema(implementation = QuestionResponse.class)))
     @ApiResponse(
             responseCode = "202",
-            description = "QUESTION_GENERATING: 다음 질문 생성 중(오류 아님)",
+            description = "QUESTION_GENERATING: 에이전트가 다음 질문을 아직 내지 않음(오류 아님)",
             content = @Content(schema = @Schema(implementation = PendingResponse.class)))
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
     @ApiResponse(
@@ -250,24 +246,16 @@ public class InterviewSessionController {
     }
 
     @Operation(
-            summary = "5.10 실시간 음성 인식 토큰",
-            description = "브라우저가 Soniox 실시간 음성 인식에 직접 연결할 때 쓰는 1회용 임시 키를 준다.")
-    @PostMapping("/{sessionId}/stt-token")
-    public SttTokenResponse sttToken(
+            summary = "5.14 면접방 입장 토큰",
+            description = "새로고침·연결 끊김·토큰 만료 뒤 면접방에 다시 들어갈 입장 정보를 준다.")
+    @ApiResponse(responseCode = "200", description = "발급")
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
+    @ApiResponse(responseCode = "409", description = "INVALID_SESSION_STATE: IN_PROGRESS가 아님")
+    @PostMapping("/{sessionId}/room-token")
+    public RoomResponse roomToken(
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sttTokens.issue(userId(jwt), sessionId);
-    }
-
-    @Operation(
-            summary = "5.12 질문 음성 토큰",
-            description = "브라우저가 ElevenLabs에 직접 연결해 질문 음성을 받을 때 쓰는 1회용 토큰을 준다.")
-    @PostMapping("/{sessionId}/questions/{questionId}/tts-token")
-    public TtsTokenResponse ttsToken(
-            @AuthenticationPrincipal Jwt jwt,
-            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId,
-            @Parameter(description = "질문 id", example = "303") @PathVariable long questionId) {
-        return ttsTokens.issue(userId(jwt), sessionId, questionId);
+        return sessions.roomAccess(userId(jwt), sessionId);
     }
 
     private static long userId(Jwt jwt) {

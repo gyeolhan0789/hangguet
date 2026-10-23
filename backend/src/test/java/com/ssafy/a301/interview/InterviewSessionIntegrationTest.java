@@ -1,10 +1,17 @@
 package com.ssafy.a301.interview;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,6 +21,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InputType;
@@ -21,14 +30,17 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +49,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -66,12 +79,20 @@ class InterviewSessionIntegrationTest {
     @Autowired private InMemorySessionRuntimeStore runtimes;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private IdempotencyStore idempotency;
+    @MockitoBean private InterviewRoom rooms;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         runtimes.clear();
+        when(rooms.issueAccess(anyLong(), anyBoolean()))
+                .thenAnswer(
+                        call ->
+                                new RoomResponse(
+                                        "wss://rtc.test",
+                                        "token-" + call.getArgument(0),
+                                        OffsetDateTime.now().plusMinutes(10)));
     }
 
     @AfterEach
@@ -139,7 +160,8 @@ class InterviewSessionIntegrationTest {
                     get("/api/v1/interview-sessions/" + sessionId),
                     post("/api/v1/interview-sessions/" + sessionId + "/plan/retry"),
                     idempotent(post("/api/v1/interview-sessions/" + sessionId + "/start")),
-                    get("/api/v1/interview-sessions/" + sessionId + "/questions/current")
+                    get("/api/v1/interview-sessions/" + sessionId + "/questions/current"),
+                    post("/api/v1/interview-sessions/" + sessionId + "/room-token")
                 }) {
             mvc.perform(as(other, request))
                     .andExpect(status().isNotFound())
@@ -171,7 +193,8 @@ class InterviewSessionIntegrationTest {
     }
 
     @Test
-    void startNeedsReadyPlanAndGivesFirstQuestion() throws Exception {
+    @SuppressWarnings("unchecked")
+    void startOpensRoomWithPlanAndGivesRoomAccess() throws Exception {
         long user = newUser();
         long sessionId = create(user, newApplication(user));
         String start = "/api/v1/interview-sessions/" + sessionId + "/start";
@@ -179,22 +202,82 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PLAN_NOT_READY"));
+        verify(rooms, never()).open(anyLong(), anyBoolean(), any());
 
         planReady(sessionId);
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.planStatus").value("READY"))
-                .andExpect(jsonPath("$.currentQuestion.seq").value(1))
-                .andExpect(jsonPath("$.currentQuestion.content").value("질문1"))
+                .andExpect(jsonPath("$.currentQuestion").doesNotExist())
+                .andExpect(jsonPath("$.room.url").value("wss://rtc.test"))
+                .andExpect(jsonPath("$.room.token").value("token-" + sessionId))
+                .andExpect(jsonPath("$.room.expiresAt").exists())
                 .andExpect(jsonPath("$.answeredCount").value(0))
                 .andExpect(jsonPath("$.startedAt").exists());
+
+        // 화상 면접: 녹화를 켜고 질문 5개를 1번부터 배정한다
+        ArgumentCaptor<Map<String, Object>> assignment = ArgumentCaptor.forClass(Map.class);
+        verify(rooms).open(eq(sessionId), eq(true), assignment.capture());
+        assertThat(assignment.getValue())
+                .containsEntry("sessionId", sessionId)
+                .containsEntry("mode", "VIDEO")
+                .containsEntry("persona", "DEVIL")
+                .containsEntry("currentSeq", 1);
+        assertThat((List<Map<String, Object>>) assignment.getValue().get("questions"))
+                .extracting(question -> question.get("seq"))
+                .containsExactly(1, 2, 3, 4, 5);
+        // 질문 행은 에이전트가 질문을 말할 때 생긴다(B-16)
+        assertThat(questions.findFirstBySessionIdOrderBySeqDesc(sessionId)).isEmpty();
+        mvc.perform(as(user, get(start.replace("/start", ""))))
+                .andExpect(jsonPath("$.room").doesNotExist());
 
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
-        assertThat(questions.findFirstBySessionIdOrderBySeqDesc(sessionId))
-                .hasValueSatisfying(q -> assertThat(q.getSeq()).isEqualTo(1));
+    }
+
+    @Test
+    void startStaysReadyWhenRoomCannotOpen() throws Exception {
+        long user = newUser();
+        long sessionId = create(user, newApplication(user));
+        planReady(sessionId);
+        String start = "/api/v1/interview-sessions/" + sessionId + "/start";
+        doThrow(new ApiException(ErrorCode.ROOM_UNAVAILABLE))
+                .doNothing()
+                .when(rooms)
+                .open(eq(sessionId), anyBoolean(), any());
+
+        mvc.perform(as(user, idempotent(post(start))))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("ROOM_UNAVAILABLE"));
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.status").value("READY"));
+
+        // 다시 누르면 시작한다
+        mvc.perform(as(user, idempotent(post(start))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void roomTokenOnlyWhileInProgress() throws Exception {
+        long user = newUser();
+        long sessionId = create(user, newApplication(user));
+        String token = "/api/v1/interview-sessions/" + sessionId + "/room-token";
+
+        mvc.perform(as(user, post(token)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+
+        long chat = started(user, "CHAT");
+        mvc.perform(as(user, post("/api/v1/interview-sessions/" + chat + "/room-token")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.url").value("wss://rtc.test"))
+                .andExpect(jsonPath("$.token").value("token-" + chat))
+                .andExpect(jsonPath("$.expiresAt").exists());
+        // 채팅은 송출 권한 없이 받는다
+        verify(rooms, atLeastOnce()).issueAccess(chat, false);
     }
 
     @Test
@@ -217,6 +300,11 @@ class InterviewSessionIntegrationTest {
                                                         + sessionId
                                                         + "/start"))))
                 .andExpect(status().isOk());
+        // 에이전트가 1번 질문을 말하기 전
+        mvc.perform(as(user, get(current)))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.code").value("QUESTION_GENERATING"));
+        ask(sessionId, 1);
         mvc.perform(as(user, get(current)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.seq").value(1))
@@ -344,6 +432,8 @@ class InterviewSessionIntegrationTest {
                                                 && Long.valueOf(first)
                                                         .equals(job.get("sessionId"))));
         assertThat(practiceDates(user)).containsExactly(today());
+        // 커밋 뒤 면접방을 지운다
+        verify(rooms).close(first);
         // 채팅 면접은 녹화가 없다
         verify(queue, never()).push(argThat(job -> "MERGE_RECORDING".equals(job.get("jobType"))));
 
@@ -408,6 +498,7 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ABORTED"))
+                .andExpect(jsonPath("$.room").doesNotExist())
                 .andExpect(jsonPath("$.analysisStep").doesNotExist())
                 .andExpect(jsonPath("$.leveledUp").value(false));
         assertThat(practiceDates(user)).isEmpty();
@@ -466,6 +557,8 @@ class InterviewSessionIntegrationTest {
                                                         + sessionId
                                                         + "/start"))))
                 .andExpect(status().isOk());
+        // 에이전트가 1번 질문을 말한 것처럼 질문 행을 만든다(question.started)
+        ask(sessionId, 1);
         return sessionId;
     }
 

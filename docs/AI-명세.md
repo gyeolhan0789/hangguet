@@ -258,7 +258,8 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 | 항목 | 값 |
 |---|---|
 | 에이전트 이름 | `a301-interviewer` **[제안]** |
-| 방 이름 | `interview-{sessionId}` **[제안]**(API 명세 B-20) |
+| 방 이름 | `interview-{sessionId}` **[결정]**(API 명세 5.14). 지원자 참가자 이름은 `candidate` |
+| 에이전트 참가자 이름 | `interviewer` **[결정]**. 화상 녹화 파일 이름이 참가자 이름으로 시작하므로(7장) 이 이름으로 들어와야 한다 |
 | 배정 정보(metadata, JSON, 512KiB 이하) | 아래 **[제안]** |
 
 ```json
@@ -348,7 +349,9 @@ LiveKit RPC를 쓴다. 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `
   - `rawPrefix`: 원본 트랙 위치. S3 `recordings/raw/{sessionId}/`로 시작하고, BE가 녹화를 시작할 때 정한다
   - `objectKey`: 결과 위치 `recordings/{sessionId}.mp4`
   - 다른 면접의 녹화를 읽거나 덮어쓰지 않도록, 두 값이 그 작업 `sessionId`의 위치가 아니면 형식 오류(1.3)로 처리한다
-- **원본 트랙 파일** `rawPrefix` 아래 `candidate-video.mp4`(지원자 영상, H.264), `candidate-audio.ogg`(지원자 음성), `interviewer-audio.ogg`(면접관 음성). BE가 Egress 트랙 녹화를 시작할 때 이 이름으로 저장한다
+- **원본 트랙 파일** **[결정]** BE가 방을 만들 때 켠 트랙 자동 녹화가 `rawPrefix` 아래 `{참가자 이름}-{트랙 종류}-{트랙 id}.{확장자}`로 저장한다. 트랙 id(`TR_…`)는 LiveKit 서버가 붙이므로 미리 알 수 없다
+  - 이름 앞부분으로 찾는다: `candidate-video-`(지원자 영상, H.264 → `.mp4`), `candidate-audio-`(지원자 음성, `.ogg`), `interviewer-audio-`(면접관 음성, `.ogg`)
+  - 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 여러 개면 녹화 시작 시각 순서로 이어 붙인다
 - **처리** 영상은 다시 인코딩하지 않고 그대로 복사하고, 두 음성은 한 트랙으로 혼합해 AAC로 인코딩한 mp4를 `objectKey`에 업로드한다
   - 화상 면접 화면은 카메라 영상을 H.264로 송출한다. Egress 트랙 녹화는 영상을 다시 인코딩하지 않고 코덱에 맞는 형식으로 저장하므로(H.264는 MP4, Opus는 OGG) 합친 mp4도 브라우저에서 그대로 재생된다
   - 영상을 다시 인코딩하면 합치기가 면접 길이에 비례해 오래 걸려, 작업을 하나씩 처리하는 작업자에서 뒤에 대기한 작업이 BE 최대 대기 시간을 넘을 수 있다
