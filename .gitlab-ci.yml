@@ -464,13 +464,17 @@ mock-deploy:
     - |
       HEALTHY=0
       for i in $(seq 1 "$DEV_HEALTH_TRIES"); do
-        if curl -fsS "$DEV_HEALTH_URL" 2>/dev/null | grep -q "$DEV_HEALTH_PATTERN"; then
+        if [ "${DEV_HEALTH_SOURCE:-http}" = "container" ]; then
+          if docker inspect --format '{{.State.Health.Status}}' "$DEV_SERVICE" 2>/dev/null | grep -qx healthy; then
+            HEALTHY=1; break
+          fi
+        elif curl -fsS "$DEV_HEALTH_URL" 2>/dev/null | grep -q "$DEV_HEALTH_PATTERN"; then
           HEALTHY=1; break
         fi
         sleep 2
       done
       if [ "$HEALTHY" -ne 1 ]; then
-        echo "FAIL: ${DEV_HEALTH_URL} 가 $((DEV_HEALTH_TRIES * 2))초 안에 정상 응답을 반환하지 않았습니다."
+        echo "FAIL: ${DEV_SERVICE} 상태 확인이 $((DEV_HEALTH_TRIES * 2))초 안에 성공하지 않았습니다."
         docker compose -f deploy/dev/compose.yml logs --tail 100 "$DEV_SERVICE"
         exit 1
       fi
@@ -502,7 +506,6 @@ mock-deploy:
     DEV_BE_HOST_PORT: "18081"
     DEV_FE_HOST_PORT: "18082"
     DEV_AI_HOST_PORT: "18083"
-    DEV_AI_AGENT_HOST_PORT: "18084"
     DEV_HEALTH_PATTERN: '"UP"'
     DEV_KEEP_IMAGES: "3"                                        # 롤백용으로 남길 이미지 수
     DEV_HEALTH_TRIES: "60"                                      # 2초 간격으로 확인할 횟수
@@ -619,7 +622,7 @@ ai-deploy:
   environment:
     name: dev/ai
 
-# AI 에이전트: FastAPI와 별도로 실행하며 LiveKit SDK의 상태 확인 응답은 OK입니다.
+# AI 에이전트: 별도 호스트 포트 없이 Compose의 컨테이너 내부 상태 검사를 사용합니다.
 ai-agent-deploy:
   extends: .dev-deploy
   rules:
@@ -632,8 +635,7 @@ ai-agent-deploy:
     - 'test -n "$LIVEKIT_API_KEY" && test -n "$LIVEKIT_API_SECRET" || { echo "FAIL: LiveKit API 키와 시크릿이 필요합니다."; exit 1; }'
   variables:
     DEV_SERVICE: "a301-dev-ai-agent"
-    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_AI_AGENT_HOST_PORT}/"
-    DEV_HEALTH_PATTERN: '^OK$'
+    DEV_HEALTH_SOURCE: "container"
   environment:
     name: dev/ai-agent
 
