@@ -37,6 +37,13 @@ from app.common.gms import (
     GmsUnavailableError,
     with_deadline,
 )
+from app.common.results import (
+    REASON,
+    FailureReason,
+    ResultPublisher,
+    ResultPublishError,
+    ResultType,
+)
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.plan.generate import extract_claims, generate_questions
 from app.interview.plan.llm import PlanFailedError
@@ -44,13 +51,6 @@ from app.interview.plan.questions import Question
 from app.interview.plan.rules import PROGRESS_AFTER_CLAIMS
 from app.worker.dispatch import Dispatcher
 from app.worker.messages import Claim, PlanJob
-from app.worker.results import (
-    REASON,
-    FailureReason,
-    ResultPublisher,
-    ResultPublishError,
-    ResultType,
-)
 
 log = logging.getLogger(__name__)
 

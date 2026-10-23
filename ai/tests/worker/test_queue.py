@@ -7,6 +7,7 @@ from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
 from app.common.redis import SOCKET_TIMEOUT_SECONDS
+from app.common.results import RESULT_QUEUE_KEY, ResultPublisher
 from app.worker.dispatch import Dispatcher
 from app.worker.messages import EvaluateJob, Job, PlanJob, ScoreAnswerJob
 from app.worker.queue import (
@@ -16,7 +17,6 @@ from app.worker.queue import (
     ReceiveResult,
     RedisJobQueue,
 )
-from app.worker.results import RESULT_QUEUE_KEY, ResultPublisher
 
 JOB_1 = "8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34"
 JOB_2 = "0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f70"

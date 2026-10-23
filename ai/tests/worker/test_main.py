@@ -14,6 +14,7 @@ from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
 from app.common.redis import create_redis
+from app.common.results import ResultPublisher
 from app.common.session import InterviewMode
 from app.common.settings import load_settings
 from app.worker import main as main_module
@@ -21,7 +22,6 @@ from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
 from app.worker.messages import PlanJob, ScoreAnswerJob
 from app.worker.queue import ReceiveResult
-from app.worker.results import ResultPublisher
 
 # BE가 작업을 요청한 시각(AI 명세 1.3 requestedAt)
 REQUESTED_AT = datetime(2026, 10, 22, 14, 3, 13, tzinfo=timezone(timedelta(hours=9)))

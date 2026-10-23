@@ -1,5 +1,7 @@
 """작업 결과와 진행 상태를 Redis 결과 큐(ai:results)에 전송한다(AI 명세 1.4).
 
+분석 작업자의 작업 결과와 면접 에이전트의 질문 시작·답변 완료를 같은 전송기로 전송하므로,
+어느 실행 진입점에도 의존하지 않도록 공용 모듈에 둔다.
 AI는 DB와 진행 상태 Hash(session:{sessionId}:runtime)에 쓰지 않는다.
 BE가 결과 큐에서 메시지를 꺼내 검증한 뒤 저장하므로, BE가 저장할 내용을 결과 메시지 하나에 담는다.
 - 공통 필드는 type·sessionId·occurredAt이고, 작업 결과에는 수신한 작업의 jobId를 담는다.
@@ -15,11 +17,9 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from redis import Redis, RedisError
-
-from app.worker.messages import Job, JobType
 
 log = logging.getLogger(__name__)
 
@@ -79,15 +79,24 @@ class FailureReason(StrEnum):
 
 
 _REASON_VALUES = frozenset(reason.value for reason in FailureReason)
-# 실패 결과가 있는 작업과 그 실패 결과 종류.
-# SCORE_ANSWER는 실패 결과 없이 결과 생성이 다시 채점한다(AI 명세 5장)
-FAILED_RESULT_OF_JOB: dict[JobType, ResultType] = {
-    JobType.PLAN: ResultType.PLAN_FAILED,
-    JobType.EVALUATE: ResultType.EVALUATION_FAILED,
-    JobType.MERGE_RECORDING: ResultType.RECORDING_MERGE_FAILED,
-}
-# 실패 결과 메시지는 BE가 reason으로 처리를 나누므로 목록의 값을 반드시 담는다
-FAILED_RESULT_TYPES = frozenset(FAILED_RESULT_OF_JOB.values())
+# 실패 결과 메시지는 BE가 reason으로 처리를 나누므로 목록의 값을 반드시 담는다.
+# 작업 종류별 대응은 분석 작업자(app.worker.failures)가 이 목록의 값으로 정한다
+FAILED_RESULT_TYPES = frozenset(
+    {ResultType.PLAN_FAILED, ResultType.EVALUATION_FAILED, ResultType.RECORDING_MERGE_FAILED}
+)
+
+
+class JobRef(Protocol):
+    """결과를 전송할 작업.
+
+    작업 메시지 형식(app.worker.messages)에 의존하지 않도록 결과 메시지에 담는 값만 요구한다.
+    """
+
+    @property
+    def session_id(self) -> int: ...
+
+    @property
+    def job_id(self) -> str: ...
 
 
 class ResultPublishError(Exception):
@@ -111,7 +120,7 @@ class ResultPublisher:
         self._clock = clock
 
     def publish_job_result(
-        self, job: Job, result_type: ResultType, fields: Mapping[str, Any]
+        self, job: JobRef, result_type: ResultType, fields: Mapping[str, Any]
     ) -> None:
         """작업 처리 결과를 전송한다.
 

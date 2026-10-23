@@ -5,8 +5,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.gms import Chat
+from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT
 from app.interview.plan.llm import PlanOutputError
-from app.worker.messages import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Claim, PlanJob
+from app.worker.messages import Claim, PlanJob
 
 SYSTEM = (
     "너는 지원자의 자기소개서 주장을 검증하는 면접 질문을 생성한다. "

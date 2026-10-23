@@ -24,7 +24,7 @@ SENTENCE_BREAK = re.compile(
 MIN_CLAIMS = 1
 MAX_CLAIMS = 10
 
-# AI 명세 2장: 주장 수가 5개와 다르면 질문 수(app.worker.messages.QUESTION_COUNT)를 우선한다.
+# AI 명세 2장: 주장 수가 5개와 다르면 질문 수(app.common.session.QUESTION_COUNT)를 우선한다.
 # 주장이 적으면 같은 주장을 다른 관점으로 다시 질문하고,
 # 주장이 많으면 검증 가치가 큰 주장을 선택하게 한다(questions.SYSTEM).
 

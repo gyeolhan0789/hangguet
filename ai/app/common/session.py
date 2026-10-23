@@ -1,4 +1,4 @@
-"""면접 방식·면접관 값.
+"""면접 방식·면접관 값과 질문 번호 범위.
 
 기준: 목 서버 Mode·Persona(mock/.../interview/InterviewDtos.java), BE InterviewMode·Persona
 (backend/.../interview/domain). AI는 DB를 읽지 않고 작업 메시지(AI 명세 1.3)와 에이전트 배정
@@ -7,6 +7,11 @@
 """
 
 from enum import StrEnum
+
+# AI 명세 2장: 질문은 seq 1~5로 정확히 5개다
+MIN_SEQ = 1
+MAX_SEQ = 5
+QUESTION_COUNT = MAX_SEQ - MIN_SEQ + 1
 
 
 class InterviewMode(StrEnum):

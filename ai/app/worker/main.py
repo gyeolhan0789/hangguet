@@ -21,11 +21,11 @@ from redis import RedisError
 
 from app.common.gms import GmsClient
 from app.common.redis import create_redis
+from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import ReceiveResult, RedisJobQueue
-from app.worker.results import ResultPublisher
 
 log = logging.getLogger(__name__)
 

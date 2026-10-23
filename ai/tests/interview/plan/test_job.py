@@ -10,6 +10,7 @@ from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
 from app.common.gms import GmsClient, GmsResult, GmsUnavailableError
+from app.common.results import KST, RESULT_QUEUE_KEY, ResultPublisher, ResultPublishError
 from app.common.settings import SettingsError, load_settings
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.plan.job import (
@@ -21,9 +22,8 @@ from app.interview.plan.job import (
 )
 from app.worker.dispatch import Dispatcher, DispatchResult
 from app.worker.main import lazy_gms_client
-from app.worker.results import KST, RESULT_QUEUE_KEY, ResultPublisher, ResultPublishError
+from tests.common.test_results import FakeRedis
 from tests.interview.plan.fakes import JOB, JOB_ID, FakeChat, question
-from tests.worker.test_results import FakeRedis
 
 NOW = datetime(2026, 10, 22, 14, 3, 12, tzinfo=KST)
 CLAIMS = {

@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
 from app.common.session import InterviewMode
 from app.worker.messages import (
     Claim,
@@ -17,9 +18,6 @@ from app.worker.messages import (
     MergeRecordingJob,
     PlanJob,
     ScoreAnswerJob,
-    SpeechToken,
-    VoiceMetrics,
-    _is_java_whitespace,
     job_header,
     parse_job,
 )
@@ -326,7 +324,7 @@ def test_other_code_points_are_not_whitespace() -> None:
     wrong = [
         f"U+{code:04X}"
         for code in range(sys.maxunicode + 1)
-        if chr(code) not in expected and _is_java_whitespace(chr(code))
+        if chr(code) not in expected and is_java_blank(chr(code))
     ]
 
     assert wrong == []
