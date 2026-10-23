@@ -137,6 +137,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 - `type`: `EXPERIENCE`(경험) · `NUMBER`(수치). `questions`는 `seq` 1~5로 정확히 5개
 - **검증** JSON이 아니거나 질문이 5개가 아니면 1회 재시도 후 `plan.failed`. `claimId`가 없는 주장을 가리키면 그 질문만 1회 다시 만들고, 그래도 틀리면 `plan.failed`
+- **근거 검사** 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위해서다
+  - 숫자는 값으로 비교한다(6.0과 6, 1,100과 1100은 같음). 단위는 비교하지 않는다
+  - 숫자 없는 수량 표현(「절반」, 「두 배」, 「3분의 1」 등)도 같은 값으로 인정한다(「절반」 = 50%, 「두 배」 = 200%). 주장이 「50%」이고 원문이 「절반」인 경우도 같다
+  - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) BE가 만든다. 질문 수는 5개 고정이다
