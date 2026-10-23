@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.settings import Settings
+from app.common.versions import REGISTRY, VersionKind
 
 log = logging.getLogger(__name__)
 
@@ -148,8 +149,13 @@ class GmsClient:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "GmsClient":
-        """GMS 접속 값이 없으면 SettingsError를 발생시킨다(GMS를 처음 사용하는 시점의 검사)."""
+        """GMS를 처음 사용하는 시점에 접속 값과 모델을 검사한다.
+
+        접속 값이 없으면 SettingsError를, LLM_MODEL이 등록된 Model 버전이 아니면
+        UnregisteredVersionError를 발생시킨다(AI 명세 9장).
+        """
         llm = settings.llm()
+        REGISTRY.require(VersionKind.MODEL, llm.model)
         return cls(model=llm.model, transport=urllib_transport(llm.chat_url, llm.api_key))
 
     def chat_json(

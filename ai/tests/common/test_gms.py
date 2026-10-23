@@ -20,6 +20,7 @@ from app.common.gms import (
     with_deadline,
 )
 from app.common.settings import SettingsError, load_settings
+from app.common.versions import UnregisteredVersionError
 
 MESSAGES = [{"role": "user", "content": "판정하라"}]
 
@@ -271,6 +272,14 @@ def test_from_settings_requires_llm_values() -> None:
         GmsClient.from_settings(load_settings({"LLM_MODEL": "gpt-test"}))
 
 
+def test_from_settings_rejects_unregistered_model() -> None:
+    """등록되지 않은 모델로는 GMS를 호출하지 않는다."""
+    settings = load_settings({"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-x"})
+
+    with pytest.raises(UnregisteredVersionError, match="gpt-x"):
+        GmsClient.from_settings(settings)
+
+
 def test_from_settings_sends_bearer_key_to_chat_url(monkeypatch: pytest.MonkeyPatch) -> None:
     requests: list[urllib.request.Request] = []
 
@@ -280,7 +289,7 @@ def test_from_settings_sends_bearer_key_to_chat_url(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr("urllib.request.urlopen", capture)
     settings = load_settings(
-        {"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-x", "LLM_API_KEY": "k"}
+        {"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-4.1-mini", "LLM_API_KEY": "k"}
     )
 
     result = GmsClient.from_settings(settings).chat_json(MESSAGES)
@@ -288,7 +297,7 @@ def test_from_settings_sends_bearer_key_to_chat_url(monkeypatch: pytest.MonkeyPa
     [req] = requests
     assert req.full_url == "http://gms.test/chat"
     assert req.get_header("Authorization") == "Bearer k"
-    assert json.loads(req.data)["model"] == "gpt-x"  # type: ignore[arg-type]
+    assert json.loads(req.data)["model"] == "gpt-4.1-mini"  # type: ignore[arg-type]
     assert result.content == {"level": 3}
 
 
