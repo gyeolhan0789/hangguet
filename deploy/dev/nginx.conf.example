@@ -79,6 +79,11 @@ server {
         proxy_set_header X-Forwarded-Prefix /be;
     }
 
+    # 지표는 내부 Prometheus가 FE 컨테이너에 직접 접속한다. 공용 주소에는 노출하지 않는다.
+    location = /api/monitoring/metrics {
+        return 404;
+    }
+
     # FE (나머지 모든 경로). 접두사 없이 그대로 넘긴다.
     location / {
         proxy_pass $fe_upstream;

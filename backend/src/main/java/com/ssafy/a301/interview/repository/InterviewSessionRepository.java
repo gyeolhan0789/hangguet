@@ -19,6 +19,8 @@ import org.springframework.data.repository.query.Param;
 public interface InterviewSessionRepository extends JpaRepository<InterviewSession, Long> {
     Optional<InterviewSession> findByIdAndUserId(Long id, Long userId);
 
+    long countByStatus(SessionStatus status);
+
     interface PracticeDateCount {
         LocalDate getPracticeDate();
 

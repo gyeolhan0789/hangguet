@@ -1,0 +1,83 @@
+# A301 개발 서버 전용 모니터링. 기존 deploy/dev/compose.yml과 별도 프로젝트로 실행한다.
+# 먼저 앱 Compose가 a301-dev 네트워크를 만들어야 한다.
+# Grafana만 미니PC의 Nginx가 사용하는 공용 Docker 네트워크에 연결한다.
+name: a301-dev-monitoring
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  a301-dev-prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: a301-dev-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=3d
+      - --storage.tsdb.retention.size=512MB
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 384m
+    cpus: "0.5"
+    networks:
+      - monitoring
+      - app
+    logging: *logging
+
+  a301-dev-blackbox:
+    image: quay.io/prometheus/blackbox-exporter:v0.28.0
+    container_name: a301-dev-blackbox
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    mem_limit: 64m
+    cpus: "0.2"
+    networks:
+      - monitoring
+      - app
+    logging: *logging
+
+  a301-dev-grafana:
+    image: grafana/grafana:13.1.7
+    container_name: a301-dev-grafana
+    restart: unless-stopped
+    depends_on:
+      - a301-dev-prometheus
+    ports:
+      - "127.0.0.1:${DEV_GRAFANA_HOST_PORT:-18090}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://127.0.0.1:18090/}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    mem_limit: 384m
+    cpus: "0.5"
+    networks:
+      - monitoring
+      - proxy
+    logging: *logging
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  monitoring:
+  app:
+    external: true
+    name: a301-dev
+  proxy:
+    external: true
+    name: server_public-network

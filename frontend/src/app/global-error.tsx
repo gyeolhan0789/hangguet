@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 
+import { reportBrowserError } from "@/lib/monitoring/browser-events";
+
 import { pretendard } from "./fonts";
 import "./globals.css";
 
@@ -15,6 +17,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error(error);
+    reportBrowserError("boundary");
   }, [error]);
 
   return (
