@@ -140,6 +140,20 @@ class AiJobMessagesTest {
     }
 
     @Test
+    void mergeRecordingMessageHasTrackAndResultLocations() {
+        InterviewSession session = newSession(InterviewMode.VIDEO);
+
+        assertThat(messages.of(withId(AiJob.mergeRecording(session.getId()))))
+                .containsEntry("jobType", "MERGE_RECORDING")
+                .containsEntry("rawPrefix", "recordings/raw/" + session.getId() + "/")
+                .containsEntry("objectKey", "recordings/" + session.getId() + ".mp4");
+
+        InterviewSession chat = newSession(InterviewMode.CHAT);
+        assertThatThrownBy(() -> messages.of(withId(AiJob.mergeRecording(chat.getId()))))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void jobWithoutPlanCannotBeSent() {
         InterviewSession session = newSession(InterviewMode.CHAT);
 
