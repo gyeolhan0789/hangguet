@@ -2,7 +2,7 @@
 
 브라우저는 file://에서 JSON을 fetch할 수 없어서, 카드와 근거 원문을 data/viewer_data.js로 묶는다.
 
-cd ai && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
+cd company-pipeline && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
 화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
 """
 

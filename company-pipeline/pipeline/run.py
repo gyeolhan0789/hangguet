@@ -1,7 +1,7 @@
 """①→④를 순서대로 실행해 회사 카드를 만든다.
 
-cd ai && uv run --env-file .env python -m pipeline.run
-cd ai && uv run --env-file .env python -m pipeline.run --only 카카오
+cd company-pipeline && uv run --env-file .env python -m pipeline.run
+cd company-pipeline && uv run --env-file .env python -m pipeline.run --only 카카오
 """
 
 import argparse

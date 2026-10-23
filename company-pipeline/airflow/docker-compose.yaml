@@ -1,6 +1,6 @@
 # 회사 카드 파이프라인용 로컬 Airflow 3.3 + MinIO(원문 저장소)
 # 공식 docker-compose(3.3.2)에서 Celery·Redis·워커·트리거러·Flower를 빼고 LocalExecutor로 줄였다.
-# 띄우기: cd ai/airflow && docker compose up -d  → http://localhost:8080
+# 띄우기: cd company-pipeline/airflow && docker compose up -d  → http://localhost:8080
 x-airflow-common: &airflow-common
   image: apache/airflow:3.3.2-python3.13
   env_file:
@@ -15,7 +15,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DEFAULT_TIMEZONE: Asia/Seoul
     # 로컬 전용: 로그인 없이 관리자로 접속 (포트도 127.0.0.1에만 연다)
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
-    # 파이프라인 코드(ai/pipeline)를 import한다. LLM·임베딩은 .env의 GMS 설정을 그대로 쓴다
+    # 파이프라인 코드(company-pipeline/pipeline)를 import한다. LLM·임베딩은 .env의 GMS 설정을 그대로 쓴다
     PYTHONPATH: /opt/ai
     # 원문 저장소 MinIO (로컬 전용 계정)
     S3_ENDPOINT: http://minio:9000

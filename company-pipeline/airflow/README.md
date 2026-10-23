@@ -1,6 +1,6 @@
 # 회사 카드 파이프라인 Airflow + MinIO (로컬)
 
-`ai/pipeline`의 회사 카드 만들기를 Airflow 3.3으로 자동 실행하고, 받은 원문은 MinIO에 쌓는다. 노트북 로컬용이다.
+`company-pipeline/pipeline`의 회사 카드 만들기를 Airflow 3.3으로 자동 실행하고, 받은 원문은 MinIO에 쌓는다. 노트북 로컬용이다.
 
 ## DAG
 
@@ -20,13 +20,13 @@
 ## 준비
 
 - Docker Desktop 실행
-- `ai/.env`에 GMS 설정 (요약 gpt-4.1-mini, 임베딩 text-embedding-3-large). 로컬 Ollama로 돌리려면 [pipeline/README.md](../pipeline/README.md)의 로컬 설정
-- `ai/.env`에 `DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `LLM_*`, `EMBED_*` ([pipeline/README.md](../pipeline/README.md))
+- `company-pipeline/.env`에 GMS 설정 (요약 gpt-4.1-mini, 임베딩 text-embedding-3-large). 로컬 Ollama로 돌리려면 [pipeline/README.md](../pipeline/README.md)의 로컬 설정
+- `company-pipeline/.env`에 `DART_API_KEY`, `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `LLM_*`, `EMBED_*` ([pipeline/README.md](../pipeline/README.md))
 
 ## 켜기·끄기
 
 ```bash
-cd ai/airflow
+cd company-pipeline/airflow
 docker compose up -d     # 처음에는 이미지를 받느라 몇 분 걸린다
 docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는다
 ```
@@ -42,7 +42,7 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 - 흐름 보기: DAG 클릭 → 그래프 보기(`g`)
 - 날짜·회사별 결과: 격자 보기(`w`). 회사별 칸 이름이 회사명으로 보인다
 - 실패한 회사만 다시: 빨간 칸 → 로그 확인 → Clear
-- 카드 내용 확인: `cd ai && uv run python -m pipeline.viewer` (MinIO 원문을 읽으려면 아래 `.env` 4줄 필요)
+- 카드 내용 확인: `cd company-pipeline && uv run python -m pipeline.viewer` (MinIO 원문을 읽으려면 아래 `.env` 4줄 필요)
 
 ## 회사 추가
 
@@ -61,7 +61,7 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 
 - `raw/`는 덮어쓰지 않는다. 규칙·프롬프트를 바꿔도 다시 받지 않고 다시 가공할 수 있다
 - 카드는 아직 `pipeline/data/cards/`(git 제외)에 둔다. S3 업로드·메인 DB 적재, Lightsail 배포는 다음 작업이다
-- Docker 없이 직접 실행할 때 `S3_ENDPOINT`가 없으면 MinIO 대신 `pipeline/data/` 폴더에 같은 경로로 저장한다. 직접 실행하면서 MinIO를 쓰려면 `ai/.env`에 추가한다(컨테이너는 compose 설정이 우선이라 영향 없음):
+- Docker 없이 직접 실행할 때 `S3_ENDPOINT`가 없으면 MinIO 대신 `pipeline/data/` 폴더에 같은 경로로 저장한다. 직접 실행하면서 MinIO를 쓰려면 `company-pipeline/.env`에 추가한다(컨테이너는 compose 설정이 우선이라 영향 없음):
 
 ```
 S3_ENDPOINT=http://localhost:9000

@@ -1,7 +1,7 @@
 """회사 후보 추가 도구: 사람이 적은 회사 이름을 DART 정식 회사명·고유번호로 맞춰 준다.
 
 자소설닷컴 등 채용 사이트를 보고 회사 이름만 한 줄에 하나씩 적는다(사이트 내용을 옮기지 않는다).
-cd ai && uv run --env-file .env python -m pipeline.candidates 후보.txt
+cd company-pipeline && uv run --env-file .env python -m pipeline.candidates 후보.txt
 
 - 글자 규칙으로 못 찾으면 AI(LLM_*)에게 정식 회사명을 물어, DART 목록에 정확히 있는 이름만 쓴다
 - DART에서 찾은 회사마다 상장 여부, 최근 1년 사업보고서 여부, 이미 카드가 있는지 알려 준다.
