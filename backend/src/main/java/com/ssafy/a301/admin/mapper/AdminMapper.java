@@ -7,6 +7,8 @@ import com.ssafy.a301.admin.domain.StreakFreezeGrant;
 import com.ssafy.a301.admin.dto.AdminDtos.AdminSummary;
 import com.ssafy.a301.admin.dto.AdminDtos.AdminUserItem;
 import com.ssafy.a301.admin.dto.AdminDtos.NoticeItem;
+import com.ssafy.a301.admin.dto.AdminDtos.NoticeListItem;
+import com.ssafy.a301.admin.dto.AdminDtos.NoticeResponse;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeGrantResponse;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeItem;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeUseResponse;
@@ -19,6 +21,27 @@ public final class AdminMapper {
 
     public static AdminSummary toSummary(Admin admin) {
         return new AdminSummary(admin.getId(), admin.getLoginId(), admin.getName());
+    }
+
+    public static NoticeResponse toNotice(Notice notice) {
+        return new NoticeResponse(
+                notice.getId(),
+                notice.getTitle(),
+                notice.getContent(),
+                notice.getStartsAt(),
+                notice.getEndsAt(),
+                notice.getAdmin().getName(),
+                notice.getCreatedAt(),
+                notice.getUpdatedAt());
+    }
+
+    public static NoticeListItem toNoticeListItem(Notice notice) {
+        return new NoticeListItem(
+                notice.getId(),
+                notice.getTitle(),
+                notice.getStartsAt(),
+                notice.getEndsAt(),
+                notice.getCreatedAt());
     }
 
     public static NoticeItem toNoticeItem(Notice notice, boolean read) {

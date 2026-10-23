@@ -7,10 +7,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public final class AdminDtos {
 
@@ -42,6 +44,59 @@ public final class AdminDtos {
                     String accessToken,
             @Schema(description = "액세스 토큰 유효 시간(초)", example = "32400") long expiresIn,
             @Schema(description = "로그인한 관리자") AdminSummary admin) {}
+
+    // 8.3 ~ 8.7 공지 관리
+
+    public record NoticeCreateRequest(
+            @Schema(description = "공지 제목", example = "10월 점검 안내", maxLength = 100)
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 100, message = "최대 100자입니다.")
+                    String title,
+            @Schema(description = "공지 본문", example = "10월 30일 02:00~04:00 서비스 점검이 있어요.")
+                    @NotBlank(message = "필수 값입니다.")
+                    String content,
+            @Schema(description = "이 일시부터 사용자에게 보여 준다") @NotNull(message = "필수 값입니다.")
+                    OffsetDateTime startsAt,
+            @Schema(description = "이 일시까지 보여 준다. 값이 없으면 계속 보여 준다", nullable = true)
+                    OffsetDateTime endsAt) {}
+
+    @Schema(description = "보낸 필드만 바꾼다. endsAt은 null을 보내면 지워 계속 보여 준다")
+    public record NoticeUpdateRequest(
+            @Schema(
+                            description = "공지 제목",
+                            example = "10월 점검 안내(시간 변경)",
+                            maxLength = 100,
+                            nullable = true)
+                    @Size(min = 1, max = 100, message = "1~100자입니다.")
+                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    String title,
+            @Schema(description = "공지 본문", nullable = true)
+                    @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    String content,
+            @Schema(description = "게시 시작 일시", nullable = true) OffsetDateTime startsAt,
+            // 보내지 않으면 null(그대로), null을 보내면 Optional.empty()(지움). application.yml의
+            // spring.jackson.deserialization.USE_NULL_FOR_MISSING_REFERENCE_VALUES가 둘을 구분한다
+            @Schema(description = "게시 종료 일시. 보내지 않으면 그대로, null을 보내면 지워 계속 보여 준다", nullable = true)
+                    Optional<OffsetDateTime> endsAt) {}
+
+    public record NoticeResponse(
+            @Schema(description = "공지 id", example = "3") long id,
+            @Schema(description = "공지 제목", example = "10월 점검 안내") String title,
+            @Schema(description = "공지 본문") String content,
+            @Schema(description = "게시 시작 일시") OffsetDateTime startsAt,
+            @Schema(description = "게시 종료 일시. 값이 없으면 계속 보여 준다", nullable = true)
+                    OffsetDateTime endsAt,
+            @Schema(description = "작성한 관리자 이름", example = "운영자") String adminName,
+            @Schema(description = "작성 일시") OffsetDateTime createdAt,
+            @Schema(description = "마지막으로 수정한 일시") OffsetDateTime updatedAt) {}
+
+    public record NoticeListItem(
+            @Schema(description = "공지 id", example = "3") long id,
+            @Schema(description = "공지 제목", example = "10월 점검 안내") String title,
+            @Schema(description = "게시 시작 일시") OffsetDateTime startsAt,
+            @Schema(description = "게시 종료 일시. 값이 없으면 계속 보여 준다", nullable = true)
+                    OffsetDateTime endsAt,
+            @Schema(description = "작성 일시") OffsetDateTime createdAt) {}
 
     // 8.8 · 8.9 공지
 

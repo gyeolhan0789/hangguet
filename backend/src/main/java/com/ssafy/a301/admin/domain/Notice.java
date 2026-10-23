@@ -66,4 +66,27 @@ public class Notice {
         this.startsAt = startsAt;
         this.endsAt = endsAt;
     }
+
+    // 8.6: 보낸 필드만 바꾼다(null은 그대로)
+    public void update(String title, String content, OffsetDateTime startsAt) {
+        if (title != null) {
+            this.title = title;
+        }
+        if (content != null) {
+            this.content = content;
+        }
+        if (startsAt != null) {
+            this.startsAt = startsAt;
+        }
+    }
+
+    /** 게시 종료 일시를 바꾼다. null이면 지워 계속 보여 준다 */
+    public void changeEndsAt(OffsetDateTime endsAt) {
+        this.endsAt = endsAt;
+    }
+
+    // 8.7: 행은 남기고 목록 · 사용자 화면(8.8)에서 뺀다
+    public void delete(OffsetDateTime now) {
+        this.deletedAt = now;
+    }
 }
