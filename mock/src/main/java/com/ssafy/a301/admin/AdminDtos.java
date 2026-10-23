@@ -57,7 +57,7 @@ public final class AdminDtos {
             @Schema(description = "이 일시까지 보여 준다. 값이 없으면 계속 보여 준다", nullable = true)
                     OffsetDateTime endsAt) {}
 
-    @Schema(description = "보낸 필드만 바꾼다")
+    @Schema(description = "보낸 필드만 바꾼다. endsAt은 null을 보내면 지워 계속 보여 준다")
     public record NoticeUpdateRequest(
             @Schema(
                             description = "공지 제목",
@@ -71,7 +71,8 @@ public final class AdminDtos {
                     @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String content,
             @Schema(description = "게시 시작 일시", nullable = true) OffsetDateTime startsAt,
-            @Schema(description = "게시 종료 일시", nullable = true) OffsetDateTime endsAt) {}
+            @Schema(description = "게시 종료 일시. 보내지 않으면 그대로, null을 보내면 지워 계속 보여 준다", nullable = true)
+                    OffsetDateTime endsAt) {}
 
     public record NoticeResponse(
             @Schema(description = "공지 id", example = "3") long id,

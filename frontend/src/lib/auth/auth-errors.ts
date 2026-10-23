@@ -36,12 +36,17 @@ export function markJustRefreshed(cookies: CookieWriter) {
   });
 }
 
-/** 돌아갈 주소. 이 사이트 안의 경로만 허용해 다른 사이트로 보내지 않는다. */
+/**
+ * 돌아갈 주소. 이 사이트 안의 경로만 허용해 다른 사이트로 보내지 않는다.
+ * 브라우저와 같은 규칙(WHATWG URL)으로 풀어 본다: '/\t/evil'처럼 탭 · 줄바꿈을 지우면 '//evil'이 되는 값도 막고,
+ * 돌려주는 값은 퍼센트 인코딩된 경로라 Location 헤더에 그대로 넣을 수 있다(한글 등).
+ */
 export function safeNextPath(next: string | null): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
-    return ROUTES.home;
-  }
-  return next;
+  if (!next || !next.startsWith("/")) return ROUTES.home;
+  const base = "http://localhost";
+  const url = new URL(next, base);
+  if (url.origin !== base) return ROUTES.home;
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /**

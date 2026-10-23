@@ -10,6 +10,10 @@ spring:
   jackson:
     # 일시는 한국 시간 오프셋(+09:00)으로 내보낸다(목 서버와 같음)
     time-zone: Asia/Seoul
+    deserialization:
+      # Optional 필드를 JSON에서 빼면 null, null을 보내면 Optional.empty()로 읽는다(Jackson 3 기본은 둘 다 empty).
+      # 8.6 공지 수정이 endsAt을 보내지 않음(그대로)과 null(지움)으로 구분하는 데 쓴다
+      USE_NULL_FOR_MISSING_REFERENCE_VALUES: true
   data:
     redis:
       host: ${REDIS_HOST:localhost}

@@ -5,6 +5,8 @@ import { GrantFormPage } from './pages/GrantFormPage'
 import { GrantListPage } from './pages/GrantListPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
+import { NoticeFormPage } from './pages/NoticeFormPage'
+import { NoticeListPage } from './pages/NoticeListPage'
 import { navigate, useRoute } from './route'
 import { type AdminSession, clearSession, loadSession, saveSession } from './session'
 
@@ -40,9 +42,12 @@ export default function App() {
         }}
       />
       <main className="body">
-        {route === 'home' && <HomePage />}
-        {route === 'grants' && <GrantListPage />}
-        {route === 'grant-new' && <GrantFormPage />}
+        {route.name === 'home' && <HomePage />}
+        {route.name === 'notices' && <NoticeListPage />}
+        {route.name === 'notice-new' && <NoticeFormPage key="new" />}
+        {route.name === 'notice-edit' && <NoticeFormPage key={route.id} noticeId={route.id} />}
+        {route.name === 'grants' && <GrantListPage />}
+        {route.name === 'grant-new' && <GrantFormPage />}
       </main>
     </>
   )

@@ -1,7 +1,10 @@
 package com.ssafy.a301.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -407,6 +410,153 @@ class AdminIntegrationTest {
                         .toList();
 
         assertThat(titles).containsExactly("한 시간 전 공지", "어제 공지");
+    }
+
+    @Test
+    void noticeCrudKeepsUnsentFieldsAndClearsEndsAtWithNull() throws Exception {
+        String token = login();
+        long id =
+                json.readTree(
+                                mvc.perform(
+                                                post("/api/v1/admin/notices")
+                                                        .header(
+                                                                HttpHeaders.AUTHORIZATION,
+                                                                bearer(token))
+                                                        .contentType(MediaType.APPLICATION_JSON)
+                                                        .content(
+                                                                """
+                                                                {"title":"점검 안내","content":"본문",
+                                                                 "startsAt":"2026-10-23T09:00:00+09:00",
+                                                                 "endsAt":"2026-10-30T04:00:00+09:00"}\
+                                                                """))
+                                        .andExpect(status().isCreated())
+                                        .andExpect(jsonPath("$.adminName").value("검증 운영자"))
+                                        .andExpect(
+                                                jsonPath("$.endsAt")
+                                                        .value("2026-10-30T04:00:00+09:00"))
+                                        .andReturn()
+                                        .getResponse()
+                                        .getContentAsString(StandardCharsets.UTF_8))
+                        .get("id")
+                        .asLong();
+
+        // 제목만 보내면 나머지는 그대로
+        patchNotice(token, id, "{\"title\":\"점검 안내(시간 변경)\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("점검 안내(시간 변경)"))
+                .andExpect(jsonPath("$.content").value("본문"))
+                .andExpect(jsonPath("$.endsAt").value("2026-10-30T04:00:00+09:00"));
+        // endsAt을 null로 보내면 지운다(종료 없이 계속)
+        patchNotice(token, id, "{\"endsAt\":null}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.endsAt").isEmpty())
+                .andExpect(jsonPath("$.title").value("점검 안내(시간 변경)"));
+        patchNotice(token, id, "{\"title\":\"   \"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("title"));
+
+        mvc.perform(
+                        get("/api/v1/admin/notices/" + id)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("본문"))
+                // DB에서 다시 읽어도 한국 시간 오프셋으로 준다(관리 페이지가 문자열을 그대로 자른다)
+                .andExpect(jsonPath("$.startsAt").value("2026-10-23T09:00:00+09:00"))
+                .andExpect(jsonPath("$.endsAt").isEmpty());
+        JsonNode first =
+                json.readTree(
+                                mvc.perform(
+                                                get("/api/v1/admin/notices")
+                                                        .header(
+                                                                HttpHeaders.AUTHORIZATION,
+                                                                bearer(token)))
+                                        .andExpect(status().isOk())
+                                        .andReturn()
+                                        .getResponse()
+                                        .getContentAsString(StandardCharsets.UTF_8))
+                        .get("content")
+                        .get(0);
+        // 최근 작성순 맨 위이고 본문은 목록에 없다
+        assertThat(first.get("id").asLong()).isEqualTo(id);
+        assertThat(first.has("content")).isFalse();
+    }
+
+    @Test
+    void deletedNoticeLeavesListsAndIsNotFound() throws Exception {
+        long user = newUser();
+        String token = login();
+        long id =
+                json.readTree(
+                                mvc.perform(
+                                                post("/api/v1/admin/notices")
+                                                        .header(
+                                                                HttpHeaders.AUTHORIZATION,
+                                                                bearer(token))
+                                                        .contentType(MediaType.APPLICATION_JSON)
+                                                        .content(
+                                                                """
+                                                                {"title":"지울 공지","content":"본문",
+                                                                 "startsAt":"2026-01-01T00:00:00+09:00"}\
+                                                                """))
+                                        .andExpect(status().isCreated())
+                                        .andReturn()
+                                        .getResponse()
+                                        .getContentAsString(StandardCharsets.UTF_8))
+                        .get("id")
+                        .asLong();
+        assertThat(noticeIds(body(asUser(user, get("/api/v1/notices"))))).contains(id);
+
+        mvc.perform(
+                        delete("/api/v1/admin/notices/" + id)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+
+        assertThat(noticeIds(body(asUser(user, get("/api/v1/notices"))))).doesNotContain(id);
+        mvc.perform(
+                        get("/api/v1/admin/notices/" + id)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NOTICE_NOT_FOUND"));
+        mvc.perform(
+                        delete("/api/v1/admin/notices/" + id)
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNotFound());
+        patchNotice(token, id, "{\"title\":\"바꿈\"}").andExpect(status().isNotFound());
+        // 행은 남는다(soft delete)
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT deleted_at IS NOT NULL FROM notices WHERE id = ?",
+                                Boolean.class,
+                                id))
+                .isTrue();
+    }
+
+    @Test
+    void createNoticeRequiresTitleContentAndStart() throws Exception {
+        String token = login();
+
+        mvc.perform(
+                        post("/api/v1/admin/notices")
+                                .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"title\":\"\",\"content\":\" \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(
+                        jsonPath("$.errors[*].field")
+                                .value(containsInAnyOrder("title", "content", "startsAt")));
+    }
+
+    private ResultActions patchNotice(String token, long id, String body) throws Exception {
+        return mvc.perform(
+                patch("/api/v1/admin/notices/" + id)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body));
+    }
+
+    private static List<Long> noticeIds(JsonNode notices) {
+        return notices.get("content").valueStream().map(n -> n.get("id").asLong()).toList();
     }
 
     private String login() throws Exception {

@@ -493,7 +493,7 @@ export const NOTICES = {
   ],
 } satisfies NoticesResponse;
 
-/** 8.8 공지 목록 200 — Swagger 예시 '공지 없음'. 다른 화면 테스트에 공지 모달이 뜨지 않도록 기본값으로 쓴다 */
+/** 8.8 공지 목록 200 — Swagger 예시 '공지 없음'. 기본값으로 쓴다 */
 export const NOTICES_EMPTY = { content: [] } satisfies NoticesResponse;
 
 /** 8.13 내 스트릭 유지권 200 — Swagger 예시 '2개 있음'. 고른 유지권을 구분하도록 둘째는 다른 날짜(테스트 값)로 바꿨다 */

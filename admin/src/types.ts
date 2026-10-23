@@ -37,6 +37,30 @@ export type AdminMetricsResponse = {
   notices: { id: number; title: string; readCount: number }[]
 }
 
+export type NoticeListItem = {
+  id: number
+  title: string
+  startsAt: string
+  endsAt: string | null
+  createdAt: string
+}
+
+export type NoticeResponse = NoticeListItem & {
+  content: string
+  adminName: string
+  updatedAt: string
+}
+
+export type NoticeCreateRequest = {
+  title: string
+  content: string
+  startsAt: string
+  endsAt: string | null
+}
+
+/** 보낸 필드만 바꾼다. endsAt은 null을 보내면 지워 계속 보여 준다 */
+export type NoticeUpdateRequest = Partial<NoticeCreateRequest>
+
 export type GrantTarget = 'ALL' | 'USERS'
 export type GrantStatus = 'SCHEDULED' | 'GRANTED'
 

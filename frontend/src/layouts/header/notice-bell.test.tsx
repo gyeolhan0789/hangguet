@@ -39,7 +39,7 @@ const READ = {
 
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
+  vi.resetAllMocks();
 });
 
 const bell = () => screen.getByRole("button", { name: /^공지/ });
@@ -116,6 +116,8 @@ describe("NoticeBell (공지 버튼 · C03 목록)", () => {
     fireEvent.click(screen.getByRole("button", { name: "확인" }));
 
     expect(screen.getByRole("button", { name: "확인" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    expect(readNotice).toHaveBeenCalledTimes(1);
     await act(async () => resolve({ ok: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(readNotice).toHaveBeenCalledTimes(1);

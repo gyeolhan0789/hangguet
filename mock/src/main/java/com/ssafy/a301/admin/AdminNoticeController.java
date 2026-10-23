@@ -117,7 +117,9 @@ public class AdminNoticeController {
         return stub.read(NOTICE, NoticeResponse.class);
     }
 
-    @Operation(summary = "8.6 공지 수정", description = "보낸 필드만 수정한다.")
+    @Operation(
+            summary = "8.6 공지 수정",
+            description = "보낸 필드만 수정한다. endsAt을 null로 보내면 게시 종료를 지워 계속 보여 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = NOTICE)))

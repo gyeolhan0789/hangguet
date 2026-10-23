@@ -110,7 +110,7 @@ export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
                   <span className="flex h-[22px] w-2 shrink-0 items-center" aria-hidden>
                     {!notice.read && <span className="size-2 rounded-full bg-brand-strong" />}
                   </span>
-                  <span className="flex min-w-0 flex-col gap-0.5 tracking-[-0.2px]">
+                  <span className="flex min-w-0 flex-col gap-0.5">
                     <span
                       className={`truncate text-[15px] leading-normal ${notice.read ? "font-medium text-text-3" : "font-semibold text-text-1"}`}
                     >

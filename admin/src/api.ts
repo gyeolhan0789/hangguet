@@ -3,6 +3,10 @@ import type {
   AdminMetricsResponse,
   AdminTokenResponse,
   AdminUser,
+  NoticeCreateRequest,
+  NoticeListItem,
+  NoticeResponse,
+  NoticeUpdateRequest,
   Page,
   ProblemDetail,
   StreakFreezeGrant,
@@ -62,6 +66,14 @@ export const api = {
     request<AdminTokenResponse>('/admin/auth/login', { method: 'POST', body: { loginId, password } }),
   logout: () => request<void>('/admin/auth/logout', { method: 'POST' }),
   metrics: () => request<AdminMetricsResponse>('/admin/metrics'),
+  notices: (page: number, size = 10) =>
+    request<Page<NoticeListItem>>(`/admin/notices?page=${page}&size=${size}`),
+  notice: (id: number) => request<NoticeResponse>(`/admin/notices/${id}`),
+  createNotice: (body: NoticeCreateRequest) =>
+    request<NoticeResponse>('/admin/notices', { method: 'POST', body }),
+  updateNotice: (id: number, body: NoticeUpdateRequest) =>
+    request<NoticeResponse>(`/admin/notices/${id}`, { method: 'PATCH', body }),
+  deleteNotice: (id: number) => request<void>(`/admin/notices/${id}`, { method: 'DELETE' }),
   grants: (page: number, size = 10) =>
     request<Page<StreakFreezeGrant>>(`/admin/streak-freeze-grants?page=${page}&size=${size}`),
   grant: (body: StreakFreezeGrantRequest) =>
