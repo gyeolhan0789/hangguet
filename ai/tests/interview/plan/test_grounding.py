@@ -35,7 +35,10 @@ def test_number_claim_without_quantity_is_dropped() -> None:
 
 
 def test_numbers_match_regardless_of_format() -> None:
-    """6.0과 6, 1,100과 1100은 같은 숫자로 간주한다(ai/pipeline/verify.py와 같은 규칙)."""
+    """6.0과 6, 1,100과 1100은 같은 숫자로 간주한다.
+
+    company-pipeline/pipeline/verify.py와 같은 규칙이다.
+    """
     sentence = "처리량을 1,100건으로 늘리고 장애를 6건 줄였습니다."
 
     assert supported("처리량 1100건, 장애 6.0건 감소", NUMBER, sentence)

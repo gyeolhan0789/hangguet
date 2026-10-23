@@ -2,7 +2,8 @@
 
 GMS가 근거 문장에 없는 수치를 생성하면 면접 질문이 지원자가 작성하지 않은 성과를 전제로 하므로,
 주장의 수량 표현마다 같은 값이 근거 문장에 있을 때만 주장을 유지한다.
-- 숫자는 ai/pipeline/verify.py의 인용 검증과 같은 방식으로 비교한다(6.0과 6, 1,100과 1100은 같다).
+- 숫자는 company-pipeline/pipeline/verify.py의 인용 검증과 같은 방식으로 비교한다.
+  6.0과 6, 1,100과 1100은 같은 값이다.
 - 「절반」「두 배」「3분의 1」처럼 숫자 없이 수량을 표현한 문장도 있으므로
   수량 표현을 그 값으로 변환해 비교한다.
   숫자만 인식하면 이런 문장의 수량이 빈 집합이 돼,
@@ -41,8 +42,8 @@ from app.worker.messages import Claim, ClaimType
 
 log = logging.getLogger(__name__)
 
-# ai/pipeline/verify.py의 _numbers와 같은 숫자 규칙이다.
-# 배포 이미지에는 app만 포함되므로 pipeline을 가져오지 않고 같은 규칙을 둔다
+# company-pipeline/pipeline/verify.py의 _numbers와 같은 숫자 규칙이다.
+# AI 배포 이미지에는 ai/app만 포함되므로 company-pipeline을 가져오지 않고 같은 규칙을 둔다
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 # 「절반」, 띄어 쓴 「반으로」.
