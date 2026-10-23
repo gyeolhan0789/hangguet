@@ -40,34 +40,34 @@ public class AdminStreakFreezeController {
 
     private static final String GRANT =
             """
-            { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-30",
-              "reason": "10월 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
+            { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-31",
+              "fillableDate": "2026-10-30", "reason": "10월 30일 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
               "createdAt": "2026-10-23T10:00:00+09:00", "grantedAt": null }\
             """;
     private static final String GRANT_ITEMS =
             """
-            [ { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-30",
-                "reason": "10월 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
+            [ { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-31",
+                "fillableDate": "2026-10-30", "reason": "10월 30일 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
                 "createdAt": "2026-10-23T10:00:00+09:00", "grantedAt": null },
               { "id": 6, "targetType": "ALL", "targetCount": 120, "quantity": 2, "grantDate": "2026-10-20",
-                "reason": "채팅 면접 오픈 기념", "status": "GRANTED", "adminName": "운영자",
+                "fillableDate": "2026-10-19", "reason": "10월 19일 서버 장애 보상", "status": "GRANTED", "adminName": "운영자",
                 "createdAt": "2026-10-19T17:30:00+09:00", "grantedAt": "2026-10-20T00:00:00+09:00" } ]\
             """;
     private static final String GRANT_LIST =
             """
             { "content": [
-                { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-30",
-                  "reason": "10월 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
+                { "id": 7, "targetType": "USERS", "targetCount": 2, "quantity": 1, "grantDate": "2026-10-31",
+                  "fillableDate": "2026-10-30", "reason": "10월 30일 점검 보상", "status": "SCHEDULED", "adminName": "운영자",
                   "createdAt": "2026-10-23T10:00:00+09:00", "grantedAt": null },
                 { "id": 6, "targetType": "ALL", "targetCount": 120, "quantity": 2, "grantDate": "2026-10-20",
-                  "reason": "채팅 면접 오픈 기념", "status": "GRANTED", "adminName": "운영자",
+                  "fillableDate": "2026-10-19", "reason": "10월 19일 서버 장애 보상", "status": "GRANTED", "adminName": "운영자",
                   "createdAt": "2026-10-19T17:30:00+09:00", "grantedAt": "2026-10-20T00:00:00+09:00" } ],
               "page": { "size": 10, "number": 0, "totalElements": 2, "totalPages": 1 } }\
             """;
     private static final String GRANT_REQUEST =
             """
-            { "targetType": "USERS", "userIds": [1, 2], "quantity": 1, "grantDate": "2026-10-30",
-              "reason": "10월 점검 보상" }\
+            { "targetType": "USERS", "userIds": [1, 2], "quantity": 1, "grantDate": "2026-10-31",
+              "fillableDate": "2026-10-30", "reason": "10월 30일 점검 보상" }\
             """;
     private static final String USER_ITEMS =
             """
@@ -110,8 +110,8 @@ public class AdminStreakFreezeController {
     @Operation(
             summary = "8.11 유지권 배포",
             description =
-                    "유지권을 배포한다. 대상 회원마다 유지권을 개수만큼 만들고, 지급 날짜(한국 시간)부터 2주 동안 쓸 수 있다."
-                            + " 배포는 취소할 수 없다.")
+                    "유지권을 배포한다. 지급 날짜(한국 시간)에 대상 회원마다 유지권을 개수만큼 만든다. 유지권은 메울 수 있는 날짜만"
+                            + " 연습한 날로 메울 수 있고, 지급 날짜부터 2주 동안 쓸 수 있다. 배포는 취소할 수 없다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content = @Content(examples = @ExampleObject(value = GRANT_REQUEST)))
     @ApiResponse(responseCode = "201", content = @Content(examples = @ExampleObject(value = GRANT)))

@@ -39,6 +39,13 @@ auth:
   access-ttl: 9h
   refresh-ttl: 30d
 
+# 관리 페이지 관리자 계정. 셋 다 있고 같은 아이디가 없으면 기동할 때 만든다(가입 API 없음)
+admin:
+  bootstrap:
+    login-id: ${ADMIN_LOGIN_ID:}
+    password: ${ADMIN_PASSWORD:}
+    name: ${ADMIN_NAME:}
+
 # 면접방(LiveKit, BE 설계 5.6). 주소·키는 환경 변수로만 받는다. 이름은 배포 계획 7장(LiveKit SDK 기본 이름)과 같다
 livekit:
   # 브라우저에 알려 줄 주소(입장 정보 url). 없으면 서버 주소

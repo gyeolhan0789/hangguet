@@ -35,7 +35,15 @@ public enum ErrorCode {
     RECORDING_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 녹화가 등록된 면접이에요."),
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),
     NO_RESULT(HttpStatus.CONFLICT, "답변 없이 끝난 면접은 결과가 없어요."),
-    GROWTH_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "그날의 성장 리뷰가 없어요.");
+    GROWTH_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "그날의 성장 리뷰가 없어요."),
+
+    // 관리자·공지·스트릭 유지권
+    ADMIN_LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호를 확인해 주세요."),
+    NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공지를 찾을 수 없어요."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없어요."),
+    STREAK_FREEZE_NOT_FOUND(HttpStatus.NOT_FOUND, "유지권을 찾을 수 없어요."),
+    STREAK_FREEZE_NOT_AVAILABLE(HttpStatus.CONFLICT, "이미 썼거나 기간이 지난 유지권이에요."),
+    STREAK_FREEZE_DATE_NOT_ALLOWED(HttpStatus.CONFLICT, "이미 연습한 날이라 메울 수 없어요.");
 
     private final HttpStatus status;
     private final String message;

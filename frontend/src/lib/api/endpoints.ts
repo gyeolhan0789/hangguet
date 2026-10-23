@@ -101,6 +101,21 @@ export const growthReviewEndpoints = {
   byDate: (practiceDate: string) => `/growth-reviews/${practiceDate}`,
 } as const;
 
+/** 8. 관리자 중 회원이 쓰는 공지 · 스트릭 유지권(백엔드 8. 관리자) */
+export const noticeEndpoints = {
+  /** 8.8 GET 공지 목록 */
+  root: "/notices",
+  /** 8.9 POST 공지 확인 */
+  read: (noticeId: Id) => `/notices/${noticeId}/read`,
+} as const;
+
+export const streakFreezeEndpoints = {
+  /** 8.13 GET 내 스트릭 유지권 */
+  mine: "/users/me/streak-freezes",
+  /** 8.14 POST 유지권 사용 */
+  use: "/users/me/streak-freezes/use",
+} as const;
+
 export const endpoints = {
   auth: authEndpoints,
   users: userEndpoints,
@@ -109,4 +124,6 @@ export const endpoints = {
   interviews: interviewEndpoints,
   results: resultEndpoints,
   growthReviews: growthReviewEndpoints,
+  notices: noticeEndpoints,
+  streakFreezes: streakFreezeEndpoints,
 } as const;

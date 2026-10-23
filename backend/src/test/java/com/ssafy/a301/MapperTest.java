@@ -4,6 +4,12 @@ import static com.ssafy.a301.TestEntities.T0;
 import static com.ssafy.a301.TestEntities.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.ssafy.a301.admin.domain.Admin;
+import com.ssafy.a301.admin.domain.GrantStatus;
+import com.ssafy.a301.admin.domain.GrantTarget;
+import com.ssafy.a301.admin.domain.Notice;
+import com.ssafy.a301.admin.domain.StreakFreezeGrant;
+import com.ssafy.a301.admin.mapper.AdminMapper;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.mapper.ApplicationMapper;
 import com.ssafy.a301.home.domain.PracticeLog;
@@ -166,5 +172,40 @@ class MapperTest {
         assertThat(HomeMapper.toPracticeLogs(List.of(later, earlier)).content())
                 .extracting(i -> i.practiceDate().getDayOfMonth())
                 .containsExactly(3, 15);
+    }
+
+    @Test
+    void grantCarriesAdminNameAndComputedTargetCount() {
+        Admin admin = withId(new Admin("admin", "hash", "운영자"), 1);
+        StreakFreezeGrant grant =
+                withId(
+                        new StreakFreezeGrant(
+                                admin,
+                                GrantTarget.USERS,
+                                1,
+                                LocalDate.of(2026, 10, 31),
+                                LocalDate.of(2026, 10, 30),
+                                "10월 30일 점검 보상"),
+                        7);
+
+        var response = AdminMapper.toGrant(grant, 2);
+
+        assertThat(response.id()).isEqualTo(7);
+        assertThat(response.targetCount()).isEqualTo(2);
+        assertThat(response.adminName()).isEqualTo("운영자");
+        assertThat(response.status()).isEqualTo(GrantStatus.SCHEDULED);
+        assertThat(response.fillableDate()).isEqualTo(LocalDate.of(2026, 10, 30));
+        assertThat(response.createdAt()).isEqualTo(T0);
+        assertThat(response.grantedAt()).isNull();
+    }
+
+    @Test
+    void noticeItemTakesReadFlagFromService() {
+        Notice notice = withId(new Notice(null, "10월 점검 안내", "본문", T0, null), 3);
+
+        assertThat(AdminMapper.toNoticeItem(notice, true).read()).isTrue();
+        assertThat(AdminMapper.toNoticeItem(notice, false))
+                .extracting("id", "title", "startsAt", "read")
+                .containsExactly(3L, "10월 점검 안내", T0, false);
     }
 }

@@ -1,12 +1,12 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PracticeLogsResponse, StatsResponse } from "@/types/api";
+import type { MyStreakFreezesResponse, PracticeLogsResponse, StatsResponse } from "@/types/api";
 
 const get = vi.fn();
 vi.mock("@/lib/api/client", () => ({ api: { get } }));
 
-const { getPracticeLogs, getStats } = await import("./queries");
+const { getPracticeLogs, getStats, getStreakFreezes } = await import("./queries");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,5 +42,16 @@ describe("getPracticeLogs (3.3 연습 달력)", () => {
 
     expect(await getPracticeLogs("2026-10")).toEqual(logs);
     expect(get).toHaveBeenCalledWith("/practice-logs", { params: { month: "2026-10" } });
+  });
+});
+
+describe("getStreakFreezes (8.13 내 스트릭 유지권)", () => {
+  it("쓸 수 있는 개수와 유지권 목록을 돌려준다", async () => {
+    // Swagger 8.13 200 예시 '없음'
+    const freezes = { availableCount: 0, freezes: [] } satisfies MyStreakFreezesResponse;
+    get.mockResolvedValue({ data: freezes });
+
+    expect(await getStreakFreezes()).toEqual(freezes);
+    expect(get).toHaveBeenCalledWith("/users/me/streak-freezes");
   });
 });
