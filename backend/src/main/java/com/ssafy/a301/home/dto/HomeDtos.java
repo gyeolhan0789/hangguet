@@ -28,12 +28,13 @@ public final class HomeDtos {
 
     public record HomeResponse(
             HomeState homeState,
-            @Schema(description = "현재 스트릭. 오늘 연습했으면 오늘 포함", example = "7") int currentStreak,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 현재 스트릭. 오늘 연습했으면 오늘 포함", example = "7")
+                    int currentStreak,
             @Schema(description = "가장 길었던 스트릭. S02-C \"지난 최고 기록\"", example = "7") int bestStreak,
             @Schema(description = "오늘 포함 최근 7일 중 연습한 날. 이번 주 동그라미") List<LocalDate> practiceDates,
-            @Schema(description = "오늘 연습 면접 수. S02-B \"면접 1회\"", example = "0")
+            @Schema(description = "한국 시간 오늘 시작한 연습 면접 수. S02-B \"면접 1회\"", example = "0")
                     int todayInterviewCount,
-            @Schema(description = "오늘 연습 면접 시간 합(분). S02-B \"18분\"", example = "0")
+            @Schema(description = "한국 시간 오늘 시작한 연습 면접의 전체 시간 합(분). S02-B \"18분\"", example = "0")
                     int todayPracticeMinutes,
             @Schema(
                             description =
@@ -60,8 +61,8 @@ public final class HomeDtos {
                     String latestJobTitle) {}
 
     public record PracticeLogItem(
-            @Schema(description = "연습한 날") LocalDate practiceDate,
-            @Schema(description = "그날 처음 면접을 마친 일시") OffsetDateTime createdAt) {}
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 연습일") LocalDate practiceDate,
+            @Schema(description = "해당 시작 날짜에 속한 면접 중 처음 마친 일시") OffsetDateTime createdAt) {}
 
     public record PracticeLogsResponse(
             @Schema(description = "그달 연습한 날, 날짜 오름차순. 한 달 최대 31건이라 페이지 없음")

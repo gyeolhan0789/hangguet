@@ -30,7 +30,8 @@ public final class UserDtos {
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
             @Schema(
                             description =
-                                    "현재 스트릭(오늘 또는 어제까지 빠짐없이 이어진 연습일 수). 모든 화면 헤더(C01) \"스트릭 7일\"",
+                                    "한국 시간 면접 시작 날짜 기준 현재 스트릭(오늘 또는 어제까지 빠짐없이 이어진 연습일 수)."
+                                            + " 모든 화면 헤더(C01) \"스트릭 7일\"",
                             example = "7")
                     int currentStreak) {}
 
@@ -42,7 +43,7 @@ public final class UserDtos {
             @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
                     String profileImageUrl,
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
-            @Schema(description = "현재 스트릭", example = "7") int currentStreak,
+            @Schema(description = "한국 시간 면접 시작 날짜 기준 현재 스트릭", example = "7") int currentStreak,
             @Schema(description = "새 닉네임을 담은 액세스 토큰. 리프레시 토큰은 그대로 쓴다", example = "eyJ…")
                     String accessToken,
             @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn) {}

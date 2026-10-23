@@ -1,7 +1,10 @@
 package com.ssafy.a301.interview;
 
 import com.ssafy.a301.common.Stub;
+import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.interview.InterviewDtos.PageMetadata;
+import com.ssafy.a301.interview.InterviewDtos.SessionCalendarDay;
+import com.ssafy.a301.interview.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionListItem;
 import com.ssafy.a301.interview.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionListSummary;
@@ -13,10 +16,15 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import java.time.DateTimeException;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -91,6 +99,46 @@ public class InterviewHistoryController {
 
     public InterviewHistoryController(Stub stub) {
         examples = stub.read(ITEMS, new TypeReference<>() {});
+    }
+
+    @Operation(
+            summary = "5.15 월별 연습 면접 횟수",
+            description =
+                    "한국 시간 시작 날짜로 본인의 답변 1개 이상인 ANALYZING·COMPLETED·FAILED 면접을 센다."
+                            + " 조회 월의 모든 날짜를 오름차순으로 주며 기록이 없는 날짜도 0으로 포함한다."
+                            + " 5.13과 같은 목 데이터를 사용한다.")
+    @GetMapping("/calendar")
+    public SessionCalendarResponse calendar(
+            @Parameter(description = "조회 월(YYYY-MM, 연도 0001~9999)", example = "2026-10")
+                    @RequestParam
+                    String month) {
+        YearMonth selected = parseMonth(month);
+        Map<LocalDate, Long> counts =
+                examples.stream()
+                        .map(item -> item.startedAt().atZoneSameInstant(KOREA).toLocalDate())
+                        .filter(date -> YearMonth.from(date).equals(selected))
+                        .collect(Collectors.groupingBy(date -> date, Collectors.counting()));
+        return new SessionCalendarResponse(
+                month,
+                IntStream.rangeClosed(1, selected.lengthOfMonth())
+                        .mapToObj(selected::atDay)
+                        .map(date -> new SessionCalendarDay(date, counts.getOrDefault(date, 0L)))
+                        .toList());
+    }
+
+    private static YearMonth parseMonth(String month) {
+        if (!month.matches("[0-9]{4}-[0-9]{2}")) {
+            throw new FieldValidationException("month", "YYYY-MM 형식의 유효한 월입니다(연도 0001~9999).");
+        }
+        try {
+            YearMonth parsed = YearMonth.parse(month);
+            if (parsed.getYear() == 0) {
+                throw new DateTimeException("Year zero is not supported");
+            }
+            return parsed;
+        } catch (DateTimeException ex) {
+            throw new FieldValidationException("month", "YYYY-MM 형식의 유효한 월입니다(연도 0001~9999).");
+        }
     }
 
     @Operation(

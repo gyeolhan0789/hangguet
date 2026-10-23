@@ -24,4 +24,22 @@ class OpenApiDocTest {
                 .extractingPath("$.components.schemas.ProblemDetail.properties.code.type")
                 .isEqualTo("string");
     }
+
+    @Test
+    void swaggerSortsIndividualOperationsBySummaryNumber() {
+        assertThat(mockMvc.get().uri("/swagger-ui/swagger-initializer.js"))
+                .hasStatus(HttpStatus.OK)
+                .bodyText()
+                .contains("operationsSorter: (a, b) =>", "item.getIn(['operation', 'summary'])");
+    }
+
+    @Test
+    void practiceCalendarDocumentsOnlyMonthWithOneSharedStartDateBasis() {
+        assertThat(mockMvc.get().uri("/v3/api-docs"))
+                .hasStatus(HttpStatus.OK)
+                .bodyJson()
+                .extractingPath("$.paths['/api/v1/practice-logs'].get.parameters[*].name")
+                .asArray()
+                .containsExactly("month");
+    }
 }

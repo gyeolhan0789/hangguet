@@ -138,30 +138,34 @@ class InterviewHistoryTest {
     }
 
     @Test
-    void calendarExamplesMatchHistoryDatesAndRespectMonth() {
-        assertThat(mockMvc.get().uri("/api/v1/practice-logs?month=2026-10&dateBasis=STARTED_AT"))
-                .hasStatus(HttpStatus.OK)
-                .bodyJson()
-                .extractingPath("$.content[*].practiceDate")
-                .asArray()
-                .containsExactly("2026-10-20", "2026-10-21");
+    void calendarUsesStartDatesByDefaultAndDoesNotAddOvernightEndDate() {
         assertThat(mockMvc.get().uri("/api/v1/practice-logs?month=2026-10"))
                 .hasStatus(HttpStatus.OK)
                 .bodyJson()
                 .extractingPath("$.content[*].practiceDate")
                 .asArray()
-                .containsExactly("2026-10-20", "2026-10-21", "2026-10-22");
-        assertThat(mockMvc.get().uri("/api/v1/practice-logs?month=2026-10&dateBasis=UNKNOWN"))
-                .hasStatus(HttpStatus.BAD_REQUEST)
-                .bodyJson()
-                .extractingPath("$.code")
-                .isEqualTo("VALIDATION_FAILED");
+                .containsExactly("2026-10-20", "2026-10-21");
         assertThat(mockMvc.get().uri("/api/v1/practice-logs?month=2026-09"))
                 .hasStatus(HttpStatus.OK)
                 .bodyJson()
                 .extractingPath("$.content")
                 .asArray()
                 .isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"STARTED_AT", "ENDED_AT", "UNKNOWN"})
+    void removedDateBasisParameterCannotSwitchCalendarBackToEndDates(String legacyBasis) {
+        assertThat(
+                        mockMvc.get()
+                                .uri(
+                                        "/api/v1/practice-logs?month=2026-10&dateBasis="
+                                                + legacyBasis))
+                .hasStatus(HttpStatus.OK)
+                .bodyJson()
+                .extractingPath("$.content[*].practiceDate")
+                .asArray()
+                .containsExactly("2026-10-20", "2026-10-21");
     }
 
     private MvcTestResult list(String query) {

@@ -8,8 +8,17 @@ import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.media.Schema;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Set;
 import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springdoc.core.properties.SwaggerUiConfigParameters;
+import org.springdoc.core.properties.SwaggerUiConfigProperties;
+import org.springdoc.core.properties.SwaggerUiOAuthProperties;
+import org.springdoc.core.providers.ObjectMapperProvider;
+import org.springdoc.webmvc.ui.SwaggerIndexPageTransformer;
+import org.springdoc.webmvc.ui.SwaggerIndexTransformer;
+import org.springdoc.webmvc.ui.SwaggerWelcomeCommon;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -59,6 +68,33 @@ public class OpenApiConfig {
                     .sorted((x, y) -> compare(apiNumber(x.getValue()), apiNumber(y.getValue())))
                     .forEach(e -> sorted.addPathItem(e.getKey(), e.getValue()));
             openApi.setPaths(sorted);
+        };
+    }
+
+    /** 같은 URL의 GET·POST도 각각의 명세 번호로 정렬한다. */
+    @Bean
+    public SwaggerIndexTransformer swaggerOperationOrder(
+            SwaggerUiConfigProperties config,
+            SwaggerUiOAuthProperties oauth,
+            SwaggerWelcomeCommon welcome,
+            ObjectMapperProvider mapper) {
+        return new SwaggerIndexPageTransformer(config, oauth, welcome, mapper) {
+            @Override
+            protected String defaultTransformations(
+                    SwaggerUiConfigParameters parameters, InputStream input) throws IOException {
+                return super.defaultTransformations(parameters, input)
+                        .replace(
+                                "window.ui = SwaggerUIBundle({",
+                                """
+                                window.ui = SwaggerUIBundle({
+                                  operationsSorter: (a, b) => {
+                                    const number = item => (item.getIn(['operation', 'summary']) || '99.99')
+                                      .split(' ')[0].split('.').map(Number);
+                                    const x = number(a), y = number(b);
+                                    return x[0] - y[0] || (x[1] || 0) - (y[1] || 0);
+                                  },
+                                """);
+            }
         };
     }
 

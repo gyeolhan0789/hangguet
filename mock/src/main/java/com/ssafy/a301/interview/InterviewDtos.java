@@ -11,6 +11,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -106,6 +107,16 @@ public final class InterviewDtos {
     public record SessionListResponse(
             List<SessionListItem> content, PageMetadata page, SessionListSummary summary) {}
 
+    public record SessionCalendarDay(
+            @Schema(description = "한국 시간 면접 시작 날짜", example = "2026-10-01") LocalDate practiceDate,
+            @Schema(description = "해당 날짜의 연습 면접 수. 기록이 없으면 0", example = "0")
+                    long interviewCount) {}
+
+    public record SessionCalendarResponse(
+            @Schema(description = "조회한 월(YYYY-MM)", example = "2026-10") String month,
+            @Schema(description = "조회 월의 모든 날짜. 날짜 오름차순이며 기록이 없는 날짜도 포함한다")
+                    List<SessionCalendarDay> content) {}
+
     public record CurrentQuestion(
             @Schema(description = "질문 id", example = "303") long id,
             @Schema(description = "질문 순서(1부터). \"질문 3 / 5\"의 3", example = "3") int seq,
@@ -143,8 +154,8 @@ public final class InterviewDtos {
             @Schema(description = "면접을 만든 일시") OffsetDateTime createdAt,
             @Schema(
                             description =
-                                    "이번에 끝낸 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이 있고, 그 외에는"
-                                            + " null",
+                                    "이번에 끝낸 면접의 한국 시간 시작 날짜로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이"
+                                            + " 있고, 그 외에는 null",
                             nullable = true)
                     Boolean leveledUp) {}
 

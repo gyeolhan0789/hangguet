@@ -72,7 +72,9 @@ public class GrowthReviewController {
         this.stub = stub;
     }
 
-    @Operation(summary = "7.1 날짜별 성장 리뷰")
+    @Operation(
+            summary = "7.1 날짜별 성장 리뷰",
+            description = "연습일·스트릭·일별 점수와 시간은 한국 시간 면접 시작 날짜 기준이다. 자정을 넘어 끝나도 시작일에 집계한다.")
     @ApiResponse(
             responseCode = "200",
             content =
@@ -92,14 +94,14 @@ public class GrowthReviewController {
                                             value = ErrorExamples.GROWTH_REVIEW_NOT_FOUND)))
     @GetMapping("/{practiceDate}")
     public GrowthReviewResponse byDate(
-            @Parameter(description = "연습한 날짜(YYYY-MM-DD, 한국 시간)", example = "2026-10-13")
+            @Parameter(description = "면접 시작 날짜(YYYY-MM-DD, 한국 시간)", example = "2026-10-13")
                     @PathVariable
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate practiceDate) {
         return stub.read(REVIEW, GrowthReviewResponse.class);
     }
 
-    @Operation(summary = "7.2 최근 성장 리뷰", description = "성장 리뷰 목록을 최근 날짜 순으로 준다.")
+    @Operation(summary = "7.2 최근 성장 리뷰", description = "한국 시간 면접 시작 날짜로 묶은 성장 리뷰 목록을 최근 날짜 순으로 준다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = RECENT)))
