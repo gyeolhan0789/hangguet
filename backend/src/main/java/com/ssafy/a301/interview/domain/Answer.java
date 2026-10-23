@@ -116,6 +116,13 @@ public class Answer {
         return true;
     }
 
+    /** 결과 생성 결과(evaluation.completed). 점수·피드백을 쓰고 채점 결과를 확정본으로 덮어쓴다(5.9로 다시 만들 때 포함) */
+    public void completeEvaluation(
+            int score, String goodPoint, String improvePoint, Map<String, Object> evaluation) {
+        evaluate(score, goodPoint, improvePoint);
+        this.evaluation = evaluation;
+    }
+
     public void evaluate(int score, String goodPoint, String improvePoint) {
         this.score = score;
         this.goodPoint = goodPoint;

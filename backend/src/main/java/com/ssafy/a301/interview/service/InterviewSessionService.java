@@ -15,6 +15,7 @@ import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.mapper.InterviewMapper;
@@ -22,14 +23,20 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -51,6 +58,7 @@ public class InterviewSessionService {
     private final SessionRuntimeService runtimes;
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
+    private final InterviewRoom rooms;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -62,7 +70,8 @@ public class InterviewSessionService {
             PracticeLogRepository practiceLogs,
             SessionRuntimeService runtimes,
             AiJobService aiJobs,
-            TransactionTemplate transactions) {
+            TransactionTemplate transactions,
+            InterviewRoom rooms) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -73,6 +82,7 @@ public class InterviewSessionService {
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.transactions = transactions;
+        this.rooms = rooms;
     }
 
     /** 5.1. 지원서 행을 잠가 지원서 수정·삭제(4.4·4.5)의 "사용 중" 확인과 겹치지 않게 한다. */
@@ -132,7 +142,10 @@ public class InterviewSessionService {
                 });
     }
 
-    /** 5.4. 플랜의 1번 질문을 이 시점에 낸다(created_at이 다시보기 마커 기준). */
+    /**
+     * 5.4. 면접방을 열고(화상이면 녹화) 에이전트에 질문 5개를 배정한 뒤 입장 정보를 준다. 질문 행은 에이전트가 질문을 말할 때(question.started)
+     * 생긴다(B-16). 면접방을 열지 못하면 READY로 두고 503을 준다(B-17). 커밋하지 못하면 연 방을 지운다.
+     */
     public SessionResponse start(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();
         return transactions.execute(
@@ -145,18 +158,68 @@ public class InterviewSessionService {
                     if (runtime.planStatus() != PlanStatus.READY) {
                         throw new ApiException(ErrorCode.PLAN_NOT_READY);
                     }
-                    PlanQuestion first =
+                    InterviewPlan plan =
                             plans.findById(sessionId)
-                                    .flatMap(plan -> plan.question(1))
                                     .orElseThrow(
                                             () ->
                                                     new IllegalStateException(
-                                                            "플랜에 1번 질문이 없다: " + sessionId));
+                                                            "플랜이 없다: " + sessionId));
                     session.start(now);
-                    InterviewQuestion question =
-                            questions.save(new InterviewQuestion(session, 1, first.content()));
+                    rooms.open(sessionId, session.isVideo(), assignment(session, plan));
+                    closeRoomOnRollback(sessionId);
                     return InterviewMapper.toSessionResponse(
-                            session, runtime, question, 0, now, null);
+                            session,
+                            runtime,
+                            null,
+                            0,
+                            now,
+                            null,
+                            rooms.issueAccess(sessionId, session.isVideo()));
+                });
+    }
+
+    /** 5.14. 새로고침·연결 끊김 뒤 면접방에 다시 들어갈 입장 정보 */
+    public RoomResponse roomAccess(long userId, long sessionId) {
+        InterviewSession session =
+                sessions.findWithApplication(sessionId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+        if (session.getStatus() != SessionStatus.IN_PROGRESS) {
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        return rooms.issueAccess(sessionId, session.isVideo());
+    }
+
+    // 에이전트 배정 정보(AI 명세 6.1). 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준을 담는다
+    private static Map<String, Object> assignment(InterviewSession session, InterviewPlan plan) {
+        Map<String, Object> assignment = new LinkedHashMap<>();
+        assignment.put("sessionId", session.getId());
+        assignment.put("mode", session.getMode().name());
+        assignment.put("persona", session.getPersona().name());
+        assignment.put("currentSeq", 1);
+        assignment.put(
+                "questions",
+                plan.getQuestions().stream()
+                        .sorted(Comparator.comparingInt(PlanQuestion::seq))
+                        .map(
+                                question ->
+                                        Map.of(
+                                                "seq", question.seq(),
+                                                "content", question.content(),
+                                                "criteria", question.criteria()))
+                        .toList());
+        return assignment;
+    }
+
+    // 면접방을 연 뒤 커밋하지 못하면(롤백) 방을 지운다. 에이전트·녹화가 혼자 남지 않게 한다
+    private void closeRoomOnRollback(long sessionId) {
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status != STATUS_COMMITTED) {
+                            rooms.close(sessionId);
+                        }
+                    }
                 });
     }
 
@@ -187,6 +250,13 @@ public class InterviewSessionService {
      */
     public SessionResponse end(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();
+        SessionResponse response = endInTransaction(userId, sessionId, now);
+        // 커밋 뒤 면접방을 지운다. 에이전트가 나가고 화상이면 녹화도 끝난다
+        rooms.close(sessionId);
+        return response;
+    }
+
+    private SessionResponse endInTransaction(long userId, long sessionId, OffsetDateTime now) {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
@@ -200,6 +270,10 @@ public class InterviewSessionService {
                                         session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
                                         now.atZoneSameInstant(KST).toLocalDate());
                         startAnalysis(sessionId, now);
+                        if (session.isVideo()) {
+                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다
+                            aiJobs.enqueue(AiJob.mergeRecording(sessionId));
+                        }
                     }
                     return InterviewMapper.toSessionResponse(
                             session,
@@ -240,10 +314,10 @@ public class InterviewSessionService {
         aiJobs.enqueue(AiJob.plan(sessionId));
     }
 
-    // 트랜잭션 안에서 부른다. 상태를 먼저 기록하고 작업을 Outbox에 넣는다
+    // 트랜잭션 안에서 부른다. 작업을 Outbox에 넣고 그 jobId와 함께 상태를 기록한다(작업은 커밋 뒤에 보내므로 결과가 먼저 오지 않는다)
     private void startAnalysis(long sessionId, OffsetDateTime now) {
-        runtimes.startAnalysis(sessionId, now.toInstant());
-        aiJobs.enqueue(AiJob.evaluate(sessionId));
+        AiJob job = aiJobs.enqueue(AiJob.evaluate(sessionId));
+        runtimes.startAnalysis(sessionId, now.toInstant(), job.getId());
     }
 
     private InterviewSession failAnalysis(long userId, long sessionId) {

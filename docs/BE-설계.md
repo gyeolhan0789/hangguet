@@ -99,7 +99,6 @@ com.ssafy.a301
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
 - 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
-- 5.10·5.12 Controller·Service와 `interview/stt`·`interview/tts`는 지울 대상이다(12장)
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다
@@ -118,7 +117,7 @@ com.ssafy.a301
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`) |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
-| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`, `recording.merged`로 받음). 원본 트랙을 행으로 남길지, 종류 enum을 어떻게 나눌지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
+| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`, `recording.merged`로 받음). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
@@ -157,7 +156,7 @@ com.ssafy.a301
 3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
 4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 결과 큐 처리에서 거른다([AI 명세](AI-명세.md) 1.4)
 5. 작업자는 `BLMOVE ai:jobs ai:jobs:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
-6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`) 작업은 결과 생성·녹화 결과 저장 작업에서 더한다
+6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`)는 `rawPrefix`·`objectKey`를 담는다(화상만)
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
 1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다
@@ -167,13 +166,13 @@ com.ssafy.a301
 4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
-1. 5.4 한 트랜잭션: `start(now)` → 커밋 뒤 면접방 준비(5.6)
-   - 입장 토큰을 만들어 응답 `room`에 담는다 **[제안]**
-   - AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
-   - 화상이면 Egress 트랙 녹화를 시작한다. 원본 위치(`recordings/raw/{sessionId}/`)는 BE가 정한다
-   - 배정·녹화 시작이 실패했을 때 처리는 **[미정]**(API 명세 B-17)
+1. 5.4 한 트랜잭션(면접 행 잠금): `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+   - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
+   - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
+   - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 `READY`로 둔다 **[결정]**(B-17). 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
+   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 5초
 2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`) → `InterviewQuestion(seq, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
-3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면 202 `QUESTION_GENERATING`(계속 둘지 **[미정]**, API 명세 B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
+3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
@@ -188,7 +187,7 @@ com.ssafy.a301
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 해당 시작일(한국 시간, `started_at` 기준) 처음일 때만 저장
    - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
-   - 답변 ≥1이면 Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각) → EVALUATE enqueue. 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue한다(면접방 연동 때 추가)
+   - 답변 ≥1이면 EVALUATE enqueue → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue한다(5.9에서는 다시 하지 않음)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
    - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
@@ -206,16 +205,25 @@ com.ssafy.a301
 2. 메시지 하나를 한 트랜잭션으로 저장하고, 커밋 뒤 처리 중 리스트에서 지운다(`LREM`). 저장 중 BE가 멈춰도 메시지가 처리 중 리스트에 남아 다시 처리할 수 있다
 3. `type`별 처리와 버림 조건은 [AI 명세](AI-명세.md) 1.4 표를 따른다. 버리는 메시지도 처리 중 리스트에서 지운다
 4. 같은 메시지가 두 번 와도 결과가 같아야 한다: 유일 제약(`answers.question_id`, `uk_interview_questions_session_seq`, `interview_plans` PK)과 상태 조건(`planStatus`·`status`)으로 거른다
-5. 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 오면 거른다: 세션별로 마지막으로 보낸 EVALUATE `jobId`를 Redis 진행 상태에 두고 다른 `jobId`의 결과는 버린다 **[제안]**
+5. 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 오면 거른다: 세션별로 마지막으로 보낸 EVALUATE `jobId`를 Redis 진행 상태(`evaluateJobId`)에 두고 다른 `jobId`의 `evaluation.*`는 버린다. 기록이 없으면(만료) `ANALYZING` 조건만으로 거른다
 6. 실패 처리 **[결정]**: DB·Redis 연결 장애, 시간 초과, 잠금 대기처럼 잠시 뒤 될 수 있는 실패만 처리 중 리스트에 두고 5초(`ai-result.retry-delay`)마다 같은 메시지를 다시 처리한다(순서 유지, 장애 동안 메시지를 잃지 않도록 횟수 제한 없음). 그 밖의 실패(JSON이 아님, 모르는 `type`, 필수 필드 없음, 질문 수 틀림, 질문 글·채점 기준 빈 값, DB 제약 위반, 예상하지 못한 오류)는 다시 해도 같으므로 `ai:results:failed`로 옮기고 경고 로그를 남긴다. 처리기가 하나라 한 메시지가 뒤의 모든 결과를 막지 않게 하기 위해서다
 7. 처리기는 BE 하나에 스레드 하나로 순서대로 처리한다. 기동하면 처리 중 리스트에 남은 메시지(지난번에 처리 도중 멈춘 것)부터 처리한다
-8. 지금 받는 결과: `plan.progress`·`plan.completed`·`plan.failed`·`question.started`·`answer.completed`·`answer.scored`. `evaluation.*`·`recording.*`는 결과 생성·녹화 결과 저장 작업에서 더한다(그 전에는 실패 목록으로 감)
+8. 받는 결과: `plan.*`·`question.started`·`answer.completed`·`answer.scored`·`evaluation.*`·`recording.*`
+9. `evaluation.completed`(AI 명세 4장): 면접 행을 잠그고 `ANALYZING`·마지막 `jobId`일 때만 한 트랜잭션에서 답변 점수·피드백·`evaluation`(확정본으로 덮어씀)을 쓰고, `session_scores`·`speech_metrics`를 지우고 다시 쓴 뒤 `COMPLETED`·`summary`로 바꾼다. 커밋 뒤 `analysisStep`을 지운다
+   - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
+   - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
+10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
+11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 다시보기 처리(B-19)가 정해질 때까지 경고 로그만 남긴다
 
-### 5.6 면접방 (LiveKit) **[제안]**
-- 입장 토큰(5.4·5.14): 방 `interview-{sessionId}` 하나, 참가자 = 회원. 화상은 마이크·카메라 송출·수신·메시지, 채팅은 수신·메시지만. 유효 시간 **[미정]**(API 명세 B-20). LiveKit API 키·시크릿으로 서명(외부 호출 없음)
-- 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름·방 이름·배정 정보, AI 명세 6.1)
-- 면접 종료: `RoomService.DeleteRoom`
-- 녹화: Egress 트랙 녹화 시작·종료(화상만). 녹화 원본은 Egress가 S3에 바로 올린다(10장)
+### 5.6 면접방 (LiveKit)
+- 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`
+- 입장 토큰(5.4·5.14): 방 `interview-{sessionId}` 하나, 참가자 이름 `candidate`. 화상은 마이크·카메라 송출·수신·메시지, 채팅은 수신·메시지만. 유효 시간 10분(`livekit.token-ttl`) **[결정]**(API 명세 B-20). LiveKit API 키·시크릿으로 서명(외부 호출 없음)
+- 방 만들기: `RoomService.CreateRoom`. 빈 방은 10분 뒤 닫힌다(`empty_timeout`·`departure_timeout`)
+- 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름 `a301-interviewer`·방 이름·배정 정보, AI 명세 6.1)
+- 면접 종료(5.8 커밋 뒤): `RoomService.DeleteRoom`. 에이전트가 나가고 녹화도 끝난다. 실패해도 5.8은 성공으로 두고 로그만 남긴다
+- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{publisher_identity}-{track_type}`이다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
+  - `{track_type}`은 `video`·`audio`(소문자, Egress `track_worker.go`)
+  - S3 키는 `LIVEKIT_EGRESS_S3_ACCESS_KEY`·`LIVEKIT_EGRESS_S3_SECRET`(버킷·리전은 `S3_BUCKET`·`AWS_REGION`)로 요청에 담는다. LiveKit Cloud(개발)는 저장소가 없으면 방 만들기를 400 `egress request missing output`으로 거절한다(확인함). 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅, 운영 배포 계획 6.2)
 - LiveKit 웹훅은 쓰지 않는다 **[제안]**(팀원 안 「Egress 종료 웹훅으로 녹화 등록」과 다름). 원본 위치는 BE가 녹화를 시작할 때 정하므로 종료 알림 없이도 합치기 작업에 넣을 수 있다
 
 ## 6. 계산 규칙 (저장하지 않음)
@@ -267,7 +275,7 @@ com.ssafy.a301
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
-| `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. 마지막으로 보낸 EVALUATE `jobId` 필드 추가 **[제안]**(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
+| `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
@@ -326,9 +334,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
-1. 남은 API(5.14, 3.x, 6.x, 7.x)의 Controller·Service·Repository 구현. 5.8의 면접방 삭제·녹화 중지·MERGE_RECORDING은 면접방 연동 때(2번)
-2. 면접방: LiveKit 서버 API 어댑터(입장 토큰·에이전트 배정·방 삭제·Egress), 5.4 응답 `room`, 5.14(5.6)
-3. AI 연동: `MERGE_RECORDING` 작업 추가(5.0), 결과 큐의 `evaluation.*`·`recording.*` 처리(5.5)
-4. 지울 것: 5.10·5.12 Controller·Service, `SonioxClient`·`ElevenLabsClient`, Soniox·ElevenLabs 설정(키는 AI로 이동)
-5. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-6. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+1. 남은 API(3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
+2. 면접방: 동시 면접 상한 거절(B-17), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
+3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후)
+4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
+5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)

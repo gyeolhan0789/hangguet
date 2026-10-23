@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.2",
+    "@prometheus-io/client": "0.16.1",
     "@soniox/client": "2.4.0",
     "axios": "1.20.0",
     "motion": "14.3.0",

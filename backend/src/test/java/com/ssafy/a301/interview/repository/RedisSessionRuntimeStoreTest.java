@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.HashOperations;
@@ -23,6 +24,7 @@ import org.springframework.data.redis.core.script.RedisScript;
 
 class RedisSessionRuntimeStoreTest {
     private static final String KEY = "session:55:runtime";
+    private static final UUID JOB_ID = UUID.fromString("8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34");
 
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
 
@@ -98,13 +100,36 @@ class RedisSessionRuntimeStoreTest {
 
     @Test
     void startAnalysisSetsOnlyAnalysisFieldsAndRefreshesTtl() {
-        store.startAnalysis(55L, Instant.ofEpochMilli(2_000L));
+        store.startAnalysis(55L, Instant.ofEpochMilli(2_000L), JOB_ID);
 
         verify(hashes)
                 .putAll(
                         KEY,
-                        Map.of("analysisStep", "ORGANIZING_ANSWERS", "analysisStartedAt", "2000"));
+                        Map.of(
+                                "analysisStep",
+                                "ORGANIZING_ANSWERS",
+                                "analysisStartedAt",
+                                "2000",
+                                "evaluateJobId",
+                                JOB_ID.toString()));
         verify(redis).expire(KEY, Duration.ofDays(1));
+    }
+
+    @Test
+    void readsEvaluateJobId() {
+        when(hashes.get(KEY, "evaluateJobId")).thenReturn(JOB_ID.toString());
+
+        assertThat(store.findEvaluateJobId(55L)).contains(JOB_ID);
+    }
+
+    @Test
+    void updatesAndClearsAnalysisStep() {
+        store.updateAnalysisStep(55L, AnalysisStep.SCORING);
+        verify(hashes).put(KEY, "analysisStep", "SCORING");
+        verify(redis).expire(KEY, Duration.ofDays(1));
+
+        store.clearAnalysisStep(55L);
+        verify(hashes).delete(KEY, "analysisStep");
     }
 
     @Test

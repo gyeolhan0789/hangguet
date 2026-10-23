@@ -34,6 +34,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     testImplementation 'org.springframework.security:spring-security-test'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
@@ -43,6 +44,10 @@ dependencies {
     // 프로필 사진·답변 음성·녹화 파일(S3 Presigned URL)
     implementation platform('software.amazon.awssdk:bom:2.55.10')
     implementation 'software.amazon.awssdk:s3'
+    // 면접방(LiveKit) 서버 API. 운영 LiveKit 서버(v1.13.10)보다 먼저 나온 버전
+    implementation 'io.livekit:livekit-server:0.16.0'
+    // 방을 만들 때 트랙 자동 녹화를 함께 켜려고 서버 API를 직접 부른다(SDK의 createRoom은 녹화 설정을 받지 않음). SDK와 같은 버전
+    implementation 'com.squareup.retrofit2:converter-protobuf:3.0.0'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     runtimeOnly 'org.postgresql:postgresql'

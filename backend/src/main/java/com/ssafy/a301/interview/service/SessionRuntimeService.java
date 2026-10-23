@@ -6,6 +6,7 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -58,8 +59,8 @@ public class SessionRuntimeService {
         store.startPlan(sessionId, now);
     }
 
-    public void startAnalysis(long sessionId, Instant now) {
-        store.startAnalysis(sessionId, now);
+    public void startAnalysis(long sessionId, Instant now, UUID evaluateJobId) {
+        store.startAnalysis(sessionId, now, evaluateJobId);
     }
 
     /**

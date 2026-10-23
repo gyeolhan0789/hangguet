@@ -7,6 +7,7 @@ import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanQuestion;
+import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
@@ -56,6 +57,7 @@ public class AiJobMessages {
             case PLAN -> putPlan(message, session.getApplication());
             case SCORE_ANSWER -> putScoreAnswer(message, job, session);
             case EVALUATE -> putEvaluate(message, job, session);
+            case MERGE_RECORDING -> putMergeRecording(message, session);
             default -> throw new IllegalStateException("메시지를 만들 수 없는 작업 종류: " + job.getJobType());
         }
         return message;
@@ -95,6 +97,15 @@ public class AiJobMessages {
                                 })
                         .toList();
         message.put("answers", answered);
+    }
+
+    // AI 명세 7장. 위치는 면접마다 정해져 있다
+    private static void putMergeRecording(Map<String, Object> message, InterviewSession session) {
+        if (!session.isVideo()) {
+            throw new IllegalStateException("화상 면접이 아니라 녹화가 없다: " + session.getId());
+        }
+        message.put("rawPrefix", Recording.rawPrefix(session.getId()));
+        message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }
 
     // seq·question·criteria·content와 화상이면 tokens·speech

@@ -46,11 +46,23 @@ admin:
     password: ${ADMIN_PASSWORD:}
     name: ${ADMIN_NAME:}
 
-soniox:
-  api-key: ${SONIOX_API_KEY:}
-
-elevenlabs:
-  api-key: ${ELEVENLABS_API_KEY:}
+# 면접방(LiveKit, BE 설계 5.6). 주소·키는 환경 변수로만 받는다. 이름은 배포 계획 7장(LiveKit SDK 기본 이름)과 같다
+livekit:
+  # 브라우저에 알려 줄 주소(입장 정보 url). 없으면 서버 주소
+  url: ${LIVEKIT_PUBLIC_URL:${LIVEKIT_URL:}}
+  # BE가 서버 API를 부르는 주소. 운영은 내부 주소(ws://a301-prod-livekit:7880)
+  api-url: ${LIVEKIT_URL:}
+  api-key: ${LIVEKIT_API_KEY:}
+  api-secret: ${LIVEKIT_API_SECRET:}
+  agent-name: a301-interviewer
+  # 입장 토큰 유효 시간(B-20). 재접속은 5.14로 다시 받는다
+  token-ttl: 10m
+  # 녹화 원본을 올릴 S3. 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅)
+  egress-s3:
+    access-key: ${LIVEKIT_EGRESS_S3_ACCESS_KEY:}
+    secret: ${LIVEKIT_EGRESS_S3_SECRET:}
+    bucket: ${S3_BUCKET:a301-local}
+    region: ${AWS_REGION:ap-northeast-2}
 
 # 같은 Idempotency-Key 요청이 처리 중일 때 끝나기를 기다리는 최대 시간. 넘으면 409 IDEMPOTENCY_KEY_REUSED
 idempotency:

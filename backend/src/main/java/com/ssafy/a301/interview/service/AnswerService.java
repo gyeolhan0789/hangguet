@@ -25,7 +25,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class AnswerService {
-    private static final int TEXT_MAX_LENGTH = 1_000;
 
     private final InterviewSessionRepository sessions;
     private final InterviewQuestionRepository questions;
@@ -83,9 +82,6 @@ public class AnswerService {
     private static void validate(InterviewSession session, AnswerRequest request) {
         if (session.isVideo() || request.inputType() != InputType.TEXT) {
             throw new FieldValidationException("inputType", "채팅 면접의 TEXT 답변만 낼 수 있습니다.");
-        }
-        if (request.content().length() > TEXT_MAX_LENGTH) {
-            throw new FieldValidationException("content", "채팅 답변은 1~1,000자입니다.");
         }
     }
 }

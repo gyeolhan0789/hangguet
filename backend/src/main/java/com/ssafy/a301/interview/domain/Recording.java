@@ -18,8 +18,8 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 /**
- * 녹화 파일. 파일은 S3에 있고 여기에는 objectKey만 둔다. ANSWER_AUDIO는 답변 제출(5.7) 때, SESSION_VIDEO는 녹화 등록(6.2) 때
- * 만든다. 면접당 SESSION_VIDEO 1개는 서비스에서 확인한다.
+ * 녹화 파일. 파일은 S3에 있고 여기에는 objectKey만 둔다. SESSION_VIDEO는 녹화 합치기 결과(recording.merged)로 면접당 하나 만든다.
+ * ANSWER_AUDIO는 답변별 음성이 정해지면 쓴다(API 명세 B-19).
  */
 @Entity
 @Table(name = "recordings")
@@ -51,6 +51,16 @@ public class Recording {
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
+
+    /** Egress가 원본 트랙을 저장하는 위치(AI 명세 7장). 녹화를 시작할 때와 합치기 작업이 같은 값을 쓴다 */
+    public static String rawPrefix(long sessionId) {
+        return "recordings/raw/" + sessionId + "/";
+    }
+
+    /** 원본 트랙을 합친 mp4 위치(AI 명세 7장) */
+    public static String sessionVideoKey(long sessionId) {
+        return "recordings/" + sessionId + ".mp4";
+    }
 
     public static Recording answerAudio(InterviewSession session, Answer answer, String objectKey) {
         Recording r = new Recording();

@@ -4,7 +4,7 @@
 - REDIS_HOST·REDIS_PORT: BE application.yml(같은 Redis의 작업 큐·결과 큐를 공유한다)
 - SONIOX_API_KEY·ELEVENLABS_API_KEY: BE application.yml에서 사용하던 이름이다. 키는 AI 서버에만 둔다
   (AI 명세 1장).
-- LLM_*: ai/pipeline/card.py
+- LLM_*: company-pipeline/pipeline/card.py
 - JEV_API_KEY: Jev SDK 예제의 TYPESAFE_API_KEY와 같은 값이다.
 AI는 DB에 접속하지 않으므로(AI 명세 1장) DB 접속 변수는 두지 않는다.
 기본값은 BE application.yml의 기본값(로컬 docker-compose 기준)과 같다.
@@ -43,7 +43,8 @@ class Settings:
     def llm(self) -> LlmSettings:
         """GMS 접속 값을 반환한다. LLM_CHAT_URL·LLM_MODEL이 없으면 누락된 이름을 포함해 실패한다.
 
-        LLM_API_KEY는 ai/pipeline/card.py와 같이 선택 값으로 두고, 없으면 인증 헤더 없이 호출한다.
+        LLM_API_KEY는 company-pipeline/pipeline/card.py와 같이 선택 값으로 두고,
+        없으면 인증 헤더 없이 호출한다.
 
         시작 시점이 아니라 GMS를 처음 사용할 때 검사한다. 배포 환경에 LLM_* 값이 추가되기 전에
         병합돼도 GMS를 사용하지 않는 기능은 동작하도록 하기 위함이다.

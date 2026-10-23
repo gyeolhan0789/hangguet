@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { WebVitals } from "@/components/monitoring/web-vitals";
 import { THEME_SCRIPT } from "@/lib/theme";
 
 import { pretendard } from "./fonts";
@@ -21,7 +22,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <WebVitals />
+        {children}
+      </body>
     </html>
   );
 }
