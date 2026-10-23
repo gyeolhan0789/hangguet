@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
@@ -25,6 +27,7 @@ import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.user.domain.User;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +43,59 @@ class InterviewSessionListServiceTest {
     @Mock private InterviewSessionRepository sessions;
     @Mock private AnswerRepository answers;
     @Mock private SessionScoreRepository scores;
+
+    @Test
+    void calendarFillsZerosAndUsesOneMonthlyQueryWithKoreaBoundaries() {
+        var first =
+                new InterviewSessionRepository.PracticeDateCount() {
+                    public LocalDate getPracticeDate() {
+                        return LocalDate.of(2026, 10, 1);
+                    }
+
+                    public long getInterviewCount() {
+                        return 2;
+                    }
+                };
+        var last =
+                new InterviewSessionRepository.PracticeDateCount() {
+                    public LocalDate getPracticeDate() {
+                        return LocalDate.of(2026, 10, 31);
+                    }
+
+                    public long getInterviewCount() {
+                        return 1;
+                    }
+                };
+        OffsetDateTime from = OffsetDateTime.parse("2026-10-01T00:00:00+09:00");
+        OffsetDateTime to = OffsetDateTime.parse("2026-11-01T00:00:00+09:00");
+        when(sessions.countPracticeByDate(7, from, to)).thenReturn(List.of(last, first));
+
+        var result =
+                new InterviewSessionListService(sessions, answers, scores)
+                        .calendar(7, YearMonth.of(2026, 10));
+
+        assertThat(result.month()).isEqualTo("2026-10");
+        assertThat(result.content()).hasSize(31);
+        assertThat(result.content().get(0).interviewCount()).isEqualTo(2);
+        assertThat(result.content().get(1).interviewCount()).isZero();
+        assertThat(result.content().get(30).interviewCount()).isEqualTo(1);
+        assertThat(result.content()).extracting(day -> day.practiceDate()).isSorted();
+        verify(sessions).countPracticeByDate(7, from, to);
+        verifyNoMoreInteractions(sessions);
+        verifyNoInteractions(answers, scores);
+    }
+
+    @Test
+    void emptyLeapMonthIncludesFebruary29() {
+        when(sessions.countPracticeByDate(anyLong(), any(), any())).thenReturn(List.of());
+        var result =
+                new InterviewSessionListService(sessions, answers, scores)
+                        .calendar(7, YearMonth.of(2028, 2));
+        assertThat(result.content())
+                .hasSize(29)
+                .allSatisfy(day -> assertThat(day.interviewCount()).isZero());
+        assertThat(result.content().get(28).practiceDate()).isEqualTo(LocalDate.of(2028, 2, 29));
+    }
 
     @Test
     void mapsCompletedAndPendingRecordsWithWholeDateSummary() {

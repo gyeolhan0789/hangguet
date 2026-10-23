@@ -14,6 +14,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -97,6 +98,14 @@ public final class InterviewDtos {
 
     public record SessionListResponse(
             List<SessionListItem> content, PageMetadata page, SessionListSummary summary) {}
+
+    public record DailyInterviewCount(
+            @Schema(description = "면접 시작 날짜(한국 시간)") LocalDate practiceDate,
+            @Schema(description = "해당 날짜의 연습 면접 수. 기록이 없으면 0") long interviewCount) {}
+
+    public record SessionCalendarResponse(
+            @Schema(description = "조회 월", example = "2026-10") String month,
+            @Schema(description = "해당 월의 모든 날짜. 날짜 오름차순") List<DailyInterviewCount> content) {}
 
     public record QuestionResponse(
             @Schema(description = "질문 id", example = "303") long id,

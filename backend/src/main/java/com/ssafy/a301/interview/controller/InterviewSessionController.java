@@ -6,6 +6,7 @@ import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.PendingResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
@@ -25,7 +26,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Pattern;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -147,6 +150,22 @@ public class InterviewSessionController {
                     @Max(value = 20, message = "1~20입니다.")
                     int size) {
         return sessionList.list(Long.parseLong(jwt.getSubject()), practiceDate, page, size);
+    }
+
+    @Operation(
+            summary = "5.15 월별 연습 면접 횟수",
+            description = "한국 시간 시작일 기준. 해당 월의 모든 날짜와 면접 횟수를 준다. 기록이 없는 날짜는 0이다.")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED: month 누락 또는 YYYY-MM 형식 아님")
+    @GetMapping("/calendar")
+    public SessionCalendarResponse calendar(
+            @AuthenticationPrincipal Jwt jwt,
+            @Parameter(description = "조회 월(0001-01~9999-12)", example = "2026-10")
+                    @RequestParam
+                    @Pattern(
+                            regexp = "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])",
+                            message = "YYYY-MM 형식입니다.")
+                    String month) {
+        return sessionList.calendar(userId(jwt), YearMonth.parse(month));
     }
 
     @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")

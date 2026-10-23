@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.repository;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import jakarta.persistence.LockModeType;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -17,6 +18,35 @@ import org.springframework.data.repository.query.Param;
 
 public interface InterviewSessionRepository extends JpaRepository<InterviewSession, Long> {
     Optional<InterviewSession> findByIdAndUserId(Long id, Long userId);
+
+    interface PracticeDateCount {
+        LocalDate getPracticeDate();
+
+        long getInterviewCount();
+    }
+
+    @Query(
+            value =
+                    """
+                    select cast(s.started_at at time zone 'Asia/Seoul' as date) as "practiceDate",
+                           count(*) as "interviewCount"
+                    from interview_sessions s
+                    join users u on u.id = s.user_id
+                    where s.user_id = :userId and u.deleted_at is null
+                      and s.status in ('ANALYZING', 'COMPLETED', 'FAILED')
+                      and s.started_at >= :from and s.started_at < :to
+                      and exists (
+                          select 1 from answers a
+                          join interview_questions q on q.id = a.question_id
+                          where q.session_id = s.id
+                      )
+                    group by cast(s.started_at at time zone 'Asia/Seoul' as date)
+                    """,
+            nativeQuery = true)
+    List<PracticeDateCount> countPracticeByDate(
+            @Param("userId") long userId,
+            @Param("from") OffsetDateTime from,
+            @Param("to") OffsetDateTime to);
 
     @EntityGraph(attributePaths = "application")
     @Query(

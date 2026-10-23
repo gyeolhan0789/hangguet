@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.auth.config.SecurityConfig;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
+import com.ssafy.a301.interview.dto.InterviewDtos.DailyInterviewCount;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SttTokenResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.TtsTokenResponse;
 import com.ssafy.a301.interview.service.AnswerService;
@@ -20,6 +22,8 @@ import com.ssafy.a301.interview.service.TtsTokenService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -88,6 +92,44 @@ class InterviewSessionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").value("tts-token"))
                 .andExpect(jsonPath("$.voiceId").value("voice"));
+    }
+
+    @Test
+    void calendarRequiresLoginAndValidMonth() throws Exception {
+        mvc.perform(get("/api/v1/interview-sessions/calendar").param("month", "2026-10"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(
+                        get("/api/v1/interview-sessions/calendar")
+                                .with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        for (String month :
+                List.of("2026-00", "2026-13", "2026-2", "2026-02-01", "0000-01", "bad", "")) {
+            mvc.perform(
+                            get("/api/v1/interview-sessions/calendar")
+                                    .param("month", month)
+                                    .with(jwt().jwt(token -> token.subject("1"))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        }
+    }
+
+    @Test
+    void calendarUsesLoggedInUserAndReturnsZeroDays() throws Exception {
+        when(sessionList.calendar(1, YearMonth.of(2026, 10)))
+                .thenReturn(
+                        new SessionCalendarResponse(
+                                "2026-10",
+                                List.of(new DailyInterviewCount(LocalDate.of(2026, 10, 1), 0))));
+        mvc.perform(
+                        get("/api/v1/interview-sessions/calendar")
+                                .param("month", "2026-10")
+                                .with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.month").value("2026-10"))
+                .andExpect(jsonPath("$.content[0].practiceDate").value("2026-10-01"))
+                .andExpect(jsonPath("$.content[0].interviewCount").value(0));
+        verify(sessionList).calendar(1, YearMonth.of(2026, 10));
     }
 
     @Test

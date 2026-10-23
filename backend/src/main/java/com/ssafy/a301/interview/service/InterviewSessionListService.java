@@ -8,7 +8,9 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.CriterionGrade;
+import com.ssafy.a301.interview.dto.InterviewDtos.DailyInterviewCount;
 import com.ssafy.a301.interview.dto.InterviewDtos.PageMetadata;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListItem;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListSummary;
@@ -18,6 +20,7 @@ import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.EnumMap;
@@ -26,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -52,6 +56,29 @@ public class InterviewSessionListService {
         this.sessions = sessions;
         this.answers = answers;
         this.scores = scores;
+    }
+
+    @Transactional(readOnly = true)
+    public SessionCalendarResponse calendar(long userId, YearMonth month) {
+        OffsetDateTime from = month.atDay(1).atStartOfDay(KOREA).toOffsetDateTime();
+        OffsetDateTime to = month.plusMonths(1).atDay(1).atStartOfDay(KOREA).toOffsetDateTime();
+        Map<LocalDate, Long> counts =
+                sessions.countPracticeByDate(userId, from, to).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        InterviewSessionRepository.PracticeDateCount
+                                                ::getPracticeDate,
+                                        InterviewSessionRepository.PracticeDateCount
+                                                ::getInterviewCount));
+        List<DailyInterviewCount> content =
+                IntStream.rangeClosed(1, month.lengthOfMonth())
+                        .mapToObj(
+                                day ->
+                                        new DailyInterviewCount(
+                                                month.atDay(day),
+                                                counts.getOrDefault(month.atDay(day), 0L)))
+                        .toList();
+        return new SessionCalendarResponse(month.toString(), content);
     }
 
     @Transactional(readOnly = true)

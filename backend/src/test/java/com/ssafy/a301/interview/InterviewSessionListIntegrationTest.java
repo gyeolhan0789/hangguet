@@ -38,6 +38,116 @@ class InterviewSessionListIntegrationTest {
     @Autowired private EntityManager em;
 
     @Test
+    void calendarCountsSessionsOnceByKoreaStartDateAndFiltersLikeDailyList() throws Exception {
+        User user = user("calendar");
+        Application application = application(user);
+        OffsetDateTime monthStart = OffsetDateTime.parse("2026-10-01T00:00:00+09:00");
+        InterviewSession first =
+                practice(
+                        user,
+                        application,
+                        SessionStatus.COMPLETED,
+                        monthStart.withOffsetSameInstant(java.time.ZoneOffset.UTC),
+                        monthStart.plusMinutes(10),
+                        true,
+                        "총평");
+        InterviewQuestion second = new InterviewQuestion(first, 2, "추가 질문");
+        em.persist(second);
+        em.persist(new Answer(second, InputType.VOICE, "추가 답변"));
+        practice(
+                user,
+                application,
+                SessionStatus.FAILED,
+                monthStart.plusHours(1),
+                monthStart.plusHours(1).plusMinutes(10),
+                true,
+                null);
+        practice(
+                user,
+                application,
+                SessionStatus.ANALYZING,
+                monthStart.plusDays(30).plusHours(23),
+                monthStart.plusMonths(1).plusMinutes(10),
+                true,
+                null);
+        practice(
+                user,
+                application,
+                SessionStatus.ANALYZING,
+                monthStart.minusMinutes(1),
+                monthStart.plusMinutes(10),
+                true,
+                null);
+        practice(
+                user,
+                application,
+                SessionStatus.ANALYZING,
+                monthStart.plusMonths(1),
+                monthStart.plusMonths(1).plusMinutes(10),
+                true,
+                null);
+        practice(
+                user,
+                application,
+                SessionStatus.ANALYZING,
+                monthStart.plusDays(1),
+                monthStart.plusDays(1).plusMinutes(10),
+                false,
+                null);
+        InterviewSession active =
+                new InterviewSession(user, application, Persona.DEVIL, InterviewMode.CHAT);
+        em.persist(active);
+        active.start(monthStart.plusDays(1));
+        InterviewQuestion activeQuestion = new InterviewQuestion(active, 1, "질문");
+        em.persist(activeQuestion);
+        em.persist(new Answer(activeQuestion, InputType.TEXT, "답변"));
+        InterviewSession aborted =
+                new InterviewSession(user, application, Persona.DEVIL, InterviewMode.CHAT);
+        em.persist(aborted);
+        aborted.start(monthStart.plusDays(1));
+        aborted.end(monthStart.plusDays(1).plusMinutes(1), 0);
+        User other = user("other-calendar");
+        practice(
+                other,
+                application(other),
+                SessionStatus.COMPLETED,
+                monthStart,
+                monthStart.plusMinutes(10),
+                true,
+                "다른 회원");
+        em.flush();
+        em.clear();
+
+        mvc.perform(
+                        as(
+                                user.getId(),
+                                get("/api/v1/interview-sessions/calendar")
+                                        .param("month", "2026-10")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.month").value("2026-10"))
+                .andExpect(jsonPath("$.content.length()").value(31))
+                .andExpect(jsonPath("$.content[0].practiceDate").value("2026-10-01"))
+                .andExpect(jsonPath("$.content[0].interviewCount").value(2))
+                .andExpect(jsonPath("$.content[1].interviewCount").value(0))
+                .andExpect(jsonPath("$.content[30].practiceDate").value("2026-10-31"))
+                .andExpect(jsonPath("$.content[30].interviewCount").value(1));
+
+        user = em.find(User.class, user.getId());
+        user.withdraw(monthStart.plusMonths(1));
+        em.flush();
+        mvc.perform(
+                        as(
+                                user.getId(),
+                                get("/api/v1/interview-sessions/calendar")
+                                        .param("month", "2026-10")))
+                .andExpect(status().isOk())
+                .andExpect(
+                        jsonPath(
+                                "$.content[*].interviewCount",
+                                org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(0))));
+    }
+
+    @Test
     void listUsesKoreaStartDateAndExcludesOtherUsersAndSessionsWithoutAnswers() throws Exception {
         User user = user("owner");
         Application application = application(user);

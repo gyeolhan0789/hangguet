@@ -18,7 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
-/** 연습 기록. 연습 면접(답변 1개 이상으로 끝난 면접)이 있는 날 회원별 하루 한 건. 면접 끝내기(5.8)에서 그날 첫 연습일 때만 넣는다. */
+/** 연습 기록. 답변 1개 이상으로 끝난 면접의 한국 시간 시작일에 회원별 하루 한 건. 면접 끝내기(5.8)에서 해당 시작일의 첫 기록만 넣는다. */
 @Entity
 @Table(
         name = "practice_logs",
