@@ -23,7 +23,7 @@ export async function getSession(sessionId: number): Promise<SessionResponse | n
 }
 
 // 기준: Swagger 5.5 지금 질문(GET …/questions/current → 200 QuestionResponse · 202 PendingResponse(QUESTION_GENERATING)
-// · 404 SESSION_NOT_FOUND · 409 INVALID_SESSION_STATE) · API 명세 1장 상태 확인(다음 질문(S06 · S06-B): 5.5, 202 대신 200이 오면 멈춘다)
+// · 404 SESSION_NOT_FOUND · 409 INVALID_SESSION_STATE) · 웹 Swagger 5.5(다음 질문을 준비 중이면 202, 2초 뒤(임시 값) 다시 부른다)
 
 /**
  * 5.5 지금 답할 질문. 다음 질문을 만드는 중(202)이거나 면접 중이 아니면(409) · 면접이 없으면(404) null.

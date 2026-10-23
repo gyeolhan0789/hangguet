@@ -8,9 +8,9 @@ import {
   withdrawSchema,
 } from "./schemas";
 
-// 기준: Swagger 2.2 NicknameRequest(1~50자 · 앞뒤 공백 제거) · 2.3 PasswordChangeRequest(currentPassword 필수 · 최대 64자,
-// newPassword 8~64자 · 영문 · 숫자) · 2.4 ProfileImageUploadUrlRequest(JPG · PNG, 1~5,242,880) · 2.5 objectKey 필수
-// · 2.7 WithdrawRequest(password 필수). 문구는 mock 서버 400 VALIDATION_FAILED reason과 같다(curl로 확인한 값).
+// 기준: 웹 Swagger 2.2 NicknameRequest(최대 50자 · 앞뒤 공백 제거) · 2.3 PasswordChangeRequest(currentPassword 최대 64자,
+// newPassword 8~64자 · 영문 · 숫자) · 2.4 ProfileImageUploadUrlRequest(JPG · PNG, 1~5,242,880) · 2.5 objectKey 1자 이상
+// · 2.7 WithdrawRequest(password 최대 64자). 빈 값은 화면에서 먼저 막는다.
 
 const firstMessage = (result: { success: boolean; error?: { issues: { message: string }[] } }) =>
   result.success ? null : result.error!.issues[0].message;
@@ -100,7 +100,10 @@ describe("objectKeySchema (2.5) · withdrawSchema (2.7)", () => {
     expect(firstMessage(withdrawSchema.safeParse({ password: "   " }))).toBe("필수 값입니다.");
   });
 
-  it("탈퇴 비밀번호는 길이 제한이 없다(Swagger WithdrawRequest: 필수만)", () => {
-    expect(withdrawSchema.safeParse({ password: "x".repeat(65) }).success).toBe(true);
+  it("탈퇴 비밀번호는 64자까지 통과, 65자는 '최대 64자입니다.'(웹 Swagger WithdrawRequest maxLength 64)", () => {
+    expect(withdrawSchema.safeParse({ password: "x".repeat(64) }).success).toBe(true);
+    expect(firstMessage(withdrawSchema.safeParse({ password: "x".repeat(65) }))).toBe(
+      "최대 64자입니다.",
+    );
   });
 });

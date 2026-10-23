@@ -31,11 +31,11 @@ describe("getStats (3.2 통계)", () => {
 
 describe("getPracticeLogs (3.3 연습 달력)", () => {
   it("month(YYYY-MM)를 쿼리로 보낸다", async () => {
-    // Swagger 3.3 200 예시
+    // 웹 Swagger 3.3 200 예시 '한국 시간 시작일 기준'
     const logs = {
       content: [
-        { practiceDate: "2026-10-01", createdAt: "2026-10-01T21:12:00+09:00" },
-        { practiceDate: "2026-10-02", createdAt: "2026-10-02T20:40:00+09:00" },
+        { practiceDate: "2026-10-20", createdAt: "2026-10-20T20:10:00+09:00" },
+        { practiceDate: "2026-10-21", createdAt: "2026-10-21T19:42:00+09:00" },
       ],
     } satisfies PracticeLogsResponse;
     get.mockResolvedValue({ data: logs });

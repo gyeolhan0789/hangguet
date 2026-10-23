@@ -9,7 +9,7 @@ const jwt = (exp: number) =>
 const NOW = Date.UTC(2026, 9, 19, 0, 0, 0);
 const nowSeconds = NOW / 1000;
 
-// API 명세 1장: 액세스 토큰은 JWT(HS256)이고 sub · nickname · iat · exp를 담는다.
+// 액세스 토큰은 JWT다(웹 Swagger 2.2 '토큰의 nickname'). 만료는 exp로 판단한다.
 describe("isAccessTokenExpired", () => {
   it("exp가 지났으면 만료", () => {
     expect(isAccessTokenExpired(jwt(nowSeconds - 1), NOW)).toBe(true);

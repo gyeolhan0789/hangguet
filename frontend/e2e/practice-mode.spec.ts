@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import { ACCESS_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 import type { SessionCreateRequest } from "../src/types/api";
 
-import { APPLICATION, PROBLEM, SESSION } from "./mocks/data";
+import { APPLICATION, PROBLEM, SESSION, SESSION_PLAN } from "./mocks/data";
 import { api, expect, http, HttpResponse, problemResponse, recordSessions, test } from "./test";
 
 // S05-1 면접 방식 선택
@@ -106,6 +106,12 @@ test.describe("S05-1 면접 방식 선택 · 면접 만들기 (5.1)", () => {
     msw,
   }) => {
     const requests = recordSessions(msw);
+    // 만든 면접은 채팅이다(5.2도 채팅 면접으로 답한다). 화상 시작 전이면 면접 화면이 S05로 돌려보낸다.
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId"), () =>
+        HttpResponse.json({ ...SESSION_PLAN.GENERATING, mode: "CHAT" }),
+      ),
+    );
     await page.goto(S05_1);
 
     await choose(page, "채팅으로 할래요");
@@ -147,11 +153,17 @@ test.describe("S05-1 면접 방식 선택 · 면접 만들기 (5.1)", () => {
     expect(calls).toBe(1);
   });
 
-  test("만들지 못하면(500) 안내하고, 다시 누르면 같은 멱등 키로 다시 보내며, 방식을 바꾸면 다른 키로 보낸다", async ({
+  // 웹 Swagger Idempotency-Key: 같은 키 · 같은 본문이면 처음 결과를 그대로 반환한다.
+  // 서버가 실패로 답했으면(500 ProblemDetail) 새 키로, 응답을 못 받았으면(연결 오류) 같은 키로 다시 보낸다.
+  test("만들지 못하면 안내하고, 서버가 실패로 답했으면 새 키 · 연결 오류면 같은 키로 다시 보내며, 방식을 바꾸면 다른 키로 보낸다", async ({
     page,
     msw,
   }) => {
-    const requests = recordSessions(msw, () => problemResponse(PROBLEM.INTERNAL_ERROR));
+    // 서버가 어떻게 답할지는 테스트가 단계마다 바꾼다.
+    let reply: "server-error" | "network-error" = "server-error";
+    const requests = recordSessions(msw, () =>
+      reply === "server-error" ? problemResponse(PROBLEM.INTERNAL_ERROR) : HttpResponse.error(),
+    );
     await page.goto(S05_1);
 
     await choose(page, "화상으로 할래요");
@@ -161,15 +173,20 @@ test.describe("S05-1 면접 방식 선택 · 면접 만들기 (5.1)", () => {
     );
     await expect(page).toHaveURL(S05_1);
 
+    reply = "network-error";
     await nextButton(page).click();
     await expect.poll(() => requests.length).toBe(2);
-    await choose(page, "채팅으로 할래요");
+    await expect(nextButton(page)).toBeEnabled();
     await nextButton(page).click();
     await expect.poll(() => requests.length).toBe(3);
+    await choose(page, "채팅으로 할래요");
+    await nextButton(page).click();
+    await expect.poll(() => requests.length).toBe(4);
 
-    const [first, retry, chat] = requests;
-    expect(retry.key).toBe(first.key);
-    expect(chat.key).not.toBe(first.key);
+    const [first, afterServerError, afterNetworkError, chat] = requests;
+    expect(afterServerError.key).not.toBe(first.key);
+    expect(afterNetworkError.key).toBe(afterServerError.key);
+    expect(chat.key).not.toBe(afterNetworkError.key);
     expect(chat.body.mode).toBe("CHAT");
   });
 

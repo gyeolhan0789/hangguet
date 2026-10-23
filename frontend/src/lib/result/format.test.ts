@@ -12,8 +12,8 @@ import {
   questionOffset,
 } from "./format";
 
-// 기준: API 명세 6.3(기준 이름 · grade 문구는 화면이 바꾼다, 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다)
-// · 6.4(자막은 재생 위치가 속한 질문(questionCreatedAt ≤ 위치 < 다음 질문)의 answer) · Swagger 6.3 · 6.4 200 예시
+// 기준: 기준 이름 · grade 문구는 화면이 바꾸고, 질문별 피드백은 첫 번째 WEAK · NORMAL 질문만 펼친다
+// · 자막은 재생 위치가 속한 질문(questionCreatedAt ≤ 위치 < 다음 질문)의 answer · 웹 Swagger 6.3 · 6.4 200 예시
 
 describe("S07 · S07-1 표시 규칙", () => {
   it("기준 이름 · 등급 문구를 화면 문구로 바꾼다", () => {

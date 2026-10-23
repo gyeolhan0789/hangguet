@@ -12,7 +12,7 @@ export function formatImprovement({ criterion, delta }: Improvement): string {
   return `${CRITERION_LABEL[criterion]} ${delta >= 0 ? "+" : ""}${delta}`;
 }
 
-/** 최근 성장 리뷰의 "전달력 +8". 첫 연습일이라 비교할 값이 없으면 null */
-export function formatReviewImprovement({ criterion, delta }: RecentReviewItem): string | null {
-  return criterion !== null && delta !== null ? formatImprovement({ criterion, delta }) : null;
+/** 최근 성장 리뷰의 "전달력 +8" */
+export function formatReviewImprovement({ criterion, delta }: RecentReviewItem): string {
+  return formatImprovement({ criterion, delta });
 }

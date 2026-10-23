@@ -90,6 +90,14 @@ describe("buildWeek", () => {
     ]);
   });
 
+  it("연습한 날은 practiceDates로만 정한다: 스트릭이 이어져 있어도 practiceDates에 없는 날은 빠짐", () => {
+    const home = {
+      ...HOME_NOT_DONE,
+      practiceDates: ["2026-10-09", "2026-10-11", "2026-10-13", "2026-10-14"],
+    };
+    expect(statuses(home)).toEqual(["done", "missed", "done", "missed", "done", "done", "today"]);
+  });
+
   it("첫 방문: 모두 빈칸, 오늘만 링", () => {
     expect(statuses(HOME_FIRST)).toEqual([
       "empty",
@@ -134,11 +142,5 @@ describe("introCopy", () => {
 describe("formatReviewImprovement", () => {
   it("오른 기준이 있으면 '전달력 +8'", () => {
     expect(formatReviewImprovement(HOME_BROKEN.recentReviews[0])).toBe("전달력 +8");
-  });
-
-  it("첫 연습일(criterion · delta null)이면 null", () => {
-    expect(
-      formatReviewImprovement({ ...HOME_BROKEN.recentReviews[0], criterion: null, delta: null }),
-    ).toBeNull();
   });
 });

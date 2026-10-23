@@ -6,7 +6,8 @@ import { useEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
 import { useOnline } from "@/components/use-online";
-import { startSession } from "@/lib/interview/actions";
+import { MaskIcon } from "@/components/mask-icon";
+import { retryPlan, startSession } from "@/lib/interview/actions";
 import { PERSONAS } from "@/lib/interview/personas";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
 import { useInterviewStore } from "@/stores/interview-store";
@@ -26,10 +27,12 @@ import { MicToast, SelfCamera, VideoControls } from "./video-panel";
 // · 기획 메모 S06(18:757: 배경 씬은 페르소나별(악마 = 번개 폭풍)) · 기획 메모 S06-B(18:1050: S06과 레이아웃 동일, 하단만 입력 폼)
 // · 모션 메모 S06(18:2569: 번개 플래시는 질문이 바뀔 때만) · 모션 메모 S06-1(18:4469: 면접 화면에서 그대로 이어짐 — 배경 면접관이
 // 흐려지며(opacity 1→.28, blur 0→8px))
-// · Swagger 5.2(status · planStatus · mode) · 5.5 지금 질문 · 5.4 면접 시작(채팅: 질문 준비가 끝나면 화면이 자동으로 부른다)
-// · API 명세 1장 · 5.2(서버 작업이 끝났는지는 2초마다(임시 값) 다시 불러 확인 — 다음 질문은 5.5, 질문 준비 · 결과 분석은 5.2)
+// · 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
+// (채팅: 질문 준비가 끝나면 화면이 자동으로 부른다) · 5.3 면접 플랜 재생성
+// · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도], S05와 같음)
+// · 웹 Swagger 5.2 · 5.5(서버 작업이 끝났는지는 2초마다(임시 값) 다시 불러 확인 — 다음 질문은 5.5, 질문 준비 · 결과 분석은 5.2)
 
-/** 다음 질문 · 결과 분석을 다시 조회하는 간격(API 명세 "2초마다(임시 값)") */
+/** 다음 질문 · 결과 분석을 다시 조회하는 간격(웹 Swagger 5.2 · 5.5 "2초마다(임시 값)") */
 export const SESSION_POLL_MS = 2000;
 
 /** 면접 화면. 상태가 결과 분석 중(ANALYZING · COMPLETED)이면 S06-1, 아니면 방식에 따라 S06(화상) · S06-B(채팅)를 그린다. */
@@ -53,32 +56,56 @@ export function InterviewRoom({
   // 방금 답한 질문이 그대로 오거나 질문이 없으면 다음 질문을 기다리는 중이다.
   const question: CurrentQuestion | null =
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
-  // 채팅은 장치 점검 없이 바로 와서 질문 준비(플랜)를 이 화면에서 기다린다(API 명세 5.4).
+  // 채팅은 장치 점검 없이 바로 와서 질문 준비(플랜)를 이 화면에서 기다린다.
   const preparing = session.status === "READY" && session.planStatus === "GENERATING";
   const waiting =
     (session.status === "IN_PROGRESS" && question === null) ||
     session.status === "ANALYZING" ||
     preparing;
-  const [startKey] = useState(() => crypto.randomUUID());
-  const started = useRef(false);
+  // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
+  const planFailed = session.status === "READY" && session.planStatus === "FAILED";
+  // 5.4 자동 시작. 실패하면 2초 뒤 다시 조회해 다시 시도한다(attempt). 서버가 실패로 답했으면 새 키로
+  // (웹 Swagger: 같은 키·같은 본문이면 처음 결과를 그대로 반환). 실패 문구(detail)는 말풍선 아래에 보여 준다.
+  const [start, setStart] = useState(() => ({ key: crypto.randomUUID(), attempt: 0 }));
+  const startedAttempt = useRef(-1);
+  const [startError, setStartError] = useState<string>();
+  const [startRetry, setStartRetry] = useState<{ newKey: boolean } | null>(null);
 
   // 다른 면접에 들어오면 지난 면접의 모달 · 답한 질문 · 레벨업을 지운다.
-  // 떠날 때는 지우지 않는다: 5.8의 레벨업(leveledUp)을 결과 화면(S08)까지 기억해야 한다(API 명세 5.8).
+  // 떠날 때는 지우지 않는다: 5.8의 레벨업(leveledUp)을 결과 화면(S08)까지 기억해야 한다(웹 Swagger leveledUp: 5.8 응답에만 값).
   // 이미 끝낸 면접(S06-1 결과 분석 중)을 새로고침해 들어온 것이면 그 면접의 레벨업이므로 남긴다.
   const [enteredEnded] = useState(analyzing);
   useEffect(() => {
     reset({ keepLeveledUp: enteredEnded });
   }, [reset, enteredEnded]);
 
-  // 채팅: 질문 준비가 끝나면(5.2 planStatus READY) 면접을 자동으로 시작한다(5.4). 별도 대기 화면은 없다(API 명세 5.4).
+  // 채팅: 질문 준비가 끝나면(5.2 planStatus READY) 면접을 자동으로 시작한다(5.4). 별도 대기 화면은 없다.
+  // 실패하면(서버 실패 · 연결 오류) 2초 뒤 화면을 다시 그려 5.2로 지금 상태를 받고, 아직 시작 전이면 다시 보낸다.
   useEffect(() => {
     if (session.mode !== "CHAT" || session.status !== "READY" || session.planStatus !== "READY") {
       return;
     }
-    if (started.current) return;
-    started.current = true;
-    void startSession(session.id, startKey);
-  }, [session.id, session.mode, session.status, session.planStatus, startKey]);
+    if (startedAttempt.current === start.attempt) return;
+    startedAttempt.current = start.attempt;
+    void startSession(session.id, start.key).then((result) => {
+      setStartError(result.formError);
+      if (result.formError) setStartRetry({ newKey: Boolean(result.keySpent) });
+    });
+  }, [session.id, session.mode, session.status, session.planStatus, start]);
+
+  // 자동 시작이 실패했으면 2초 뒤 다시 그려 5.2로 지금 상태를 받고, 다음 시도(attempt)를 연다.
+  useEffect(() => {
+    if (!startRetry) return;
+    const timer = setTimeout(() => {
+      router.refresh();
+      setStartRetry(null);
+      setStart((prev) => ({
+        key: startRetry.newKey ? crypto.randomUUID() : prev.key,
+        attempt: prev.attempt + 1,
+      }));
+    }, SESSION_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [startRetry, router]);
 
   // 다음 질문 · 결과 분석을 기다리는 동안 2초마다 다시 그려 서버 컴포넌트가 5.2를 다시 부르게 한다.
   // 다시 그리기가 끝난 뒤에 다음 조회를 예약해 요청이 겹치지 않게 한다(S05 질문 준비와 같은 방식).
@@ -123,7 +150,16 @@ export function InterviewRoom({
               <VideoInterview interviewer={interviewer} question={question} />
             ) : (
               <Dialog bottom="pb-[5px]">
-                <QuestionBubble interviewer={interviewer} question={question} />
+                {planFailed ? (
+                  <PlanFailed sessionId={session.id} />
+                ) : (
+                  <QuestionBubble interviewer={interviewer} question={question} />
+                )}
+                {startError && session.status === "READY" && (
+                  <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
+                    {startError}
+                  </p>
+                )}
                 <ChatPanel sessionId={session.id} question={question} />
               </Dialog>
             )}
@@ -132,6 +168,51 @@ export function InterviewRoom({
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+/**
+ * 채팅 질문 준비 실패. 말풍선 자리에 S05와 같은 '면접 준비에 실패했어요' + [다시 시도](5.3)를 보여 준다.
+ * 5.3이 받아들여지면 화면을 다시 그려(GENERATING) 질문 준비를 다시 기다린다.
+ */
+function PlanFailed({ sessionId }: { sessionId: number }) {
+  const [retrying, startRetry] = useTransition();
+  const [error, setError] = useState<string>();
+
+  function retry() {
+    setError(undefined);
+    startRetry(async () => {
+      const result = await retryPlan(sessionId);
+      if (result.formError) setError(result.formError);
+    });
+  }
+
+  return (
+    <section
+      aria-label="면접 준비"
+      className="flex w-full flex-col gap-2 rounded-[20px] border border-white/10 bg-[rgba(14,16,22,0.8)] px-[22px] py-[18px] backdrop-blur-[8px]"
+    >
+      <div className="flex w-full items-center gap-2">
+        <MaskIcon src="/devices/icon-circle-x.svg" size={18} className="bg-[#ff8a8a]" />
+        <p className="min-w-0 flex-1 text-base leading-normal font-bold tracking-[-0.2px] text-white">
+          면접 준비에 실패했어요
+        </p>
+        <button
+          type="button"
+          onClick={retry}
+          disabled={retrying}
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm leading-normal font-bold text-white disabled:cursor-default disabled:opacity-60"
+        >
+          <MaskIcon src="/devices/icon-rotate-cw.svg" size={14} className="bg-white" />
+          다시 시도
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 

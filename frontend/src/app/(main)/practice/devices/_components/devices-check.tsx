@@ -86,7 +86,7 @@ export function DevicesCheck({
   const [chatError, setChatError] = useState<string>();
   const [starting, startStarting] = useTransition();
   const [switching, startSwitching] = useTransition();
-  // 5.4 · 5.1 멱등 키: 같은 요청을 다시 보내면 같은 키, 409 IDEMPOTENCY_KEY_REUSED면 새 키
+  // 5.4 · 5.1 멱등 키: 응답을 못 받아 다시 보내면 같은 키, 서버가 실패로 답했으면(keySpent) 새 키
   const [startKey, setStartKey] = useState(() => crypto.randomUUID());
   const [chatKey, setChatKey] = useState(() => crypto.randomUUID());
 
@@ -135,7 +135,7 @@ export function DevicesCheck({
     startStarting(async () => {
       const result = await startSession(sessionId, startKey);
       if (result.formError) setFormError(result.formError);
-      if (result.keyReused) setStartKey(crypto.randomUUID());
+      if (result.keySpent) setStartKey(crypto.randomUUID());
     });
   }
 
@@ -145,7 +145,7 @@ export function DevicesCheck({
     startSwitching(async () => {
       const result = await createSession({ applicationId, persona, mode: "CHAT" }, chatKey);
       if (result.formError) setChatError(result.formError);
-      if (result.keyReused) setChatKey(crypto.randomUUID());
+      if (result.keySpent) setChatKey(crypto.randomUUID());
     });
   }
 

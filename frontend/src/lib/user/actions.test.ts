@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { axiosProblem } from "@/test/axios-problem";
 import type {
   MeResponse,
+  NicknameChangeResponse,
   NicknameRequest,
   PasswordChangeRequest,
   ProblemDetail,
@@ -36,7 +37,7 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const cookieStore = { delete: vi.fn() };
+const cookieStore = { set: vi.fn(), delete: vi.fn() };
 vi.mock("next/headers", () => ({ cookies: async () => cookieStore }));
 
 const {
@@ -57,6 +58,13 @@ const ME = {
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
 } satisfies MeResponse;
+
+// 웹 Swagger 2.2 200 예시(내 정보 + 새 액세스 토큰)
+const NICKNAME_CHANGED = {
+  ...ME,
+  accessToken: "eyJ…",
+  expiresIn: 3600,
+} satisfies NicknameChangeResponse;
 
 // Swagger 2.3 · 2.7 400 예시
 const PASSWORD_MISMATCH = {
@@ -85,11 +93,24 @@ describe("스키마 값의 타입이 Swagger 요청 타입과 같다", () => {
 
 describe("changeNickname (2.2 닉네임 변경)", () => {
   it("앞뒤 공백을 지워 보내고, 헤더 · 화면이 새 닉네임을 다시 불러오도록 다시 그린다", async () => {
-    api.patch.mockResolvedValue({ data: { ...ME, nickname: "새 닉네임" } });
+    api.patch.mockResolvedValue({ data: { ...NICKNAME_CHANGED, nickname: "새 닉네임" } });
 
     expect(await changeNickname({ nickname: "  새 닉네임 " })).toEqual({ ok: true });
     expect(api.patch).toHaveBeenCalledWith("/users/me", { nickname: "새 닉네임" });
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("응답의 새 액세스 토큰만 쿠키에 저장하고 리프레시 토큰은 그대로 둔다", async () => {
+    api.patch.mockResolvedValue({ data: NICKNAME_CHANGED });
+
+    await changeNickname({ nickname: "새 닉네임" });
+
+    expect(cookieStore.set).toHaveBeenCalledExactlyOnceWith(
+      "hk_access",
+      "eyJ…",
+      expect.objectContaining({ httpOnly: true, maxAge: 3600 - 30 }),
+    );
+    expect(cookieStore.delete).not.toHaveBeenCalled();
   });
 
   it("규칙에 맞지 않으면 보내지 않고 닉네임 칸 오류(mock reason)를 돌려준다", async () => {

@@ -1,4 +1,4 @@
-// 1. 인증 응답. 기준: mock AuthDtos · UserDtos.UserSummary · AuthController.
+// 1. 인증 응답. 기준: 웹 Swagger 1.1 ~ 1.4.
 
 /** 1.1 이메일 사용 가능 여부 (200) */
 export interface EmailAvailabilityResponse {
@@ -12,15 +12,15 @@ export interface UserSummary {
   /** 로그인 아이디 */
   email: string;
   nickname: string;
-  /** 프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null */
+  /** 프로필 사진 주소. 없으면 null(웹 Swagger 1.2 · 1.3 예시) */
   profileImageUrl: string | null;
 }
 
 /** 1.2 회원가입(201) · 1.3 로그인(200) */
 export interface TokenResponse {
-  /** API 호출용 JWT(HS256). sub(회원 id) · nickname · iat · exp를 담는다. `Authorization: Bearer {accessToken}` */
+  /** API 호출용 JWT(웹 Swagger bearerFormat JWT, 2.2 "토큰의 nickname"). `Authorization: Bearer {accessToken}` */
   accessToken: string;
-  /** 액세스 토큰 재발급용 토큰(1.4). JWT가 아닌 불투명한 문자열 */
+  /** 액세스 토큰 재발급용 토큰(1.4) */
   refreshToken: string;
   /** 액세스 토큰 유효 시간(초) */
   expiresIn: number;
@@ -30,9 +30,9 @@ export interface TokenResponse {
 
 /** 1.4 토큰 재발급 (200) */
 export interface RefreshResponse {
-  /** 새 액세스 토큰. 1.3 응답의 accessToken과 같은 형식 */
+  /** 새 액세스 토큰 */
   accessToken: string;
-  /** 새 리프레시 토큰. 요청에 쓴 토큰은 다시 쓸 수 없다 */
+  /** 새 리프레시 토큰. 보낸 리프레시 토큰은 다시 쓸 수 없다(웹 Swagger 1.4) */
   refreshToken: string;
   /** 액세스 토큰 유효 시간(초) */
   expiresIn: number;

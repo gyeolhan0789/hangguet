@@ -19,7 +19,7 @@ vi.mock("@/lib/interview/actions", () => ({
   endSession: (...args: unknown[]) => endSession(...args),
 }));
 
-// 기준: Figma S06-B Chat Input(18:2606) · Swagger 5.7(TEXT 1~1,000자) · API 명세 5.8(마지막 답변 후 자동)
+// 기준: Figma S06-B Chat Input(18:2606) · 웹 Swagger 5.7(TEXT 1~1,000자) · 마지막 질문(isLastQuestion)이면 5.8 자동
 // · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈) · 모션 메모 S06-B(18:2615)
 
 const QUESTION: CurrentQuestion = {
@@ -28,10 +28,14 @@ const QUESTION: CurrentQuestion = {
   content: "가장 큰 기술적 문제는 무엇이었나요?",
 };
 
-beforeEach(() => useInterviewStore.getState().reset());
+beforeEach(() => {
+  useInterviewStore.getState().reset();
+  // 앞 테스트의 응답 구현과 남은 once 값까지 비운다.
+  submitTextAnswer.mockReset();
+  endSession.mockReset();
+});
 afterEach(() => {
   cleanup();
-  vi.clearAllMocks();
 });
 
 const input = () => screen.getByRole("textbox", { name: "답변" }) as HTMLTextAreaElement;
@@ -117,19 +121,18 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(input().value).toBe("답");
   });
 
-  it("실패한 답변을 다시 보내면 같은 키를, 키를 이미 썼다고 하면 새 키를 쓴다", async () => {
-    submitTextAnswer.mockResolvedValueOnce({ formError: "잠시 후 다시 시도해 주세요." });
-    submitTextAnswer.mockResolvedValueOnce({
-      formError: "이미 처리된 요청이에요.",
-      keyReused: true,
-    });
-    submitTextAnswer.mockResolvedValueOnce({ isLastQuestion: false });
+  it("응답을 못 받은 답변을 다시 보내면 같은 키를, 서버가 실패로 답했으면(keySpent) 새 키를 쓴다", async () => {
+    // 5.7이 돌려줄 결과는 테스트가 단계마다 바꾼다.
+    let result: object = { formError: "잠시 후 다시 시도해 주세요." };
+    submitTextAnswer.mockImplementation(async () => result);
     render(<ChatPanel sessionId={55} question={QUESTION} />);
     type("답");
 
     await enter();
     expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
+    result = { formError: "이미 처리된 요청이에요.", keySpent: true };
     await enter();
+    result = { isLastQuestion: false };
     await enter();
 
     const keys = submitTextAnswer.mock.calls.map((call) => call[3]);

@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// mock Swagger의 요청 · 응답 예시 128개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 129개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerAudioUploadUrlRequest,
   AnswerRequest,
@@ -33,7 +33,9 @@ import type {
   RefreshResponse,
   ReplayResponse,
   ResultResponse,
+  SessionCalendarResponse,
   SessionCreateRequest,
+  SessionListResponse,
   SessionResponse,
   SignupRequest,
   StatsResponse,
@@ -44,7 +46,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 128;
+export const SWAGGER_EXAMPLE_COUNT = 129;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -283,11 +285,11 @@ export const swaggerExamples = [
     totalPracticeMinutes: 400,
     latestJobTitle: "백엔드 개발자",
   } satisfies StatsResponse,
-  // 3.3 연습 달력 200
+  // 3.3 연습 달력 200 한국 시간 시작일 기준
   {
     content: [
-      { practiceDate: "2026-10-01", createdAt: "2026-10-01T21:12:00+09:00" },
-      { practiceDate: "2026-10-02", createdAt: "2026-10-02T20:40:00+09:00" },
+      { practiceDate: "2026-10-20", createdAt: "2026-10-20T20:10:00+09:00" },
+      { practiceDate: "2026-10-21", createdAt: "2026-10-21T19:42:00+09:00" },
     ],
   } satisfies PracticeLogsResponse,
   // 4.3 지원서 목록 200
@@ -389,6 +391,50 @@ export const swaggerExamples = [
     instance: "/api/v1/applications/9",
     code: "APPLICATION_IN_USE",
   } satisfies ProblemDetail,
+  // 5.13 연습 면접 목록 200 완료·분석 중
+  {
+    content: [
+      {
+        id: 55,
+        companyName: "○○전자",
+        jobTitle: "백엔드 개발자",
+        persona: "DEVIL",
+        mode: "VIDEO",
+        status: "COMPLETED",
+        startedAt: "2026-10-21T23:50:00+09:00",
+        endedAt: "2026-10-22T00:10:00+09:00",
+        answeredCount: 5,
+        summary: "논리는 탄탄했지만, 근거가 조금 아쉬웠어요",
+        criterionGrades: [
+          { criterion: "JOB_FIT", grade: "GOOD" },
+          { criterion: "COVER_LETTER", grade: "WEAK" },
+          { criterion: "LOGIC", grade: "GOOD" },
+          { criterion: "DELIVERY", grade: "NORMAL" },
+        ],
+      },
+      {
+        id: 54,
+        companyName: "△△소프트",
+        jobTitle: "서버 개발자",
+        persona: "COFFEE_CHAT",
+        mode: "CHAT",
+        status: "ANALYZING",
+        startedAt: "2026-10-21T19:30:00+09:00",
+        endedAt: "2026-10-21T19:42:00+09:00",
+        answeredCount: 3,
+        summary: null,
+        criterionGrades: [],
+      },
+    ],
+    page: { size: 5, number: 0, totalElements: 2, totalPages: 1 },
+    summary: { totalInterviewCount: 4, practiceMinutes: 32 },
+  } satisfies SessionListResponse,
+  // 5.13 연습 면접 목록 200 기록 없는 날짜
+  {
+    content: [],
+    page: { size: 5, number: 0, totalElements: 0, totalPages: 0 },
+    summary: { totalInterviewCount: 4, practiceMinutes: 0 },
+  } satisfies SessionListResponse,
   // 5.1 면접 만들기 요청
   { applicationId: 10, persona: "DEVIL", mode: "VIDEO" } satisfies SessionCreateRequest,
   // 5.1 면접 만들기 201
@@ -882,15 +928,6 @@ export const swaggerExamples = [
   } satisfies ProblemDetail,
   // 5.10 실시간 음성 인식 토큰 200
   { token: "…", expiresAt: "2026-10-15T12:16:00+09:00" } satisfies SttTokenResponse,
-  // 5.10 실시간 음성 인식 토큰 400 VALIDATION_FAILED
-  {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/auth/signup",
-    code: "VALIDATION_FAILED",
-    errors: [{ field: "password", reason: "8~64자, 영문과 숫자를 모두 포함해야 합니다." }],
-  } satisfies ProblemDetail,
   // 5.10 실시간 음성 인식 토큰 404 SESSION_NOT_FOUND
   {
     title: "Not Found",
@@ -1005,15 +1042,6 @@ export const swaggerExamples = [
     voiceId: "…",
     modelId: "…",
   } satisfies TtsTokenResponse,
-  // 5.12 질문 음성 토큰 400 VALIDATION_FAILED
-  {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/auth/signup",
-    code: "VALIDATION_FAILED",
-    errors: [{ field: "password", reason: "8~64자, 영문과 숫자를 모두 포함해야 합니다." }],
-  } satisfies ProblemDetail,
   // 5.12 질문 음성 토큰 404 SESSION_NOT_FOUND
   {
     title: "Not Found",
@@ -1046,6 +1074,11 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
     code: "TTS_UNAVAILABLE",
   } satisfies ProblemDetail,
+  // 5.15 월별 연습 면접 횟수 200 스키마 example
+  {
+    month: "2026-10",
+    content: [{ practiceDate: "2026-10-01", interviewCount: 0 }],
+  } satisfies SessionCalendarResponse,
   // 6.1 녹화 업로드 주소 요청 스키마 example
   { contentType: "video/webm" } satisfies RecordingUploadUrlRequest,
   // 6.1 녹화 업로드 주소 200

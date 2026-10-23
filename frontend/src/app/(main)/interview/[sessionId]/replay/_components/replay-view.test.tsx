@@ -7,27 +7,52 @@ import { ReplayView } from "./replay-view";
 
 // 기준: Figma S07-1 면접 다시보기(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프,
 // 재생 중인 질문 강조 + 자막 동기화, 채팅은 영상 대신 대화 기록) · Swagger 6.4 200 예시(마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30)
-// · Figma S07-1 Timeline(18:4519: 지난 질문 · 지금 질문 · 앞 질문 마커) · API 명세 6.4(자막은 재생 위치가 속한 질문의 answer)
+// · Figma S07-1 Timeline(18:4519: 지난 질문 · 지금 질문 · 앞 질문 마커) · 웹 Swagger 6.4(화상은 녹화 영상과 질문별 시점) · 자막은 재생 위치가 속한 질문의 answer
 // · 사용자 결정(2026-10-22: 영상이 없으면 플레이어 없이 질문 목록과 답변 칸, 질문 카드를 누르면 펼쳐 답변을 보여 주고
 //   다시 누르면 답변 칸 접기 → 카드 흔들기 → 제자리(펼칠 때보다 두 배 빠르게), 배속 1x → 1.5x → 2x → 1x)
 // 영상 재생은 jsdom에 없어 <video>의 재생 위치 · 길이 · 배속을 테스트가 정하고 이벤트를 일으킨다. 실제 재생은 E2E가 본다.
 
 // 동작 줄이기 설정과, 접을 때 카드 흔들기(animate)만 바꾼다.
 // jsdom에서는 AnimatePresence의 퇴장 애니메이션이 끝나지 않아 사라진 요소가 남으므로, 들어오고 나가는 것만 보도록 바로 바꾼다.
-const motion = vi.hoisted(() => ({ reduced: true, animate: vi.fn() }));
+// 있던 자식이 사라지는 순간에만 퇴장이 바로 끝난 것으로 보고 onExitComplete를 한 번 부른다(motion의 계약과 같게).
+const motion = vi.hoisted(() => ({
+  reduced: true,
+  animate: vi.fn(),
+  actualAnimate: undefined as unknown,
+}));
 vi.mock("motion/react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("motion/react")>();
+  const { useEffect, useRef } = await import("react");
+  motion.actualAnimate = actual.animate;
   motion.animate.mockImplementation(actual.animate);
   return {
     ...actual,
     useReducedMotion: () => motion.reduced,
     animate: (...args: unknown[]) => motion.animate(...args),
-    AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
+    AnimatePresence: ({
+      children,
+      onExitComplete,
+    }: {
+      children: React.ReactNode;
+      onExitComplete?: () => void;
+    }) => {
+      const hadChildren = useRef(Boolean(children));
+      useEffect(() => {
+        const has = Boolean(children);
+        if (hadChildren.current && !has) onExitComplete?.();
+        hadChildren.current = has;
+      }, [children, onExitComplete]);
+      return children;
+    },
   };
 });
 
 beforeEach(() => {
   motion.reduced = true;
+  // 흔들기(animate) 기록과 남은 once 구현을 테스트마다 비우고 실제 animate로 되돌린다.
+  motion.animate
+    .mockReset()
+    .mockImplementation(motion.actualAnimate as (...args: unknown[]) => unknown);
   // 넓은 화면(lg)
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: true,
@@ -107,13 +132,6 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
     ]);
   });
 
-  it("등급이 없는 질문(grade null)은 등급을 보여 주지 않는다", () => {
-    const items = REPLAY.items.map((item, i) => (i === 0 ? { ...item, grade: null } : item));
-    render(<ReplayView replay={{ ...REPLAY, items }} />);
-
-    expect(card("1분 자기소개").textContent).toBe("Q100:421분 자기소개");
-  });
-
   describe("영상이 있을 때(화상)", () => {
     it("질문 카드를 누르면 영상을 그 질문 시점으로 옮기고, 영상 위 질문 · 자막 · 카드 안에 그 질문의 답변을 보여 준다", () => {
       render(<ReplayView replay={REPLAY} />);
@@ -153,18 +171,6 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       expect(overlay()).toBe("Q2○○ 프로젝트에서 맡은 역할은?");
       expect(screen.getByRole("region", { name: "자막" }).textContent).toContain("자막 · 03:10");
       expect(highlighted()).toEqual(["Q2"]);
-    });
-
-    it("답변이 없는 질문(answer null)을 재생 중이면 자막을 보여 주지 않는다", () => {
-      const items = REPLAY.items.map((item, i) => (i === 1 ? { ...item, answer: null } : item));
-      render(<ReplayView replay={{ ...REPLAY, items }} />);
-      const { video, state } = fakeVideo();
-
-      state.currentTime = 200;
-      fireEvent.timeUpdate(video);
-
-      expect(overlay()).toBe("Q2○○ 프로젝트에서 맡은 역할은?");
-      expect(screen.queryByRole("region", { name: "자막" })).toBeNull();
     });
 
     it("영상 길이를 알면 타임라인에 질문 마커를 위치 비율대로 놓고, 지난 · 지금 · 앞 질문을 나눠 그린다", () => {
@@ -288,21 +294,10 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       expect(card("트래픽 처리").getAttribute("aria-expanded")).toBe("false");
     });
 
-    it("답변이 없는 질문(answer null)은 펼쳐도 답변 칸이 없다", () => {
-      const items = REPLAY.items.map((item, i) => (i === 0 ? { ...item, answer: null } : item));
-      render(<ReplayView replay={{ ...CHAT, items }} />);
-
-      fireEvent.click(card("1분 자기소개"));
-
-      expect(card("1분 자기소개").getAttribute("aria-expanded")).toBe("true");
-      expect(card("1분 자기소개").hasAttribute("aria-controls")).toBe(false);
-    });
-
     it("접을 때는 카드를 흔든 뒤(펼칠 때의 절반 시간) 목록으로 돌아가고, 흔드는 동안 다시 눌러도 무시한다", async () => {
       motion.reduced = false;
-      // 답변 칸이 없는 질문은 접을 때 바로 카드를 흔든다. 흔들기가 끝나는 때를 테스트가 정한다.
-      const items = REPLAY.items.map((item, i) => (i === 0 ? { ...item, answer: null } : item));
-      render(<ReplayView replay={{ ...CHAT, items }} />);
+      // 답변 칸이 접히면(퇴장 끝) 카드를 흔든다. 흔들기가 끝나는 때를 테스트가 정한다.
+      render(<ReplayView replay={CHAT} />);
       fireEvent.click(card("1분 자기소개"));
       let finish!: () => void;
       motion.animate.mockImplementationOnce(() => new Promise<void>((done) => (finish = done)));

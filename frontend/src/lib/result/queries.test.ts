@@ -10,7 +10,7 @@ vi.mock("@/lib/api/client", () => ({ api: { get } }));
 const { getReplay, getResult } = await import("./queries");
 
 // 기준: Swagger 6.3 면접 결과 · 6.4 다시보기(200 · 404 SESSION_NOT_FOUND · 409 RESULT_NOT_READY · 409 NO_RESULT 예시)
-// · API 명세 6.3(RESULT_NOT_READY면 화면은 S06-1로) · 사용자 결정(2026-10-22: 404 · NO_RESULT는 S03으로)
+// · RESULT_NOT_READY면 S06-1 분석 중 화면으로 · 사용자 결정(2026-10-22: 404 · NO_RESULT는 S03으로)
 
 // Swagger 6.3 · 6.4 실패 예시
 const NOT_FOUND = {

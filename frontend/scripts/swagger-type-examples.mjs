@@ -1,4 +1,4 @@
-// mock Swagger의 요청 · 응답 예시를 모두 src/types/api 타입으로 적은 TS 파일을 만든다.
+// 웹 mock 서버 Swagger의 요청 · 응답 예시를 모두 src/types/api 타입으로 적은 TS 파일을 만든다.
 // tsc가 예시마다 필드 이름 · 빠진 필드 · 남는 필드 · 타입 · enum 값을 검사하게 하려는 것이다.
 // 사용: node scripts/swagger-type-examples.mjs [Swagger JSON 주소 또는 파일]
 import fs from "node:fs";
@@ -23,7 +23,9 @@ const RESPONSE_TYPES = {
   "POST /applications 201": "ApplicationResponse",
   "GET /applications/{applicationId} 200": "ApplicationResponse",
   "PATCH /applications/{applicationId} 200": "ApplicationResponse",
+  "GET /interview-sessions 200": "SessionListResponse",
   "POST /interview-sessions 201": "SessionResponse",
+  "GET /interview-sessions/calendar 200": "SessionCalendarResponse",
   "GET /interview-sessions/{sessionId} 200": "SessionResponse",
   "POST /interview-sessions/{sessionId}/plan/retry 202": "SessionResponse",
   "POST /interview-sessions/{sessionId}/start 200": "SessionResponse",
@@ -129,7 +131,7 @@ fs.mkdirSync("src/types/api/__tests__", { recursive: true });
 fs.writeFileSync(
   OUT,
   `// 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// mock Swagger의 요청 · 응답 예시 ${entries.length}개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 ${entries.length}개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {\n${types.map((t) => `  ${t},`).join("\n")}\n} from "..";
 
 export const SWAGGER_EXAMPLE_COUNT = ${entries.length};

@@ -1,5 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   FIXTURE_TODAY,
@@ -12,7 +12,10 @@ import {
 import { HomeView } from "./home-view";
 
 // vitest 전역 모드가 아니라 테스트마다 직접 정리한다.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 // mock 서버는 오늘 미완료 상태만 주므로, 나머지 상태(S02-B · C · D)는 여기서 확인한다.
 describe("HomeView", () => {
@@ -44,6 +47,26 @@ describe("HomeView", () => {
     );
   });
 
+  it("S02-B 오늘 나아진 점의 링크 날짜는 FE의 오늘이 아니라 응답의 가장 최근 성장 리뷰 날짜다(자정 직후)", () => {
+    render(<HomeView home={HOME_DONE} today="2026-10-16" />);
+
+    expect(screen.getByRole("link", { name: /전달력 \+8 · 논리성 \+4/ }).getAttribute("href")).toBe(
+      "/reviews/2026-10-15",
+    );
+  });
+
+  it("웹 Swagger 3.1 homeState 4개 밖의 값이면 빈 화면 대신 오류를 던져 오류 화면으로 보낸다", () => {
+    const unknown = {
+      ...HOME_NOT_DONE,
+      homeState: "SOMETHING_ELSE",
+    } as unknown as typeof HOME_NOT_DONE;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(() => render(<HomeView home={unknown} today={FIXTURE_TODAY} />)).toThrow(
+      "알 수 없는 홈 상태: SOMETHING_ELSE",
+    );
+  });
+
   it("S02-C 끊김: 0일째 · 지난 최고 기록 · 지난번 마지막 연습", () => {
     render(<HomeView home={HOME_BROKEN} today={FIXTURE_TODAY} />);
 
@@ -64,25 +87,5 @@ describe("HomeView", () => {
     expect(screen.getByText("2. 3D 면접관과 면접")).toBeDefined();
     expect(screen.getByText(/첫 면접을 마치면 여기에 차곡차곡 쌓여요/)).toBeDefined();
     expect(screen.queryByText("최근 성장 리뷰")).toBeNull();
-  });
-
-  // 7.2 RecentReviewItem: 첫 연습일이면 비교할 날이 없어 criterion · delta가 함께 null이다(mock DTO · API 명세 7장).
-  it("최근 성장 리뷰가 첫 연습일(criterion · delta null)이면 점수 칩 없이 날짜 · 회사명만 보여 준다", () => {
-    const firstDay = { ...HOME_BROKEN.recentReviews[0], criterion: null, delta: null };
-    render(
-      <HomeView
-        home={{ ...HOME_BROKEN, recentReviews: [firstDay, HOME_BROKEN.recentReviews[1]] }}
-        today={FIXTURE_TODAY}
-      />,
-    );
-
-    // 지난번 마지막 연습 카드: 점수 대신 회사명
-    expect(screen.getByText("10.12 · ○○전자")).toBeDefined();
-    expect(screen.queryByText(/null|undefined/)).toBeNull();
-    // 최근 성장 리뷰 행: 칩 없이 날짜 · 회사명, 화면 읽기 이름에도 null이 없다
-    expect(screen.getByRole("link", { name: "10.12 ○○전자 성장 리뷰 보기" })).toBeDefined();
-    expect(
-      screen.getByRole("link", { name: "10.11 △△소프트 논리성 +4 성장 리뷰 보기" }),
-    ).toBeDefined();
   });
 });

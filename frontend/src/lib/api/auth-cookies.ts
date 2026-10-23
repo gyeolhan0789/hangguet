@@ -5,7 +5,7 @@ export const REFRESH_TOKEN_COOKIE = "hk_refresh";
 
 // 액세스 토큰 쿠키는 토큰보다 조금 먼저 지워지게 해서, 만료 직전에 proxy가 미리 재발급하게 한다.
 const ACCESS_TOKEN_MARGIN_SECONDS = 30;
-// 리프레시 토큰의 실제 유효 기간은 BE가 정한다(API 명세 1.3). 쿠키는 그보다 길게만 두면 된다.
+// 리프레시 토큰의 실제 유효 기간은 BE가 정한다. 쿠키는 그보다 길게만 두면 된다.
 const REFRESH_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 const baseOptions = {
@@ -23,13 +23,21 @@ interface CookieWriter {
 
 /** 로그인(1.3)·토큰 재발급(1.4) 응답을 쿠키에 저장한다. */
 export function setAuthCookies(cookies: CookieWriter, tokens: RefreshResponse) {
-  cookies.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, {
-    ...baseOptions,
-    maxAge: Math.max(tokens.expiresIn - ACCESS_TOKEN_MARGIN_SECONDS, 0),
-  });
+  setAccessTokenCookie(cookies, tokens);
   cookies.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, {
     ...baseOptions,
     maxAge: REFRESH_TOKEN_MAX_AGE_SECONDS,
+  });
+}
+
+/** 액세스 토큰만 바꾼다. 닉네임 변경(2.2)은 새 액세스 토큰만 주고 리프레시 토큰은 그대로 쓴다(웹 Swagger 2.2). */
+export function setAccessTokenCookie(
+  cookies: CookieWriter,
+  { accessToken, expiresIn }: Pick<RefreshResponse, "accessToken" | "expiresIn">,
+) {
+  cookies.set(ACCESS_TOKEN_COOKIE, accessToken, {
+    ...baseOptions,
+    maxAge: Math.max(expiresIn - ACCESS_TOKEN_MARGIN_SECONDS, 0),
   });
 }
 

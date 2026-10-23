@@ -6,7 +6,9 @@ import { redirectTo } from "@/test/redirect";
 
 const post = vi.fn();
 const get = vi.fn();
-vi.mock("@/lib/api/client", () => ({ api: { post, get } }));
+// 인증 API(1.1~1.5)는 토큰 · 인터셉터 없는 인스턴스로 보낸다. 로그아웃이 만료면 1.4로 재발급한다.
+const refreshTokens = vi.fn();
+vi.mock("@/lib/api/token-refresh", () => ({ plainClient: { post, get }, refreshTokens }));
 
 const cookieStore = { get: vi.fn(), set: vi.fn(), delete: vi.fn() };
 vi.mock("next/headers", () => ({ cookies: async () => cookieStore }));
@@ -39,8 +41,19 @@ const signupValues = {
   agreements: { TERMS: true, PRIVACY: true, RECORDING: true },
 };
 
+// 테스트마다 응답 · 쿠키 구현과 남은 once 값까지 비운다(clearAllMocks는 호출 기록만 지운다).
 beforeEach(() => {
   vi.clearAllMocks();
+  for (const mock of [
+    post,
+    get,
+    refreshTokens,
+    cookieStore.get,
+    cookieStore.set,
+    cookieStore.delete,
+  ]) {
+    mock.mockReset();
+  }
 });
 
 describe("login", () => {
@@ -150,14 +163,124 @@ describe("checkEmailAvailable", () => {
 });
 
 describe("logout", () => {
-  it("리프레시 토큰을 폐기하고 쿠키를 지운 뒤 랜딩으로 보낸다", async () => {
-    cookieStore.get.mockReturnValue({ value: "refresh" });
+  // 기준: 웹 Swagger 1.5 로그아웃(Bearer · { refreshToken } · 204) · 공통 401 TOKEN_EXPIRED · 1.4 재발급
+  const stored = (cookies: Record<string, string>) =>
+    cookieStore.get.mockImplementation((name: string) =>
+      name in cookies ? { value: cookies[name] } : undefined,
+    );
+  const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+  const renewed = { accessToken: "access2", refreshToken: "refresh2", expiresIn: 3600 };
+
+  function expectSignedOut() {
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_access");
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_refresh");
+  }
+
+  it("액세스 토큰을 Bearer로 붙여 리프레시 토큰을 폐기하고, 쿠키를 지운 뒤 랜딩으로 보낸다", async () => {
+    stored({ hk_access: "access", hk_refresh: "refresh" });
     post.mockResolvedValue({ status: 204 });
 
     await expect(logout()).rejects.toThrow(redirectTo("/"));
 
-    expect(post).toHaveBeenCalledWith("/auth/logout", { refreshToken: "refresh" });
-    expect(cookieStore.delete).toHaveBeenCalledWith("hk_access");
-    expect(cookieStore.delete).toHaveBeenCalledWith("hk_refresh");
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      "/auth/logout",
+      { refreshToken: "refresh" },
+      bearer("access"),
+    );
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expectSignedOut();
+  });
+
+  it("401 TOKEN_EXPIRED면 1.4로 새 토큰을 받아 새 토큰으로 다시 보낸다", async () => {
+    stored({ hk_access: "access", hk_refresh: "refresh" });
+    // 서버는 보낸 액세스 토큰으로 답을 정한다: 옛 토큰이면 만료, 새 토큰이면 204.
+    post.mockImplementation(
+      async (_url: string, _body: unknown, config: { headers: { Authorization?: string } }) => {
+        if (config.headers.Authorization === "Bearer access") {
+          throw problem(401, { code: "TOKEN_EXPIRED" });
+        }
+        return { status: 204 };
+      },
+    );
+    refreshTokens.mockResolvedValue(renewed);
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(refreshTokens).toHaveBeenCalledExactlyOnceWith("refresh");
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenNthCalledWith(
+      1,
+      "/auth/logout",
+      { refreshToken: "refresh" },
+      bearer("access"),
+    );
+    expect(post).toHaveBeenNthCalledWith(
+      2,
+      "/auth/logout",
+      { refreshToken: "refresh2" },
+      bearer("access2"),
+    );
+    expectSignedOut();
+  });
+
+  it("액세스 토큰 쿠키가 없으면 Bearer 없이 보낸다", async () => {
+    stored({ hk_refresh: "refresh" });
+    post.mockRejectedValueOnce(problem(401, { code: "UNAUTHORIZED" }));
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(post).toHaveBeenCalledExactlyOnceWith(
+      "/auth/logout",
+      { refreshToken: "refresh" },
+      { headers: {} },
+    );
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expectSignedOut();
+  });
+
+  it("재발급이 REFRESH_TOKEN_INVALID(null)면 1.5는 보내지 않고 로그아웃을 마친다", async () => {
+    stored({ hk_access: "access", hk_refresh: "refresh" });
+    post.mockRejectedValueOnce(problem(401, { code: "TOKEN_EXPIRED" }));
+    refreshTokens.mockResolvedValue(null);
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expectSignedOut();
+  });
+
+  it.each([
+    ["401 UNAUTHORIZED", problem(401, { code: "UNAUTHORIZED" })],
+    ["500 INTERNAL_ERROR", problem(500, { code: "INTERNAL_ERROR" })],
+    ["연결 오류", new AxiosError("Network Error")],
+  ])("그 밖의 실패(%s)는 재발급 없이 쿠키를 지우고 랜딩으로 보낸다", async (_, error) => {
+    stored({ hk_access: "access", hk_refresh: "refresh" });
+    post.mockRejectedValueOnce(error);
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expectSignedOut();
+  });
+
+  it("재발급 자체가 실패(500 등 throw)해도 쿠키를 지우고 랜딩으로 보낸다", async () => {
+    stored({ hk_access: "access", hk_refresh: "refresh" });
+    post.mockRejectedValueOnce(problem(401, { code: "TOKEN_EXPIRED" }));
+    refreshTokens.mockRejectedValue(problem(500, { code: "INTERNAL_ERROR" }));
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expectSignedOut();
+  });
+
+  it("리프레시 토큰 쿠키가 없으면 보내지 않고 쿠키만 지운다", async () => {
+    stored({ hk_access: "access" });
+
+    await expect(logout()).rejects.toThrow(redirectTo("/"));
+
+    expect(post).not.toHaveBeenCalled();
+    expect(refreshTokens).not.toHaveBeenCalled();
+    expectSignedOut();
   });
 });

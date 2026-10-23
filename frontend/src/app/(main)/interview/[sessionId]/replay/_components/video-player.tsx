@@ -14,7 +14,7 @@ import type { ReplayItem } from "@/types/api";
 // · 앞 질문 흰색 + line 테두리 2) · '06:12 / 18:00' 13 SemiBold text-2 · 배속 칩 surface · 좌우 10 · 위아래 4 · 12 Bold text-2)
 // · Transcript(18:4530: bg-sub · 둥글기 16 · 좌우 18 · 위아래 14 · 간격 4 · '자막 · 06:12' 12 Bold text-3 · 답변 15 Medium text-1)
 // · 모션 메모 S07-1(18:4573: 타임라인 마커 scale 팝, 재생 중 질문이 바뀌면 영상 좌하단 질문 오버레이 crossfade)
-// · API 명세 6.4(재생 중 자막은 재생 위치가 속한 질문의 answer) · ReplayResponse.videoUrl
+// · 웹 Swagger 6.4(화상은 녹화 영상과 질문별 시점) · 재생 중 자막은 재생 위치가 속한 질문의 answer · ReplayResponse.videoUrl
 // · 사용자 결정(2026-10-22: 내 화면(PiP)은 녹화 영상에 합쳐져 있다고 보고 따로 그리지 않는다, 배속 1x → 1.5x → 2x → 1x,
 //   자막은 단어 하이라이트 없이 답변 단위)
 
@@ -191,7 +191,7 @@ export function PlayerControls({
         </button>
       </div>
 
-      {item?.answer && (
+      {item && (
         <section
           aria-label="자막"
           className="flex w-full flex-col gap-1 rounded-2xl bg-bg-sub px-[18px] py-3.5 tracking-[-0.2px]"

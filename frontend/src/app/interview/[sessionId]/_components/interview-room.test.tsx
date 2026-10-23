@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,8 +18,10 @@ vi.mock("motion/react", async (importOriginal) => ({
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 const startSession = vi.fn();
+const retryPlan = vi.fn();
 vi.mock("@/lib/interview/actions", () => ({
   startSession: (...args: unknown[]) => startSession(...args),
+  retryPlan: (...args: unknown[]) => retryPlan(...args),
   submitTextAnswer: vi.fn(),
   endSession: vi.fn(),
 }));
@@ -30,8 +32,10 @@ vi.mock("./use-interview-media", () => ({
   useInterviewMedia: () => ({ stream: null, level: motionValue(0.5) }),
 }));
 
-// 기준: Swagger 5.2(status · planStatus · mode) · 5.5 지금 질문 · 5.4 면접 시작
-// · API 명세 1장(2초마다(임시 값) 다시 불러 확인) · 5.4(채팅: 질문 준비가 끝나면 화면이 자동으로 부른다)
+// 기준: 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
+// · 5.3 면접 플랜 재생성 · Idempotency-Key(같은 키면 처음 결과를 그대로 반환)
+// · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도])
+// · 웹 Swagger 5.2 · 5.5(2초마다(임시 값) 다시 불러 확인) · 채팅은 질문 준비가 끝나면 화면이 5.4를 자동으로 부른다
 // · 기획 메모 S06-1(18:3531: 마지막 답변 · 끝내기 직후 결과 분석 중)
 
 // Swagger 5.2 200 예시 'S06·S06-B 면접 중'
@@ -65,6 +69,8 @@ let online = true;
 beforeEach(() => {
   vi.useFakeTimers();
   useInterviewStore.getState().reset();
+  startSession.mockReset().mockResolvedValue({});
+  retryPlan.mockReset().mockResolvedValue({});
   online = true;
   vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
 });
@@ -166,6 +172,55 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
 
     expect(startSession).toHaveBeenCalledTimes(1);
     expect(startSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/));
+  });
+
+  it("채팅: 5.4 자동 시작이 서버 실패면 2초 뒤 다시 조회하고 새 키로, 연결 오류면 같은 키로 다시 보낸다", async () => {
+    const chat = { ...SESSION, mode: "CHAT", status: "READY", currentQuestion: null } as const;
+    // 5.4가 돌려줄 결과는 테스트가 단계마다 바꾼다.
+    let result: object = { formError: "지금은 할 수 없는 요청이에요.", keySpent: true };
+    startSession.mockImplementation(async () => result);
+    render(<InterviewRoom session={chat} currentQuestion={null} />);
+    await act(async () => {});
+    const firstKey = startSession.mock.calls[0][1];
+    expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
+
+    result = { formError: "잠시 후 다시 시도해 주세요." };
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(startSession).toHaveBeenCalledTimes(2);
+    const secondKey = startSession.mock.calls[1][1];
+    expect(secondKey).not.toBe(firstKey);
+
+    result = {};
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(startSession).toHaveBeenCalledTimes(3);
+    expect(startSession.mock.calls[2][1]).toBe(secondKey);
+
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS * 3));
+    expect(startSession).toHaveBeenCalledTimes(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("채팅: 질문 준비가 실패했으면(5.2 planStatus FAILED) 말풍선 자리에 '면접 준비에 실패했어요'와 [다시 시도](5.3)를 보여 준다", async () => {
+    const failed = {
+      ...SESSION,
+      mode: "CHAT",
+      status: "READY",
+      planStatus: "FAILED",
+      currentQuestion: null,
+    } as const;
+    retryPlan.mockResolvedValue({ formError: "면접 준비가 실패한 상태가 아니에요." });
+    render(<InterviewRoom session={failed} currentQuestion={null} />);
+
+    const prepare = screen.getByRole("region", { name: "면접 준비" });
+    expect(prepare.textContent).toContain("면접 준비에 실패했어요");
+    expect(thinking()).toBeNull();
+    expect(startSession).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시도" })));
+
+    expect(retryPlan).toHaveBeenCalledWith(55);
+    expect(screen.getByRole("alert").textContent).toBe("면접 준비가 실패한 상태가 아니에요.");
   });
 
   it("화상 면접은 이 화면에서 시작하지 않는다(S05 [면접 시작])", () => {

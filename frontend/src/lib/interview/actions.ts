@@ -42,10 +42,13 @@ import { toSpeechActionFailure, type SpeechActionFailure } from "./speech-failur
 // 화상 → S05 장치 점검 · 채팅 → S05 건너뛰고 바로 면접)
 
 export interface SessionActionResult extends FormActionResult<never> {
-  /** 5.8 면접 끝내기 응답의 레벨업(API 명세 5.8: 이 응답에만 값이 있어 화면이 기억한다) */
+  /** 5.8 면접 끝내기 응답의 레벨업(웹 Swagger leveledUp: 5.8 응답에만 값이 있어 화면이 기억한다) */
   leveledUp?: boolean | null;
-  /** 409 IDEMPOTENCY_KEY_REUSED: 이 키를 다른 요청에 이미 썼다. 다시 보낼 때는 새 키를 만든다. */
-  keyReused?: true;
+  /**
+   * 서버가 이 멱등 키의 요청에 실패로 답했다. 웹 Swagger Idempotency-Key는 "같은 키·같은 본문이면 처음 결과를 그대로 반환"이라,
+   * 다시 보낼 때는 새 키를 만든다. 응답을 받지 못한 실패(연결 오류 등)는 같은 키로 다시 보낸다.
+   */
+  keySpent?: true;
 }
 
 /**
@@ -75,7 +78,7 @@ export async function createSession(
     if (code === "APPLICATION_NOT_FOUND") redirect(ROUTES.practice);
     return {
       ...toFormActionResult(error, []),
-      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+      ...(getProblemDetail(error) && { keySpent: true }),
     };
   }
   // 고른 방식으로 갈 곳을 정한다: 채팅은 장치 점검이 필요 없어 S05를 건너뛴다(기획 메모 S05-1).
@@ -86,8 +89,8 @@ export async function createSession(
 // · 409 PLAN_NOT_FAILED) · 기획 메모 S05(18:752: 생성 실패 시 재시도 안내)
 
 /**
- * 5.3 질문 준비(면접 플랜)를 다시 시작한다. 성공하면 S05를 다시 그려(refresh) 진행률 조회(5.2)를 이어 간다.
- * 409 PLAN_NOT_FAILED는 이미 다시 준비 중이거나 끝났다는 뜻이라, 실패로 보지 않고 다시 그리기만 한다.
+ * 5.3 질문 준비(면접 플랜)를 다시 시작한다. 성공하면 화면을 다시 그려(refresh) 진행률 조회(5.2)를 이어 간다.
+ * 409 PLAN_NOT_FAILED는 이미 다시 준비 중이거나 끝났다는 뜻이라, 다시 그리면서 서버 문구(detail)도 돌려준다.
  */
 export async function retryPlan(sessionId: number): Promise<FormActionResult<never>> {
   if (!idSchema.safeParse(sessionId).success) return { formError: RETRY_LATER };
@@ -98,6 +101,8 @@ export async function retryPlan(sessionId: number): Promise<FormActionResult<nev
     const code = getProblemDetail(error)?.code;
     if (code === "SESSION_NOT_FOUND") redirect(ROUTES.practice);
     if (code !== "PLAN_NOT_FAILED") return toFormActionResult(error, []);
+    refresh();
+    return toFormActionResult(error, []);
   }
   refresh();
   return {};
@@ -130,15 +135,15 @@ export async function startSession(
     if (code === "PLAN_NOT_READY") refresh();
     return {
       ...toFormActionResult(error, []),
-      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+      ...(getProblemDetail(error) && { keySpent: true }),
     };
   }
   redirect(interviewPath(sessionId));
 }
 
 // 기준: Swagger 5.10 실시간 음성 인식 토큰(POST …/stt-token → 200 SttTokenResponse · 404 SESSION_NOT_FOUND
-// · 409 INVALID_SESSION_STATE · 503 STT_UNAVAILABLE) · API 명세 5.10(키는 연결 1회에만 사용할 수 있으므로 연결할 때마다 새로 발급받는다)
-// · API 명세 1장(400 VALIDATION_FAILED · 500 INTERNAL_ERROR 공통, Nginx 502 · 504는 상태 코드로 판단)
+// · 409 INVALID_SESSION_STATE · 503 STT_UNAVAILABLE) · 웹 Swagger 5.10(1회용 임시 키라 연결할 때마다 새로 받는다)
+// · 웹 Swagger 공통 오류(400 VALIDATION_FAILED · 500 INTERNAL_ERROR). 본문 없는 실패(502 · 504 등)는 code 없이 status만 넘긴다
 
 /** 5.10 결과. 성공이면 Soniox 연결용 임시 키와 연결 시작 기한, 실패면 code · status */
 export type SttTokenActionResult = ({ ok: true } & SttTokenResponse) | SpeechActionFailure;
@@ -161,7 +166,7 @@ export async function issueSttToken(sessionId: number): Promise<SttTokenActionRe
 
 // 기준: Swagger 5.7 답변 제출(POST …/questions/{questionId}/answer + Idempotency-Key → 202 AnswerResponse
 // · 400 VALIDATION_FAILED · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · 409 ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE
-// · IDEMPOTENCY_KEY_REUSED) · API 명세 5.7(S06-B [보내기], 다음 질문은 5.5로 받는다)
+// · IDEMPOTENCY_KEY_REUSED) · 웹 Swagger 5.5(다음 질문은 5.5로 받는다)
 
 export interface TextAnswerActionResult extends SessionActionResult {
   fieldErrors?: { content?: string };
@@ -215,7 +220,7 @@ export async function submitTextAnswer(
     }
     return {
       ...toFormActionResult(error, ["content"]),
-      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+      ...(getProblemDetail(error) && { keySpent: true }),
     };
   }
   refresh();
@@ -224,7 +229,7 @@ export async function submitTextAnswer(
 
 // 기준: Swagger 5.8 면접 끝내기(POST …/end + Idempotency-Key → 202 SessionResponse(ANALYZING) · 200 SessionResponse(ABORTED)
 // · 404 SESSION_NOT_FOUND · 409 INVALID_SESSION_STATE · IDEMPOTENCY_KEY_REUSED)
-// · API 명세 5.8(마지막 답변 후 자동 · S06-E [끝내기] · 답변 0개면 ABORTED, 화면은 홈으로) · 기획 메모 S06-E(18:3508: 끝내기 → S06-1)
+// · 웹 Swagger 5.8(답변 0개면 200 ABORTED '답변 0개 → 홈') · 기획 메모 S06-E(18:3508: 끝내기 → S06-1)
 
 /**
  * 5.8 면접을 끝낸다. 답변이 있으면(ANALYZING) 화면을 다시 그려 S06-1 결과 분석 중으로 바꾸고,
@@ -253,7 +258,7 @@ export async function endSession(
     if (code === "INVALID_SESSION_STATE") refresh();
     return {
       ...toFormActionResult(error, []),
-      ...(code === "IDEMPOTENCY_KEY_REUSED" && { keyReused: true }),
+      ...(getProblemDetail(error) && { keySpent: true }),
     };
   }
   if (data.status === "ABORTED") redirect(ROUTES.home);
@@ -298,8 +303,8 @@ export async function issueTtsToken(
 }
 
 // 기준: Swagger 5.6 답변 음성 업로드 주소(POST …/questions/{questionId}/answer-audio/upload-url + AnswerAudioUploadUrlRequest
-// → 200 UploadUrlResponse · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · 409 INVALID_SESSION_STATE) · API 명세 5.6(objectKey는
-// 5.7 audioObjectKey로 전송한다) · API 명세 1장(400 VALIDATION_FAILED · 500 INTERNAL_ERROR 공통, Nginx 502 · 504는 상태 코드로 판단)
+// → 200 UploadUrlResponse · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · 409 INVALID_SESSION_STATE) · 웹 Swagger 5.6(받은 objectKey는
+// 5.7 audioObjectKey로 보낸다) · 공통 오류(400 VALIDATION_FAILED · 500 INTERNAL_ERROR). 본문 없는 실패(502 · 504 등)는 status만 넘긴다
 
 /** 5.6 결과. 성공이면 답변 음성을 PUT할 주소 · 5.7에 전송할 objectKey · 주소 만료 일시, 실패면 code · status */
 export type AnswerAudioUploadUrlActionResult =
@@ -338,8 +343,8 @@ export async function createAnswerAudioUploadUrl(
 
 // 기준: Swagger 5.7 답변 제출(POST …/answer + Idempotency-Key → 202 AnswerResponse · 400 VALIDATION_FAILED
 // · 404 SESSION_NOT_FOUND · QUESTION_NOT_FOUND · FILE_NOT_FOUND · 409 ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE
-// · IDEMPOTENCY_KEY_REUSED) · API 명세 5.7(화상은 VOICE, content 1~10,000자, audioObjectKey 필수, tokens는 선택 항목)
-// · API 명세 1장(Nginx 502 · 504는 상태 코드로 판단)
+// · IDEMPOTENCY_KEY_REUSED) · 웹 Swagger AnswerRequest(화상은 VOICE, content 1~10,000자, audioObjectKey 필수, tokens는 없어도 됨)
+// · 본문 없는 실패(502 · 504 등)는 status만 넘긴다
 
 /** 5.7 화상 답변 본문. 다시 전송할 때 같은 키와 함께 그대로 전송하도록 한 번 생성해 고정한다 */
 export interface VideoAnswerBody {
@@ -353,7 +358,7 @@ export type AnswerActionResult = ({ ok: true } & AnswerResponse) | SpeechActionF
 
 /**
  * 5.7 화상 답변을 제출한다. 다시 전송할 때는 같은 idempotencyKey와 같은 body를 전달한다(본문이 달라지면 409 IDEMPOTENCY_KEY_REUSED).
- * tokens가 null이면 전송하지 않는다(400 조건에 해당해 생략한 경우, API 명세 5.7).
+ * tokens가 null이면 전송하지 않는다(웹 Swagger AnswerRequest.tokens: 없어도 된다).
  */
 export async function submitVideoAnswer(
   sessionId: number,

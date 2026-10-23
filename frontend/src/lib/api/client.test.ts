@@ -57,14 +57,6 @@ describe("idempotencyHeaders", () => {
       "Idempotency-Key": "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70",
     });
   });
-
-  it("키를 넘기지 않으면 매번 새 UUID를 만든다", () => {
-    const first = idempotencyHeaders()["Idempotency-Key"];
-    const second = idempotencyHeaders()["Idempotency-Key"];
-
-    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(second).not.toBe(first);
-  });
 });
 
 describe("getProblemDetail", () => {

@@ -19,17 +19,23 @@ export async function proxy(request: NextRequest) {
   const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
   const accessToken = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   let loggedIn = !!accessToken && !isAccessTokenExpired(accessToken);
-  /** undefined: 재발급 안 함, null: 재발급 실패(REFRESH_TOKEN_INVALID) */
+  /** undefined: 재발급 안 함(또는 무효가 아닌 실패), null: 다시 로그인해야 함(웹 Swagger 1.4 REFRESH_TOKEN_INVALID) */
   let refreshed: RefreshResponse | null | undefined;
+  /** 재발급이 무효 판정이 아닌 이유(500 · 연결 오류)로 실패했다. 쿠키를 지우지 않고 화면에 맡긴다 */
+  let refreshFailed = false;
 
   if (!loggedIn && refreshToken) {
-    refreshed = await refreshTokens(refreshToken);
-    loggedIn = refreshed !== null;
+    try {
+      refreshed = await refreshTokens(refreshToken);
+    } catch {
+      refreshFailed = true;
+    }
+    loggedIn = refreshed != null;
     if (refreshed) {
       // 이번 요청의 서버 컴포넌트가 새 토큰을 읽도록 요청 쿠키도 바꾼다.
       request.cookies.set(ACCESS_TOKEN_COOKIE, refreshed.accessToken);
       request.cookies.set(REFRESH_TOKEN_COOKIE, refreshed.refreshToken);
-    } else {
+    } else if (refreshed === null) {
       request.cookies.delete(ACCESS_TOKEN_COOKIE);
       request.cookies.delete(REFRESH_TOKEN_COOKIE);
     }
@@ -39,7 +45,7 @@ export async function proxy(request: NextRequest) {
   let response: NextResponse;
   if (loggedIn && GUEST_ONLY_PATHS.includes(pathname)) {
     response = NextResponse.redirect(new URL(ROUTES.home, request.url));
-  } else if (!loggedIn && !PUBLIC_PATHS.includes(pathname)) {
+  } else if (!loggedIn && !refreshFailed && !PUBLIC_PATHS.includes(pathname)) {
     response = NextResponse.redirect(new URL(ROUTES.login, request.url));
   } else {
     // 화면을 그리다 TOKEN_EXPIRED를 받으면 재발급 뒤 이 주소로 돌아온다.
