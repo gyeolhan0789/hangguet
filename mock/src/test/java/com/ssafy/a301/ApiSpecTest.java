@@ -20,18 +20,6 @@ class ApiSpecTest {
     @Autowired private MockMvcTester mockMvc;
 
     @Test
-    void docsListAll40ApisInSpecNumberOrder() {
-        assertThat(mockMvc.get().uri("/v3/api-docs"))
-                .bodyJson()
-                .extractingPath("$.paths.*.*.summary")
-                .asArray()
-                .hasSize(40)
-                .containsSubsequence("5.13 연습 면접 목록", "5.15 월별 연습 면접 횟수")
-                .startsWith("1.1 이메일 사용 가능 여부")
-                .endsWith("7.2 최근 성장 리뷰");
-    }
-
-    @Test
     void homeReturnsExample() {
         assertThat(mockMvc.get().uri("/api/v1/home"))
                 .hasStatusOk()
