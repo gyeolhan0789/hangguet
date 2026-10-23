@@ -117,6 +117,31 @@ public final class ErrorExamples {
             { "title": "Not Found", "status": 404, "detail": "그날의 성장 리뷰가 없어요.",
               "instance": "/api/v1/growth-reviews/2026-10-01", "code": "GROWTH_REVIEW_NOT_FOUND" }\
             """;
+    public static final String ADMIN_LOGIN_FAILED =
+            """
+            { "title": "Unauthorized", "status": 401, "detail": "아이디 또는 비밀번호를 확인해 주세요.",
+              "instance": "/api/v1/admin/auth/login", "code": "ADMIN_LOGIN_FAILED" }\
+            """;
+    public static final String NOTICE_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "공지를 찾을 수 없어요.",
+              "instance": "/api/v1/admin/notices/0", "code": "NOTICE_NOT_FOUND" }\
+            """;
+    public static final String USER_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "회원을 찾을 수 없어요.",
+              "instance": "/api/v1/admin/streak-freeze-grants", "code": "USER_NOT_FOUND" }\
+            """;
+    public static final String STREAK_FREEZE_NOT_AVAILABLE =
+            """
+            { "title": "Conflict", "status": 409, "detail": "쓸 수 있는 유지권이 없어요.",
+              "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_NOT_AVAILABLE" }\
+            """;
+    public static final String STREAK_FREEZE_DATE_NOT_ALLOWED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "유지권으로 메울 수 없는 날짜예요.",
+              "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_DATE_NOT_ALLOWED" }\
+            """;
 
     private ErrorExamples() {}
 }
