@@ -7,6 +7,7 @@ import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
@@ -17,11 +18,13 @@ public class InMemorySessionRuntimeStore implements SessionRuntimeStore {
     public final Map<Long, SessionRuntime> values = new ConcurrentHashMap<>();
     public final Map<Long, Instant> planStartedAt = new ConcurrentHashMap<>();
     public final Map<Long, Instant> analysisStartedAt = new ConcurrentHashMap<>();
+    public final Map<Long, UUID> evaluateJobIds = new ConcurrentHashMap<>();
 
     public void clear() {
         values.clear();
         planStartedAt.clear();
         analysisStartedAt.clear();
+        evaluateJobIds.clear();
     }
 
     @Override
@@ -77,16 +80,32 @@ public class InMemorySessionRuntimeStore implements SessionRuntimeStore {
     }
 
     @Override
-    public void startAnalysis(long sessionId, Instant now) {
+    public void startAnalysis(long sessionId, Instant now, UUID evaluateJobId) {
+        updateAnalysisStep(sessionId, AnalysisStep.ORGANIZING_ANSWERS);
+        analysisStartedAt.put(sessionId, now);
+        evaluateJobIds.put(sessionId, evaluateJobId);
+    }
+
+    @Override
+    public Optional<UUID> findEvaluateJobId(long sessionId) {
+        return Optional.ofNullable(evaluateJobIds.get(sessionId));
+    }
+
+    @Override
+    public void updateAnalysisStep(long sessionId, AnalysisStep step) {
         values.computeIfPresent(
                 sessionId,
                 (id, runtime) ->
                         new SessionRuntime(
                                 runtime.planStatus(),
                                 runtime.planProgress(),
-                                AnalysisStep.ORGANIZING_ANSWERS,
+                                step,
                                 runtime.pausedSeconds()));
-        analysisStartedAt.put(sessionId, now);
+    }
+
+    @Override
+    public void clearAnalysisStep(long sessionId) {
+        updateAnalysisStep(sessionId, null);
     }
 
     @Override
