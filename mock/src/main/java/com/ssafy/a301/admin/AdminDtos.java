@@ -1,5 +1,6 @@
 package com.ssafy.a301.admin;
 
+import com.ssafy.a301.growth.GrowthDtos;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -174,4 +175,51 @@ public final class AdminDtos {
             @Schema(description = "사용한 유지권 id", example = "31") long freezeId,
             @Schema(description = "남은 유지권 개수", example = "1") int availableCount,
             @Schema(description = "메운 뒤의 현재 스트릭", example = "9") int currentStreak) {}
+
+    // 8.15 관리자 메트릭
+
+    public record UserMetrics(
+            @Schema(description = "탈퇴하지 않은 전체 회원 수", example = "120") int total,
+            @Schema(description = "기준 날짜(한국 시간)에 가입한 회원 수", example = "3") int joinedToday) {}
+
+    public record DailyPractice(
+            @Schema(description = "날짜(한국 시간)") LocalDate date,
+            @Schema(description = "그날 연습한 회원 수(연습 기록 기준)", example = "18") int users) {}
+
+    public record PracticeMetrics(
+            @Schema(description = "기준 날짜에 연습한 회원 수", example = "18") int practicedToday,
+            @Schema(description = "기준 날짜를 포함한 최근 7일, 날짜 오름차순") List<DailyPractice> daily) {}
+
+    public record InterviewMetrics(
+            @Schema(description = "답변 1개 이상인 면접 수(분석 중 · 완료 · 실패)", example = "590") int total,
+            @Schema(description = "COMPLETED 결과 있음", example = "580") int completed,
+            @Schema(description = "ANALYZING 결과 생성 중", example = "4") int analyzing,
+            @Schema(description = "FAILED 결과 생성 실패", example = "6") int failed,
+            @Schema(description = "ABORTED 답변 없이 끝남(total에는 넣지 않는다)", example = "50") int aborted,
+            @Schema(description = "total 중 화상 면접 수", example = "380") int video,
+            @Schema(description = "total 중 채팅 면접 수", example = "210") int chat) {}
+
+    public record CriterionAverage(
+            @Schema(description = "평가 기준") GrowthDtos.Criterion criterion,
+            @Schema(description = "결과가 있는 면접들의 평균 점수(0~100, 소수 첫째 자리)", example = "71.4")
+                    double score) {}
+
+    public record StreakFreezeMetrics(
+            @Schema(description = "지급한 유지권 수(지급 전 배포는 빼고)", example = "260") int granted,
+            @Schema(description = "사용한 유지권 수", example = "41") int used,
+            @Schema(description = "기간이 지나 쓸 수 없게 된 유지권 수", example = "12") int expired) {}
+
+    public record NoticeMetric(
+            @Schema(description = "공지 id", example = "3") long id,
+            @Schema(description = "공지 제목", example = "10월 점검 안내") String title,
+            @Schema(description = "확인(8.9)한 회원 수", example = "64") int readCount) {}
+
+    public record AdminMetricsResponse(
+            @Schema(description = "집계 기준 날짜(한국 시간 오늘)") LocalDate date,
+            @Schema(description = "회원") UserMetrics users,
+            @Schema(description = "연습") PracticeMetrics practice,
+            @Schema(description = "면접") InterviewMetrics interviews,
+            @Schema(description = "기준별 평균 점수 4개") List<CriterionAverage> averageScores,
+            @Schema(description = "스트릭 유지권") StreakFreezeMetrics streakFreezes,
+            @Schema(description = "게시 중인 공지별 확인 수, 최신순. 없으면 빈 배열") List<NoticeMetric> notices) {}
 }
