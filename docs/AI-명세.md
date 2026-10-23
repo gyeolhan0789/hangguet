@@ -45,7 +45,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
 | 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` | `interview_questions`, `answers`(화상, `speech` 포함) |
 
-`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)는 스키마에 없어 BE 마이그레이션으로 추가한다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다.
+`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)와 `answerStartedAt`을 저장할 `answers.started_at`은 BE 마이그레이션 V4로 추가했다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다.
 
 ### 1.2 Redis 진행 상태
 
@@ -75,6 +75,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ### 1.4 결과 메시지 (AI → BE) **[제안]**
 
 - 큐는 Redis List `ai:results`다. AI가 `LPUSH`하고, BE는 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 꺼내 저장한 뒤 처리 중 리스트에서 지운다(BE가 멈춰도 메시지가 남음)
+- BE가 저장할 수 없는 메시지(JSON 아님, 모르는 `type`, 필수 필드 없음, 질문이 5개가 아님 등)는 `ai:results:failed`에 원문 그대로 모아 둔다. 결과가 반영되지 않으면 여기를 확인한다
 - 공통 필드: `type`, `sessionId`, `jobId`(작업에서 나온 결과만. 받은 작업의 `jobId`를 그대로 담는다), `occurredAt`(ISO 8601)
 
 | `type` | 보내는 쪽 | 내용 | BE가 하는 일 |

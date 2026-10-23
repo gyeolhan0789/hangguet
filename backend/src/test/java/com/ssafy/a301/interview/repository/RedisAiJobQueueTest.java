@@ -4,16 +4,13 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ssafy.a301.interview.domain.AiJob;
-import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.ListOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.test.util.ReflectionTestUtils;
 
 class RedisAiJobQueueTest {
-    private static final UUID JOB_ID = UUID.fromString("8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34");
-
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
 
     @SuppressWarnings("unchecked")
@@ -22,38 +19,19 @@ class RedisAiJobQueueTest {
     private final RedisAiJobQueue queue = new RedisAiJobQueue(redis);
 
     @Test
-    void scoreAnswerMessageHasAnswerId() {
+    void messageIsPushedAsJsonInFieldOrder() {
         when(redis.opsForList()).thenReturn(lists);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("jobType", "PLAN");
+        message.put("jobId", "8f0c");
+        message.put("sessionId", 55L);
+        message.put("coverLetter", "저는…");
 
-        queue.push(withId(AiJob.scoreAnswer(55L, 903L)));
-
-        verify(lists)
-                .leftPush(
-                        "ai:jobs",
-                        "{\"jobType\":\"SCORE_ANSWER\",\"jobId\":\""
-                                + JOB_ID
-                                + "\",\"sessionId\":55,\"answerId\":903}");
-    }
-
-    @Test
-    void otherMessagesHaveNoAnswerId() {
-        when(redis.opsForList()).thenReturn(lists);
-
-        queue.push(withId(AiJob.plan(55L)));
-        queue.push(withId(AiJob.evaluate(55L)));
+        queue.push(message);
 
         verify(lists)
                 .leftPush(
                         "ai:jobs",
-                        "{\"jobType\":\"PLAN\",\"jobId\":\"" + JOB_ID + "\",\"sessionId\":55}");
-        verify(lists)
-                .leftPush(
-                        "ai:jobs",
-                        "{\"jobType\":\"EVALUATE\",\"jobId\":\"" + JOB_ID + "\",\"sessionId\":55}");
-    }
-
-    private static AiJob withId(AiJob job) {
-        ReflectionTestUtils.setField(job, "id", JOB_ID);
-        return job;
+                        "{\"jobType\":\"PLAN\",\"jobId\":\"8f0c\",\"sessionId\":55,\"coverLetter\":\"저는…\"}");
     }
 }

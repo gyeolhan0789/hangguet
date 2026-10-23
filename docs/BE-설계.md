@@ -60,11 +60,13 @@ com.ssafy.a301
 │  ├─ controller   InterviewSessionController
 │  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9), AnswerService(5.7 채팅),
 │  │               AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
-│  │               AiResultConsumer(결과 큐 처리, 예정), InterviewRoomService(면접방, 예정)
+│  │               AiJobMessages(작업 메시지), AiResultConsumer·AiResultService(결과 큐 처리),
+│  │               InterviewRoomService(면접방, 예정)
 │  ├─ dto          InterviewDtos
 │  ├─ mapper       InterviewMapper
 │  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository,
-│  │               AiJobRepository, AiJobQueue·RedisAiJobQueue, SessionRuntimeStore·RedisSessionRuntimeStore
+│  │               AiJobRepository, AiJobQueue·RedisAiJobQueue, AiResultQueue·RedisAiResultQueue,
+│  │               SessionRuntimeStore·RedisSessionRuntimeStore
 │  ├─ livekit      LiveKit 서버 API 어댑터(입장 토큰·배정·방 삭제·Egress, 예정)
 │  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·AI 작업·상태 enum
 ├─ result
@@ -99,10 +101,10 @@ com.ssafy.a301
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
-| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로) **[제안]**. `(session_id, seq)` UNIQUE |
+| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
-| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 저장한다. 지금 엔티티는 `@Immutable`이고 `claims`·버전을 매핑하지 않으므로, 저장하려면 바꾼다 **[제안]** |
-| `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)는 `answer.completed`로 받아 저장. `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
+| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`) |
+| `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`, `recording.merged`로 받음). 원본 트랙을 행으로 남길지, 종류 enum을 어떻게 나눌지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
@@ -136,13 +138,13 @@ com.ssafy.a301
 3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
 4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 결과 큐 처리에서 거른다([AI 명세](AI-명세.md) 1.4)
 5. 작업자는 `BLMOVE ai:jobs ai:jobs:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
-6. **메시지에 작업 내용을 담는다** **[제안]**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 지금처럼 id만 남기고, `AiJobPublisher`가 보낼 때 DB에서 읽어 메시지를 만든다. 녹화 합치기(`MERGE_RECORDING`) 작업을 `AiJobType`에 더한다
+6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`) 작업은 결과 생성·녹화 결과 저장 작업에서 더한다
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
 1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다
 2. 플랜 생성은 **비동기**(AI 분석 작업자). BE가 결과 메시지 `plan.progress`를 받아 Redis `planProgress`를 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 바꾼다(AI 명세 5장). 아직 GENERATING일 때만 바꾸고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 본다
-3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5)
+3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5). GENERATING인데 플랜 행이 이미 있으면(저장 뒤 READY를 남기지 못하고 다시 처리) 새로 저장하지 않고 READY만 남긴다
 4. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
@@ -156,7 +158,7 @@ com.ssafy.a301
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
-1. **화상**: 결과 메시지 `answer.completed`(`seq`, `content`, `tokens`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`) → SCORE_ANSWER enqueue. 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다(5.8과의 순서는 **[미정]**, API 명세 B-18)
+1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다(5.8과의 순서는 **[미정]**, API 명세 B-18)
 2. **채팅**: 5.7 한 트랜잭션에서 질문 소유·현재 질문 확인 → `Answer` 저장 → SCORE_ANSWER enqueue. 다음 질문으로 넘어가는 신호는 화면이 에이전트에 보낸다(API 명세 면접방 메시지) **[제안]**
 3. 답변 음성 파일을 따로 받지 않는다. 채점용 답변별 음성은 **[미정]**(API 명세 B-19)
 
@@ -180,13 +182,15 @@ com.ssafy.a301
    - 자소서 검증도 다른 기준과 같이 3단계로 판정하고, 자소서 대조로 확정한다 **[결정]**
 3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 녹화 영상에서 구한다. 계산 주체·시점 **[미정]**(API 명세 B-14). 녹화가 없으면 null
 
-### 5.5 결과 큐 처리 (`ai:results`) **[제안]**
+### 5.5 결과 큐 처리 (`ai:results`)
 1. `AiResultConsumer`가 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 메시지를 꺼낸다
 2. 메시지 하나를 한 트랜잭션으로 저장하고, 커밋 뒤 처리 중 리스트에서 지운다(`LREM`). 저장 중 BE가 멈춰도 메시지가 처리 중 리스트에 남아 다시 처리할 수 있다
 3. `type`별 처리와 버림 조건은 [AI 명세](AI-명세.md) 1.4 표를 따른다. 버리는 메시지도 처리 중 리스트에서 지운다
 4. 같은 메시지가 두 번 와도 결과가 같아야 한다: 유일 제약(`answers.question_id`, `uk_interview_questions_session_seq`, `interview_plans` PK)과 상태 조건(`planStatus`·`status`)으로 거른다
 5. 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 오면 거른다: 세션별로 마지막으로 보낸 EVALUATE `jobId`를 Redis 진행 상태에 두고 다른 `jobId`의 결과는 버린다 **[제안]**
-6. 처리하다 실패한 메시지(형식 오류 등)를 어떻게 둘지(처리 중 리스트 되돌리기, 따로 모아 두기)는 **[미정]**
+6. 실패 처리 **[결정]**: DB·Redis 연결 장애, 시간 초과, 잠금 대기처럼 잠시 뒤 될 수 있는 실패만 처리 중 리스트에 두고 5초(`ai-result.retry-delay`)마다 같은 메시지를 다시 처리한다(순서 유지, 장애 동안 메시지를 잃지 않도록 횟수 제한 없음). 그 밖의 실패(JSON이 아님, 모르는 `type`, 필수 필드 없음, 질문 수 틀림, 질문 글·채점 기준 빈 값, DB 제약 위반, 예상하지 못한 오류)는 다시 해도 같으므로 `ai:results:failed`로 옮기고 경고 로그를 남긴다. 처리기가 하나라 한 메시지가 뒤의 모든 결과를 막지 않게 하기 위해서다
+7. 처리기는 BE 하나에 스레드 하나로 순서대로 처리한다. 기동하면 처리 중 리스트에 남은 메시지(지난번에 처리 도중 멈춘 것)부터 처리한다
+8. 지금 받는 결과: `plan.progress`·`plan.completed`·`plan.failed`·`question.started`·`answer.completed`·`answer.scored`. `evaluation.*`·`recording.*`는 결과 생성·녹화 결과 저장 작업에서 더한다(그 전에는 실패 목록으로 감)
 
 ### 5.6 면접방 (LiveKit) **[제안]**
 - 입장 토큰(5.4·5.14): 방 `interview-{sessionId}` 하나, 참가자 = 회원. 화상은 마이크·카메라 송출·수신·메시지, 채팅은 수신·메시지만. 유효 시간 **[미정]**(API 명세 B-20). LiveKit API 키·시크릿으로 서명(외부 호출 없음)
@@ -246,7 +250,8 @@ com.ssafy.a301
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. 마지막으로 보낸 EVALUATE `jobId` 필드 추가 **[제안]**(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
-| `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 **[제안]** | 없음 | 5.5 |
+| `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
+| `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
@@ -304,7 +309,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 ## 12. 남은 일
 1. 남은 API(5.14, 3.x, 6.x, 7.x)의 Controller·Service·Repository 구현. 5.8의 면접방 삭제·녹화 중지·MERGE_RECORDING은 면접방 연동 때(2번)
 2. 면접방: LiveKit 서버 API 어댑터(입장 토큰·에이전트 배정·방 삭제·Egress), 5.4 응답 `room`, 5.14(5.6)
-3. AI 연동: 작업 메시지에 내용 담기, `MERGE_RECORDING` 작업 추가(5.0), 결과 큐 처리 `AiResultConsumer`(5.5), `InterviewPlan` 저장 가능하게 바꾸기(3장)
+3. AI 연동: `MERGE_RECORDING` 작업 추가(5.0), 결과 큐의 `evaluation.*`·`recording.*` 처리(5.5)
 4. 지울 것: 5.10·5.12 Controller·Service, `SonioxClient`·`ElevenLabsClient`, Soniox·ElevenLabs 설정(키는 AI로 이동)
 5. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 6. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
