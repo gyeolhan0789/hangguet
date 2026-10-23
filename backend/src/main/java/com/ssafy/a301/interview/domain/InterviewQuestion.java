@@ -13,10 +13,10 @@ import java.time.OffsetDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import org.hibernate.annotations.CreationTimestamp;
 
 /**
- * 면접 질문. 질문을 화면에 낸 시점에 만든다. 다시보기 마커가 created_at − 면접 started_at이라 면접 플랜의 예상 질문을 미리 넣으면 마커가 어긋난다.
+ * 면접 질문. 면접 에이전트가 질문을 말하기 시작한 시점(question.started의 startedAt)을 created_at으로 만든다. 다시보기 마커가
+ * created_at − 면접 started_at이라 면접 플랜의 예상 질문을 미리 넣으면 마커가 어긋난다.
  */
 @Entity
 @Table(name = "interview_questions")
@@ -39,13 +39,19 @@ public class InterviewQuestion {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
-    @CreationTimestamp
+    // 질문을 낸 시각. 메시지가 늦게 처리돼도 말하기 시작한 시각을 남기도록 직접 정한다
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
     public InterviewQuestion(InterviewSession session, int seq, String content) {
+        this(session, seq, content, OffsetDateTime.now());
+    }
+
+    public InterviewQuestion(
+            InterviewSession session, int seq, String content, OffsetDateTime askedAt) {
         this.session = session;
         this.seq = seq;
         this.content = content;
+        this.createdAt = askedAt;
     }
 }

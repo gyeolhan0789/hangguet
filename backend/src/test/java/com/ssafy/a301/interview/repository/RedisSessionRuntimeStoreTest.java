@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,6 +75,17 @@ class RedisSessionRuntimeStoreTest {
         when(hashes.get(KEY, "planStartedAt")).thenReturn("1000");
 
         assertThat(store.findPlanStartedAt(55L)).contains(Instant.ofEpochMilli(1_000L));
+    }
+
+    @Test
+    void planProgressAndReadyRefreshTtl() {
+        store.updatePlanProgress(55L, 50);
+        store.markPlanReady(55L);
+
+        verify(hashes).put(KEY, "planProgress", "50");
+        verify(hashes).put(KEY, "planStatus", "READY");
+        verify(hashes).delete(KEY, "planProgress");
+        verify(redis, times(2)).expire(KEY, Duration.ofDays(1));
     }
 
     @Test

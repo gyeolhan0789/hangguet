@@ -13,6 +13,7 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -21,7 +22,8 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 /**
- * 답변. 질문 하나에 답변 하나. 점수·피드백은 결과를 만들 때 채운다. 채점 결과(evaluation)는 AI 분석 작업자만 쓰므로 매핑하지 않는다(BE가 덮어쓰지 않도록).
+ * 답변. 질문 하나에 답변 하나. 채점 결과(evaluation)는 답변 채점 결과(answer.scored)로, 점수·피드백은 결과를 만들 때 채운다. AI는 DB를 쓰지
+ * 않고 BE만 쓴다(AI 명세 1.4).
  */
 @Entity
 @Table(name = "answers")
@@ -50,6 +52,20 @@ public class Answer {
     @Column(columnDefinition = "jsonb")
     private List<AnswerToken> tokens;
 
+    // 화상 답변의 말끝 흐림·억양 폭(에이전트가 계산). 채팅이면 null
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private AnswerSpeech speech;
+
+    // 화상 답변을 듣기 시작한 시각(tokens 시각의 0ms). 채팅이면 null
+    @Column(name = "started_at")
+    private OffsetDateTime startedAt;
+
+    // 답변 채점 결과(AI 명세 3장 evaluation). 채점 전에는 null
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private Map<String, Object> evaluation;
+
     // 0~100. 결과 생성 전에는 null
     private Integer score;
 
@@ -76,6 +92,28 @@ public class Answer {
         this.inputType = inputType;
         this.content = content;
         this.tokens = tokens;
+    }
+
+    /** 면접 에이전트가 보낸 화상 답변(AI 명세 6.2 answer.completed) */
+    public static Answer voice(
+            InterviewQuestion question,
+            String content,
+            List<AnswerToken> tokens,
+            AnswerSpeech speech,
+            OffsetDateTime startedAt) {
+        Answer answer = new Answer(question, InputType.VOICE, content, tokens);
+        answer.speech = speech;
+        answer.startedAt = startedAt;
+        return answer;
+    }
+
+    /** 채점 결과가 아직 없을 때만 남긴다. 같은 결과가 두 번 오면 처음 것을 둔다. 남겼으면 true */
+    public boolean recordEvaluation(Map<String, Object> evaluation) {
+        if (this.evaluation != null) {
+            return false;
+        }
+        this.evaluation = evaluation;
+        return true;
     }
 
     public void evaluate(int score, String goodPoint, String improvePoint) {
