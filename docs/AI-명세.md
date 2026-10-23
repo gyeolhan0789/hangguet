@@ -212,6 +212,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `answers[]`: `answerId`, `score`, `goodPoint`, `improvePoint`, `evaluation`(`COVER_LETTER` 확정본)
   - `sessionScores[]`: `criterion`, `score`, `comment`
   - `speechMetrics`(화상만, 채팅은 null, 아래 집계), `summary`
+- 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 `summary`와 해당 답변의 `improvePoint`에 기록한다. 결과 화면에 표시되는 글이 총평과 질문별 잘한 점·아쉬운 점이기 때문이다
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
 
