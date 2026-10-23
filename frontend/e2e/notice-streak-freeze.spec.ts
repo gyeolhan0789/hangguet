@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { NOTICES, STREAK_FREEZE_USED, STREAK_FREEZES } from "./mocks/data";
+import { recordScreens, screens } from "./screen-log";
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // C01 공지 버튼 · C02 공지 모달 · C03 공지 목록 펼침 · S09 스트릭 유지권 · S09-2 사용 확인 · S09-3 사용 완료
@@ -15,7 +16,7 @@ test.beforeEach(async ({ signIn }) => {
 const header = (page: Page) => page.getByRole("banner");
 
 test.describe("공지(C01 · C02 · C03)", () => {
-  test("앱에 들어오면 확인 안 한 공지가 C02로 뜨고, [확인]하면 8.9로 확인한 뒤 닫힌다", async ({
+  test("앱에 들어와도 공지가 뜨지 않고, 종에서 고른 공지를 [확인]하면 8.9로 확인한 뒤 닫힌다", async ({
     page,
     msw,
   }) => {
@@ -35,10 +36,20 @@ test.describe("공지(C01 · C02 · C03)", () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
+    await recordScreens(page);
     await page.goto("/home");
 
+    // 확인 안 한 공지가 있어도 들어오자마자 띄우지 않는다. 종이 눌려 목록이 열렸으면 하이드레이션이 끝난 뒤이므로,
+    // 그때까지 나온 화면에 C02가 한 번도 없었는지 본다(잠깐 떴다 사라진 것도 잡는다).
+    const unreadBell = header(page).getByRole("button", { name: "공지, 확인 안 한 공지 있음" });
+    await unreadBell.click();
+    await expect(header(page).getByRole("menu", { name: "공지" })).toBeVisible();
+    expect(await screens(page)).not.toContain("dialog:10월 점검 안내");
+
+    await header(page)
+      .getByRole("menuitem", { name: /10월 점검 안내/ })
+      .click();
     const dialog = page.getByRole("dialog", { name: "10월 점검 안내" });
-    await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "확인" }).click();
 
     await expect(dialog).toBeHidden();
