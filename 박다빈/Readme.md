@@ -3,6 +3,8 @@
 > 담당: 면접 AI (질문 생성 · 답변 평가 · 데이터 파이프라인) · 기록 기간: 2026.10.12 ~
 >
 > 파트 기획 문서: [interview-ai/](interview-ai/README.md)
+>
+> 회사 카드 파이프라인 EC2 배포(CD) 계획: [deploy_plan/](deploy_plan/README.md)
 
 ---
 
