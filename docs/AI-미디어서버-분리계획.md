@@ -7,7 +7,7 @@
 | 구성 | 담당 기능 | 코드 위치 |
 | --- | --- | --- |
 | BE | 업무 API, DB 저장, AI 작업 요청·결과 수신, 면접방·녹화 제어 | `backend/` |
-| AI 에이전트 | Soniox 음성 인식·화면 텍스트 전달. ElevenLabs 질문 음성·Jev 반응·면접 진행은 예정 | `ai/app/agent/`(실행 진입점), `ai/app/interview/realtime/` |
+| AI 에이전트 | Soniox 음성 인식·화면 텍스트 전달, ElevenLabs 질문 음성(첫 질문). Jev 반응·면접 진행은 예정 | `ai/app/agent/`(실행 진입점), `ai/app/interview/realtime/` |
 | AI 생성·평가 | GMS 호출로 질문 생성·답변 채점·종합 평가, 말하기 분석, 녹화 트랙 합치기. 에이전트와 별도 실행 | `ai/app/worker/`(실행 진입점), `ai/app/interview/`(realtime 제외), `ai/app/recording/`(예정) |
 | LiveKit | 화면과 에이전트의 음성·영상·메시지 중계 | 배포 설정 |
 | Egress | 지원자 영상·음성 녹화 | 배포 설정 |
@@ -36,6 +36,6 @@ GMS·Jev는 AI의 파이썬 코드에서 직접 호출하고 키는 AI 환경변
 | 5.9 결과 재생성 | BE가 요청하고 AI가 평가 | 경로 변경 없음. AI 처리 연결 |
 | 5.10 STT 토큰 | 에이전트가 Soniox에 직접 연결 | BE·목 서버에서 폐기 완료 |
 | 5.11 반응 요청 | 에이전트가 처리해 LiveKit 메시지로 전달 | 대체 검증 후 폐기 |
-| 5.12 TTS 토큰 | 에이전트가 ElevenLabs에 직접 연결 예정 | BE·목 서버에서 폐기 완료. TTS 연결은 미구현 |
+| 5.12 TTS 토큰 | 에이전트가 ElevenLabs REST로 합성해 면접방에 송출 | BE·목 서버에서 폐기 완료. 에이전트 TTS 구현 |
 | 5.14 면접방 입장 토큰 | BE가 입장·재입장 토큰 발급 | BE·목 서버 추가, 프론트 연결 완료 |
 | 6.1·6.2 녹화 업로드·등록 | Egress가 녹화하고 BE가 완료 확인·등록 | 대체 검증 후 폐기 |

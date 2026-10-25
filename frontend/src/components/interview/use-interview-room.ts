@@ -7,7 +7,8 @@ import { issueRoomToken } from "@/lib/interview/actions";
 import { STT_TOPIC, transcriptSchema } from "@/lib/interview/transcript";
 
 // 기준: 웹 Swagger 5.14 · RoomResponse · 사용자 승인 마이크 송출/STT 표시 계획.
-// SDK: https://docs.livekit.io/transport/data/text-streams/ · publishTrack(MediaStreamTrack).
+// SDK: https://docs.livekit.io/transport/data/text-streams/ · publishTrack(MediaStreamTrack)
+// · 원격 트랙 재생 RemoteTrack.attach()(https://docs.livekit.io/transport/media/subscribe/).
 export type InterviewRoomStatus =
   "idle" | "connecting" | "listening" | "reconnecting" | "failed" | "sttFailed";
 
@@ -42,6 +43,22 @@ export function useInterviewRoom(sessionId: number, stream: MediaStream | null) 
     });
     room.on(RoomEvent.Disconnected, fail);
     track.addEventListener("ended", fail);
+
+    // 면접관(에이전트)의 질문 음성을 재생한다(AI 명세 6.2 질문).
+    const voices = new Set<HTMLMediaElement>();
+    room.on(RoomEvent.TrackSubscribed, (remote, _publication, participant) => {
+      if (remote.kind !== Track.Kind.Audio || !participant.isAgent) return;
+      const element = remote.attach();
+      element.hidden = true;
+      document.body.append(element);
+      voices.add(element);
+    });
+    room.on(RoomEvent.TrackUnsubscribed, (remote) => {
+      for (const element of remote.detach()) {
+        element.remove();
+        voices.delete(element);
+      }
+    });
 
     // 마이크 송출 전에 수신을 등록해 첫 인식 결과도 받을 수 있게 한다.
     room.registerTextStreamHandler(STT_TOPIC, (reader, sender) => {
@@ -107,6 +124,7 @@ export function useInterviewRoom(sessionId: number, stream: MediaStream | null) 
       track.removeEventListener("ended", fail);
       room.unregisterTextStreamHandler(STT_TOPIC);
       room.removeAllListeners();
+      for (const element of voices) element.remove();
       // 마이크 소유자는 기존 useInterviewMedia다. SDK가 원본 트랙을 중지하지 않게 한다.
       void room.disconnect(false);
     };

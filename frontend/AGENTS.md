@@ -42,7 +42,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - 토큰은 httpOnly 쿠키에만 있다. 로그인·로그아웃 서버 액션은 `setAuthCookies`·`clearAuthCookies`로 쿠키를 다룬다. 토큰을 store·localStorage·props에 두지 않는다.
 - 액세스 토큰 재발급은 `src/proxy.ts`가 맡는다. 화면 코드에서 직접 재발급하지 않는다.
 - `api`는 쿠키를 읽으므로, 호출하는 서버 컴포넌트는 `<Suspense>` 안에 둔다(`cacheComponents` 사용 중).
-- 예외: Presigned URL로 S3에 올리고 받는 파일, STT 회사로 보내는 실시간 음성은 브라우저가 직접 보낸다(웹 Swagger 2.4 · 5.10 · 5.12 · 6.1). 그 주소·토큰을 받는 API 호출 자체는 서버에서 한다.
+- 예외: Presigned URL로 S3에 올리고 받는 파일(웹 Swagger 2.4 · 6.4)과 면접방(LiveKit)의 음성·메시지는 브라우저가 직접 주고받는다(웹 Swagger 5.14). 그 주소·입장 토큰을 받는 API 호출 자체는 서버에서 한다.
 
 ## 화면 하나를 만드는 작업 순서
 

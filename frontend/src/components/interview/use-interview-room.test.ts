@@ -47,8 +47,10 @@ vi.mock("livekit-client", () => ({
     Reconnecting: "reconnecting",
     Reconnected: "reconnected",
     Disconnected: "disconnected",
+    TrackSubscribed: "trackSubscribed",
+    TrackUnsubscribed: "trackUnsubscribed",
   },
-  Track: { Source: { Microphone: "microphone" } },
+  Track: { Source: { Microphone: "microphone" }, Kind: { Audio: "audio", Video: "video" } },
 }));
 vi.mock("@/lib/interview/actions", () => ({ issueRoomToken: sdk.issueRoomToken }));
 
@@ -204,5 +206,32 @@ describe("면접방 마이크 송출과 STT 수신", () => {
     unmount();
     await act(async () => resolve({ ok: true, url: "wss://room.test", token: "late" }));
     expect(room.connect).not.toHaveBeenCalled();
+  });
+
+  it("면접관(에이전트) 음성만 재생하고, 구독이 끝나거나 화면을 떠나면 재생 요소를 지운다", async () => {
+    const { stream } = media();
+    const { unmount } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    const subscribed = room.handlers.get("trackSubscribed")!;
+    const unsubscribed = room.handlers.get("trackUnsubscribed")!;
+    const voice = (element: HTMLAudioElement) => ({
+      kind: "audio",
+      attach: vi.fn(() => element),
+      detach: vi.fn(() => [element]),
+    });
+    const first = document.createElement("audio");
+    const second = document.createElement("audio");
+    const ignored = voice(document.createElement("audio"));
+    subscribed(voice(first), {}, { isAgent: true });
+    subscribed(ignored, {}, { isAgent: false });
+    subscribed({ kind: "video", attach: vi.fn() }, {}, { isAgent: true });
+    const secondTrack = voice(second);
+    subscribed(secondTrack, {}, { isAgent: true });
+    expect(ignored.attach).not.toHaveBeenCalled();
+    expect(first.isConnected && first.hidden).toBe(true);
+    unsubscribed(secondTrack);
+    expect(second.isConnected).toBe(false);
+    unmount();
+    expect(first.isConnected).toBe(false);
   });
 });

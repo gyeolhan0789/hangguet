@@ -8,10 +8,15 @@ import pytest
 from livekit import rtc
 from livekit.agents import AutoSubscribe
 
+from app.agent.assignment import parse_assignment
 from app.agent.main import (
+    accept_request,
+    ask_question,
     audio_chunks,
     entrypoint,
+    job_assignment,
     main,
+    question_speaker,
     server,
     transcribe_participant,
     transcribe_room,
@@ -266,3 +271,134 @@ def test_closing_room_cancels_pending_audio_read() -> None:
         assert cancelled.is_set()
 
     asyncio.run(run())
+
+
+def test_agent_joins_as_interviewer() -> None:
+    request = Mock(accept=AsyncMock())
+    asyncio.run(accept_request(request))
+    request.accept.assert_awaited_once_with(name="interviewer", identity="interviewer")
+
+
+def test_room_without_be_assignment_does_not_ask_questions() -> None:
+    ctx = context()
+    ctx.job.metadata = ""
+    assert job_assignment(ctx) is None
+    ctx.job.metadata = "{broken"
+    assert job_assignment(ctx) is None
+
+
+def test_be_assignment_is_read_from_job_metadata() -> None:
+    ctx = context()
+    ctx.job.metadata = ASSIGNMENT_JSON
+    assignment = job_assignment(ctx)
+    assert assignment is not None
+    assert assignment.session_id == 55
+    assert assignment.current_seq == 1
+
+
+def test_question_is_prepared_before_candidate_joins_and_asked_once() -> None:
+    async def run() -> None:
+        ctx = context()
+        joined = asyncio.Event()
+
+        async def candidate() -> Mock:
+            await joined.wait()
+            return Mock(identity="candidate")
+
+        ctx.wait_for_participant = AsyncMock(side_effect=candidate)
+        speaker = Mock(publish_track=AsyncMock(), ask=AsyncMock())
+        audio = object()
+        prepared = asyncio.Event()
+
+        async def prepare(_seq: int) -> object:
+            prepared.set()
+            return audio
+
+        speaker.prepare = AsyncMock(side_effect=prepare)
+        task = asyncio.create_task(ask_question(ctx, asyncio.Event(), speaker, 1))
+        await asyncio.wait_for(prepared.wait(), timeout=1)
+        speaker.prepare.assert_awaited_once_with(1)
+        speaker.ask.assert_not_awaited()
+        joined.set()
+        await asyncio.wait_for(task, timeout=1)
+        speaker.ask.assert_awaited_once_with(1, "candidate", audio)
+
+    asyncio.run(run())
+
+
+def test_room_closing_before_candidate_skips_question() -> None:
+    async def run() -> None:
+        ctx = context()
+        closed = asyncio.Event()
+        speaker = Mock(publish_track=AsyncMock(), ask=AsyncMock(), prepare=AsyncMock())
+        task = asyncio.create_task(ask_question(ctx, closed, speaker, 1))
+        await asyncio.sleep(0)
+        closed.set()
+        await asyncio.wait_for(task, timeout=1)
+        speaker.ask.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_question_failure_is_contained() -> None:
+    ctx = context()
+    ctx.wait_for_participant = AsyncMock(return_value=Mock(identity="candidate"))
+    speaker = Mock(publish_track=AsyncMock(side_effect=RuntimeError("publish")), ask=AsyncMock())
+    speaker.prepare = AsyncMock(return_value=None)
+    asyncio.run(ask_question(ctx, asyncio.Event(), speaker, 1))
+    speaker.ask.assert_not_awaited()
+
+
+def test_assigned_room_asks_question_and_releases_voice_on_close() -> None:
+    async def run() -> None:
+        ctx = context()
+        ctx.job.metadata = ASSIGNMENT_JSON
+        speaker = Mock(aclose=AsyncMock())
+        asked = asyncio.Event()
+
+        async def asking(*_args: object) -> None:
+            asked.set()
+            await asyncio.Event().wait()
+
+        with (
+            patch("app.agent.main.question_speaker", return_value=speaker) as factory,
+            patch("app.agent.main.ask_question", side_effect=asking) as ask,
+        ):
+            task = asyncio.create_task(entrypoint(ctx))
+            await asked.wait()
+            assert ask.call_args.args[2:] == (speaker, 1)
+            factory.assert_called_once()
+            ctx.room.on.call_args.args[1](0)
+            await asyncio.wait_for(task, timeout=1)
+        speaker.aclose.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+def test_question_speaker_uses_elevenlabs_key_and_result_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "voice-key")
+    ctx = context()
+    assignment = parse_assignment(ASSIGNMENT_JSON)
+    with (
+        patch("app.agent.main.QuestionSpeaker") as speaker,
+        patch("app.agent.main.create_redis") as redis,
+    ):
+        question_speaker(ctx, assignment)
+    participant, given, tts, results = speaker.call_args.args
+    assert participant is ctx.room.local_participant
+    assert given is assignment
+    assert tts.configured
+    assert results._client is redis.return_value
+
+
+ASSIGNMENT_JSON = json.dumps(
+    {
+        "sessionId": 55,
+        "mode": "VIDEO",
+        "persona": "DEVIL",
+        "currentSeq": 1,
+        "questions": [{"seq": 1, "content": "질문", "criteria": "기준"}],
+    }
+)

@@ -454,7 +454,8 @@ mock-deploy:
 # - 개발 서버 배포 잡은 같은 resource_group으로 한 번에 하나씩 돕니다. N100에서 빌드가 겹치지 않게 합니다.
 # - 비밀값 DB_PASSWORD, JWT_SECRET, ADMIN_LOGIN_ID, ADMIN_PASSWORD는 GitLab CI/CD Variables
 #   (Environment scope dev/*)에서 받습니다. compose가 파일 전체를 읽으므로 앱 배포 잡 모두에 필요합니다.
-#   외부 API 키 SONIOX_API_KEY도 Variables에서 받아 BE에 넘깁니다(없어도 배포는 됩니다).
+#   외부 API 키 SONIOX_API_KEY·ELEVENLABS_API_KEY도 Variables에서 받아 AI 에이전트에 넘깁니다(ELEVENLABS_API_KEY는 없어도 배포됩니다).
+#   녹화 S3 키 LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET도 Variables에서 받아 BE에 넘깁니다(없으면 화상 면접 시작이 실패합니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
 # - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
 

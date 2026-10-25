@@ -85,10 +85,6 @@ export const interviewEndpoints = {
 
 /** 6. 녹화 · 결과 · 다시보기 */
 export const resultEndpoints = {
-  /** 6.1 POST 녹화 업로드 주소 */
-  recordingUploadUrl: (sessionId: Id) => `/interview-sessions/${sessionId}/recordings/upload-url`,
-  /** 6.2 POST 녹화 등록 */
-  recordings: (sessionId: Id) => `/interview-sessions/${sessionId}/recordings`,
   /** 6.3 GET 면접 결과 */
   result: (sessionId: Id) => `/interview-sessions/${sessionId}/result`,
   /** 6.4 GET 다시보기 */

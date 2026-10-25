@@ -31,17 +31,10 @@ const RESPONSE_TYPES = {
   "POST /interview-sessions/{sessionId}/start 200": "SessionResponse",
   "GET /interview-sessions/{sessionId}/questions/current 200": "QuestionResponse",
   "GET /interview-sessions/{sessionId}/questions/current 202": "PendingResponse",
-  "POST /interview-sessions/{sessionId}/questions/{questionId}/answer-audio/upload-url 200":
-    "UploadUrlResponse",
   "POST /interview-sessions/{sessionId}/questions/{questionId}/answer 202": "AnswerResponse",
   "POST /interview-sessions/{sessionId}/end 200": "SessionResponse",
   "POST /interview-sessions/{sessionId}/end 202": "SessionResponse",
   "POST /interview-sessions/{sessionId}/analysis/retry 202": "SessionResponse",
-  "POST /interview-sessions/{sessionId}/stt-token 200": "SttTokenResponse",
-  "POST /interview-sessions/{sessionId}/questions/{questionId}/reactions 200": "ReactionResponse",
-  "POST /interview-sessions/{sessionId}/questions/{questionId}/tts-token 200": "TtsTokenResponse",
-  "POST /interview-sessions/{sessionId}/recordings/upload-url 200": "UploadUrlResponse",
-  "POST /interview-sessions/{sessionId}/recordings 201": "RecordingResponse",
   "GET /interview-sessions/{sessionId}/result 200": "ResultResponse",
   "GET /interview-sessions/{sessionId}/replay 200": "ReplayResponse",
   "GET /growth-reviews/{practiceDate} 200": "GrowthReviewResponse",
@@ -62,12 +55,7 @@ const REQUEST_TYPES = {
   "POST /applications": "ApplicationCreateRequest",
   "PATCH /applications/{applicationId}": "ApplicationUpdateRequest",
   "POST /interview-sessions": "SessionCreateRequest",
-  "POST /interview-sessions/{sessionId}/questions/{questionId}/answer-audio/upload-url":
-    "AnswerAudioUploadUrlRequest",
   "POST /interview-sessions/{sessionId}/questions/{questionId}/answer": "AnswerRequest",
-  "POST /interview-sessions/{sessionId}/questions/{questionId}/reactions": "ReactionRequest",
-  "POST /interview-sessions/{sessionId}/recordings/upload-url": "RecordingUploadUrlRequest",
-  "POST /interview-sessions/{sessionId}/recordings": "RecordingCreateRequest",
 };
 
 const spec = SOURCE.startsWith("http")
