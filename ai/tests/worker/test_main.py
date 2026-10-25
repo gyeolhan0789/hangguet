@@ -13,20 +13,24 @@ import pytest
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
+from app.common.gms import GmsClient, HttpResponse
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
-from app.common.session import InterviewMode
 from app.common.settings import load_settings
+from app.interview.scoring.judge import TOP_LOGPROBS
 from app.worker import main as main_module
 from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
-from app.worker.messages import PlanJob, ScoreAnswerJob
+from app.worker.messages import MergeRecordingJob, PlanJob
 from app.worker.queue import ReceiveResult
+from tests.interview.scoring.test_job import JOB as SCORE_JOB
+from tests.interview.scoring.test_job import good
 
 # BE가 작업을 요청한 시각(AI 명세 1.3 requestedAt)
 REQUESTED_AT = datetime(2026, 10, 22, 14, 3, 13, tzinfo=timezone(timedelta(hours=9)))
 AI_ROOT = Path(__file__).resolve().parents[2]
-# 대역 호출 횟수 상한. 각 테스트가 기대하는 호출 수보다 충분히 크게 둔다
+# 대역 호출 횟수 상한.
+# 각 테스트가 기대하는 호출 수보다 충분히 크게 둔다
 MAX_CALLS = 20
 
 
@@ -219,24 +223,48 @@ def test_dispatcher_handles_plan_after_checking_gms_settings() -> None:
 
 def test_dispatcher_has_no_handler_until_job_types_are_implemented() -> None:
     """처리 함수가 없는 작업은 미처리로 남아 유실되지 않는다."""
-    job = ScoreAnswerJob(
+    job = MergeRecordingJob(
         job_id="8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
         session_id=55,
         requested_at=REQUESTED_AT,
-        answer_id=903,
-        mode=InterviewMode.CHAT,
-        seq=1,
-        question="질문",
-        criteria="기준",
-        content="답변",
-        tokens=None,
-        speech=None,
+        raw_prefix="recordings/raw/55/",
+        object_key="recordings/55.mp4",
     )
     settings = load_settings({})
     # 클라이언트 생성은 Redis에 접속하지 않으므로 Redis 없이 분배기를 생성할 수 있다
     results = ResultPublisher(create_redis(settings))
 
     assert build_dispatcher(settings, results).dispatch(job) is DispatchResult.NO_HANDLER
+
+
+def test_dispatcher_handles_scoring_without_gms_settings() -> None:
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
+    assert dispatcher.dispatch(SCORE_JOB) is DispatchResult.HANDLED
+    assert redis.pushed == []
+
+
+def test_dispatcher_connects_scoring_to_shared_gms_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, object]] = []
+
+    def transport(payload: dict[str, object]) -> HttpResponse:
+        payloads.append(payload)
+        body = {
+            "model": "served-model",
+            "choices": [{"message": {"content": json.dumps(good().content)}}],
+        }
+        return HttpResponse(200, {}, json.dumps(body).encode())
+
+    client = GmsClient(model="gpt-4.1-mini", transport=transport)
+    monkeypatch.setattr(main_module, "lazy_gms_client", lambda settings: lambda: client)
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
+    assert dispatcher.dispatch(SCORE_JOB) is DispatchResult.HANDLED
+    [message] = [json.loads(raw) for raw in redis.pushed]
+    assert message["type"] == "answer.scored"
+    assert message["evaluation"]["modelVersion"] == "served-model"
+    assert payloads[0]["logprobs"] is True
+    assert payloads[0]["top_logprobs"] == TOP_LOGPROBS
 
 
 class ClosableRedis:
