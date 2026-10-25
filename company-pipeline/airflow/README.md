@@ -60,7 +60,8 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 | `processed/news/{고유번호}.json` | 최근 30일 기사, 같은 사건 묶음 번호 | 매일 덮어씀 (raw에서 다시 만들 수 있음) |
 
 - `raw/`는 덮어쓰지 않는다. 규칙·프롬프트를 바꿔도 다시 받지 않고 다시 가공할 수 있다
-- 카드는 아직 `pipeline/data/cards/`(git 제외)에 둔다. S3 업로드·메인 DB 적재, Lightsail 배포는 다음 작업이다
+- 카드는 아직 `pipeline/data/cards/`(git 제외)에 둔다. 카드 형식은 [pipeline/README.md](../pipeline/README.md#카드-형식). S3 업로드·메인 DB 적재는 다음 작업이다
+- 서버 배포는 MVP 서버(Lightsail)가 아니라 교보재 EC2에 한다. 계획: [박다빈/deploy_plan](../../박다빈/deploy_plan/README.md)
 - Docker 없이 직접 실행할 때 `S3_ENDPOINT`가 없으면 MinIO 대신 `pipeline/data/` 폴더에 같은 경로로 저장한다. 직접 실행하면서 MinIO를 쓰려면 `company-pipeline/.env`에 추가한다(컨테이너는 compose 설정이 우선이라 영향 없음):
 
 ```
@@ -70,16 +71,4 @@ S3_SECRET_KEY=local-minio-password
 S3_BUCKET=company-pipeline
 ```
 
-| 회사 | 고유번호 |
-|---|---|
-| 삼성에스디에스 | 00126186 |
-| 삼성전자 | 00126380 |
-| 현대자동차 | 00164742 |
-| SK하이닉스 | 00164779 |
-| 카카오 | 00258801 |
-| 미래에셋자산운용 | 00259776 |
-| NAVER | 00266961 |
-| 현대오토에버 | 00362441 |
-| LG전자 | 00401731 |
-| 크래프톤 | 00760971 |
-| 카카오뱅크 | 01133217 |
+MinIO 경로의 {고유번호}가 어느 회사인지는 카드 파일(`pipeline/data/cards/{고유번호}.json`의 `name`)이나 `reference/corpcode.xml`에서 찾는다.
