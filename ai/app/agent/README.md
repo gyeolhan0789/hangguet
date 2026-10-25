@@ -48,7 +48,7 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 ## 질문 음성(TTS)
 
 - 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1). 화상 녹화 파일 이름이 이 이름으로 시작한다.
-- BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문을 방에 들어오자마자 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다.
+- BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문을 방에 들어오자마자 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다. 배정 정보가 있는데 형식이 틀리면(질문 5개·채점 기준·512KiB 등, AI 명세 6.1) 방에 들어가지 않고 배정을 거절한다.
 - 지원자가 들어오면 ① 결과 큐에 `question.started`(`seq`, `startedAt` 밀리초) ② 지원자에게 `interview.question` RPC `started`(글자별 시각 `alignment.chars`) ③ 마이크 트랙(`interviewer-voice`)으로 음성 송출 ④ `ended` 순으로 보낸다. 합성·송출에 실패하면 `failed`를 보낸다.
 - 화면이 RPC를 받지 못해도(처리 함수 없음·3초 응답 없음) 음성은 계속 낸다. 결과 큐 전송이 1·2·4초 재시도 후에도 실패하면 오류 로그만 남긴다.
 - 지금은 질문 하나만 말한다. 다음 질문 진행과 새로고침 후 다시 말하기는 아직 없다.

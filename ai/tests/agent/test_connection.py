@@ -279,11 +279,46 @@ def test_agent_joins_as_interviewer() -> None:
     request.accept.assert_awaited_once_with(name="interviewer", identity="interviewer")
 
 
+@pytest.mark.parametrize(
+    "metadata", [pytest.param("", id="test room"), pytest.param(None, id="no metadata")]
+)
+def test_request_without_be_assignment_is_accepted(metadata: str | None) -> None:
+    # BE 배정 없이 시험 방에 직접 연결하는 경우(connect --room)다
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = metadata
+    asyncio.run(accept_request(request))
+    request.accept.assert_awaited_once_with(name="interviewer", identity="interviewer")
+    request.reject.assert_not_awaited()
+
+
+def test_request_with_valid_assignment_is_accepted() -> None:
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = ASSIGNMENT_JSON
+    asyncio.run(accept_request(request))
+    request.accept.assert_awaited_once()
+    request.reject.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        pytest.param("{broken", id="not json"),
+        pytest.param(json.dumps({"sessionId": 55}), id="missing fields"),
+    ],
+)
+def test_request_with_malformed_assignment_is_rejected_without_joining(metadata: str) -> None:
+    # 틀린 배정 정보로는 질문을 진행할 수 없으므로 방에 들어가지 않고,
+    # 같은 배정 정보로 다른 작업자가 다시 받지 않게 한다
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = metadata
+    asyncio.run(accept_request(request))
+    request.reject.assert_awaited_once_with(terminate=True)
+    request.accept.assert_not_awaited()
+
+
 def test_room_without_be_assignment_does_not_ask_questions() -> None:
     ctx = context()
     ctx.job.metadata = ""
-    assert job_assignment(ctx) is None
-    ctx.job.metadata = "{broken"
     assert job_assignment(ctx) is None
 
 
@@ -399,6 +434,6 @@ ASSIGNMENT_JSON = json.dumps(
         "mode": "VIDEO",
         "persona": "DEVIL",
         "currentSeq": 1,
-        "questions": [{"seq": 1, "content": "질문", "criteria": "기준"}],
+        "questions": [{"seq": seq, "content": "질문", "criteria": "기준"} for seq in range(1, 6)],
     }
 )

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from livekit import rtc
 
-from app.agent.assignment import Assignment
+from app.agent.assignment import AssignedQuestion, Assignment
 from app.agent.question import (
     MAX_RPC_PAYLOAD_BYTES,
     QUESTION_METHOD,
@@ -27,7 +27,7 @@ ASSIGNMENT = Assignment(
     mode=InterviewMode.VIDEO,
     persona=Persona.DEVIL,
     current_seq=1,
-    questions={1: "질문"},
+    questions={1: AssignedQuestion("질문", "기준")},
 )
 
 

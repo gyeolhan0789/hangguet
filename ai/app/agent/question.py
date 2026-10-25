@@ -26,7 +26,8 @@ from livekit import rtc
 
 from app.agent.assignment import Assignment
 from app.agent.tts import BYTES_PER_SAMPLE, SAMPLE_RATE, ElevenLabsTTS, SpeechAudio, TtsError
-from app.common.results import KST, ResultPublisher, ResultPublishError, ResultType
+from app.common.results import KST, ResultPublisher, ResultPublishError
+from app.interview.realtime.progress import question_started
 
 log = logging.getLogger(__name__)
 QUESTION_METHOD = "interview.question"
@@ -172,12 +173,8 @@ class QuestionSpeaker:
         try:
             # 결과 큐 전송기는 동기 Redis 클라이언트이고 재시도 중 대기하므로
             # 별도 스레드에서 실행한다
-            await asyncio.to_thread(
-                self._results.publish,
-                ResultType.QUESTION_STARTED,
-                self._assignment.session_id,
-                {"seq": seq, "startedAt": started_at.isoformat(timespec="milliseconds")},
-            )
+            message = question_started(self._assignment.session_id, seq, started_at)
+            await asyncio.to_thread(message.publish, self._results)
         except ResultPublishError:
             log.error("question.started 전송 실패", extra={"seq": seq})
 
