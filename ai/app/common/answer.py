@@ -25,6 +25,9 @@ class SpeechToken:
     start_ms: int
     end_ms: int
 
+    def to_json(self) -> dict[str, str | int]:
+        return {"text": self.text, "startMs": self.start_ms, "endMs": self.end_ms}
+
 
 @dataclass(frozen=True)
 class VoiceMetrics:
