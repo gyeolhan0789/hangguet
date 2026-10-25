@@ -178,6 +178,8 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **판정** 채점 기준을 잣대로 평가 항목 4개를 3단계로 판정한다(G-Eval)
   - 항목마다 판정 이유와 3단계(`level` 1 아쉬워요 · 2 보통 · 3 좋아요)를 받는다
   - 점수는 3단계(50·70·90)의 확률로 낸 기대값이다(`PROBABILITY`). 확률을 받지 못하면 판정한 단계의 점수를 그대로 쓴다(`FIXED`). 정수로 반올림한다
+  - 점수 계산 방식은 `evaluation.criteria`의 항목마다 `scoreMethod`로 기록한다. 해당 항목의 점수를 확률 기대값으로 계산했으면 `PROBABILITY`, 판정 단계의 고정 점수로 계산했으면 `FIXED`다. 확률이 없는 항목만 고정 점수를 사용하며, 다른 항목의 점수와 계산 방식은 유지한다
+  - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - `COVER_LETTER`는 여기서 임시 판정하고 EVALUATE에서 확정한다
   - `DELIVERY`는 화상이면 답변 글과 말하기 지표로, 채팅이면 답변 글로 판정한다. 비어 있는 지표는 빼고 판정하고, 지표가 모두 비어 있으면 답변 글로만 판정한다
@@ -186,12 +188,11 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ```json
 {
   "criteria": {
-    "JOB_FIT": { "level": 3, "score": 86, "reason": "직무 요구 기술과 경험을 연결함" },
-    "COVER_LETTER": { "level": 2, "score": 71, "reason": "임시 판정" },
-    "LOGIC": { "level": 3, "score": 88, "reason": "원인 → 조치 → 결과 순서가 분명함" },
-    "DELIVERY": { "level": 2, "score": 69, "reason": "핵심이 뒤에 나옴" }
+    "JOB_FIT": { "level": 3, "score": 86, "scoreMethod": "PROBABILITY", "reason": "직무 요구 기술과 경험을 연결함" },
+    "COVER_LETTER": { "level": 2, "score": 71, "scoreMethod": "PROBABILITY", "reason": "임시 판정" },
+    "LOGIC": { "level": 3, "score": 88, "scoreMethod": "PROBABILITY", "reason": "원인 → 조치 → 결과 순서가 분명함" },
+    "DELIVERY": { "level": 2, "score": 70, "scoreMethod": "FIXED", "reason": "핵심이 뒤에 나옴" }
   },
-  "scoreMethod": "PROBABILITY",
   "speech": { "fillerCount": 3, "speakingMs": 41000, "longPauseCount": 1, "syllablesPerMin": 310, "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 },
   "promptVersion": "…",
   "modelVersion": "…"
@@ -212,6 +213,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `SCORING` 기준별 분석 | STEP 02 자소서 대조: 자소서 원문·`claims`와 답변을 대조해 근거가 맞는지 확인하고 `COVER_LETTER` 판정을 확정한다. 그다음 답변 점수 = 4항목 평균, 항목 점수 = 답한 질문들의 항목별 평균(정수) |
 | `WRITING_FEEDBACK` 피드백 작성 | 답변마다 잘한 점·고칠 점, 항목마다 코멘트(255자 이하), 면접 총평(255자 이하). 고도화에서는 회사 공시 요약을 더한다 |
 
+- `evaluation`을 새로 생성하거나 `COVER_LETTER` 판정을 확정할 때도 항목별 `scoreMethod`는 3장 규칙을 따른다. `COVER_LETTER` 점수를 다시 계산하면 해당 항목의 `scoreMethod`도 실제 계산 방식으로 갱신하고, 나머지 항목은 유지한다
 - 단계가 바뀔 때마다 `evaluation.progress`를 보낸다
 - **결과** `evaluation.completed`에 다음을 담는다 **[제안]**
   - `answers[]`: `answerId`, `score`, `goodPoint`, `improvePoint`, `evaluation`(`COVER_LETTER` 확정본)
