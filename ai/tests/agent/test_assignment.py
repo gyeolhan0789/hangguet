@@ -3,8 +3,15 @@ from typing import Any
 
 import pytest
 
-from app.agent.assignment import AssignmentError, parse_assignment
+from app.agent.assignment import MAX_METADATA_BYTES, AssignmentError, parse_assignment
 from app.common.session import InterviewMode, Persona
+
+
+def questions(count: int = 5) -> list[dict[str, Any]]:
+    return [
+        {"seq": seq, "content": f"{seq}번 질문", "criteria": f"{seq}번 기준"}
+        for seq in range(1, count + 1)
+    ]
 
 
 def metadata(**overrides: Any) -> str:
@@ -13,10 +20,7 @@ def metadata(**overrides: Any) -> str:
         "mode": "VIDEO",
         "persona": "DEVIL",
         "currentSeq": 1,
-        "questions": [
-            {"seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석"},
-            {"seq": 2, "content": "두 번째 질문", "criteria": "근거"},
-        ],
+        "questions": questions(),
     }
     value.update(overrides)
     return json.dumps(value, ensure_ascii=False)
@@ -28,12 +32,30 @@ def test_be_assignment_is_parsed() -> None:
     assert assignment.mode is InterviewMode.VIDEO
     assert assignment.persona is Persona.DEVIL
     assert assignment.current_seq == 1
-    assert assignment.question(2) == "두 번째 질문"
+    assert assignment.question(2) == "2번 질문"
+    assert assignment.criteria(2) == "2번 기준"
+
+
+def test_questions_out_of_order_are_parsed_by_seq() -> None:
+    assignment = parse_assignment(metadata(questions=questions()[::-1]))
+    assert [assignment.question(seq) for seq in range(1, 6)] == [
+        f"{seq}번 질문" for seq in range(1, 6)
+    ]
 
 
 def test_missing_question_is_reported_without_content() -> None:
-    with pytest.raises(AssignmentError, match="3번 질문"):
-        parse_assignment(metadata()).question(3)
+    with pytest.raises(AssignmentError, match="6번 질문"):
+        parse_assignment(metadata()).criteria(6)
+
+
+def test_unknown_fields_are_ignored() -> None:
+    assert parse_assignment(metadata(extra={"key": "value"})).session_id == 55
+
+
+def with_question(**fields: Any) -> list[dict[str, Any]]:
+    items = questions()
+    items[0] = {**items[0], **fields}
+    return items
 
 
 @pytest.mark.parametrize(
@@ -47,11 +69,28 @@ def test_missing_question_is_reported_without_content() -> None:
         metadata(sessionId=True),
         metadata(currentSeq=6),
         metadata(questions=None),
-        metadata(questions=["질문"]),
-        metadata(questions=[{"seq": 1, "content": " "}]),
-        metadata(questions=[{"seq": "1", "content": "질문"}]),
+        metadata(questions=["질문"] * 5),
+        metadata(questions=questions(4)),
+        metadata(questions=[*questions(), {"seq": 1, "content": "질문", "criteria": "기준"}]),
+        metadata(questions=with_question(seq=2)),
+        metadata(questions=with_question(content=" ")),
+        metadata(questions=with_question(seq="1")),
+        metadata(questions=with_question(criteria=None)),
+        metadata(questions=with_question(criteria="\n")),
+        pytest.param("[" * 100_000, id="deeply nested json"),
     ],
 )
 def test_malformed_assignment_is_rejected(raw: str) -> None:
     with pytest.raises(AssignmentError):
         parse_assignment(raw)
+
+
+def test_metadata_size_boundary_is_utf8_bytes() -> None:
+    base = metadata(padding="")
+    room = MAX_METADATA_BYTES - len(base.encode("utf-8"))
+    assert parse_assignment(metadata(padding="a" * room)).session_id == 55
+    with pytest.raises(AssignmentError, match="바이트"):
+        parse_assignment(metadata(padding="a" * (room + 1)))
+    # 한글은 UTF-8 3바이트이므로 글자 수가 아닌 바이트로 센다
+    with pytest.raises(AssignmentError, match="바이트"):
+        parse_assignment(metadata(padding="가" * (room // 3 + 1)))

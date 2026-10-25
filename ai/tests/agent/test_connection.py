@@ -399,6 +399,6 @@ ASSIGNMENT_JSON = json.dumps(
         "mode": "VIDEO",
         "persona": "DEVIL",
         "currentSeq": 1,
-        "questions": [{"seq": 1, "content": "질문", "criteria": "기준"}],
+        "questions": [{"seq": seq, "content": "질문", "criteria": "기준"} for seq in range(1, 6)],
     }
 )
