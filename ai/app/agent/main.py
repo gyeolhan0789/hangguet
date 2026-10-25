@@ -25,19 +25,34 @@ AGENT_IDENTITY = "interviewer"
 
 
 async def accept_request(request: JobRequest) -> None:
+    """형식이 틀린 배정 정보로 온 배정은 방에 들어가기 전에 거절한다.
+
+    배정 정보가 있으면 BE가 연 실제 면접이고(AI 명세 6.1), 틀린 배정 정보로는 질문을 진행할 수 없다.
+    방에 들어가 자막만 보내면 지원자는 오지 않을 질문을 기다리게 된다.
+    같은 배정 정보로는 다른 작업자도 진행할 수 없으므로 다른 작업자에게 넘기지 않는다.
+    """
+    metadata = _metadata(request.job.metadata)
+    if metadata is not None:
+        try:
+            parse_assignment(metadata)
+        except AssignmentError as e:
+            log.error("배정 정보가 올바르지 않아 배정을 거절한다: %s", e)
+            await request.reject(terminate=True)
+            return
     await request.accept(name=AGENT_IDENTITY, identity=AGENT_IDENTITY)
 
 
 def job_assignment(ctx: JobContext) -> Assignment | None:
-    """BE 배정 없이 테스트 방에 직접 연결하면(connect --room) 배정 정보가 없어 질문하지 않는다."""
-    metadata = ctx.job.metadata
-    if not isinstance(metadata, str) or not metadata:
-        return None
-    try:
-        return parse_assignment(metadata)
-    except AssignmentError as e:
-        log.error("배정 정보를 읽지 못해 질문하지 않는다: %s", e)
-        return None
+    """BE 배정 없이 테스트 방에 직접 연결하면(connect --room) 배정 정보가 없어 질문하지 않는다.
+
+    형식이 틀린 배정 정보는 accept_request가 거절하므로 여기까지 오지 않는다.
+    """
+    metadata = _metadata(ctx.job.metadata)
+    return None if metadata is None else parse_assignment(metadata)
+
+
+def _metadata(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 async def entrypoint(ctx: JobContext) -> None:
