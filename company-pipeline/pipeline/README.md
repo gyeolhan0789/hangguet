@@ -1,6 +1,6 @@
-# 회사 카드 파이프라인 (MVP)
+# 회사 카드 파이프라인
 
-회사의 사업보고서·인재상·최근 기사를 모아, 출처가 달린 회사 카드(JSON)를 만든다.
+회사의 사업보고서·인재상·최근 기사를 모아, 출처가 달린 회사 카드(JSON)를 만든다. MVP 범위 밖(고도화) 기능이다.
 카드 항목: 인재상(`talent`), 사업 방향(`direction`), 경쟁·시장(`market`), 최근 이슈(`recent`).
 
 ```
@@ -8,6 +8,67 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 ⑤ 뉴스 수집(규칙으로 거르기 → 같은 사건 묶기) ───────┴→ ③ LLM 요약(원문 인용) → ④ 인용 검증
                                                       → data/cards/{고유번호}.json
 ```
+
+## 카드 형식
+
+`data/cards/{DART 고유번호}.json` 하나가 회사 하나다. 예시(삼성SDI, 항목마다 첫 번째만):
+
+```json
+{
+  "corp_code": "00126362",
+  "name": "삼성SDI",
+  "generated_at": "2026-10-23",
+  "prompt_version": "card-v4",
+  "model": "gpt-4.1-mini",
+  "talent": [
+    {"keyword": "열정과 도전", "quote": "끊임없는 열정으로 미래에 도전하는 인재",
+     "source": "https://www.samsungsdi.co.kr/career/index.html"}
+  ],
+  "direction": [
+    {"summary": "전지 사업 중심 시설투자 계획",
+     "quote": "2026년은 전지 사업을 중심으로 전 사업부문에 시설투자를 계획 중이며, ...",
+     "source": "최신 사업보고서 II. 사업의 내용"}
+  ],
+  "market": [
+    {"summary": "주요 매출처 BMW, VWG, 삼성전자 등",
+     "quote": "당사의 주요 매출처로는 Bayerische Motoren Werke (\"BMW\"), ...",
+     "source": "최신 사업보고서 II. 사업의 내용"}
+  ],
+  "recent": [
+    {"summary": "삼성SDI 국제화학올림피아드 한국 대표단 후원 협약",
+     "quote": "삼성SDI, 국제화학올림피아드 한국 대표단 후원 협약",
+     "source": "https://www.yna.co.kr/view/AKR20261022024400003?input=1195m",
+     "published": "2026-10-22", "articles": 72}
+  ]
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `corp_code`, `name` | DART 고유번호, DART 등록 회사명 |
+| `generated_at`, `prompt_version`, `model` | 카드를 만든 날, 프롬프트 버전, LLM 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
+| `talent[]` | 인재상 1~3개. `keyword` 짧은 이름, `quote` 인재상 원문 그대로, `source` 채용 페이지 주소 |
+| `direction[]` | 앞으로 집중·강화하려는 사업 방향 1~3개. `summary` 요약, `quote` 사업보고서 원문 그대로, `source` 출처 이름 |
+| `market[]` | 경쟁 위치(점유율·주요 고객·경쟁사 등) 1~3개. 필드는 `direction`과 같다 |
+| `recent[]` | 최근 30일 이슈 1~3개. `summary` 요약, `quote` 기사 제목·요약 원문, `source` 기사 링크, `published` 기사 날짜, `articles` 같은 사건 기사 수 |
+
+- 모든 `quote`는 원문에 글자 그대로 있는지 검사를 통과한 것만 남는다(④). 그래서 항목이 0개일 수 있다
+- 사업보고서가 없는 회사(비상장 등)는 `direction`·`market`이 빈 배열인 **부분 카드**다
+- 인재상 원문이 없는 회사는 `talent`가 빈 배열이다
+
+## 현황 (2026-10-26)
+
+| 항목 | 수 |
+|---|---|
+| 회사(`companies.json`) | 111 |
+| 인재상 원문 있음 | 63 (나머지는 공식 페이지가 없거나 JS·이미지라 못 읽음) |
+| 기사 검색어(`news_query`) 따로 지정 | 15 (예: 비바리퍼블리카 → 토스) |
+| 카드 | 111 |
+| `talent` 빈 카드 | 50 |
+| `direction`·`market` 모두 빈 카드 | 9 (사업보고서 없는 부분 카드 8 + 메리츠금융지주 1: 보고서는 있으나 검증을 통과한 항목이 없음, 원인 미확인) |
+| `recent` 빈 카드 | 3 (증권사 등 주가·시황 기사가 거의 전부라 규칙에서 걸러짐) |
+
+100곳은 SSAFY 지원자가 많은 업종에서 골랐다(채용 사이트를 보고 고르지 않음). 인재상은 회사·그룹 공식 채용 페이지에서 가져와 페이지 원본에 글자 그대로 있는 줄만 남겼다.
 
 ## 회사 목록
 

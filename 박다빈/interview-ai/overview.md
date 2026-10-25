@@ -34,15 +34,17 @@
 ```
 서버: 추가 EC2 c6g.2xlarge + EBS 60GB (교보재 신청함)
 
+> 2026-10-26 현재 구현은 위 계획과 다르다: Airflow + MinIO + GMS(gpt-4.1-mini, text-embedding-3-large), 교보재 EC2 t3.medium 1대. Kafka·Spark·pgvector는 쓰지 않는다(규모가 작아 서버 1대로 충분). 사용법·카드 형식은 [company-pipeline/pipeline/README.md](../../company-pipeline/pipeline/README.md)
+
 ### 결과물: 회사 요약 카드
 ```json
 {
   "corp_code": "00000000",
   "name": "○○사",
-  "talent": [{"keyword": "협업", "source": "채용 페이지 URL"}],
-  "direction": [{"summary": "기존 서비스 안정화와 수익화에 집중", "source": "2025 사업보고서"}],
-  "recent_issues": [{"summary": "결제 플랫폼 리뉴얼 발표", "date": "2026-09-30", "source": "기사 링크"}],
-  "job_skills": [{"summary": "대용량 트래픽 · 장애 대응 경험", "source": "채용 공고"}]
+  "talent": [{"keyword": "협업", "quote": "인재상 원문", "source": "채용 페이지 URL"}],
+  "direction": [{"summary": "기존 서비스 안정화와 수익화에 집중", "quote": "사업보고서 원문", "source": "최신 사업보고서 II. 사업의 내용"}],
+  "market": [{"summary": "국내 점유율 1위", "quote": "사업보고서 원문", "source": "최신 사업보고서 II. 사업의 내용"}],
+  "recent": [{"summary": "결제 플랫폼 리뉴얼 발표", "quote": "기사 제목", "source": "기사 링크", "published": "2026-09-30", "articles": 5}]
 }
 ```
 
@@ -102,9 +104,9 @@
 ## 6. 할 일
 
 - [ ] 가상 답변 3개(잘 맞음·보완·어긋남)로 평가 기준 직접 테스트
-- [ ] 회사 요약 카드 필드 확정
+- [x] 회사 요약 카드 필드 확정 ([카드 형식](../../company-pipeline/pipeline/README.md#카드-형식). 직무(`job_skills`)는 채용공고 API 승인 후)
 - [ ] 팀 회의에서 JSON 형식 3개 합의
-- [ ] MVP 대상 기업 100곳 목록
-- [ ] 공시 없는 기업(비상장) 처리 방법 결정
+- [x] MVP 대상 기업 100곳 목록 (111곳, `company-pipeline/pipeline/companies.json`)
+- [x] 공시 없는 기업(비상장) 처리 방법 결정 (인재상·최근 이슈만 있는 부분 카드)
 - [ ] 검증용 정답 세트 계획 (답변 30~50개, 누가 채점할지)
 - [ ] 단일 서버로 수집→카드 생성 MVP (1주) → Spark로 전환

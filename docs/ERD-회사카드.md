@@ -5,7 +5,7 @@ ERDCloud 가져오기용 SQL은 [ERD-회사카드.sql](ERD-회사카드.sql)이�
 
 ## 흐름
 
-파이프라인(Lightsail: Airflow·Spark·MinIO)이 원문·기사·카드를 만들어 S3에 올리면, Python worker가 메인 DB(PostgreSQL)에 넣는다.
+파이프라인(교보재 EC2: Airflow·MinIO, [company-pipeline](../company-pipeline/pipeline/README.md))이 원문·기사·카드를 만들어 S3에 올리면, Python worker가 메인 DB(PostgreSQL)에 넣는다(적재는 고도화 때).
 BE는 회사·회사별칭·회사카드·회사카드항목을 읽고, 카드항목의 출처는 원문기록·뉴스기사를 FK로 따라가 얻는다.
 
 ```mermaid
