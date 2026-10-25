@@ -249,9 +249,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ## 6. 면접 에이전트
 
-면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs 공식 플러그인을 사용할 계획이다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
+면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `DMyrgzQFny3JI1Y1paM5`, COFFEE_CHAT `21m00Tcm4TlvDq8ikWAM`, 모델은 `eleven_multilingual_v2`다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
 
-**현재 구현 범위:** 지원자 마이크 구독 → Soniox STT → 원본 확정 토큰·시각 수집 → 화면 텍스트 표시. 질문별 분리·`answerStartedAt` 기준 시각 변환·답변 완료 판단·BE 결과 전송·TTS·Jev는 미구현이다. 아래는 이 기능들을 포함한 목표 계약이다.
+**현재 구현 범위:** 지원자 마이크 구독 → Soniox STT → 원본 확정 토큰·시각 수집 → 화면 텍스트 표시. 배정 정보의 `currentSeq` 질문 하나를 TTS로 말하고 `question.started`·`interview.question`(`started`·`ended`·`failed`)을 보낸다. 다음 질문으로 넘어가기(`answerSubmit`)·질문별 분리·`answerStartedAt` 기준 시각 변환·답변 완료 판단·`answer.completed`·Jev는 미구현이다. 아래는 이 기능들을 포함한 목표 계약이다.
 
 ### 6.1 배정
 
@@ -324,14 +324,15 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 | RPC 메서드 | 방향 | 필드 |
 |---|---|---|
-| `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만. `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0) |
+| `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만 `{ chars[] }`, `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0. 그 밖에는 null. 키는 항상 담는다) |
 | `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단하지 못했거나 반응할 내용이 없으면 null), `attitude`(`interest`·`trust`, 0~1, 첫 판단 전에는 0.5), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
 | `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` · `submitFailed` |
 | `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false` |
 | `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs` |
 
 - RPC 오류: `2001 EMPTY_ANSWER`(한마디도 안 함), `2002 NOT_ANSWERING`(질문 음성 재생 중 등). 1001~1999는 LiveKit 예약
-- 발음 시각이 15KiB를 넘으면 나눠 보낼지 텍스트 스트림을 쓸지 **[미정]**
+- 발음 시각이 15KiB를 넘으면 나눠 보낼지 텍스트 스트림을 쓸지 **[미정]**. 지금은 `alignment`를 null로 보내고 질문 음성은 그대로 낸다(한글 질문 약 330자 이상에서 발생)
+- 화면이 RPC를 받지 못해도(처리 함수 없음·3초 안에 응답 없음) 질문 음성은 계속 낸다
 - 말 끊기(`interrupt`)의 `text`는 에이전트가 음성으로도 말한다
 - `reaction.durationMs`는 1,200ms다. 리액션이 없을 때와 `durationMs`가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다
 - `reaction` 객체는 키를 항상 모두 담고, 해당하지 않는 값은 null이다. 표정이면 `gesture`가, 동작이면 `expression`·`intensity`가 null이다. 화면이 키가 있는지 분기하지 않고 같은 형식으로 읽게 하기 위해서다
@@ -398,4 +399,3 @@ DART 공시를 수집·정제(중복 제거·기업명 매칭)하고 LLM으로 �
 | 실제 Jev 호출로 본 한국어 답변 판단 정확도, 서울에서의 응답 시간, 선택지 순서를 변경해도 판단이 같은지(모델 `jev-1.14.0`) | 6.4 |
 | LiveKit Egress 트랙 녹화 파일이 저장소에 완성되는 시점(파일 형식은 LiveKit 문서로 확인: H.264는 MP4, Opus는 OGG), 화면이 H.264가 아닌 코덱(VP8 등)으로 송출했을 때 Egress의 저장 결과 | 7장 원본 트랙 파일 |
 | Soniox WebSocket 직접 연결로 실제 한국어 음성의 확정 토큰·시각·끝 표시(`<end>`) 수신, 시각 누락·연결 끊김 처리 검증 | 6.2 `tokens`, 문장 끝 판단, 3장 말하기 분석 |
-| LiveKit ElevenLabs 플러그인에서 글자별 발음 시각을 받을 수 있는지(문서에서 확인한 것은 자막 맞춤 `use_tts_aligned_transcript`뿐) | 6.3 `alignment` |
