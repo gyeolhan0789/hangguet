@@ -114,6 +114,18 @@ export const streakFreezeEndpoints = {
   use: "/users/me/streak-freezes/use",
 } as const;
 
+/** 9. 문의(회원 · 비회원). 비회원은 9.3 · 9.4 · 9.5에 X-Inquiry-Password 헤더를 보낸다 */
+export const inquiryEndpoints = {
+  /** 9.1 POST 문의 작성(토큰 없이도) · 9.2 GET 내 문의 목록(page · size) */
+  root: "/inquiries",
+  /** 9.3 GET 문의 조회(토큰 없이도) */
+  detail: (inquiryId: Id) => `/inquiries/${inquiryId}`,
+  /** 9.4 POST 문의 이어서 쓰기(토큰 없이도) */
+  messages: (inquiryId: Id) => `/inquiries/${inquiryId}/messages`,
+  /** 9.5 POST 문의 종료(토큰 없이도) */
+  close: (inquiryId: Id) => `/inquiries/${inquiryId}/close`,
+} as const;
+
 export const endpoints = {
   auth: authEndpoints,
   users: userEndpoints,
@@ -124,4 +136,5 @@ export const endpoints = {
   growthReviews: growthReviewEndpoints,
   notices: noticeEndpoints,
   streakFreezes: streakFreezeEndpoints,
+  inquiries: inquiryEndpoints,
 } as const;

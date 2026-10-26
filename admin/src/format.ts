@@ -38,3 +38,8 @@ export function fromLocalInput(value: string) {
 export function todayKst() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
 }
+
+/** A04 문의한 사람: 회원은 '회원 · 이메일', 비회원은 '비회원 · 이메일'(9.6에는 닉네임이 없다) */
+export function inquirer(item: { userId: number | null; email: string }) {
+  return `${item.userId === null ? '비회원' : '회원'} · ${item.email}`
+}
