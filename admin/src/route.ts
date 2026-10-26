@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 // 라우터 라이브러리 없이 주소의 # 뒤로 화면을 고른다
 export type Route =
   | { name: 'home' }
+  | { name: 'history' }
   | { name: 'notices' }
   | { name: 'notice-new' }
   | { name: 'notice-edit'; id: number }
@@ -12,6 +13,7 @@ export type Route =
   | { name: 'inquiry'; id: number }
 
 function parse(hash: string): Route {
+  if (hash === '#/history') return { name: 'history' }
   if (hash === '#/notices') return { name: 'notices' }
   if (hash === '#/notices/new') return { name: 'notice-new' }
   const edit = /^#\/notices\/(\d+)\/edit$/.exec(hash)
@@ -28,6 +30,8 @@ function toHash(route: Route): string {
   switch (route.name) {
     case 'home':
       return '#/'
+    case 'history':
+      return '#/history'
     case 'notices':
       return '#/notices'
     case 'notice-new':

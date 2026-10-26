@@ -3,6 +3,7 @@ import { setUnauthorizedHandler } from './api'
 import { Header } from './components/Header'
 import { GrantFormPage } from './pages/GrantFormPage'
 import { GrantListPage } from './pages/GrantListPage'
+import { HistoryPage } from './pages/HistoryPage'
 import { HomePage } from './pages/HomePage'
 import { InquiryDetailPage } from './pages/InquiryDetailPage'
 import { InquiryListPage } from './pages/InquiryListPage'
@@ -45,6 +46,7 @@ export default function App() {
       />
       <main className="body">
         {route.name === 'home' && <HomePage />}
+        {route.name === 'history' && <HistoryPage />}
         {route.name === 'notices' && <NoticeListPage />}
         {route.name === 'notice-new' && <NoticeFormPage key="new" />}
         {route.name === 'notice-edit' && <NoticeFormPage key={route.id} noticeId={route.id} />}

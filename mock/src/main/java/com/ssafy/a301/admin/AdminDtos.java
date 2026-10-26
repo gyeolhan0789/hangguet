@@ -1,6 +1,7 @@
 package com.ssafy.a301.admin;
 
 import com.ssafy.a301.growth.GrowthDtos;
+import com.ssafy.a301.interview.InterviewDtos;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -188,7 +189,16 @@ public final class AdminDtos {
 
     public record UserMetrics(
             @Schema(description = "탈퇴하지 않은 전체 회원 수", example = "120") int total,
-            @Schema(description = "기준 날짜(한국 시간)에 가입한 회원 수", example = "3") int joinedToday) {}
+            @Schema(description = "기준 날짜(한국 시간)에 가입한 회원 수", example = "3") int joinedToday,
+            @Schema(description = "탈퇴한 회원 수", example = "7") int withdrawn,
+            @Schema(description = "탈퇴하지 않은 회원 중 연습 면접(답변 1개 이상)을 한 번 이상 한 회원 수", example = "84")
+                    int interviewed) {}
+
+    public record Retention(
+            @Schema(description = "가입한 날에서 며칠째인지(1 · 3 · 7)", example = "1") int days,
+            @Schema(description = "가입한 지 days일이 지난 회원 수(탈퇴 포함)", example = "110") int eligible,
+            @Schema(description = "그중 가입한 날에서 정확히 days일째에 연습 기록이 있는 회원 수", example = "38")
+                    int returned) {}
 
     public record DailyPractice(
             @Schema(description = "날짜(한국 시간)") LocalDate date,
@@ -196,7 +206,14 @@ public final class AdminDtos {
 
     public record PracticeMetrics(
             @Schema(description = "기준 날짜에 연습한 회원 수", example = "18") int practicedToday,
-            @Schema(description = "기준 날짜를 포함한 최근 7일, 날짜 오름차순") List<DailyPractice> daily) {}
+            @Schema(description = "기준 날짜를 포함한 최근 7일 중 하루라도 연습한 회원 수", example = "61")
+                    int practicedWeek,
+            @Schema(description = "기준 날짜를 포함한 최근 7일, 날짜 오름차순") List<DailyPractice> daily,
+            @Schema(description = "재방문(D1 · D3 · D7), days 오름차순") List<Retention> retention) {}
+
+    public record PersonaCount(
+            @Schema(description = "면접관") InterviewDtos.Persona persona,
+            @Schema(description = "total 중 이 면접관과 한 면접 수", example = "350") int count) {}
 
     public record InterviewMetrics(
             @Schema(description = "답변 1개 이상인 면접 수(분석 중 · 완료 · 실패)", example = "590") int total,
@@ -205,7 +222,32 @@ public final class AdminDtos {
             @Schema(description = "FAILED 결과 생성 실패", example = "6") int failed,
             @Schema(description = "ABORTED 답변 없이 끝남(total에는 넣지 않는다)", example = "50") int aborted,
             @Schema(description = "total 중 화상 면접 수", example = "380") int video,
-            @Schema(description = "total 중 채팅 면접 수", example = "210") int chat) {}
+            @Schema(description = "total 중 채팅 면접 수", example = "210") int chat,
+            @Schema(
+                            description =
+                                    "analyzing 중 결과 생성 요청 뒤 최대 대기 시간(ai-job.analysis-timeout)이 지난"
+                                            + " 면접 수",
+                            example = "1")
+                    int stuck,
+            @Schema(description = "면접관별 면접 수. 면접관 순서대로 모두 준다") List<PersonaCount> personas) {}
+
+    public record SpeechAverages(
+            @Schema(description = "말하기 지표가 있는, 결과가 나온 화상 면접 수", example = "360") int sessions,
+            @Schema(description = "1분당 군말 횟수", nullable = true, example = "2.3")
+                    Double fillerPerMin,
+            @Schema(description = "문장 중간에 길게 멈춘 횟수", nullable = true, example = "2.8")
+                    Double longPauseCount,
+            @Schema(description = "일반 성인 말 속도와의 차이(%)", nullable = true, example = "6.4")
+                    Double speedDeviationPct,
+            @Schema(description = "말끝을 흐린 문장 비율(%)", nullable = true, example = "13.1")
+                    Double trailingOffRatio,
+            @Schema(description = "억양 변화 폭(세미톤)", nullable = true, example = "5.9")
+                    Double pitchRangeSt,
+            @Schema(description = "면접관을 바라본 시간 비율(%)", nullable = true, example = "68.2")
+                    Double gazeRatio) {}
+
+    public record InquiryMetrics(
+            @Schema(description = "답변을 기다리는(WAITING) 문의 수", example = "2") int waiting) {}
 
     public record CriterionAverage(
             @Schema(description = "평가 기준") GrowthDtos.Criterion criterion,
@@ -222,12 +264,51 @@ public final class AdminDtos {
             @Schema(description = "공지 제목", example = "10월 점검 안내") String title,
             @Schema(description = "확인(8.9)한 회원 수", example = "64") int readCount) {}
 
+    // 8.16 관리자 일별 메트릭
+
+    @Schema(description = "그날 0시 기록. 날짜로 정해지는 값은 그날 기준, 상태가 바뀌는 값은 기록한 시각 기준(8.15와 같은 정의)")
+    public record DailyMetricItem(
+            @Schema(description = "날짜(한국 시간)") LocalDate date,
+            @Schema(description = "탈퇴하지 않은 전체 회원 수", example = "120") int usersTotal,
+            @Schema(description = "그날 가입한 회원 수", example = "3") int usersJoined,
+            @Schema(description = "탈퇴한 회원 수", example = "7") int usersWithdrawn,
+            @Schema(description = "연습 면접을 한 번 이상 한 회원 수(탈퇴 제외)", example = "84")
+                    int usersInterviewed,
+            @Schema(description = "그날 연습한 회원 수", example = "18") int practicedUsers,
+            @Schema(description = "그날까지 최근 7일 중 하루라도 연습한 회원 수", example = "61") int practicedWeek,
+            @Schema(description = "D1 대상 회원 수", example = "124") int d1Eligible,
+            @Schema(description = "D1 돌아온 회원 수", example = "46") int d1Returned,
+            @Schema(description = "D3 대상 회원 수", example = "118") int d3Eligible,
+            @Schema(description = "D3 돌아온 회원 수", example = "31") int d3Returned,
+            @Schema(description = "D7 대상 회원 수", example = "103") int d7Eligible,
+            @Schema(description = "D7 돌아온 회원 수", example = "22") int d7Returned,
+            @Schema(description = "답변 1개 이상인 면접 수(누적)", example = "590") int interviewsTotal,
+            @Schema(description = "그중 결과가 나온 면접 수", example = "580") int interviewsCompleted,
+            @Schema(description = "그중 결과 생성에 실패한 면접 수", example = "6") int interviewsFailed,
+            @Schema(description = "답변 없이 끝난 면접 수(누적)", example = "50") int interviewsAborted,
+            @Schema(description = "분석이 멈춘 면접 수", example = "1") int interviewsStuck,
+            @Schema(description = "등록된 지원서 수", example = "150") int applications,
+            @Schema(description = "답변을 기다리는 문의 수", example = "2") int inquiriesWaiting,
+            @Schema(description = "지급한 유지권 수(누적)", example = "260") int freezesGranted,
+            @Schema(description = "사용한 유지권 수(누적)", example = "41") int freezesUsed,
+            @Schema(description = "기록한 일시") OffsetDateTime recordedAt) {}
+
+    public record DailyMetricsResponse(
+            @Schema(description = "조회 시작 날짜(한국 시간)") LocalDate from,
+            @Schema(description = "조회 끝 날짜(한국 시간 어제)") LocalDate to,
+            @Schema(description = "기간 안의 기록, 날짜 오름차순. 기록이 없는 날은 빠진다")
+                    List<DailyMetricItem> content) {}
+
     public record AdminMetricsResponse(
             @Schema(description = "집계 기준 날짜(한국 시간 오늘)") LocalDate date,
             @Schema(description = "회원") UserMetrics users,
             @Schema(description = "연습") PracticeMetrics practice,
             @Schema(description = "면접") InterviewMetrics interviews,
             @Schema(description = "기준별 평균 점수 4개") List<CriterionAverage> averageScores,
+            @Schema(description = "말하기 지표 평균. 소수 첫째 자리, 값이 있는 면접이 없으면 그 지표는 null")
+                    SpeechAverages speech,
+            @Schema(description = "등록된 지원서 수(탈퇴한 회원 것 포함)", example = "150") int applications,
+            @Schema(description = "문의") InquiryMetrics inquiries,
             @Schema(description = "스트릭 유지권") StreakFreezeMetrics streakFreezes,
             @Schema(description = "게시 중인 공지별 확인 수, 최신순. 없으면 빈 배열") List<NoticeMetric> notices) {}
 }

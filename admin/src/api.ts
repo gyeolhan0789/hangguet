@@ -5,6 +5,7 @@ import type {
   AdminInquiryResponse,
   AdminPasswordChangeRequest,
   AdminMetricsResponse,
+  DailyMetricsResponse,
   AdminTokenResponse,
   AdminUser,
   InquiryStatus,
@@ -71,6 +72,7 @@ export const api = {
     request<AdminTokenResponse>('/admin/auth/login', { method: 'POST', body: { loginId, password } }),
   logout: () => request<void>('/admin/auth/logout', { method: 'POST' }),
   metrics: () => request<AdminMetricsResponse>('/admin/metrics'),
+  dailyMetrics: (days: number) => request<DailyMetricsResponse>(`/admin/metrics/daily?days=${days}`),
   notices: (page: number, size = 10) =>
     request<Page<NoticeListItem>>(`/admin/notices?page=${page}&size=${size}`),
   notice: (id: number) => request<NoticeResponse>(`/admin/notices/${id}`),
