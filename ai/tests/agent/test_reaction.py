@@ -12,6 +12,9 @@ from app.agent.reaction import (
     parse_chat_input,
     reaction_payload,
 )
+from app.common.answer import SpeechToken
+from app.common.session import Persona
+from app.interview.realtime.interrupt import MAX_SPEAKING_MS
 from app.interview.realtime.reaction import (
     NEUTRAL_ATTITUDE,
     Attitude,
@@ -282,3 +285,93 @@ def test_chat_input_is_parsed_and_reply_has_only_accepted() -> None:
     assert json.loads(chat_input_reply(True)) == {"accepted": True}
     assert json.loads(chat_input_reply(False)) == {"accepted": False}
     assert CHAT_INPUT_METHOD == "interview.chatInput"
+
+
+LONG_TOKENS = (SpeechToken("답변", 0, 60_000), SpeechToken(" 계속", 60_000, MAX_SPEAKING_MS))
+SHORT_TOKENS = (SpeechToken("답변", 0, 1_000),)
+
+
+def video_stream(h: Harness, persona: Persona | None = Persona.DEVIL) -> ReactionStream:
+    return ReactionStream(
+        55,
+        h.judge,
+        h.send,
+        question=lambda seq: "질문",
+        criteria=lambda seq: "기준",
+        persona=persona,
+    )
+
+
+def test_off_topic_interrupt_is_sent_with_judgment_once_per_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h)
+        h.stream.start(1, "candidate")
+        for index in range(2):
+            h.stream.submit("등산 얘기.", 0.0, "등산 얘기.")
+            await h.settle()
+            h.judge.finish(index, Judgment(None, NEUTRAL_ATTITUDE, off_topic=0.9))
+            await h.settle()
+
+    h = run(scenario)
+    assert [m["interrupt"] for m in h.sent] == [
+        {"reason": "OFF_TOPIC", "text": "질문으로 다시 돌아가 볼게요."},
+        None,
+    ]
+
+
+def test_too_long_is_sent_on_speech_without_waiting_for_jev() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(SHORT_TOKENS)
+        h.stream.speaking(LONG_TOKENS)
+        h.stream.speaking(LONG_TOKENS)
+        await h.settle()
+
+    h = run(scenario)
+    assert h.judge.contexts == []
+    assert [(m["seq"], m["reaction"], m["interrupt"]["reason"]) for m in h.sent] == [
+        (1, None, "TOO_LONG")
+    ]
+
+
+def test_unknown_speaking_time_does_not_interrupt() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(None)
+        await h.settle()
+
+    assert run(scenario).sent == []
+
+
+def test_rejoined_answer_can_be_interrupted_again() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(LONG_TOKENS)
+        await h.settle()
+        await h.stream.stop()
+        h.stream.start(1, "candidate")
+        h.stream.speaking(LONG_TOKENS)
+        await h.settle()
+
+    h = run(scenario)
+    assert [(m["seq"], m["interrupt"]["reason"]) for m in h.sent] == [
+        (1, "TOO_LONG"),
+        (2, "TOO_LONG"),
+    ]
+
+
+def test_chat_never_interrupts() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h, persona=None)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(LONG_TOKENS)
+        h.stream.submit("등산 얘기.", 0.0, "등산 얘기.")
+        await h.settle()
+        h.judge.finish(0, Judgment(None, NEUTRAL_ATTITUDE, off_topic=0.9))
+        await h.settle()
+
+    h = run(scenario)
+    assert [m["interrupt"] for m in h.sent] == [None]

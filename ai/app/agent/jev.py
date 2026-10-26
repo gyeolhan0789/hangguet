@@ -43,8 +43,16 @@ class JevError(RuntimeError):
 
 
 class JevJudge:
-    def __init__(self, api_key: str, *, timeout_seconds: float = JEV_TIMEOUT_SECONDS) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        off_topic: bool = False,
+        timeout_seconds: float = JEV_TIMEOUT_SECONDS,
+    ) -> None:
+        """off_topic이면 발화 중단을 위한 질문 이탈도 판단한다(화상 면접)."""
         self._api_key = api_key
+        self._off_topic = off_topic
         self._model = REGISTRY.require(VersionKind.MODEL, JEV_MODEL)
         REGISTRY.require(VersionKind.PROMPT, REACTION_PROMPT_VERSION)
         self._timeout_seconds = timeout_seconds
@@ -54,7 +62,9 @@ class JevJudge:
         """판단하지 못하면 리액션 없이 직전 태도를 반환한다(AI 명세 6.4)."""
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                answers = await self._ask(context.state(), reaction_questions())
+                answers = await self._ask(
+                    context.state(), reaction_questions(off_topic=self._off_topic)
+                )
             return judgment_from(answers)
         except TimeoutError:
             log.warning("Jev 판단 시간 초과")

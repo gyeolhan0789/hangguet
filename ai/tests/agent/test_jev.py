@@ -143,3 +143,14 @@ def test_connection_is_reused_and_closed() -> None:
     factory.assert_called_once()
     assert session.post.call_count == 2
     session.close.assert_awaited_once()
+
+
+def test_video_judge_also_asks_off_topic() -> None:
+    session = http_session()
+    payload = body()
+    payload["answers"]["off_topic"] = {"type": "noul", "noul": 0.75}
+    session.post.return_value.json = AsyncMock(return_value=payload)
+    judgment = judge_with(session, off_topic=True)
+    assert judgment.off_topic == 0.75
+    sent = session.post.call_args.kwargs["json"]["questions"]
+    assert sent == reaction_questions(off_topic=True)

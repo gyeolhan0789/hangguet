@@ -91,6 +91,13 @@ class AnswerCapture:
             pcm=bytes(self._pcm),
         )
 
+    def answer_tokens(self) -> tuple[SpeechToken, ...] | None:
+        """지금까지 확정된 답변 토큰이다.
+
+        음성을 복사하지 않으므로 발화가 갱신될 때마다 호출해도 된다.
+        """
+        return self._stt.transcript.answer_tokens() or None
+
     async def _recorded(self, audio: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
         async for chunk in audio:
             self._pcm.extend(chunk)

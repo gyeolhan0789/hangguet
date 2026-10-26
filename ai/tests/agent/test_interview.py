@@ -113,6 +113,9 @@ class FakeSession:
     def snapshot(self) -> CapturedAnswer:
         return self.answer()
 
+    def answer_tokens(self) -> Any:
+        return ("tokens", self.spoken)
+
     def fail(self) -> None:
         self.failed = True
 
@@ -129,6 +132,8 @@ class FakeReactions:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self.listening = False
+        # 발화가 갱신될 때 전달된 답변 토큰
+        self.speeches: list[Any] = []
 
     def start(self, question_seq: int, destination: str) -> None:
         self.listening = True
@@ -136,6 +141,9 @@ class FakeReactions:
 
     def submit(self, text: str, pause_ms: float, answer: str) -> None:
         self.calls.append(("submit", text, pause_ms, answer))
+
+    def speaking(self, tokens: Any) -> None:
+        self.speeches.append(tokens)
 
     async def stop(self) -> None:
         self.listening = False
@@ -680,3 +688,14 @@ def test_malformed_chat_input_is_rejected(change: dict[str, Any]) -> None:
     )
     with pytest.raises(InvalidChatInputError):
         runner.chat_input_received(json.dumps(payload))
+
+
+def test_speech_updates_pass_answer_tokens_for_long_answer_check() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.speeches[:2] == [("tokens", 1), ("tokens", 2)]

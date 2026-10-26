@@ -11,6 +11,9 @@
 - 채팅은 가장 최근에 수신한 입력의 판단 결과만 적용한다(AI 명세 6.4).
   화상과 달리 입력마다 입력 칸 전체를 다시 판단하므로, 이전 입력의 결과는 지원자가 이미
   삭제하거나 수정한 글에 대한 판단일 수 있다.
+- 화상은 발화 중단(interrupt)도 판단한다(AI 명세 6.4).
+  질문 이탈은 Jev 판단이 끝날 때, 긴 답변은 Jev 응답을 기다리지 않고 발화가 갱신될 때 판단한다.
+  문장이 끝나지 않아도 긴 답변을 판단하기 위함이다.
 """
 
 from __future__ import annotations
@@ -23,7 +26,14 @@ from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from app.common.session import MAX_SEQ, MIN_SEQ
+from app.common.answer import SpeechToken
+from app.common.session import MAX_SEQ, MIN_SEQ, Persona
+from app.interview.realtime.interrupt import (
+    Interrupt,
+    InterruptReason,
+    decide_interrupt,
+    speaking_ms,
+)
 from app.interview.realtime.reaction import (
     NEUTRAL_ATTITUDE,
     Attitude,
@@ -107,6 +117,7 @@ def reaction_payload(
     seq: int,
     reaction: Reaction | None,
     attitude: Attitude,
+    interrupt: Interrupt | None = None,
 ) -> str:
     """interview.reaction 본문(AI 명세 6.3).
 
@@ -119,7 +130,7 @@ def reaction_payload(
         "seq": seq,
         "reaction": None if reaction is None else reaction.to_json(),
         "attitude": attitude.to_json(),
-        "interrupt": None,
+        "interrupt": None if interrupt is None else interrupt.to_json(),
     }
     return json.dumps(message, ensure_ascii=False, separators=(",", ":"))
 
@@ -134,13 +145,19 @@ class ReactionStream:
         question: Callable[[int], str],
         criteria: Callable[[int], str],
         latest_only: bool = False,
+        persona: Persona | None = None,
     ) -> None:
+        """persona는 발화 중단 문구의 면접관이며, None이면 발화 중단을 판단하지 않는다(채팅)."""
         self._session_id = session_id
         self._judge = judge
         self._send = send
         self._question = question
         self._criteria = criteria
         self._latest_only = latest_only
+        self._persona = persona
+        # 현재 답변에서 전송한 발화 중단 이유와 마지막으로 계산한 발화 시간
+        self._issued: set[InterruptReason] = set()
+        self._speaking: int | None = None
         self.attitude = NEUTRAL_ATTITUDE
         self._question_seq: int | None = None
         self._destination: str | None = None
@@ -163,6 +180,9 @@ class ReactionStream:
             self._seq = 0
             self._sent_seq = 0
         self._destination = destination
+        # 재입장하면 답변을 처음부터 다시 들으므로 발화 중단도 새 답변 기준으로 판단한다
+        self._issued.clear()
+        self._speaking = None
         self._generation += 1
         self._listening = self._generation
 
@@ -186,6 +206,22 @@ class ReactionStream:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
+    def speaking(self, tokens: tuple[SpeechToken, ...] | None) -> None:
+        """발화가 갱신될 때 호출한다.
+
+        긴 답변이면 Jev 판단을 기다리지 않고 바로 전송한다.
+        """
+        if self._persona is None or self._listening is None:
+            return
+        self._speaking = speaking_ms(tokens)
+        interrupt = self._interrupt(None)
+        if interrupt is None:
+            return
+        self._seq += 1
+        task = asyncio.create_task(self._emit(self._seq, Judgment(None, self.attitude), interrupt))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     async def stop(self) -> None:
         """답변이 끝나거나 지원자가 퇴장했을 때 호출한다.
 
@@ -204,10 +240,28 @@ class ReactionStream:
             return
         if self._latest_only and seq != self._seq:
             return
+        await self._emit(seq, judgment, self._interrupt(judgment.off_topic))
+
+    def _interrupt(self, off_topic: float | None) -> Interrupt | None:
+        if self._persona is None:
+            return None
+        interrupt = decide_interrupt(
+            off_topic, self._speaking, persona=self._persona, issued=frozenset(self._issued)
+        )
+        if interrupt is not None:
+            self._issued.add(interrupt.reason)
+        return interrupt
+
+    async def _emit(self, seq: int, judgment: Judgment, interrupt: Interrupt | None) -> None:
         self._sent_seq = seq
         self.attitude = judgment.attitude
         assert self._question_seq is not None and self._destination is not None
         payload = reaction_payload(
-            self._session_id, self._question_seq, seq, judgment.reaction, judgment.attitude
+            self._session_id,
+            self._question_seq,
+            seq,
+            judgment.reaction,
+            judgment.attitude,
+            interrupt,
         )
         await self._send(self._destination, payload)

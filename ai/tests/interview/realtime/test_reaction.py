@@ -2,6 +2,7 @@ from typing import Any
 
 import pytest
 
+from app.interview.realtime.interrupt import OFF_TOPIC_QUESTION
 from app.interview.realtime.reaction import (
     EXPRESSION_INTENSITY,
     INTEREST_QUESTION,
@@ -129,3 +130,17 @@ def test_neutral_attitude_is_half() -> None:
 def test_malformed_answers_are_rejected(response: object) -> None:
     with pytest.raises(InvalidJudgmentError):
         judgment_from(response)
+
+
+def test_off_topic_question_is_asked_only_when_requested() -> None:
+    assert OFF_TOPIC_QUESTION not in reaction_questions()
+    assert reaction_questions(off_topic=True)[OFF_TOPIC_QUESTION]["type"] == "noul"
+
+
+def test_off_topic_probability_is_kept_with_or_without_reaction() -> None:
+    off = {OFF_TOPIC_QUESTION: {"type": "noul", "noul": 0.8}}
+    assert judgment_from({**answers(), **off}).off_topic == 0.8
+    assert judgment_from({**answers(needed=0.1), **off}).off_topic == 0.8
+    assert judgment_from(answers()).off_topic is None
+    with pytest.raises(InvalidJudgmentError):
+        judgment_from({**answers(), OFF_TOPIC_QUESTION: {"type": "noul", "noul": "0.8"}})

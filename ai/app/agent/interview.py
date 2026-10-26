@@ -48,6 +48,7 @@ from app.agent.answer_rpc import (
 from app.agent.assignment import Assignment
 from app.agent.reaction import ReactionStream, chat_input_reply, parse_chat_input
 from app.agent.tts import SpeechAudio
+from app.common.answer import SpeechToken
 from app.common.results import ResultPublishError
 from app.common.session import MAX_SEQ, InterviewMode
 from app.interview.realtime.answer_end import (
@@ -89,6 +90,8 @@ class CaptureSession(Protocol):
     def stop(self) -> None: ...
 
     def snapshot(self) -> CapturedAnswer: ...
+
+    def answer_tokens(self) -> tuple[SpeechToken, ...] | None: ...
 
     def fail(self) -> None: ...
 
@@ -132,6 +135,9 @@ class InterviewRunner:
         # 현재 질문에서 수신한 마지막 채팅 입력 seq
         self._chat_input_seq = 0
         self._ms = monotonic_ms
+        # 현재 듣고 있는 답변의 음성 수집.
+        # 발화가 갱신될 때 긴 답변을 판단하기 위함이다
+        self._capture: CaptureSession | None = None
         self._state = INITIAL_STATE
         self._seq: int | None = None
         self._candidate: str | None = None
@@ -276,6 +282,7 @@ class InterviewRunner:
         if self._reactions is not None:
             self._reactions.start(seq, destination)
         session = self._open_capture(destination, self._speech, self._sentence)
+        self._capture = session
         capturing = asyncio.create_task(session.run())
         failed = False
         finished = False
@@ -299,6 +306,7 @@ class InterviewRunner:
                 session.stop()
                 capturing.cancel()
                 await asyncio.gather(capturing, return_exceptions=True)
+            self._capture = None
             if self._reactions is not None:
                 await self._reactions.stop()
             await session.aclose()
@@ -362,6 +370,8 @@ class InterviewRunner:
     def _speech(self) -> None:
         self._apply(Speech(self._ms()))
         self._wake.set()
+        if self._reactions is not None and self._capture is not None:
+            self._reactions.speaking(self._capture.answer_tokens())
 
     def _tick(self, seq: int, destination: str) -> None:
         decision = self._apply(Tick(self._ms()))

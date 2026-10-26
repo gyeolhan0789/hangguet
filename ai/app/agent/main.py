@@ -24,6 +24,7 @@ from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStrea
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
+from app.common.answer import SpeechToken
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.session import InterviewMode
@@ -174,6 +175,9 @@ class RoomCapture:
     def snapshot(self) -> CapturedAnswer:
         return self._capture.snapshot()
 
+    def answer_tokens(self) -> tuple[SpeechToken, ...] | None:
+        return self._capture.answer_tokens()
+
     def fail(self) -> None:
         self._publisher.fail()
 
@@ -218,7 +222,7 @@ async def run_interview(
     common = load_settings(os.environ)
     results = ResultPublisher(create_redis(common))
     delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
-    judge = reaction_judge(common)
+    judge = reaction_judge(common, off_topic=video)
     reactions = (
         None
         if judge is None
@@ -231,6 +235,7 @@ async def run_interview(
             question=assignment.question,
             criteria=assignment.criteria,
             latest_only=not video,
+            persona=assignment.persona if video else None,
         )
     )
     runner = InterviewRunner(
@@ -289,14 +294,14 @@ async def run_interview(
         await closed.wait()
 
 
-def reaction_judge(settings: Settings) -> JevJudge | None:
+def reaction_judge(settings: Settings, *, off_topic: bool = False) -> JevJudge | None:
     if settings.jev_api_key is None:
         # Jev 실패와 같이 리액션 없이 진행한다(AI 명세 6.5).
         # TTS와 같이 실행을 막지 않는다.
         # 리액션이 없어도 면접은 진행할 수 있기 때문이다
         log.warning("JEV_API_KEY가 없어 리액션 없이 진행한다")
         return None
-    return JevJudge(settings.jev_api_key)
+    return JevJudge(settings.jev_api_key, off_topic=off_topic)
 
 
 def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker:

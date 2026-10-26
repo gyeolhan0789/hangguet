@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from app.common.rounding import round_half_up_float
+from app.interview.realtime.interrupt import OFF_TOPIC_QUESTION, off_topic_question
 
 # 질문 문구(_INSTRUCTIONS·선택지·단계)의 버전.
 # 문구를 변경하면 버전을 올리고 app.common.versions에 등록한다(CONTRIBUTING 7장)
@@ -123,6 +124,9 @@ class Reaction:
 class Judgment:
     reaction: Reaction | None
     attitude: Attitude
+    # 질문 이탈 확률.
+    # 질문하지 않았거나 판단하지 못했으면 None이다
+    off_topic: float | None = None
 
 
 @dataclass(frozen=True)
@@ -150,9 +154,13 @@ class ReactionContext:
         }
 
 
-def reaction_questions() -> dict[str, dict[str, Any]]:
-    """POST /v1/systemone의 questions 본문이다."""
-    return {
+def reaction_questions(*, off_topic: bool = False) -> dict[str, dict[str, Any]]:
+    """POST /v1/systemone의 questions 본문이다.
+
+    off_topic이면 발화 중단을 위한 질문 이탈 질문을 함께 묻는다.
+    Jev는 한 요청의 질문을 병렬로 평가하므로 질문을 추가해도 응답 시간이 거의 같다.
+    """
+    questions: dict[str, dict[str, Any]] = {
         REACTION_NEEDED_QUESTION: {
             "type": "noul",
             "instructions": _INSTRUCTIONS[REACTION_NEEDED_QUESTION],
@@ -173,6 +181,9 @@ def reaction_questions() -> dict[str, dict[str, Any]]:
             "criteria": list(TRUST_CRITERIA),
         },
     }
+    if off_topic:
+        questions[OFF_TOPIC_QUESTION] = off_topic_question()
+    return questions
 
 
 def judgment_from(answers: object) -> Judgment:
@@ -183,13 +194,16 @@ def judgment_from(answers: object) -> Judgment:
         interest=_attitude(answers, INTEREST_QUESTION, len(INTEREST_CRITERIA)),
         trust=_attitude(answers, TRUST_QUESTION, len(TRUST_CRITERIA)),
     )
+    off_topic = (
+        _number(answers, OFF_TOPIC_QUESTION, "noul") if OFF_TOPIC_QUESTION in answers else None
+    )
     if _number(answers, REACTION_NEEDED_QUESTION, "noul") < REACTION_THRESHOLD:
-        return Judgment(None, attitude)
+        return Judgment(None, attitude, off_topic)
     choice = _answer(answers, REACTION_QUESTION, "choice").get("choice")
     if choice in EXPRESSIONS:
-        return Judgment(Reaction("expression", choice, EXPRESSION_INTENSITY), attitude)
+        return Judgment(Reaction("expression", choice, EXPRESSION_INTENSITY), attitude, off_topic)
     if choice in GESTURES:
-        return Judgment(Reaction("gesture", choice, None), attitude)
+        return Judgment(Reaction("gesture", choice, None), attitude, off_topic)
     raise InvalidJudgmentError("요청하지 않은 반응을 선택했다")
 
 
