@@ -53,9 +53,13 @@ public final class AdminDtos {
             @Schema(description = "공지 본문", example = "10월 30일 02:00~04:00 서비스 점검이 있어요.")
                     @NotBlank(message = "필수 값입니다.")
                     String content,
-            @Schema(description = "이 일시부터 사용자에게 보여 준다") @NotNull(message = "필수 값입니다.")
+            @Schema(description = "이 일시부터 사용자에게 보여 준다", example = "2026-10-23T09:00:00+09:00")
+                    @NotNull(message = "필수 값입니다.")
                     OffsetDateTime startsAt,
-            @Schema(description = "이 일시까지 보여 준다. 값이 없으면 계속 보여 준다", nullable = true)
+            @Schema(
+                            description = "이 일시까지 보여 준다. 값이 없으면 계속 보여 준다",
+                            example = "2026-10-30T04:00:00+09:00",
+                            nullable = true)
                     OffsetDateTime endsAt) {}
 
     @Schema(description = "보낸 필드만 바꾼다. endsAt은 null을 보내면 지워 계속 보여 준다")
@@ -68,11 +72,18 @@ public final class AdminDtos {
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
                     @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String title,
-            @Schema(description = "공지 본문", nullable = true)
+            @Schema(description = "공지 본문", example = "서비스 점검 시간이 변경되었습니다.", nullable = true)
                     @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String content,
-            @Schema(description = "게시 시작 일시", nullable = true) OffsetDateTime startsAt,
-            @Schema(description = "게시 종료 일시. 보내지 않으면 그대로, null을 보내면 지워 계속 보여 준다", nullable = true)
+            @Schema(
+                            description = "게시 시작 일시",
+                            example = "2026-10-23T09:00:00+09:00",
+                            nullable = true)
+                    OffsetDateTime startsAt,
+            @Schema(
+                            description = "게시 종료 일시. 보내지 않으면 그대로, null을 보내면 지워 계속 보여 준다",
+                            example = "2026-10-30T04:00:00+09:00",
+                            nullable = true)
                     OffsetDateTime endsAt) {}
 
     public record NoticeResponse(
