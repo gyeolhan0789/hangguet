@@ -8,12 +8,21 @@ import {
   ANSWER_REJECTED_CODES,
   ANSWER_STATE_METHOD,
   ANSWER_SUBMIT_METHOD,
+  QUESTION_METHOD,
+  CHAT_INPUT_METHOD,
+  chatInputPayload,
+  REACTION_METHOD,
+  reactionMessageSchema,
+  type ReactionSnapshot,
+  questionMessageSchema,
+  type QuestionMessage,
   answerStateSchema,
   answerSubmitPayload,
   answerSubmitResponseSchema,
   type AnswerStateMessage,
 } from "@/lib/interview/room-messages";
 import { STT_TOPIC, transcriptSchema } from "@/lib/interview/transcript";
+import type { ListeningActivity } from "@/lib/interviewer/reaction";
 
 // 기준: 웹 Swagger 5.14 · RoomResponse · 사용자 승인 마이크 송출/STT 표시 계획.
 // SDK: https://docs.livekit.io/transport/data/text-streams/ · publishTrack(MediaStreamTrack)
@@ -22,6 +31,12 @@ import { STT_TOPIC, transcriptSchema } from "@/lib/interview/transcript";
 // · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · RPC(https://docs.livekit.io/transport/data/rpc/)
 export type InterviewRoomStatus =
   "idle" | "connecting" | "listening" | "reconnecting" | "failed" | "sttFailed";
+
+export interface RoomPresentation {
+  question: QuestionMessage | null;
+  reaction: ReactionSnapshot | null;
+  listening: ListeningActivity | null;
+}
 
 const INITIAL = {
   status: "idle" as InterviewRoomStatus,
@@ -58,12 +73,42 @@ export function useInterviewRoom(
   {
     listenOnly = false,
     onAnswerState,
-  }: { listenOnly?: boolean; onAnswerState?: (message: AnswerStateMessage) => void } = {},
+    questionSeq,
+    onPresentation,
+  }: {
+    listenOnly?: boolean;
+    onAnswerState?: (message: AnswerStateMessage) => void;
+    questionSeq?: number;
+    onPresentation?: (value: RoomPresentation | null) => void;
+  } = {},
 ) {
   const microphone = listenOnly ? undefined : stream?.getAudioTracks()[0];
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(INITIAL);
-  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const [question, setQuestion] = useState<QuestionMessage | null>(null);
+  const [reaction, setReaction] = useState<ReactionSnapshot | null>(null);
+  const [listening, setListening] = useState<ListeningActivity | null>(null);
+  const closedQuestions = useRef(new Set<number>());
+  const pendingSubmissions = useRef(new Map<Room, number>());
+  const questionSequence = useRef(questionSeq);
+  useEffect(() => {
+    questionSequence.current = questionSeq;
+  }, [questionSeq]);
+  useEffect(() => {
+    const active = question && question.seq >= (questionSeq ?? 0) ? question : null;
+    const seq = active?.seq ?? questionSeq;
+    onPresentation?.({
+      question: active,
+      reaction: reaction?.message.questionSeq === seq ? reaction : null,
+      listening: listening?.questionSeq === seq ? listening : null,
+    });
+  }, [question, reaction, listening, questionSeq, onPresentation]);
+  useEffect(() => () => onPresentation?.(null), [onPresentation]);
+  const retry = useCallback(() => {
+    setReaction(null);
+    setListening(null);
+    setAttempt((value) => value + 1);
+  }, []);
   const connected = useRef<Room | null>(null);
   // 받은 함수가 바뀌어도 다시 입장하지 않도록 최신 함수만 기억한다.
   const answerState = useRef(onAnswerState);
@@ -78,18 +123,84 @@ export function useInterviewRoom(
     const lifetime = new AbortController();
     let disposed = false;
     let currentStream: string | null = null;
+    let latestText = "";
+    let reconnecting = false;
+    let failed = false;
     let revision = -1;
     let sttStatus: InterviewRoomStatus = "connecting";
     const retiredStreams = new Set<string>();
+    let latestQuestion: QuestionMessage | null = null;
+    const reactionSequences = new Map<number, number>();
+    closedQuestions.current.clear();
+
+    room.registerRpcMethod(REACTION_METHOD, async (data) => {
+      if (disposed || !room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+      try {
+        if (new TextEncoder().encode(data.payload).length > 15 * 1024) return "";
+        const parsed = reactionMessageSchema.safeParse(JSON.parse(data.payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return "";
+        const message = parsed.data;
+        const active = Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0);
+        if (
+          message.questionSeq !== active ||
+          latestQuestion?.speech === "started" ||
+          closedQuestions.current.has(active) ||
+          pendingSubmissions.current.has(room)
+        )
+          return "";
+        if (listenOnly && message.interrupt !== null) return "";
+        if (message.seq <= (reactionSequences.get(active) ?? 0)) return "";
+        reactionSequences.set(active, message.seq);
+        setReaction({ message, receivedAt: performance.now() });
+      } catch {
+        // 형식이 잘못된 리액션은 면접 진행에 반영하지 않는다.
+      }
+      return "";
+    });
+
+    room.registerRpcMethod(QUESTION_METHOD, async (data) => {
+      if (disposed || !room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+      try {
+        const parsed = questionMessageSchema.safeParse(JSON.parse(data.payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return "";
+        const message = parsed.data;
+        if (
+          latestQuestion &&
+          (message.seq < latestQuestion.seq ||
+            (message.seq === latestQuestion.seq && latestQuestion.speech !== "started"))
+        )
+          return "";
+        latestQuestion = message;
+        if (message.speech === "started") {
+          setReaction(null);
+          setListening(null);
+          if (currentStream) retiredStreams.add(currentStream);
+        }
+        setQuestion(message);
+      } catch {
+        // 잘못된 본문은 화면에 반영하지 않는다.
+      }
+      return "";
+    });
 
     function fail() {
-      if (!disposed) setState((previous) => ({ ...previous, status: "failed" }));
+      if (!disposed) {
+        failed = true;
+        setReaction(null);
+        setListening(null);
+        setState((previous) => ({ ...previous, status: "failed" }));
+      }
     }
 
     room.on(RoomEvent.Reconnecting, () => {
-      if (!disposed) setState((previous) => ({ ...previous, status: "reconnecting" }));
+      if (!disposed) {
+        reconnecting = true;
+        setListening(null);
+        setState((previous) => ({ ...previous, status: "reconnecting" }));
+      }
     });
     room.on(RoomEvent.Reconnected, () => {
+      reconnecting = false;
       if (!disposed) setState((previous) => ({ ...previous, status: sttStatus }));
     });
     room.on(RoomEvent.Disconnected, fail);
@@ -125,13 +236,39 @@ export function useInterviewRoom(
           const snapshot = parsed.data;
           if (retiredStreams.has(snapshot.streamId)) return;
           if (currentStream !== snapshot.streamId) {
+            if (currentStream)
+              closedQuestions.current.delete(
+                Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0),
+              );
             if (currentStream) retiredStreams.add(currentStream);
             currentStream = snapshot.streamId;
+            latestText = "";
+            setListening(null);
             revision = -1;
           }
           if (snapshot.revision <= revision) return;
           revision = snapshot.revision;
           sttStatus = snapshot.state === "failed" ? "sttFailed" : "listening";
+          const caption = (snapshot.confirmedText + snapshot.interimText).trim();
+          const active = Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0);
+          if (snapshot.state === "failed" || !caption) setListening(null);
+          else if (
+            !listenOnly &&
+            !reconnecting &&
+            !failed &&
+            !pendingSubmissions.current.has(room) &&
+            caption !== latestText &&
+            active > 0 &&
+            latestQuestion?.speech !== "started" &&
+            !closedQuestions.current.has(active)
+          ) {
+            setListening({
+              questionSeq: active,
+              streamId: snapshot.streamId,
+              speechAt: performance.now(),
+            });
+          }
+          latestText = caption;
           setState({
             status: sttStatus,
             streamId: snapshot.streamId,
@@ -150,6 +287,16 @@ export function useInterviewRoom(
       try {
         const parsed = answerStateSchema.safeParse(JSON.parse(data.payload));
         if (!disposed && parsed.success && parsed.data.sessionId === sessionId) {
+          if (parsed.data.seq === Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0))
+            setListening(null);
+          if (
+            parsed.data.seq === Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0) &&
+            ["autoSubmitted", "submitted", "submitFailed"].includes(parsed.data.state)
+          ) {
+            closedQuestions.current.add(parsed.data.seq);
+            setReaction(null);
+            setListening(null);
+          }
           answerState.current?.(parsed.data);
         }
       } catch {
@@ -163,6 +310,9 @@ export function useInterviewRoom(
       try {
         const access = await issueRoomToken(sessionId);
         if (disposed) return;
+        setReaction(null);
+        setListening(null);
+        setQuestion(null);
         if (!access.ok || track?.readyState === "ended") {
           fail();
           return;
@@ -196,6 +346,8 @@ export function useInterviewRoom(
       lifetime.abort();
       if (connected.current === room) connected.current = null;
       room.unregisterRpcMethod(ANSWER_STATE_METHOD);
+      room.unregisterRpcMethod(QUESTION_METHOD);
+      room.unregisterRpcMethod(REACTION_METHOD);
       track?.removeEventListener("ended", fail);
       room.unregisterTextStreamHandler(STT_TOPIC);
       room.removeAllListeners();
@@ -210,23 +362,53 @@ export function useInterviewRoom(
     async (seq: number): Promise<SubmitAnswerResult> => {
       const room = connected.current;
       const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
+      setListening(null);
+      setReaction(null);
       if (!room || !agent) return "failed";
+      pendingSubmissions.current.set(room, (pendingSubmissions.current.get(room) ?? 0) + 1);
       try {
         const response = await room.localParticipant.performRpc({
           destinationIdentity: agent.identity,
           method: ANSWER_SUBMIT_METHOD,
           payload: answerSubmitPayload(sessionId, seq),
         });
-        return accepted(response) ? "accepted" : "rejected";
+        if (connected.current !== room) return "failed";
+        if (!accepted(response)) return "rejected";
+        closedQuestions.current.add(seq);
+        setReaction(null);
+        setListening(null);
+        return "accepted";
       } catch (error) {
         const rejected =
           error instanceof RpcError &&
           (ANSWER_REJECTED_CODES as readonly number[]).includes(error.code);
         return rejected ? "rejected" : "failed";
+      } finally {
+        const pending = (pendingSubmissions.current.get(room) ?? 1) - 1;
+        if (pending === 0) pendingSubmissions.current.delete(room);
+        else pendingSubmissions.current.set(room, pending);
       }
     },
     [sessionId],
   );
 
-  return { ...state, retry, submitAnswer };
+  const sendChatInput = useCallback(
+    async (questionSeq: number, seq: number, text: string, pauseMs: number) => {
+      const room = connected.current;
+      const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
+      if (!listenOnly || !room || !agent) return;
+      try {
+        await room.localParticipant.performRpc({
+          destinationIdentity: agent.identity,
+          method: CHAT_INPUT_METHOD,
+          payload: chatInputPayload(sessionId, questionSeq, seq, text, pauseMs),
+        });
+      } catch {
+        // 리액션 입력 전송에 실패해도 답변 제출은 계속 진행한다.
+      }
+    },
+    [sessionId, listenOnly],
+  );
+
+  return { ...state, question, reaction, retry, submitAnswer, sendChatInput };
 }

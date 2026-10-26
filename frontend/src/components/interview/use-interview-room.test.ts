@@ -114,6 +114,352 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe("자동 끄덕임의 발화 정보", () => {
+  afterEach(() => vi.restoreAllMocks());
+  async function joined(listenOnly = false) {
+    const { stream } = media();
+    const onPresentation = vi.fn();
+    const hook = renderHook(
+      ({ seq }) =>
+        useInterviewRoom(55, listenOnly ? null : stream, {
+          listenOnly,
+          questionSeq: seq,
+          onPresentation,
+        }),
+      { initialProps: { seq: 3 } },
+    );
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const activity = () => onPresentation.mock.lastCall?.[0]?.listening;
+    return { ...hook, room, activity };
+  }
+  it("새 자막에만 시각을 기록하고 확정 처리·중복 갱신은 대기를 연장하지 않는다", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(100);
+    const { room, activity } = await joined();
+    await deliver(room, snapshot(0, { confirmedText: "", interimText: "" }));
+    expect(activity()).toBeNull();
+    await deliver(room, snapshot(1));
+    expect(activity()).toEqual({ questionSeq: 3, streamId: "capture-1", speechAt: 100 });
+    now.mockReturnValue(500);
+    await deliver(room, snapshot(2, { confirmedText: "안녕하세요 저는", interimText: "" }));
+    expect(activity().speechAt).toBe(100);
+    await deliver(room, snapshot(3, { interimText: " 저는 개발자입니다" }));
+    expect(activity().speechAt).toBe(500);
+    await deliver(room, snapshot(2, { interimText: "과거 결과" }));
+    expect(activity().speechAt).toBe(500);
+    await deliver(room, snapshot(0, { streamId: "capture-2", confirmedText: "", interimText: "" }));
+    expect(activity()).toBeNull();
+  });
+  it("질문 전환 때 이전 발화를 폐기하고 새 질문의 캡처만 반영한다", async () => {
+    const { room, activity, rerender } = await joined();
+    await deliver(room, snapshot(1));
+    const question = async (speech: string) =>
+      act(async () => {
+        await room.rpcHandlers.get("interview.question")!({
+          callerIdentity: "agent",
+          payload: JSON.stringify({
+            type: "question",
+            sessionId: 55,
+            seq: 4,
+            content: "다음 질문",
+            speech,
+            alignment: null,
+          }),
+        });
+      });
+    await question("started");
+    expect(activity()).toBeNull();
+    await deliver(room, snapshot(0, { streamId: "capture-2", interimText: " 질문 중 소리" }));
+    expect(activity()).toBeNull();
+    await question("ended");
+    await deliver(room, snapshot(2, { interimText: "지난 답변" }));
+    expect(activity()).toBeNull();
+    await deliver(room, snapshot(1, { streamId: "capture-2" }));
+    expect(activity().questionSeq).toBe(4);
+    rerender({ seq: 5 });
+    expect(activity()).toBeNull();
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+  });
+  it.each([
+    "sttFailed",
+    "reconnecting",
+    "disconnected",
+    "manualSubmit",
+    "autoSubmitted",
+    "submitted",
+    "submitFailed",
+  ])("%s 상태에서는 자동 끄덕임을 취소한다", async (event) => {
+    const { room, activity, result } = await joined();
+    await deliver(room, snapshot(1));
+    expect(activity()).not.toBeNull();
+    if (event === "sttFailed") await deliver(room, snapshot(2, { state: "failed" }));
+    else if (event === "manualSubmit")
+      await act(async () => {
+        await result.current.submitAnswer(3);
+      });
+    else if (["autoSubmitted", "submitted", "submitFailed"].includes(event))
+      await act(async () => {
+        await room.rpcHandlers.get("interview.answerState")!({
+          callerIdentity: "agent",
+          payload: JSON.stringify({ type: "answer.state", sessionId: 55, seq: 3, state: event }),
+        });
+      });
+    else act(() => room.handlers.get(event)?.());
+    expect(activity()).toBeNull();
+    if (event !== "sttFailed") {
+      await deliver(room, snapshot(3, { interimText: "지연된 결과" }));
+      expect(activity()).toBeNull();
+    }
+  });
+  it("수동 제출 응답을 기다리는 동안 발화 정보를 차단하고 거절 후 새 발화에는 다시 반응한다", async () => {
+    const { room, activity, result } = await joined();
+    await deliver(room, snapshot(1));
+    let finish!: (value: string) => void;
+    room.localParticipant.performRpc.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let pending!: Promise<string>;
+    act(() => {
+      pending = result.current.submitAnswer(3);
+    });
+    expect(activity()).toBeNull();
+    await deliver(room, snapshot(2, { interimText: "전송 대기 중" }));
+    expect(activity()).toBeNull();
+    await act(async () => {
+      finish(JSON.stringify({ accepted: false }));
+      expect(await pending).toBe("rejected");
+    });
+    await deliver(room, snapshot(3, { interimText: "추가 답변" }));
+    expect(activity()).not.toBeNull();
+  });
+  it.each(["sttReconnecting", "sttFailed", "timedOut"])(
+    "%s 알림을 수신하면 대기 중인 끄덕임을 취소한다",
+    async (state) => {
+      const { room, activity } = await joined();
+      await deliver(room, snapshot(1));
+      expect(activity()).not.toBeNull();
+      await act(async () => {
+        await room.rpcHandlers.get("interview.answerState")!({
+          callerIdentity: "agent",
+          payload: JSON.stringify({ type: "answer.state", sessionId: 55, seq: 3, state }),
+        });
+      });
+      expect(activity()).toBeNull();
+    },
+  );
+  it("채팅의 자막 메시지로는 자동 끄덕임을 시작하지 않는다", async () => {
+    const { room, activity } = await joined(true);
+    await deliver(room, snapshot(1));
+    expect(activity()).toBeNull();
+  });
+});
+
+describe("리액션 메시지 수신", () => {
+  const message = (patch: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      type: "reaction",
+      sessionId: 55,
+      questionSeq: 3,
+      seq: 1,
+      reaction: {
+        type: "expression",
+        expression: "smile",
+        gesture: null,
+        intensity: 0.4,
+        durationMs: 1200,
+      },
+      attitude: { interest: 0.7, trust: 0.3 },
+      interrupt: null,
+      ...patch,
+    });
+  async function joined(listenOnly = false) {
+    const { stream } = media();
+    const hook = renderHook(() =>
+      useInterviewRoom(55, listenOnly ? null : stream, { listenOnly, questionSeq: 3 }),
+    );
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const receive = (payload = message(), callerIdentity = "agent") =>
+      act(async () => {
+        expect(await room.rpcHandlers.get("interview.reaction")!({ callerIdentity, payload })).toBe(
+          "",
+        );
+      });
+    return { ...hook, room, receive };
+  }
+  it("같은 면접의 새로운 순번만 반영한다", async () => {
+    const { result, room, receive } = await joined();
+    await receive(message({ seq: 2 }));
+    await receive();
+    expect(result.current.reaction?.message.seq).toBe(2);
+    await receive(message({ seq: 2, attitude: { interest: 0.1, trust: 1 } }));
+    expect(result.current.reaction?.message.seq).toBe(2);
+    expect(result.current.reaction?.message.attitude).toEqual({ interest: 0.7, trust: 0.3 });
+    await act(async () => {
+      await room.rpcHandlers.get("interview.answerState")!({
+        callerIdentity: "agent",
+        payload: JSON.stringify({
+          type: "answer.state",
+          sessionId: 55,
+          seq: 2,
+          state: "submitted",
+        }),
+      });
+    });
+    expect(result.current.reaction?.message.seq).toBe(2);
+  });
+  it("다른 참가자·면접·질문과 형식 오류를 폐기한다", async () => {
+    const { result, receive } = await joined();
+    await receive(message(), "other");
+    await receive(message({ sessionId: 56 }));
+    await receive(message({ questionSeq: 4 }));
+    await receive(message({ seq: true }));
+    await receive(message({ attitude: { interest: 2, trust: 0.5 } }));
+    await receive(message({ reaction: { type: "gesture", gesture: "nod" } }));
+    await receive("not json");
+    expect(result.current.reaction).toBeNull();
+  });
+  it("제출 이후 도착한 반응을 폐기하고 연결 정리 시 수신을 해제한다", async () => {
+    const { result, room, receive, unmount } = await joined();
+    await receive();
+    expect(result.current.reaction).not.toBeNull();
+    await act(async () => {
+      await result.current.submitAnswer(3);
+    });
+    await receive(message({ seq: 2 }));
+    expect(result.current.reaction).toBeNull();
+    unmount();
+    expect(room.unregisterRpcMethod).toHaveBeenCalledWith("interview.reaction");
+  });
+  it("질문 음성 중 반응을 적용하지 않고 채팅의 중단 메시지도 폐기한다", async () => {
+    const { result, room, receive } = await joined(true);
+    await receive(
+      message({ interrupt: { reason: "OFF_TOPIC", text: "질문에 맞게 답변해 주세요." } }),
+    );
+    expect(result.current.reaction).toBeNull();
+    await act(async () => {
+      await room.rpcHandlers.get("interview.question")!({
+        callerIdentity: "agent",
+        payload: JSON.stringify({
+          type: "question",
+          sessionId: 55,
+          seq: 3,
+          content: "질문",
+          speech: "started",
+          alignment: null,
+        }),
+      });
+    });
+    await receive();
+    expect(result.current.reaction).toBeNull();
+  });
+});
+
+describe("채팅 입력 신호 전송", () => {
+  async function joined() {
+    const hook = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    return { ...hook, room };
+  }
+
+  it("입력 전체와 질문·입력 순서·쉰 시간을 기존 연결의 에이전트에 전송한다", async () => {
+    const { result, room } = await joined();
+    await result.current.sendChatInput(3, 2, "작성 중인 답변", 820);
+    expect(room.localParticipant.performRpc).toHaveBeenCalledExactlyOnceWith({
+      destinationIdentity: "agent",
+      method: "interview.chatInput",
+      payload: JSON.stringify({
+        type: "chat.input",
+        sessionId: 55,
+        questionSeq: 3,
+        seq: 2,
+        text: "작성 중인 답변",
+        pauseMs: 820,
+      }),
+    });
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+  });
+
+  it("응답 본문을 사용하지 않으며 전송 오류도 전파하지 않는다", async () => {
+    const { result, room } = await joined();
+    room.localParticipant.performRpc.mockResolvedValueOnce("not json");
+    await expect(result.current.sendChatInput(3, 1, "답", 800)).resolves.toBeUndefined();
+    room.localParticipant.performRpc.mockRejectedValueOnce(new Error("no handler"));
+    await expect(result.current.sendChatInput(3, 2, "", 800)).resolves.toBeUndefined();
+  });
+
+  it("에이전트가 없거나 화면 정리 후에는 전송하지 않는다", async () => {
+    const { result, room, unmount } = await joined();
+    room.remoteParticipants.delete("agent");
+    await result.current.sendChatInput(3, 1, "답", 800);
+    unmount();
+    await result.current.sendChatInput(3, 2, "답변", 800);
+    expect(room.localParticipant.performRpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("질문 메시지 수신", () => {
+  const message = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      type: "question",
+      sessionId: 55,
+      seq: 1,
+      content: "경험을 설명해 주세요.",
+      speech: "started",
+      alignment: null,
+      ...overrides,
+    });
+
+  async function joined() {
+    const hook = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const handler = room.rpcHandlers.get("interview.question")!;
+    const receive = (payload = message(), callerIdentity = "agent") =>
+      act(async () => {
+        expect(await handler({ callerIdentity, payload })).toBe("");
+      });
+    return { ...hook, room, receive };
+  }
+
+  it("질문 시작과 종료를 반영하고 이전 순서와 종료 뒤 시작 메시지는 폐기한다", async () => {
+    const { result, receive } = await joined();
+    await receive(message({ seq: 2 }));
+    expect(result.current.question?.speech).toBe("started");
+    await receive(message({ seq: 2, speech: "ended" }));
+    await receive(message({ seq: 2 }));
+    await receive(message({ seq: 1 }));
+    expect(result.current.question).toMatchObject({ seq: 2, speech: "ended" });
+    await receive(message({ seq: 3, speech: "failed" }));
+    expect(result.current.question).toMatchObject({ seq: 3, speech: "failed" });
+  });
+
+  it("다른 참가자와 면접 및 잘못된 본문을 반영하지 않는다", async () => {
+    const { result, receive } = await joined();
+    await receive(message(), "other");
+    await receive(message({ sessionId: 56 }));
+    await receive(message({ seq: true }));
+    await receive(message({ speech: "unknown" }));
+    await receive("not json");
+    expect(result.current.question).toBeNull();
+  });
+
+  it("질문 발음 시각을 유지하고 정리 이후 메시지는 폐기한다", async () => {
+    const { result, room, receive, unmount } = await joined();
+    const alignment = { chars: [{ char: "가", startMs: 0, endMs: 100 }] };
+    await receive(message({ alignment }));
+    expect(result.current.question?.alignment).toEqual(alignment);
+    unmount();
+    expect(room.unregisterRpcMethod).toHaveBeenCalledWith("interview.question");
+    await receive(message({ seq: 5 }));
+    expect(result.current.question?.seq).toBe(1);
+  });
+});
+
 describe("면접방 마이크 송출과 STT 수신", () => {
   it("장치 스트림이 없으면 입장 API와 RTC를 실행하지 않는다", () => {
     renderHook(() => useInterviewRoom(55, null));

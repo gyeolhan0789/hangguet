@@ -6,6 +6,15 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { interviewerLook } from "@/lib/interviewer/models";
 import type { InterviewerScene } from "@/lib/interviewer/scene";
 import type { Persona } from "@/types/api";
+import type { ReactionSnapshot } from "@/lib/interview/room-messages";
+import {
+  reactionFrame,
+  listeningNodPitch,
+  LISTENING_PAUSE_MS,
+  LISTENING_NOD_DURATION_MS,
+  type ListeningActivity,
+} from "@/lib/interviewer/reaction";
+import { REACTION_DURATION_MS } from "@/lib/interview/room-messages";
 
 import { ThinkingAvatar } from "./thinking-avatar";
 
@@ -26,7 +35,17 @@ const BLINK_MS = 160;
 type StageState = "loading" | "ready" | "failed";
 
 /** 화면 전체에 깔리는 면접관 3D 장면. 3D 모델이 없는 면접관이면 아무것도 그리지 않는다. */
-export function InterviewerStage({ persona }: { persona: Persona }) {
+export function InterviewerStage({
+  persona,
+  feedback = null,
+  speaking = false,
+  listening = null,
+}: {
+  persona: Persona;
+  feedback?: ReactionSnapshot | null;
+  speaking?: boolean;
+  listening?: ListeningActivity | null;
+}) {
   const look = interviewerLook(persona);
   const container = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<StageState>("loading");
@@ -61,6 +80,7 @@ export function InterviewerStage({ persona }: { persona: Persona }) {
           lights: look.lights,
           onLost: fail,
           signal: abort.signal,
+          headBone: look.headBone,
         }),
       )
       .then((created) => {
@@ -88,6 +108,63 @@ export function InterviewerStage({ persona }: { persona: Persona }) {
 
   // 화면이 숨겨질 때(Activity) 로딩 상태로 되돌린다. 다시 보일 때 장면을 새로 만들므로, 그동안 로딩 표시를 보여 준다.
   useLayoutEffect(() => () => setState("loading"), []);
+
+  useEffect(() => {
+    if (state !== "ready" || !scene.current) return;
+    const current = scene.current;
+    let frame = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const reset = () => {
+      current.setFace({ emotion: "neutral", emotionWeight: 0 });
+      current.setHead(0, 0);
+    };
+    reset();
+    const reacting =
+      !!feedback?.message.reaction &&
+      feedback.receivedAt + REACTION_DURATION_MS > performance.now();
+    if (!speaking && feedback?.message.reaction) {
+      const remaining = feedback.receivedAt + REACTION_DURATION_MS - performance.now();
+      if (remaining > 0) {
+        if (reduce) {
+          const target = reactionFrame(feedback, feedback.receivedAt + REACTION_DURATION_MS / 2);
+          current.setFace({ emotion: target.emotion, emotionWeight: target.emotionWeight });
+          timer = setTimeout(reset, remaining);
+        } else {
+          const draw = () => {
+            const now = performance.now();
+            const next = reactionFrame(feedback, now);
+            current.setFace({ emotion: next.emotion, emotionWeight: next.emotionWeight });
+            current.setHead(next.pitch, next.roll);
+            if (now < feedback.receivedAt + REACTION_DURATION_MS)
+              frame = requestAnimationFrame(draw);
+          };
+          frame = requestAnimationFrame(draw);
+        }
+      }
+    }
+    if (!speaking && !reduce && listening && !reacting) {
+      const startAt = listening.speechAt + LISTENING_PAUSE_MS;
+      const endAt = startAt + LISTENING_NOD_DURATION_MS;
+      const draw = () => {
+        const now = performance.now();
+        current.setHead(listeningNodPitch(listening, now), 0);
+        if (now < endAt) frame = requestAnimationFrame(draw);
+      };
+      if (performance.now() < endAt) {
+        const remaining = startAt - performance.now();
+        if (remaining > 0)
+          timer = setTimeout(() => {
+            frame = requestAnimationFrame(draw);
+          }, remaining);
+        else frame = requestAnimationFrame(draw);
+      }
+    }
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      reset();
+    };
+  }, [state, feedback, speaking, listening, reduce]);
 
   // 눈 깜빡임. 동작 줄이기를 켰으면 깜빡이지 않는다.
   useEffect(() => {

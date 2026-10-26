@@ -9,9 +9,6 @@ export type Mode = "VIDEO" | "CHAT";
 /** 답변 입력 방식. VOICE 화상(음성) · TEXT 채팅 */
 export type InputType = "VOICE" | "TEXT";
 
-/** 답변 녹음 형식 */
-export type AnswerAudioContentType = "audio/webm" | "audio/ogg" | "audio/mp4";
-
 /**
  * 5.1 · 5.4 · 5.7 · 5.8 필수 헤더(웹 Swagger). 같은 요청을 다시 보낼 때는 처음 만든 키를 그대로 넘긴다.
  * 같은 키 · 같은 본문 = 처음 결과를 그대로 반환, 같은 키 · 다른 본문 = 409 IDEMPOTENCY_KEY_REUSED
@@ -26,7 +23,7 @@ export interface SessionPath {
   sessionId: number;
 }
 
-/** 5.6 · 5.7 · 5.11 · 5.12 경로 값 */
+/** 답변 제출 경로 값 */
 export interface QuestionPath extends SessionPath {
   questionId: number;
 }
@@ -41,45 +38,16 @@ export interface SessionCreateRequest {
   mode: Mode;
 }
 
-/** 5.6 POST …/questions/{questionId}/answer-audio/upload-url 본문 */
-export interface AnswerAudioUploadUrlRequest {
-  /** 녹음 형식. 필수 */
-  contentType: AnswerAudioContentType;
-}
-
 /** 5.7 POST …/questions/{questionId}/answer 본문 */
 export interface AnswerRequest {
-  /** VOICE(화상) | TEXT(채팅). 면접 방식(mode)과 같아야 한다. 필수 */
-  inputType: InputType;
-  /** 답변 글. 필수. 채팅은 입력한 글(1~1,000자), 화상은 실시간 음성 인식(5.10)의 최종 결과(1~10,000자) */
+  /** 채팅 답변은 TEXT만 사용하며 화상 답변은 에이전트가 저장한다. */
+  inputType: "TEXT";
+  /** 채팅 답변 글. 필수, 1~1,000자. */
   content: string;
-  /** 답변 음성 키. VOICE일 때 필수. 5.6에서 받은 objectKey */
-  audioObjectKey?: string | null;
-  /** 음성 인식(5.10)이 확정한 토큰과 말한 시각. VOICE일 때만 보내며 없어도 된다. 말하기 지표 계산에 쓴다. 최대 10,000개 */
-  tokens?: TranscriptToken[] | null;
 }
 
-/** 5.7 tokens 원소 */
-export interface TranscriptToken {
-  /** 음성 인식이 확정한 토큰 글자. 단어 일부, 공백, 앞에 공백이 붙은 단어일 수 있다. 필수 */
-  text: string;
-  /** 토큰을 말하기 시작한 시각(밀리초). 답변 음성 파일 시작 기준. 필수, 0 이상 */
-  startMs: number;
-  /** 토큰을 말하기 끝낸 시각(밀리초). 필수, startMs 이상 */
-  endMs: number;
-}
-
-/** 5.11 POST …/questions/{questionId}/reactions 본문 */
-export interface ReactionRequest {
-  /** 답변 안에서 몇 번째 문장인지(1부터). 필수 */
-  seq: number;
-  /** 음성 인식이 확정한 문장. 필수, 1~1,000자 */
-  text: string;
-  /** 문장을 말한 뒤 쉰 시간(밀리초). 필수, 0 이상 */
-  pauseMs: number;
-}
-
-// 5.2 · 5.3 · 5.5 · 5.9 · 5.10 · 5.12는 본문이 없다. 5.4 · 5.8은 본문 없이 IdempotencyHeaders만 보낸다.
+// 면접 조회·질문 조회·결과 재생성에는 요청 본문을 사용하지 않는다.
+// 면접 시작·종료는 본문 없이 IdempotencyHeaders만 전송한다.
 
 /** 5.13 GET /interview-sessions 쿼리(연습 면접 목록) */
 export interface SessionListQuery {
