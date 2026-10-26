@@ -92,6 +92,8 @@ services:
       REDIS_HOST: a301-prod-redis
       REDIS_PORT: "6379"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 문의 제목 · 본문 암호화 키(Base64 32바이트). 개발과 다른 값이다. 바꾸거나 잃으면 이미 저장한 문의를 풀 수 없다
+      INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
       ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
       ADMIN_NAME: ${ADMIN_NAME:-운영자}
@@ -379,12 +381,50 @@ services:
       - internal
     logging: *logging
 
+  # 로그 저장소(7일 보관, loki.yml). 개발 서버와 같은 모양이다(deploy/dev/monitoring). 바깥에 열지 않는다
+  a301-prod-loki:
+    image: grafana/loki:3.7.8
+    container_name: a301-prod-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  # 로그 수집. Docker 소켓으로 a301-prod-* 컨테이너 로그만 읽는다(alloy.alloy).
+  # Docker 소켓은 읽기 전용으로 붙이지만 API 호출 자체를 막지는 못하므로, 공식 이미지 · 고정 버전만 쓴다.
+  a301-prod-alloy:
+    image: grafana/alloy:v1.20.1
+    container_name: a301-prod-alloy
+    restart: unless-stopped
+    depends_on:
+      - a301-prod-loki
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 어디까지 보냈는지 기억해, 재시작해도 같은 로그를 다시 보내지 않는다
+      - alloy-data:/var/lib/alloy/data
+    mem_limit: 128m
+    networks:
+      - internal
+    logging: *logging
+
   a301-prod-grafana:
     image: grafana/grafana:13.1.7
     container_name: a301-prod-grafana
     restart: unless-stopped
     depends_on:
       - a301-prod-prometheus
+      - a301-prod-loki
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD CI/CD variable is required}
       GF_SERVER_ROOT_URL: https://grafana.hangguet.co.kr/
@@ -405,6 +445,8 @@ volumes:
   redis-data:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:
 
 networks:
   internal:

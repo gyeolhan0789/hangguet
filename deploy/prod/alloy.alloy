@@ -1,0 +1,47 @@
+// 운영 서버 로그 수집(Grafana Alloy). 개발 서버(deploy/dev/monitoring/alloy.alloy)와 같다. a301-prod-* 컨테이너의 stdout · stderr를 읽어 Loki로 보낸다.
+// 운영 서버에는 우리 컨테이너만 있지만 개발 서버와 같게 이름으로 거른다.
+
+discovery.docker "a301" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "name"
+    values = ["a301-prod-"]
+  }
+}
+
+// Grafana에서 고를 라벨: container(컨테이너 이름), service(compose 서비스 이름)
+discovery.relabel "a301" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "a301" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.a301.targets
+  relabel_rules    = discovery.relabel.a301.rules
+  refresh_interval = "15s"
+  forward_to       = [loki.write.a301.receiver]
+}
+
+loki.write "a301" {
+  endpoint {
+    url = "http://a301-prod-loki:3100/loki/api/v1/push"
+  }
+
+  // 운영 서버와 같은 대시보드를 쓰도록 환경을 라벨로 붙인다
+  external_labels = {
+    env = "prod",
+  }
+}
