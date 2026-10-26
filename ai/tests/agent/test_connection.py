@@ -384,10 +384,37 @@ def test_question_failure_is_contained() -> None:
     speaker.ask.assert_not_awaited()
 
 
-def test_assigned_room_asks_question_and_releases_voice_on_close() -> None:
+def test_assigned_video_room_runs_interview_and_releases_voice_on_close() -> None:
     async def run() -> None:
         ctx = context()
         ctx.job.metadata = ASSIGNMENT_JSON
+        speaker = Mock(aclose=AsyncMock())
+        started = asyncio.Event()
+
+        async def interviewing(*_args: object) -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        with (
+            patch("app.agent.main.question_speaker", return_value=speaker),
+            patch("app.agent.main.run_interview", side_effect=interviewing) as interview,
+            patch("app.agent.main.transcribe_room") as transcribe,
+        ):
+            task = asyncio.create_task(entrypoint(ctx))
+            await started.wait()
+            assert interview.call_args.args[3] is speaker
+            transcribe.assert_not_called()
+            ctx.room.on.call_args_list[0].args[1](0)
+            await asyncio.wait_for(task, timeout=1)
+        speaker.aclose.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+def test_assigned_chat_room_asks_first_question_and_releases_voice_on_close() -> None:
+    async def run() -> None:
+        ctx = context()
+        ctx.job.metadata = ASSIGNMENT_JSON.replace("VIDEO", "CHAT")
         speaker = Mock(aclose=AsyncMock())
         asked = asyncio.Event()
 
