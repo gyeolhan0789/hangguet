@@ -74,7 +74,10 @@ com.ssafy.a301
 ├─ result
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
-├─ growth/dto      GrowthDtos
+├─ growth
+│  ├─ controller   GrowthReviewController(7.1·7.2)
+│  ├─ service      GrowthReviewService(성장 리뷰 계산, 3.1에서 다시 씀)
+│  └─ dto          GrowthDtos
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
 │  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
@@ -99,7 +102,7 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 통계·연습 달력(3.2·3.3) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 통계·연습 달력(3.2·3.3)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
@@ -248,10 +251,11 @@ com.ssafy.a301
 ### 6.2 성장 리뷰 (7.1, 7.2, 3.1) **[결정]**
 - 성장 리뷰는 별도 테이블 없이 `session_scores`·`answers`로 계산한다
 - 그날 = 한국 시간 `started_at` 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 `session_scores.score` 기준별 평균(반올림 정수 **[제안]**)
-- 비교 대상 = 그날 이전 가장 최근 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null)
+- 비교 대상 = 그날 이전 가장 최근 연습일 중 결과(`COMPLETED`)가 있는 날. 분석 중·실패만 있는 날은 점수가 없어 건너뛴다 **[제안]**. `delta` = 그날 − 비교 대상(비교 대상이 없으면 null, `isFirst` true)
+- 리뷰가 있는 날 = 그날 시작한 `COMPLETED` 면접이 있는 날. 기준 점수가 4개가 아닌 면접은 경고 로그를 남기고 계산에서 뺀다(과거 면접 하나로 이후 리뷰가 모두 실패하지 않게) **[제안]**. 없으면 7.1은 404 `GROWTH_REVIEW_NOT_FOUND`, 7.2 목록에서 빠진다. `interviewCount`·`practiceMinutes`는 5.13과 같은 연습 면접(분석 중·실패 포함) 기준
 - 다음에 해볼 것 = 그날 `session_scores`(`comment`)와 `answers`(`improve_point`) 중 최저 점수의 문구. 문구가 비면 다음으로 낮은 것. 동점이면 모두
 - `criteria[].comment` = 그날 마지막 면접의 `comment`
-- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준
+- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 첫 연습일이거나 오른 기준이 없으면 둘 다 null
 - 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순
 
 ### 6.3 기타
