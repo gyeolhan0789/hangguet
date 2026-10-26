@@ -449,16 +449,18 @@ mock-deploy:
 # 미니PC 개발 서버 배포 (deploy/dev/compose.yml)
 # - develop에 파트 폴더나 deploy/dev/compose.yml 변경이 병합되면 바뀐 서비스를 다시 빌드·실행합니다.
 #   모니터링은 이미 떠 있어 monitoring-deploy 잡을 꺼 두었습니다(잡 정의 위 주석 참고).
+#   코드 변경 없이 다시 띄울 때(Variables만 바꾼 경우 등)는 BE·AI 잡의 ▶ 버튼을 누릅니다(.dev-redeploy-button). FE는 Run pipeline으로 돕니다.
 #   postgres·redis는 BE를 띄울 때 함께 뜨고, 설정이 바뀌지 않으면 다시 만들지 않아 데이터가 남습니다.
 # - 목 서버와 같은 배포 전용 러너(태그 a301-mock-deploy)가 호스트 Docker로 직접 빌드·실행합니다.
 # - 개발 서버 배포 잡은 같은 resource_group으로 한 번에 하나씩 돕니다. N100에서 빌드가 겹치지 않게 합니다.
 # - 비밀값 DB_PASSWORD, JWT_SECRET, INQUIRY_ENCRYPTION_KEY, ADMIN_LOGIN_ID, ADMIN_PASSWORD는 GitLab CI/CD Variables
 #   (Environment scope dev/*)에서 받습니다. compose가 파일 전체를 읽으므로 앱 배포 잡 모두에 필요합니다.
 #   외부 API 키 SONIOX_API_KEY·ELEVENLABS_API_KEY도 Variables에서 받아 AI 에이전트에 넘깁니다(ELEVENLABS_API_KEY는 없어도 배포됩니다).
+#   GMS 키 LLM_API_KEY도 Variables에서 받아 AI 분석 작업자에 넘깁니다.
 #   녹화 S3 키 LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET도 Variables에서 받아 BE에 넘깁니다(없으면 화상 면접 시작이 실패합니다).
 #   앱 S3 키 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY도 Variables에서 받아 BE에 넘깁니다(없으면 프로필 사진 API만 실패합니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
-# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
+# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/admin에서 이전 배포를 Re-deploy 합니다.
 
 # 헬스체크: 서비스별 정상 응답을 기다리고, 안 되면 로그를 남기고 실패합니다.
 # 배포 잡(.dev-deploy)과 FE API 전환 잡(.fe-api-switch)이 함께 씁니다.
@@ -495,6 +497,18 @@ mock-deploy:
           exit 1
           ;;
       esac
+
+# 다시 배포 버튼: 코드 변경 없이 다시 띄울 때 씁니다(예: CI/CD Variables의 키만 바꾼 뒤 반영).
+# 자동 실행 조건(changes)에 맞지 않는 develop 병합 파이프라인과 수동 파이프라인(Run pipeline)에 ▶ 버튼으로 생깁니다.
+# 누르지 않아도 파이프라인은 통과합니다. 각 배포 잡의 rules 끝에 붙여 씁니다(admin-deploy와 같은 방식).
+.dev-redeploy-button:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
 
 .dev-deploy:
   stage: deploy
@@ -537,6 +551,7 @@ be-deploy:
       changes:
         - backend/**/*
         - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
   variables:
     DEV_SERVICE: "a301-dev-be"
   environment:
@@ -627,6 +642,7 @@ ai-deploy:
       changes:
         - ai/**/*
         - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
   variables:
     DEV_SERVICE: "a301-dev-ai"
     DEV_HEALTH_URL: "http://127.0.0.1:${DEV_AI_HOST_PORT}/health"
@@ -695,11 +711,12 @@ ai-deploy:
 ai-agent-deploy:
   extends: .dev-deploy
   rules:
+    # 재시작하면 진행 중인 면접에서 면접관이 빠지므로 AI 코드나 앱 Compose가 바뀔 때만 자동으로 돈다
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
-        - deploy/dev/**/*
-        - .gitlab-ci.yml
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
   before_script:
     - 'test -n "$LIVEKIT_API_KEY" && test -n "$LIVEKIT_API_SECRET" || { echo "FAIL: LiveKit API 키와 시크릿이 필요합니다."; exit 1; }'
     - 'test -n "$SONIOX_API_KEY" || { echo "FAIL: SONIOX_API_KEY가 필요합니다."; exit 1; }'
@@ -708,6 +725,24 @@ ai-agent-deploy:
     DEV_HEALTH_SOURCE: "container"
   environment:
     name: dev/ai-agent
+
+# AI 분석 작업자: HTTP가 없어 Compose의 컨테이너 상태 검사(Redis 연결 확인)를 사용합니다.
+# GMS 주소·모델은 deploy/dev/compose.yml에, 키(LLM_API_KEY)는 Variables에 있습니다.
+ai-analysis-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
+  before_script:
+    - 'test -n "$LLM_API_KEY" || { echo "FAIL: LLM_API_KEY가 필요합니다."; exit 1; }'
+  variables:
+    DEV_SERVICE: "a301-dev-ai-analysis"
+    DEV_HEALTH_SOURCE: "container"
+  environment:
+    name: dev/ai-analysis
 
 ## 관리자 페이지 ##
 

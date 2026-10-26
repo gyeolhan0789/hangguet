@@ -166,7 +166,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-livekit` | 미디어 서버 + TURN(4장) | UDP 7882, TCP 7881, UDP 3478, TCP 443 | 512m |
 | `a301-prod-egress` | 서버 녹화(4.3). 트랙 녹화라 인코딩을 하지 않는다 | 없음 | 1g **[제안]** 실측 |
 | `a301-prod-ai-agent` | 면접방 참가자. STT → Jev, 질문 TTS, 리액션 데이터 메시지, 질문 시작 · 답변을 Redis 결과 큐로 전달. 질문 5개 · 채점 기준은 배정 메타데이터로 받는다 | 없음 | **[미정]** 면접 1건마다 처리 프로세스가 생겨 동시 면접 수에 비례. 실측 |
-| `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. **아직 compose에 없다**: 개발 서버에도 띄우지 않았으므로 개발에 추가할 때 같은 모양으로 넣는다 | 없음 | **[미정]** 음성 분석 라이브러리 · ffmpeg를 정한 뒤 실측 |
+| `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. 에이전트와 같은 이미지를 `python -m app.worker`로 띄운다(개발 `a301-dev-ai-analysis`도 같은 모양, 10/26 추가). 지금 처리하는 작업은 PLAN · SCORE_ANSWER이고 나머지는 처리 코드가 배포될 때까지 큐에 남는다. HTTP가 없어 헬스체크는 컨테이너 안에서 Redis 연결로 한다. **컨테이너를 늘리지 않는다**: 처리 중 리스트를 작업자끼리 공유해, 늘리면 재시작 때 다른 작업자의 작업까지 되돌려 중복 처리된다. 늘리려면 AI 코드 변경이 먼저다 | 없음 | 256m **[제안]** 실측 |
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
 | `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름이라 같은 대시보드를 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.3g |
@@ -442,7 +442,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만. 이 작업에도 `prod/` 환경 이름을 붙여야 읽힌다(8.1) |
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
-| `LLM_CHAT_URL` · `LLM_MODEL` | X | AI |
+| `LLM_CHAT_URL` · `LLM_MODEL` | X | AI 분석 작업자. compose에 적는다(개발 · 운영 같은 값, `gpt-4.1-mini`는 AI에 등록된 모델) |
 | `SONIOX_STT_MODEL` | X | AI 에이전트. 현재 기본값 `stt-rt-v5` |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |
@@ -630,3 +630,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 7 · 11 | 남은 GitLab 변수 등록(운영 `DB_PASSWORD` · `JWT_SECRET`)과 Protected 정리. 관리자 계정 · `GRAFANA_ADMIN_PASSWORD` · 외부 API 키는 개발과 같은 값(범위 All)으로 두는 예외 추가. 개발 모니터링 변수 이름을 `DEV_GRAFANA_ADMIN_PASSWORD`에서 `GRAFANA_ADMIN_PASSWORD`로 바꾸고(`deploy/dev/monitoring`), 이미 떠 있는 개발 모니터링의 배포 잡 `monitoring-deploy`는 주석 처리 | 개발과 운영이 같은 이름 · 같은 compose를 쓰게 하려고. 관리자 · Grafana는 팀이 한 계정으로 관리하고, 외부 API 키는 서비스마다 하나로 쓰기 때문 |
 | 인프라 | 3.2 · 4.1 · 9 · 11 | 운영 배포 파일 `deploy/prod/` 작성(개발 compose와 같은 이름 · 환경 변수, 이미지만 Docker Hub). 서버에서 설정 검사, LiveKit · Egress 시험 기동, 공개 이미지 미리 받기, 백업 스크립트 · cron 설치, 시험 이미지 정리. 백업 방식(cron + 배포 작업이 쓰는 키 파일) 결정. `/be/`는 관리 페이지가 써서 연다 | 서버 쪽 준비를 끝내 남은 일을 CI 작업 하나로 줄이려고. 첫 배포 전에 설정 오류 · 이미지 문제를 미리 걸러 내려고 |
 | 인프라 | 3.2 · 13 | 운영 Swagger 미공개 결정: BE에서 끄고 Nginx에서도 경로를 404로 막음. 13장의 Swagger 공개 항목 삭제 | 운영 API 구조를 바깥에 드러낼 이유가 없고, API 확인은 개발 서버 Swagger로 충분해서 |
+| 인프라 | 3.2 · 7 | AI 분석 작업자 배포 추가: 개발 `a301-dev-ai-analysis`(CI `ai-analysis-deploy`) · 운영 `a301-prod-ai-analysis`. GMS 주소 · 모델은 회사 카드 파이프라인과 같은 값을 compose에 적고 키는 `LLM_API_KEY`. 헬스체크는 Redis 연결, 컨테이너는 하나로 고정 | 작업자가 어디에도 떠 있지 않아 플랜 생성이 처리되지 않았다. 처리 중 리스트를 공유하는 구조라 늘리면 중복 처리되므로 하나로 둔다 |

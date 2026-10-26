@@ -168,6 +168,40 @@ services:
       - internal
     logging: *logging
 
+  # 분석 작업자(질문 생성 · 답변 채점). 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
+  # 작업을 한 번에 하나씩 처리하므로 컨테이너를 늘리지 않는다.
+  a301-prod-ai-analysis:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-ai-analysis
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: a301-prod-redis
+      REDIS_PORT: "6379"
+      # GMS 접속 값. 개발 서버와 같다
+      LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
+      LLM_MODEL: gpt-4.1-mini
+      LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
+    # HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    # GMS 응답을 기다리는 동안은 거의 쓰지 않는다. 첫 배포 뒤 실측해 조정한다(배포 계획 3.2)
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
   a301-prod-fe:
     image: ${DOCKERHUB_REPO:-hanggeut/a301}:fe-${IMAGE_TAG:?IMAGE_TAG is required}
     container_name: a301-prod-fe
