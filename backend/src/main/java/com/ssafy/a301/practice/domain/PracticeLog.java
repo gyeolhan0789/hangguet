@@ -1,4 +1,4 @@
-package com.ssafy.a301.home.domain;
+package com.ssafy.a301.practice.domain;
 
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.Column;

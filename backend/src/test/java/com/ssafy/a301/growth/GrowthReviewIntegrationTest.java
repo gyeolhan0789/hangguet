@@ -6,7 +6,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.application.domain.Application;
-import com.ssafy.a301.home.domain.PracticeLog;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InputType;
@@ -16,6 +15,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.practice.domain.PracticeLog;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;

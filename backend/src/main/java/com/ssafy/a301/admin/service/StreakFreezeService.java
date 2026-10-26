@@ -8,9 +8,7 @@ import com.ssafy.a301.admin.mapper.AdminMapper;
 import com.ssafy.a301.admin.repository.StreakFreezeRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.home.domain.Streak;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
-import java.time.LocalDate;
+import com.ssafy.a301.practice.service.PracticeService;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -19,22 +17,22 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 8.13 · 8.14 내 스트릭 유지권. 유지권을 쓰면 그 유지권의 메울 수 있는 날짜를 연습 기록(practice_logs)에 넣어 스트릭·연습 달력에 연습한 날로 들어가게
- * 한다. 연습 기록은 홈 모듈의 저장 방법(insertIfAbsent)을 그대로 쓴다.
+ * 한다. 연습 기록·스트릭은 PracticeService로 넣고 계산한다(5.8 면접 끝내기와 같음).
  */
 @Service
 public class StreakFreezeService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final StreakFreezeRepository freezes;
-    private final PracticeLogRepository practiceLogs;
+    private final PracticeService practices;
     private final TransactionTemplate transactions;
 
     public StreakFreezeService(
             StreakFreezeRepository freezes,
-            PracticeLogRepository practiceLogs,
+            PracticeService practices,
             TransactionTemplate transactions) {
         this.freezes = freezes;
-        this.practiceLogs = practiceLogs;
+        this.practices = practices;
         this.transactions = transactions;
     }
 
@@ -61,15 +59,12 @@ public class StreakFreezeService {
                                                     new ApiException(
                                                             ErrorCode.STREAK_FREEZE_NOT_FOUND));
                     freeze.use(now);
-                    if (practiceLogs.insertIfAbsent(userId, freeze.getFillableDate()) == 0) {
+                    if (!practices.record(userId, freeze.getFillableDate())) {
                         throw new ApiException(ErrorCode.STREAK_FREEZE_DATE_NOT_ALLOWED);
                     }
                     int available =
                             (int) freezes.countUsable(userId, StreakFreezeStatus.AVAILABLE, now);
-                    int currentStreak =
-                            Streak.current(
-                                    practiceLogs.findPracticeDatesByUserId(userId),
-                                    LocalDate.now(KST));
+                    int currentStreak = practices.currentStreak(userId);
                     return AdminMapper.toFreezeUse(freeze, available, currentStreak);
                 });
     }

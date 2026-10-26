@@ -1,6 +1,6 @@
-package com.ssafy.a301.home.repository;
+package com.ssafy.a301.practice.repository;
 
-import com.ssafy.a301.home.domain.PracticeLog;
+import com.ssafy.a301.practice.domain.PracticeLog;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -32,7 +32,6 @@ public enum ErrorCode {
     ROOM_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요."),
 
     // 결과·성장 리뷰
-    RECORDING_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 녹화가 등록된 면접이에요."),
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),
     NO_RESULT(HttpStatus.CONFLICT, "답변 없이 끝난 면접은 결과가 없어요."),
     GROWTH_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "그날의 성장 리뷰가 없어요."),

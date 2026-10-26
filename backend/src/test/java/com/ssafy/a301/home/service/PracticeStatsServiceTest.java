@@ -7,9 +7,11 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.ssafy.a301.home.repository.PracticeLogRepository;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.service.InterviewStatsService;
+import com.ssafy.a301.practice.repository.PracticeLogRepository;
+import com.ssafy.a301.practice.service.PracticeService;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -70,7 +72,7 @@ class PracticeStatsServiceTest {
         when(practiceLogs.findPracticeDatesByUserId(7))
                 .thenReturn(List.of(TODAY.minusDays(2), TODAY.minusDays(3), TODAY.minusDays(4)));
 
-        var streaks = service().streaks(7, TODAY);
+        var streaks = new PracticeService(practiceLogs).streaks(7, TODAY);
 
         assertThat(streaks.current()).isZero();
         assertThat(streaks.best()).isEqualTo(3);
@@ -87,6 +89,7 @@ class PracticeStatsServiceTest {
     }
 
     private PracticeStatsService service() {
-        return new PracticeStatsService(practiceLogs, sessions);
+        return new PracticeStatsService(
+                new PracticeService(practiceLogs), new InterviewStatsService(sessions));
     }
 }

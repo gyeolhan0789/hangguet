@@ -1,17 +1,24 @@
 package com.ssafy.a301.interview.mapper;
 
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.Criterion;
+import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.CriterionGrade;
 import com.ssafy.a301.interview.dto.InterviewDtos.CurrentQuestion;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionListItem;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import java.time.OffsetDateTime;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 /** 면접 엔티티 + Redis 진행 상태 → API 응답. session.application은 지연 로딩이므로 조회 쿼리에서 함께 가져온다(fetch join). */
 public final class InterviewMapper {
@@ -89,5 +96,33 @@ public final class InterviewMapper {
                 answer.getInputType(),
                 answer.getCreatedAt(),
                 isLastQuestion);
+    }
+
+    /**
+     * 5.14 목록 항목. 요약·기준별 등급은 완료(COMPLETED)일 때만 채운다.
+     *
+     * @param grades 완료 면접의 기준 4개 등급. 빠진 기준이 없는지는 서비스가 먼저 확인한다
+     */
+    public static SessionListItem toListItem(
+            InterviewSession session, int answeredCount, Map<Criterion, Grade> grades) {
+        boolean completed = session.getStatus() == SessionStatus.COMPLETED;
+        List<CriterionGrade> criterionGrades =
+                completed
+                        ? Arrays.stream(Criterion.values())
+                                .map(c -> new CriterionGrade(c, grades.get(c)))
+                                .toList()
+                        : List.of();
+        return new SessionListItem(
+                session.getId(),
+                session.getApplication().getCompanyName(),
+                session.getApplication().getJobTitle(),
+                session.getPersona(),
+                session.getMode(),
+                session.getStatus(),
+                session.getStartedAt(),
+                session.getEndedAt(),
+                answeredCount,
+                completed ? session.getSummary() : null,
+                criterionGrades);
     }
 }

@@ -12,7 +12,7 @@ import com.ssafy.a301.admin.domain.StreakFreezeGrant;
 import com.ssafy.a301.admin.mapper.AdminMapper;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.mapper.ApplicationMapper;
-import com.ssafy.a301.home.domain.PracticeLog;
+import com.ssafy.a301.growth.mapper.GrowthMapper;
 import com.ssafy.a301.home.mapper.HomeMapper;
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
@@ -27,8 +27,10 @@ import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
+import com.ssafy.a301.interview.dto.InterviewDtos.CriterionGrade;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.mapper.InterviewMapper;
+import com.ssafy.a301.practice.domain.PracticeLog;
 import com.ssafy.a301.result.dto.ResultDtos;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
@@ -38,7 +40,9 @@ import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.mapper.UserMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /** 엔티티 → 응답 DTO 변환이 명세의 값 규칙(상태별 null, 정렬, 3단계)을 따르는지 확인한다. */
@@ -155,6 +159,43 @@ class MapperTest {
         assertThat(result.speechMetrics().gazeRatio()).isNull();
         assertThat(ResultMapper.toReplay(s, List.of(), "https://video").videoUrl())
                 .isEqualTo("https://video");
+    }
+
+    @Test
+    void sessionListItemHasSummaryAndGradesOnlyWhenCompleted() {
+        InterviewSession s = session(InterviewMode.CHAT);
+        s.start(T0);
+        s.end(T0.plusMinutes(5), 1);
+        var analyzing = InterviewMapper.toListItem(s, 1, Map.of());
+        assertThat(analyzing.summary()).isNull();
+        assertThat(analyzing.criterionGrades()).isEmpty();
+
+        s.complete("총평");
+        Map<Criterion, Grade> grades = new EnumMap<>(Criterion.class);
+        for (Criterion criterion : Criterion.values()) {
+            grades.put(criterion, Grade.GOOD);
+        }
+        var completed = InterviewMapper.toListItem(s, 1, grades);
+        assertThat(completed.summary()).isEqualTo("총평");
+        assertThat(completed.answeredCount()).isEqualTo(1);
+        assertThat(completed.criterionGrades())
+                .extracting(CriterionGrade::criterion)
+                .containsExactly(Criterion.values());
+    }
+
+    @Test
+    void growthReviewHasDeltaOnlyWithComparedDay() {
+        assertThat(GrowthMapper.toCriterionReview(Criterion.LOGIC, 70, null, "근거").delta())
+                .isNull();
+        var review = GrowthMapper.toCriterionReview(Criterion.LOGIC, 70, 62, "근거");
+        assertThat(review.delta()).isEqualTo(8);
+        assertThat(review.grade()).isEqualTo(Grade.of(70));
+
+        InterviewSession s = session(InterviewMode.CHAT);
+        var first = GrowthMapper.toRecentReviewItem(LocalDate.of(2026, 10, 3), s, null);
+        assertThat(first.companyName()).isEqualTo("○○전자");
+        assertThat(first.criterion()).isNull();
+        assertThat(first.delta()).isNull();
     }
 
     @Test

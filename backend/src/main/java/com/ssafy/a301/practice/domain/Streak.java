@@ -1,4 +1,4 @@
-package com.ssafy.a301.home.domain;
+package com.ssafy.a301.practice.domain;
 
 import java.time.LocalDate;
 import java.util.Collection;

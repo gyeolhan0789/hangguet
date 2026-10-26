@@ -15,8 +15,6 @@ import static org.mockito.Mockito.when;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
-import com.ssafy.a301.home.service.PracticeStatsService;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
@@ -45,7 +43,6 @@ class InterviewSessionListServiceTest {
     @Mock private InterviewSessionRepository sessions;
     @Mock private AnswerRepository answers;
     @Mock private SessionScoreRepository scores;
-    @Mock private PracticeLogRepository practiceLogs;
 
     @Test
     void calendarFillsZerosAndUsesOneMonthlyQueryWithKoreaBoundaries() {
@@ -241,9 +238,9 @@ class InterviewSessionListServiceTest {
         };
     }
 
-    /** 날짜 전체 건수·시간은 실제 PracticeStatsService가 같은 저장소 대역으로 계산한다 */
+    /** 날짜 전체 건수·시간은 실제 InterviewStatsService가 같은 저장소 대역으로 계산한다 */
     private InterviewSessionListService service() {
         return new InterviewSessionListService(
-                sessions, answers, scores, new PracticeStatsService(practiceLogs, sessions));
+                sessions, answers, scores, new InterviewStatsService(sessions));
     }
 }

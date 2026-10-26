@@ -11,7 +11,6 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import java.time.LocalDate;
@@ -120,17 +119,6 @@ public final class InterviewDtos {
             @Schema(description = "질문 순서(1부터)", example = "3") int seq,
             @Schema(description = "질문 내용") String content,
             @Schema(description = "질문을 낸 일시") OffsetDateTime createdAt) {}
-
-    public record AnswerAudioUploadUrlRequest(
-            @Schema(
-                            description = "녹음 형식",
-                            allowableValues = {"audio/webm", "audio/ogg", "audio/mp4"},
-                            example = "audio/webm")
-                    @NotBlank(message = "필수 값입니다.")
-                    @Pattern(
-                            regexp = "audio/webm|audio/ogg|audio/mp4",
-                            message = "audio/webm·audio/ogg·audio/mp4만 가능합니다.")
-                    String contentType) {}
 
     public record AnswerRequest(
             @Schema(

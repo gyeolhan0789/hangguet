@@ -18,7 +18,8 @@ import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
+import com.ssafy.a301.practice.repository.PracticeLogRepository;
+import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.storage.domain.UploadPurpose;
 import com.ssafy.a301.storage.repository.UploadKeyStore;
 import com.ssafy.a301.storage.s3.PresignedUrl;
@@ -62,7 +63,7 @@ class UserServiceTest {
         service =
                 new UserService(
                         users,
-                        practiceLogs,
+                        new PracticeService(practiceLogs),
                         passwords,
                         access,
                         new AuthProperties(
