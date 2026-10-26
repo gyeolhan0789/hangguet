@@ -8,6 +8,9 @@ import {
   ANSWER_REJECTED_CODES,
   ANSWER_STATE_METHOD,
   ANSWER_SUBMIT_METHOD,
+  QUESTION_METHOD,
+  questionMessageSchema,
+  type QuestionMessage,
   answerStateSchema,
   answerSubmitPayload,
   answerSubmitResponseSchema,
@@ -63,6 +66,7 @@ export function useInterviewRoom(
   const microphone = listenOnly ? undefined : stream?.getAudioTracks()[0];
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(INITIAL);
+  const [question, setQuestion] = useState<QuestionMessage | null>(null);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
   const connected = useRef<Room | null>(null);
   // 받은 함수가 바뀌어도 다시 입장하지 않도록 최신 함수만 기억한다.
@@ -81,6 +85,27 @@ export function useInterviewRoom(
     let revision = -1;
     let sttStatus: InterviewRoomStatus = "connecting";
     const retiredStreams = new Set<string>();
+    let latestQuestion: QuestionMessage | null = null;
+
+    room.registerRpcMethod(QUESTION_METHOD, async (data) => {
+      if (disposed || !room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+      try {
+        const parsed = questionMessageSchema.safeParse(JSON.parse(data.payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return "";
+        const message = parsed.data;
+        if (
+          latestQuestion &&
+          (message.seq < latestQuestion.seq ||
+            (message.seq === latestQuestion.seq && latestQuestion.speech !== "started"))
+        )
+          return "";
+        latestQuestion = message;
+        setQuestion(message);
+      } catch {
+        // 잘못된 본문은 화면에 반영하지 않는다.
+      }
+      return "";
+    });
 
     function fail() {
       if (!disposed) setState((previous) => ({ ...previous, status: "failed" }));
@@ -163,6 +188,7 @@ export function useInterviewRoom(
       try {
         const access = await issueRoomToken(sessionId);
         if (disposed) return;
+        setQuestion(null);
         if (!access.ok || track?.readyState === "ended") {
           fail();
           return;
@@ -196,6 +222,7 @@ export function useInterviewRoom(
       lifetime.abort();
       if (connected.current === room) connected.current = null;
       room.unregisterRpcMethod(ANSWER_STATE_METHOD);
+      room.unregisterRpcMethod(QUESTION_METHOD);
       track?.removeEventListener("ended", fail);
       room.unregisterTextStreamHandler(STT_TOPIC);
       room.removeAllListeners();
@@ -228,5 +255,5 @@ export function useInterviewRoom(
     [sessionId],
   );
 
-  return { ...state, retry, submitAnswer };
+  return { ...state, question, retry, submitAnswer };
 }

@@ -47,6 +47,24 @@ const enter = (init: Partial<KeyboardEventInit & { isComposing: boolean }> = {})
   });
 
 describe("ChatPanel (S06-B 채팅 답변)", () => {
+  it("질문 재생 중 입력은 유지하고 버튼과 Enter 및 폼 제출을 차단한다", async () => {
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const { rerender } = render(<ChatPanel sessionId={55} question={QUESTION} submissionLocked />);
+    type("답변을 작성합니다.");
+    expect(input().disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await enter();
+    await act(async () => {
+      fireEvent.submit(input().closest("form")!);
+    });
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+    expect(input().value).toBe("답변을 작성합니다.");
+    rerender(<ChatPanel sessionId={55} question={QUESTION} submissionLocked={false} />);
+    await enter();
+    expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+  });
   it("빈 입력창 안내와 글자 수 '0 / 1,000'을 보여 주고, 1,000자까지만 받는다", () => {
     render(<ChatPanel sessionId={55} question={QUESTION} />);
 

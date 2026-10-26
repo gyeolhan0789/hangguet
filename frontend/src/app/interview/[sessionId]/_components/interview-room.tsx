@@ -164,16 +164,16 @@ export function InterviewRoom({
               <Dialog bottom="pb-[5px]">
                 {planFailed ? (
                   <PlanFailed sessionId={session.id} />
-                ) : (
+                ) : session.status !== "IN_PROGRESS" ? (
                   <QuestionBubble interviewer={interviewer} question={question} />
-                )}
+                ) : null}
                 {startError && session.status === "READY" && (
                   <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
                     {startError}
                   </p>
                 )}
                 {session.status === "IN_PROGRESS" ? (
-                  <ChatLive sessionId={session.id} question={question} />
+                  <ChatLive sessionId={session.id} question={question} interviewer={interviewer} />
                 ) : (
                   <ChatPanel sessionId={session.id} question={question} />
                 )}
@@ -276,6 +276,7 @@ function VideoInterview({
   const [doneStream, setDoneStream] = useState<string | null>(null);
   // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
   const [failedId, setFailedId] = useState<number | null>(null);
+  const [completedSeq, setCompletedSeq] = useState(0);
 
   function startSubmitting(questionId: number) {
     setSubmittingId(questionId);
@@ -287,6 +288,7 @@ function VideoInterview({
     if (question?.seq !== message.seq) return;
     if (message.state === "autoSubmitted") startSubmitting(question.id);
     if (message.state === "submitted") {
+      setCompletedSeq(message.seq);
       setDoneStream(stt.streamId);
       setAnsweredQuestion(question.id);
     }
@@ -297,6 +299,13 @@ function VideoInterview({
     }
   }
   const stt = useInterviewRoom(sessionId, stream, { onAnswerState });
+  const liveQuestion =
+    stt.question &&
+    stt.question.seq > completedSeq &&
+    (!question || stt.question.seq >= question.seq)
+      ? stt.question
+      : null;
+  const speechLocked = liveQuestion?.speech === "started";
   // 낸 뒤 같은 질문에 새 자막 캡처가 열리면(낼 글이 없어 에이전트가 다시 듣는다) 다시 답할 수 있다
   const submitting =
     question !== null && submittingId === question.id && stt.streamId === doneStream;
@@ -305,7 +314,7 @@ function VideoInterview({
   const spoke = (caption.confirmedText + caption.interimText).trim() !== "";
 
   async function submit() {
-    if (!question) return;
+    if (!question || speechLocked || (liveQuestion && liveQuestion.seq !== question.seq)) return;
     setRequesting(true);
     const result = await stt.submitAnswer(question.seq);
     setRequesting(false);
@@ -325,12 +334,17 @@ function VideoInterview({
     <>
       <SelfCamera stream={stream} />
       <Dialog bottom="pb-[68px]">
-        <QuestionBubble interviewer={interviewer} question={question} />
+        <QuestionBubble interviewer={interviewer} question={liveQuestion ?? question} />
         <AnswerCaption {...caption} onRetry={stt.retry} />
         <VideoControls
           level={level}
           canSubmit={
-            question !== null && (spoke || failedId === question.id) && !submitting && !requesting
+            question !== null &&
+            (!liveQuestion || liveQuestion.seq === question.seq) &&
+            !speechLocked &&
+            (spoke || failedId === question.id) &&
+            !submitting &&
+            !requesting
           }
           submitting={submitting || requesting}
           onSubmit={() => void submit()}
@@ -383,11 +397,33 @@ function useFinishAfterLastAnswer(
 function ChatLive({
   sessionId,
   question,
+  interviewer,
 }: {
   sessionId: number;
   question: CurrentQuestion | null;
+  interviewer: string;
 }) {
-  const { status, retry, submitAnswer } = useInterviewRoom(sessionId, null, { listenOnly: true });
+  const {
+    status,
+    retry,
+    submitAnswer,
+    question: message,
+  } = useInterviewRoom(sessionId, null, { listenOnly: true });
+  const [completedSeq, setCompletedSeq] = useState(0);
+  const liveQuestion =
+    message && message.seq > completedSeq && (!question || message.seq >= question.seq)
+      ? message
+      : null;
+  const submissionLocked =
+    liveQuestion?.speech === "started" ||
+    (liveQuestion !== null && liveQuestion.seq !== question?.seq);
+  const router = useRouter();
+  // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답으로 확인한다.
+  useEffect(() => {
+    if (!liveQuestion || liveQuestion.seq === question?.seq) return;
+    const timer = setTimeout(() => router.refresh(), SESSION_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [liveQuestion, question, router]);
   const [retries, setRetries] = useState(0);
   if (status === "listening" && retries !== 0) setRetries(0);
 
@@ -420,7 +456,18 @@ function ChatLive({
   }, [unsent, send]);
 
   return (
-    <ChatPanel sessionId={sessionId} question={question} onAnswered={(seq) => void send(seq, 0)} />
+    <>
+      <QuestionBubble interviewer={interviewer} question={liveQuestion ?? question} />
+      <ChatPanel
+        sessionId={sessionId}
+        question={question}
+        submissionLocked={submissionLocked}
+        onAnswered={(seq) => {
+          setCompletedSeq(seq);
+          void send(seq, 0);
+        }}
+      />
+    </>
   );
 }
 

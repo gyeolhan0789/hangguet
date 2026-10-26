@@ -33,12 +33,15 @@ export function ChatPanel({
   sessionId,
   question,
   onAnswered,
+  submissionLocked = false,
 }: {
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
   /** 답변이 저장됐을 때(이미 낸 답변 포함) 그 질문 순서. 에이전트에 [답변 완료]를 보낸다 */
   onAnswered?: (seq: number) => void;
+  /** 질문 음성 재생 중에는 입력을 유지하고 제출만 차단한다. */
+  submissionLocked?: boolean;
 }) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
@@ -75,7 +78,7 @@ export function ChatPanel({
   }
 
   function submit(values: AnswerTextValues) {
-    if (!question) return;
+    if (!question || submissionLocked || pending) return;
     setFormError(undefined);
     const saved = answerKey.current;
     const key =
@@ -116,7 +119,7 @@ export function ChatPanel({
     // 한글을 조합하는 중의 Enter는 글자를 확정하는 키라 보내지 않는다.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    if (!disabled) void handleSubmit(submit)();
+    if (!disabled && !submissionLocked) void handleSubmit(submit)();
   }
 
   const error = errors.content?.message ?? formError;
@@ -173,7 +176,7 @@ export function ChatPanel({
           <button
             type="submit"
             aria-label="답변 보내기"
-            disabled={disabled}
+            disabled={disabled || submissionLocked}
             aria-busy={pending || undefined}
             className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed"
           >

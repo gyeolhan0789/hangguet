@@ -114,6 +114,64 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe("질문 메시지 수신", () => {
+  const message = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      type: "question",
+      sessionId: 55,
+      seq: 1,
+      content: "경험을 설명해 주세요.",
+      speech: "started",
+      alignment: null,
+      ...overrides,
+    });
+
+  async function joined() {
+    const hook = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const handler = room.rpcHandlers.get("interview.question")!;
+    const receive = (payload = message(), callerIdentity = "agent") =>
+      act(async () => {
+        expect(await handler({ callerIdentity, payload })).toBe("");
+      });
+    return { ...hook, room, receive };
+  }
+
+  it("질문 시작과 종료를 반영하고 이전 순서와 종료 뒤 시작 메시지는 폐기한다", async () => {
+    const { result, receive } = await joined();
+    await receive(message({ seq: 2 }));
+    expect(result.current.question?.speech).toBe("started");
+    await receive(message({ seq: 2, speech: "ended" }));
+    await receive(message({ seq: 2 }));
+    await receive(message({ seq: 1 }));
+    expect(result.current.question).toMatchObject({ seq: 2, speech: "ended" });
+    await receive(message({ seq: 3, speech: "failed" }));
+    expect(result.current.question).toMatchObject({ seq: 3, speech: "failed" });
+  });
+
+  it("다른 참가자와 면접 및 잘못된 본문을 반영하지 않는다", async () => {
+    const { result, receive } = await joined();
+    await receive(message(), "other");
+    await receive(message({ sessionId: 56 }));
+    await receive(message({ seq: true }));
+    await receive(message({ speech: "unknown" }));
+    await receive("not json");
+    expect(result.current.question).toBeNull();
+  });
+
+  it("질문 발음 시각을 유지하고 정리 이후 메시지는 폐기한다", async () => {
+    const { result, room, receive, unmount } = await joined();
+    const alignment = { chars: [{ char: "가", startMs: 0, endMs: 100 }] };
+    await receive(message({ alignment }));
+    expect(result.current.question?.alignment).toEqual(alignment);
+    unmount();
+    expect(room.unregisterRpcMethod).toHaveBeenCalledWith("interview.question");
+    await receive(message({ seq: 5 }));
+    expect(result.current.question?.seq).toBe(1);
+  });
+});
+
 describe("면접방 마이크 송출과 STT 수신", () => {
   it("장치 스트림이 없으면 입장 API와 RTC를 실행하지 않는다", () => {
     renderHook(() => useInterviewRoom(55, null));

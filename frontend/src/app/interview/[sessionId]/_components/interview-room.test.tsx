@@ -3,7 +3,7 @@ import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInterviewStore } from "@/stores/interview-store";
-import type { AnswerStateMessage } from "@/lib/interview/room-messages";
+import type { AnswerStateMessage, QuestionMessage } from "@/lib/interview/room-messages";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
 import {
@@ -48,6 +48,7 @@ const room = vi.hoisted(() => ({
   streamId: null as string | null,
   confirmedText: "",
   interimText: "",
+  question: null as QuestionMessage | null,
   retry: () => {},
   submitAnswer: (async () => "accepted") as (seq: number) => Promise<string>,
   mounts: 0,
@@ -65,6 +66,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         streamId: room.streamId,
         confirmedText: room.confirmedText,
         interimText: room.interimText,
+        question: room.question,
         retry: room.retry,
         submitAnswer: room.submitAnswer,
       };
@@ -119,6 +121,7 @@ beforeEach(() => {
   room.streamId = null;
   room.confirmedText = "";
   room.interimText = "";
+  room.question = null;
   room.retry = vi.fn();
   room.submitAnswer = vi.fn(async () => "accepted");
   room.mounts = 0;
@@ -156,6 +159,89 @@ const analyzing = () => screen.queryByRole("heading", { name: "면접관이 답�
 const waitPoll = () => act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
 
 describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
+  it.each(["ended", "failed"] as const)(
+    "채팅 질문 재생 중 제출을 차단하고 %s 수신 뒤 허용한다",
+    async (speech) => {
+      room.question = {
+        type: "question",
+        sessionId: 55,
+        seq: 3,
+        content: "메시지의 질문",
+        speech: "started",
+        alignment: null,
+      };
+      submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+      const { rerender } = render(chatRoom());
+      expect(screen.getByText("메시지의 질문", { selector: ".sr-only" })).toBeTruthy();
+      const input = screen.getByRole("textbox", { name: "답변" });
+      fireEvent.input(input, { target: { value: "작성 중인 답변" } });
+      expect(
+        (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+      expect(submitTextAnswer).not.toHaveBeenCalled();
+      room.question = { ...room.question, speech };
+      rerender(chatRoom());
+      await act(async () => {
+        fireEvent.keyDown(input, { key: "Enter" });
+      });
+      expect(submitTextAnswer).toHaveBeenCalledWith(
+        55,
+        303,
+        { content: "작성 중인 답변" },
+        expect.any(String),
+      );
+      expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
+      expect(thinking()).toBeTruthy();
+    },
+  );
+
+  it("채팅은 메시지의 질문을 표시하되 같은 순서의 질문 ID를 확인하기 전 제출하지 않는다", () => {
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 4,
+      content: "새 질문",
+      speech: "ended",
+      alignment: null,
+    };
+    const { rerender } = render(chatRoom());
+    expect(screen.getByText("새 질문", { selector: ".sr-only" })).toBeTruthy();
+    const button = () => screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement;
+    expect(button().disabled).toBe(true);
+    waitPoll();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    rerender(
+      <InterviewRoom
+        session={{ ...SESSION, mode: "CHAT" }}
+        currentQuestion={{ id: 304, seq: 4, content: "BE 질문" }}
+      />,
+    );
+    expect(button().disabled).toBe(false);
+  });
+
+  it.each(["ended", "failed"] as const)(
+    "화상 질문 started 동안 제출을 차단하고 %s 뒤 해제한다",
+    (speech) => {
+      room.confirmedText = "이전 캡처의 발화";
+      room.question = {
+        type: "question",
+        sessionId: 55,
+        seq: 3,
+        content: "질문 메시지",
+        speech: "started",
+        alignment: null,
+      };
+      const { rerender } = render(videoRoom());
+      expect(submitButton().disabled).toBe(true);
+      room.question = { ...room.question, speech };
+      rerender(videoRoom());
+      expect(submitButton().disabled).toBe(false);
+    },
+  );
+
   it("면접 중이고 질문이 있으면 질문을 보여 주고 다시 조회하지 않는다", () => {
     render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
 
