@@ -125,7 +125,7 @@ com.ssafy.a301
 
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
-| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스) **[결정]** |
+| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]** |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
@@ -303,7 +303,7 @@ com.ssafy.a301
 
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
-| `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
+| `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 9.10 관리자 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
@@ -336,7 +336,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
-- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다
+- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
@@ -362,6 +362,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ## 11. 오류 처리 **[결정]**
 - 응답 형식: ProblemDetail + `code`(+ 400은 `errors`). `GlobalExceptionHandler`가 Spring 자체 오류에도 `code`를 붙인다
+- 보안 필터 안의 오류(토큰 검증 중 DB·Redis 장애 등)는 `FilterExceptionFilter`가 500 `INTERNAL_ERROR` ProblemDetail로 응답한다. 회원·관리자 체인 모두 적용
 - 업무 오류: `throw new ApiException(ErrorCode.X)`. 필드 사이 검증 실패: `FieldValidationException(field, reason)`
 - 조회 날짜·월 파라미터는 `@SupportedDate`·`@SupportedMonth`로 0001~9999년만 받는다. ISO 날짜는 0000년·다섯 자리 연도도 읽어서, 막지 않으면 시각 계산·DB에서 500이 된다. 범위 밖은 400 `VALIDATION_FAILED`
 - 상태 오류는 엔티티가 던진다(4장)

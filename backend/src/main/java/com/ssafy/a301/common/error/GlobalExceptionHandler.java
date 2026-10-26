@@ -2,11 +2,13 @@ package com.ssafy.a301.common.error;
 
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -15,7 +17,9 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import tools.jackson.core.JacksonException;
 
 /**
  * 모든 오류를 RFC 9457 ProblemDetail + code로 응답한다. 400 VALIDATION_FAILED는 errors[{ field, reason }]를
@@ -23,6 +27,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
+    private static final String INVALID_VALUE = "형식이 맞지 않습니다.";
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ProblemDetail> handleApi(ApiException ex) {
@@ -78,6 +83,35 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return validationFailed(errors);
     }
 
+    /** 본문이 JSON이 아니거나 값의 형식·enum이 맞지 않으면 그 필드를 errors에 담는다. 위치를 모르면 field는 body */
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof JacksonException jackson && !jackson.getPath().isEmpty()) {
+                return validationFailed(List.of(error(fieldPath(jackson), INVALID_VALUE)));
+            }
+        }
+        return validationFailed(List.of(error("body", "요청 본문을 읽을 수 없습니다.")));
+    }
+
+    /** 경로·쿼리 값의 형식이 맞지 않으면(숫자 id에 문자 등) 그 이름을 errors에 담는다 */
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(
+            TypeMismatchException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+        String field =
+                ex instanceof MethodArgumentTypeMismatchException mismatch
+                        ? mismatch.getName()
+                        : String.valueOf(ex.getPropertyName());
+        return validationFailed(List.of(error(field, INVALID_VALUE)));
+    }
+
     @Override
     protected ResponseEntity<Object> handleServletRequestBindingException(
             ServletRequestBindingException ex,
@@ -116,6 +150,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail pd = problem(ErrorCode.VALIDATION_FAILED);
         pd.setProperty("errors", errors.stream().distinct().toList());
         return ResponseEntity.badRequest().body(pd);
+    }
+
+    // 객체 속 필드는 a.b, 배열 원소는 a[0]으로 적는다
+    private static String fieldPath(JacksonException ex) {
+        StringBuilder path = new StringBuilder();
+        for (JacksonException.Reference ref : ex.getPath()) {
+            if (ref.getPropertyName() != null) {
+                if (!path.isEmpty()) {
+                    path.append(".");
+                }
+                path.append(ref.getPropertyName());
+            } else if (ref.getIndex() >= 0) {
+                path.append("[").append(ref.getIndex()).append("]");
+            }
+        }
+        return path.isEmpty() ? "body" : path.toString();
     }
 
     private static Map<String, String> error(String field, String reason) {

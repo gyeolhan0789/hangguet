@@ -162,6 +162,27 @@ class ApplicationControllerTest {
     }
 
     @Test
+    void updateAcceptsMultilineCoverLetter() throws Exception {
+        String coverLetter = "1. 지원 동기\n저는…\n\n2. 경험\n프로젝트에서…";
+        when(service.update(7L, 10L, new ApplicationUpdateRequest(null, null, coverLetter)))
+                .thenReturn(RESPONSE);
+        mvc.perform(
+                        json(
+                                patch("/api/v1/applications/10"),
+                                "{\"coverLetter\":\"1. 지원 동기\\n저는…\\n\\n2. 경험\\n프로젝트에서…\"}"))
+                .andExpect(status().isOk());
+        verify(service).update(7L, 10L, new ApplicationUpdateRequest(null, null, coverLetter));
+    }
+
+    @Test
+    void updateRejectsWhitespaceOnlyValuesWithLineBreaks() throws Exception {
+        mvc.perform(json(patch("/api/v1/applications/10"), "{\"coverLetter\":\" \\n\\t\\n \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("coverLetter"));
+        verify(service, never()).update(anyLong(), anyLong(), any());
+    }
+
+    @Test
     void applicationInUseIsConflict() throws Exception {
         when(service.update(7L, 10L, new ApplicationUpdateRequest("x", null, null)))
                 .thenThrow(new ApiException(ErrorCode.APPLICATION_IN_USE));

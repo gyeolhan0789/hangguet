@@ -3,13 +3,14 @@ package com.ssafy.a301.auth.config;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.error.FilterExceptionFilter;
+import com.ssafy.a301.common.error.ProblemResponses;
 import com.ssafy.a301.user.repository.UserRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.Map;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -31,8 +32,8 @@ import org.springframework.security.oauth2.jwt.JwtValidationException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
-import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 @EnableWebSecurity
@@ -81,7 +82,8 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf(csrf -> csrf.disable())
+        http.addFilterBefore(new FilterExceptionFilter(), BearerTokenAuthenticationFilter.class)
+                .csrf(csrf -> csrf.disable())
                 .sessionManagement(
                         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(
@@ -163,24 +165,6 @@ public class SecurityConfig {
     private static void writeProblem(
             HttpServletRequest request, HttpServletResponse response, ErrorCode code)
             throws IOException {
-        response.setStatus(code.status().value());
-        response.setCharacterEncoding("UTF-8");
-        response.setContentType("application/problem+json");
-        response.getWriter()
-                .write(
-                        JsonMapper.builder()
-                                .build()
-                                .writeValueAsString(
-                                        Map.of(
-                                                "title",
-                                                "Unauthorized",
-                                                "status",
-                                                401,
-                                                "detail",
-                                                code.message(),
-                                                "instance",
-                                                request.getRequestURI(),
-                                                "code",
-                                                code.name())));
+        ProblemResponses.write(request, response, code);
     }
 }
