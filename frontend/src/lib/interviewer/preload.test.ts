@@ -6,7 +6,7 @@ import { interviewerLook } from "./models";
 import { preloadInterviewer } from "./preload";
 
 // 기준: 사용자 결정(2026-10-22: S05에서 면접관 모델을 다 받을 때까지 준비 줄에 진행률을 띄우고, 실패하면 '면접 준비에 실패했어요')
-// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓴다)
+// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓴다. 배경 그림도 미리 받고, 못 받아도 면접은 막지 않는다)
 // 내려받기 · 해석(three.js)은 scene.test.ts가 보고, 여기서는 그 결과를 저장소 상태로 옮기는 일만 본다.
 
 type Progress = (ratio: number) => void;
@@ -15,6 +15,10 @@ vi.mock("./scene", () => ({
   preloadInterviewerAssets: (model: unknown, onProgress: Progress) =>
     preloadInterviewerAssets(model, onProgress),
 }));
+
+// 배경 그림 받기도 경계만 바꾼다. 기본은 바로 받은 것으로 치고, 끝나는 때를 볼 테스트만 따로 정한다.
+const preloadBackdrop = vi.fn<(url: string) => Promise<void>>(() => Promise.resolve());
+vi.mock("./backdrop", () => ({ preloadBackdrop: (url: string) => preloadBackdrop(url) }));
 
 // 지금은 모든 면접관에 모델이 있어, 모델이 없는 면접관은 테스트에서 interviewerLook이 null을 돌려주게 해 본다.
 vi.mock("./models", async (importOriginal) => {
@@ -105,6 +109,45 @@ describe("preloadInterviewer", () => {
     );
     load.resolve();
     await vi.waitFor(() => expect(state().status).toBe("ready"));
+  });
+
+  it("배경 그림이 있는 면접관(커피챗)은 모델과 배경을 다 받아야 ready", async () => {
+    let backdropDone!: () => void;
+    preloadBackdrop.mockImplementationOnce(
+      () => new Promise<void>((done) => (backdropDone = done)),
+    );
+    const load = deferred();
+    preloadInterviewer("COFFEE_CHAT");
+
+    await vi.waitFor(() =>
+      expect(preloadBackdrop).toHaveBeenCalledWith("/interview/coffee-chat/cafe.webp"),
+    );
+    load.resolve();
+    // 모델을 다 받아도 배경을 받는 동안은 준비 중이다.
+    await new Promise((done) => setTimeout(done, 0));
+    expect(state().status).toBe("loading");
+
+    backdropDone();
+    await vi.waitFor(() => expect(state().status).toBe("ready"));
+  });
+
+  it("배경 그림을 받지 못해도 모델을 다 받으면 ready(배경 없이 그린다)", async () => {
+    preloadBackdrop.mockRejectedValueOnce(new Error("404"));
+    const load = deferred();
+    preloadInterviewer("COFFEE_CHAT");
+    load.resolve();
+
+    await vi.waitFor(() => expect(state().status).toBe("ready"));
+    expect(preloadBackdrop).toHaveBeenCalledTimes(1);
+  });
+
+  it("배경 그림이 없는 면접관(악마)은 배경을 받지 않는다", async () => {
+    const load = deferred();
+    preloadInterviewer("DEVIL");
+    load.resolve();
+
+    await vi.waitFor(() => expect(state().status).toBe("ready"));
+    expect(preloadBackdrop).not.toHaveBeenCalled();
   });
 
   it("3D 모델이 없는 면접관은 받을 것이 없어 바로 ready", () => {

@@ -57,6 +57,8 @@ export function InterviewerStage({ persona }: { persona: Persona }) {
           frame: look.frame,
           storm: look.storm,
           interior: look.interior,
+          background: look.background,
+          lights: look.lights,
           onLost: fail,
           signal: abort.signal,
         }),
