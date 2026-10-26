@@ -55,6 +55,12 @@ def test_rejects_invalid_answer_submit(payload: str) -> None:
         parse_answer_submit(payload, SESSION_ID)
 
 
+def test_bool_session_id_is_rejected_for_session_one() -> None:
+    payload = json.dumps({"type": "answer.submit", "sessionId": True, "seq": 3})
+    with pytest.raises(InvalidAnswerSubmitError):
+        parse_answer_submit(payload, 1)
+
+
 def test_accepted_replies() -> None:
     assert json.loads(answer_submit_reply(Decision.ACCEPT)) == {"accepted": True}
     assert json.loads(answer_submit_reply(Decision.ALREADY_SUBMITTING)) == {"accepted": False}
