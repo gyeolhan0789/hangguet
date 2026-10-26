@@ -40,7 +40,10 @@ export type ErrorCode =
   | "RECORDING_ALREADY_EXISTS"
   | "RESULT_NOT_READY"
   | "NO_RESULT"
-  | "GROWTH_REVIEW_NOT_FOUND";
+  | "GROWTH_REVIEW_NOT_FOUND"
+  // 문의
+  | "INQUIRY_NOT_FOUND"
+  | "INQUIRY_CLOSED";
 
 /** 400 VALIDATION_FAILED의 칸별 실패 사유 */
 export interface FieldError {

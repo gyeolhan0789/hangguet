@@ -4,6 +4,8 @@ import { Header } from './components/Header'
 import { GrantFormPage } from './pages/GrantFormPage'
 import { GrantListPage } from './pages/GrantListPage'
 import { HomePage } from './pages/HomePage'
+import { InquiryDetailPage } from './pages/InquiryDetailPage'
+import { InquiryListPage } from './pages/InquiryListPage'
 import { LoginPage } from './pages/LoginPage'
 import { NoticeFormPage } from './pages/NoticeFormPage'
 import { NoticeListPage } from './pages/NoticeListPage'
@@ -48,6 +50,8 @@ export default function App() {
         {route.name === 'notice-edit' && <NoticeFormPage key={route.id} noticeId={route.id} />}
         {route.name === 'grants' && <GrantListPage />}
         {route.name === 'grant-new' && <GrantFormPage />}
+        {route.name === 'inquiries' && <InquiryListPage />}
+        {route.name === 'inquiry' && <InquiryDetailPage key={route.id} inquiryId={route.id} />}
       </main>
     </>
   )

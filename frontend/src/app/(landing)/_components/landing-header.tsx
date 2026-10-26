@@ -6,9 +6,16 @@ import { AppNav, Header } from "@/layouts/header";
 import { getMe } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
 
+// 기준: Figma S00 Landing Nav(로그인 전: [문의하기] · 서비스 소개 · [로그인] · [시작하기], 문의하기는 서비스 소개와 같은 모양) · 기획 메모 I04(→ I04)
 function GuestNav() {
   return (
     <>
+      <Link
+        href={ROUTES.guestInquiry}
+        className="hidden text-base font-semibold text-text-2 group-data-[overlay=true]/header:text-white/80 sm:block"
+      >
+        문의하기
+      </Link>
       <a
         href="#features"
         className="hidden text-base font-semibold text-text-2 group-data-[overlay=true]/header:text-white/80 sm:block"

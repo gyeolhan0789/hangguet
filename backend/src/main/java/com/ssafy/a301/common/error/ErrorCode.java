@@ -43,7 +43,11 @@ public enum ErrorCode {
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없어요."),
     STREAK_FREEZE_NOT_FOUND(HttpStatus.NOT_FOUND, "유지권을 찾을 수 없어요."),
     STREAK_FREEZE_NOT_AVAILABLE(HttpStatus.CONFLICT, "이미 썼거나 기간이 지난 유지권이에요."),
-    STREAK_FREEZE_DATE_NOT_ALLOWED(HttpStatus.CONFLICT, "이미 연습한 날이라 메울 수 없어요.");
+    STREAK_FREEZE_DATE_NOT_ALLOWED(HttpStatus.CONFLICT, "이미 연습한 날이라 메울 수 없어요."),
+
+    // 문의
+    INQUIRY_NOT_FOUND(HttpStatus.NOT_FOUND, "문의를 찾을 수 없어요."),
+    INQUIRY_CLOSED(HttpStatus.CONFLICT, "종료한 문의예요.");
 
     private final HttpStatus status;
     private final String message;

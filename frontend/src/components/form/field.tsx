@@ -24,6 +24,7 @@ export function Field({
   variant = "lg",
   message,
   hint,
+  messageClass,
   children,
 }: {
   label: string;
@@ -32,6 +33,8 @@ export function Field({
   message?: FieldMessage;
   /** 입력칸 아래 고정 안내(예: 비밀번호 규칙) */
   hint?: ReactNode;
+  /** 안내 문구 글자 크기 · 굵기를 화면 설계대로 바꿀 때(기본: lg 13 · md 12, SemiBold) */
+  messageClass?: string;
   children: ReactNode;
 }) {
   const [scope, animate] = useAnimate<HTMLDivElement>();
@@ -60,7 +63,7 @@ export function Field({
             key={message.text}
             id={`${htmlFor}-message`}
             role={message.tone === "error" ? "alert" : undefined}
-            className={`leading-normal font-semibold ${variant === "lg" ? "text-[13px]" : "text-xs"} ${TONE_CLASS[message.tone]}`}
+            className={`leading-normal ${messageClass ?? `font-semibold ${variant === "lg" ? "text-[13px]" : "text-xs"}`} ${TONE_CLASS[message.tone]}`}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}

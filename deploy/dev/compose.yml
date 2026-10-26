@@ -1,6 +1,6 @@
 # 개발 서버 미니PC 배포 (목 서버와 같은 미니PC)
 # CI(be-deploy·fe-deploy·ai-deploy·ai-agent-deploy)가 서비스 하나씩 실행한다. 수동 실행: 레포 루트에서
-#   DB_PASSWORD=... JWT_SECRET=... docker compose -f deploy/dev/compose.yml up -d --build <서비스>
+#   DB_PASSWORD=... JWT_SECRET=... INQUIRY_ENCRYPTION_KEY=... docker compose -f deploy/dev/compose.yml up -d --build <서비스>
 # 외부 주소: https://hangguet.yobistory.com/ (FE), /be/docs (BE Swagger). AI는 내부 전용이라 외부 주소가 없다.
 # 외부 요청 경로: Cloudflare Tunnel → Nginx 컨테이너(nginx.conf.example) → a301-dev-fe:3000, a301-dev-be:8080
 #
@@ -11,8 +11,8 @@
 # 공용 네트워크에서는 서비스 이름도 주소가 되므로, 다른 프로젝트와 겹치지 않게 서비스 이름을 컨테이너 이름과 같이 a301-dev-*로 짓는다.
 #
 # 값
-# - 비밀값(DB_PASSWORD, JWT_SECRET, ADMIN_LOGIN_ID, ADMIN_PASSWORD)은 GitLab CI/CD Variables에서 받는다.
-#   compose는 파일 전체를 읽으므로 어느 앱 서비스를 배포하든 네 값이 필요하다.
+# - 비밀값(DB_PASSWORD, JWT_SECRET, INQUIRY_ENCRYPTION_KEY, ADMIN_LOGIN_ID, ADMIN_PASSWORD)은 GitLab CI/CD Variables에서 받는다.
+#   compose는 파일 전체를 읽으므로 어느 앱 서비스를 배포하든 다섯 값이 필요하다.
 # - 외부 API 키(SONIOX_API_KEY·ELEVENLABS_API_KEY)도 CI/CD Variables에서 받아 AI 에이전트에만 넘긴다.
 #   SONIOX_API_KEY는 에이전트 배포에 필요하고(ai-agent-deploy가 검사), ELEVENLABS_API_KEY가 없으면 질문 음성 없이 질문 글로만 진행한다.
 # - 녹화 S3 키(LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 화상 면접 시작(5.4)이 실패한다.
@@ -106,6 +106,8 @@ services:
       REDIS_HOST: a301-dev-redis
       REDIS_PORT: "6379"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 문의 제목 · 본문 암호화 키(Base64 32바이트). 바꾸면 이미 저장한 문의를 풀 수 없다
+      INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
       ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
       ADMIN_NAME: ${ADMIN_NAME:-운영자}

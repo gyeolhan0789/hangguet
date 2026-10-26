@@ -1,0 +1,47 @@
+import { z } from "zod";
+
+// 기준: Swagger 9.1 문의 작성(InquiryCreateRequest: title 필수 · 최대 100자, content 필수, 비회원은 email(형식 · 최대 255자)
+// · accessPassword(4~20자) 필수) · 9.4 이어서 쓰기(InquiryMessageRequest: content 필수) · 9.3 문의 조회(경로 문의 id · X-Inquiry-Password)
+// 오류 문구는 서버(400 VALIDATION_FAILED errors[].reason)와 같다. 폼(클라이언트)과 서버 액션이 같이 쓴다.
+
+export const INQUIRY_TITLE_MAX = 100;
+const REQUIRED = "필수 값입니다.";
+
+const title = z.string().trim().min(1, REQUIRED).max(INQUIRY_TITLE_MAX, "최대 100자입니다.");
+const content = z.string().trim().min(1, REQUIRED);
+const accessPassword = z.string().min(1, REQUIRED).min(4, "4~20자입니다.").max(20, "4~20자입니다.");
+
+/** I01 문의하기(회원) */
+export const inquirySchema = z.object({ title, content });
+export type InquiryValues = z.infer<typeof inquirySchema>;
+export const INQUIRY_FIELDS = inquirySchema.keyof().options;
+
+/** I01-B 문의하기(비회원) */
+export const guestInquirySchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .min(1, REQUIRED)
+    .max(255, "최대 255자입니다.")
+    .email("이메일 형식이 아닙니다."),
+  accessPassword,
+  title,
+  content,
+});
+export type GuestInquiryValues = z.infer<typeof guestInquirySchema>;
+export const GUEST_INQUIRY_FIELDS = guestInquirySchema.keyof().options;
+
+/** I04 비회원 문의 확인: 문의번호(양의 정수) · 조회 비밀번호 */
+export const guestLookupSchema = z.object({
+  inquiryId: z
+    .string()
+    .trim()
+    .min(1, REQUIRED)
+    .regex(/^[1-9]\d{0,15}$/, "문의를 찾을 수 없어요."),
+  accessPassword,
+});
+export type GuestLookupValues = z.infer<typeof guestLookupSchema>;
+
+/** I03 이어서 쓰기 */
+export const inquiryMessageSchema = z.object({ content });
+export type InquiryMessageValues = z.infer<typeof inquiryMessageSchema>;
