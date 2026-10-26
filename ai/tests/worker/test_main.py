@@ -5,7 +5,8 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import cast
 
@@ -23,6 +24,7 @@ from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
 from app.worker.messages import MergeRecordingJob, PlanJob
 from app.worker.queue import ReceiveResult
+from tests.interview.result.test_job import JOB as EVALUATE_JOB
 from tests.interview.scoring.test_job import JOB as SCORE_JOB
 from tests.interview.scoring.test_job import good
 
@@ -265,6 +267,23 @@ def test_dispatcher_connects_scoring_to_shared_gms_client(monkeypatch: pytest.Mo
     assert message["evaluation"]["modelVersion"] == "served-model"
     assert payloads[0]["logprobs"] is True
     assert payloads[0]["top_logprobs"] == TOP_LOGPROBS
+
+
+def test_dispatcher_handles_evaluate_after_checking_gms_settings() -> None:
+    """EVALUATE 처리 함수가 등록돼 있다.
+
+    LLM_* 값이 없으면 첫 GMS 호출에서 실패 결과를 전송한다.
+    """
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
+
+    # 마감 전에 처리하도록 요청 시각을 현재로 둔다
+    job = replace(EVALUATE_JOB, requested_at=datetime.now(UTC))
+
+    assert dispatcher.dispatch(job) is DispatchResult.HANDLED
+    [*progress, failed] = [json.loads(raw) for raw in redis.pushed]
+    assert [m["type"] for m in progress] == ["evaluation.progress"] * 2
+    assert (failed["type"], failed["reason"]) == ("evaluation.failed", "INTERNAL_ERROR")
 
 
 class ClosableRedis:

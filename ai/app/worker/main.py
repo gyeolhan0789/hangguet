@@ -24,6 +24,8 @@ from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
+from app.interview.result.feedback import gms_feedback_chat
+from app.interview.result.job import EvaluateJobHandler, register_evaluate_handler
 from app.interview.scoring.job import (
     ScoreAnswerJobHandler,
     gms_score_chat,
@@ -72,6 +74,10 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     register_plan_handler(dispatcher, PlanJobHandler(results, gms_plan_chat(client)))
     register_score_answer_handler(
         dispatcher, ScoreAnswerJobHandler(results, gms_score_chat(client))
+    )
+    register_evaluate_handler(
+        dispatcher,
+        EvaluateJobHandler(results, gms_score_chat(client), gms_feedback_chat(client)),
     )
     return dispatcher
 

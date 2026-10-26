@@ -2,6 +2,7 @@ import pytest
 
 from app.interview.speech import (
     LONG_PAUSE_MS,
+    aggregate_speech_metrics,
     ends_sentence,
     group_words,
     is_filler,
@@ -169,7 +170,182 @@ def test_zero_speaking_time_gives_no_speed() -> None:
 
 
 def test_speed_rounds_half_up() -> None:
-    """5음절을 960ms 동안 말하면 312.5음절/분이고 313으로 반올림한다."""
+    """5음절을 960ms 동안 발화하면 312.5음절/분이고 313으로 반올림한다."""
     metrics = speech_metrics([tok("가나다라마", 0, 960)])
     assert metrics is not None
     assert metrics["syllablesPerMin"] == 313
+
+
+def answer_metrics(ms: int | None, **values: int | float | None) -> dict[str, object]:
+    return {"speakingMs": ms, **values}
+
+
+def test_session_filler_rate_and_pause_sum() -> None:
+    assert aggregate_speech_metrics(
+        [
+            answer_metrics(60_000, fillerCount=3, longPauseCount=1),
+            answer_metrics(30_000, fillerCount=2, longPauseCount=2),
+        ]
+    ) == {
+        "fillerPerMin": 3.33,
+        "longPauseCount": 3,
+        "speedDeviationPct": None,
+        "trailingOffRatio": None,
+        "pitchRangeSt": None,
+    }
+
+
+def test_session_metrics_have_no_gaze_ratio() -> None:
+    assert set(aggregate_speech_metrics([])) == {
+        "fillerPerMin",
+        "longPauseCount",
+        "speedDeviationPct",
+        "trailingOffRatio",
+        "pitchRangeSt",
+    }
+
+
+@pytest.mark.parametrize("speeches", [[], [None], [{}], [answer_metrics(60_000)]])
+def test_session_missing_metrics_are_null(speeches: list[dict[str, object] | None]) -> None:
+    assert all(value is None for value in aggregate_speech_metrics(speeches).values())
+
+
+def test_session_zero_metrics_are_preserved() -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(
+                60_000,
+                fillerCount=0,
+                longPauseCount=0,
+                syllablesPerMin=0,
+                trailingOffRatio=0,
+                pitchRangeSt=0,
+            )
+        ]
+    )
+    assert metrics == {
+        "fillerPerMin": 0.0,
+        "longPauseCount": 0,
+        "speedDeviationPct": -100.0,
+        "trailingOffRatio": 0.0,
+        "pitchRangeSt": 0.0,
+    }
+
+
+def test_session_filler_rate_uses_matching_counts_and_durations() -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(60_000, fillerCount=2),
+            answer_metrics(60_000, fillerCount=None),
+            answer_metrics(None, fillerCount=100),
+            answer_metrics(0, fillerCount=100),
+        ]
+    )
+    assert metrics["fillerPerMin"] == 2.0
+
+
+def test_session_pause_sum_does_not_require_duration_or_numeric_column_limit() -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(None, longPauseCount=1000),
+            answer_metrics(0, longPauseCount=2),
+            None,
+        ]
+    )
+    assert metrics["longPauseCount"] == 1002
+    assert metrics["fillerPerMin"] is None
+
+
+@pytest.mark.parametrize("duration", [None, 0])
+def test_session_rates_without_positive_duration_are_null(duration: int | None) -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(
+                duration, fillerCount=2, syllablesPerMin=300, trailingOffRatio=10, pitchRangeSt=6
+            )
+        ]
+    )
+    assert all(value is None for value in metrics.values())
+
+
+def test_session_voice_metrics_use_separate_weighted_denominators() -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(60_000, trailingOffRatio=10, pitchRangeSt=4.125),
+            answer_metrics(30_000, trailingOffRatio=20, pitchRangeSt=None),
+            answer_metrics(None, trailingOffRatio=100, pitchRangeSt=100),
+        ]
+    )
+    assert metrics["trailingOffRatio"] == 13.33
+    assert metrics["pitchRangeSt"] == 4.13
+
+
+def test_session_speed_deviation_uses_duration_weighted_speed() -> None:
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(30_000, syllablesPerMin=310),
+            answer_metrics(10_000, syllablesPerMin=250),
+            answer_metrics(60_000, syllablesPerMin=None),
+        ]
+    )
+    assert metrics["speedDeviationPct"] == 11.32
+
+
+@pytest.mark.parametrize(
+    ("speed", "expected"), [(265, 0.0), (250, -5.66), (0, -100.0), (3000, None)]
+)
+def test_session_speed_deviation_reference_sign_and_range(
+    speed: int, expected: float | None
+) -> None:
+    assert (
+        aggregate_speech_metrics([answer_metrics(60_000, syllablesPerMin=speed)])[
+            "speedDeviationPct"
+        ]
+        == expected
+    )
+
+
+def test_session_speed_deviation_does_not_round_intermediate_average() -> None:
+    """평균 265.0133의 편차는 0.005…이므로 중간 반올림 없이 0.01로 계산해야 한다."""
+    metrics = aggregate_speech_metrics(
+        [
+            answer_metrics(9867, syllablesPerMin=265),
+            answer_metrics(133, syllablesPerMin=266),
+        ]
+    )
+    assert metrics["speedDeviationPct"] == 0.01
+
+
+def test_session_final_values_round_half_up() -> None:
+    metrics = aggregate_speech_metrics([answer_metrics(480_000, fillerCount=1, pitchRangeSt=2.675)])
+    assert metrics["fillerPerMin"] == 0.13
+    assert metrics["pitchRangeSt"] == 2.68
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (999.99, 999.99),
+        (999.994, 999.99),
+        (999.995, None),
+        (1000, None),
+    ],
+)
+def test_session_column_range_is_checked_after_rounding(
+    value: float, expected: float | None
+) -> None:
+    assert (
+        aggregate_speech_metrics([answer_metrics(60_000, pitchRangeSt=value)])["pitchRangeSt"]
+        == expected
+    )
+
+
+def test_session_overflow_clears_only_affected_metric(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING", logger="app.interview.speech"):
+        metrics = aggregate_speech_metrics(
+            [answer_metrics(60, fillerCount=1, longPauseCount=2, pitchRangeSt=6)]
+        )
+    assert metrics["fillerPerMin"] is None
+    assert metrics["longPauseCount"] == 2
+    assert metrics["pitchRangeSt"] == 6.0
+    assert "fillerPerMin" in caplog.text
