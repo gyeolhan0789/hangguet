@@ -47,6 +47,28 @@ const enter = (init: Partial<KeyboardEventInit & { isComposing: boolean }> = {})
   });
 
 describe("ChatPanel (S06-B 채팅 답변)", () => {
+  it.each([false, true])(
+    "마지막 답변 저장 뒤 완료 신호를 호출하고 면접을 종료한다(기존 제출: %s)",
+    async (alreadySubmitted) => {
+      submitTextAnswer.mockResolvedValue({ isLastQuestion: !alreadySubmitted, alreadySubmitted });
+      endSession.mockResolvedValue({});
+      const onAnswered = vi.fn();
+      render(
+        <ChatPanel sessionId={55} question={{ ...QUESTION, seq: 5 }} onAnswered={onAnswered} />,
+      );
+      type("마지막 답변");
+      await enter();
+      expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5);
+      expect(endSession).toHaveBeenCalledTimes(1);
+      expect(submitTextAnswer.mock.invocationCallOrder[0]).toBeLessThan(
+        onAnswered.mock.invocationCallOrder[0],
+      );
+      expect(onAnswered.mock.invocationCallOrder[0]).toBeLessThan(
+        endSession.mock.invocationCallOrder[0],
+      );
+    },
+  );
+
   it("질문 재생 중 입력은 유지하고 버튼과 Enter 및 폼 제출을 차단한다", async () => {
     submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
     const { rerender } = render(<ChatPanel sessionId={55} question={QUESTION} submissionLocked />);

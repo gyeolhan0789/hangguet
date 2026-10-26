@@ -277,8 +277,10 @@ function VideoInterview({
   // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
   const [failedId, setFailedId] = useState<number | null>(null);
   const [completedSeq, setCompletedSeq] = useState(0);
+  const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
 
   function startSubmitting(questionId: number) {
+    setAnswerNotice(null);
     setSubmittingId(questionId);
     setFailedId(null);
     setDoneStream(stt.streamId);
@@ -286,6 +288,7 @@ function VideoInterview({
 
   function onAnswerState(message: AnswerStateMessage) {
     if (question?.seq !== message.seq) return;
+    setAnswerNotice(message);
     if (message.state === "autoSubmitted") startSubmitting(question.id);
     if (message.state === "submitted") {
       setCompletedSeq(message.seq);
@@ -312,6 +315,8 @@ function VideoInterview({
   const fresh = stt.streamId === null || stt.streamId !== doneStream;
   const caption = fresh ? stt : { ...stt, confirmedText: "", interimText: "" };
   const spoke = (caption.confirmedText + caption.interimText).trim() !== "";
+  const notice = answerNotice?.seq === (liveQuestion?.seq ?? question?.seq) ? answerNotice : null;
+  const submissionFailed = notice?.state === "submitFailed";
 
   async function submit() {
     if (!question || speechLocked || (liveQuestion && liveQuestion.seq !== question.seq)) return;
@@ -335,9 +340,24 @@ function VideoInterview({
       <SelfCamera stream={stream} />
       <Dialog bottom="pb-[68px]">
         <QuestionBubble interviewer={interviewer} question={liveQuestion ?? question} />
-        <AnswerCaption {...caption} onRetry={stt.retry} />
+        <AnswerCaption
+          {...caption}
+          status={notice?.state === "sttFailed" ? "sttFailed" : caption.status}
+          onRetry={stt.retry}
+        />
+        {submissionFailed && (
+          <p role="alert" className="text-sm text-[#ff8a8a]">
+            답변을 제출하지 못했어요. 다시 시도해 주세요.
+          </p>
+        )}
+        {notice?.state === "timedOut" && !spoke && (
+          <p role="status" className="text-sm text-white/70">
+            답변을 기다리고 있어요. 말씀을 시작해 주세요.
+          </p>
+        )}
         <VideoControls
           level={level}
+          submitLabel={submissionFailed ? "다시 시도" : "답변 완료"}
           canSubmit={
             question !== null &&
             (!liveQuestion || liveQuestion.seq === question.seq) &&
