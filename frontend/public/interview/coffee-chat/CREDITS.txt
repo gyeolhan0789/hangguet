@@ -1,0 +1,10 @@
+커피챗 면접관 3D 소품 출처 (CC Attribution 4.0 — 화면이나 크레딧에 표기 필요)
+라이선스: https://creativecommons.org/licenses/by/4.0/
+
+- 카페 탁자·의자: "Furniture Pack For Summer Caffe FREE" by kozlovchik
+  https://sketchfab.com/3d-models/441daec1a1f149698a88694780151b94 (CC BY 4.0)
+  탁자 1개 · 의자 1개만 쓰고 크기를 캐릭터에 맞춰 바꿈
+- 테이크아웃 커피: "Coffee Cup [Low Poly]" by smakologg
+  https://sketchfab.com/3d-models/08abb0f1b2bd4d459471fc04c11fc842 (CC BY 4.0)
+  크기를 바꿈
+- 종이: 악마 면접관 모델(interviewer.glb)과 같은 것

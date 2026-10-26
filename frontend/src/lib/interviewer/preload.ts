@@ -13,7 +13,7 @@ const STEP = 0.01;
 /**
  * 면접관 모델을 미리 내려받아 해석해 두고, 그 상태를 useInterviewerPreloadStore에 둔다.
  * 같은 면접관을 이미 받는 중이거나 다 받았으면 아무것도 하지 않는다. 실패했으면 처음부터 다시 받는다.
- * 3D 모델이 없는 면접관(커피챗)은 받을 것이 없으므로 바로 다 받은 것으로 둔다.
+ * 3D 모델이 없는 면접관은 받을 것이 없으므로 바로 다 받은 것으로 둔다.
  */
 export function preloadInterviewer(persona: Persona) {
   const store = useInterviewerPreloadStore.getState();

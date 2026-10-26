@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 
+import { interviewerLook } from "./models";
 import { preloadInterviewer } from "./preload";
 
 // 기준: 사용자 결정(2026-10-22: S05에서 면접관 모델을 다 받을 때까지 준비 줄에 진행률을 띄우고, 실패하면 '면접 준비에 실패했어요')
+// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓴다)
 // 내려받기 · 해석(three.js)은 scene.test.ts가 보고, 여기서는 그 결과를 저장소 상태로 옮기는 일만 본다.
 
 type Progress = (ratio: number) => void;
@@ -13,6 +15,12 @@ vi.mock("./scene", () => ({
   preloadInterviewerAssets: (model: unknown, onProgress: Progress) =>
     preloadInterviewerAssets(model, onProgress),
 }));
+
+// 지금은 모든 면접관에 모델이 있어, 모델이 없는 면접관은 테스트에서 interviewerLook이 null을 돌려주게 해 본다.
+vi.mock("./models", async (importOriginal) => {
+  const models = await importOriginal<typeof import("./models")>();
+  return { ...models, interviewerLook: vi.fn(models.interviewerLook) };
+});
 
 const state = () => useInterviewerPreloadStore.getState();
 
@@ -38,6 +46,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // 모델이 없는 면접관으로 바꾼 값을 다음 테스트로 넘기지 않는다(실제 interviewerLook으로 되돌린다).
+  vi.mocked(interviewerLook).mockReset();
 });
 
 describe("preloadInterviewer", () => {
@@ -82,9 +92,26 @@ describe("preloadInterviewer", () => {
     expect(preloadInterviewerAssets).toHaveBeenCalledTimes(1);
   });
 
-  it("3D 모델이 없는 면접관(커피챗)은 받을 것이 없어 바로 ready", () => {
+  it("커피챗 면접관도 자기 3D 모델을 받는다", async () => {
+    const load = deferred();
+    preloadInterviewer("COFFEE_CHAT");
+    expect(state()).toMatchObject({ persona: "COFFEE_CHAT", status: "loading" });
+
+    await vi.waitFor(() =>
+      expect(preloadInterviewerAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ glb: "/interview/coffee-chat/interviewer.glb" }),
+        expect.any(Function),
+      ),
+    );
+    load.resolve();
+    await vi.waitFor(() => expect(state().status).toBe("ready"));
+  });
+
+  it("3D 모델이 없는 면접관은 받을 것이 없어 바로 ready", () => {
+    vi.mocked(interviewerLook).mockReturnValueOnce(null);
     preloadInterviewer("COFFEE_CHAT");
 
+    expect(interviewerLook).toHaveBeenCalledWith("COFFEE_CHAT");
     expect(state()).toMatchObject({ persona: "COFFEE_CHAT", status: "ready", progress: 1 });
     expect(preloadInterviewerAssets).not.toHaveBeenCalled();
   });
@@ -93,13 +120,17 @@ describe("preloadInterviewer", () => {
     const devil = deferred();
     preloadInterviewer("DEVIL");
     await vi.waitFor(() => expect(preloadInterviewerAssets).toHaveBeenCalledTimes(1));
+    const coffee = deferred();
     preloadInterviewer("COFFEE_CHAT");
+    await vi.waitFor(() => expect(preloadInterviewerAssets).toHaveBeenCalledTimes(2));
 
     devil.progress(0.5);
     devil.reject(new Error("late"));
     // 남은 마이크로태스크(늦게 온 실패 처리)를 모두 끝낸 뒤 본다.
     await new Promise((done) => setTimeout(done, 0));
+    expect(state()).toMatchObject({ persona: "COFFEE_CHAT", status: "loading", progress: 0 });
 
-    expect(state()).toMatchObject({ persona: "COFFEE_CHAT", status: "ready", progress: 1 });
+    coffee.resolve();
+    await vi.waitFor(() => expect(state().status).toBe("ready"));
   });
 });

@@ -5,6 +5,8 @@ import type { CameraFrame, InterviewerModel } from "./scene";
 // 면접관(persona)별 3D 모델. 기준: Swagger 5.1 Persona(DEVIL · COFFEE_CHAT)
 // · 승인된 면접관 3D 모델(three_pose_final/web/assets: demon-native-lips.glb · face-rules-native-lips.json · three-poses.json, 2026-10-22)
 // · Figma S06 Interviewer Scene(18:2498: 면접관 얼굴이 화면 가운데 위, 종이를 든 손 · 책상이 아래)
+// · 사용자 결정(2026-10-26: 커피챗도 같은 코드 · 같은 자산 형식으로 그린다. 카메라는 S06과 같은 구도(얼굴 가운데 화면 위 약 32%),
+//   배경은 아직 없다(투명)) · 커피챗 모델(coffeechat-avatar v4, 소품 출처는 public/interview/coffee-chat/CREDITS.txt)
 
 export interface InterviewerLook {
   model: InterviewerModel;
@@ -18,11 +20,11 @@ export interface InterviewerLook {
   interior?: string;
 }
 
-/** 면접관별 배경 효과(기획 메모 S06: 배경 씬은 페르소나별 — 악마 = 번개 폭풍, 커피챗 = 카페 등). 커피챗 카페 배경은 아직 없다. */
+/** 면접관별 배경 효과(기획 메모 S06: 배경 씬은 페르소나별 — 악마 = 번개 폭풍, 커피챗 = 카페 등). 커피챗 카페 배경은 아직 없다(null). */
 export type InterviewerBackdrop = "storm" | null;
 
 // Record<Persona, …>라서 Persona가 늘거나 줄면 여기서 컴파일 오류가 난다.
-// 커피챗 면접관은 아직 3D 모델 · 카페 배경이 없다(null).
+// 커피챗 면접관은 아직 카페 배경이 없어 배경 없이(투명) 그린다.
 const LOOKS = {
   DEVIL: {
     model: {
@@ -37,7 +39,17 @@ const LOOKS = {
     // 사무실 실내. Figma 이미지 생성(gemini-3.1-flash-image)으로 만들고 창문(크로마키 초록)만 투명하게 뺐다.
     interior: "/interview/devil/office.webp",
   },
-  COFFEE_CHAT: null,
+  COFFEE_CHAT: {
+    model: {
+      glb: "/interview/coffee-chat/interviewer.glb",
+      faceRules: "/interview/coffee-chat/face-rules.json",
+      animation: "/interview/coffee-chat/animation.json",
+    },
+    // 읽는 자세에서 얼굴 메시 가운데가 화면 위 32%, 종이 든 손이 52~65%(three.js로 투영해 잼).
+    // 아래 대사창(1024×768에서 화면 62%부터)에 손이 가려지지 않게 둔 거리(사용자 요청 2026-10-26)
+    frame: { position: [0, 0.921, 1.892], target: [0, 0.613, 0.1], fov: 34 },
+    still: "/interview/coffee-chat/still.webp",
+  },
 } satisfies Record<Persona, InterviewerLook | null>;
 
 const BACKDROPS = {
