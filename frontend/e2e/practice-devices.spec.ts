@@ -52,7 +52,8 @@ function planIs(msw: MswFixture, plan: keyof typeof SESSION_PLAN) {
   const state = { started: false };
   msw.use(
     http.get(api("/interview-sessions/:sessionId"), () =>
-      HttpResponse.json(state.started ? SESSION_STARTED : SESSION_PLAN[plan]),
+      // 입장 정보(room)는 5.4 응답에만 있고 5.2 조회에서는 null이다.
+      HttpResponse.json(state.started ? { ...SESSION_STARTED, room: null } : SESSION_PLAN[plan]),
     ),
     http.post(api("/interview-sessions/:sessionId/start"), () => {
       state.started = true;

@@ -14,6 +14,7 @@ const RESPONSE_TYPES = {
   "POST /auth/token/refresh 200": "RefreshResponse",
   "GET /users/me 200": "MeResponse",
   "PATCH /users/me 200": "NicknameChangeResponse",
+  "PATCH /users/me/password 200": "PasswordChangeResponse",
   "POST /users/me/profile-image/upload-url 200": "UploadUrlResponse",
   "PUT /users/me/profile-image 200": "MeResponse",
   "GET /home 200": "HomeResponse",
@@ -35,10 +36,18 @@ const RESPONSE_TYPES = {
   "POST /interview-sessions/{sessionId}/end 200": "SessionResponse",
   "POST /interview-sessions/{sessionId}/end 202": "SessionResponse",
   "POST /interview-sessions/{sessionId}/analysis/retry 202": "SessionResponse",
+  "POST /interview-sessions/{sessionId}/room-token 200": "RoomResponse",
   "GET /interview-sessions/{sessionId}/result 200": "ResultResponse",
   "GET /interview-sessions/{sessionId}/replay 200": "ReplayResponse",
   "GET /growth-reviews/{practiceDate} 200": "GrowthReviewResponse",
   "GET /growth-reviews 200": "RecentReviewsResponse",
+  "GET /notices 200": "NoticesResponse",
+  "GET /users/me/streak-freezes 200": "MyStreakFreezesResponse",
+  "POST /users/me/streak-freezes/use 200": "StreakFreezeUseResponse",
+  "POST /inquiries 201": "InquiryResponse",
+  "GET /inquiries 200": "InquiryListResponse",
+  "GET /inquiries/{inquiryId} 200": "InquiryResponse",
+  "POST /inquiries/{inquiryId}/messages 201": "InquiryMessage",
 };
 
 /** "메서드 경로" → 요청 본문 타입 */
@@ -56,7 +65,13 @@ const REQUEST_TYPES = {
   "PATCH /applications/{applicationId}": "ApplicationUpdateRequest",
   "POST /interview-sessions": "SessionCreateRequest",
   "POST /interview-sessions/{sessionId}/questions/{questionId}/answer": "AnswerRequest",
+  "POST /users/me/streak-freezes/use": "StreakFreezeUseRequest",
+  "POST /inquiries": "InquiryCreateRequest",
+  "POST /inquiries/{inquiryId}/messages": "InquiryMessageRequest",
 };
+
+// 관리자 API는 별도 관리자 앱(admin/src/types.ts)이 타입을 두므로 이 FE의 타입으로 검사하지 않는다.
+const ADMIN_PATH = /^\/admin\//;
 
 const spec = SOURCE.startsWith("http")
   ? await (await fetch(SOURCE)).json()
@@ -90,6 +105,7 @@ const entries = [];
 const missing = [];
 for (const [rawPath, ops] of Object.entries(spec.paths)) {
   const path = rawPath.replace(/^\/api\/v1/, "");
+  if (ADMIN_PATH.test(path)) continue;
   for (const [method, op] of Object.entries(ops)) {
     const key = `${method.toUpperCase()} ${path}`;
     if (op.requestBody) {

@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 105개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 120개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -10,12 +10,20 @@ import type {
   EmailAvailabilityResponse,
   GrowthReviewResponse,
   HomeResponse,
+  InquiryCreateRequest,
+  InquiryListResponse,
+  InquiryMessage,
+  InquiryMessageRequest,
+  InquiryResponse,
   LoginRequest,
   LogoutRequest,
   MeResponse,
+  MyStreakFreezesResponse,
   NicknameChangeResponse,
   NicknameRequest,
+  NoticesResponse,
   PasswordChangeRequest,
+  PasswordChangeResponse,
   PendingResponse,
   PracticeLogsResponse,
   ProblemDetail,
@@ -23,25 +31,25 @@ import type {
   ProfileImageUploadUrlRequest,
   QuestionResponse,
   RecentReviewsResponse,
-  RecordingCreateRequest,
-  RecordingResponse,
-  RecordingUploadUrlRequest,
   RefreshRequest,
   RefreshResponse,
   ReplayResponse,
   ResultResponse,
+  RoomResponse,
   SessionCalendarResponse,
   SessionCreateRequest,
   SessionListResponse,
   SessionResponse,
   SignupRequest,
   StatsResponse,
+  StreakFreezeUseRequest,
+  StreakFreezeUseResponse,
   TokenResponse,
   UploadUrlResponse,
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 105;
+export const SWAGGER_EXAMPLE_COUNT = 120;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -158,6 +166,12 @@ export const swaggerExamples = [
   } satisfies NicknameChangeResponse,
   // 2.3 비밀번호 변경 요청 스키마 example
   { currentPassword: "abcd1234", newPassword: "efgh5678" } satisfies PasswordChangeRequest,
+  // 2.3 비밀번호 변경 200
+  {
+    accessToken: "eyJ…",
+    refreshToken: "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10",
+    expiresIn: 3600,
+  } satisfies PasswordChangeResponse,
   // 2.3 비밀번호 변경 400 PASSWORD_MISMATCH
   {
     title: "Bad Request",
@@ -451,6 +465,7 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.1 면접 만들기 404 APPLICATION_NOT_FOUND
   {
@@ -487,6 +502,7 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.2 면접 조회 200 S05 플랜 생성 실패
   {
@@ -507,6 +523,7 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.2 면접 조회 200 S06·S06-B 면접 중
   {
@@ -527,8 +544,9 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
-  // 5.2 면접 조회 200 S06 다음 질문 생성 중
+  // 5.2 면접 조회 200 S06 에이전트가 다음 질문을 내기 전
   {
     id: 55,
     applicationId: 10,
@@ -547,6 +565,7 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.2 면접 조회 200 S06-1 결과 분석 중
   {
@@ -567,6 +586,7 @@ export const swaggerExamples = [
     endedAt: "2026-10-15T12:18:00+09:00",
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.2 면접 조회 200 S06-1 실패
   {
@@ -587,6 +607,7 @@ export const swaggerExamples = [
     endedAt: "2026-10-15T12:18:00+09:00",
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.2 면접 조회 404 SESSION_NOT_FOUND
   {
@@ -615,6 +636,7 @@ export const swaggerExamples = [
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.3 면접 플랜 재생성 404 SESSION_NOT_FOUND
   {
@@ -644,13 +666,18 @@ export const swaggerExamples = [
     planStatus: "READY",
     planProgress: null,
     analysisStep: null,
-    currentQuestion: { id: 301, seq: 1, content: "1분 동안 자기소개 부탁드려요." },
+    currentQuestion: null,
     answeredCount: 0,
     elapsedSeconds: 0,
     startedAt: "2026-10-15T12:00:00+09:00",
     endedAt: null,
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: {
+      url: "wss://rtc.hangguet.co.kr",
+      token: "eyJhbGciOiJIUzI1NiJ9…",
+      expiresAt: "2026-10-15T12:10:00+09:00",
+    },
   } satisfies SessionResponse,
   // 5.4 면접 시작 404 SESSION_NOT_FOUND
   {
@@ -684,6 +711,14 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions",
     code: "IDEMPOTENCY_KEY_REUSED",
   } satisfies ProblemDetail,
+  // 5.4 면접 시작 503 ROOM_UNAVAILABLE
+  {
+    title: "Service Unavailable",
+    status: 503,
+    detail: "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/interview-sessions/55/start",
+    code: "ROOM_UNAVAILABLE",
+  } satisfies ProblemDetail,
   // 5.5 지금 질문 200
   {
     id: 303,
@@ -691,7 +726,7 @@ export const swaggerExamples = [
     content: "흐음~ ○○ 프로젝트라. 거기서 '직접' 한 부분만 쏙 골라서 말해볼래요?",
     createdAt: "2026-10-15T12:06:12+09:00",
   } satisfies QuestionResponse,
-  // 5.5 지금 질문 202
+  // 5.5 지금 질문 202 에이전트가 질문을 내기 전
   { code: "QUESTION_GENERATING" } satisfies PendingResponse,
   // 5.5 지금 질문 404 SESSION_NOT_FOUND
   {
@@ -709,17 +744,17 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
   } satisfies ProblemDetail,
-  // 5.7 답변 제출 요청 S06-B 채팅
+  // 5.7 답변 제출(채팅) 요청 S06-B 채팅
   { inputType: "TEXT", content: "캐시 무효화 시점을 직접 설계했습니다." } satisfies AnswerRequest,
-  // 5.7 답변 제출 202
+  // 5.7 답변 제출(채팅) 202
   {
     id: 903,
     questionId: 303,
-    inputType: "VOICE",
+    inputType: "TEXT",
     createdAt: "2026-10-15T12:08:40+09:00",
     isLastQuestion: false,
   } satisfies AnswerResponse,
-  // 5.7 답변 제출 404 SESSION_NOT_FOUND
+  // 5.7 답변 제출(채팅) 404 SESSION_NOT_FOUND
   {
     title: "Not Found",
     status: 404,
@@ -727,7 +762,7 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/0",
     code: "SESSION_NOT_FOUND",
   } satisfies ProblemDetail,
-  // 5.7 답변 제출 404 QUESTION_NOT_FOUND
+  // 5.7 답변 제출(채팅) 404 QUESTION_NOT_FOUND
   {
     title: "Not Found",
     status: 404,
@@ -735,15 +770,7 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/questions/0/answer",
     code: "QUESTION_NOT_FOUND",
   } satisfies ProblemDetail,
-  // 5.7 답변 제출 404 FILE_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "업로드한 파일을 찾을 수 없어요.",
-    instance: "/api/v1/users/me/profile-image",
-    code: "FILE_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.7 답변 제출 409 ANSWER_ALREADY_SUBMITTED
+  // 5.7 답변 제출(채팅) 409 ANSWER_ALREADY_SUBMITTED
   {
     title: "Conflict",
     status: 409,
@@ -751,7 +778,7 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/questions/303/answer",
     code: "ANSWER_ALREADY_SUBMITTED",
   } satisfies ProblemDetail,
-  // 5.7 답변 제출 409 INVALID_SESSION_STATE
+  // 5.7 답변 제출(채팅) 409 INVALID_SESSION_STATE
   {
     title: "Conflict",
     status: 409,
@@ -759,7 +786,7 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
   } satisfies ProblemDetail,
-  // 5.7 답변 제출 409 IDEMPOTENCY_KEY_REUSED
+  // 5.7 답변 제출(채팅) 409 IDEMPOTENCY_KEY_REUSED
   {
     title: "Conflict",
     status: 409,
@@ -786,6 +813,7 @@ export const swaggerExamples = [
     endedAt: "2026-10-15T12:01:35+09:00",
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: false,
+    room: null,
   } satisfies SessionResponse,
   // 5.8 면접 끝내기 202 S06-E 답변한 2개까지 → S06-1
   {
@@ -806,6 +834,7 @@ export const swaggerExamples = [
     endedAt: "2026-10-15T12:08:42+09:00",
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: true,
+    room: null,
   } satisfies SessionResponse,
   // 5.8 면접 끝내기 404 SESSION_NOT_FOUND
   {
@@ -850,6 +879,7 @@ export const swaggerExamples = [
     endedAt: "2026-10-15T12:18:00+09:00",
     createdAt: "2026-10-15T11:58:30+09:00",
     leveledUp: null,
+    room: null,
   } satisfies SessionResponse,
   // 5.9 결과 재생성 404 SESSION_NOT_FOUND
   {
@@ -867,20 +897,13 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
   } satisfies ProblemDetail,
-  // 5.15 월별 연습 면접 횟수 200 스키마 example
+  // 5.14 면접방 입장 토큰 200
   {
-    month: "2026-10",
-    content: [{ practiceDate: "2026-10-01", interviewCount: 0 }],
-  } satisfies SessionCalendarResponse,
-  // 6.1 녹화 업로드 주소 요청 스키마 example
-  { contentType: "video/webm" } satisfies RecordingUploadUrlRequest,
-  // 6.1 녹화 업로드 주소 200
-  {
-    uploadUrl: "https://…s3…?X-Amz-Signature=…",
-    objectKey: "sessions/55/session.webm",
-    expiresAt: "2026-10-15T12:48:00+09:00",
-  } satisfies UploadUrlResponse,
-  // 6.1 녹화 업로드 주소 404 SESSION_NOT_FOUND
+    url: "wss://rtc.hangguet.co.kr",
+    token: "eyJhbGciOiJIUzI1NiJ9…",
+    expiresAt: "2026-10-15T12:18:42+09:00",
+  } satisfies RoomResponse,
+  // 5.14 면접방 입장 토큰 404 SESSION_NOT_FOUND
   {
     title: "Not Found",
     status: 404,
@@ -888,7 +911,7 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/0",
     code: "SESSION_NOT_FOUND",
   } satisfies ProblemDetail,
-  // 6.1 녹화 업로드 주소 409 INVALID_SESSION_STATE
+  // 5.14 면접방 입장 토큰 409 INVALID_SESSION_STATE
   {
     title: "Conflict",
     status: 409,
@@ -896,41 +919,11 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
   } satisfies ProblemDetail,
-  // 6.2 녹화 등록 요청 스키마 example
+  // 5.15 월별 연습 면접 횟수 200 스키마 example
   {
-    recordingType: "SESSION_VIDEO",
-    objectKey: "sessions/55/session.webm",
-  } satisfies RecordingCreateRequest,
-  // 6.2 녹화 등록 201
-  {
-    id: 77,
-    recordingType: "SESSION_VIDEO",
-    createdAt: "2026-10-15T12:18:30+09:00",
-  } satisfies RecordingResponse,
-  // 6.2 녹화 등록 404 SESSION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "면접을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/0",
-    code: "SESSION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 6.2 녹화 등록 404 FILE_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "업로드한 파일을 찾을 수 없어요.",
-    instance: "/api/v1/users/me/profile-image",
-    code: "FILE_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 6.2 녹화 등록 409 RECORDING_ALREADY_EXISTS
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "이미 녹화가 등록된 면접이에요.",
-    instance: "/api/v1/interview-sessions/55/recordings",
-    code: "RECORDING_ALREADY_EXISTS",
-  } satisfies ProblemDetail,
+    month: "2026-10",
+    content: [{ practiceDate: "2026-10-01", interviewCount: 0 }],
+  } satisfies SessionCalendarResponse,
   // 6.3 면접 결과 200 S07 화상 면접 결과
   {
     id: 55,
@@ -1040,7 +1033,7 @@ export const swaggerExamples = [
     companyName: "○○전자",
     jobTitle: "백엔드 개발자",
     startedAt: "2026-10-15T12:00:00+09:00",
-    videoUrl: "https://…s3…/sessions/55/session.webm?X-Amz-Signature=…",
+    videoUrl: "https://…s3…/recordings/55.mp4?X-Amz-Signature=…",
     items: [
       {
         questionId: 301,
@@ -1201,4 +1194,192 @@ export const swaggerExamples = [
     ],
     page: { size: 2, number: 0, totalElements: 7, totalPages: 4 },
   } satisfies RecentReviewsResponse,
+  // 8.8 공지 목록 200 확인 안 함 1개 · 확인함 1개
+  {
+    content: [
+      {
+        id: 3,
+        title: "10월 점검 안내",
+        content: "10월 30일 02:00~04:00 서비스 점검이 있어요.",
+        startsAt: "2026-10-23T09:00:00+09:00",
+        read: false,
+      },
+      {
+        id: 2,
+        title: "채팅 면접이 열렸어요",
+        content: "이제 글로도 면접을 볼 수 있어요.",
+        startsAt: "2026-10-20T09:00:00+09:00",
+        read: true,
+      },
+    ],
+  } satisfies NoticesResponse,
+  // 8.8 공지 목록 200 공지 없음
+  { content: [] } satisfies NoticesResponse,
+  // 8.9 공지 확인 404 NOTICE_NOT_FOUND
+  {
+    title: "Not Found",
+    status: 404,
+    detail: "공지를 찾을 수 없어요.",
+    instance: "/api/v1/admin/notices/0",
+    code: "NOTICE_NOT_FOUND",
+  } satisfies ProblemDetail,
+  // 8.13 내 스트릭 유지권 200 2개 있음
+  {
+    availableCount: 2,
+    freezes: [
+      {
+        id: 31,
+        fillableDate: "2026-10-19",
+        grantedAt: "2026-10-20T00:00:00+09:00",
+        expiresAt: "2026-11-03T00:00:00+09:00",
+      },
+      {
+        id: 32,
+        fillableDate: "2026-10-19",
+        grantedAt: "2026-10-20T00:00:00+09:00",
+        expiresAt: "2026-11-03T00:00:00+09:00",
+      },
+    ],
+  } satisfies MyStreakFreezesResponse,
+  // 8.13 내 스트릭 유지권 200 없음
+  { availableCount: 0, freezes: [] } satisfies MyStreakFreezesResponse,
+  // 8.14 유지권 사용 요청
+  { freezeId: 31 } satisfies StreakFreezeUseRequest,
+  // 8.14 유지권 사용 200
+  {
+    practiceDate: "2026-10-19",
+    freezeId: 31,
+    availableCount: 1,
+    currentStreak: 9,
+  } satisfies StreakFreezeUseResponse,
+  // 8.14 유지권 사용 404 STREAK_FREEZE_NOT_FOUND
+  {
+    title: "Not Found",
+    status: 404,
+    detail: "유지권을 찾을 수 없어요.",
+    instance: "/api/v1/users/me/streak-freezes/use",
+    code: "STREAK_FREEZE_NOT_FOUND",
+  } satisfies ProblemDetail,
+  // 8.14 유지권 사용 409 STREAK_FREEZE_NOT_AVAILABLE
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 썼거나 기간이 지난 유지권이에요.",
+    instance: "/api/v1/users/me/streak-freezes/use",
+    code: "STREAK_FREEZE_NOT_AVAILABLE",
+  } satisfies ProblemDetail,
+  // 8.14 유지권 사용 409 STREAK_FREEZE_DATE_NOT_ALLOWED
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 연습한 날이라 메울 수 없어요.",
+    instance: "/api/v1/users/me/streak-freezes/use",
+    code: "STREAK_FREEZE_DATE_NOT_ALLOWED",
+  } satisfies ProblemDetail,
+  // 9.2 내 문의 목록 200
+  {
+    content: [
+      {
+        id: 7,
+        title: "비밀번호를 잊어버렸어요",
+        status: "ANSWERED",
+        createdAt: "2026-10-26T10:00:00+09:00",
+        updatedAt: "2026-10-26T11:30:00+09:00",
+      },
+      {
+        id: 4,
+        title: "녹화가 저장되지 않아요",
+        status: "CLOSED",
+        createdAt: "2026-10-20T15:00:00+09:00",
+        updatedAt: "2026-10-21T09:10:00+09:00",
+      },
+    ],
+    page: { size: 10, number: 0, totalElements: 2, totalPages: 1 },
+  } satisfies InquiryListResponse,
+  // 9.1 문의 작성 요청 스키마 example
+  {
+    title: "비밀번호를 잊어버렸어요",
+    content: "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+    email: "a@ssafy.com",
+    accessPassword: "1234",
+  } satisfies InquiryCreateRequest,
+  // 9.1 문의 작성 201
+  {
+    id: 7,
+    title: "비밀번호를 잊어버렸어요",
+    status: "WAITING",
+    createdAt: "2026-10-26T10:00:00+09:00",
+    updatedAt: "2026-10-26T10:00:00+09:00",
+    messages: [
+      {
+        id: 21,
+        authorType: "USER",
+        content: "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+        createdAt: "2026-10-26T10:00:00+09:00",
+      },
+    ],
+  } satisfies InquiryResponse,
+  // 9.3 문의 조회 200
+  {
+    id: 7,
+    title: "비밀번호를 잊어버렸어요",
+    status: "ANSWERED",
+    createdAt: "2026-10-26T10:00:00+09:00",
+    updatedAt: "2026-10-26T11:30:00+09:00",
+    messages: [
+      {
+        id: 21,
+        authorType: "USER",
+        content: "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+        createdAt: "2026-10-26T10:00:00+09:00",
+      },
+      {
+        id: 22,
+        authorType: "ADMIN",
+        content: "요청하신 비밀번호로 바꿨어요. 다시 로그인해 주세요.",
+        createdAt: "2026-10-26T11:30:00+09:00",
+      },
+    ],
+  } satisfies InquiryResponse,
+  // 9.3 문의 조회 404 INQUIRY_NOT_FOUND
+  {
+    title: "Not Found",
+    status: 404,
+    detail: "문의를 찾을 수 없어요.",
+    instance: "/api/v1/inquiries/0",
+    code: "INQUIRY_NOT_FOUND",
+  } satisfies ProblemDetail,
+  // 9.4 문의 이어서 쓰기 요청 스키마 example
+  { content: "확인 부탁드려요." } satisfies InquiryMessageRequest,
+  // 9.4 문의 이어서 쓰기 201
+  {
+    id: 23,
+    authorType: "USER",
+    content: "확인 부탁드려요.",
+    createdAt: "2026-10-26T12:00:00+09:00",
+  } satisfies InquiryMessage,
+  // 9.4 문의 이어서 쓰기 404 INQUIRY_NOT_FOUND
+  {
+    title: "Not Found",
+    status: 404,
+    detail: "문의를 찾을 수 없어요.",
+    instance: "/api/v1/inquiries/0",
+    code: "INQUIRY_NOT_FOUND",
+  } satisfies ProblemDetail,
+  // 9.4 문의 이어서 쓰기 409 INQUIRY_CLOSED
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "종료한 문의예요.",
+    instance: "/api/v1/inquiries/7/messages",
+    code: "INQUIRY_CLOSED",
+  } satisfies ProblemDetail,
+  // 9.5 문의 종료 404 INQUIRY_NOT_FOUND
+  {
+    title: "Not Found",
+    status: 404,
+    detail: "문의를 찾을 수 없어요.",
+    instance: "/api/v1/inquiries/0",
+    code: "INQUIRY_NOT_FOUND",
+  } satisfies ProblemDetail,
 ];

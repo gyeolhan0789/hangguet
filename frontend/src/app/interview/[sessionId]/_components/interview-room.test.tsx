@@ -115,6 +115,7 @@ const SESSION: SessionResponse = {
   endedAt: null,
   createdAt: "2026-10-15T11:58:30+09:00",
   leveledUp: null,
+  room: null,
 };
 // Swagger 5.5 200 예시
 const QUESTION: CurrentQuestion = {

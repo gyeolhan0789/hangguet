@@ -67,6 +67,7 @@ const session = {
   endedAt: null,
   createdAt: "2026-10-15T11:58:30+09:00",
   leveledUp: null,
+  room: null,
 } satisfies SessionResponse;
 
 beforeEach(() => {
@@ -402,6 +403,7 @@ const ENDED_ANALYZING = {
   startedAt: "2026-10-15T12:00:00+09:00",
   endedAt: "2026-10-15T12:08:42+09:00",
   leveledUp: true,
+  room: null,
 } satisfies SessionResponse;
 const ENDED_ABORTED = {
   ...session,
@@ -413,6 +415,7 @@ const ENDED_ABORTED = {
   startedAt: "2026-10-15T12:00:00+09:00",
   endedAt: "2026-10-15T12:01:35+09:00",
   leveledUp: false,
+  room: null,
 } satisfies SessionResponse;
 
 describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
