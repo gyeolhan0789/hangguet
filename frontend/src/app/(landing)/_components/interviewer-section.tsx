@@ -20,7 +20,7 @@ const PERSONAS = [
     name: "개발자 커피챗",
     style: "편안한 대화형",
     level: "난이도 낮음",
-    avatar: "/landing/avatar-coffeechat.jpg",
+    avatar: "/landing/interviewer-coffeechat.jpg",
     levelClass: "text-text-2",
   },
 ] as const;
@@ -57,22 +57,35 @@ function InterviewerCard() {
           viewport={{ once: true, amount: 0.4 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
-          <Image
-            src="/landing/interviewer.jpg"
-            alt="악마 면접관"
-            fill
-            sizes="(min-width: 640px) 472px, 100vw"
-            className="object-cover"
-          />
+          {/* 아래 목록에서 고른 면접관의 사진으로 바뀐다(겹쳐 두고 서서히 바꾼다) */}
+          {PERSONAS.map((persona, i) => (
+            <motion.div
+              key={persona.name}
+              className="absolute inset-0"
+              initial={false}
+              animate={{ opacity: selected === i ? 1 : 0 }}
+              transition={{ duration: reduce ? 0 : 0.5, ease: "easeOut" }}
+            >
+              <Image
+                src={persona.avatar}
+                alt={selected === i ? persona.name : ""}
+                fill
+                sizes="(min-width: 640px) 472px, 100vw"
+                className="object-cover"
+              />
+            </motion.div>
+          ))}
         </motion.div>
-        {/* 미니 번개 플래시: 5초 간격 */}
-        <motion.div
-          aria-hidden
-          className="absolute inset-0 bg-[radial-gradient(50%_50%_at_75%_10%,rgba(185,212,255,0.2),rgba(185,212,255,0))]"
-          initial={{ opacity: 0 }}
-          animate={looping ? { opacity: [0, 0.6, 0] } : undefined}
-          transition={{ duration: 0.6, repeat: Infinity, repeatDelay: 4.4 }}
-        />
+        {/* 미니 번개 플래시: 5초 간격(악마 면접관일 때만) */}
+        {selected === 0 && (
+          <motion.div
+            aria-hidden
+            className="absolute inset-0 bg-[radial-gradient(50%_50%_at_75%_10%,rgba(185,212,255,0.2),rgba(185,212,255,0))]"
+            initial={{ opacity: 0 }}
+            animate={looping ? { opacity: [0, 0.6, 0] } : undefined}
+            transition={{ duration: 0.6, repeat: Infinity, repeatDelay: 4.4 }}
+          />
+        )}
         {/* 실시간 반응 칩 */}
         <motion.div
           className="absolute top-4 left-4 flex items-center gap-2 rounded-full bg-[rgba(14,16,22,0.7)] px-3 py-2 backdrop-blur-[6px]"
