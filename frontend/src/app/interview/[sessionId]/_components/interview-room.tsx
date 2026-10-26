@@ -2,14 +2,16 @@
 
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
 import { useInterviewRoom } from "@/components/interview/use-interview-room";
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
-import { retryPlan, startSession } from "@/lib/interview/actions";
+import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
 import { PERSONAS } from "@/lib/interview/personas";
+import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
+import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
@@ -156,6 +158,7 @@ export function InterviewRoom({
                 sessionId={session.id}
                 interviewer={interviewer}
                 question={question}
+                answeredCount={session.answeredCount}
               />
             ) : (
               <Dialog bottom="pb-[5px]">
@@ -169,8 +172,11 @@ export function InterviewRoom({
                     {startError}
                   </p>
                 )}
-                <ChatPanel sessionId={session.id} question={question} />
-                {session.status === "IN_PROGRESS" && <ChatRoomAudio sessionId={session.id} />}
+                {session.status === "IN_PROGRESS" ? (
+                  <ChatLive sessionId={session.id} question={question} />
+                ) : (
+                  <ChatPanel sessionId={session.id} question={question} />
+                )}
               </Dialog>
             )}
             <EndModal sessionId={session.id} answeredCount={session.answeredCount} />
@@ -235,25 +241,100 @@ function Dialog({ bottom, children }: { bottom: string; children: React.ReactNod
   );
 }
 
-/** S06 화상: 내 카메라 · 질문 말풍선 · 마이크 · 마이크 끊김 토스트 */
+/**
+ * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 마이크 · [답변 완료] · 마이크 끊김 토스트.
+ * 답변은 에이전트가 듣고 저장한다. [답변 완료]가 받아들여지거나 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리면
+ * 그 질문은 내는 중이 되어 2초마다 5.5로 다음 질문을 확인한다. 제출됨(answer.state submitted)을 받으면 면접관이
+ * '생각 중'이 된다. 알림을 놓쳐도 다음 질문이 오면 넘어간다(에이전트는 알림을 한 번만 보낸다).
+ * 5.2로 답변 5개가 저장된 것이 보이면 면접을 끝낸다(5.8).
+ * (API 명세 면접방 메시지 · 화상 답변 끝 판단, 사용자 결정 2026-10-26: 다음 질문은 5.5로 받는다,
+ * [답변 완료]는 내 답변 자막이 있을 때만, 마지막 답변 뒤 자동으로 끝내기)
+ */
 function VideoInterview({
   sessionId,
   interviewer,
   question,
+  answeredCount,
 }: {
   sessionId: number;
   interviewer: string;
   question: CurrentQuestion | null;
+  answeredCount: number;
 }) {
+  const router = useRouter();
+  const [refreshing, startRefresh] = useTransition();
+  const online = useOnline();
   const { stream, level } = useInterviewMedia();
-  const stt = useInterviewRoom(sessionId, stream);
+  const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
+  const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
+  // [답변 완료]를 보내 에이전트의 응답을 기다리는 중
+  const [requesting, setRequesting] = useState(false);
+  // 에이전트가 답변을 내는 중인 질문(id)
+  const [submittingId, setSubmittingId] = useState<number | null>(null);
+  // 답변을 낸 자막 캡처. 에이전트가 다음 답변을 들으려 새 캡처를 열 때까지 지난 답변 글을 감춘다.
+  // 내기 시작할 때 정해 두어, 제출됨 알림이 늦거나 오지 않아도 다음 질문 아래에 지난 글이 남지 않는다.
+  const [doneStream, setDoneStream] = useState<string | null>(null);
+  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
+  const [failedId, setFailedId] = useState<number | null>(null);
+
+  function startSubmitting(questionId: number) {
+    setSubmittingId(questionId);
+    setFailedId(null);
+    setDoneStream(stt.streamId);
+  }
+
+  function onAnswerState(message: AnswerStateMessage) {
+    if (question?.seq !== message.seq) return;
+    if (message.state === "autoSubmitted") startSubmitting(question.id);
+    if (message.state === "submitted") {
+      setDoneStream(stt.streamId);
+      setAnsweredQuestion(question.id);
+    }
+    if (message.state === "submitFailed") {
+      setSubmittingId(null);
+      setFailedId(question.id);
+      setDoneStream(null);
+    }
+  }
+  const stt = useInterviewRoom(sessionId, stream, { onAnswerState });
+  // 낸 뒤 같은 질문에 새 자막 캡처가 열리면(낼 글이 없어 에이전트가 다시 듣는다) 다시 답할 수 있다
+  const submitting =
+    question !== null && submittingId === question.id && stt.streamId === doneStream;
+  const fresh = stt.streamId === null || stt.streamId !== doneStream;
+  const caption = fresh ? stt : { ...stt, confirmedText: "", interimText: "" };
+  const spoke = (caption.confirmedText + caption.interimText).trim() !== "";
+
+  async function submit() {
+    if (!question) return;
+    setRequesting(true);
+    const result = await stt.submitAnswer(question.seq);
+    setRequesting(false);
+    if (result === "accepted") startSubmitting(question.id);
+  }
+
+  // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
+  useEffect(() => {
+    if (!submitting || refreshing || !online) return;
+    const timer = setTimeout(() => startRefresh(() => router.refresh()), SESSION_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [submitting, refreshing, online, router]);
+
+  useFinishAfterLastAnswer(sessionId, answeredCount >= TOTAL_QUESTIONS, setLeveledUp);
+
   return (
     <>
       <SelfCamera stream={stream} />
       <Dialog bottom="pb-[68px]">
         <QuestionBubble interviewer={interviewer} question={question} />
-        <AnswerCaption {...stt} onRetry={stt.retry} />
-        <VideoControls level={level} />
+        <AnswerCaption {...caption} onRetry={stt.retry} />
+        <VideoControls
+          level={level}
+          canSubmit={
+            question !== null && (spoke || failedId === question.id) && !submitting && !requesting
+          }
+          submitting={submitting || requesting}
+          onSubmit={() => void submit()}
+        />
       </Dialog>
       <MicToast level={level} />
     </>
@@ -261,15 +342,52 @@ function VideoInterview({
 }
 
 /**
- * S06-B 채팅: 면접이 시작되면(5.4) 5.14로 입장 정보를 받아 송출 없이 면접방에 들어가 면접관 음성을 듣는다
- * (웹 Swagger 5.4: 채팅도 면접방에 들어간다(송출 없이 수신·메시지만) · 사용자 결정 2026-10-26: 화상과 같이 5.14로 입장).
- * 연결 상태는 그리지 않는다(사용자 결정 2026-10-26: 연결 실패는 표시 없이 진행). 이 화면은 질문을 5.5로 다시 불러 받으므로
- * 연결이 안 돼도 질문 글 · 답변(5.7)은 이어진다.
- * 연결이 끊기거나(SDK가 다시 잇기를 포기) 5.14가 실패하면 2초 뒤 다시 들어가고, 연달아 3번까지만 한다. 들어가면 횟수를 처음부터
- * 다시 센다(사용자 결정 2026-10-26).
+ * 화상 답변이 모두 저장되면(ready) 면접을 끝낸다(5.8). 실패하면 2초 뒤 다시 보낸다.
+ * 같은 끝내기는 같은 멱등 키로 보내고, 서버가 실패로 답했으면 새 키로 보낸다(채팅 마지막 답변과 같음).
  */
-function ChatRoomAudio({ sessionId }: { sessionId: number }) {
-  const { status, retry } = useInterviewRoom(sessionId, null, { listenOnly: true });
+function useFinishAfterLastAnswer(
+  sessionId: number,
+  ready: boolean,
+  setLeveledUp: (leveledUp: boolean | null) => void,
+) {
+  const key = useRef<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const sent = useRef(-1);
+  const retry = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(retry.current), []);
+
+  useEffect(() => {
+    if (!ready || sent.current === attempt) return;
+    sent.current = attempt;
+    key.current ??= crypto.randomUUID();
+    void endSession(sessionId, key.current).then((ended) => {
+      if (ended.keySpent) key.current = null;
+      if (!ended.formError) {
+        setLeveledUp(ended.leveledUp ?? null);
+        return;
+      }
+      retry.current = setTimeout(() => setAttempt((value) => value + 1), SESSION_POLL_MS);
+    });
+  }, [ready, attempt, sessionId, setLeveledUp]);
+}
+
+/**
+ * S06-B 채팅 면접 중: 5.14로 입장 정보를 받아 송출 없이 면접방에 들어가 면접관 음성을 듣고,
+ * 답변이 저장되면(5.7) 에이전트에 [답변 완료](answer.submit)를 보내 다음 질문으로 넘긴다
+ * (웹 Swagger 5.4: 채팅도 면접방에 들어간다(송출 없이 수신·메시지만) · API 명세 5.7 · 면접방 메시지
+ * · 사용자 결정 2026-10-26: 화상과 같이 5.14로 입장, 연결 실패는 표시 없이 진행).
+ * 연결이 끊기거나(SDK가 다시 잇기를 포기) 5.14가 실패하면 2초 뒤 다시 들어가고, 연달아 3번까지만 한다. 들어가면 횟수를 처음부터
+ * 다시 센다(사용자 결정 2026-10-26). [답변 완료]를 보내지 못하면(아직 입장 전 · 끊김) 에이전트가 받거나 거절할 때까지 2초마다 다시 보낸다.
+ */
+function ChatLive({
+  sessionId,
+  question,
+}: {
+  sessionId: number;
+  question: CurrentQuestion | null;
+}) {
+  const { status, retry, submitAnswer } = useInterviewRoom(sessionId, null, { listenOnly: true });
   const [retries, setRetries] = useState(0);
   if (status === "listening" && retries !== 0) setRetries(0);
 
@@ -282,7 +400,28 @@ function ChatRoomAudio({ sessionId }: { sessionId: number }) {
     return () => clearTimeout(timer);
   }, [status, retries, retry]);
 
-  return null;
+  // 보내지 못한 [답변 완료]. attempt는 같은 질문을 다시 보낼 때마다 늘려 다시 예약하게 한다.
+  const [unsent, setUnsent] = useState<{ seq: number; attempt: number } | null>(null);
+  // 가장 최근에 보낸 질문 순서. 지난 질문의 늦은 결과가 다음 질문의 재전송 예약을 지우지 않게 한다.
+  const latest = useRef(0);
+  const send = useCallback(
+    async (seq: number, attempt: number) => {
+      latest.current = Math.max(latest.current, seq);
+      const result = await submitAnswer(seq);
+      if (seq < latest.current) return;
+      setUnsent(result === "failed" ? { seq, attempt: attempt + 1 } : null);
+    },
+    [submitAnswer],
+  );
+  useEffect(() => {
+    if (!unsent) return;
+    const timer = setTimeout(() => void send(unsent.seq, unsent.attempt), CHAT_ROOM_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [unsent, send]);
+
+  return (
+    <ChatPanel sessionId={sessionId} question={question} onAnswered={(seq) => void send(seq, 0)} />
+  );
 }
 
 /** 질문이 바뀔 때만 번개처럼 깜빡이는 빛(악마 면접관 배경). 처음 화면에 들어올 때는 깜빡이지 않는다. */

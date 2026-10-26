@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 // · S06-F Mic Toast(18:4421: 500×56 · #191f28 · 둥글기 16 · 좌우 18 · mic-off 18 · 15 SemiBold 흰색 · '마이크 확인' 14 Bold brand · 화면 아래 44)
 // · 모션 메모 S06(18:2569: 마이크 듣는 중 주황 링 펄스(scale 1→1.4, opacity .6→0, 1.2s 루프) · 파형은 실제 볼륨 연동)
 // · 기획 · 모션 메모 S06-F(18:3575 · 18:4432: 마이크 입력이 10초 이상 0 → 하단 토스트 y 40→0 등장, 화상(S06)에서만)
-// 실시간 음성 인식(STT)은 아직 연결하지 않아 내 답변 자막 말풍선과 [답변 완료] 제출은 비워 둔다.
+// · API 명세 면접방 메시지([답변 완료] = answer.submit) · 사용자 결정(2026-10-26: [답변 완료]는 내 답변 자막이 있을 때만 누를 수 있다)
 
 /** 파형 막대 높이(Figma Waveform 14개) */
 const WAVE_HEIGHTS = [8, 14, 22, 30, 18, 26, 12, 20, 32, 16, 10, 24, 14, 8];
@@ -64,17 +64,30 @@ export function SelfCamera({ stream }: { stream: MediaStream | null }) {
   );
 }
 
-/** S06 화상: 아래 마이크 · 파형 · [답변 완료] */
-export function VideoControls({ level }: { level: MotionValue<number> }) {
+/** S06 화상: 아래 마이크 · 파형 · [답변 완료](누르면 에이전트에 답변을 내라고 보낸다) */
+export function VideoControls({
+  level,
+  canSubmit = false,
+  submitting = false,
+  onSubmit,
+}: {
+  level: MotionValue<number>;
+  /** [답변 완료]를 누를 수 있다(질문이 있고 인식된 답변 글이 있으며 내는 중이 아님) */
+  canSubmit?: boolean;
+  /** 에이전트가 답변을 내는 중 */
+  submitting?: boolean;
+  onSubmit?: () => void;
+}) {
   return (
     <div className="flex w-full items-center justify-center gap-5 pt-2">
       <MicButton />
       <Waveform level={level} />
-      {/* 답변 제출(5.7 VOICE)은 실시간 음성 인식 결과가 있어야 해, STT를 연결할 때 함께 만든다. */}
       <button
         type="button"
-        disabled
-        className="flex h-14 shrink-0 items-center justify-center gap-2 rounded-2xl bg-white px-6"
+        disabled={!canSubmit || submitting}
+        aria-busy={submitting || undefined}
+        onClick={onSubmit}
+        className="flex h-14 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-white px-6 disabled:cursor-default"
       >
         <Image src="/interview/icon-check.svg" alt="" width={20} height={20} />
         <span className="text-[17px] leading-normal font-bold whitespace-nowrap text-[#191f28]">

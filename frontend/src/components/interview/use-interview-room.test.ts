@@ -7,8 +7,10 @@ import { useInterviewRoom } from "./use-interview-room";
 
 // 기준: 웹 Swagger 5.14 · 승인된 STT 스냅샷 계약. API와 RTC 경계만 대체한다.
 // · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만))
+// · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · AI 명세 6.3(RPC 오류 2001 · 2002)
 const sdk = vi.hoisted(() => {
   type Handler = (...args: unknown[]) => void;
+  type RpcHandler = (data: { callerIdentity: string; payload: string }) => Promise<string>;
   class FakeRoom {
     static instances: FakeRoom[] = [];
     handlers = new Map<string, Handler>();
@@ -17,13 +19,23 @@ const sdk = vi.hoisted(() => {
       sender: { identity: string },
     ) => void;
     remoteParticipants = new Map([
-      ["agent", { isAgent: true }],
-      ["other", { isAgent: false }],
+      ["agent", { identity: "agent", isAgent: true }],
+      ["other", { identity: "other", isAgent: false }],
     ]);
     localParticipant = {
       publishTrack: vi.fn(async () => {}),
       unpublishTrack: vi.fn(async () => {}),
+      performRpc: vi.fn<(params: unknown) => Promise<string>>(async () =>
+        JSON.stringify({ accepted: true }),
+      ),
     };
+    rpcHandlers = new Map<string, RpcHandler>();
+    registerRpcMethod = vi.fn((method: string, handler: RpcHandler) => {
+      this.rpcHandlers.set(method, handler);
+    });
+    unregisterRpcMethod = vi.fn((method: string) => {
+      this.rpcHandlers.delete(method);
+    });
     connect = vi.fn().mockResolvedValue(undefined);
     disconnect = vi.fn(async () => {});
     registerTextStreamHandler = vi.fn((_topic: string, handler: FakeRoom["textHandler"]) => {
@@ -39,11 +51,20 @@ const sdk = vi.hoisted(() => {
       return this;
     }
   }
-  return { FakeRoom, issueRoomToken: vi.fn() };
+  class RpcError extends Error {
+    constructor(
+      readonly code: number,
+      message: string,
+    ) {
+      super(message);
+    }
+  }
+  return { FakeRoom, RpcError, issueRoomToken: vi.fn() };
 });
 
 vi.mock("livekit-client", () => ({
   Room: sdk.FakeRoom,
+  RpcError: sdk.RpcError,
   RoomEvent: {
     Reconnecting: "reconnecting",
     Reconnected: "reconnected",
@@ -290,5 +311,139 @@ describe("채팅 면접방(송출 없이 수신)", () => {
     const { result } = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
     await waitFor(() => expect(result.current.status).toBe("failed"));
     expect(sdk.FakeRoom.instances[0].connect).not.toHaveBeenCalled();
+  });
+});
+
+describe("답변 상태(answer.state) 받기 · [답변 완료](answer.submit) 보내기", () => {
+  const message = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      type: "answer.state",
+      sessionId: 55,
+      seq: 2,
+      state: "submitted",
+      ...overrides,
+    });
+
+  async function joined(onAnswerState = vi.fn()) {
+    const { stream } = media();
+    const hook = renderHook(() => useInterviewRoom(55, stream, { onAnswerState }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    const deliverState = (payload: string, caller = "agent") =>
+      act(async () => {
+        expect(
+          await room.rpcHandlers.get("interview.answerState")!({ callerIdentity: caller, payload }),
+        ).toBe("");
+      });
+    return { ...hook, room, onAnswerState, deliverState };
+  }
+
+  it("에이전트가 보낸 이 면접의 답변 상태만 넘기고, 화면을 떠나면 받지 않는다", async () => {
+    const { room, onAnswerState, deliverState, unmount } = await joined();
+
+    await deliverState(message());
+    expect(onAnswerState).toHaveBeenCalledExactlyOnceWith({
+      type: "answer.state",
+      sessionId: 55,
+      seq: 2,
+      state: "submitted",
+    });
+
+    // 에이전트가 아닌 참가자 · 다른 면접 · 형식이 틀린 메시지는 버린다
+    await deliverState(message(), "other");
+    await deliverState(message({ sessionId: 56 }));
+    await deliverState(message({ state: "done" }));
+    await deliverState("not json");
+    expect(onAnswerState).toHaveBeenCalledTimes(1);
+
+    const handler = room.rpcHandlers.get("interview.answerState")!;
+    unmount();
+    expect(room.unregisterRpcMethod).toHaveBeenCalledWith("interview.answerState");
+    // 정리 중에 늦게 도착한 메시지도 넘기지 않는다
+    await act(async () => {
+      await handler({ callerIdentity: "agent", payload: message() });
+    });
+    expect(onAnswerState).toHaveBeenCalledTimes(1);
+  });
+
+  it("넘기는 함수가 바뀌어도 다시 입장하지 않고 최신 함수로 넘긴다", async () => {
+    const { stream } = media();
+    const first = vi.fn();
+    const second = vi.fn();
+    const { rerender } = renderHook(
+      ({ handler }) => useInterviewRoom(55, stream, { onAnswerState: handler }),
+      {
+        initialProps: { handler: first },
+      },
+    );
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    rerender({ handler: second });
+
+    await act(async () => {
+      await room.rpcHandlers.get("interview.answerState")!({
+        callerIdentity: "agent",
+        payload: message(),
+      });
+    });
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("[답변 완료]를 에이전트에 보내고, 받으면 accepted", async () => {
+    const { result, room } = await joined();
+
+    expect(await result.current.submitAnswer(2)).toBe("accepted");
+    expect(room.localParticipant.performRpc).toHaveBeenCalledExactlyOnceWith({
+      destinationIdentity: "agent",
+      method: "interview.answerSubmit",
+      payload: JSON.stringify({ type: "answer.submit", sessionId: 55, seq: 2 }),
+    });
+  });
+
+  it("에이전트가 받지 않거나(accepted false · 2001 · 2002) 거절하면 rejected, 그 밖의 실패는 failed", async () => {
+    const { result, room } = await joined();
+    const rpc = room.localParticipant.performRpc;
+
+    rpc.mockResolvedValueOnce(JSON.stringify({ accepted: false }));
+    expect(await result.current.submitAnswer(2)).toBe("rejected");
+    // 응답 형식이 틀리면 다시 보내도 같으므로 받지 않은 것으로 본다
+    rpc.mockResolvedValueOnce("not json");
+    expect(await result.current.submitAnswer(2)).toBe("rejected");
+    rpc.mockResolvedValueOnce("{}");
+    expect(await result.current.submitAnswer(2)).toBe("rejected");
+    rpc.mockRejectedValueOnce(new sdk.RpcError(2001, "EMPTY_ANSWER"));
+    expect(await result.current.submitAnswer(2)).toBe("rejected");
+    rpc.mockRejectedValueOnce(new sdk.RpcError(2002, "NOT_ANSWERING"));
+    expect(await result.current.submitAnswer(2)).toBe("rejected");
+    rpc.mockRejectedValueOnce(new sdk.RpcError(1500, "Response timeout"));
+    expect(await result.current.submitAnswer(2)).toBe("failed");
+    rpc.mockRejectedValueOnce(new Error("disconnected"));
+    expect(await result.current.submitAnswer(2)).toBe("failed");
+  });
+
+  it("면접방에 들어가기 전이거나 에이전트가 없으면 보내지 못한다(failed)", async () => {
+    sdk.issueRoomToken.mockReturnValue(new Promise(() => {}));
+    const { stream } = media();
+    const before = renderHook(() => useInterviewRoom(55, stream));
+    expect(await before.result.current.submitAnswer(1)).toBe("failed");
+    before.unmount();
+
+    sdk.issueRoomToken.mockResolvedValue({ ok: true, url: "wss://room.test", token: "t" });
+    const { result } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[1];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    room.remoteParticipants.delete("agent");
+    expect(await result.current.submitAnswer(1)).toBe("failed");
+    expect(room.localParticipant.performRpc).not.toHaveBeenCalled();
+  });
+
+  it("STT 캡처가 바뀌면(답변마다 새 캡처) 그 캡처 id를 알려 준다", async () => {
+    const { result, room } = await joined();
+    await deliver(room, snapshot(1));
+    expect(result.current.streamId).toBe("capture-1");
+    await deliver(room, snapshot(1, { streamId: "capture-2", confirmedText: "", interimText: "" }));
+    expect(result.current.streamId).toBe("capture-2");
   });
 });

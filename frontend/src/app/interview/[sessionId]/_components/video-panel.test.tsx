@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -59,9 +59,20 @@ describe("SelfCamera · VideoControls", () => {
     expect(screen.getByLabelText("내 카메라 화면").className).toContain("hidden");
   });
 
-  it("[답변 완료]는 음성 인식을 연결하기 전이라 누를 수 없다", () => {
-    render(<VideoControls level={motionValue(0)} />);
-    expect(screen.getByRole("button", { name: "답변 완료" })).toHaveProperty("disabled", true);
+  it("[답변 완료]는 낼 수 있을 때(canSubmit)만 누를 수 있고, 누르면 알린다", () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<VideoControls level={motionValue(0)} onSubmit={onSubmit} />);
+    const button = () => screen.getByRole("button", { name: "답변 완료" });
+    expect(button()).toHaveProperty("disabled", true);
     expect(screen.getByRole("img", { name: "마이크 듣는 중" })).toBeTruthy();
+
+    rerender(<VideoControls level={motionValue(0)} canSubmit onSubmit={onSubmit} />);
+    fireEvent.click(button());
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    // 내는 중에는 누를 수 없고 바쁨을 알린다
+    rerender(<VideoControls level={motionValue(0)} canSubmit submitting onSubmit={onSubmit} />);
+    expect(button()).toHaveProperty("disabled", true);
+    expect(button().getAttribute("aria-busy")).toBe("true");
   });
 });

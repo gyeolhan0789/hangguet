@@ -21,6 +21,7 @@ vi.mock("@/lib/interview/actions", () => ({
 
 // 기준: Figma S06-B Chat Input(18:2606) · 웹 Swagger 5.7(TEXT 1~1,000자) · 마지막 질문(isLastQuestion)이면 5.8 자동
 // · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈) · 모션 메모 S06-B(18:2615)
+// · API 명세 5.7(202 또는 409 ANSWER_ALREADY_SUBMITTED면 에이전트에 [답변 완료](answer.submit)를 보낸다)
 
 const QUESTION: CurrentQuestion = {
   id: 303,
@@ -149,6 +150,72 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     await enter();
 
     expect(endSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/));
+  });
+
+  it("답변이 저장되면 그 질문 순서로 에이전트에 [답변 완료]를 보내게 알린다", async () => {
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const onAnswered = vi.fn();
+    render(<ChatPanel sessionId={55} question={QUESTION} onAnswered={onAnswered} />);
+    type("캐시를 바꿨어요");
+
+    await enter();
+
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3);
+  });
+
+  it("이미 낸 답변이면(409 ANSWER_ALREADY_SUBMITTED) 오류 없이 [답변 완료]를 보내고 다음 질문을 기다린다", async () => {
+    submitTextAnswer.mockResolvedValue({
+      formError: "이미 답변한 질문이에요.",
+      keySpent: true,
+      alreadySubmitted: true,
+    });
+    const onAnswered = vi.fn();
+    render(<ChatPanel sessionId={55} question={QUESTION} onAnswered={onAnswered} />);
+    type("새로고침 뒤 다시 낸 답");
+
+    await enter();
+
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+    // 이미 낸 답변은 보낸 답변 말풍선을 띄우지 않고 입력창만 비운다
+    expect(screen.queryByText("새로고침 뒤 다시 낸 답")).toBeNull();
+    expect(input().value).toBe("");
+    expect(useInterviewStore.getState().answeredQuestionId).toBe(303);
+    // 마지막 질문이 아니면 끝내지 않는다
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
+  it("이미 낸 답변이 마지막 질문이면 이어서 5.8 면접 끝내기를 부른다", async () => {
+    submitTextAnswer.mockResolvedValue({
+      formError: "이미 답변한 질문이에요.",
+      keySpent: true,
+      alreadySubmitted: true,
+    });
+    endSession.mockResolvedValue({});
+    const onAnswered = vi.fn();
+    render(<ChatPanel sessionId={55} question={{ ...QUESTION, seq: 5 }} onAnswered={onAnswered} />);
+    type("마지막 답");
+
+    await enter();
+
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5);
+    expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("그 밖의 실패면 [답변 완료]를 보내지 않고 문구를 보여 준다", async () => {
+    submitTextAnswer.mockResolvedValue({
+      formError: "지금은 할 수 없는 요청이에요.",
+      keySpent: true,
+    });
+    const onAnswered = vi.fn();
+    render(<ChatPanel sessionId={55} question={QUESTION} onAnswered={onAnswered} />);
+    type("답");
+
+    await enter();
+
+    expect(onAnswered).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
+    expect(useInterviewStore.getState().answeredQuestionId).toBeNull();
   });
 
   it("다음 질문을 기다리는 동안(질문 없음)은 입력 · 보내기를 막는다", async () => {
