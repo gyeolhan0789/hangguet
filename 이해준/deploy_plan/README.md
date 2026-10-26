@@ -351,14 +351,28 @@ sudo ufw status numbered
 
 | 리소스 | 내용 | 왜 |
 |---|---|---|
-| S3 버킷 하나 (우리 AWS 계정) | 접두사 `profile/` · `recordings/raw/`(트랙 원본) · `recordings/`(합친 mp4) · `backup/`. Block Public Access 켬. 브라우저 업로드 · 재생은 Presigned URL. 버킷 이름 **[미정]** | 버킷 하나에 접두사로 나누면 권한을 접두사 단위로 줄 수 있다. 공개를 막고 Presigned URL로만 주면 남의 파일을 볼 수 없다 |
+| S3 버킷 하나 (우리 AWS 계정) | 접두사 `profile/` · `recordings/raw/`(트랙 원본) · `recordings/`(합친 mp4) · `backup/`. Block Public Access 켬. 브라우저 업로드 · 재생은 Presigned URL. 버킷 이름 `hanggeut-a301-prod`(서울, 글로벌 네임스페이스) **[결정]** | 버킷 하나에 접두사로 나누면 권한을 접두사 단위로 줄 수 있다. 공개를 막고 Presigned URL로만 주면 남의 파일을 볼 수 없다 |
 | Docker Hub (운영 이미지) | **비공개 저장소 `hanggeut/a301`**에 서비스를 태그로 구분한다: `be-<커밋 SHA>` · `fe-<커밋 SHA>` · `ai-<커밋 SHA>` **[결정]**. 토큰은 push용(Read & Write, `a301-ci-push`)과 pull용(Read-only, `a301-prod-pull`) 두 개 | 무료 플랜은 비공개 저장소가 1개라 태그로 나눈다. 공개 저장소는 쓰지 않는다(이미지 안에 코드가 그대로 들어 있다). 토큰을 나눠 운영 서버의 토큰이 새도 이미지를 바꿔치기할 수 없게 한다 |
 
 녹화 원본은 Egress가, 합친 영상은 AI 분석 작업자가 S3에 올린다(4.3). 채점에 쓸 답변별 음성을 녹화 원본에서 잘라 쓸지 따로 저장할지는 12장에서 정한다.
 
+**운영 버킷 설정(10/26 생성)**
+
+| 항목 | 값 | 왜 |
+|---|---|---|
+| 기본 | ACL 비활성화(버킷 소유자 적용), 모든 퍼블릭 액세스 차단, 버전 관리 끔, SSE-S3 | 권한을 정책 한 곳에서만 다루고, 공개 설정 실수로 파일이 열리지 않게 한다 |
+| CORS | 출처 `https://hangguet.co.kr`, 메서드 `GET` · `PUT` · `HEAD`, 헤더 `content-type`, 노출 `ETag` | 브라우저가 Presigned URL로 S3에 직접 `PUT`하고, BE가 `Content-Type`을 서명에 넣기 때문에 사전 요청(preflight)이 통과해야 한다. 다른 출처 · 메서드는 막는다 |
+| 버킷 정책 | `aws:SecureTransport` = false면 모두 거부(HTTPS만) | 키나 Presigned URL이 평문 HTTP로 오가지 않게 한다 |
+| 수명 주기 | `abort-incomplete-multipart`: 완료되지 않은 멀티파트 업로드 7일 뒤 삭제. 객체 자체는 지우지 않는다 | 녹화 업로드가 중간에 끊기면 보이지 않는 조각이 남아 요금이 나온다. 녹화 · 백업 보관 기간은 아직 **[미정]**(13장) |
+
+- 확인: 밖에서 리전(`ap-northeast-2`), 익명 목록 · 읽기 거부, `hangguet.co.kr`의 `PUT` · `GET` 사전 요청 허용과 다른 출처 · `DELETE` · `http://` 출처 거부를 확인했다. 정책 · 수명 주기는 밖에서 확인할 수 없어 콘솔 화면으로만 확인했다
+- 개발은 별도 버킷 `a301-livekit-recordings-dev`와 IAM 사용자 `livekit-egress-dev`를 쓴다(`deploy/dev/compose.yml`). 왜: 개발에서는 LiveKit Cloud 서버가 S3에 직접 올리므로 운영 버킷의 IP 조건(6.2)에 막히고, 개발 키가 새도 운영 파일에 닿지 않게 한다
+
 ### 6.2 IAM **[제안]**
 
 IAM 역할을 못 쓰므로 IAM 사용자 키를 서버에 둔다. 키마다 권한을 최소로 하고, 버킷 정책에 `aws:SourceIp` = Lightsail 공인 IP 조건을 걸어 키가 새도 다른 곳에서는 못 쓰게 한다.
+
+- IP 조건은 서버가 직접 보내는 요청(`s3:authType` = `REST-HEADER`)에만 건다 **[제안]**. 왜: Presigned URL 요청(`REST-QUERY-STRING`)은 사용자 브라우저 IP에서 오므로, 모든 요청에 걸면 프로필 업로드와 다시보기 재생이 막힌다. Presigned URL은 유효 시간(업로드 10분 · 다운로드 1시간)으로 제한한다
 
 | 키 | 쓰는 곳 | 허용 |
 |---|---|---|
@@ -477,7 +491,8 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 시험용 LiveKit으로 TURN · UDP 접속 확인(SSAFY 와이파이 · 핫스팟)
 - [x] 시험용 컨테이너(`a301-prod-livekit`, `cloudflared-try`) · 네트워크(`a301-try`) · `~/livekit-try` 정리. **정식 이름으로 띄운 시험 컨테이너가 남으면 CI 배포와 충돌한다**
 - [x] Docker Hub 비공개 저장소(`hanggeut/a301`) · push/pull 토큰 · GitLab 변수. 미니PC push, Lightsail pull 성공, pull 토큰으로 push가 막히는 것(`insufficient scopes`)까지 확인
-- [ ] S3 버킷, IAM 키(6.2)
+- [x] S3 버킷 `hanggeut-a301-prod`: 퍼블릭 차단 · CORS · HTTPS 정책 · 수명 주기(6.1)
+- [ ] IAM 키 `a301-prod-app` · `a301-prod-egress`와 버킷 정책의 IP 조건(6.2)
 - [x] Lightsail에 protected 러너 등록(`a301-prod`, shell)
 - [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
 - [ ] `deploy/prod/compose.yml` · `livekit.yaml` · Egress 설정 · Prometheus 설정 · Nginx 설정, CI 작업(이미지 빌드 · `prod-deploy`)
@@ -543,10 +558,9 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 채점용 답변별 음성, 5.5 유지 여부, 7초 자동 제출 판단 주체(12장) | **[미정]** (BE · AI · FE) |
 | Redis 결과 큐 이름(`ai:results`) · 결과 메시지 형식 | **[제안]** (BE · AI) |
 | BE 지표 내보내기, 알림 기준 | **[미정]** |
-| 운영 BE Swagger 공개, S3 버킷 이름, 녹화 · 백업 보관 기간 | **[미정]** |
+| 운영 BE Swagger 공개, 녹화 · 백업 보관 기간 | **[미정]** |
 | 구조도 | 새 구조로 다시 그린다. `architecture-draft.webp`는 이전 초안 |
 | LiveKit Cloud 무료 구간 정확한 값(대략은 4.0) · 팀 계정 소유자 | 대시보드 요금 화면에서 확인 (인프라) |
-| 개발용 녹화 저장소 | 개발에서는 LiveKit Cloud 서버가 S3에 직접 올리므로 운영 버킷의 `aws:SourceIp` 조건(6.2)에 막힌다. 개발용 버킷(또는 접두사)과 IAM 키를 따로 둔다 **[제안]** (인프라) |
 | 개발 서버 LiveKit을 미니PC 셀프 호스팅으로 바꿀지 | 앞 장비(통신사 공유기) 관리자 계정을 알게 되면 DMZ(→ ipTIME `192.168.45.235`) 설정 후 전환 |
 
 ## 14. 변경 기록
@@ -563,3 +577,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.1 · 3.3 · 4.0 · 4.2 · 5.1 · 5.2 · 11 · 13 | Lightsail 기본 셋팅 결과 기록(OS · Docker · 방화벽 · 러너 · Cloudflare · TURN 인증서). Grafana를 Cloudflare Access에서 Grafana 자체 로그인으로 변경. 시험용 LiveKit으로 TURN · UDP 접속 확인 결과와 SSAFY 와이파이 포트 실측, LiveKit Cloud 무료 구간 · 로컬 키 요청 방법 추가. 확인이 끝난 13장 항목 3개를 지우고 해당 장으로 옮김 | 운영 서버를 실제로 셋팅하며 확인한 사실을 남겨, 팀원이 같은 확인을 반복하지 않고 접속 문제가 생겼을 때 비교 기준으로 쓰게 하려고. Grafana는 팀원이 별도 인증 없이 들어갈 수 있게 하려고 |
 | 인프라 | 6.1 · 7 · 8.1 · 8.2 · 11 | Docker Hub 연동 완료(비공개 저장소 `hanggeut/a301`, push · pull 토큰 분리, GitLab 변수 `prod/*`). 로그인은 작업마다 임시 폴더에서 하고 지우는 방식, 빌드 작업에 `prod/build` 환경 이름을 붙이는 방식 추가. 계정 · 저장소 이름은 변수가 아니라 CI 파일에 적기로 함 | 운영 이미지를 받아 올 경로를 미리 확인하고, 토큰이 서버나 develop 파이프라인에 새지 않게 하려고 |
 | 인프라 | 11 | 준비 항목 재확인(10/26): 서버 셋팅 · ufw · DNS · TURN 인증서 · 러너가 그대로임을 확인. GitLab `prod/*` 변수 현황 반영(Docker Hub 토큰 등록됨, 남은 비밀값 · 플래그 정리 항목 추가), Egress S3 키를 `dev/*`로 좁힘. FE 리다이렉트 버그 완료 처리 | 체크리스트가 실제 상태보다 늦어 남은 일을 잘못 판단하지 않게 하려고. dev 녹화 키가 운영으로 넘어가지 않게 하려고 |
+| 인프라 | 6.1 · 6.2 · 11 · 13 | 운영 S3 버킷 `hanggeut-a301-prod` 생성과 설정(퍼블릭 차단 · CORS · HTTPS 정책 · 미완료 멀티파트 정리) 기록. IP 조건을 서버 요청(`REST-HEADER`)에만 거는 안 추가. 13장의 버킷 이름 · 개발용 녹화 저장소 항목을 6.1로 옮김 | 버킷 이름과 설정을 정해 BE · Egress · AI가 같은 값을 쓰게 하려고. IP 조건을 모든 요청에 걸면 브라우저의 Presigned URL 요청이 막히기 때문 |
