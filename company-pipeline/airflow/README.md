@@ -61,7 +61,8 @@ develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
 | API 키 | `/opt/a301-pipeline/.env`에 처음 한 번 직접 둔다(소유자 `gitlab-runner`, 권한 600). git·CI 변수에 두지 않는다 |
 | 메모리 | `AIRFLOW__CORE__PARALLELISM=4`. 기본 32면 실행 프로세스가 약 1GB를 잡아 4GB에서 작업이 메모리 부족으로 죽었다 |
 | 폴더 권한 | 컨테이너 안 Airflow는 uid 50000. 배포 잡이 `pipeline/data`·`airflow/logs` 소유자를 맞춘다 |
-| 카드 확인 화면 | `viewer` 컨테이너(127.0.0.1:8765, 읽기 전용: 회사 추가·검색 API 막음). 매일 작업이 갱신한 `data/viewer_data.js`를 보여 준다 |
+| 카드 확인 화면 | `viewer` 컨테이너(127.0.0.1:8765). 매일 작업이 갱신한 `data/viewer_data.js`를 보여 주고 회사 추가도 된다(DART·GMS 키 사용) |
+| 회사 목록 | `COMPANIES_PATH` = `pipeline/data/companies.json`(배포 때 덮어쓰지 않음). 처음 한 번 git 목록을 복사하고, 그 뒤로는 화면에서 추가한 회사가 쌓인다 |
 | 공개 주소 | Cloudflare Tunnel `a301-pipeline-ec2` + Access(허용 이메일만, 일회용 코드). `pipeline.hangguet.co.kr` → Airflow(`localhost:8080`), 카드 확인 화면은 `localhost:8765`로 연결 |
 
 - 처음 배포한 뒤 DAG는 꺼져 있다. 화면에서 `company_news_daily`를 켜야 13:00에 돈다

@@ -12,7 +12,6 @@ import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from email.utils import parsedate_to_datetime
-from pathlib import Path
 from typing import Any
 
 from pipeline import dart, storage
@@ -159,6 +158,7 @@ def _dump(data: dict[str, Any]) -> bytes:
 
 if __name__ == "__main__":
     # cd company-pipeline && uv run --env-file .env python -m pipeline.news
-    here = Path(__file__).parent
-    for company in json.loads((here / "companies.json").read_text(encoding="utf-8")):
+    from pipeline.candidates import companies_file
+
+    for company in json.loads(companies_file().read_text(encoding="utf-8")):
         print(f"{company['name']}: {len(collect(company))}건")

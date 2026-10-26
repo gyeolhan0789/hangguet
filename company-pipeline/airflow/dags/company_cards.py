@@ -10,9 +10,8 @@ from datetime import timedelta
 import pendulum
 from airflow.sdk import dag, get_current_context, task
 
-from pipeline import news, run, viewer
+from pipeline import candidates, news, run, viewer
 
-COMPANIES = run.HERE / "companies.json"
 RETRY = {"retries": 2, "retry_delay": timedelta(minutes=5)}
 # 회사별 작업 이름을 map 번호 대신 회사명으로 보이게 한다
 BY_NAME = "{{ company_name }}"
@@ -25,7 +24,8 @@ def _name(company: dict[str, str]) -> str:
 
 @task
 def companies() -> list[dict[str, str]]:
-    return json.loads(COMPANIES.read_text(encoding="utf-8"))
+    # 서버는 COMPANIES_PATH(확인 화면에서 추가한 회사가 들어가는 data/ 아래 파일)를 읽는다
+    return json.loads(candidates.companies_file().read_text(encoding="utf-8"))
 
 
 # 기사 묶기(임베딩)도 Ollama를 써서 같은 풀로 줄 세운다. 11곳이 동시에 몰리면

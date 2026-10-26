@@ -5,9 +5,9 @@
 cd company-pipeline && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
 화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
 
-서버(compose의 viewer 컨테이너)는 VIEWER_READONLY=1로 띄운다. 서버의 companies.json은 배포 때마다
-git 내용으로 덮어써지고, 검색·AI 찾기는 우리 키로 DART·GMS를 부르므로
-/api/*를 모두 막고 화면만 보여 준다.
+서버(compose의 viewer 컨테이너)는 회사 목록을 COMPANIES_PATH(배포 때 덮어쓰지 않는 data/ 아래)에
+둬서 화면에서 추가한 회사가 남는다. 바깥 공개는 Cloudflare Access(허용 이메일만) 뒤에서만 한다.
+VIEWER_READONLY=1이면 /api/*를 모두 막고 화면만 보여 준다(회사 추가를 막아야 할 때)
 VIEWER_HOST는 여는 주소(기본 127.0.0.1, 컨테이너 안에서는 0.0.0.0)
 """
 
@@ -27,8 +27,9 @@ HERE = Path(__file__).parent
 DATA = HERE / "data"
 
 
-def build(data: Path = DATA, companies: Path = HERE / "companies.json") -> list[dict[str, Any]]:
+def build(data: Path = DATA, companies: Path | None = None) -> list[dict[str, Any]]:
     """카드마다 그 카드가 근거로 쓴 원문(인재상, 사업보고서 입력)을 붙인다."""
+    companies = companies or candidates.companies_file()
     talents = {c["name"]: c for c in json.loads(companies.read_text(encoding="utf-8"))}
     rows = []
     for path in sorted((data / "cards").glob("*.json")):
@@ -66,7 +67,7 @@ def _corps() -> list[candidates.Corp]:
 
 
 def _registered() -> set[str]:
-    rows = json.loads((HERE / "companies.json").read_text(encoding="utf-8"))
+    rows = json.loads(candidates.companies_file().read_text(encoding="utf-8"))
     return {r["name"] for r in rows}
 
 
