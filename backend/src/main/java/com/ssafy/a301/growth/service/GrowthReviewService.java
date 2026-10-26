@@ -4,10 +4,10 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.growth.dto.GrowthDtos.CriterionReview;
 import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
+import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
-import com.ssafy.a301.home.domain.PracticeLog;
-import com.ssafy.a301.home.domain.Streak;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
+import com.ssafy.a301.home.service.PracticeStatsService;
+import com.ssafy.a301.home.service.PracticeStatsService.DailyPractice;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.Grade;
@@ -17,11 +17,11 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -40,30 +40,29 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 7.1·7.2 성장 리뷰(BE 설계 6.2). 저장하지 않고 session_scores·answers로 계산한다. 리뷰가 있는 날 = 한국 시간으로 그날 시작한 결과 완료
- * 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것에서도 쓴다.
+ * 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것은 homeReviews로 한 번에 만든다. 그날 면접 수·시간, 최근 7일 연습일, 스트릭은
+ * PracticeStatsService 계산을 쓴다.
  */
 @Service
 public class GrowthReviewService {
     private static final Logger LOG = LoggerFactory.getLogger(GrowthReviewService.class);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final Set<SessionStatus> PRACTICE_STATUSES =
-            Set.of(SessionStatus.ANALYZING, SessionStatus.COMPLETED, SessionStatus.FAILED);
-    private static final int PRACTICE_DATES_DAYS = 7;
+    private static final int HOME_RECENT_REVIEWS = 2;
 
     private final InterviewSessionRepository sessions;
     private final SessionScoreRepository scores;
     private final AnswerRepository answers;
-    private final PracticeLogRepository practiceLogs;
+    private final PracticeStatsService practiceStats;
 
     public GrowthReviewService(
             InterviewSessionRepository sessions,
             SessionScoreRepository scores,
             AnswerRepository answers,
-            PracticeLogRepository practiceLogs) {
+            PracticeStatsService practiceStats) {
         this.sessions = sessions;
         this.scores = scores;
         this.answers = answers;
-        this.practiceLogs = practiceLogs;
+        this.practiceStats = practiceStats;
     }
 
     /** 그날 결과 완료 면접들(시작 순)과 그 기준 점수(면접 순·기준 순), 기준별 평균 점수와 마지막 면접의 코멘트 */
@@ -78,6 +77,16 @@ public class GrowthReviewService {
             return sessions.get(sessions.size() - 1);
         }
     }
+
+    /**
+     * 3.1 홈에 쓰는 성장 리뷰 값. 오늘 나아진 점(오늘 리뷰가 없으면 빈 배열), 가장 최근 리뷰의 다음에 해볼 것과 그 날짜(없으면 빈 배열·null), 최근 리뷰
+     * 2개(7.2 첫 페이지와 같음)
+     */
+    public record HomeReviews(
+            List<Improvement> todayImprovements,
+            List<String> nextActions,
+            LocalDate nextActionsDate,
+            List<RecentReviewItem> recentReviews) {}
 
     /** 그날 리뷰가 없으면 404 GROWTH_REVIEW_NOT_FOUND */
     @Transactional(readOnly = true)
@@ -95,28 +104,7 @@ public class GrowthReviewService {
         ReviewDay day = days.get(days.size() - 1);
         ReviewDay compared = days.size() > 1 ? days.get(days.size() - 2) : null;
 
-        List<Object[]> durations =
-                sessions.findPracticeDurations(
-                        userId,
-                        PRACTICE_STATUSES,
-                        startOf(practiceDate),
-                        startOf(practiceDate.plusDays(1)));
-        long practiceSeconds = 0;
-        for (Object[] duration : durations) {
-            practiceSeconds +=
-                    Duration.between((OffsetDateTime) duration[0], (OffsetDateTime) duration[1])
-                            .getSeconds();
-        }
-        List<LocalDate> recentDates =
-                practiceLogs
-                        .findInRange(
-                                userId,
-                                practiceDate.minusDays(PRACTICE_DATES_DAYS - 1L),
-                                practiceDate.plusDays(1))
-                        .stream()
-                        .map(PracticeLog::getPracticeDate)
-                        .toList();
-
+        DailyPractice daily = practiceStats.daily(userId, practiceDate);
         List<CriterionReview> criteria = new ArrayList<>();
         for (Criterion criterion : Criterion.values()) {
             int score = day.averages().get(criterion);
@@ -133,11 +121,10 @@ public class GrowthReviewService {
                         practiceDate,
                         compared == null,
                         compared == null ? null : compared.date(),
-                        Streak.current(
-                                practiceLogs.findPracticeDatesByUserId(userId), practiceDate),
-                        recentDates,
-                        durations.size(),
-                        Math.toIntExact(practiceSeconds / 60),
+                        practiceStats.streaks(userId, practiceDate).current(),
+                        practiceStats.recentPracticeDates(userId, practiceDate),
+                        daily.interviewCount(),
+                        daily.practiceMinutes(),
                         criteria,
                         nextActions(day)));
     }
@@ -145,16 +132,65 @@ public class GrowthReviewService {
     /** 리뷰가 있는 날을 최근 날짜 순으로 준다. 항목의 기준·변화량은 그날 가장 많이 오른 기준이고, 오른 기준이 없으면 null이다. */
     @Transactional(readOnly = true)
     public PagedModel<RecentReviewItem> recent(long userId, int page, int size) {
-        List<ReviewDay> days = reviewDays(userId, LocalDate.now(KST).plusDays(1));
-        List<RecentReviewItem> items = new ArrayList<>();
-        for (int i = days.size() - 1; i >= 0; i--) {
-            items.add(toRecentItem(days.get(i), i > 0 ? days.get(i - 1) : null));
-        }
+        List<RecentReviewItem> items =
+                recentItems(reviewDays(userId, LocalDate.now(KST).plusDays(1)));
         PageRequest pageable = PageRequest.of(page, size);
         long from = Math.min(pageable.getOffset(), items.size());
         int to = (int) Math.min(from + size, items.size());
         return new PagedModel<>(
                 new PageImpl<>(items.subList((int) from, to), pageable, items.size()));
+    }
+
+    /** 리뷰 계산을 한 번만 해서 홈에 필요한 값을 함께 만든다 */
+    @Transactional(readOnly = true)
+    public HomeReviews homeReviews(long userId, LocalDate today) {
+        List<ReviewDay> days = reviewDays(userId, today.plusDays(1));
+        if (days.isEmpty()) {
+            return new HomeReviews(List.of(), List.of(), null, List.of());
+        }
+        ReviewDay latest = days.get(days.size() - 1);
+        List<Improvement> todayImprovements =
+                latest.date().equals(today) && days.size() > 1
+                        ? improvements(latest, days.get(days.size() - 2))
+                        : List.of();
+        List<RecentReviewItem> recent = recentItems(days);
+        List<String> nextActions = nextActions(latest);
+        // 문구가 모두 비어 다음에 해볼 것이 없으면 날짜도 주지 않는다(빈 배열·null을 함께)
+        return new HomeReviews(
+                todayImprovements,
+                nextActions,
+                nextActions.isEmpty() ? null : latest.date(),
+                recent.subList(0, Math.min(HOME_RECENT_REVIEWS, recent.size())));
+    }
+
+    /** 리뷰가 있는 날을 최근 날짜 순으로. 기준·변화량은 그날 가장 많이 오른 기준이고, 오른 기준이 없으면 null */
+    private static List<RecentReviewItem> recentItems(List<ReviewDay> days) {
+        List<RecentReviewItem> items = new ArrayList<>();
+        for (int i = days.size() - 1; i >= 0; i--) {
+            ReviewDay day = days.get(i);
+            List<Improvement> improved = i > 0 ? improvements(day, days.get(i - 1)) : List.of();
+            Improvement best = improved.isEmpty() ? null : improved.get(0);
+            items.add(
+                    new RecentReviewItem(
+                            day.date(),
+                            day.last().getApplication().getCompanyName(),
+                            best == null ? null : best.criterion(),
+                            best == null ? null : best.delta()));
+        }
+        return items;
+    }
+
+    /** 비교한 날보다 오른 기준(delta > 0), 많이 오른 순. 같으면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY) */
+    private static List<Improvement> improvements(ReviewDay day, ReviewDay compared) {
+        List<Improvement> improved = new ArrayList<>();
+        for (Criterion criterion : Criterion.values()) {
+            int delta = day.averages().get(criterion) - compared.averages().get(criterion);
+            if (delta > 0) {
+                improved.add(new Improvement(criterion, delta));
+            }
+        }
+        improved.sort(Comparator.comparingInt(Improvement::delta).reversed());
+        return improved;
     }
 
     private List<ReviewDay> reviewDays(long userId, LocalDate until) {
@@ -245,23 +281,6 @@ public class GrowthReviewService {
         if (score != null && text != null && !text.isBlank()) {
             byScore.computeIfAbsent(score, ignored -> new LinkedHashSet<>()).add(text.strip());
         }
-    }
-
-    private static RecentReviewItem toRecentItem(ReviewDay day, ReviewDay compared) {
-        Criterion best = null;
-        Integer bestDelta = null;
-        if (compared != null) {
-            for (Criterion criterion : Criterion.values()) {
-                int delta = day.averages().get(criterion) - compared.averages().get(criterion);
-                // 오른 기준만 고른다. 모두 그대로거나 떨어졌으면 null
-                if (delta > 0 && (bestDelta == null || delta > bestDelta)) {
-                    best = criterion;
-                    bestDelta = delta;
-                }
-            }
-        }
-        return new RecentReviewItem(
-                day.date(), day.last().getApplication().getCompanyName(), best, bestDelta);
     }
 
     private static OffsetDateTime startOf(LocalDate date) {

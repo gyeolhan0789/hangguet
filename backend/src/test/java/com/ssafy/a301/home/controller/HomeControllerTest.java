@@ -8,8 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.auth.config.SecurityConfig;
+import com.ssafy.a301.home.dto.HomeDtos.HomeResponse;
+import com.ssafy.a301.home.dto.HomeDtos.HomeState;
 import com.ssafy.a301.home.dto.HomeDtos.PracticeLogsResponse;
 import com.ssafy.a301.home.dto.HomeDtos.StatsResponse;
+import com.ssafy.a301.home.service.HomeService;
 import com.ssafy.a301.home.service.PracticeStatsService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.YearMonth;
@@ -32,8 +35,39 @@ import org.springframework.test.web.servlet.MockMvc;
         })
 class HomeControllerTest {
     @Autowired private MockMvc mvc;
+    @MockitoBean private HomeService home;
     @MockitoBean private PracticeStatsService stats;
     @MockitoBean private UserRepository users;
+
+    @Test
+    void homeRequiresLogin() throws Exception {
+        mvc.perform(get("/api/v1/home")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void homeUsesLoggedInUserAndKeepsEmptyValues() throws Exception {
+        when(home.home(1))
+                .thenReturn(
+                        new HomeResponse(
+                                HomeState.FIRST_VISIT,
+                                0,
+                                0,
+                                List.of(),
+                                0,
+                                0,
+                                List.of(),
+                                List.of(),
+                                null,
+                                List.of()));
+
+        mvc.perform(get("/api/v1/home").with(jwt().jwt(token -> token.subject("1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.homeState").value("FIRST_VISIT"))
+                .andExpect(jsonPath("$.practiceDates").isEmpty())
+                .andExpect(jsonPath("$.nextActionsDate").isEmpty())
+                .andExpect(jsonPath("$.recentReviews").isEmpty());
+        verify(home).home(1);
+    }
 
     @Test
     void statsRequiresLogin() throws Exception {
