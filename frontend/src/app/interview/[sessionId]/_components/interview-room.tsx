@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
-import { useInterviewRoom } from "@/components/interview/use-interview-room";
+import { useInterviewRoom, type RoomPresentation } from "@/components/interview/use-interview-room";
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
@@ -57,6 +57,7 @@ export function InterviewRoom({
   const answeredQuestionId = useInterviewStore((state) => state.answeredQuestionId);
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
+  const [presentation, setPresentation] = useState<RoomPresentation | null>(null);
   const interviewer = PERSONAS.find((info) => info.persona === session.persona)?.name ?? "";
 
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
@@ -133,7 +134,12 @@ export function InterviewRoom({
         }
         transition={{ duration: reduce ? 0 : 0.6, ease: "easeInOut" }}
       >
-        <InterviewerStage persona={session.persona} />
+        <InterviewerStage
+          persona={session.persona}
+          feedback={analyzing ? null : presentation?.reaction}
+          speaking={presentation?.question?.speech === "started"}
+          listening={analyzing ? null : presentation?.listening}
+        />
       </motion.div>
 
       <AnimatePresence mode="wait">
@@ -159,6 +165,7 @@ export function InterviewRoom({
                 interviewer={interviewer}
                 question={question}
                 answeredCount={session.answeredCount}
+                onPresentation={setPresentation}
               />
             ) : (
               <Dialog bottom="pb-[5px]">
@@ -173,7 +180,12 @@ export function InterviewRoom({
                   </p>
                 )}
                 {session.status === "IN_PROGRESS" ? (
-                  <ChatLive sessionId={session.id} question={question} interviewer={interviewer} />
+                  <ChatLive
+                    sessionId={session.id}
+                    question={question}
+                    interviewer={interviewer}
+                    onPresentation={setPresentation}
+                  />
                 ) : (
                   <ChatPanel sessionId={session.id} question={question} />
                 )}
@@ -255,11 +267,13 @@ function VideoInterview({
   interviewer,
   question,
   answeredCount,
+  onPresentation,
 }: {
   sessionId: number;
   interviewer: string;
   question: CurrentQuestion | null;
   answeredCount: number;
+  onPresentation: (value: RoomPresentation | null) => void;
 }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
@@ -301,7 +315,11 @@ function VideoInterview({
       setDoneStream(null);
     }
   }
-  const stt = useInterviewRoom(sessionId, stream, { onAnswerState });
+  const stt = useInterviewRoom(sessionId, stream, {
+    onAnswerState,
+    questionSeq: question?.seq,
+    onPresentation,
+  });
   const liveQuestion =
     stt.question &&
     stt.question.seq > completedSeq &&
@@ -340,6 +358,12 @@ function VideoInterview({
       <SelfCamera stream={stream} />
       <Dialog bottom="pb-[68px]">
         <QuestionBubble interviewer={interviewer} question={liveQuestion ?? question} />
+        {stt.reaction?.message.interrupt &&
+          stt.reaction.message.questionSeq === (liveQuestion?.seq ?? question?.seq) && (
+            <p role="status" className="text-sm text-white">
+              {stt.reaction.message.interrupt.text}
+            </p>
+          )}
         <AnswerCaption
           {...caption}
           status={notice?.state === "sttFailed" ? "sttFailed" : caption.status}
@@ -418,10 +442,12 @@ function ChatLive({
   sessionId,
   question,
   interviewer,
+  onPresentation,
 }: {
   sessionId: number;
   question: CurrentQuestion | null;
   interviewer: string;
+  onPresentation: (value: RoomPresentation | null) => void;
 }) {
   const {
     status,
@@ -429,7 +455,11 @@ function ChatLive({
     submitAnswer,
     question: message,
     sendChatInput,
-  } = useInterviewRoom(sessionId, null, { listenOnly: true });
+  } = useInterviewRoom(sessionId, null, {
+    listenOnly: true,
+    questionSeq: question?.seq,
+    onPresentation,
+  });
   const [completedSeq, setCompletedSeq] = useState(0);
   const liveQuestion =
     message && message.seq > completedSeq && (!question || message.seq >= question.seq)

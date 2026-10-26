@@ -7,6 +7,42 @@ export const ANSWER_STATE_METHOD = "interview.answerState";
 export const ANSWER_SUBMIT_METHOD = "interview.answerSubmit";
 export const QUESTION_METHOD = "interview.question";
 export const CHAT_INPUT_METHOD = "interview.chatInput";
+export const REACTION_METHOD = "interview.reaction";
+export const REACTION_DURATION_MS = 1200;
+
+export const reactionMessageSchema = z.object({
+  type: z.literal("reaction"),
+  sessionId: z.number().int().positive(),
+  questionSeq: z.number().int().min(1).max(5),
+  seq: z.number().int().positive(),
+  reaction: z
+    .discriminatedUnion("type", [
+      z.object({
+        type: z.literal("expression"),
+        expression: z.enum(["smile", "frown", "smirk"]),
+        gesture: z.null(),
+        intensity: z.number().min(0).max(1),
+        durationMs: z.literal(REACTION_DURATION_MS),
+      }),
+      z.object({
+        type: z.literal("gesture"),
+        expression: z.null(),
+        gesture: z.enum(["small_nod", "nod", "tilt"]),
+        intensity: z.null(),
+        durationMs: z.literal(REACTION_DURATION_MS),
+      }),
+    ])
+    .nullable(),
+  attitude: z.object({ interest: z.number().min(0).max(1), trust: z.number().min(0).max(1) }),
+  interrupt: z
+    .object({ reason: z.enum(["OFF_TOPIC", "TOO_LONG"]), text: z.string().min(1) })
+    .nullable(),
+});
+export type ReactionMessage = z.infer<typeof reactionMessageSchema>;
+export interface ReactionSnapshot {
+  message: ReactionMessage;
+  receivedAt: number;
+}
 
 export function chatInputPayload(
   sessionId: number,

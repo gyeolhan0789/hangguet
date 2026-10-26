@@ -3,7 +3,11 @@ import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInterviewStore } from "@/stores/interview-store";
-import type { AnswerStateMessage, QuestionMessage } from "@/lib/interview/room-messages";
+import type {
+  AnswerStateMessage,
+  QuestionMessage,
+  ReactionSnapshot,
+} from "@/lib/interview/room-messages";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
 import {
@@ -33,8 +37,12 @@ vi.mock("@/lib/interview/actions", () => ({
   submitTextAnswer: (...args: unknown[]) => submitTextAnswer(...args),
   endSession: (...args: unknown[]) => endSession(...args),
 }));
+const stageRender = vi.fn();
 vi.mock("@/components/interview/interviewer-stage", () => ({
-  InterviewerStage: () => <div data-testid="interviewer-stage" />,
+  InterviewerStage: (props: unknown) => {
+    stageRender(props);
+    return <div data-testid="interviewer-stage" />;
+  },
 }));
 vi.mock("./use-interview-media", () => ({
   useInterviewMedia: () => ({ stream: null, level: motionValue(0.5) }),
@@ -49,6 +57,7 @@ const room = vi.hoisted(() => ({
   confirmedText: "",
   interimText: "",
   question: null as QuestionMessage | null,
+  reaction: null as ReactionSnapshot | null,
   retry: () => {},
   submitAnswer: (async () => "accepted") as (seq: number) => Promise<string>,
   sendChatInput: vi.fn(),
@@ -68,6 +77,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         confirmedText: room.confirmedText,
         interimText: room.interimText,
         question: room.question,
+        reaction: room.reaction,
         retry: room.retry,
         submitAnswer: room.submitAnswer,
         sendChatInput: room.sendChatInput,
@@ -124,6 +134,8 @@ beforeEach(() => {
   room.confirmedText = "";
   room.interimText = "";
   room.question = null;
+  room.reaction = null;
+  stageRender.mockClear();
   room.retry = vi.fn();
   room.submitAnswer = vi.fn(async () => "accepted");
   room.sendChatInput.mockReset();
@@ -163,6 +175,37 @@ const analyzing = () => screen.queryByRole("heading", { name: "면접관이 답�
 const waitPoll = () => act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
 
 describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
+  it("같은 연결의 리액션을 아바타에 전달하고 중단 문구는 현재 질문에서만 표시한다", () => {
+    room.reaction = {
+      receivedAt: performance.now(),
+      message: {
+        type: "reaction",
+        sessionId: 55,
+        questionSeq: 3,
+        seq: 1,
+        reaction: {
+          type: "gesture",
+          expression: null,
+          gesture: "nod",
+          intensity: null,
+          durationMs: 1200,
+        },
+        attitude: { interest: 0.7, trust: 0.3 },
+        interrupt: { reason: "OFF_TOPIC", text: "질문의 핵심에 맞게 답변해 주세요." },
+      },
+    };
+    const { rerender } = render(videoRoom());
+    const options = joinRoom.mock.lastCall?.[2] as { onPresentation: (value: unknown) => void };
+    const listening = { questionSeq: 3, streamId: "capture-1", speechAt: performance.now() };
+    act(() => options.onPresentation({ question: null, reaction: room.reaction, listening }));
+    expect(stageRender).toHaveBeenLastCalledWith(
+      expect.objectContaining({ feedback: room.reaction, listening }),
+    );
+    expect(screen.getByText("질문의 핵심에 맞게 답변해 주세요.")).toBeTruthy();
+    rerender(videoRoom({ id: 304, seq: 4, content: "다음 질문" }));
+    expect(screen.queryByText("질문의 핵심에 맞게 답변해 주세요.")).toBeNull();
+    expect(room.mounts).toBe(1);
+  });
   it("채팅 입력은 기존 면접방으로 전송하고 BE 질문 ID가 늦어도 표시 중인 질문 순서를 사용한다", () => {
     const { rerender } = render(chatRoom());
     fireEvent.input(screen.getByRole("textbox", { name: "답변" }), {
@@ -432,7 +475,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
 
   it("채팅: 면접이 시작되면(IN_PROGRESS) 송출 없이 면접방에 들어간다", () => {
     render(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />);
-    expect(joinRoom).toHaveBeenCalledWith(55, null, { listenOnly: true });
+    expect(joinRoom).toHaveBeenCalledWith(55, null, expect.objectContaining({ listenOnly: true }));
     expect(joinRoom).not.toHaveBeenCalledWith(55, null);
   });
 
@@ -440,7 +483,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     const { rerender } = render(
       <InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={null} />,
     );
-    expect(joinRoom).toHaveBeenCalledWith(55, null, { listenOnly: true });
+    expect(joinRoom).toHaveBeenCalledWith(55, null, expect.objectContaining({ listenOnly: true }));
     rerender(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />);
     expect(room.mounts).toBe(1);
   });
@@ -509,8 +552,16 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
   it("화상은 listenOnly 없이 장치 스트림으로 면접방에 들어간다", () => {
     render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
     // useInterviewMedia 대역의 스트림은 null이다. 송출 방식(listenOnly 없음)만 본다.
-    expect(joinRoom).toHaveBeenCalledWith(55, null, { onAnswerState: expect.any(Function) });
-    expect(joinRoom).not.toHaveBeenCalledWith(55, null, { listenOnly: true });
+    expect(joinRoom).toHaveBeenCalledWith(
+      55,
+      null,
+      expect.objectContaining({ onAnswerState: expect.any(Function) }),
+    );
+    expect(joinRoom).not.toHaveBeenCalledWith(
+      55,
+      null,
+      expect.objectContaining({ listenOnly: true }),
+    );
   });
 
   it("화상: 질문이 있고 내 답변 자막이 있을 때만 [답변 완료]를 누를 수 있고, 누르면 그 질문 순서로 보낸다", async () => {
