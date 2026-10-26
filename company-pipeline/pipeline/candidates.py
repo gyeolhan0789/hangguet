@@ -10,7 +10,9 @@ cd company-pipeline && uv run --env-file .env python -m pipeline.candidates 후�
 """
 
 import json
+import os
 import re
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,8 +120,26 @@ def search(query: str, all_corps: list[Corp], limit: int = 10) -> list[Corp]:
     return order[:limit]
 
 
-def add(corp: Corp, extra: dict[str, str], companies: Path = HERE / "companies.json") -> None:
-    """companies.json 끝에 한 줄 추가. 이미 있으면 ValueError."""
+def companies_file() -> Path:
+    """회사 목록 파일. 노트북은 git의 pipeline/companies.json.
+
+    서버는 COMPANIES_PATH(배포 때 덮어쓰지 않는 data/ 아래)를 쓴다. 확인 화면에서 추가한 회사가
+    다음 배포에 사라지지 않게 하려는 것. 파일이 아직 없으면 git 목록을 복사해 시작한다.
+    """
+    seed = HERE / "companies.json"
+    path = os.environ.get("COMPANIES_PATH")
+    if not path:
+        return seed
+    target = Path(path)
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(seed, target)
+    return target
+
+
+def add(corp: Corp, extra: dict[str, str], companies: Path | None = None) -> None:
+    """회사 목록 끝에 한 줄 추가. 이미 있으면 ValueError."""
+    companies = companies or companies_file()
     rows = json.loads(companies.read_text(encoding="utf-8"))
     if any(r["name"] == corp.name for r in rows):
         raise ValueError(f"이미 있는 회사: {corp.name}")
@@ -145,7 +165,7 @@ def entry(corp: Corp, query: str) -> dict[str, str]:
 def main() -> None:
     queries = [q.strip() for q in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()]
     queries = [q for q in queries if q and not q.startswith("#")]
-    have = {c["name"] for c in json.loads((HERE / "companies.json").read_text(encoding="utf-8"))}
+    have = {c["name"] for c in json.loads(companies_file().read_text(encoding="utf-8"))}
     all_corps = corps(dart.corpcode_xml())
     ready = []
     for q in queries:

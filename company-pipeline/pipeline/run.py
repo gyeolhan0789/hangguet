@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pipeline import card, dart, extract, news, storage, verify, viewer
+from pipeline import candidates, card, dart, extract, news, storage, verify, viewer
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -103,7 +103,7 @@ def main() -> None:
     parser.add_argument("--only", help="이 회사만 실행 (companies.json의 name)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    companies = json.loads((HERE / "companies.json").read_text(encoding="utf-8"))
+    companies = json.loads(candidates.companies_file().read_text(encoding="utf-8"))
     failed = []
     for company in companies:
         if args.only and company["name"] != args.only:

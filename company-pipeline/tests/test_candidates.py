@@ -3,8 +3,18 @@ from pathlib import Path
 
 import pytest
 
-from pipeline import card
-from pipeline.candidates import Corp, add, ask_official, corps, entry, key, match, search
+from pipeline import candidates, card
+from pipeline.candidates import (
+    Corp,
+    add,
+    ask_official,
+    companies_file,
+    corps,
+    entry,
+    key,
+    match,
+    search,
+)
 
 # 실제 DART 고유번호 목록 일부: 카카오(비상장·상장 동명), 삼성전자, 미래에셋자산운용(비상장)
 CORPS = corps((Path(__file__).parent / "fixtures" / "corpcode_sample.xml").read_bytes())
@@ -104,3 +114,26 @@ def test_search_prefers_exact_and_listed() -> None:
     assert names(search("삼성", CORPS + MORE))[:1] == ["삼성전자"]
     assert names(search("samsung sds", CORPS + MORE)) == ["삼성에스디에스"]
     assert search(" ", CORPS) == []
+
+
+def test_companies_file_uses_git_list_locally(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("COMPANIES_PATH", raising=False)
+    assert companies_file().name == "companies.json"
+    assert companies_file().parent.name == "pipeline"
+
+
+def test_companies_file_on_server_starts_from_git_list_and_keeps_additions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 서버는 배포 때 덮어쓰지 않는 data/ 아래 파일을 쓴다. 처음에는 git 목록을 복사해 시작
+    server = tmp_path / "data" / "companies.json"
+    monkeypatch.setenv("COMPANIES_PATH", str(server))
+
+    assert companies_file() == server
+    seed = (Path(candidates.__file__).parent / "companies.json").read_text(encoding="utf-8")
+    assert server.read_text(encoding="utf-8") == seed
+
+    new = Corp("테스트회사", "Test Co.", "99999999", False)
+    add(new, {})  # 화면에서 추가한 회사는 서버 파일에 남는다
+    assert companies_file() == server  # 이미 있으면 다시 복사하지 않는다
+    assert json.loads(server.read_text(encoding="utf-8"))[-1]["name"] == "테스트회사"
