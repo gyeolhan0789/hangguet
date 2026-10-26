@@ -482,11 +482,14 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
 - [ ] `deploy/prod/compose.yml` · `livekit.yaml` · Egress 설정 · Prometheus 설정 · Nginx 설정, CI 작업(이미지 빌드 · `prod-deploy`)
 - [ ] Grafana 대시보드(서버 · 컨테이너 · LiveKit), 팀원 계정
-- [ ] GitLab 변수(`prod/*`) 등록: `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문) 등록함. 나머지(DB · JWT · 외부 API · AWS · Docker Hub · Grafana)는 남음
+- [ ] GitLab 변수(`prod/*`) 등록: `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN` 등록함. 나머지(`DB_PASSWORD` · `JWT_SECRET` · `GRAFANA_ADMIN_PASSWORD` · AWS 키 2개)는 남음
+  - [ ] `CLOUDFLARE_TUNNEL_TOKEN` Protected 켜기(지금 Masked만)
+  - [ ] 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `LLM_API_KEY`)가 범위 All · Protected 꺼짐. 운영에 다른 키를 쓰면 `prod/*`로 따로 넣고 이 셋을 `dev/*`로 좁힌다. 같은 키를 쓰면 Protected만 켠다 **[미정]**
+  - [x] Egress S3 키(`LIVEKIT_EGRESS_S3_*`)를 All에서 `dev/*`로 좁힘(운영은 Egress 서버 설정의 저장소를 씀, 6.2)
 
 ### 먼저 develop에 들어가야 하는 것
 
-- [ ] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다
+- [x] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다 → 상대 주소(`redirectToPath`)로 고침(`f4b52c0`, S15P31A301-183)
 - [ ] BE LiveKit 입장 토큰 발급 · 녹화 시작/종료, AI 에이전트, AI 녹화 합치기, FE 면접방 접속 · 다시보기(12장)
 
 ### 릴리즈
@@ -559,3 +562,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 1 · 4.0 · 7 · 13 | 개발은 LiveKit Cloud, 운영은 셀프 호스팅으로 나눔. LiveKit 팀원 규칙(환경 변수, Cloud 전용 기능 금지, SDK 버전, 웹훅, 테스트 데이터) 추가 | 개발 서버(미니PC)가 이중 NAT 뒤에 있어 바깥에서 미디어 포트로 들어올 수 없고, 앞 장비 관리자 계정을 몰라 해결할 수 없어서. 코드는 같게 두고 주소 · 키만 바꾸기 위해 규칙을 정함 |
 | 인프라 | 3.1 · 3.3 · 4.0 · 4.2 · 5.1 · 5.2 · 11 · 13 | Lightsail 기본 셋팅 결과 기록(OS · Docker · 방화벽 · 러너 · Cloudflare · TURN 인증서). Grafana를 Cloudflare Access에서 Grafana 자체 로그인으로 변경. 시험용 LiveKit으로 TURN · UDP 접속 확인 결과와 SSAFY 와이파이 포트 실측, LiveKit Cloud 무료 구간 · 로컬 키 요청 방법 추가. 확인이 끝난 13장 항목 3개를 지우고 해당 장으로 옮김 | 운영 서버를 실제로 셋팅하며 확인한 사실을 남겨, 팀원이 같은 확인을 반복하지 않고 접속 문제가 생겼을 때 비교 기준으로 쓰게 하려고. Grafana는 팀원이 별도 인증 없이 들어갈 수 있게 하려고 |
 | 인프라 | 6.1 · 7 · 8.1 · 8.2 · 11 | Docker Hub 연동 완료(비공개 저장소 `hanggeut/a301`, push · pull 토큰 분리, GitLab 변수 `prod/*`). 로그인은 작업마다 임시 폴더에서 하고 지우는 방식, 빌드 작업에 `prod/build` 환경 이름을 붙이는 방식 추가. 계정 · 저장소 이름은 변수가 아니라 CI 파일에 적기로 함 | 운영 이미지를 받아 올 경로를 미리 확인하고, 토큰이 서버나 develop 파이프라인에 새지 않게 하려고 |
+| 인프라 | 11 | 준비 항목 재확인(10/26): 서버 셋팅 · ufw · DNS · TURN 인증서 · 러너가 그대로임을 확인. GitLab `prod/*` 변수 현황 반영(Docker Hub 토큰 등록됨, 남은 비밀값 · 플래그 정리 항목 추가), Egress S3 키를 `dev/*`로 좁힘. FE 리다이렉트 버그 완료 처리 | 체크리스트가 실제 상태보다 늦어 남은 일을 잘못 판단하지 않게 하려고. dev 녹화 키가 운영으로 넘어가지 않게 하려고 |
