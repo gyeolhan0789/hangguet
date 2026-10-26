@@ -10,6 +10,7 @@ import type { CameraFrame, InterviewerModel, SceneLights } from "./scene";
 //   public/interview/coffee-chat/CREDITS.txt)
 
 export interface InterviewerLook {
+  headBone: string;
   model: InterviewerModel;
   /** Figma 장면과 같은 구도의 카메라 */
   frame: CameraFrame;
@@ -31,6 +32,7 @@ export type InterviewerBackdrop = "storm" | "cafe" | null;
 // Record<Persona, …>라서 Persona가 늘거나 줄면 여기서 컴파일 오류가 난다.
 const LOOKS = {
   DEVIL: {
+    headBone: "DEF-spine.006",
     model: {
       glb: "/interview/devil/interviewer.glb",
       faceRules: "/interview/devil/face-rules.json",
@@ -44,6 +46,7 @@ const LOOKS = {
     interior: "/interview/devil/office.webp",
   },
   COFFEE_CHAT: {
+    headBone: "Head",
     model: {
       glb: "/interview/coffee-chat/interviewer.glb",
       faceRules: "/interview/coffee-chat/face-rules.json",

@@ -4,7 +4,7 @@
 끝 감지가 도착했을 때 확정된 글이 종결어미로 끝나면 문장 끝이고,
 쉼표로 끝나거나 미확정 토큰이 남아 있으면 다음 끝 감지까지 연결한다.
 pauseMs = 끝 감지 응답의 total_audio_proc_ms - 문장 마지막 확정 토큰 end_ms, 음수면 0.
-브라우저용 frontend/src/lib/stt/sentence-end.ts와 같은 규칙이다.
+브라우저 구현에서 옮긴 문장 끝 판단 규칙을 사용한다.
 종결어미 판단은 말하기 지표의 문장 경계와 같은 규칙이므로,
 app.interview.speech.ends_sentence를 사용한다.
 확정 토큰은 transcript.Transcript가 고르고, 이 모듈은 그 결과로 문장 끝만 판단한다.

@@ -29,6 +29,7 @@ import { setupBackdrop, type Backdrop } from "./backdrop";
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
 import { LoadError, withRetry } from "./retry";
+import { createHeadControl } from "./head";
 import { setupStorm, type Storm } from "./storm";
 
 // 면접관 3D 장면(three.js). 모델 · 표정 규칙 · 자세 구간을 불러와 캔버스에 그린다. 화면(React)과 따로 두어 브라우저에서만 불러온다.
@@ -92,6 +93,7 @@ export const DEFAULT_LIGHTS: SceneLights = {
 };
 
 export interface InterviewerScene {
+  setHead: (pitch: number, roll: number) => void;
   /** 표정을 바꾼다. 다음 프레임에 그린다. */
   setFace: (face: Partial<FaceControls>) => void;
   /** 화면 크기가 바뀌었을 때 캔버스 크기에 맞춘다. */
@@ -200,6 +202,7 @@ export async function createInterviewerScene({
   lights = DEFAULT_LIGHTS,
   onLost,
   signal,
+  headBone,
 }: {
   canvas: HTMLCanvasElement;
   model: InterviewerModel;
@@ -214,6 +217,7 @@ export async function createInterviewerScene({
   lights?: SceneLights;
   onLost: () => void;
   signal: AbortSignal;
+  headBone?: string;
 }): Promise<InterviewerScene> {
   const renderer = new WebGLRenderer({ canvas, antialias: true, alpha: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
@@ -290,6 +294,7 @@ export async function createInterviewerScene({
     const readSegment = pose.segments[readRoute];
     action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
     mixer.update(0);
+    const moveHead = createHeadControl(gltf.scene, headBone);
 
     // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
     if (shadow) {
@@ -427,6 +432,10 @@ export async function createInterviewerScene({
     });
 
     return {
+      setHead(pitch, roll) {
+        moveHead(pitch, roll);
+        dirty = true;
+      },
       setFace(next) {
         face = { ...face, ...next, mouth: { ...face.mouth, ...next.mouth } };
         dirty = true;

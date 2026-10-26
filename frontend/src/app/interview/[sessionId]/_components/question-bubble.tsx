@@ -17,7 +17,7 @@ export const TYPING_STAGGER_S = 0.02;
 
 /**
  * 면접관 질문 말풍선. 질문이 없으면(다음 질문을 만드는 중) '생각 중' 점 3개를 보여 준다.
- * 질문 음성(TTS)은 아직 연결하지 않아, 글자는 화면에 들어온 때부터 타자 치듯 나온다.
+ * 질문 글은 면접방 메시지를 우선하며, 화면 복구 시 BE 응답을 사용한다.
  */
 export function QuestionBubble({
   interviewer,
@@ -25,7 +25,8 @@ export function QuestionBubble({
 }: {
   interviewer: string;
   /** 지금 질문. 다음 질문을 기다리는 중이면 null */
-  question: CurrentQuestion | null;
+  question:
+    (Pick<CurrentQuestion, "seq" | "content"> & Partial<Pick<CurrentQuestion, "id">>) | null;
 }) {
   const reduce = useReducedMotion();
   return (
@@ -33,7 +34,7 @@ export function QuestionBubble({
     <div aria-live="polite" className="relative w-full">
       <AnimatePresence mode="popLayout" initial={false}>
         <motion.section
-          key={question?.id ?? "thinking"}
+          key={question?.seq ?? "thinking"}
           aria-label={`${interviewer} 질문`}
           className="flex w-full flex-col gap-2 rounded-[20px] border border-white/10 bg-[rgba(14,16,22,0.8)] px-[22px] py-[18px] backdrop-blur-[8px]"
           initial={reduce ? { opacity: 0 } : { opacity: 0, y: 24 }}
@@ -42,7 +43,11 @@ export function QuestionBubble({
           transition={{ duration: 0.3, ease: "easeOut" }}
         >
           {question ? (
-            <TypedQuestion key={question.id} interviewer={interviewer} content={question.content} />
+            <TypedQuestion
+              key={question.seq}
+              interviewer={interviewer}
+              content={question.content}
+            />
           ) : (
             <>
               <Speaker interviewer={interviewer} speaking={false} />
