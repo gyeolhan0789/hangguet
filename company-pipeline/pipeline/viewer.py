@@ -81,6 +81,15 @@ def _corp_json(corp: candidates.Corp) -> dict[str, Any]:
     }
 
 
+def companies_status(data: Path = DATA) -> list[dict[str, Any]]:
+    """회사 목록의 회사마다 카드가 있는지. 화면이 카드 없는(대기 중인) 회사도 목록에 보여 준다."""
+    rows = json.loads(candidates.companies_file().read_text(encoding="utf-8"))
+    cards = {
+        json.loads(p.read_text(encoding="utf-8"))["name"] for p in (data / "cards").glob("*.json")
+    }
+    return [{"name": r["name"], "has_card": r["name"] in cards} for r in rows]
+
+
 def _readonly() -> bool:
     return os.environ.get("VIEWER_READONLY") == "1"
 
@@ -120,8 +129,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         arg = q.get("q", q.get("code", [""]))[0]
-        if url.path == "/api/mode":  # 화면이 회사 추가 버튼을 보일지 정한다
-            self._send(200, {"readonly": _readonly()})
+        if url.path == "/api/mode":  # 화면이 회사 추가 버튼·안내 문구를 정한다
+            self._send(
+                200, {"readonly": _readonly(), "server": bool(os.environ.get("COMPANIES_PATH"))}
+            )
+        elif url.path == "/api/companies":  # 카드가 아직 없는 회사도 목록에 보이게 (키를 쓰지 않음)
+            self._send(200, companies_status())
         elif url.path.startswith("/api/") and _readonly():
             self._send(403, {"error": "읽기 전용 화면"})
         elif url.path == "/api/search":  # 자동완성
