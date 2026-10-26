@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
       (e2eBuild ? "https://forms.test/hankkeut-survey?userId={userId}&streak={streak}" : ""),
   },
   experimental: {
+    agentUpgrade: "security",
     // E2E(Playwright)에서 서버가 보내는 API 요청을 테스트가 가로채 mock 응답을 주게 한다.
     // E2E 전용 빌드에서만 켜지고, 일반 실행·배포에서는 꺼져 있다.
     testProxy: e2eBuild,
