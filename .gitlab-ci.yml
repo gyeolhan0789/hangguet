@@ -1053,6 +1053,9 @@ pipeline-deploy:
     - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs
     - cd "$DEPLOY_DIR/airflow"
     - docker compose up -d --remove-orphans
+    # viewer는 계속 떠 있는 프로세스라 켜질 때 읽은 코드를 그대로 쓴다. compose 설정이 같으면 up이 다시 띄우지 않으므로
+    # 새 코드를 읽도록 다시 시작한다(Airflow 작업은 실행마다 코드를 새로 읽어 필요 없다)
+    - docker compose restart viewer
     - |
       HEALTHY=0
       for i in $(seq 1 "$PIPELINE_HEALTH_TRIES"); do
