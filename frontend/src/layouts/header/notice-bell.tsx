@@ -16,10 +16,68 @@ import { NoticeModal, noticeDate } from "./notice-modal";
 // · 기획 메모 C01(다크 모드 토글 바로 왼쪽) · C03(종 → 펼침, 공지를 누르면 C02로 그 공지를 연다 → [확인] 8.9 → 확인함으로,
 // 공지가 없으면 '공지가 없어요', 바깥 클릭 · Esc로 닫힘) · Swagger 8.8 NoticesResponse · 8.9 공지 확인
 
-export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
-  const [open, setOpen] = useState(false);
+/** C02 공지 모달로 연 공지와 [확인](8.9). 모바일 메뉴(mobile-menu.tsx)도 같이 쓴다 */
+export function useNoticeModal() {
   const [opened, setOpened] = useState<NoticeItem | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // 메모 C03: [확인] → 8.9. 이미 확인한 공지도 서버는 204로 답한다
+  function confirm() {
+    const notice = opened;
+    if (!notice) return;
+    startTransition(async () => {
+      await readNotice(notice.id);
+      setOpened(null);
+    });
+  }
+
+  return { opened, open: setOpened, pending, confirm };
+}
+
+/** C03 공지 줄들. 공지가 없으면 '공지가 없어요' */
+export function NoticeRows({
+  notices,
+  onOpen,
+  menuItems = false,
+}: {
+  notices: NoticeItem[];
+  onOpen: (notice: NoticeItem) => void;
+  /** role="menu" 안이면 줄마다 menuitem */
+  menuItems?: boolean;
+}) {
+  if (notices.length === 0) {
+    return (
+      <span className="p-3 text-[15px] leading-normal font-medium text-text-3">공지가 없어요</span>
+    );
+  }
+  return notices.map((notice) => (
+    <button
+      key={notice.id}
+      type="button"
+      role={menuItems ? "menuitem" : undefined}
+      onClick={() => onOpen(notice)}
+      className="flex w-full cursor-pointer items-start gap-2.5 rounded-[10px] p-3 text-left transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none"
+    >
+      <span className="flex h-[22px] w-2 shrink-0 items-center" aria-hidden>
+        {!notice.read && <span className="size-2 rounded-full bg-brand-strong" />}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span
+          className={`truncate text-[15px] leading-normal ${notice.read ? "font-medium text-text-3" : "font-semibold text-text-1"}`}
+        >
+          {notice.title}
+        </span>
+        <span className="text-[13px] leading-normal font-medium text-text-3">
+          {noticeDate(notice.startsAt)} · {notice.read ? "확인함" : "확인 안 함"}
+        </span>
+      </span>
+    </button>
+  ));
+}
+
+export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
+  const [open, setOpen] = useState(false);
+  const modal = useNoticeModal();
   const rootRef = useRef<HTMLDivElement>(null);
   const hasUnread = notices.some((notice) => !notice.read);
 
@@ -41,16 +99,6 @@ export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
       document.removeEventListener("keydown", close);
     };
   }, [open]);
-
-  // 메모 C03: [확인] → 8.9. 이미 확인한 공지도 서버는 204로 답한다
-  function confirm() {
-    const notice = opened;
-    if (!notice) return;
-    startTransition(async () => {
-      await readNotice(notice.id);
-      setOpened(null);
-    });
-  }
 
   return (
     <div ref={rootRef} className="relative">
@@ -91,43 +139,19 @@ export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
               공지
             </span>
             <span className="h-px bg-line" aria-hidden />
-            {notices.length === 0 ? (
-              <span className="p-3 text-[15px] leading-normal font-medium text-text-3">
-                공지가 없어요
-              </span>
-            ) : (
-              notices.map((notice) => (
-                <button
-                  key={notice.id}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setOpen(false);
-                    setOpened(notice);
-                  }}
-                  className="flex w-full cursor-pointer items-start gap-2.5 rounded-[10px] p-3 text-left transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none"
-                >
-                  <span className="flex h-[22px] w-2 shrink-0 items-center" aria-hidden>
-                    {!notice.read && <span className="size-2 rounded-full bg-brand-strong" />}
-                  </span>
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span
-                      className={`truncate text-[15px] leading-normal ${notice.read ? "font-medium text-text-3" : "font-semibold text-text-1"}`}
-                    >
-                      {notice.title}
-                    </span>
-                    <span className="text-[13px] leading-normal font-medium text-text-3">
-                      {noticeDate(notice.startsAt)} · {notice.read ? "확인함" : "확인 안 함"}
-                    </span>
-                  </span>
-                </button>
-              ))
-            )}
+            <NoticeRows
+              notices={notices}
+              menuItems
+              onOpen={(notice) => {
+                setOpen(false);
+                modal.open(notice);
+              }}
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
-      <NoticeModal notice={opened} pending={pending} onConfirm={confirm} />
+      <NoticeModal notice={modal.opened} pending={modal.pending} onConfirm={modal.confirm} />
     </div>
   );
 }

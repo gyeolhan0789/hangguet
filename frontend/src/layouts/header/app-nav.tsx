@@ -1,10 +1,18 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { Avatar } from "@/components/avatar";
 import { MaskIcon } from "@/components/mask-icon";
 import type { MeResponse, NoticeItem } from "@/types/api";
 import { ROUTES } from "@/lib/routes";
 
+import {
+  MobileLogout,
+  MobileMenuDivider,
+  MobileMenuLink,
+  MobileNotices,
+  MobileThemeRow,
+} from "./mobile-menu";
 import { NoticeBell } from "./notice-bell";
 import { ProfileMenu } from "./profile-menu";
 
@@ -54,6 +62,46 @@ export function AppNav({ user, notices }: { user: MeResponse; notices?: NoticeIt
       <ProfileMenu user={user} />
       {notices && <NoticeBell notices={notices} />}
     </nav>
+  );
+}
+
+/**
+ * 모바일(sm 미만) 햄버거 메뉴: 데스크톱 헤더 메뉴(홈 · 연습 기록 · 스트릭 · 공지 · 다크 모드)와 C01 프로필 메뉴(마이페이지 · 문의하기 · 로그아웃)를
+ * 한곳에 모은다. 맨 위는 C01 드롭다운 머리(아바타 40 · 닉네임 15 ExtraBold · 이메일 13 Medium text-3)에 스트릭 알약을 붙인다.
+ * 랜딩(S00)처럼 공지를 넘기지 않으면 공지 줄이 없다.
+ */
+export function AppMobileMenu({ user, notices }: { user: MeResponse; notices?: NoticeItem[] }) {
+  return (
+    <>
+      <div className="flex items-center gap-3 p-3">
+        <Avatar
+          imageUrl={user.profileImageUrl}
+          size={40}
+          icon="/icons/user-round.svg"
+          iconSize={20}
+        />
+        <div className="flex min-w-0 flex-1 flex-col leading-normal">
+          <span className="truncate text-[15px] font-extrabold text-text-1">{user.nickname}</span>
+          <span className="truncate text-[13px] font-medium text-text-3">{user.email}</span>
+        </div>
+        <StreakPill days={user.currentStreak} />
+      </div>
+      <MobileMenuDivider />
+      <MobileMenuLink href={ROUTES.home}>홈</MobileMenuLink>
+      <MobileMenuLink href={ROUTES.records}>연습 기록</MobileMenuLink>
+      {notices && <MobileNotices notices={notices} />}
+      <MobileMenuDivider />
+      <MobileMenuLink href={ROUTES.mypage} icon="/icons/user-round.svg" chevron>
+        마이페이지
+      </MobileMenuLink>
+      <MobileMenuLink href={ROUTES.inquiries} icon="/icons/message-circle.svg">
+        문의하기
+      </MobileMenuLink>
+      <MobileMenuDivider />
+      <MobileThemeRow />
+      <MobileMenuDivider />
+      <MobileLogout />
+    </>
   );
 }
 

@@ -7,9 +7,11 @@ export function HomeSkeleton({ withHeader = false }: { withHeader?: boolean }) {
       {withHeader && (
         <div className="flex h-18 w-full items-center justify-between border-b border-line px-5 sm:px-10">
           <span className={`h-7 w-24 rounded-[10px] ${bone}`} />
-          <span className="flex items-center gap-6">
-            <span className={`hidden h-5 w-8 rounded-[10px] sm:block ${bone}`} />
-            <span className={`hidden h-5 w-16 rounded-[10px] sm:block ${bone}`} />
+          {/* 모바일(sm 미만) 헤더는 로고 + 햄버거만 있다(header.tsx) */}
+          <span className={`size-7 rounded-[8px] sm:hidden ${bone}`} />
+          <span className="hidden items-center gap-6 sm:flex">
+            <span className={`h-5 w-8 rounded-[10px] ${bone}`} />
+            <span className={`h-5 w-16 rounded-[10px] ${bone}`} />
             <span className={`h-[34px] w-16 rounded-full ${bone}`} />
             <span className={`size-9 rounded-full ${bone}`} />
             <span className={`h-8 w-14 rounded-full ${bone}`} />

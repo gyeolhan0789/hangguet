@@ -1,12 +1,13 @@
 import { unstable_rethrow } from "next/navigation";
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 
-import { AppNav, AppNavSkeleton, Header } from "@/layouts/header";
+import { AppMobileMenu, AppNav, AppNavSkeleton, Header, MobileThemeRow } from "@/layouts/header";
 import { getMe } from "@/lib/auth/session";
 import { getNotices } from "@/lib/notice/queries";
 import type { NoticeItem } from "@/types/api";
 
-async function MainNav() {
+// 데스크톱 메뉴와 모바일 햄버거 메뉴가 같은 요청 안에서 한 번만 부르도록 묶는다
+const loadNav = cache(async () => {
   let me: Awaited<ReturnType<typeof getMe>> = null;
   try {
     me = await getMe();
@@ -25,7 +26,17 @@ async function MainNav() {
     // 공지(8.8)가 실패해도 헤더는 열려야 하므로 공지 없이 그린다. 원인은 서버 로그에 남긴다.
     console.error("앱 헤더: 공지 목록(8.8)을 불러오지 못했어요.", error);
   }
-  return <AppNav user={me} notices={notices} />;
+  return { me, notices };
+});
+
+async function MainNav() {
+  const nav = await loadNav();
+  return nav && <AppNav user={nav.me} notices={nav.notices} />;
+}
+
+async function MainMobileMenu() {
+  const nav = await loadNav();
+  return nav ? <AppMobileMenu user={nav.me} notices={nav.notices} /> : <MobileThemeRow />;
 }
 
 // 로그인 후 앱 화면의 기본 레이아웃: 위에 앱 헤더(C/App Header), 아래에 화면.
@@ -33,7 +44,13 @@ async function MainNav() {
 export default function MainLayout({ children }: LayoutProps<"/">) {
   return (
     <>
-      <Header>
+      <Header
+        menu={
+          <Suspense fallback={<MobileThemeRow />}>
+            <MainMobileMenu />
+          </Suspense>
+        }
+      >
         <Suspense fallback={<AppNavSkeleton />}>
           <MainNav />
         </Suspense>
