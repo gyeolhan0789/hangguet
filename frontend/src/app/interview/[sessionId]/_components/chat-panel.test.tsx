@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion } from "@/types/api";
 
-import { ChatPanel } from "./chat-panel";
+import { CHAT_INPUT_PAUSE_MS, ChatPanel } from "./chat-panel";
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
@@ -35,6 +35,89 @@ beforeEach(() => {
   submitTextAnswer.mockReset();
   endSession.mockReset();
 });
+
+describe("채팅 입력 신호 예약", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  const pause = (ms = CHAT_INPUT_PAUSE_MS) => act(() => vi.advanceTimersByTime(ms));
+
+  it("입력이 멈춘 경계에서 최신 입력 전체를 한 번만 전송하고 순번을 증가시킨다", () => {
+    const onChatInput = vi.fn();
+    render(<ChatPanel sessionId={55} question={QUESTION} onChatInput={onChatInput} />);
+    type("첫 글");
+    pause(CHAT_INPUT_PAUSE_MS - 1);
+    expect(onChatInput).not.toHaveBeenCalled();
+    type("최신 입력 전체");
+    pause(CHAT_INPUT_PAUSE_MS - 1);
+    expect(onChatInput).not.toHaveBeenCalled();
+    pause(1);
+    expect(onChatInput).toHaveBeenCalledExactlyOnceWith(
+      3,
+      1,
+      "최신 입력 전체",
+      CHAT_INPUT_PAUSE_MS,
+    );
+    pause(CHAT_INPUT_PAUSE_MS * 2);
+    expect(onChatInput).toHaveBeenCalledTimes(1);
+    type("");
+    pause();
+    expect(onChatInput).toHaveBeenLastCalledWith(3, 2, "", CHAT_INPUT_PAUSE_MS);
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+  });
+
+  it("질문이 변경되면 이전 예약을 취소하고 새 답변의 순번을 처음부터 시작한다", () => {
+    const onChatInput = vi.fn();
+    const { rerender } = render(
+      <ChatPanel sessionId={55} question={QUESTION} onChatInput={onChatInput} />,
+    );
+    type("전송할 글");
+    pause();
+    type("취소할 글");
+    rerender(
+      <ChatPanel
+        sessionId={55}
+        question={{ ...QUESTION, id: 304, seq: 4 }}
+        onChatInput={onChatInput}
+      />,
+    );
+    pause();
+    expect(onChatInput).toHaveBeenCalledTimes(1);
+    type("다음 질문 답변");
+    pause();
+    expect(onChatInput).toHaveBeenLastCalledWith(4, 1, "다음 질문 답변", CHAT_INPUT_PAUSE_MS);
+  });
+
+  it("화면 이탈·질문 없음·길이 초과 입력은 전송하지 않는다", () => {
+    const onChatInput = vi.fn();
+    const { rerender, unmount } = render(
+      <ChatPanel sessionId={55} question={null} onChatInput={onChatInput} />,
+    );
+    type("질문 없음");
+    pause();
+    rerender(<ChatPanel sessionId={55} question={QUESTION} onChatInput={onChatInput} />);
+    type("가".repeat(1001));
+    pause();
+    type("이탈 전 입력");
+    unmount();
+    pause();
+    expect(onChatInput).not.toHaveBeenCalled();
+  });
+
+  it("답변 제출이 시작되면 예약을 취소하고 저장 실패 후에도 순번을 이어서 사용한다", async () => {
+    const onChatInput = vi.fn();
+    submitTextAnswer.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
+    render(<ChatPanel sessionId={55} question={QUESTION} onChatInput={onChatInput} />);
+    type("첫 입력");
+    pause();
+    type("제출할 답변");
+    await enter();
+    pause();
+    expect(onChatInput).toHaveBeenCalledTimes(1);
+    type("고친 답변");
+    pause();
+    expect(onChatInput).toHaveBeenLastCalledWith(3, 2, "고친 답변", CHAT_INPUT_PAUSE_MS);
+  });
+});
 afterEach(() => {
   cleanup();
 });
@@ -47,6 +130,46 @@ const enter = (init: Partial<KeyboardEventInit & { isComposing: boolean }> = {})
   });
 
 describe("ChatPanel (S06-B 채팅 답변)", () => {
+  it.each([false, true])(
+    "마지막 답변 저장 뒤 완료 신호를 호출하고 면접을 종료한다(기존 제출: %s)",
+    async (alreadySubmitted) => {
+      submitTextAnswer.mockResolvedValue({ isLastQuestion: !alreadySubmitted, alreadySubmitted });
+      endSession.mockResolvedValue({});
+      const onAnswered = vi.fn();
+      render(
+        <ChatPanel sessionId={55} question={{ ...QUESTION, seq: 5 }} onAnswered={onAnswered} />,
+      );
+      type("마지막 답변");
+      await enter();
+      expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5);
+      expect(endSession).toHaveBeenCalledTimes(1);
+      expect(submitTextAnswer.mock.invocationCallOrder[0]).toBeLessThan(
+        onAnswered.mock.invocationCallOrder[0],
+      );
+      expect(onAnswered.mock.invocationCallOrder[0]).toBeLessThan(
+        endSession.mock.invocationCallOrder[0],
+      );
+    },
+  );
+
+  it("질문 재생 중 입력은 유지하고 버튼과 Enter 및 폼 제출을 차단한다", async () => {
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const { rerender } = render(<ChatPanel sessionId={55} question={QUESTION} submissionLocked />);
+    type("답변을 작성합니다.");
+    expect(input().disabled).toBe(false);
+    expect(
+      (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await enter();
+    await act(async () => {
+      fireEvent.submit(input().closest("form")!);
+    });
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+    expect(input().value).toBe("답변을 작성합니다.");
+    rerender(<ChatPanel sessionId={55} question={QUESTION} submissionLocked={false} />);
+    await enter();
+    expect(submitTextAnswer).toHaveBeenCalledTimes(1);
+  });
   it("빈 입력창 안내와 글자 수 '0 / 1,000'을 보여 주고, 1,000자까지만 받는다", () => {
     render(<ChatPanel sessionId={55} question={QUESTION} />);
 

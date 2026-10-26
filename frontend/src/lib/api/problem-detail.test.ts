@@ -8,13 +8,13 @@ import { getHttpStatus, getProblemDetail, RETRY_LATER, toFormActionResult } from
 describe("getHttpStatus", () => {
   it("ProblemDetail로 실패하면 그 응답의 상태 코드를 꺼낸다", () => {
     const error = axiosProblem({
-      title: "Service Unavailable",
-      status: 503,
-      detail: "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
-      instance: "/api/v1/interview-sessions/55/stt-token",
-      code: "STT_UNAVAILABLE",
+      title: "Conflict",
+      status: 409,
+      detail: "지금은 할 수 없는 요청이에요.",
+      instance: "/api/v1/interview-sessions/55/room-token",
+      code: "INVALID_SESSION_STATE",
     });
-    expect(getHttpStatus(error)).toBe(503);
+    expect(getHttpStatus(error)).toBe(409);
   });
 
   it("본문 없는 502 · 504(Nginx)도 상태 코드를 꺼낸다", () => {

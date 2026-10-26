@@ -1,4 +1,4 @@
-"""frontend/src/lib/stt/transcript.test.ts와 같은 예문으로 같은 결과가 나오는지 확인한다.
+"""브라우저 구현에서 옮긴 토큰 처리 예문을 검증한다.
 
 브라우저 보정(첫 음성 - 파일 시작)을 다루던 예문은 서버 스트림 기준 offset 예문으로 대체한다.
 브라우저의 자막(getCaption)은 확정 글(confirmed_text)과 미확정 글(interim_text)로 나누어 확인한다.

@@ -52,10 +52,10 @@ class OpenApiDocTest {
                 .containsExactly("month");
     }
 
-    // FE는 Swagger 요청 예시를 요청 타입으로 검사하므로(frontend/scripts/swagger-type-examples.mjs),
-    // 예시가 빠진 요청 필드가 하나라도 있으면 FE의 예시 생성이 중단된다.
+    // FE는 Swagger 요청·응답 예시를 타입으로 검사하므로(frontend/scripts/swagger-type-examples.mjs),
+    // 예시가 빠진 요청·응답 필드가 하나라도 있으면 FE의 예시 생성이 중단된다.
     @Test
-    void requestBodyFieldsAllHaveExamples() throws Exception {
+    void requestAndResponseFieldsAllHaveExamples() throws Exception {
         MvcTestResult result = mockMvc.get().uri("/v3/api-docs").exchange();
         assertThat(result).hasStatusOk();
         JsonNode docs = objectMapper.readTree(result.getResponse().getContentAsString(UTF_8));
@@ -63,17 +63,27 @@ class OpenApiDocTest {
         Set<String> missing = new TreeSet<>();
         for (JsonNode operations : docs.path("paths")) {
             for (JsonNode operation : operations) {
-                for (JsonNode media : operation.path("requestBody").path("content")) {
-                    if (media.has("example") || media.has("examples")) {
-                        continue;
-                    }
-                    String ref = media.path("schema").path("$ref").asString("");
-                    collectMissingExamples(schemas, ref, new HashSet<>(), missing);
+                collectMissingExamples(
+                        schemas, operation.path("requestBody").path("content"), missing);
+                for (JsonNode response : operation.path("responses")) {
+                    collectMissingExamples(schemas, response.path("content"), missing);
                 }
             }
         }
 
         assertThat(missing).isEmpty();
+    }
+
+    /** 본문 예시가 없어 FE 예시 생성기가 스키마 필드 예시로 본문을 만드는 경우만 검사한다. */
+    private static void collectMissingExamples(
+            JsonNode schemas, JsonNode content, Set<String> missing) {
+        for (JsonNode media : content) {
+            if (media.has("example") || media.has("examples")) {
+                continue;
+            }
+            String ref = media.path("schema").path("$ref").asString("");
+            collectMissingExamples(schemas, ref, new HashSet<>(), missing);
+        }
     }
 
     /** FE 예시 생성기와 같은 규칙으로, 예시도 하위 스키마도 enum도 없는 필드를 모은다. */

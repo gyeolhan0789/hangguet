@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
-import { useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { endSession, submitTextAnswer } from "@/lib/interview/actions";
@@ -27,18 +27,28 @@ const MAX_LINES = 5;
 const LINE_PX = 25.5;
 /** 입력창 기본 높이: 첫 줄 + 간격 12 + Figma 빈 줄 44 */
 const MIN_PX = LINE_PX + 12 + 44;
+/** 채팅 입력 중지 후 리액션 판단을 요청하는 간격(API 명세 면접방 메시지, 임시 값). */
+export const CHAT_INPUT_PAUSE_MS = 800;
 
 /** S06-B 채팅 답변 입력창. 질문을 기다리는 동안은 입력할 수 없다. */
 export function ChatPanel({
   sessionId,
   question,
   onAnswered,
+  submissionLocked = false,
+  onChatInput,
+  inputQuestionSeq,
 }: {
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
   /** 답변이 저장됐을 때(이미 낸 답변 포함) 그 질문 순서. 에이전트에 [답변 완료]를 보낸다 */
   onAnswered?: (seq: number) => void;
+  /** 질문 음성 재생 중에는 입력을 유지하고 제출만 차단한다. */
+  submissionLocked?: boolean;
+  onChatInput?: (questionSeq: number, seq: number, text: string, pauseMs: number) => void;
+  /** 질문 메시지가 BE 질문 ID보다 먼저 도착해도 표시 중인 질문의 입력으로 전송한다. */
+  inputQuestionSeq?: number;
 }) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
@@ -65,6 +75,24 @@ export function ChatPanel({
   const disabled = !question || pending;
   const { ref, ...field } = register("content");
   const textarea = useRef<HTMLTextAreaElement | null>(null);
+  const inputTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const inputSeq = useRef(0);
+  const chatSeq = inputQuestionSeq ?? question?.seq;
+
+  useEffect(() => {
+    inputSeq.current = 0;
+  }, [chatSeq]);
+  useEffect(() => () => clearTimeout(inputTimer.current), [chatSeq, pending, onChatInput]);
+
+  function inputChanged(text: string) {
+    fit();
+    clearTimeout(inputTimer.current);
+    if (chatSeq === undefined || pending || !onChatInput || text.length > ANSWER_TEXT_MAX) return;
+    const changedAt = performance.now();
+    inputTimer.current = setTimeout(() => {
+      onChatInput(chatSeq, ++inputSeq.current, text, Math.round(performance.now() - changedAt));
+    }, CHAT_INPUT_PAUSE_MS);
+  }
 
   // 글 높이에 맞춰 입력창을 늘린다(최대 5줄, 넘으면 스크롤).
   function fit() {
@@ -75,7 +103,8 @@ export function ChatPanel({
   }
 
   function submit(values: AnswerTextValues) {
-    if (!question) return;
+    if (!question || submissionLocked || pending) return;
+    clearTimeout(inputTimer.current);
     setFormError(undefined);
     const saved = answerKey.current;
     const key =
@@ -116,7 +145,7 @@ export function ChatPanel({
     // 한글을 조합하는 중의 Enter는 글자를 확정하는 키라 보내지 않는다.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    if (!disabled) void handleSubmit(submit)();
+    if (!disabled && !submissionLocked) void handleSubmit(submit)();
   }
 
   const error = errors.content?.message ?? formError;
@@ -155,7 +184,7 @@ export function ChatPanel({
           maxLength={ANSWER_TEXT_MAX}
           disabled={disabled}
           onKeyDown={onKeyDown}
-          onInput={fit}
+          onInput={(event) => inputChanged(event.currentTarget.value)}
           style={{ height: MIN_PX }}
           className="w-full resize-none bg-transparent text-[17px] leading-normal font-medium text-white outline-none placeholder:text-white/50 disabled:cursor-not-allowed"
         />
@@ -173,7 +202,7 @@ export function ChatPanel({
           <button
             type="submit"
             aria-label="답변 보내기"
-            disabled={disabled}
+            disabled={disabled || submissionLocked}
             aria-busy={pending || undefined}
             className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed"
           >

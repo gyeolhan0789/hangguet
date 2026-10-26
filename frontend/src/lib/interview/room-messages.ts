@@ -5,6 +5,76 @@ import { z } from "zod";
 // 면접방 메시지는 웹 Swagger에 없는, 같은 면접방의 에이전트와 주고받는 LiveKit RPC 본문이다.
 export const ANSWER_STATE_METHOD = "interview.answerState";
 export const ANSWER_SUBMIT_METHOD = "interview.answerSubmit";
+export const QUESTION_METHOD = "interview.question";
+export const CHAT_INPUT_METHOD = "interview.chatInput";
+export const REACTION_METHOD = "interview.reaction";
+export const REACTION_DURATION_MS = 1200;
+
+export const reactionMessageSchema = z.object({
+  type: z.literal("reaction"),
+  sessionId: z.number().int().positive(),
+  questionSeq: z.number().int().min(1).max(5),
+  seq: z.number().int().positive(),
+  reaction: z
+    .discriminatedUnion("type", [
+      z.object({
+        type: z.literal("expression"),
+        expression: z.enum(["smile", "frown", "smirk"]),
+        gesture: z.null(),
+        intensity: z.number().min(0).max(1),
+        durationMs: z.literal(REACTION_DURATION_MS),
+      }),
+      z.object({
+        type: z.literal("gesture"),
+        expression: z.null(),
+        gesture: z.enum(["small_nod", "nod", "tilt"]),
+        intensity: z.null(),
+        durationMs: z.literal(REACTION_DURATION_MS),
+      }),
+    ])
+    .nullable(),
+  attitude: z.object({ interest: z.number().min(0).max(1), trust: z.number().min(0).max(1) }),
+  interrupt: z
+    .object({ reason: z.enum(["OFF_TOPIC", "TOO_LONG"]), text: z.string().min(1) })
+    .nullable(),
+});
+export type ReactionMessage = z.infer<typeof reactionMessageSchema>;
+export interface ReactionSnapshot {
+  message: ReactionMessage;
+  receivedAt: number;
+}
+
+export function chatInputPayload(
+  sessionId: number,
+  questionSeq: number,
+  seq: number,
+  text: string,
+  pauseMs: number,
+) {
+  return JSON.stringify({ type: "chat.input", sessionId, questionSeq, seq, text, pauseMs });
+}
+
+// 기준: AI 명세 6.3 interview.question. 질문 ID는 포함하지 않는다.
+export const questionMessageSchema = z.object({
+  type: z.literal("question"),
+  sessionId: z.number().int().positive(),
+  seq: z.number().int().min(1).max(5),
+  content: z.string().min(1),
+  speech: z.enum(["started", "ended", "failed"]),
+  alignment: z
+    .object({
+      chars: z.array(
+        z.object({
+          char: z.string(),
+          startMs: z.number().int().nonnegative(),
+          endMs: z.number().int().nonnegative(),
+        }),
+      ),
+    })
+    .nullable(),
+});
+
+export type QuestionMessage = z.infer<typeof questionMessageSchema>;
 
 /** 에이전트가 [답변 완료]를 거절하는 RPC 오류(AI 명세 6.3): 한마디도 안 함 · 답변 중이 아님 */
 export const ANSWER_REJECTED_CODES = [2001, 2002] as const;

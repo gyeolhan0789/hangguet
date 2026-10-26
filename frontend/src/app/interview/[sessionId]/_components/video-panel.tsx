@@ -69,6 +69,7 @@ export function VideoControls({
   level,
   canSubmit = false,
   submitting = false,
+  submitLabel = "답변 완료",
   onSubmit,
 }: {
   level: MotionValue<number>;
@@ -76,6 +77,7 @@ export function VideoControls({
   canSubmit?: boolean;
   /** 에이전트가 답변을 내는 중 */
   submitting?: boolean;
+  submitLabel?: string;
   onSubmit?: () => void;
 }) {
   return (
@@ -91,7 +93,7 @@ export function VideoControls({
       >
         <Image src="/interview/icon-check.svg" alt="" width={20} height={20} />
         <span className="text-[17px] leading-normal font-bold whitespace-nowrap text-[#191f28]">
-          답변 완료
+          {submitLabel}
         </span>
       </button>
     </div>

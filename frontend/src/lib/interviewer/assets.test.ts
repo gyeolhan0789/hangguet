@@ -25,6 +25,14 @@ interface PoseSegments {
 
 describe.each(PERSONAS)("%s 면접관 자산", (persona) => {
   const { model } = interviewerLook(persona)!;
+  it("리액션이 조절하는 머리 뼈대가 실제 모델에 존재한다", () => {
+    const bytes = readFileSync(join(process.cwd(), "public", model.glb));
+    const length = bytes.readUInt32LE(12);
+    const gltf = JSON.parse(bytes.subarray(20, 20 + length).toString("utf-8")) as {
+      nodes: { name?: string }[];
+    };
+    expect(gltf.nodes.some((node) => node.name === interviewerLook(persona)!.headBone)).toBe(true);
+  });
 
   it("자세 구간은 read · rest · tilt 자세가 모두 어느 구간의 어디인지 가리킨다", () => {
     // scene.ts는 poseEndpoints.read가 가리키는 구간 · 진행도로 읽는 자세를 잡는다.
