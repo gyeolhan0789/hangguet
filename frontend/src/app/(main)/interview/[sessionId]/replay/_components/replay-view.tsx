@@ -20,6 +20,8 @@ import { PLAYBACK_RATES, PlayerControls, VideoScreen, type PlayerState } from ".
 // 질문 시점으로 점프, 재생 중인 질문이 오른쪽 목록에서 강조 + 자막 동기화)
 // · 사용자 결정(2026-10-22: 영상이 없으면(채팅 · videoUrl null) 플레이어 없이 질문 목록과 답변 탭만 보여 준다,
 //   질문 목록은 맨 위 카드부터 자막 상자 맨 아래까지의 높이에 맞추고 넘치면 스크롤)
+// · 사용자 결정(2026-10-26, 모바일(sm 미만) 화상만): 영상 아래 자막 상자는 빼고 질문 목록(펼치면 답변)으로 본다.
+//   화면 높이를 헤더 아래에 맞춰 영상 · 재생 막대는 위에 고정하고 질문 목록만 스크롤한다. sm 이상 · 채팅은 그대로다.
 
 /** S07-1 면접 다시보기 화면 */
 export function ReplayView({ replay }: { replay: ReplayResponse }) {
@@ -71,7 +73,11 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 pt-6 pb-10 lg:px-20">
+    <div
+      className={`mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 pt-6 pb-10 lg:px-20 ${
+        hasVideo ? "max-sm:h-[calc(100svh-72px)] max-sm:pb-4" : ""
+      }`}
+    >
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
         <div className="flex flex-col gap-1">
           <Link
@@ -95,13 +101,13 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
       <div
         className={
           hasVideo
-            ? "grid grid-cols-1 gap-x-6 gap-y-3 lg:grid-cols-[minmax(0,1fr)_396px]"
+            ? "grid grid-cols-1 gap-x-6 gap-y-3 max-sm:flex max-sm:min-h-0 max-sm:flex-1 max-sm:flex-col lg:grid-cols-[minmax(0,1fr)_396px]"
             : "flex flex-col"
         }
       >
         {replay.videoUrl !== null && (
           <>
-            <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+            <div className="min-w-0 shrink-0 lg:col-start-1 lg:row-start-1">
               <VideoScreen
                 videoUrl={replay.videoUrl}
                 video={video}
@@ -117,7 +123,7 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
                 onRate={(rate) => setPlayer((state) => ({ ...state, rate }))}
               />
             </div>
-            <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+            <div className="min-w-0 shrink-0 lg:col-start-1 lg:row-start-2">
               <PlayerControls
                 state={player}
                 items={replay.items}
@@ -131,9 +137,10 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
           </>
         )}
         <div
+          data-testid="replay-questions-scroll"
           className={
             hasVideo
-              ? "mt-3 min-w-0 lg:relative lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0"
+              ? "mt-3 min-w-0 max-sm:mt-0 max-sm:min-h-0 max-sm:flex-1 max-sm:overflow-y-auto max-sm:overscroll-contain lg:relative lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0"
               : "w-full"
           }
         >
