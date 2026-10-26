@@ -4,12 +4,18 @@
 
 cd company-pipeline && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
 화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
+
+서버(compose의 viewer 컨테이너)는 VIEWER_READONLY=1로 띄운다. 서버의 companies.json은 배포 때마다
+git 내용으로 덮어써지고, 검색·AI 찾기는 우리 키로 DART·GMS를 부르므로
+/api/*를 모두 막고 화면만 보여 준다.
+VIEWER_HOST는 여는 주소(기본 127.0.0.1, 컨테이너 안에서는 0.0.0.0)
 """
 
 import contextlib
 import functools
 import http.server
 import json
+import os
 import urllib.parse
 import webbrowser
 from pathlib import Path
@@ -74,6 +80,10 @@ def _corp_json(corp: candidates.Corp) -> dict[str, Any]:
     }
 
 
+def _readonly() -> bool:
+    return os.environ.get("VIEWER_READONLY") == "1"
+
+
 def _has_report(code: str) -> bool:
     try:
         dart.annual_report_no(code)
@@ -103,7 +113,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(url.query)
         arg = q.get("q", q.get("code", [""]))[0]
-        if url.path == "/api/search":  # 자동완성
+        if url.path == "/api/mode":  # 화면이 회사 추가 버튼을 보일지 정한다
+            self._send(200, {"readonly": _readonly()})
+        elif url.path.startswith("/api/") and _readonly():
+            self._send(403, {"error": "읽기 전용 화면"})
+        elif url.path == "/api/search":  # 자동완성
             self._send(200, [_corp_json(c) for c in candidates.search(arg, _corps())])
         elif url.path == "/api/ask":  # 약칭은 AI로 정식명 찾기 (DART 목록에 있을 때만)
             corp = candidates.ask_official(arg, _corps())
@@ -118,6 +132,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_POST(self) -> None:  # noqa: N802
+        if _readonly():
+            self._send(403, {"error": "읽기 전용 화면"})
+            return
         if urllib.parse.urlparse(self.path).path != "/api/add":
             self._send(404, {"error": "없는 주소"})
             return
@@ -136,10 +153,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def serve(port: int = 8765) -> None:
     """pipeline 폴더를 이 컴퓨터에서만 접속되는 주소로 띄운다. Ctrl+C로 끈다."""
-    with http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler) as server:
+    host = os.environ.get("VIEWER_HOST", "127.0.0.1")
+    with http.server.ThreadingHTTPServer((host, port), Handler) as server:
         url = f"http://127.0.0.1:{port}/viewer.html"
-        print(f"{url} 열림 (끄려면 Ctrl+C)")
-        webbrowser.open(url)
+        print(f"{url} 열림 (끄려면 Ctrl+C){' 읽기 전용' if _readonly() else ''}", flush=True)
+        if not _readonly():  # 서버에는 브라우저가 없다
+            webbrowser.open(url)
         with contextlib.suppress(KeyboardInterrupt):
             server.serve_forever()
 

@@ -123,6 +123,29 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  # 카드 확인 화면(읽기 전용). 매일 작업(write_viewer)이 갱신한 data/viewer_data.js를 보여 준다.
+  # 회사 추가·검색 API는 막는다(VIEWER_READONLY). 바깥 공개는 Cloudflare Tunnel + Access로만 한다
+  viewer:
+    image: apache/airflow:3.3.2-python3.13
+    entrypoint: ["python", "-m", "pipeline.viewer"]
+    environment:
+      PYTHONPATH: /opt/ai
+      VIEWER_HOST: 0.0.0.0
+      VIEWER_READONLY: "1"
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: *minio-user
+      S3_SECRET_KEY: *minio-password
+      S3_BUCKET: *bucket
+    volumes:
+      - ../pipeline:/opt/ai/pipeline
+    ports:
+      - "127.0.0.1:8765:8765"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    restart: always
+    logging: *logging
+
   # 처음 한 번: 실행 기록 DB 테이블 생성, LLM·임베딩 호출 줄 세우기용 풀(크기 1) 생성
   airflow-init:
     <<: *airflow-common
