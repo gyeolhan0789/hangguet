@@ -42,6 +42,9 @@ public interface SessionRuntimeStore {
     /** evaluation.completed·evaluation.failed: 결과 생성 단계 지움 */
     void clearAnalysisStep(long sessionId);
 
+    /** 결과 생성 시작을 되돌린다(단계·시작 시각·작업 id를 지움). 시작을 기록한 트랜잭션이 되돌려졌을 때 쓴다 */
+    void clearAnalysis(long sessionId);
+
     /** 결과 생성을 시작한 시각. 기록이 없으면 비어 있다. */
     Optional<Instant> findAnalysisStartedAt(long sessionId);
 }

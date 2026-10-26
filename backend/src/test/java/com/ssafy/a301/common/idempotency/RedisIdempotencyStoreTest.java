@@ -52,12 +52,19 @@ class RedisIdempotencyStoreTest {
     }
 
     @Test
-    void completeKeepsResponseFor24Hours() {
+    @SuppressWarnings("unchecked")
+    void completeKeepsResponseFor24HoursOnlyOverOwnProcessingMark() {
         IdempotencyRecord done = IdempotencyRecord.completed("fp", 202, null, "");
 
         store.complete(7L, KEY, done);
 
-        verify(values).set(REDIS_KEY, json(done), Duration.ofHours(24));
+        verify(redis)
+                .execute(
+                        any(RedisScript.class),
+                        eq(List.of(REDIS_KEY)),
+                        eq(json(IdempotencyRecord.processing("fp"))),
+                        eq(json(done)),
+                        eq(Long.toString(Duration.ofHours(24).toMillis())));
     }
 
     @Test

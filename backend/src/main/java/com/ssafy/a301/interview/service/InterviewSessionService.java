@@ -119,9 +119,8 @@ public class InterviewSessionService {
         InterviewSession session =
                 sessions.findWithApplication(sessionId, userId)
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
-        if (session.getStatus() == SessionStatus.ANALYZING
-                && runtimes.isAnalysisTimedOut(sessionId, now.toInstant())) {
-            session = transactions.execute(status -> failAnalysis(userId, sessionId));
+        if (session.getStatus() == SessionStatus.ANALYZING && isAnalysisTimedOut(session, now)) {
+            session = transactions.execute(status -> failAnalysis(userId, sessionId, now));
         }
         return toResponse(session, runtimes.current(sessionId, now.toInstant()), now);
     }
@@ -320,12 +319,20 @@ public class InterviewSessionService {
         runtimes.startAnalysis(sessionId, now.toInstant(), job.getId());
     }
 
-    private InterviewSession failAnalysis(long userId, long sessionId) {
+    // 잠근 뒤 다시 확인한다. 잠금을 기다리는 사이 다른 요청이 FAILED로 바꾸고 5.9로 다시 시작했으면 새 시도를 실패시키지 않는다
+    private InterviewSession failAnalysis(long userId, long sessionId, OffsetDateTime now) {
         InterviewSession session = lock(userId, sessionId);
-        if (session.getStatus() == SessionStatus.ANALYZING) {
+        if (session.getStatus() == SessionStatus.ANALYZING && isAnalysisTimedOut(session, now)) {
             session.failAnalysis();
         }
         return session;
+    }
+
+    private boolean isAnalysisTimedOut(InterviewSession session, OffsetDateTime now) {
+        return runtimes.isAnalysisTimedOut(
+                session.getId(),
+                session.getEndedAt() == null ? null : session.getEndedAt().toInstant(),
+                now.toInstant());
     }
 
     // 그날 처음일 때만 남긴다. 이번에 남겨 뱃지 구간이 바뀌었으면 true
