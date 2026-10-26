@@ -2,6 +2,8 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { interviewerLook } from "@/lib/interviewer/models";
+
 import { InterviewerStage } from "./interviewer-stage";
 
 vi.mock("motion/react", async (importOriginal) => ({
@@ -16,10 +18,17 @@ vi.mock("@/lib/interviewer/scene", () => ({
   createInterviewerScene: (...args: unknown[]) => createInterviewerScene(...args),
 }));
 
+// 지금은 모든 면접관에 모델이 있어, 모델이 없는 면접관은 테스트에서 interviewerLook이 null을 돌려주게 해 본다.
+vi.mock("@/lib/interviewer/models", async (importOriginal) => {
+  const models = await importOriginal<typeof import("@/lib/interviewer/models")>();
+  return { ...models, interviewerLook: vi.fn(models.interviewerLook) };
+});
+
 // 기준: 면접관 표현 결정 ③-3(WebGL 미지원 · 로드 실패 · 컨텍스트 손실이면 정지 이미지)
 // · 사용자 결정(2026-10-22: 큰 모델이라 시간 제한(③-3의 10초 Timeout) 없이 받는 중이면 로딩 표시를 계속 둔다)
 // · Next.js Preserving UI state(Activity: 떠난 화면을 숨겨 두었다가 돌아오면 효과를 다시 실행)
 // · 사용자 요청(2026-10-21: 면접관 로딩 화면 — S06-1 Thinking Avatar) · Swagger 5.1 Persona
+// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓰고, 카페 배경은 아직 없다)
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -34,6 +43,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  // 모델이 없는 면접관으로 바꾼 값을 다음 테스트로 넘기지 않는다(실제 interviewerLook으로 되돌린다).
+  vi.mocked(interviewerLook).mockReset();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -42,10 +53,32 @@ const stage = () => screen.getByTestId("interviewer-stage");
 const loading = () => screen.queryByRole("status", { name: "면접관을 불러오는 중" });
 
 describe("InterviewerStage (면접관 3D 장면)", () => {
-  it("3D 모델이 없는 면접관(커피챗)이면 아무것도 그리지 않는다", () => {
+  it("3D 모델이 없는 면접관이면 아무것도 그리지 않는다", () => {
+    vi.mocked(interviewerLook).mockReturnValue(null);
     const { container } = render(<InterviewerStage persona="COFFEE_CHAT" />);
     expect(container.innerHTML).toBe("");
     expect(createInterviewerScene).not.toHaveBeenCalled();
+  });
+
+  it("커피챗 면접관은 자기 모델 · 구도로 그리고, 폭풍 배경(비네트)은 깔지 않는다", async () => {
+    const coffee = interviewerLook("COFFEE_CHAT")!;
+    createInterviewerScene.mockResolvedValue({ setFace: vi.fn(), resize: vi.fn(), dispose });
+    render(<InterviewerStage persona="COFFEE_CHAT" />);
+    expect(screen.getByRole("img", { name: "개발자 커피챗" })).toBeTruthy();
+
+    await act(async () => {});
+
+    expect(stage().dataset.state).toBe("ready");
+    expect(screen.queryByTestId("storm-vignette")).toBeNull();
+    expect(coffee.model.glb).toBe("/interview/coffee-chat/interviewer.glb");
+    expect(createInterviewerScene).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: coffee.model,
+        frame: coffee.frame,
+        storm: undefined,
+        interior: undefined,
+      }),
+    );
   });
 
   it("불러오는 동안 면접관 썸네일 로딩 표시를 두고, 다 불러오면 3D로 바꾼다", async () => {
