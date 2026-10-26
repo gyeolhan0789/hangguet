@@ -257,8 +257,6 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `z6Gc8SPkVwBOo9WpiD45`, COFFEE_CHAT `YS3jk8Ky5hJfXQYGLkLa`, 모델은 `eleven_multilingual_v2`다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
 
-**현재 구현 범위:** 지원자 마이크 구독 → Soniox STT → 원본 확정 토큰·시각 수집 → 화면 텍스트 표시. 배정 정보의 `currentSeq` 질문 하나를 TTS로 말하고 `question.started`·`interview.question`(`started`·`ended`·`failed`)을 보낸다. 다음 질문으로 넘어가기(`answerSubmit`)·질문별 분리·`answerStartedAt` 기준 시각 변환·답변 완료 판단·`answer.completed`·Jev는 미구현이다. 아래는 이 기능들을 포함한 목표 계약이다.
-
 ### 6.1 배정
 
 BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를 면접방에 배정한다. 에이전트는 이름을 지정한 배정만 받는다.
@@ -325,7 +323,7 @@ STT 표시는 LiveKit 텍스트 스트림 `interview.stt`로 선택된 지원자
 - 브라우저는 현재 면접의 5.14 입장 정보로 연결하고 기존 마이크 트랙을 송출한다. 장치 권한과 입장 토큰은 별개다.
 - 새로고침 후에는 새 캡처를 시작하며 이전 자막은 복원하지 않는다. 이 메시지는 DB에 저장하지 않는다.
 
-이하 RPC는 구현 예정이며, 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `seq`(질문 순서 1~5)로 가리키고, 리액션·채팅 입력은 `seq`를 메시지 순번으로 사용하므로 질문을 `questionSeq`로 가리킨다. 메시지 종류와 화면 동작은 API 명세 면접방 메시지를 따른다.
+이하 RPC의 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `seq`(질문 순서 1~5)로 가리키고, 리액션·채팅 입력은 `seq`를 메시지 순번으로 사용하므로 질문을 `questionSeq`로 가리킨다. 메시지 종류와 화면 동작은 API 명세 면접방 메시지를 따른다.
 
 RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메시지 표의 메시지 이름)과 `sessionId`(면접 id)를 담는다. 아래 표의 필드는 공통 필드를 제외한 것이다. `interview.stt` 스냅샷에는 이 공통 필드를 사용하지 않는다.
 
@@ -363,7 +361,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | Jev 늦음·실패 | 그 문장은 리액션 없이 넘어감(6.4) |
 | LiveKit 일시 끊김 | 브라우저 SDK가 재접속하며 화면에 연결 중 상태를 표시한다. 완전히 끊기면 [다시 연결]로 5.14 입장 정보를 새로 받는다 |
 | 지원자 퇴장·새로고침 | 현재 STT 캡처를 정리하고 에이전트는 방에서 재입장을 기다린다. 재입장하면 새 캡처를 시작한다. 답변 중이었으면 그때까지 인식한 글을 폐기하고 답변 끝 판단의 7초·60초 계산을 멈추며, 재입장하면 같은 질문의 답변을 처음부터 다시 듣는다. 질문 음성 재생 중에 퇴장했으면 재입장 뒤 면접방 메시지 `question`(`started`)부터 질문을 다시 말하고, 결과 메시지 `question.started`는 다시 전송하지 않는다. 리액션의 태도(`attitude`)는 면접 전체에 대한 값이므로 유지하고, 폐기한 답변으로 판단 중이던 리액션은 전송하지 않는다. 같은 질문의 리액션 `seq`는 1로 되돌리지 않고 이어서 증가시킨다. 새로 연결한 화면은 이전 채팅 입력 `seq`를 알 수 없으므로, 재입장하면 수신한 채팅 입력 `seq` 기록을 초기화한다 |
-| Soniox STT 오류 | `interview.stt`의 `state: failed`와 `answer.state`(`sttFailed`)를 전송한다. 화면은 마지막 텍스트와 실패 안내를 유지한다. 그 답변에서 발화가 있었으면, [답변 완료](`answer.submit`)를 수신할 때 그때까지 인식된 글을 제출한다. STT 오류는 지원자가 일으킨 것이 아니므로 인식된 글을 폐기하지 않는다. 발화가 없었으면 [답변 완료]는 `2001 EMPTY_ANSWER`로 거절되므로, 오류 상태에서도 60초를 계속 계산해 답변 시작 60초 뒤 `answer.state`(`timedOut`)를 전송한다. 공급자 자동 재연결·에이전트 재배정은 미구현이다 |
+| Soniox STT 오류 | `interview.stt`의 `state: failed`와 `answer.state`(`sttFailed`)를 전송한다. 화면은 마지막 텍스트와 실패 안내를 유지한다. 그 답변에서 발화가 있었으면, [답변 완료](`answer.submit`)를 수신할 때 그때까지 인식된 글을 제출한다. STT 오류는 지원자가 일으킨 것이 아니므로 인식된 글을 폐기하지 않는다. 발화가 없었으면 [답변 완료]는 `2001 EMPTY_ANSWER`로 거절되므로, 오류 상태에서도 60초를 계속 계산해 답변 시작 60초 뒤 `answer.state`(`timedOut`)를 전송한다 |
 | TTS 실패 | `question`에 `failed`. 화면은 질문 글로 진행 |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도(5장). 답변 완료(`answer.completed`)가 재시도 후에도 실패하면 `answer.state`로 `submitFailed`를 전송한다. 에이전트는 그 답변을 메모리에 보관하고 다음 질문으로 진행하지 않는다. 화면은 실패를 안내하고 [다시 시도]를 표시하며, 에이전트는 `submitFailed` 상태에서 `answer.submit`을 수신하면 보관한 같은 답변을 같은 재시도 규칙으로 다시 전송한다. 성공하면 `answer.state`(`submitted`)를 전송하고 다음 질문으로 진행한다. 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용하며, 이때 보관한 답변은 저장되지 않는다. `submitFailed` 상태에서 지원자가 재입장하면 `submitFailed`를 다시 전송한다. 새로 연결한 화면은 실패 상태를 알 수 없기 때문이다. 같은 결과가 두 번 전송돼도 BE가 제외한다 |
 | 저장할 수 없는 답변 | 답변 글·토큰이 `answer.completed`의 범위(6.2)를 벗어나면 다시 전송해도 BE가 저장하지 못하므로, `answer.completed`를 전송하지 않고 다음 질문으로 진행한다. `answer.state`(`submitted`·`submitFailed`)는 전송하지 않으며, 그 답변은 저장되지 않는다 |
