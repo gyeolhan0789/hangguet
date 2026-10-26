@@ -119,6 +119,33 @@ class InterviewSessionControllerTest {
     }
 
     @Test
+    void listRejectsDatesOutsideFourDigitYears() throws Exception {
+        // ISO 날짜로는 읽히지만 0000년·다섯 자리 이상·음수 연도는 400(이전에는 500)
+        for (String date :
+                List.of("0000-12-31", "+10000-01-01", "+999999999-12-31", "-999999999-01-01")) {
+            mvc.perform(
+                            get("/api/v1/interview-sessions")
+                                    .param("practiceDate", date)
+                                    .with(jwt().jwt(token -> token.subject("1"))))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                    .andExpect(jsonPath("$.errors[0].field").value("practiceDate"));
+        }
+    }
+
+    @Test
+    void listAcceptsDateRangeBoundaries() throws Exception {
+        for (String date : List.of("0001-01-01", "9999-12-31")) {
+            mvc.perform(
+                            get("/api/v1/interview-sessions")
+                                    .param("practiceDate", date)
+                                    .with(jwt().jwt(token -> token.subject("1"))))
+                    .andExpect(status().isOk());
+            verify(sessionList).list(1, LocalDate.parse(date), 0, 5);
+        }
+    }
+
+    @Test
     void listUsesFiveAsDefaultPageSize() throws Exception {
         mvc.perform(
                         get("/api/v1/interview-sessions")

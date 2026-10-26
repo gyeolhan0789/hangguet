@@ -96,6 +96,7 @@ com.ssafy.a301
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
 │  └─ domain       UploadPurpose
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
+├─ common/validation  SupportedDate·SupportedMonth(조회 날짜·월 범위 0001~9999년, 5.13·5.15·3.3·7.1)
 ├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
 └─ config          OpenApiConfig, SchedulingConfig
 ```
@@ -342,6 +343,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 ## 11. 오류 처리 **[결정]**
 - 응답 형식: ProblemDetail + `code`(+ 400은 `errors`). `GlobalExceptionHandler`가 Spring 자체 오류에도 `code`를 붙인다
 - 업무 오류: `throw new ApiException(ErrorCode.X)`. 필드 사이 검증 실패: `FieldValidationException(field, reason)`
+- 조회 날짜·월 파라미터는 `@SupportedDate`·`@SupportedMonth`로 0001~9999년만 받는다. ISO 날짜는 0000년·다섯 자리 연도도 읽어서, 막지 않으면 시각 계산·DB에서 500이 된다. 범위 밖은 400 `VALIDATION_FAILED`
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일

@@ -1,6 +1,6 @@
 package com.ssafy.a301.growth.controller;
 
-import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.common.validation.SupportedDate;
 import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
 import com.ssafy.a301.growth.service.GrowthReviewService;
@@ -25,11 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/growth-reviews")
 public class GrowthReviewController {
-    // 5.15 월 범위(0001-01~9999-12)와 같은 네 자리 연도만 받는다. ISO 날짜는 0000년·다섯 자리 연도도 읽어서, 막지 않으면 시각 계산·DB에서
-    // 500이 된다.
-    private static final LocalDate MIN_DATE = LocalDate.of(1, 1, 1);
-    private static final LocalDate MAX_DATE = LocalDate.of(9999, 12, 31);
-
     private final GrowthReviewService reviews;
 
     public GrowthReviewController(GrowthReviewService reviews) {
@@ -53,10 +48,8 @@ public class GrowthReviewController {
             @Parameter(description = "면접 시작 날짜(YYYY-MM-DD, 한국 시간)", example = "2026-10-13")
                     @PathVariable
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    @SupportedDate
                     LocalDate practiceDate) {
-        if (practiceDate.isBefore(MIN_DATE) || practiceDate.isAfter(MAX_DATE)) {
-            throw new FieldValidationException("practiceDate", "0001-01-01~9999-12-31입니다.");
-        }
         return reviews.review(userId(jwt), practiceDate);
     }
 
