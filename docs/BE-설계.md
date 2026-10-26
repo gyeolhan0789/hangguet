@@ -253,7 +253,7 @@ com.ssafy.a301
 ## 6. 계산 규칙 (저장하지 않음)
 
 ### 6.1 연습 면접 · 스트릭 **[결정]**
-- 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`). 면접 수·연습 시간은 모두 이 기준
+- 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`). 면접 수·연습 시간은 모두 이 기준. 상태 목록은 `SessionStatus.PRACTICE` 한 곳에 두고, 날짜별 건수·시간은 `PracticeStatsService.daily`(3.1·5.13·7.1)로 계산한다
 - 연습한 날 = `practice_logs`에 있는 한국 시간 면접 시작 날짜. 답변 1개 이상으로 종료한 뒤 기록하며, 자정·월 경계를 넘어도 시작일에만 기록한다.
 - `currentStreak`: 오늘 기록이 있으면 오늘부터, 없으면 어제부터 거꾸로 빠짐없이 이어진 날 수. 어제도 없으면 0
 - `bestStreak`: 전체 기록에서 가장 긴 연속 구간
@@ -280,6 +280,7 @@ com.ssafy.a301
 - `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
 - `latestJobTitle` = 가장 최근 면접에 쓴 지원서의 직무
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
+- 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
 - 6.4 `videoUrl`은 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있을 때만 Presigned GET. 합치기 전이거나 실패(`recording.mergeFailed`)했으면 null이고 질문 목록은 그대로 준다 **[임시: B-19 결정 전]**
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`

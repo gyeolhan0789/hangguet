@@ -13,7 +13,6 @@ import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -23,8 +22,6 @@ import org.springframework.data.domain.Limit;
 @ExtendWith(MockitoExtension.class)
 class PracticeStatsServiceTest {
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 20);
-    private static final Set<SessionStatus> PRACTICE_STATUSES =
-            Set.of(SessionStatus.ANALYZING, SessionStatus.COMPLETED, SessionStatus.FAILED);
 
     @Mock private PracticeLogRepository practiceLogs;
     @Mock private InterviewSessionRepository sessions;
@@ -40,9 +37,9 @@ class PracticeStatsServiceTest {
                                 TODAY.minusDays(6),
                                 TODAY.minusDays(7),
                                 TODAY.minusDays(8)));
-        when(sessions.countPracticeSessions(7, PRACTICE_STATUSES)).thenReturn(6L);
-        when(sessions.sumPracticeSeconds(7)).thenReturn(24_059L);
-        when(sessions.findPracticeJobTitles(7, PRACTICE_STATUSES, Limit.of(1)))
+        when(sessions.countPracticeSessions(7, SessionStatus.PRACTICE)).thenReturn(6L);
+        when(sessions.sumPracticeSeconds(7, SessionStatus.practiceNames())).thenReturn(24_059L);
+        when(sessions.findPracticeJobTitles(7, SessionStatus.PRACTICE, Limit.of(1)))
                 .thenReturn(List.of("백엔드 개발자"));
 
         var stats = service().stats(7, TODAY);

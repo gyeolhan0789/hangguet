@@ -4,12 +4,10 @@ import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
-import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.result.dto.ResultDtos;
 import com.ssafy.a301.result.dto.ResultDtos.AnswerFeedback;
-import com.ssafy.a301.result.dto.ResultDtos.RecordingResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayItem;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
@@ -24,14 +22,6 @@ public final class ResultMapper {
 
     /** 질문과 그 답변. 답변하지 않은 질문이면 answer가 null */
     public record QuestionAndAnswer(InterviewQuestion question, Answer answer) {}
-
-    // 6.2 녹화 등록 응답. API로 등록하는 파일은 SESSION_VIDEO뿐이다
-    public static RecordingResponse toRecordingResponse(Recording recording) {
-        return new RecordingResponse(
-                recording.getId(),
-                ResultDtos.RecordingType.valueOf(recording.getRecordingType().name()),
-                recording.getCreatedAt());
-    }
 
     // 6.3. 결과에는 답변한 질문만 넣는다(점수가 있는 것)
     public static ResultResponse toResult(

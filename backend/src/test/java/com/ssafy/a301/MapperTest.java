@@ -24,7 +24,6 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanStatus;
-import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
@@ -156,13 +155,6 @@ class MapperTest {
         assertThat(result.speechMetrics().gazeRatio()).isNull();
         assertThat(ResultMapper.toReplay(s, List.of(), "https://video").videoUrl())
                 .isEqualTo("https://video");
-    }
-
-    @Test
-    void recordingResponseUsesApiType() {
-        Recording video = withId(Recording.sessionVideo(session(InterviewMode.VIDEO), "k"), 77);
-        assertThat(ResultMapper.toRecordingResponse(video).recordingType())
-                .isEqualTo(ResultDtos.RecordingType.SESSION_VIDEO);
     }
 
     @Test
