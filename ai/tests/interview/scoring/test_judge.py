@@ -158,6 +158,28 @@ def test_missing_probability_position_returns_none(text: str) -> None:
     assert level_probs([TokenLogprob(text, 0, {"3": 0})], Criterion.JOB_FIT) is None
 
 
+def test_split_hangul_byte_tokens_keep_level_probability() -> None:
+    """한 글자가 여러 토큰으로 나뉘어 바이트 표기로 전달돼도 단계 확률을 해석한다.
+
+    실제 GMS(gpt-4.1-mini)는 「쿼」를 바이트 표기 토큰 세 개로 전달했다.
+    """
+    tokens = [
+        TokenLogprob('{"JOB_FIT": {"reason": "느린', 0, {}),
+        TokenLogprob(r" \xec", 0, {}),
+        TokenLogprob(r"\xbf", 0, {}),
+        TokenLogprob(r"\xbc", 0, {}),
+        TokenLogprob('리 로그", "level":', 0, {}),
+        TokenLogprob(" 3", 0, {"3": math.log(0.75), "2": math.log(0.25)}),
+        TokenLogprob("}}", 0, {}),
+    ]
+    assert level_probs(tokens, Criterion.JOB_FIT) == pytest.approx({3: 0.75, 2: 0.25})
+
+
+def test_escaped_backslash_in_reason_is_not_treated_as_byte_token() -> None:
+    tokens = response_tokens(reason=r"경로 C:\x41")
+    assert level_probs(tokens, Criterion.LOGIC) == pytest.approx({1: 0.1, 2: 0.3, 3: 0.6})
+
+
 def test_combined_digit_and_punctuation_token_has_no_level_probability() -> None:
     tokens = [
         TokenLogprob('{"JOB_FIT": {"level":', 0, {}),

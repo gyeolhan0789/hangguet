@@ -27,6 +27,11 @@ SPEECH_LABELS = {
 }
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.S)
 _DECODER = json.JSONDecoder()
+# 한 글자의 UTF-8 바이트가 여러 토큰으로 나뉘면 GMS는 각 토큰을 \xNN 표기로 전달한다.
+# \x는 JSON 문자열에서 허용되지 않는 이스케이프라 이어 붙이면 해석에 실패하므로,
+# 토큰 전체가 이 표기일 때만 위치가 유지되도록 같은 길이의 글자로 치환한다.
+_BYTE_TOKEN = re.compile(r"\s*(?:\\x[0-9a-fA-F]{2})+")
+_BYTE_ESCAPE = re.compile(r"\\x[0-9a-fA-F]{2}")
 
 
 class Criterion(StrEnum):
@@ -127,12 +132,18 @@ def _field_position(text: str, start: int, field: str) -> int | None:
         pos += 1
 
 
+def _plain(token: str) -> str:
+    if not _BYTE_TOKEN.fullmatch(token):
+        return token
+    return _BYTE_ESCAPE.sub(lambda match: "_" * len(match[0]), token)
+
+
 def level_probs(
     tokens: Sequence[TokenLogprob] | None, criterion: Criterion
 ) -> dict[int, float] | None:
     if not tokens:
         return None
-    raw = "".join(token.token for token in tokens)
+    raw = "".join(_plain(token.token) for token in tokens)
     # GMS가 제거하는 사고 과정 블록을 공백으로 치환해 원본 토큰 위치를 유지한다.
     text = _THINK_BLOCK.sub(lambda match: " " * len(match[0]), raw)
     try:
