@@ -257,7 +257,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `DMyrgzQFny3JI1Y1paM5`, COFFEE_CHAT `21m00Tcm4TlvDq8ikWAM`, 모델은 `eleven_multilingual_v2`다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
 
-**현재 구현 범위:** 지원자 마이크 구독 → Soniox STT → 원본 확정 토큰·시각 수집 → 화면 텍스트 표시. 배정 정보의 `currentSeq` 질문 하나를 TTS로 말하고 `question.started`·`interview.question`(`started`·`ended`·`failed`)을 보낸다. 다음 질문으로 넘어가기(`answerSubmit`)·질문별 분리·`answerStartedAt` 기준 시각 변환·답변 완료 판단·`answer.completed`·Jev는 미구현이다. 아래는 이 기능들을 포함한 목표 계약이다.
+**현재 구현 범위:** 배정 정보의 `currentSeq`부터 5번까지 질문을 TTS로 말하고 `question.started`·`interview.question`(`started`·`ended`·`failed`)을 보낸다. 화상은 답변마다 STT 캡처를 열어(`answerStartedAt` 기준 시각) 7초 침묵·`answer.submit`으로 답변을 끝내고 `answer.completed`(말하기 지표 포함)와 `answer.state`를 보낸 뒤 다음 질문으로 넘어간다. 채팅은 `answer.submit`을 받으면 넘어간다. 퇴장·재입장, 결과 큐 실패(`submitFailed` 뒤 재전송)는 6.5대로 처리한다. 리액션(Jev)·`chat.input`·STT 자동 재연결(`sttReconnecting`)은 미구현이다.
 
 ### 6.1 배정
 

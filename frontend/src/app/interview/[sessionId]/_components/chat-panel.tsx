@@ -7,6 +7,7 @@ import { useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { endSession, submitTextAnswer } from "@/lib/interview/actions";
+import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import { ANSWER_TEXT_MAX, answerTextSchema, type AnswerTextValues } from "@/lib/interview/schemas";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion } from "@/types/api";
@@ -16,6 +17,7 @@ import type { CurrentQuestion } from "@/types/api";
 // · Send 44(brand-strong · send 20)) · S06 STT Bubble(18:2539: 흰색 8% · 테두리 흰색 15% · 둥글기 20 · 18 Medium) — 보낸 답변 말풍선
 // · 웹 Swagger 5.7 답변 제출(TEXT · content 1~1,000자) · 5.8 면접 끝내기(isLastQuestion이면 자동)
 // · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈)
+// · API 명세 5.7(202 또는 409 ANSWER_ALREADY_SUBMITTED면 면접방 메시지 answer.submit으로 에이전트를 다음 질문으로 넘긴다)
 // · 모션 메모 S06-B(18:2615: 포커스 시 테두리 주황 + 높이 자동 확장(최대 5줄), 전송: 보낸 답변이 말풍선으로 위로 날아가며 사라짐
 // → 면접관 '생각 중' 점 3개 → 다음 질문 타자 등장)
 
@@ -30,10 +32,13 @@ const MIN_PX = LINE_PX + 12 + 44;
 export function ChatPanel({
   sessionId,
   question,
+  onAnswered,
 }: {
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
+  /** 답변이 저장됐을 때(이미 낸 답변 포함) 그 질문 순서. 에이전트에 [답변 완료]를 보낸다 */
+  onAnswered?: (seq: number) => void;
 }) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
@@ -86,15 +91,18 @@ export function ChatPanel({
         setError("content", { message: result.fieldErrors.content });
         return;
       }
-      if (result.formError) {
+      // 이미 낸 답변(새로고침 뒤 다시 냄 등)이면 오류 없이 다음 질문으로 넘어간다(API 명세 5.7).
+      const already = Boolean(result.alreadySubmitted);
+      if (result.formError && !already) {
         setFormError(result.formError);
         return;
       }
-      setSent({ id: question.id, text: values.content });
+      if (!already) setSent({ id: question.id, text: values.content });
       reset({ content: "" });
       requestAnimationFrame(fit);
       setAnsweredQuestion(question.id);
-      if (result.isLastQuestion) {
+      onAnswered?.(question.seq);
+      if (result.isLastQuestion || (already && question.seq === TOTAL_QUESTIONS)) {
         endKey.current ??= crypto.randomUUID();
         const ended = await endSession(sessionId, endKey.current);
         if (ended.keySpent) endKey.current = null;

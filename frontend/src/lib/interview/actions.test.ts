@@ -576,7 +576,19 @@ describe("submitTextAnswer (5.7 답변 제출 · 채팅)", () => {
     });
   });
 
-  it.each([CONFLICT.ANSWER_ALREADY_SUBMITTED, CONFLICT.INVALID_SESSION_STATE, QUESTION_NOT_FOUND])(
+  it("409 ANSWER_ALREADY_SUBMITTED면 이미 낸 답변이라고 알리고(alreadySubmitted), 화면을 다시 그린다", async () => {
+    post.mockRejectedValue(axiosProblem(CONFLICT.ANSWER_ALREADY_SUBMITTED));
+
+    // 화면은 에이전트에 [답변 완료]를 다시 보내 다음 질문으로 넘어간다(API 명세 5.7)
+    expect(await submitTextAnswer(55, 303, { content: "답" }, KEY)).toEqual({
+      formError: CONFLICT.ANSWER_ALREADY_SUBMITTED.detail,
+      keySpent: true,
+      alreadySubmitted: true,
+    });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([CONFLICT.INVALID_SESSION_STATE, QUESTION_NOT_FOUND])(
     "$status $code면 서버 문구를 돌려주고, 화면을 다시 그려 지금 상태를 받는다",
     async (problem) => {
       post.mockRejectedValue(axiosProblem(problem));

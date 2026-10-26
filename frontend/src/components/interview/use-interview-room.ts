@@ -1,33 +1,75 @@
 "use client";
 
-import { Room, RoomEvent, Track } from "livekit-client";
-import { useCallback, useEffect, useState } from "react";
+import { Room, RoomEvent, RpcError, Track } from "livekit-client";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { issueRoomToken } from "@/lib/interview/actions";
+import {
+  ANSWER_REJECTED_CODES,
+  ANSWER_STATE_METHOD,
+  ANSWER_SUBMIT_METHOD,
+  answerStateSchema,
+  answerSubmitPayload,
+  answerSubmitResponseSchema,
+  type AnswerStateMessage,
+} from "@/lib/interview/room-messages";
 import { STT_TOPIC, transcriptSchema } from "@/lib/interview/transcript";
 
 // 기준: 웹 Swagger 5.14 · RoomResponse · 사용자 승인 마이크 송출/STT 표시 계획.
 // SDK: https://docs.livekit.io/transport/data/text-streams/ · publishTrack(MediaStreamTrack)
 // · 원격 트랙 재생 RemoteTrack.attach()(https://docs.livekit.io/transport/media/subscribe/).
 // · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 사용자 결정(2026-10-26: 채팅도 5.14로 입장한다)
+// · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · RPC(https://docs.livekit.io/transport/data/rpc/)
 export type InterviewRoomStatus =
   "idle" | "connecting" | "listening" | "reconnecting" | "failed" | "sttFailed";
 
-const INITIAL = { status: "idle" as InterviewRoomStatus, confirmedText: "", interimText: "" };
+const INITIAL = {
+  status: "idle" as InterviewRoomStatus,
+  /** 지금 표시하는 STT 캡처. 에이전트가 답변마다 새로 연다(AI 명세 6.3 streamId) */
+  streamId: null as string | null,
+  confirmedText: "",
+  interimText: "",
+};
+
+/**
+ * [답변 완료](answer.submit) 결과: 받음 · 에이전트가 받지 않음(이미 제출 중 · 지난 질문 · 한마디도 안 함 · 답변 중이 아님)
+ * · 보내지 못함
+ */
+export type SubmitAnswerResult = "accepted" | "rejected" | "failed";
+
+/** 에이전트가 [답변 완료]를 받았는지. 응답 형식이 틀리면 받지 않은 것으로 본다(다시 보내도 같은 응답이다). */
+function accepted(response: string) {
+  try {
+    const parsed = answerSubmitResponseSchema.safeParse(JSON.parse(response));
+    return parsed.success && parsed.data.accepted;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * 면접방에 들어간다. 화상은 마이크(stream)를 받은 뒤 들어가 송출하고,
  * 채팅(listenOnly)은 마이크 없이 들어가 면접관 음성만 재생한다.
+ * 에이전트가 보내는 답변 상태(answer.state)는 onAnswerState로 넘기고, [답변 완료]는 submitAnswer로 보낸다.
  */
 export function useInterviewRoom(
   sessionId: number,
   stream: MediaStream | null,
-  { listenOnly = false }: { listenOnly?: boolean } = {},
+  {
+    listenOnly = false,
+    onAnswerState,
+  }: { listenOnly?: boolean; onAnswerState?: (message: AnswerStateMessage) => void } = {},
 ) {
   const microphone = listenOnly ? undefined : stream?.getAudioTracks()[0];
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(INITIAL);
   const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  const connected = useRef<Room | null>(null);
+  // 받은 함수가 바뀌어도 다시 입장하지 않도록 최신 함수만 기억한다.
+  const answerState = useRef(onAnswerState);
+  useEffect(() => {
+    answerState.current = onAnswerState;
+  });
 
   useEffect(() => {
     const track = microphone;
@@ -92,6 +134,7 @@ export function useInterviewRoom(
           sttStatus = snapshot.state === "failed" ? "sttFailed" : "listening";
           setState({
             status: sttStatus,
+            streamId: snapshot.streamId,
             confirmedText: snapshot.confirmedText,
             interimText: snapshot.interimText,
           });
@@ -99,6 +142,20 @@ export function useInterviewRoom(
           // 잘못된 메시지와 종료된 스트림은 버린다. 답변 원문은 로그에 남기지 않는다.
         }
       })();
+    });
+
+    // 에이전트의 답변 상태(자동 제출 · 제출됨 · 제출 실패 등). 화면이 할 일은 받은 쪽이 정한다.
+    room.registerRpcMethod(ANSWER_STATE_METHOD, async (data) => {
+      if (!room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+      try {
+        const parsed = answerStateSchema.safeParse(JSON.parse(data.payload));
+        if (!disposed && parsed.success && parsed.data.sessionId === sessionId) {
+          answerState.current?.(parsed.data);
+        }
+      } catch {
+        // 잘못된 메시지는 버린다.
+      }
+      return "";
     });
 
     const connect = async () => {
@@ -115,6 +172,7 @@ export function useInterviewRoom(
           await room.disconnect(false);
           return;
         }
+        connected.current = room;
         // 채팅은 송출하지 않는다(웹 Swagger 5.4). 들어가면 면접관 음성을 듣는 중이다(STT 메시지는 오지 않는다).
         if (!track) {
           sttStatus = "listening";
@@ -136,6 +194,8 @@ export function useInterviewRoom(
     return () => {
       disposed = true;
       lifetime.abort();
+      if (connected.current === room) connected.current = null;
+      room.unregisterRpcMethod(ANSWER_STATE_METHOD);
       track?.removeEventListener("ended", fail);
       room.unregisterTextStreamHandler(STT_TOPIC);
       room.removeAllListeners();
@@ -145,5 +205,28 @@ export function useInterviewRoom(
     };
   }, [sessionId, microphone, listenOnly, attempt]);
 
-  return { ...state, retry };
+  // [답변 완료]를 에이전트에 보낸다(answer.submit). 방에 들어가 있지 않거나 에이전트가 없으면 보내지 못한다.
+  const submitAnswer = useCallback(
+    async (seq: number): Promise<SubmitAnswerResult> => {
+      const room = connected.current;
+      const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
+      if (!room || !agent) return "failed";
+      try {
+        const response = await room.localParticipant.performRpc({
+          destinationIdentity: agent.identity,
+          method: ANSWER_SUBMIT_METHOD,
+          payload: answerSubmitPayload(sessionId, seq),
+        });
+        return accepted(response) ? "accepted" : "rejected";
+      } catch (error) {
+        const rejected =
+          error instanceof RpcError &&
+          (ANSWER_REJECTED_CODES as readonly number[]).includes(error.code);
+        return rejected ? "rejected" : "failed";
+      }
+    },
+    [sessionId],
+  );
+
+  return { ...state, retry, submitAnswer };
 }

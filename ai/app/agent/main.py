@@ -1,21 +1,26 @@
-"""배정받은 LiveKit 방에서 지원자의 마이크를 Soniox STT로 전달하고, 질문을 음성으로 말한다."""
+"""배정받은 LiveKit 방에서 질문을 차례로 말하고, 지원자의 답변을 Soniox STT로 듣는다.
+
+배정이 없는 테스트 방(connect --room)에서는 질문 없이 지원자의 음성 인식 결과만 보낸다.
+"""
 
 import asyncio
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import AsyncExitStack
 
 from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, JobRequest, cli
 
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.capture import audio_chunks
+from app.agent.interview import InterviewConductor
 from app.agent.question import QuestionSpeaker
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
+from app.common.session import InterviewMode
 from app.common.settings import load_settings
 
 log = logging.getLogger(__name__)
@@ -60,7 +65,6 @@ async def entrypoint(ctx: JobContext) -> None:
     assignment = job_assignment(ctx)
     closed = asyncio.Event()
     transcription: asyncio.Task[None] | None = None
-    asking: asyncio.Task[None] | None = None
     speaker: QuestionSpeaker | None = None
 
     def on_disconnected(_reason: rtc.DisconnectReason) -> None:
@@ -74,10 +78,15 @@ async def entrypoint(ctx: JobContext) -> None:
     try:
         await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
         log.info("LiveKit 방 참가 완료", extra={"room": ctx.room.name})
-        if assignment is not None:
-            speaker = question_speaker(ctx, assignment)
-            asking = asyncio.create_task(ask_question(ctx, closed, speaker, assignment.current_seq))
-        transcription = asyncio.create_task(transcribe_room(ctx, closed, settings))
+        if assignment is None:
+            transcription = asyncio.create_task(transcribe_room(ctx, closed, settings))
+        else:
+            # 질문 시작(question.started)과 답변 완료(answer.completed)를 같은 결과 큐로 보낸다
+            results = ResultPublisher(create_redis(load_settings(os.environ)))
+            speaker = question_speaker(ctx, assignment, results)
+            transcription = asyncio.create_task(
+                conduct_interview(ctx, closed, assignment, speaker, results, settings)
+            )
         stop = asyncio.create_task(closed.wait())
         try:
             done, _ = await asyncio.wait((transcription, stop), return_when=asyncio.FIRST_COMPLETED)
@@ -89,12 +98,7 @@ async def entrypoint(ctx: JobContext) -> None:
     finally:
         closed.set()
         try:
-            if asking is not None:
-                # 면접방이 닫히면 말하던 질문 음성은 이어서 낼 곳이 없으므로 기다리지 않는다
-                asking.cancel()
-                await asyncio.gather(asking, return_exceptions=True)
-            if speaker is not None:
-                await speaker.aclose()
+            # 질문을 말하던 진행 작업을 먼저 멈춘 뒤 질문 음성을 닫는다(닫힌 음성에 쓰지 않게)
             if transcription is not None:
                 try:
                     await asyncio.wait_for(asyncio.shield(transcription), timeout=20)
@@ -102,44 +106,74 @@ async def entrypoint(ctx: JobContext) -> None:
                     transcription.cancel()
                     await asyncio.gather(transcription, return_exceptions=True)
         finally:
-            ctx.room.off("disconnected", on_disconnected)
-            log.info("LiveKit 방 연결 종료")
+            try:
+                if speaker is not None:
+                    await speaker.aclose()
+            finally:
+                ctx.room.off("disconnected", on_disconnected)
+                log.info("LiveKit 방 연결 종료")
 
 
-def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker:
+def question_speaker(
+    ctx: JobContext, assignment: Assignment, results: ResultPublisher
+) -> QuestionSpeaker:
     common = load_settings(os.environ)
     tts = ElevenLabsTTS(common.elevenlabs_api_key)
     if not tts.configured:
         # STT와 달리 실행을 막지 않는다. 질문 음성이 없어도 화면은 질문 글로 진행한다(AI 명세 6.5)
         log.warning("ELEVENLABS_API_KEY가 없어 질문 음성 없이 진행한다")
-    return QuestionSpeaker(
-        ctx.room.local_participant, assignment, tts, ResultPublisher(create_redis(common))
-    )
+    return QuestionSpeaker(ctx.room.local_participant, assignment, tts, results)
 
 
-async def ask_question(
-    ctx: JobContext, closed: asyncio.Event, speaker: QuestionSpeaker, seq: int
+async def conduct_interview(
+    ctx: JobContext,
+    closed: asyncio.Event,
+    assignment: Assignment,
+    speaker: QuestionSpeaker,
+    results: ResultPublisher,
+    settings: SttSettings,
 ) -> None:
-    """질문 음성을 미리 합성해 두고, 지원자가 들어오면 질문한다.
+    """질문을 currentSeq부터 차례로 진행한다(app.agent.interview).
 
-    질문 진행(다음 질문으로 넘어가기)은 아직 없어 배정 정보의 currentSeq 질문 하나만 말한다.
-    지원자가 새로고침으로 다시 들어와도 다시 말하지 않는다.
+    5번 답변 뒤에는 방이 닫힐 때까지 기다리고, 방이 닫히면 진행 중이던 질문·답변을 멈춘다.
+    질문 진행 오류로 면접방에서 나가지 않게 이 작업 안에서 끝낸다.
     """
-    prepared = asyncio.create_task(speaker.prepare(seq))
+    video = assignment.mode is InterviewMode.VIDEO
+    if video:
+        ctx.room.on("track_published", subscribe_microphone)
+        for participant in ctx.room.remote_participants.values():
+            for pub in participant.track_publications.values():
+                subscribe_microphone(pub, participant)
+    conductor = InterviewConductor(
+        ctx.room,
+        assignment,
+        speaker,
+        results,
+        settings if video else None,
+        lambda: first_participant(ctx, closed),
+    )
+    running = asyncio.create_task(conductor.run())
+    stop = asyncio.create_task(closed.wait())
     try:
-        await speaker.publish_track()
-        participant = await first_participant(ctx, closed)
-        if participant is None:
-            return
-        await speaker.ask(seq, participant.identity, await prepared)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # 질문 음성 오류로 음성 인식까지 멈추지 않게 이 작업 안에서 끝낸다
-        log.exception("질문 진행 실패", extra={"seq": seq})
+        await asyncio.wait((running, stop), return_when=asyncio.FIRST_COMPLETED)
+        if not running.done():
+            running.cancel()
+        await asyncio.gather(running, return_exceptions=True)
+        if not running.cancelled() and running.exception() is not None:
+            log.error("질문 진행 실패", exc_info=running.exception())
+        await closed.wait()
     finally:
-        prepared.cancel()
-        await asyncio.gather(prepared, return_exceptions=True)
+        running.cancel()
+        stop.cancel()
+        await asyncio.gather(running, stop, return_exceptions=True)
+        conductor.aclose()
+        if video:
+            ctx.room.off("track_published", subscribe_microphone)
+
+
+def subscribe_microphone(pub: rtc.RemoteTrackPublication, _owner: rtc.RemoteParticipant) -> None:
+    if pub.source == rtc.TrackSource.SOURCE_MICROPHONE:
+        pub.set_subscribed(True)
 
 
 async def first_participant(ctx: JobContext, closed: asyncio.Event) -> rtc.RemoteParticipant | None:
@@ -152,28 +186,6 @@ async def first_participant(ctx: JobContext, closed: asyncio.Event) -> rtc.Remot
         waiting.cancel()
         stop.cancel()
         await asyncio.gather(waiting, stop, return_exceptions=True)
-
-
-async def audio_chunks(
-    stream: AsyncIterator[rtc.AudioFrameEvent], closed: asyncio.Event
-) -> AsyncGenerator[bytes]:
-    stop = asyncio.create_task(closed.wait())
-    frame: asyncio.Future[rtc.AudioFrameEvent] | None = None
-    try:
-        while not closed.is_set():
-            frame = asyncio.ensure_future(anext(stream))
-            done, _ = await asyncio.wait((frame, stop), return_when=asyncio.FIRST_COMPLETED)
-            if stop in done:
-                break
-            try:
-                yield bytes(frame.result().frame.data)
-            except StopAsyncIteration:
-                return
-    finally:
-        stop.cancel()
-        if frame is not None:
-            frame.cancel()
-        await asyncio.gather(stop, *([frame] if frame is not None else []), return_exceptions=True)
 
 
 async def transcribe_room(ctx: JobContext, closed: asyncio.Event, settings: SttSettings) -> None:

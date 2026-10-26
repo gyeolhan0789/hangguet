@@ -188,6 +188,8 @@ export interface TextAnswerActionResult extends SessionActionResult {
   fieldErrors?: { content?: string };
   /** 제출에 성공했고 마지막 질문이었으면 true → 화면이 면접 끝내기(5.8)를 부른다 */
   isLastQuestion?: boolean;
+  /** 이미 낸 답변이었으면(409 ANSWER_ALREADY_SUBMITTED) true → 화면이 에이전트에 [답변 완료]를 다시 보낸다(API 명세 5.7) */
+  alreadySubmitted?: boolean;
 }
 
 /**
@@ -237,6 +239,7 @@ export async function submitTextAnswer(
     return {
       ...toFormActionResult(error, ["content"]),
       ...(getProblemDetail(error) && { keySpent: true }),
+      ...(code === "ANSWER_ALREADY_SUBMITTED" && { alreadySubmitted: true }),
     };
   }
   refresh();
