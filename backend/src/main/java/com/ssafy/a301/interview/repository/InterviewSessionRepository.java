@@ -36,7 +36,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                     from interview_sessions s
                     join users u on u.id = s.user_id
                     where s.user_id = :userId and u.deleted_at is null
-                      and s.status in ('ANALYZING', 'COMPLETED', 'FAILED')
+                      and s.status in (:statuses)
                       and s.started_at >= :from and s.started_at < :to
                       and exists (
                           select 1 from answers a
@@ -48,6 +48,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             nativeQuery = true)
     List<PracticeDateCount> countPracticeByDate(
             @Param("userId") long userId,
+            @Param("statuses") Collection<String> statuses,
             @Param("from") OffsetDateTime from,
             @Param("to") OffsetDateTime to);
 
@@ -107,7 +108,7 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                     from interview_sessions s
                     join users u on u.id = s.user_id
                     where s.user_id = :userId and u.deleted_at is null
-                      and s.status in ('ANALYZING', 'COMPLETED', 'FAILED')
+                      and s.status in (:statuses)
                       and s.ended_at is not null
                       and exists (
                           select 1 from answers a
@@ -116,7 +117,8 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                       )
                     """,
             nativeQuery = true)
-    long sumPracticeSeconds(@Param("userId") long userId);
+    long sumPracticeSeconds(
+            @Param("userId") long userId, @Param("statuses") Collection<String> statuses);
 
     /** 3.2 통계의 직무. 가장 최근에 시작한 연습 면접부터 지원서 직무를 준다. */
     @Query(

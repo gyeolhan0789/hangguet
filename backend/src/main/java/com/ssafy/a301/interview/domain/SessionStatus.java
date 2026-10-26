@@ -1,6 +1,10 @@
 package com.ssafy.a301.interview.domain;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 
 @Schema(
         description =
@@ -12,5 +16,14 @@ public enum SessionStatus {
     ANALYZING,
     COMPLETED,
     ABORTED,
-    FAILED
+    FAILED;
+
+    /** 연습 면접의 상태: 답변 1개 이상으로 끝난 면접(API 명세 1장). 스트릭·면접 수·연습 시간·연습 기록 목록이 모두 이 기준이다 */
+    public static final Set<SessionStatus> PRACTICE =
+            Collections.unmodifiableSet(EnumSet.of(ANALYZING, COMPLETED, FAILED));
+
+    /** 네이티브 쿼리에 넘길 PRACTICE의 이름 */
+    public static List<String> practiceNames() {
+        return PRACTICE.stream().map(Enum::name).toList();
+    }
 }

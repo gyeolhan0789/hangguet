@@ -15,6 +15,8 @@ import static org.mockito.Mockito.when;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.home.repository.PracticeLogRepository;
+import com.ssafy.a301.home.service.PracticeStatsService;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
@@ -43,6 +45,7 @@ class InterviewSessionListServiceTest {
     @Mock private InterviewSessionRepository sessions;
     @Mock private AnswerRepository answers;
     @Mock private SessionScoreRepository scores;
+    @Mock private PracticeLogRepository practiceLogs;
 
     @Test
     void calendarFillsZerosAndUsesOneMonthlyQueryWithKoreaBoundaries() {
@@ -68,11 +71,10 @@ class InterviewSessionListServiceTest {
                 };
         OffsetDateTime from = OffsetDateTime.parse("2026-10-01T00:00:00+09:00");
         OffsetDateTime to = OffsetDateTime.parse("2026-11-01T00:00:00+09:00");
-        when(sessions.countPracticeByDate(7, from, to)).thenReturn(List.of(last, first));
+        when(sessions.countPracticeByDate(7, SessionStatus.practiceNames(), from, to))
+                .thenReturn(List.of(last, first));
 
-        var result =
-                new InterviewSessionListService(sessions, answers, scores)
-                        .calendar(7, YearMonth.of(2026, 10));
+        var result = service().calendar(7, YearMonth.of(2026, 10));
 
         assertThat(result.month()).isEqualTo("2026-10");
         assertThat(result.content()).hasSize(31);
@@ -80,17 +82,15 @@ class InterviewSessionListServiceTest {
         assertThat(result.content().get(1).interviewCount()).isZero();
         assertThat(result.content().get(30).interviewCount()).isEqualTo(1);
         assertThat(result.content()).extracting(day -> day.practiceDate()).isSorted();
-        verify(sessions).countPracticeByDate(7, from, to);
+        verify(sessions).countPracticeByDate(7, SessionStatus.practiceNames(), from, to);
         verifyNoMoreInteractions(sessions);
         verifyNoInteractions(answers, scores);
     }
 
     @Test
     void emptyLeapMonthIncludesFebruary29() {
-        when(sessions.countPracticeByDate(anyLong(), any(), any())).thenReturn(List.of());
-        var result =
-                new InterviewSessionListService(sessions, answers, scores)
-                        .calendar(7, YearMonth.of(2028, 2));
+        when(sessions.countPracticeByDate(anyLong(), any(), any(), any())).thenReturn(List.of());
+        var result = service().calendar(7, YearMonth.of(2028, 2));
         assertThat(result.content())
                 .hasSize(29)
                 .allSatisfy(day -> assertThat(day.interviewCount()).isZero());
@@ -127,9 +127,7 @@ class InterviewSessionListServiceTest {
                                 new Object[] {start, start.plusSeconds(119)},
                                 new Object[] {start, start.plusSeconds(2)}));
 
-        var result =
-                new InterviewSessionListService(sessions, answers, scores)
-                        .list(7, LocalDate.of(2026, 10, 21), 0, 10);
+        var result = service().list(7, LocalDate.of(2026, 10, 21), 0, 10);
 
         assertThat(result.content()).hasSize(2);
         assertThat(result.content().get(0).answeredCount()).isEqualTo(2);
@@ -163,9 +161,7 @@ class InterviewSessionListServiceTest {
         when(sessions.countPracticeSessions(eq(7L), any())).thenReturn(4L);
         when(sessions.findPracticeDurations(eq(7L), any(), any(), any())).thenReturn(List.of());
 
-        var result =
-                new InterviewSessionListService(sessions, answers, scores)
-                        .list(7, LocalDate.of(2026, 10, 21), 2, 10);
+        var result = service().list(7, LocalDate.of(2026, 10, 21), 2, 10);
 
         assertThat(result.content()).isEmpty();
         assertThat(result.page().number()).isEqualTo(2);
@@ -182,9 +178,7 @@ class InterviewSessionListServiceTest {
                 .thenReturn(List.<Object[]>of(new Object[] {start, start.plusMinutes(18)}));
         when(sessions.countPracticeSessions(eq(7L), any())).thenReturn(4L);
 
-        var result =
-                new InterviewSessionListService(sessions, answers, scores)
-                        .list(7, LocalDate.of(2026, 10, 21), Integer.MAX_VALUE, 20);
+        var result = service().list(7, LocalDate.of(2026, 10, 21), Integer.MAX_VALUE, 20);
 
         assertThat(result.content()).isEmpty();
         assertThat(result.page().number()).isEqualTo(Integer.MAX_VALUE);
@@ -209,10 +203,7 @@ class InterviewSessionListServiceTest {
         when(scores.findBySessionIds(List.of(11L)))
                 .thenReturn(List.of(new SessionScore(completed, Criterion.LOGIC, 80, null)));
 
-        assertThatThrownBy(
-                        () ->
-                                new InterviewSessionListService(sessions, answers, scores)
-                                        .list(7, LocalDate.of(2026, 10, 21), 0, 10))
+        assertThatThrownBy(() -> service().list(7, LocalDate.of(2026, 10, 21), 0, 10))
                 .isInstanceOfSatisfying(
                         ApiException.class,
                         error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR));
@@ -248,5 +239,11 @@ class InterviewSessionListServiceTest {
                 return count;
             }
         };
+    }
+
+    /** 날짜 전체 건수·시간은 실제 PracticeStatsService가 같은 저장소 대역으로 계산한다 */
+    private InterviewSessionListService service() {
+        return new InterviewSessionListService(
+                sessions, answers, scores, new PracticeStatsService(practiceLogs, sessions));
     }
 }

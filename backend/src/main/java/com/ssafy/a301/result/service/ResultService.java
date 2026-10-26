@@ -67,7 +67,8 @@ public class ResultService {
                         .sorted(Comparator.comparing(SessionScore::getCriterion))
                         .toList();
         // 완료 결과는 기준 4개가 있어야 한다. 불완전한 결과를 정상 평가로 보여 주지 않는다(5.13과 같음).
-        if (sessionScores.size() != Criterion.values().length) {
+        if (!Criterion.coversAllOnce(
+                sessionScores.stream().map(SessionScore::getCriterion).toList())) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR);
         }
         List<QuestionAndAnswer> answered =
