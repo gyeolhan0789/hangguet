@@ -699,12 +699,7 @@ def test_malformed_chat_input_is_rejected(change: dict[str, Any]) -> None:
         "pauseMs": 800,
         **change,
     }
-    runner = InterviewRunner(
-        assignment(1, "CHAT"),
-        FakeAsker(),
-        lambda *_: None,
-        lambda *_: None,  # type: ignore[arg-type,return-value]
-    )
+    runner = Harness(mode="CHAT").runner
     with pytest.raises(InvalidChatInputError):
         runner.chat_input_received(json.dumps(payload))
 
