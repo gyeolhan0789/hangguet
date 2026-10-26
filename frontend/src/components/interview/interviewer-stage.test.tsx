@@ -28,7 +28,7 @@ vi.mock("@/lib/interviewer/models", async (importOriginal) => {
 // · 사용자 결정(2026-10-22: 큰 모델이라 시간 제한(③-3의 10초 Timeout) 없이 받는 중이면 로딩 표시를 계속 둔다)
 // · Next.js Preserving UI state(Activity: 떠난 화면을 숨겨 두었다가 돌아오면 효과를 다시 실행)
 // · 사용자 요청(2026-10-21: 면접관 로딩 화면 — S06-1 Thinking Avatar) · Swagger 5.1 Persona
-// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓰고, 카페 배경은 아직 없다)
+// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓰고, 카페 실내 그림을 배경으로 깐다)
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -60,7 +60,7 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
     expect(createInterviewerScene).not.toHaveBeenCalled();
   });
 
-  it("커피챗 면접관은 자기 모델 · 구도로 그리고, 폭풍 배경(비네트)은 깔지 않는다", async () => {
+  it("커피챗 면접관은 자기 모델 · 구도 · 카페 배경 그림 · 조명으로 그리고, 폭풍 배경(비네트)은 깔지 않는다", async () => {
     const coffee = interviewerLook("COFFEE_CHAT")!;
     createInterviewerScene.mockResolvedValue({ setFace: vi.fn(), resize: vi.fn(), dispose });
     render(<InterviewerStage persona="COFFEE_CHAT" />);
@@ -77,6 +77,8 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
         frame: coffee.frame,
         storm: undefined,
         interior: undefined,
+        background: coffee.background,
+        lights: coffee.lights,
       }),
     );
   });

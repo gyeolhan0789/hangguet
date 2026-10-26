@@ -238,7 +238,10 @@ test.describe("S06 면접 화면", () => {
     interviewIs(msw, SESSION_INTERVIEW.IN_PROGRESS);
     let stormRequested = false;
     let interiorRequested = false;
+    const coffeeAssets: string[] = [];
     page.on("request", (request) => {
+      if (decodeURIComponent(request.url()).includes("/interview/coffee-chat/"))
+        coffeeAssets.push(request.url());
       if (request.url().endsWith("/interview/devil/storm.mp4")) stormRequested = true;
       if (request.url().endsWith("/interview/devil/office.webp")) interiorRequested = true;
     });
@@ -265,6 +268,8 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByTestId("storm-vignette")).toBeVisible();
     expect(stormRequested).toBe(true);
     expect(interiorRequested).toBe(true);
+    // 커피챗의 카페 배경 · 조명은 악마 장면에 쓰지 않는다.
+    expect(coffeeAssets).toEqual([]);
   });
 
   test("3D를 불러오지 못하면 면접관 정지 이미지를 보여 준다", async ({ page, msw }) => {
@@ -495,7 +500,7 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByRole("button", { name: "면접 종료" })).toHaveCount(0);
   });
 
-  test("커피챗 면접관은 자기 3D 모델로 그리고, 폭풍 배경 · 번개 · 표시 아이콘은 없다", async ({
+  test("커피챗 면접관은 자기 3D 모델과 카페 배경으로 그리고, 폭풍 배경 · 번개 · 표시 아이콘은 없다", async ({
     page,
     msw,
   }) => {
@@ -507,9 +512,12 @@ test.describe("S06 면접 화면", () => {
         devilAssets.push(request.url());
     });
     const coffeeModel = page.waitForResponse("**/interview/coffee-chat/interviewer.glb");
+    const cafe = page.waitForResponse("**/interview/coffee-chat/cafe.webp");
     interviewIs(msw, { ...CHAT, persona: "COFFEE_CHAT" });
     await page.goto(S06);
-    expect((await coffeeModel).ok()).toBe(true);
+    const [modelResponse, cafeResponse] = await Promise.all([coffeeModel, cafe]);
+    expect(modelResponse.ok()).toBe(true);
+    expect(cafeResponse.ok()).toBe(true);
 
     await expect(page.getByText("개발자 커피챗", { exact: true }).first()).toBeVisible();
     // 커피챗 모델은 작아(약 0.4MB) 금방 해석되지만, SwiftShader 셰이더 컴파일 시간만큼 기다린다.

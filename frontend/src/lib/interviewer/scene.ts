@@ -19,6 +19,7 @@ import {
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
+import { setupBackdrop, type Backdrop } from "./backdrop";
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
 import { LoadError, withRetry } from "./retry";
@@ -54,6 +55,28 @@ export interface CameraFrame {
   /** 세로 화각(도) */
   fov: number;
 }
+
+type Vec3 = [number, number, number];
+
+/** 조명(색은 16진 RGB). 면접관마다 배경에 맞춰 바꿀 수 있다. 폭풍 배경은 이 조명(노출 포함)을 자기 값으로 덮어쓰고 번개에 맞춰 깜빡인다. */
+export interface SceneLights {
+  /** 톤 매핑 노출 */
+  exposure: number;
+  /** 하늘 · 바닥 반사광 */
+  hemi: { sky: number; ground: number; intensity: number };
+  /** 주광 */
+  key: { color: number; intensity: number; position: Vec3 };
+  /** 보조광 */
+  fill: { color: number; intensity: number; position: Vec3 };
+}
+
+/** 기본 조명(면접관 3D 모델 웹 미리보기와 같은 값) */
+export const DEFAULT_LIGHTS: SceneLights = {
+  exposure: 1.2,
+  hemi: { sky: 0xdde9ff, ground: 0x504033, intensity: 2.4 },
+  key: { color: 0xffe4c6, intensity: 3, position: [-1.2, 2, 2] },
+  fill: { color: 0xb8d2ff, intensity: 1.3, position: [1.8, 1, -1] },
+};
 
 export interface InterviewerScene {
   /** 표정을 바꾼다. 다음 프레임에 그린다. */
@@ -157,16 +180,22 @@ export async function createInterviewerScene({
   frame,
   storm: stormVideo,
   interior,
+  background,
+  lights = DEFAULT_LIGHTS,
   onLost,
   signal,
 }: {
   canvas: HTMLCanvasElement;
   model: InterviewerModel;
   frame: CameraFrame;
-  /** 폭풍 배경(먹구름 번개 영상 · 3D 번개 · 지옥불)을 쓸 때 그 영상 주소. 없으면 배경 없이 투명하게 그린다. */
+  /** 폭풍 배경(먹구름 번개 영상 · 3D 번개 · 지옥불)을 쓸 때 그 영상 주소. 없으면 background 그림을 깔고, 그것도 없으면 투명하게 그린다. */
   storm?: string;
   /** 폭풍 배경 앞에 까는 실내 그림(창문은 투명) */
   interior?: string;
+  /** 면접관 뒤에 까는 배경 그림(화면을 채움). 폭풍 배경과 같이 쓰지 않는다. */
+  background?: string;
+  /** 조명. 없으면 기본 조명 */
+  lights?: SceneLights;
   onLost: () => void;
   signal: AbortSignal;
 }): Promise<InterviewerScene> {
@@ -174,28 +203,30 @@ export async function createInterviewerScene({
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.2;
+  renderer.toneMappingExposure = lights.exposure;
 
   const scene = new Scene();
   const camera = new PerspectiveCamera(frame.fov, 1, 0.005, 20);
   camera.position.set(...frame.position);
   camera.lookAt(...frame.target);
-  const hemi = new HemisphereLight(0xdde9ff, 0x504033, 2.4);
+  const hemi = new HemisphereLight(lights.hemi.sky, lights.hemi.ground, lights.hemi.intensity);
   scene.add(hemi);
-  const key = new DirectionalLight(0xffe4c6, 3);
-  key.position.set(-1.2, 2, 2);
+  const key = new DirectionalLight(lights.key.color, lights.key.intensity);
+  key.position.set(...lights.key.position);
   scene.add(key);
-  const fill = new DirectionalLight(0xb8d2ff, 1.3);
-  fill.position.set(1.8, 1, -1);
+  const fill = new DirectionalLight(lights.fill.color, lights.fill.intensity);
+  fill.position.set(...lights.fill.position);
   scene.add(fill);
 
   let mixer: AnimationMixer | null = null;
   let storm: Storm | null = null;
+  let backdrop: Backdrop | null = null;
   /** 이 장면이 꺼내 쓴 모델. 정리할 때 GPU 자원만 놓고 캐시에 되돌려 둔다 */
   let assets: InterviewerAssets | null = null;
   const release = () => {
     renderer.setAnimationLoop(null);
     storm?.dispose();
+    backdrop?.dispose();
     mixer?.stopAllAction();
     scene.traverse((object: Object3D) => {
       const mesh = object as Mesh;
@@ -287,6 +318,8 @@ export async function createInterviewerScene({
         video: stormVideo,
         interior,
       });
+    } else if (background) {
+      backdrop = setupBackdrop({ scene, url: background, onLoad: () => (dirty = true) });
     }
 
     const resize = () => {
@@ -303,11 +336,12 @@ export async function createInterviewerScene({
             );
       camera.updateProjectionMatrix();
       storm?.resize(width, height);
+      backdrop?.resize(width, height);
       dirty = true;
     };
     resize();
 
-    // 폭풍 배경은 매 프레임 움직여 계속 그린다. 배경이 없으면 표정이나 크기가 바뀐 프레임에만 다시 그린다.
+    // 폭풍 배경은 매 프레임 움직여 계속 그린다. 폭풍 배경이 아니면(멈춘 그림 배경 포함) 표정이나 크기가 바뀐 프레임에만 다시 그린다.
     let last = performance.now();
     renderer.setAnimationLoop((now: number) => {
       if (storm) {
