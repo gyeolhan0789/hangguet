@@ -170,6 +170,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
 | `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름이라 같은 대시보드를 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.3g |
+| `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
 AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
@@ -195,7 +196,9 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 - BE 지표(요청 수 · 응답 시간)는 Spring Actuator에 Prometheus 내보내기를 추가해야 한다(BE 작업, **[미정]**)
 - 로그 수집은 **Loki + Alloy + Grafana**로 MVP에 넣는다 **[결정]**(10/26, 처음 안은 `docker logs`). Alloy가 `a301-*` 컨테이너 로그를 Loki에 모으고, 팀원은 Grafana의 로그 대시보드(서비스 선택 · 검색어 · 기간)에서 본다
   - 왜: 팀원이 SSH 없이 로그를 봐야 한다. `docker logs`는 서버 접속이 필요하고 재배포하면 이전 컨테이너 로그가 사라진다. Grafana를 이미 쓰므로 계정 · 화면을 따로 만들 필요가 없다
-  - 보관: 개발 3일, 운영 7일 **[제안]**. 운영 로그는 실제 사용자 데이터가 섞일 수 있어 볼 수 있는 사람의 범위를 정한다 **[미정]**
+  - 보관: 개발 3일, 운영 7일 **[결정]**. 운영 로그는 **팀원 전원이 Viewer로 본다** **[결정]**. 조건: 로그에 개인정보(이메일 · 자소서 · 답변 원문 · 토큰)를 남기지 않는다
+    - 왜: 6명 모두 이 서비스를 만드는 개발자라 운영 문제를 직접 봐야 빨리 고친다. 무료 Grafana(OSS)는 데이터 소스별 권한이 없어 대시보드를 숨겨도 계정이 있으면 Loki를 조회할 수 있으므로, 일부만 보게 하는 설정은 실제로 막히지 않는다. 실제 사용자가 많아지면 운영 Grafana 계정을 인프라만 갖게 좁힌다
+  - 운영도 첫 배포에 넣는다(`deploy/prod/compose.yml`의 `a301-prod-loki` · `a301-prod-alloy`, 대시보드 **A301 운영 서버 로그**). 왜: 첫 배포에서 생기는 문제를 보려면 로그가 필요하다
   - 개발 서버에 먼저 넣었다([`deploy/dev/monitoring`](../../deploy/dev/monitoring/README.md)). 로컬 시험에서 Loki 약 65MB · Alloy 약 50MB. 운영은 같은 모양으로 `deploy/prod/compose.yml`에 넣는다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**
 
@@ -432,6 +435,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 |---|---|---|
 | `DB_PASSWORD` | O | postgres, BE(AI는 DB에 접속하지 않는다). DB 볼륨을 처음 만들 때만 적용되므로 첫 배포 전에 확정한다 |
 | `JWT_SECRET` | O | BE(HS256, 32바이트 이상) |
+| `INQUIRY_ENCRYPTION_KEY` | O | BE 문의 제목 · 본문 암호화(AES-256-GCM, Base64 32바이트). 개발과 다른 값. **바꾸거나 잃으면 저장된 문의를 풀 수 없으므로** 비밀번호 관리자에 따로 보관한다 |
 | `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` | O(아이디는 기동 로그에 찍혀 Masked 안 함) | BE 관리 페이지 계정. 처음 기동할 때 계정이 없으면 만든다. 범위 All(위 예외) |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
 | `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
@@ -464,21 +468,25 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 
 ```
 develop → Release MR → master
-→ (미니PC 러너) be · fe · ai 이미지 빌드 → Docker Hub push (태그: be-/fe-/ai-<커밋 SHA>) → 미니PC 이미지 정리
-→ (Lightsail 러너, 태그 a301-prod) Docker Hub 로그인(pull 토큰) → docker compose pull → up -d → 헬스 체크 → 이미지 정리
+→ prod-build (자동, yobi 미니PC 배포 러너 a301-mock-deploy) be · fe · ai · admin 이미지 빌드 → Docker Hub push (태그: <서비스>-<커밋 짧은 SHA>) → 미니PC에서 지움
+→ prod-deploy (▶ 버튼, Lightsail 러너 a301-prod) deploy/prod/deploy.sh: Docker Hub 로그인(pull 토큰) → 파일 복사 → 백업 준비 → pull → up -d → 상태 확인 → 이미지 정리
 ```
+
+구현: `.gitlab-ci.yml`의 「운영 서버」, [`deploy/prod/deploy.sh`](../../deploy/prod/deploy.sh). 하는 일 · 롤백은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포」(10/26 작성, 아직 실행 전).
 
 | 결정 | 왜 |
 |---|---|
 | **운영 서버만 Docker Hub를 쓴다** **[결정]**. 개발 서버(develop → 미니PC)는 지금처럼 미니PC 러너가 그 자리에서 빌드해 띄운다(`deploy/dev/compose.yml`의 `build`) | 개발 서버는 빌드하는 곳과 도는 곳이 같아 레지스트리를 거칠 필요가 없다. 운영 서버는 다른 곳이라 이미지를 받아 와야 한다 |
 | SSAFY GitLab은 Container Registry가 꺼져 있어 외부 레지스트리(Docker Hub)를 쓴다 | GitLab 레지스트리를 쓸 수 없다 |
 | Docker Hub 로그인은 **작업마다 임시 폴더**(`DOCKER_CONFIG=$(mktemp -d)`)에서 하고, 작업이 끝나면 로그아웃하고 지운다 | 로그인 정보가 서버(`~/.docker/config.json`)에 암호화되지 않은 채 남지 않게 한다 |
-| 이미지 빌드 작업에 `environment: { name: prod/build, action: prepare }`를 붙인다 **[제안]** | push 토큰 범위가 `prod/*`라 이 이름이 있어야 읽힌다. develop 파이프라인에서는 push 토큰이 보이지 않는다 |
+| 이미지 빌드 작업에 `environment: { name: prod/build, action: prepare }`를 붙인다 **[결정]** | push 토큰 범위가 `prod/*`라 이 이름이 있어야 읽힌다. develop 파이프라인에서는 push 토큰이 보이지 않는다 |
+| 운영 이미지는 **yobi 미니PC 배포 러너**(`a301-mock-deploy`)에서 빌드한다 **[결정]**. 개발 서버 배포 잡과 같은 `resource_group`(`dev-deploy`)이고, push한 이미지는 미니PC에서 지운다 | 개발 이미지를 이미 여기서 빌드해 빌드 캐시를 같이 쓰고, Docker Hub push도 시험했다. 데일밴드 러너는 작업이 컨테이너 안에서 돌아 Docker를 쓸 수 없다. 같은 그룹이라 미니PC에서 빌드가 겹치지 않는다 |
 | 운영 서버에서는 빌드하지 않는다 | Gradle · Next 빌드가 서비스 메모리를 잡아먹어 서비스가 죽을 수 있다 |
 | 같은 이미지를 환경만 바꿔 띄우므로 이미지에 환경별 값을 넣지 않는다. FE가 브라우저에 알려 줄 값(LiveKit 주소 등)도 빌드 때 박는 `NEXT_PUBLIC_*` 대신 실행 시점 값(BE 응답이나 서버 환경 변수)으로 넘긴다 **[제안]** | 값을 빌드 때 넣으면 환경마다 이미지를 다시 만들어야 하고, 같은 이미지로 롤백할 수 없다 |
 | Lightsail에 **protected** GitLab 러너(shell executor)를 둔다. master 파이프라인만 실행한다 | 아무 브랜치에서나 운영 서버 명령이 돌면 안 된다. 러너가 GitLab에 먼저 접속하므로 포트를 열 필요가 없다 |
-| 배포 작업은 `resource_group`으로 한 번에 하나만, 헬스 체크는 루프백 포트로 한다 **[제안]** | 배포가 겹치면 컨테이너 상태가 꼬인다. 헬스 체크 포트는 바깥에 열지 않는다 |
-| master 병합 시 자동 배포 **[제안]** | master에는 검증된 Release MR만 들어오므로(CONTRIBUTING 9장) 사람 손을 줄인다 |
+| 배포 작업은 `resource_group`(`prod-deploy`)으로 한 번에 하나만, 헬스 체크는 루프백 포트로 한다 **[결정]** | 배포가 겹치면 컨테이너 상태가 꼬인다. 헬스 체크 포트는 바깥에 열지 않는다 |
+| master 병합 시 **이미지 빌드는 자동, 운영 배포는 ▶ 버튼** **[결정]**(처음 안은 자동 배포) | 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어 시점을 사람이 고른다. 이미지를 미리 만들어 두어 버튼을 누르면 빨리 끝나고, 실패하면 배포만 다시 시도하기 쉽다. 안정되면 규칙 한 줄로 자동으로 바꿀 수 있다 |
+| 배포 파일은 `/opt/a301/prod`로 복사해 그 자리에서 compose를 실행한다. 설정 파일이 바뀐 서비스만 다시 시작한다 | 설정 파일 경로가 체크아웃 위치와 관계없이 같다. 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose가 다시 만들지 않는다. LiveKit을 매번 다시 시작하면 면접이 끊긴다 |
 
 ### 8.2 이미지 정리 **[결정]**
 
@@ -546,10 +554,12 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 운영 배포 파일 [`deploy/prod/`](../../deploy/prod/README.md): `compose.yml` · `livekit.yaml` · Egress 설정(compose의 `EGRESS_CONFIG_BODY`) · `nginx.conf` · `prometheus.yml` · Grafana 설정 · `backup.sh`. 서버에서 compose · Nginx · Prometheus 설정 검사와 LiveKit · Egress 시험 기동까지 함
 - [x] 서버 준비(10/26): 공개 이미지 미리 받기, 백업 스크립트 · cron, 시험 이미지 정리
 - [ ] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
-- [ ] CI 작업: 이미지 빌드(be · fe · ai · admin) · push, `prod-deploy`(할 일은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포 작업이 할 일」)
+- [x] CI 작업 작성: `prod-build`(자동) · `prod-deploy`(▶ 버튼, `deploy/prod/deploy.sh`), `workflow`에 master push 허용(8.1). **아직 실행 전**: 첫 Release MR에서 확인한다
+- [x] 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수)
+- [ ] 러너 토큰(`a301-prod`): 10/26 확인 작업 중 출력에 토큰이 남았으나 다시 받지 않기로 함. 노출 범위는 작업 대화 기록이고, 러너가 이상하게 작업을 받거나 놓치면 그때 다시 받는다
 - [ ] Grafana 대시보드: 앱 대시보드(개발 서버와 같음)는 넣어 둠. 서버 · 컨테이너 · LiveKit 대시보드와 팀원 계정은 첫 배포 뒤
 - [x] 로그 수집(개발 서버): Loki · Alloy · 로그 대시보드, `monitoring-deploy` 다시 켬(3.3)
-- [ ] 로그 수집(운영): 개발과 같은 모양으로 `deploy/prod/compose.yml`에 추가, 운영 로그를 볼 수 있는 사람 정하기
+- [x] 로그 수집(운영): 개발과 같은 모양으로 `deploy/prod/compose.yml`에 추가(7일), 열람은 팀원 전원 Viewer(3.3)
 - [ ] 개발 Grafana 팀원 계정(Viewer)
 - [x] GitLab 변수 등록(7장): `prod/*`에 `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN`, S3 키(`LIVEKIT_EGRESS_S3_*` · `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`), `DB_PASSWORD` · `JWT_SECRET`. 범위 All(개발과 같은 값)에 `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `GRAFANA_ADMIN_PASSWORD`, 외부 API 키 3개
   - [x] Protected 정리: `CLOUDFLARE_TUNNEL_TOKEN`, 외부 API 키 3개, `ADMIN_PASSWORD`, `DB_PASSWORD`(운영), 개발 `AWS_SECRET_ACCESS_KEY`
@@ -638,3 +648,5 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.2 · 13 | 운영 Swagger 미공개 결정: BE에서 끄고 Nginx에서도 경로를 404로 막음. 13장의 Swagger 공개 항목 삭제 | 운영 API 구조를 바깥에 드러낼 이유가 없고, API 확인은 개발 서버 Swagger로 충분해서 |
 | 인프라 | 3.2 · 7 | AI 분석 작업자 배포 추가: 개발 `a301-dev-ai-analysis`(CI `ai-analysis-deploy`) · 운영 `a301-prod-ai-analysis`. GMS 주소 · 모델은 회사 카드 파이프라인과 같은 값을 compose에 적고 키는 `LLM_API_KEY`. 헬스체크는 Redis 연결, 컨테이너는 하나로 고정 | 작업자가 어디에도 떠 있지 않아 플랜 생성이 처리되지 않았다. 처리 중 리스트를 공유하는 구조라 늘리면 중복 처리되므로 하나로 둔다 |
 | 인프라 | 3.3 · 11 | 로그 수집을 MVP에 넣음: 개발 서버에 Loki 3.7.8 · Alloy v1.20.1 · Grafana 로그 대시보드 추가(3일 보관, `a301-dev-*`만 수집), 꺼 두었던 `monitoring-deploy` 다시 켬 | 팀원이 SSH 없이 로그를 보게 하고, 재배포해도 로그가 남게 하려고 |
+| 인프라 | 7 | 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수 `prod/*`) | 문의 API가 이 키를 필수로 요구해 없으면 운영 BE가 기동하지 않는다 |
+| 인프라 | 3.2 · 3.3 · 8.1 · 11 | 운영 CI 작성(`prod-build` 자동 · `prod-deploy` 버튼, `deploy/prod/deploy.sh`, `workflow`에 master 추가). 결정: 운영 배포는 ▶ 버튼, 이미지는 yobi 미니PC에서 빌드, 운영 로그 수집을 첫 배포에 넣고 팀원 전원 Viewer · 7일, 러너 토큰은 다시 받지 않음 | 배포 시점을 사람이 골라 진행 중인 면접을 끊지 않고, 첫 배포 문제를 로그로 보려고. 각 결정의 이유는 해당 장 |

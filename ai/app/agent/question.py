@@ -131,9 +131,19 @@ class QuestionSpeaker:
             log.warning("질문 음성 합성 실패: %s", e, extra={"seq": seq})
             return None
 
-    async def ask(self, seq: int, destination: str, audio: SpeechAudio | None) -> None:
+    async def ask(
+        self, seq: int, destination: str, audio: SpeechAudio | None, *, announce: bool = True
+    ) -> None:
+        """질문을 말한다.
+
+        재입장 뒤 같은 질문을 다시 말할 때는 announce=False로
+        question.started를 다시 전송하지 않는다.
+        BE가 질문 행을 처음 시작 시각으로 이미 저장했기 때문이다(AI 명세 6.5).
+        """
         content = self._assignment.question(seq)
-        started = asyncio.create_task(self._publish_started(seq, self._clock()))
+        started = (
+            asyncio.create_task(self._publish_started(seq, self._clock())) if announce else None
+        )
         try:
             if audio is None or self._source is None:
                 await self._notify(destination, seq, content, SpeechState.FAILED)
@@ -147,7 +157,8 @@ class QuestionSpeaker:
                 return
             await self._notify(destination, seq, content, SpeechState.ENDED)
         finally:
-            await started
+            if started is not None:
+                await started
 
     async def aclose(self) -> None:
         if self._source is not None:
