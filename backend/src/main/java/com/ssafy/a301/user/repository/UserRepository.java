@@ -2,6 +2,7 @@ package com.ssafy.a301.user.repository;
 
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.LockModeType;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -9,9 +10,18 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface UserRepository extends JpaRepository<User, Long> {
-    boolean existsByEmailAndDeletedAtIsNull(String email);
+    /** 탈퇴하지 않은 회원 중 이메일이 같은(대소문자 무시) 회원이 있는지. email은 User.normalizeEmail로 바꿔 넘긴다 */
+    @Query("select count(u) > 0 from User u where lower(u.email) = :email and u.deletedAt is null")
+    boolean existsActiveByEmail(@Param("email") String email);
 
-    Optional<User> findByEmailAndDeletedAtIsNull(String email);
+    /**
+     * 탈퇴하지 않은 회원을 이메일(대소문자 무시)로 찾는다. email은 User.normalizeEmail로 바꿔 넘긴다. 소문자로 저장하기 전에 가입한 데이터에는
+     * 대소문자만 다른 계정이 둘 이상 있을 수 있어 목록으로 준다
+     */
+    @Query(
+            "select u from User u where lower(u.email) = :email and u.deletedAt is null order by"
+                    + " u.id")
+    List<User> findActiveByEmail(@Param("email") String email);
 
     Optional<User> findByIdAndDeletedAtIsNull(Long id);
 

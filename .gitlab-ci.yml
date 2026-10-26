@@ -448,7 +448,7 @@ mock-deploy:
 
 # 미니PC 개발 서버 배포 (deploy/dev/compose.yml)
 # - develop에 파트 폴더나 deploy/dev/compose.yml 변경이 병합되면 바뀐 서비스를 다시 빌드·실행합니다.
-#   모니터링은 이미 떠 있어 monitoring-deploy 잡을 꺼 두었습니다(잡 정의 위 주석 참고).
+#   모니터링 Compose · 수집 설정 · Grafana 대시보드 변경은 앱을 다시 빌드하지 않고 monitoring-deploy만 실행합니다.
 #   코드 변경 없이 다시 띄울 때(Variables만 바꾼 경우 등)는 BE·AI 잡의 ▶ 버튼을 누릅니다(.dev-redeploy-button). FE는 Run pipeline으로 돕니다.
 #   postgres·redis는 BE를 띄울 때 함께 뜨고, 설정이 바뀌지 않으면 다시 만들지 않아 데이터가 남습니다.
 # - 목 서버와 같은 배포 전용 러너(태그 a301-mock-deploy)가 호스트 Docker로 직접 빌드·실행합니다.
@@ -460,7 +460,7 @@ mock-deploy:
 #   녹화 S3 키 LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET도 Variables에서 받아 BE에 넘깁니다(없으면 화상 면접 시작이 실패합니다).
 #   앱 S3 키 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY도 Variables에서 받아 BE에 넘깁니다(없으면 프로필 사진 API만 실패합니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
-# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/admin에서 이전 배포를 Re-deploy 합니다.
+# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
 
 # 헬스체크: 서비스별 정상 응답을 기다리고, 안 되면 로그를 남기고 실패합니다.
 # 배포 잡(.dev-deploy)과 FE API 전환 잡(.fe-api-switch)이 함께 씁니다.
@@ -649,63 +649,77 @@ ai-deploy:
   environment:
     name: dev/ai
 
-# 모니터링 배포 잡은 꺼 둔다. 개발 서버 모니터링은 이미 떠 있고, 다시 배포할 일이 생기면 주석을 풀어 쓴다.
-# 다시 쓸 때는 GitLab 변수 GRAFANA_ADMIN_PASSWORD(범위 All, 운영 Grafana와 같은 값)가 있어야 한다.
-# 모니터링은 앱 Compose와 별도로 실행한다. 앱 배포가 함께 있으면 BE 배포를 기다려 a301-dev 네트워크를 확보한다.
+# 개발 서버 모니터링: 지표(Prometheus) · 로그(Loki · Alloy) · Grafana.
+# GitLab 변수 GRAFANA_ADMIN_PASSWORD(범위 All, 운영 Grafana와 같은 값)가 필요하다. Grafana 볼륨을 처음 만들 때만 적용된다.
+# 모니터링은 앱 Compose와 별도로 실행한다. a301-dev 네트워크(앱 Compose가 만듦)가 없으면 이유를 남기고 실패한다.
 # Nginx 설정과 Cloudflare Tunnel의 호스트 이름 등록은 미니PC/Cloudflare에서 별도로 적용한다.
-# monitoring-deploy:
-#   stage: deploy
-#   tags:
-#     - "a301-mock-deploy"
-#   interruptible: false
-#   resource_group: dev-deploy
-#   needs:
-#     - job: be-deploy
-#       optional: true
-#   rules:
-#     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
-#       changes:
-#         - deploy/dev/monitoring/compose.yml
-#         - deploy/dev/monitoring/prometheus.yml
-#         - deploy/dev/monitoring/blackbox.yml
-#         - deploy/dev/monitoring/grafana/**/*
-#     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
-#       when: manual
-#       allow_failure: true
-#     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
-#       when: manual
-#       allow_failure: true
-#   variables:
-#     DEV_GRAFANA_HOST_PORT: "18090"
-#     GRAFANA_ROOT_URL: "https://hangguet-grafana.yobistory.com/"
-#   environment:
-#     name: dev/monitoring
-#     url: https://hangguet-grafana.yobistory.com/
-#   script:
-#     - |
-#       for NETWORK in a301-dev server_public-network; do
-#         if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-#           echo "FAIL: ${NETWORK} Docker 네트워크가 없습니다. 앱 배포와 미니PC 프록시 네트워크를 먼저 확인하세요."
-#           exit 1
-#         fi
-#       done
-#     - docker compose -f deploy/dev/monitoring/compose.yml config --quiet
-#     - docker compose -f deploy/dev/monitoring/compose.yml up -d
-#     - |
-#       HEALTH_URL="http://127.0.0.1:${DEV_GRAFANA_HOST_PORT}/api/health"
-#       HEALTHY=0
-#       for i in $(seq 1 30); do
-#         if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-#           HEALTHY=1; break
-#         fi
-#         sleep 2
-#       done
-#       if [ "$HEALTHY" -ne 1 ]; then
-#         echo "FAIL: Grafana가 60초 안에 응답하지 않았습니다."
-#         docker compose -f deploy/dev/monitoring/compose.yml logs --tail 100 a301-dev-grafana
-#         exit 1
-#       fi
-#     - 'echo "OK: 개발 서버 Grafana 실행 중 (${GRAFANA_ROOT_URL})"'
+monitoring-deploy:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: dev-deploy
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # a301-dev 네트워크는 미니PC에 이미 있고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - deploy/dev/monitoring/compose.yml
+        - deploy/dev/monitoring/prometheus.yml
+        - deploy/dev/monitoring/blackbox.yml
+        - deploy/dev/monitoring/loki.yml
+        - deploy/dev/monitoring/alloy.alloy
+        - deploy/dev/monitoring/grafana/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+  variables:
+    DEV_GRAFANA_HOST_PORT: "18090"
+    GRAFANA_ROOT_URL: "https://hangguet-grafana.yobistory.com/"
+  environment:
+    name: dev/monitoring
+    url: https://hangguet-grafana.yobistory.com/
+  script:
+    - |
+      for NETWORK in a301-dev server_public-network; do
+        if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+          echo "FAIL: ${NETWORK} Docker 네트워크가 없습니다. 앱 배포와 미니PC 프록시 네트워크를 먼저 확인하세요."
+          exit 1
+        fi
+      done
+    - docker compose -f deploy/dev/monitoring/compose.yml config --quiet
+    - docker compose -f deploy/dev/monitoring/compose.yml up -d
+    - |
+      HEALTH_URL="http://127.0.0.1:${DEV_GRAFANA_HOST_PORT}/api/health"
+      HEALTHY=0
+      for i in $(seq 1 30); do
+        if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+          HEALTHY=1; break
+        fi
+        sleep 2
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: Grafana가 60초 안에 응답하지 않았습니다."
+        docker compose -f deploy/dev/monitoring/compose.yml logs --tail 100 a301-dev-grafana
+        exit 1
+      fi
+    # 로그 수집: 설정이 틀리면 Loki · Alloy가 재시작을 반복하므로 20초 뒤에도 실행 중이고 재시작이 없는지 본다
+    - |
+      sleep 20
+      for SERVICE in a301-dev-loki a301-dev-alloy; do
+        STATE=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$SERVICE" 2>/dev/null || echo "missing")
+        if [ "$STATE" != "true 0" ]; then
+          echo "FAIL: ${SERVICE} 상태가 정상이 아닙니다(실행 중 · 재시작 수: ${STATE})."
+          docker compose -f deploy/dev/monitoring/compose.yml logs --tail 100 "$SERVICE"
+          exit 1
+        fi
+      done
+    - 'echo "OK: 개발 서버 Grafana · 로그 수집 실행 중 (${GRAFANA_ROOT_URL})"'
 
 # AI 에이전트: 별도 호스트 포트 없이 Compose의 컨테이너 내부 상태 검사를 사용합니다.
 ai-agent-deploy:
@@ -776,9 +790,10 @@ admin-deploy:
     - "a301-mock-deploy"
   interruptible: false
   resource_group: dev-deploy
-  needs:
-    - job: be-deploy
-      optional: true
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # 관리 페이지는 BE 배포를 기다릴 필요가 없고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
@@ -1040,6 +1055,9 @@ pipeline-deploy:
     - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs
     - cd "$DEPLOY_DIR/airflow"
     - docker compose up -d --remove-orphans
+    # viewer는 계속 떠 있는 프로세스라 켜질 때 읽은 코드를 그대로 쓴다. compose 설정이 같으면 up이 다시 띄우지 않으므로
+    # 새 코드를 읽도록 다시 시작한다(Airflow 작업은 실행마다 코드를 새로 읽어 필요 없다)
+    - docker compose restart viewer
     - |
       HEALTHY=0
       for i in $(seq 1 "$PIPELINE_HEALTH_TRIES"); do

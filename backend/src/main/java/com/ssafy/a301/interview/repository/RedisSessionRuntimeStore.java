@@ -139,6 +139,11 @@ public class RedisSessionRuntimeStore implements SessionRuntimeStore {
     }
 
     @Override
+    public void clearAnalysis(long sessionId) {
+        hash().delete(key(sessionId), ANALYSIS_STEP, ANALYSIS_STARTED_AT, EVALUATE_JOB_ID);
+    }
+
+    @Override
     public Optional<Instant> findAnalysisStartedAt(long sessionId) {
         return findInstant(sessionId, ANALYSIS_STARTED_AT);
     }

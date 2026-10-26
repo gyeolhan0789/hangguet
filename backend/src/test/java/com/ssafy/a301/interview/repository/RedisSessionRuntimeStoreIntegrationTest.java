@@ -87,4 +87,17 @@ class RedisSessionRuntimeStoreIntegrationTest {
         assertThat(store.find(SESSION_ID))
                 .contains(new SessionRuntime(PlanStatus.READY, null, null, 0));
     }
+
+    @Test
+    void clearingAnalysisKeepsPlanFields() {
+        store.startPlan(SESSION_ID, Instant.ofEpochMilli(1_000L));
+        store.startAnalysis(SESSION_ID, Instant.ofEpochMilli(2_000L), UUID.randomUUID());
+
+        store.clearAnalysis(SESSION_ID);
+
+        assertThat(store.findAnalysisStartedAt(SESSION_ID)).isEmpty();
+        assertThat(store.findEvaluateJobId(SESSION_ID)).isEmpty();
+        assertThat(store.find(SESSION_ID).orElseThrow().analysisStep()).isNull();
+        assertThat(store.findPlanStartedAt(SESSION_ID)).contains(Instant.ofEpochMilli(1_000L));
+    }
 }

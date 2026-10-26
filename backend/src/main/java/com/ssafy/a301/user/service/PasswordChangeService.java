@@ -57,7 +57,7 @@ public class PasswordChangeService {
                             PasswordChange.byAdmin(
                                     userId, adminId, inquiryId, OffsetDateTime.now(KST)));
                 });
-        // 비밀번호는 이미 바뀌었다. 폐기에 실패한 토큰은 다음 재발급 때까지 남으므로 기록만 남긴다(탈퇴와 같음)
+        // 비밀번호는 이미 바뀌었다. 폐기에 실패해도 재발급(1.4)이 변경 기록 시각과 로그인 시각을 비교해 막으므로 기록만 남긴다
         try {
             refreshTokens.revokeAll(userId);
         } catch (DataAccessException ex) {

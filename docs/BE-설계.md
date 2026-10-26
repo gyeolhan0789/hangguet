@@ -81,15 +81,16 @@ com.ssafy.a301
 │  ├─ service      GrowthReviewService(성장 리뷰 계산, 3.1에서 다시 씀)
 │  └─ dto          GrowthDtos
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
-│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
+│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15 · 8.16), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
 │  ├─ service      AdminAuthService, AdminAccountInitializer(기동 때 환경 변수로 관리자 생성), AdminNoticeService(삭제는 deleted_at), AdminMetricsService,
+│  │               AdminDailyMetricService · AdminDailyMetricScheduler(매일 0시 전날 8.15 집계를 기록, 기동 때 전날 기록이 없을 때만),
 │  │               StreakFreezeGrantService · StreakFreezeGrantScheduler(매일 0시 · 기동 때 지급 · 만료), StreakFreezeService, NoticeService
 │  ├─ dto          AdminDtos
 │  ├─ mapper       AdminMapper
 │  ├─ repository   AdminRepository, NoticeRepository, NoticeReadRepository, StreakFreezeGrantRepository,
 │  │               StreakFreezeGrantTargetRepository, StreakFreezeRepository, AdminUserRepository(회원 조회만),
-│  │               AdminMetricsRepository(JPQL 집계), AdminTokenStore · RedisAdminTokenStore(로그아웃한 토큰)
+│  │               AdminMetricsRepository(JPQL 집계. 재방문 D1·D3·D7만 가입일을 한국 날짜로 바꾸려고 네이티브), AdminDailyMetricRepository, AdminTokenStore · RedisAdminTokenStore(로그아웃한 토큰)
 │  ├─ jwt          AdminTokens(발급자 a301-admin, 유효 시간은 auth.access-ttl)
 │  ├─ config       AdminSecurityConfig(/api/v1/admin/** 전용 필터 체인), AdminProperties, AdminPasswordEncoder(BCrypt)
 │  └─ domain       Admin, Notice, NoticeRead, StreakFreezeGrant, StreakFreezeGrantTarget, StreakFreeze, GrantTarget · GrantStatus · StreakFreezeStatus
@@ -125,7 +126,7 @@ com.ssafy.a301
 
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
-| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스) **[결정]** |
+| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]** |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
@@ -143,6 +144,7 @@ com.ssafy.a301
 | `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
 | `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
 | `StreakFreeze` | `streak_freezes` | N:1 User, N:1 Grant | 유지권 1개. 메울 수 있는 날짜 하나를 연습 기록(`practice_logs`)으로 메운다. 유효기간은 지급 날짜부터 2주 |
+| `AdminDailyMetric` | `admin_daily_metrics` | - | 관리자 일별 메트릭(8.16). PK `metric_date`. 매일 0시(한국 시간)에 전날 8.15 집계를 한 행으로 남기고, 같은 날을 다시 남기면 덮어쓴다. 날짜로 정해지는 값(가입 · 연습 · 재방문)은 그날 기준, 상태가 바뀌는 값(회원 · 면접 · 문의 · 유지권 수)은 `recorded_at` 기준. 비율 대신 분자 · 분모를 둔다 |
 | `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
 | `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
 | `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 지금은 9.10(ADMIN)만 남기고, 회원 직접 변경(USER)도 남길 예정 |
@@ -183,7 +185,7 @@ com.ssafy.a301
 6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`)는 `rawPrefix`·`objectKey`를 담는다(화상만)
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
-1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다
+1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다. 트랜잭션이 되돌려지면 작업은 나가지 않으므로 Redis를 FAILED로 되돌린다(5.3으로 다시 만들 수 있게). 결과 생성 시작(5.8·5.9)도 되돌려지면 시작 시각·작업 id를 지운다(`SessionRuntimeService`)
 2. 플랜 생성은 **비동기**(AI 분석 작업자). BE가 결과 메시지 `plan.progress`를 받아 Redis `planProgress`를 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 바꾼다(AI 명세 5장). 아직 GENERATING일 때만 바꾸고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 본다
 3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5). GENERATING인데 플랜 행이 이미 있으면(저장 뒤 READY를 남기지 못하고 다시 처리) 새로 저장하지 않고 READY만 남긴다
@@ -194,7 +196,7 @@ com.ssafy.a301
    - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 `READY`로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
-   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 5초
+   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 호출마다 5초(연결·읽기·전체)라 방 만들기·배정·실패 시 방 지우기까지 최대 15초 잠근다. 멱등 대기(20초)는 이보다 길게 둔다
 2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`) → `InterviewQuestion(seq, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
@@ -215,7 +217,7 @@ com.ssafy.a301
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
    - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
-   - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다
+   - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다. 잠근 뒤 시간 초과를 다시 확인해, 그 사이 5.9로 다시 시작한 시도는 실패시키지 않는다. 시작 시각(Redis)이 TTL 만료·재시작으로 없으면 면접 종료 시각(`ended_at`, DB)으로 판단해 ANALYZING에 계속 남지 않게 한다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
      - 채점 대상: 기준 4개(직무 적합성 · 자소서 검증 · 논리성 · 전달력)
      - 판단 근거: 인재상 부합 · 사업·직무 연결 · 질문 의도 · 구체성을 종합
@@ -303,7 +305,7 @@ com.ssafy.a301
 
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
-| `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
+| `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 9.10 관리자 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
@@ -322,8 +324,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 2. 요청 지문 = SHA-256(메서드 + 경로 + 본문). 같은 키를 다른 API에 쓰면 다른 요청으로 본다
 3. 처리 전에 `idem:` 키를 `SET NX`로 잡는다(처리 중 표시, 1분). 서버가 처리 도중 멈춰도 1분 뒤 같은 키로 다시 시도할 수 있다
 4. 이미 있고 지문이 같으며 처리가 끝났으면 저장한 첫 응답(상태·본문)을 그대로 돌려준다. 컨트롤러는 실행하지 않는다
-5. 지문이 다르면 바로 409 `IDEMPOTENCY_KEY_REUSED`. 같은 요청이 아직 처리 중이면 끝날 때까지 최대 10초(`idempotency.wait-timeout`) 기다린다: 성공했으면 그 응답을 돌려주고, 실패해 처리 중 표시가 지워졌으면 이번 요청이 처리한다. 그래도 끝나지 않으면 409 `IDEMPOTENCY_KEY_REUSED`. 화면은 이 409를 받으면 새 키를 쓰므로, 바로 409를 주면 같은 면접이 두 번 만들어질 수 있다
-6. 2xx로 끝나면 응답을 24시간 저장한다. 4xx·5xx로 끝나면 처리 중 표시를 지워 같은 키로 다시 시도할 수 있게 한다(끝난 기록은 지우지 않음)
+5. 지문이 다르면 바로 409 `IDEMPOTENCY_KEY_REUSED`. 같은 요청이 아직 처리 중이면 끝날 때까지 최대 20초(`idempotency.wait-timeout`, 5.4가 면접방을 여는 최대 15초보다 길게) 기다린다: 성공했으면 그 응답을 돌려주고, 실패해 처리 중 표시가 지워졌으면 이번 요청이 처리한다. 그래도 끝나지 않으면 409 `IDEMPOTENCY_KEY_REUSED`. 화면은 이 409를 받으면 새 키를 쓰므로, 바로 409를 주면 같은 면접이 두 번 만들어질 수 있다
+6. 2xx로 끝나면 응답을 24시간 저장한다. 이 요청의 처리 중 표시가 그대로이거나 만료돼 없을 때만 저장하고, 그 사이 다른 요청(다른 본문)이 잡은 표시는 덮어쓰지 않는다. 4xx·5xx로 끝나면 처리 중 표시를 지워 같은 키로 다시 시도할 수 있게 한다(끝난 기록은 지우지 않음)
 
 ## 9. 인증
 
@@ -336,7 +338,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
-- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다
+- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
@@ -362,6 +364,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ## 11. 오류 처리 **[결정]**
 - 응답 형식: ProblemDetail + `code`(+ 400은 `errors`). `GlobalExceptionHandler`가 Spring 자체 오류에도 `code`를 붙인다
+- 보안 필터 안의 오류(토큰 검증 중 DB·Redis 장애 등)는 `FilterExceptionFilter`가 500 `INTERNAL_ERROR` ProblemDetail로 응답한다. 회원·관리자 체인 모두 적용
 - 업무 오류: `throw new ApiException(ErrorCode.X)`. 필드 사이 검증 실패: `FieldValidationException(field, reason)`
 - 조회 날짜·월 파라미터는 `@SupportedDate`·`@SupportedMonth`로 0001~9999년만 받는다. ISO 날짜는 0000년·다섯 자리 연도도 읽어서, 막지 않으면 시각 계산·DB에서 500이 된다. 범위 밖은 400 `VALIDATION_FAILED`
 - 상태 오류는 엔티티가 던진다(4장)

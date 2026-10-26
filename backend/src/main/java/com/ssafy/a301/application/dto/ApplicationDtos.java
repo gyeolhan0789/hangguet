@@ -37,7 +37,7 @@ public final class ApplicationDtos {
                             maxLength = 100,
                             nullable = true)
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
-                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String companyName,
             @Schema(
                             description = "지원 직무",
@@ -46,7 +46,7 @@ public final class ApplicationDtos {
                             maxLength = 100,
                             nullable = true)
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
-                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String jobTitle,
             @Schema(
                             description = "자기소개서",
@@ -55,7 +55,7 @@ public final class ApplicationDtos {
                             maxLength = 3000,
                             nullable = true)
                     @Size(min = 1, max = 3000, message = "1~3,000자입니다.")
-                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
                     String coverLetter) {}
 
     public record ApplicationResponse(

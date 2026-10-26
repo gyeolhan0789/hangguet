@@ -51,6 +51,10 @@ class RedisAuthIntegrationTest {
         }
         for (String email : emails) {
             jdbc.update(
+                    "DELETE FROM password_changes WHERE user_id IN (SELECT id FROM users WHERE"
+                            + " email = ?)",
+                    email);
+            jdbc.update(
                     "DELETE FROM user_agreements WHERE user_id IN (SELECT id FROM users WHERE email"
                             + " = ?)",
                     email);
@@ -83,7 +87,8 @@ class RedisAuthIntegrationTest {
         JsonNode body = body(response);
         String token = remember(body.path("refreshToken").asText());
         String key = key(token);
-        assertThat(redis.opsForValue().get(key)).isEqualTo(Long.toString(account.id()));
+        // 값은 "회원 id:로그인 시각(epoch 밀리초)"
+        assertThat(redis.opsForValue().get(key)).startsWith(account.id() + ":");
         Long ttl = redis.getExpire(key, TimeUnit.SECONDS);
         assertThat(ttl).isPositive().isLessThanOrEqualTo(properties.refreshTtl().toSeconds());
         assertThat(redis.hasKey("refresh:" + token)).isFalse();
@@ -92,13 +97,15 @@ class RedisAuthIntegrationTest {
     @Test
     void refreshRotatesAndOldTokenCannotBeReused() throws Exception {
         Account account = signup();
+        String loggedIn = redis.opsForValue().get(key(account.refresh()));
         var response =
                 post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
         assertThat(response.statusCode()).isEqualTo(200);
         String next = remember(body(response).path("refreshToken").asText());
         assertThat(next.equals(account.refresh())).isFalse();
         assertThat(redis.hasKey(key(account.refresh()))).isFalse();
-        assertThat(redis.opsForValue().get(key(next))).isEqualTo(Long.toString(account.id()));
+        // 재발급해도 로그인 시각은 이어진다
+        assertThat(redis.opsForValue().get(key(next))).isEqualTo(loggedIn);
         var reused =
                 post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
         assertThat(reused.statusCode()).isEqualTo(401);
@@ -106,6 +113,35 @@ class RedisAuthIntegrationTest {
         var again = post("/api/v1/auth/token/refresh", Map.of("refreshToken", next), null);
         assertThat(again.statusCode()).isEqualTo(200);
         remember(body(again).path("refreshToken").asText());
+    }
+
+    @Test
+    void passwordChangedByAdminAfterLoginBlocksRefreshEvenIfTokenRemains() throws Exception {
+        Account account = signup();
+        // 관리자 변경 뒤 토큰 폐기(revokeAll)가 실패해 토큰이 남은 상황
+        jdbc.update(
+                "INSERT INTO password_changes (user_id, changed_by, changed_at) VALUES (?, ?,"
+                        + " now() + interval '1 second')",
+                account.id(),
+                "ADMIN");
+
+        var response =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(response.statusCode()).isEqualTo(401);
+        assertThat(body(response).path("code").asText()).isEqualTo("REFRESH_TOKEN_INVALID");
+    }
+
+    @Test
+    void tokenStoredBeforeLoginTimeWasRecordedStillRefreshes() throws Exception {
+        Account account = signup();
+        // 배포 전 형식("회원 id")으로 저장된 토큰
+        redis.opsForValue()
+                .set(key(account.refresh()), Long.toString(account.id()), properties.refreshTtl());
+
+        var response =
+                post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
+        assertThat(response.statusCode()).isEqualTo(200);
+        remember(body(response).path("refreshToken").asText());
     }
 
     @Test

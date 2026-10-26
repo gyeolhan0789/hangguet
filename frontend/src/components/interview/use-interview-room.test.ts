@@ -6,6 +6,7 @@ import { STT_TOPIC } from "@/lib/interview/transcript";
 import { useInterviewRoom } from "./use-interview-room";
 
 // 기준: 웹 Swagger 5.14 · 승인된 STT 스냅샷 계약. API와 RTC 경계만 대체한다.
+// · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만))
 const sdk = vi.hoisted(() => {
   type Handler = (...args: unknown[]) => void;
   class FakeRoom {
@@ -233,5 +234,61 @@ describe("면접방 마이크 송출과 STT 수신", () => {
     expect(second.isConnected).toBe(false);
     unmount();
     expect(first.isConnected).toBe(false);
+  });
+});
+
+describe("채팅 면접방(송출 없이 수신)", () => {
+  it("마이크 없이 들어가 송출하지 않고, 스트림이 있어도 송출하지 않는다", async () => {
+    const { stream, microphone } = media();
+    const { result, unmount } = renderHook(() =>
+      useInterviewRoom(55, stream, { listenOnly: true }),
+    );
+    const room = sdk.FakeRoom.instances[0];
+    // 듣는 중은 송출할지 정한 뒤에 바뀌므로, 이때 송출이 없으면 끝까지 없다(채팅에는 STT 메시지가 오지 않는다).
+    await waitFor(() => expect(result.current.status).toBe("listening"));
+    expect(room.connect).toHaveBeenCalledWith("wss://room.test", "room-token");
+    expect(sdk.issueRoomToken).toHaveBeenCalledWith(55);
+    expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
+    // 넘겨받은 마이크가 끊겨도 채팅은 마이크를 쓰지 않으므로 상관없다.
+    act(() => microphone.dispatchEvent(new Event("ended")));
+    expect(result.current.status).toBe("listening");
+    // SDK가 끊긴 연결을 다시 이으면 듣는 중으로 돌아온다.
+    act(() => room.handlers.get("reconnecting")?.());
+    expect(result.current.status).toBe("reconnecting");
+    act(() => room.handlers.get("reconnected")?.());
+    expect(result.current.status).toBe("listening");
+    unmount();
+    expect(room.disconnect).toHaveBeenCalledWith(false);
+  });
+
+  it("다시 그려도(옵션 객체가 새로 만들어져도) 다시 들어가지 않는다", async () => {
+    const { result, rerender } = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    await waitFor(() => expect(result.current.status).toBe("listening"));
+    rerender();
+    rerender();
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+    expect(sdk.issueRoomToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("면접관(에이전트) 음성을 재생한다", async () => {
+    const { unmount } = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const element = document.createElement("audio");
+    room.handlers.get("trackSubscribed")!(
+      { kind: "audio", attach: vi.fn(() => element), detach: vi.fn(() => [element]) },
+      {},
+      { isAgent: true },
+    );
+    expect(element.isConnected && element.hidden).toBe(true);
+    unmount();
+    expect(element.isConnected).toBe(false);
+  });
+
+  it("입장 토큰을 받지 못하면 연결하지 않는다", async () => {
+    sdk.issueRoomToken.mockResolvedValue({ ok: false, code: "INVALID_SESSION_STATE", status: 409 });
+    const { result } = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(sdk.FakeRoom.instances[0].connect).not.toHaveBeenCalled();
   });
 });

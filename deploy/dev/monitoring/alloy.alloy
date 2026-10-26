@@ -1,0 +1,47 @@
+// 개발 서버 로그 수집(Grafana Alloy). Docker에서 a301-dev-* 컨테이너의 stdout · stderr를 읽어 Loki로 보낸다.
+// 미니PC는 다른 프로젝트 컨테이너도 돌므로 이름으로 걸러 우리 컨테이너만 모은다.
+
+discovery.docker "a301" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "name"
+    values = ["a301-dev-"]
+  }
+}
+
+// Grafana에서 고를 라벨: container(컨테이너 이름), service(compose 서비스 이름)
+discovery.relabel "a301" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+}
+
+loki.source.docker "a301" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.a301.targets
+  relabel_rules    = discovery.relabel.a301.rules
+  refresh_interval = "15s"
+  forward_to       = [loki.write.a301.receiver]
+}
+
+loki.write "a301" {
+  endpoint {
+    url = "http://a301-dev-loki:3100/loki/api/v1/push"
+  }
+
+  // 운영 서버와 같은 대시보드를 쓰도록 환경을 라벨로 붙인다
+  external_labels = {
+    env = "dev",
+  }
+}
