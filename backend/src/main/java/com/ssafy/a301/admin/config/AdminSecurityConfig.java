@@ -5,6 +5,7 @@ import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.repository.AdminTokenStore;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.error.FilterExceptionFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -28,6 +29,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtValidationException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -49,6 +51,7 @@ public class AdminSecurityConfig {
             throws Exception {
         NimbusJwtDecoder decoder = decoder(properties, admins, revokedTokens);
         http.securityMatcher("/api/v1/admin/**")
+                .addFilterBefore(new FilterExceptionFilter(), BearerTokenAuthenticationFilter.class)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(
                         session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

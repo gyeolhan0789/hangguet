@@ -23,6 +23,7 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.domain.UserAgreement;
+import com.ssafy.a301.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -45,6 +46,7 @@ class PersistenceTest {
 
     @Autowired private EntityManager em;
     @Autowired private InterviewPlanRepository plans;
+    @Autowired private UserRepository users;
 
     @Test
     void savesAndReadsAllEntities() {
@@ -101,6 +103,18 @@ class PersistenceTest {
 
         assertThatThrownBy(() -> em.persist(new User("same@ssafy.com", "hash", "c")))
                 .hasMessageContaining("uk_users_email_active");
+    }
+
+    @Test
+    void mixedCaseEmailSavedBeforeNormalizationIsFoundByLowercase() {
+        // 소문자로 저장하기 전에 들어온 데이터. 가입 전 확인(existsActiveByEmail)이 대소문자를 무시하고 찾아 중복 가입을 막는다
+        em.createNativeQuery(
+                        "INSERT INTO users (email, password_hash, nickname, created_at, updated_at)"
+                                + " VALUES ('Legacy@SSAFY.com', 'hash', 'a', now(), now())")
+                .executeUpdate();
+
+        assertThat(users.findActiveByEmail("legacy@ssafy.com")).hasSize(1);
+        assertThat(users.existsActiveByEmail("legacy@ssafy.com")).isTrue();
     }
 
     @Test
