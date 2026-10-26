@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
-import com.ssafy.a301.home.domain.PracticeLog;
 import com.ssafy.a301.home.dto.HomeDtos.HomeResponse;
 import com.ssafy.a301.home.dto.HomeDtos.HomeState;
 import com.ssafy.a301.home.service.HomeService;
@@ -20,6 +19,7 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.SessionScore;
+import com.ssafy.a301.practice.domain.PracticeLog;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;

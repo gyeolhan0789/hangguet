@@ -4,8 +4,6 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.home.domain.Streak;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
@@ -24,14 +22,12 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -54,7 +50,7 @@ public class InterviewSessionService {
     private final InterviewPlanRepository plans;
     private final ApplicationRepository applications;
     private final UserRepository users;
-    private final PracticeLogRepository practiceLogs;
+    private final PracticeService practices;
     private final SessionRuntimeService runtimes;
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
@@ -67,7 +63,7 @@ public class InterviewSessionService {
             InterviewPlanRepository plans,
             ApplicationRepository applications,
             UserRepository users,
-            PracticeLogRepository practiceLogs,
+            PracticeService practices,
             SessionRuntimeService runtimes,
             AiJobService aiJobs,
             TransactionTemplate transactions,
@@ -78,7 +74,7 @@ public class InterviewSessionService {
         this.plans = plans;
         this.applications = applications;
         this.users = users;
-        this.practiceLogs = practiceLogs;
+        this.practices = practices;
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.transactions = transactions;
@@ -264,7 +260,7 @@ public class InterviewSessionService {
                     boolean leveledUp = false;
                     if (practiced) {
                         leveledUp =
-                                recordPractice(
+                                practices.recordAndCheckLevelUp(
                                         userId,
                                         session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
                                         now.atZoneSameInstant(KST).toLocalDate());
@@ -333,18 +329,6 @@ public class InterviewSessionService {
                 session.getId(),
                 session.getEndedAt() == null ? null : session.getEndedAt().toInstant(),
                 now.toInstant());
-    }
-
-    // 그날 처음일 때만 남긴다. 이번에 남겨 뱃지 구간이 바뀌었으면 true
-    private boolean recordPractice(long userId, LocalDate practiceDate, LocalDate today) {
-        List<LocalDate> before = practiceLogs.findPracticeDatesByUserId(userId);
-        if (practiceLogs.insertIfAbsent(userId, practiceDate) == 0) {
-            return false;
-        }
-        List<LocalDate> after = new ArrayList<>(before);
-        after.add(practiceDate);
-        return Streak.badgeLevel(Streak.current(before, today))
-                != Streak.badgeLevel(Streak.current(after, today));
     }
 
     private SessionResponse toResponse(

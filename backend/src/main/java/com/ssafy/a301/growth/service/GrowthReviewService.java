@@ -6,17 +6,18 @@ import com.ssafy.a301.growth.dto.GrowthDtos.CriterionReview;
 import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
 import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
-import com.ssafy.a301.home.service.PracticeStatsService;
-import com.ssafy.a301.home.service.PracticeStatsService.DailyPractice;
+import com.ssafy.a301.growth.mapper.GrowthMapper;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
-import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
+import com.ssafy.a301.interview.service.InterviewStatsService;
+import com.ssafy.a301.interview.service.InterviewStatsService.DailyPractice;
+import com.ssafy.a301.practice.service.PracticeService;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -40,8 +41,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 7.1·7.2 성장 리뷰(BE 설계 6.2). 저장하지 않고 session_scores·answers로 계산한다. 리뷰가 있는 날 = 한국 시간으로 그날 시작한 결과 완료
- * 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것은 homeReviews로 한 번에 만든다. 그날 면접 수·시간, 최근 7일 연습일, 스트릭은
- * PracticeStatsService 계산을 쓴다.
+ * 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것은 homeReviews로 한 번에 만든다. 그날 면접 수·시간은
+ * InterviewStatsService, 최근 7일 연습일·스트릭은 PracticeService 계산을 쓴다.
  */
 @Service
 public class GrowthReviewService {
@@ -52,17 +53,20 @@ public class GrowthReviewService {
     private final InterviewSessionRepository sessions;
     private final SessionScoreRepository scores;
     private final AnswerRepository answers;
-    private final PracticeStatsService practiceStats;
+    private final PracticeService practices;
+    private final InterviewStatsService interviewStats;
 
     public GrowthReviewService(
             InterviewSessionRepository sessions,
             SessionScoreRepository scores,
             AnswerRepository answers,
-            PracticeStatsService practiceStats) {
+            PracticeService practices,
+            InterviewStatsService interviewStats) {
         this.sessions = sessions;
         this.scores = scores;
         this.answers = answers;
-        this.practiceStats = practiceStats;
+        this.practices = practices;
+        this.interviewStats = interviewStats;
     }
 
     /** 그날 결과 완료 면접들(시작 순)과 그 기준 점수(면접 순·기준 순), 기준별 평균 점수와 마지막 면접의 코멘트 */
@@ -104,16 +108,14 @@ public class GrowthReviewService {
         ReviewDay day = days.get(days.size() - 1);
         ReviewDay compared = days.size() > 1 ? days.get(days.size() - 2) : null;
 
-        DailyPractice daily = practiceStats.daily(userId, practiceDate);
+        DailyPractice daily = interviewStats.daily(userId, practiceDate);
         List<CriterionReview> criteria = new ArrayList<>();
         for (Criterion criterion : Criterion.values()) {
-            int score = day.averages().get(criterion);
             criteria.add(
-                    new CriterionReview(
+                    GrowthMapper.toCriterionReview(
                             criterion,
-                            score,
-                            Grade.of(score),
-                            compared == null ? null : score - compared.averages().get(criterion),
+                            day.averages().get(criterion),
+                            compared == null ? null : compared.averages().get(criterion),
                             day.lastComments().get(criterion)));
         }
         return Optional.of(
@@ -121,8 +123,8 @@ public class GrowthReviewService {
                         practiceDate,
                         compared == null,
                         compared == null ? null : compared.date(),
-                        practiceStats.streaks(userId, practiceDate).current(),
-                        practiceStats.recentPracticeDates(userId, practiceDate),
+                        practices.streaks(userId, practiceDate).current(),
+                        practices.recentPracticeDates(userId, practiceDate),
                         daily.interviewCount(),
                         daily.practiceMinutes(),
                         criteria,
@@ -170,12 +172,7 @@ public class GrowthReviewService {
             ReviewDay day = days.get(i);
             List<Improvement> improved = i > 0 ? improvements(day, days.get(i - 1)) : List.of();
             Improvement best = improved.isEmpty() ? null : improved.get(0);
-            items.add(
-                    new RecentReviewItem(
-                            day.date(),
-                            day.last().getApplication().getCompanyName(),
-                            best == null ? null : best.criterion(),
-                            best == null ? null : best.delta()));
+            items.add(GrowthMapper.toRecentReviewItem(day.date(), day.last(), best));
         }
         return items;
     }

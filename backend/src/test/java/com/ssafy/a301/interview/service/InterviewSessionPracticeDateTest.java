@@ -14,7 +14,6 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
@@ -25,6 +24,8 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.practice.repository.PracticeLogRepository;
+import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.LocalDate;
@@ -34,7 +35,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.TransactionStatus;
@@ -57,10 +57,24 @@ class InterviewSessionPracticeDateTest {
     @Mock private AiJobService aiJobs;
     @Mock private TransactionTemplate transactions;
     @Mock private InterviewRoom rooms;
-    @InjectMocks private InterviewSessionService service;
+    private InterviewSessionService service;
 
     @BeforeEach
     void setup() {
+        // 연습 기록·레벨업 계산은 실제 PracticeService로 확인한다
+        service =
+                new InterviewSessionService(
+                        sessions,
+                        questions,
+                        answers,
+                        plans,
+                        applications,
+                        users,
+                        new PracticeService(practiceLogs),
+                        runtimes,
+                        aiJobs,
+                        transactions,
+                        rooms);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

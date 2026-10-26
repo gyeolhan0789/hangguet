@@ -37,6 +37,17 @@ class AiResultConsumerTest {
     }
 
     @Test
+    void logDescriptionHasIdsButNotAnswerText() {
+        String message =
+                "{\"type\":\"evaluation.completed\",\"sessionId\":55,\"jobId\":\"j-1\","
+                        + "\"summary\":\"비밀 답변 내용\"}";
+        assertThat(AiResultConsumer.describe(message))
+                .isEqualTo("type=evaluation.completed sessionId=55 jobId=j-1")
+                .doesNotContain("비밀");
+        assertThat(AiResultConsumer.describe("비밀 {")).isEqualTo("형식 오류(길이 4)");
+    }
+
+    @Test
     void invalidMessageConstraintAndUnexpectedFailuresAreNotTemporary() {
         assertThat(AiResultConsumer.isTemporary(new InvalidAiResultException("형식 오류"))).isFalse();
         assertThat(

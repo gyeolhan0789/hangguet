@@ -46,9 +46,11 @@ com.ssafy.a301
 │  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy
 ├─ home
 │  ├─ controller   HomeController(3.1~3.3)
-│  ├─ service      HomeService(3.1, 아래 두 서비스 계산을 조합), PracticeStatsService(스트릭·통계·연습 달력·그날 면접 수와 시간·최근 7일, 3.1·7.1에서 다시 씀)
+│  ├─ service      HomeService(3.1, 스트릭·면접 집계·성장 리뷰 계산을 조합), PracticeStatsService(3.2 통계·3.3 연습 달력)
 │  ├─ dto          HomeDtos
-│  ├─ mapper       HomeMapper
+│  └─ mapper       HomeMapper
+├─ practice        연습 기록·스트릭. 다른 기능은 이 패키지의 서비스로만 연습 기록을 넣고 스트릭을 구한다
+│  ├─ service      PracticeService(연습 기록 쓰기: 5.8 끝내기·8.14 유지권 / 스트릭·최근 7일 계산: 2.1·3.x·7.1·8.x)
 │  ├─ repository   PracticeLogRepository
 │  └─ domain       PracticeLog, Streak
 ├─ application
@@ -60,16 +62,18 @@ com.ssafy.a301
 │  └─ domain       Application
 ├─ interview
 │  ├─ controller   InterviewSessionController
-│  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9), AnswerService(5.7 채팅),
+│  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9·5.14), AnswerService(5.7 채팅),
+│  │               InterviewSessionListService(5.13·5.15), InterviewStatsService(연습 면접 수·시간 집계, 3.x·5.13·7.1에서 같이 씀),
 │  │               AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
-│  │               AiJobMessages(작업 메시지), AiResultConsumer·AiResultService(결과 큐 처리),
-│  │               InterviewRoomService(면접방, 예정)
-│  ├─ dto          InterviewDtos
+│  │               AiJobMessages(작업 메시지), AiResultConsumer·AiResultService(결과 큐 처리)
+│  ├─ dto          InterviewDtos, AiResultMessage
 │  ├─ mapper       InterviewMapper
-│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository,
+│  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository, AnswerRepository,
+│  │               SessionScoreRepository, SpeechMetricRepository, RecordingRepository,
 │  │               AiJobRepository, AiJobQueue·RedisAiJobQueue, AiResultQueue·RedisAiResultQueue,
 │  │               SessionRuntimeStore·RedisSessionRuntimeStore
-│  ├─ livekit      LiveKit 서버 API 어댑터(입장 토큰·배정·방 삭제·Egress, 예정)
+│  ├─ room         InterviewRoom, LiveKitInterviewRoom(입장 토큰·방 만들기·삭제)
+│  ├─ config       AiQueueMetrics
 │  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·AI 작업·상태 enum
 ├─ result
 │  ├─ controller   ResultController(6.3·6.4)
@@ -79,7 +83,8 @@ com.ssafy.a301
 ├─ growth
 │  ├─ controller   GrowthReviewController(7.1·7.2)
 │  ├─ service      GrowthReviewService(성장 리뷰 계산, 3.1에서 다시 씀)
-│  └─ dto          GrowthDtos
+│  ├─ dto          GrowthDtos
+│  └─ mapper       GrowthMapper
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
 │  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15 · 8.16), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
@@ -106,7 +111,8 @@ com.ssafy.a301
 │  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
 │  └─ domain       UploadPurpose
-├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
+├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler,
+│                  FilterExceptionFilter·ProblemResponses(보안 필터에서 난 오류도 같은 실패 응답으로)
 ├─ common/validation  SupportedDate·SupportedMonth(조회 날짜·월 범위 0001~9999년, 5.13·5.15·3.3·7.1)
 ├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
 └─ config          OpenApiConfig, SchedulingConfig
@@ -114,8 +120,8 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 홈·통계·연습 달력(3.1~3.3)·결과·다시보기(6.3·6.4)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
-- 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
+- API 명세의 1.x~9.x API는 모두 구현되어 있다. 면접방 배정 실패(`START_FAILED`·`assignment.rejected`)처럼 아직 없는 동작은 해당 장에 **예정**으로 표시한다.
+- 의존 방향: `practice`는 다른 기능을 부르지 않는다. 연습 기록·스트릭이 필요한 기능(home·growth·interview·user·admin)이 `PracticeService`를 부르고, 연습 면접 수·시간은 `InterviewStatsService` 하나로 구한다(같은 계산을 기능마다 따로 두지 않음)
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다
@@ -164,8 +170,8 @@ com.ssafy.a301
 | 현재 | 요청 | 다음 | 엔티티 메서드 | 조건 |
 |---|---|---|---|---|
 | `READY` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | 플랜 `READY`(Redis) 아니면 409 `PLAN_NOT_READY` |
-| `IN_PROGRESS` | 결과 메시지 `assignment.rejected` | `START_FAILED` | — | 질문 행이 없을 때만. 면접방을 닫는다(AI 명세 1.4) |
-| `START_FAILED` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 질문으로 다시 배정한다 |
+| `IN_PROGRESS` | 결과 메시지 `assignment.rejected` **(예정)** | `START_FAILED` | — | 질문 행이 없을 때만. 면접방을 닫는다(AI 명세 1.4). 아직 구현 전(12장) |
+| `START_FAILED` **(예정)** | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 질문으로 다시 배정한다. 아직 구현 전(12장) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 ≥1) | `ANALYZING` | `end(now, answeredCount)` → true | 연습 기록 남김(6.1) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 0) | `ABORTED` | `end(now, 0)` → false | 결과·연습 인정 없음 |
 | `ANALYZING` | 결과 생성 완료 | `COMPLETED` | `complete(summary)` | |
@@ -255,12 +261,12 @@ com.ssafy.a301
 ## 6. 계산 규칙 (저장하지 않음)
 
 ### 6.1 연습 면접 · 스트릭 **[결정]**
-- 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`). 면접 수·연습 시간은 모두 이 기준. 상태 목록은 `SessionStatus.PRACTICE` 한 곳에 두고, 날짜별 건수·시간은 `PracticeStatsService.daily`(3.1·5.13·7.1)로 계산한다
+- 연습 면접 = 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`). 면접 수·연습 시간은 모두 이 기준. 상태 목록은 `SessionStatus.PRACTICE` 한 곳에 두고, 날짜별 건수·시간은 `InterviewStatsService.daily`(3.1·5.13·7.1)로 계산한다
 - 연습한 날 = `practice_logs`에 있는 한국 시간 면접 시작 날짜. 답변 1개 이상으로 종료한 뒤 기록하며, 자정·월 경계를 넘어도 시작일에만 기록한다.
 - `currentStreak`: 오늘 기록이 있으면 오늘부터, 없으면 어제부터 거꾸로 빠짐없이 이어진 날 수. 어제도 없으면 0
 - `bestStreak`: 전체 기록에서 가장 긴 연속 구간
 - `homeState`: 기록 없음 → `FIRST_VISIT` / 오늘 기록 있음 → `DONE_TODAY` / 어제 기록 있음 → `NOT_DONE_TODAY` / 그 외 → `BROKEN`
-- 스트릭은 연습 면접을 끝낸 순간(5.8에서 `PracticeLog` 저장) 오른다
+- 스트릭은 연습 면접을 끝낸 순간(5.8에서 `PracticeLog` 저장) 오른다. 연습 기록은 `PracticeService`로만 넣고(5.8 끝내기, 8.14 유지권), 스트릭도 `PracticeService`에서만 계산한다
 - 뱃지 구간: 0 / 1–2 / 3–5 / 6–7 / 8–13 / 14+일 **[결정: Figma]**
 - `leveledUp`(5.8 응답): 이번 끝내기로 시작일 기록이 추가되어 현재 스트릭의 뱃지 구간이 바뀌었으면 true. 비교 기준일은 종료 요청 시점의 한국 날짜(오늘)다. 즉 그날 첫 연습 기록이 저장되고 `currentStreak`가 1·3·6·8·14일이 된 경우(5.4). 면접 끝내기는 한 번만 호출되므로 레벨업도 한 번만 전달된다. 화면은 이 값을 기억해 뒀다가 S08에서 레벨업을 띄운다
 - 홈·통계의 오늘/주/월 구분도 한국 시간 시작일 기준이다. 자정을 넘긴 세션은 전체 시간을 시작 날짜에 포함한다.
@@ -311,6 +317,7 @@ com.ssafy.a301
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
+| `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
@@ -370,9 +377,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
-1. 남은 API(3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
-2. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
-3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
-4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
-6. 회원 직접 비밀번호 변경(2.3)을 `PasswordChangeService`로 옮겨 변경 기록(USER)을 남기고 모든 기기를 로그아웃하게 한다(지금 2.3은 다른 기기 로그인을 유지)
+1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
+2. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
+3. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
+4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+5. 회원 직접 비밀번호 변경(2.3)을 `PasswordChangeService`로 옮겨 변경 기록(USER)을 남기고 모든 기기를 로그아웃하게 한다(지금 2.3은 다른 기기 로그인을 유지)

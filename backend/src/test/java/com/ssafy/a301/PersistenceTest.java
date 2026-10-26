@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.application.domain.Application;
-import com.ssafy.a301.home.domain.PracticeLog;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerToken;
 import com.ssafy.a301.interview.domain.Criterion;
@@ -20,6 +19,7 @@ import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
+import com.ssafy.a301.practice.domain.PracticeLog;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.domain.UserAgreement;

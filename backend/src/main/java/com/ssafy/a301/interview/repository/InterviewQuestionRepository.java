@@ -6,8 +6,6 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface InterviewQuestionRepository extends JpaRepository<InterviewQuestion, Long> {
-    boolean existsByIdAndSessionId(Long id, Long sessionId);
-
     /** 6.4 다시보기. 면접에서 낸 질문 전부, 순서대로 */
     List<InterviewQuestion> findBySessionIdOrderBySeq(Long sessionId);
 

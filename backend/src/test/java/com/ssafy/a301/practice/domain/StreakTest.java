@@ -1,4 +1,4 @@
-package com.ssafy.a301.home.domain;
+package com.ssafy.a301.practice.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

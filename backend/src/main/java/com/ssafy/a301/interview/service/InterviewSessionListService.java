@@ -2,20 +2,18 @@ package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.home.service.PracticeStatsService;
-import com.ssafy.a301.home.service.PracticeStatsService.DailyPractice;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
-import com.ssafy.a301.interview.dto.InterviewDtos.CriterionGrade;
 import com.ssafy.a301.interview.dto.InterviewDtos.DailyInterviewCount;
 import com.ssafy.a301.interview.dto.InterviewDtos.PageMetadata;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListItem;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListSummary;
+import com.ssafy.a301.interview.mapper.InterviewMapper;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
@@ -23,7 +21,6 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -46,17 +43,17 @@ public class InterviewSessionListService {
     private final InterviewSessionRepository sessions;
     private final AnswerRepository answers;
     private final SessionScoreRepository scores;
-    private final PracticeStatsService practiceStats;
+    private final InterviewStatsService interviewStats;
 
     public InterviewSessionListService(
             InterviewSessionRepository sessions,
             AnswerRepository answers,
             SessionScoreRepository scores,
-            PracticeStatsService practiceStats) {
+            InterviewStatsService interviewStats) {
         this.sessions = sessions;
         this.answers = answers;
         this.scores = scores;
-        this.practiceStats = practiceStats;
+        this.interviewStats = interviewStats;
     }
 
     @Transactional(readOnly = true)
@@ -89,8 +86,8 @@ public class InterviewSessionListService {
         OffsetDateTime from = practiceDate.atStartOfDay(KOREA).toOffsetDateTime();
         OffsetDateTime to = practiceDate.plusDays(1).atStartOfDay(KOREA).toOffsetDateTime();
         PageRequest pageable = PageRequest.of(page, size, RECENT_FIRST);
-        // 날짜 전체 건수·시간은 3.1·7.1과 같은 계산(PracticeStatsService.daily)을 쓴다
-        DailyPractice daily = practiceStats.daily(userId, practiceDate);
+        // 날짜 전체 건수·시간은 3.1·7.1과 같은 계산(InterviewStatsService.daily)을 쓴다
+        InterviewStatsService.DailyPractice daily = interviewStats.daily(userId, practiceDate);
         // JPA는 int 범위의 offset만 지원한다. 그 밖의 페이지도 계약대로 빈 목록과 집계를 준다.
         Page<InterviewSession> found =
                 pageable.getOffset() > Integer.MAX_VALUE
@@ -148,29 +145,15 @@ public class InterviewSessionListService {
             InterviewSession session,
             Map<Long, Long> answerCounts,
             Map<Long, Map<Criterion, Grade>> grades) {
-        boolean completed = session.getStatus() == SessionStatus.COMPLETED;
         Map<Criterion, Grade> sessionGrades = grades.getOrDefault(session.getId(), Map.of());
         // 완료 결과는 기준 4개가 있어야 한다. 저장이 불완전한 결과를 정상 평가로 노출하지 않는다.
-        if (completed && !Criterion.coversAllOnce(sessionGrades.keySet())) {
+        if (session.getStatus() == SessionStatus.COMPLETED
+                && !Criterion.coversAllOnce(sessionGrades.keySet())) {
             throw new ApiException(ErrorCode.INTERNAL_ERROR);
         }
-        List<CriterionGrade> criterionGrades =
-                completed
-                        ? Arrays.stream(Criterion.values())
-                                .map(c -> new CriterionGrade(c, sessionGrades.get(c)))
-                                .toList()
-                        : List.of();
-        return new SessionListItem(
-                session.getId(),
-                session.getApplication().getCompanyName(),
-                session.getApplication().getJobTitle(),
-                session.getPersona(),
-                session.getMode(),
-                session.getStatus(),
-                session.getStartedAt(),
-                session.getEndedAt(),
+        return InterviewMapper.toListItem(
+                session,
                 Math.toIntExact(answerCounts.getOrDefault(session.getId(), 0L)),
-                completed ? session.getSummary() : null,
-                criterionGrades);
+                sessionGrades);
     }
 }

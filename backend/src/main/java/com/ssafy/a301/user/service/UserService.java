@@ -6,8 +6,7 @@ import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
-import com.ssafy.a301.home.domain.Streak;
-import com.ssafy.a301.home.repository.PracticeLogRepository;
+import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.storage.domain.UploadPurpose;
 import com.ssafy.a301.storage.repository.UploadKeyStore;
 import com.ssafy.a301.storage.s3.PresignedUrl;
@@ -19,7 +18,6 @@ import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.UserRepository;
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.Map;
@@ -45,7 +43,7 @@ public class UserService {
             Map.of("image/jpeg", "jpg", "image/png", "png");
 
     private final UserRepository users;
-    private final PracticeLogRepository practiceLogs;
+    private final PracticeService practices;
     private final PasswordEncoder passwords;
     private final AccessTokens accessTokens;
     private final AuthProperties authProperties;
@@ -57,7 +55,7 @@ public class UserService {
 
     public UserService(
             UserRepository users,
-            PracticeLogRepository practiceLogs,
+            PracticeService practices,
             PasswordEncoder passwords,
             AccessTokens accessTokens,
             AuthProperties authProperties,
@@ -67,7 +65,7 @@ public class UserService {
             RefreshTokenStore refreshTokens,
             TransactionTemplate transactions) {
         this.users = users;
-        this.practiceLogs = practiceLogs;
+        this.practices = practices;
         this.passwords = passwords;
         this.accessTokens = accessTokens;
         this.authProperties = authProperties;
@@ -206,7 +204,7 @@ public class UserService {
     }
 
     private int currentStreak(long userId) {
-        return Streak.current(practiceLogs.findPracticeDatesByUserId(userId), LocalDate.now(KST));
+        return practices.currentStreak(userId);
     }
 
     // 회원 정보는 이미 바뀌었으므로, 파일 삭제가 실패해도 요청은 성공으로 두고 남은 파일만 기록한다.

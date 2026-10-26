@@ -47,8 +47,6 @@ public class AdminMetricsService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int DAYS = 7;
     private static final List<Integer> RETENTION_DAYS = List.of(1, 3, 7);
-    private static final List<SessionStatus> PRACTICED =
-            List.of(SessionStatus.ANALYZING, SessionStatus.COMPLETED, SessionStatus.FAILED);
 
     private final AdminMetricsRepository metrics;
     private final Duration analysisTimeout;
@@ -95,7 +93,7 @@ public class AdminMetricsService {
                 (int) counts.getTotal(),
                 (int) counts.getJoinedToday(),
                 (int) counts.getWithdrawn(),
-                (int) metrics.countInterviewedUsers(PRACTICED));
+                (int) metrics.countInterviewedUsers(SessionStatus.PRACTICE));
     }
 
     // 연습 기록이 없는 날은 0명으로 채운다
@@ -130,7 +128,8 @@ public class AdminMetricsService {
     }
 
     private InterviewMetrics interviews(OffsetDateTime now) {
-        List<InterviewCount> counts = metrics.countInterviews(PRACTICED, SessionStatus.ABORTED);
+        List<InterviewCount> counts =
+                metrics.countInterviews(SessionStatus.PRACTICE, SessionStatus.ABORTED);
         int completed = sum(counts, c -> c.getStatus() == SessionStatus.COMPLETED);
         int analyzing = sum(counts, c -> c.getStatus() == SessionStatus.ANALYZING);
         int failed = sum(counts, c -> c.getStatus() == SessionStatus.FAILED);

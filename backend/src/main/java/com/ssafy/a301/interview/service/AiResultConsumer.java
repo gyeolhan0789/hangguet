@@ -14,6 +14,9 @@ import org.springframework.dao.RecoverableDataAccessException;
 import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.CannotCreateTransactionException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * AI 결과 큐(ai:results)를 하나씩 꺼내 저장한다(BE 설계 5.5). 기동하면 처리 중 목록에 남은 메시지(지난번에 처리 도중 멈춘 것)부터 처리한다.
@@ -29,6 +32,7 @@ import org.springframework.transaction.CannotCreateTransactionException;
 public class AiResultConsumer implements SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(AiResultConsumer.class);
     private static final Duration POLL_TIMEOUT = Duration.ofSeconds(2);
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final AiResultQueue queue;
     private final AiResultService results;
@@ -100,7 +104,7 @@ public class AiResultConsumer implements SmartLifecycle {
                 return;
             } catch (RuntimeException ex) {
                 // 잠시 뒤 될 수 있는 실패만 여기로 온다(저장, 또는 큐에서 지우기·옮기기)
-                LOG.warn("결과 메시지를 저장하지 못해 다시 시도한다: {}", message, ex);
+                LOG.warn("결과 메시지를 저장하지 못해 다시 시도한다: {}", describe(message), ex);
                 if (!running) {
                     return;
                 }
@@ -118,8 +122,23 @@ public class AiResultConsumer implements SmartLifecycle {
             if (isTemporary(ex)) {
                 throw ex;
             }
-            LOG.warn("저장할 수 없는 결과 메시지를 실패 목록으로 옮긴다: {}", message, ex);
+            LOG.warn("저장할 수 없는 결과 메시지를 실패 목록으로 옮긴다: {}", describe(message), ex);
             queue.fail(message);
+        }
+    }
+
+    /** 로그용 식별 정보. 메시지에는 답변·평가 글이 들어 있으므로 원문은 남기지 않는다 */
+    static String describe(String message) {
+        try {
+            JsonNode node = JSON.readTree(message);
+            return "type="
+                    + node.path("type").asString(null)
+                    + " sessionId="
+                    + node.path("sessionId").asString(null)
+                    + " jobId="
+                    + node.path("jobId").asString(null);
+        } catch (JacksonException | IllegalArgumentException ex) {
+            return "형식 오류(길이 " + (message == null ? 0 : message.length()) + ")";
         }
     }
 
