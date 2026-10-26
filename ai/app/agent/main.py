@@ -1,27 +1,40 @@
-"""배정받은 LiveKit 방에서 지원자의 마이크를 Soniox STT로 전달하고, 질문을 음성으로 말한다."""
+"""배정받은 LiveKit 방에서 지원자의 마이크를 Soniox STT로 전달하고, 질문을 음성으로 말한다.
+
+배정 정보가 있는 면접은 InterviewRunner로 첫 질문부터 마지막 답변까지 진행한다.
+배정 정보가 없는 시험 방(connect --room)은 지금처럼 자막만 처리한다.
+"""
 
 import asyncio
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import AsyncExitStack
 
 from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, JobRequest, cli
 
+from app.agent.answer_capture import AnswerCapture, CapturedAnswer
+from app.agent.answer_delivery import AnswerDelivery
+from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.interview import InterviewRunner
 from app.agent.question import QuestionSpeaker
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
+from app.common.session import InterviewMode
 from app.common.settings import load_settings
 
 log = logging.getLogger(__name__)
 server = AgentServer(num_idle_processes=0)
 # AI 명세 6.1: 화상 녹화 파일 이름이 참가자 이름으로 시작하므로(7장) 이 이름으로 들어온다
 AGENT_IDENTITY = "interviewer"
+# AI 명세 6.1: 지원자 참가자 이름(BE가 발급하는 입장 토큰의 identity)
+CANDIDATE_IDENTITY = "candidate"
+# 화면이 응답하지 않아도 진행이 늦어지지 않도록 기다리는 상한(초)
+STATE_RPC_TIMEOUT = 3.0
 
 
 async def accept_request(request: JobRequest) -> None:
@@ -60,7 +73,7 @@ async def entrypoint(ctx: JobContext) -> None:
     assignment = job_assignment(ctx)
     closed = asyncio.Event()
     transcription: asyncio.Task[None] | None = None
-    asking: asyncio.Task[None] | None = None
+    interviewing: asyncio.Task[None] | None = None
     speaker: QuestionSpeaker | None = None
 
     def on_disconnected(_reason: rtc.DisconnectReason) -> None:
@@ -74,25 +87,32 @@ async def entrypoint(ctx: JobContext) -> None:
     try:
         await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
         log.info("LiveKit 방 참가 완료", extra={"room": ctx.room.name})
+        work: asyncio.Task[None]
         if assignment is not None:
             speaker = question_speaker(ctx, assignment)
-            asking = asyncio.create_task(ask_question(ctx, closed, speaker, assignment.current_seq))
-        transcription = asyncio.create_task(transcribe_room(ctx, closed, settings))
+            interviewing = asyncio.create_task(
+                run_interview(ctx, closed, settings, speaker, assignment)
+            )
+            work = interviewing
+        else:
+            transcription = asyncio.create_task(transcribe_room(ctx, closed, settings))
+            work = transcription
         stop = asyncio.create_task(closed.wait())
         try:
-            done, _ = await asyncio.wait((transcription, stop), return_when=asyncio.FIRST_COMPLETED)
-            if transcription in done:
-                await transcription
+            done, _ = await asyncio.wait((work, stop), return_when=asyncio.FIRST_COMPLETED)
+            if work in done:
+                await work
         finally:
             stop.cancel()
             await asyncio.gather(stop, return_exceptions=True)
     finally:
         closed.set()
         try:
-            if asking is not None:
-                # 면접방이 닫히면 말하던 질문 음성은 이어서 낼 곳이 없으므로 기다리지 않는다
-                asking.cancel()
-                await asyncio.gather(asking, return_exceptions=True)
+            # 면접방이 닫히면 말하던 질문 음성과 진행 중인 답변은
+            # 전달할 곳이 없으므로 기다리지 않는다
+            if interviewing is not None:
+                interviewing.cancel()
+                await asyncio.gather(interviewing, return_exceptions=True)
             if speaker is not None:
                 await speaker.aclose()
             if transcription is not None:
@@ -106,6 +126,138 @@ async def entrypoint(ctx: JobContext) -> None:
             log.info("LiveKit 방 연결 종료")
 
 
+class RoomCapture:
+    """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다."""
+
+    def __init__(
+        self,
+        room: rtc.Room,
+        identity: str,
+        settings: SttSettings,
+        on_speech: Callable[[], None],
+    ) -> None:
+        self._room = room
+        self._identity = identity
+        self._stop = asyncio.Event()
+        self._publisher = TranscriptPublisher(room.local_participant, identity)
+        self._capture = AnswerCapture(
+            lambda on_update: SonioxSTT(settings, on_update=on_update),
+            on_speech=on_speech,
+            on_update=self._publisher.update,
+        )
+
+    async def run(self) -> CapturedAnswer:
+        participant = self._room.remote_participants.get(self._identity)
+        if participant is None:
+            raise RuntimeError("지원자가 면접방에 없다")
+        stream = rtc.AudioStream.from_participant(
+            participant=participant,
+            track_source=rtc.TrackSource.SOURCE_MICROPHONE,
+            sample_rate=SAMPLE_RATE,
+            num_channels=1,
+        )
+        chunks = audio_chunks(stream, self._stop)
+        try:
+            return await self._capture.run(chunks)
+        finally:
+            await chunks.aclose()
+            await stream.aclose()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def snapshot(self) -> CapturedAnswer:
+        return self._capture.snapshot()
+
+    def fail(self) -> None:
+        self._publisher.fail()
+
+    async def aclose(self) -> None:
+        self._stop.set()
+        await self._publisher.aclose()
+
+
+async def send_answer_state(
+    participant: rtc.LocalParticipant, destination: str, payload: str
+) -> None:
+    """화면이 받지 못해도(처리 함수 없음·응답 지연) 면접은 계속 진행한다(AI 명세 6.3)."""
+    try:
+        await asyncio.wait_for(
+            participant.perform_rpc(
+                destination_identity=destination,
+                method=ANSWER_STATE_METHOD,
+                payload=payload,
+                response_timeout=STATE_RPC_TIMEOUT,
+            ),
+            timeout=STATE_RPC_TIMEOUT,
+        )
+    except (rtc.RpcError, TimeoutError) as e:
+        code = e.code if isinstance(e, rtc.RpcError) else "timeout"
+        log.info("답변 상태 화면 전달 실패 code=%s", code)
+
+
+async def run_interview(
+    ctx: JobContext,
+    closed: asyncio.Event,
+    settings: SttSettings,
+    speaker: QuestionSpeaker,
+    assignment: Assignment,
+) -> None:
+    """배정 정보가 있는 면접을 진행한다.
+
+    마지막 질문 뒤에도 BE가 면접방을 닫을 때까지 남는다(AI 명세 6.1).
+    채팅 면접은 음성을 듣지 않으므로 지원자 마이크를 구독하지 않는다.
+    """
+    room = ctx.room
+    video = assignment.mode is InterviewMode.VIDEO
+    results = ResultPublisher(create_redis(load_settings(os.environ)))
+    delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
+    runner = InterviewRunner(
+        assignment,
+        speaker,
+        lambda identity, on_speech: RoomCapture(room, identity, settings, on_speech),
+        lambda destination, payload: send_answer_state(
+            room.local_participant, destination, payload
+        ),
+        on_answer=delivery.deliver,
+    )
+
+    def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:
+        if (
+            video
+            and owner.identity == CANDIDATE_IDENTITY
+            and pub.source == rtc.TrackSource.SOURCE_MICROPHONE
+        ):
+            pub.set_subscribed(True)
+
+    def joined(participant: rtc.RemoteParticipant) -> None:
+        if participant.identity != CANDIDATE_IDENTITY:
+            return
+        for pub in participant.track_publications.values():
+            subscribe(pub, participant)
+        runner.candidate_joined(participant.identity)
+
+    def left(participant: rtc.RemoteParticipant) -> None:
+        runner.candidate_left(participant.identity)
+
+    async with AsyncExitStack() as cleanup:
+        room.on("track_published", subscribe)
+        cleanup.callback(room.off, "track_published", subscribe)
+        room.on("participant_connected", joined)
+        cleanup.callback(room.off, "participant_connected", joined)
+        room.on("participant_disconnected", left)
+        cleanup.callback(room.off, "participant_disconnected", left)
+        room.local_participant.register_rpc_method(
+            ANSWER_SUBMIT_METHOD, lambda data: runner.submit_requested(data.payload)
+        )
+        cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
+        for participant in list(room.remote_participants.values()):
+            joined(participant)
+        await speaker.publish_track()
+        await runner.run()
+        await closed.wait()
+
+
 def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker:
     common = load_settings(os.environ)
     tts = ElevenLabsTTS(common.elevenlabs_api_key)
@@ -115,31 +267,6 @@ def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker
     return QuestionSpeaker(
         ctx.room.local_participant, assignment, tts, ResultPublisher(create_redis(common))
     )
-
-
-async def ask_question(
-    ctx: JobContext, closed: asyncio.Event, speaker: QuestionSpeaker, seq: int
-) -> None:
-    """질문 음성을 미리 합성해 두고, 지원자가 들어오면 질문한다.
-
-    질문 진행(다음 질문으로 넘어가기)은 아직 없어 배정 정보의 currentSeq 질문 하나만 말한다.
-    지원자가 새로고침으로 다시 들어와도 다시 말하지 않는다.
-    """
-    prepared = asyncio.create_task(speaker.prepare(seq))
-    try:
-        await speaker.publish_track()
-        participant = await first_participant(ctx, closed)
-        if participant is None:
-            return
-        await speaker.ask(seq, participant.identity, await prepared)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # 질문 음성 오류로 음성 인식까지 멈추지 않게 이 작업 안에서 끝낸다
-        log.exception("질문 진행 실패", extra={"seq": seq})
-    finally:
-        prepared.cancel()
-        await asyncio.gather(prepared, return_exceptions=True)
 
 
 async def first_participant(ctx: JobContext, closed: asyncio.Event) -> rtc.RemoteParticipant | None:
