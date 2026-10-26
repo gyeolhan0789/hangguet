@@ -14,6 +14,9 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
 - 면접방이 닫히면 진행 중인 답변은 전달하지 않는다(AI 명세 6.1).
 - 다음 질문 음성은 답변을 듣는 동안 미리 합성한다(AI 명세 6장 머리말).
 - 답변 결과 전달은 on_answer가 담당한다.
+  결과 큐 전송이 재시도 후에도 실패하면 submitFailed를 알리고 다음 질문으로 진행하지 않는다.
+  [답변 완료]를 수신하면 보관한 같은 답변을 다시 전달한다(AI 명세 6.5).
+  그동안 지원자가 재입장하면 화면이 실패 상태를 모르므로 submitFailed를 다시 알린다.
 """
 
 from __future__ import annotations
@@ -34,14 +37,17 @@ from app.agent.answer_rpc import (
 )
 from app.agent.assignment import Assignment
 from app.agent.tts import SpeechAudio
+from app.common.results import ResultPublishError
 from app.common.session import MAX_SEQ
 from app.interview.realtime.answer_end import (
     INITIAL_STATE,
     AnswerEndEvent,
     AnswerStarted,
     Decision,
+    Phase,
     Speech,
     SttError,
+    SubmitFailed,
     SubmitRequested,
     Tick,
     next_answer_end,
@@ -100,7 +106,7 @@ class InterviewRunner:
         open_capture: CaptureOpener,
         send_state: StateSender,
         *,
-        on_answer: Callable[[FinishedAnswer], Awaitable[None]] | None = None,
+        on_answer: Callable[[FinishedAnswer], Awaitable[bool]] | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
     ) -> None:
         self._assignment = assignment
@@ -124,6 +130,8 @@ class InterviewRunner:
         # 퇴장 직후 바로 재입장해도 이전 답변을 폐기하기 위함이다
         self._candidate = identity
         self._present.set()
+        if self._state.phase is Phase.SUBMIT_FAILED and self._seq is not None:
+            self._notify(identity, self._seq, AnswerState.SUBMIT_FAILED)
 
     def candidate_left(self, identity: str) -> None:
         if identity != self._candidate:
@@ -150,6 +158,9 @@ class InterviewRunner:
         try:
             for seq in range(self._assignment.current_seq, MAX_SEQ + 1):
                 await self._question(seq)
+            # 마지막 답변의 submitted도 화면에 전달되도록 남은 알림을 기다린다.
+            # 알림은 화면 응답 상한 뒤 끝나므로 오래 걸리지 않는다
+            await asyncio.gather(*self._notifications, return_exceptions=True)
             log.info("마지막 질문까지 진행했다", extra={"session": self._assignment.session_id})
         finally:
             pending = [*self._prepared.values(), *self._notifications]
@@ -236,9 +247,29 @@ class InterviewRunner:
                 capturing.cancel()
                 await asyncio.gather(capturing, return_exceptions=True)
             await session.aclose()
-        if self._on_answer is not None:
-            await self._on_answer(FinishedAnswer(seq, answer, self._finish))
+        await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
         return True
+
+    async def _deliver(self, finished: FinishedAnswer, destination: str) -> None:
+        if self._on_answer is None:
+            return
+        while True:
+            try:
+                saved = await self._on_answer(finished)
+            except ResultPublishError:
+                log.error("answer.completed 전송 실패", extra={"seq": finished.seq})
+                self._apply(SubmitFailed())
+                self._notify(destination, finished.seq, AnswerState.SUBMIT_FAILED)
+                await self._resubmit_requested()
+                continue
+            if saved:
+                self._notify(destination, finished.seq, AnswerState.SUBMITTED)
+            return
+
+    async def _resubmit_requested(self) -> None:
+        while self._state.phase is Phase.SUBMIT_FAILED:
+            self._wake.clear()
+            await self._wake.wait()
 
     async def _wait_event(self, capturing: asyncio.Task[CapturedAnswer], failed: bool) -> None:
         deadline = next_deadline(self._state)

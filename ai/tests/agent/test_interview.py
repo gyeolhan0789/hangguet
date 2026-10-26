@@ -17,7 +17,7 @@ from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
 from app.agent.interview import FinishedAnswer, InterviewRunner
 from app.agent.stt import SttError
-from app.common.results import KST
+from app.common.results import KST, ResultPublishError
 from app.interview.realtime import answer_end
 from app.interview.realtime.progress import EndReason
 
@@ -118,6 +118,10 @@ class Harness:
         self.sessions: list[FakeSession] = []
         self.states: list[tuple[int, str]] = []
         self.answers: list[FinishedAnswer] = []
+        self.deliveries: list[int] = []
+        # 남은 결과 큐 전송 실패 횟수
+        self.publish_failures = 0
+        self.saved = True
         self.session_opened = asyncio.Event()
         self.runner = InterviewRunner(
             assignment(current_seq),
@@ -140,8 +144,15 @@ class Harness:
         assert (message["type"], message["sessionId"]) == ("answer.state", 55)
         self.states.append((message["seq"], message["state"]))
 
-    async def on_answer(self, answer: FinishedAnswer) -> None:
-        self.answers.append(answer)
+    async def on_answer(self, answer: FinishedAnswer) -> bool:
+        self.deliveries.append(answer.seq)
+        await asyncio.sleep(0)
+        if self.publish_failures:
+            self.publish_failures -= 1
+            raise ResultPublishError("결과 메시지 전송 4회 실패")
+        if self.saved:
+            self.answers.append(answer)
+        return self.saved
 
     async def next_session(self) -> FakeSession:
         count = len(self.sessions)
@@ -199,7 +210,9 @@ def test_runs_every_question_with_auto_submit() -> None:
     assert [(seq, audio, announce) for seq, _, audio, announce in h.asker.asked] == [
         (seq, f"audio-{seq}", True) for seq in range(1, 6)
     ]
-    assert h.states == [(seq, "autoSubmitted") for seq in range(1, 6)]
+    assert h.states == [
+        state for seq in range(1, 6) for state in ((seq, "autoSubmitted"), (seq, "submitted"))
+    ]
     assert all(s.closed for s in h.sessions)
 
 
@@ -245,7 +258,7 @@ def test_manual_submit_rules() -> None:
     h = run_async(scenario)
     assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
     assert h.answers[0].answer.content == "답변"
-    assert h.states == []
+    assert h.states == [(1, "submitted")]
 
 
 def test_timed_out_once_then_answer_still_accepted() -> None:
@@ -258,7 +271,7 @@ def test_timed_out_once_then_answer_still_accepted() -> None:
         await until(lambda: len(h.answers) == 1)
 
     h = run_async(scenario)
-    assert h.states == [(1, "timedOut"), (1, "autoSubmitted")]
+    assert h.states == [(1, "timedOut"), (1, "autoSubmitted"), (1, "submitted")]
 
 
 def test_stt_failure_after_speech_submits_recognized_text() -> None:
@@ -338,6 +351,71 @@ def test_quick_rejoin_still_discards_answer() -> None:
 
     h = run_async(scenario)
     assert h.answers[0].answer.content == "답변답변"
+
+
+def test_submit_failure_waits_for_resubmit_of_same_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 2
+        session = await h.next_session()
+        session.speak()
+        await until(lambda: h.states[-1:] == [(1, "submitFailed")])
+        await asyncio.sleep(0.1)
+        # 제출에 실패한 질문에서 멈추고 다음 질문으로 진행하지 않는다
+        assert len(h.sessions) == 1
+        assert [seq for seq, _, _, _ in h.asker.asked] == [1]
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: h.states.count((1, "submitFailed")) == 2)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1, 1]
+    assert [a.end_reason for a in h.answers] == [EndReason.AUTO_SUBMIT]
+    assert h.states == [
+        (1, "autoSubmitted"),
+        (1, "submitFailed"),
+        (1, "submitFailed"),
+        (1, "submitted"),
+    ]
+
+
+def test_submit_while_resubmitting_is_not_accepted() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        assert json.loads(h.submit(1)) == {"accepted": False}
+        await until(lambda: (1, "submitted") in h.states)
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1]
+
+
+def test_rejoin_after_submit_failure_repeats_failure_state() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        h.runner.candidate_left(CANDIDATE)
+        h.runner.candidate_joined(CANDIDATE)
+        await until(lambda: h.states.count((1, "submitFailed")) == 2)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1]
+
+
+def test_answer_that_cannot_be_saved_moves_on_without_submitted() -> None:
+    async def scenario(h: Harness) -> None:
+        h.saved = False
+        (await h.next_session()).speak()
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1]
+    assert h.states == [(1, "autoSubmitted")]
 
 
 def test_closing_room_drops_answer_in_progress() -> None:

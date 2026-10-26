@@ -20,6 +20,7 @@ from app.interview.realtime.answer_end import (
     Reconnecting,
     Speech,
     SttError,
+    SubmitFailed,
     SubmitRequested,
     Tick,
     next_answer_end,
@@ -123,6 +124,25 @@ def test_duplicate_submit_proceeds_once() -> None:
     after, after_decisions = run([Tick(20_000)], submitting)
     assert after == submitting
     assert after_decisions == ["wait"]
+
+
+def test_submit_failure_waits_for_resubmit() -> None:
+    submitting, _ = run([START, Speech(1_000), Tick(8_000)])
+    failed = next_answer_end(submitting, SubmitFailed()).state
+    assert failed.phase is Phase.SUBMIT_FAILED
+    assert next_deadline(failed) is None
+    # 제출 실패 뒤에는 발화·시간이 제출을 다시 일으키지 않는다
+    assert run([Speech(9_000), Tick(80_000)], failed) == (failed, ["wait"])
+    step = next_answer_end(failed, SubmitRequested())
+    assert step.decision is Decision.ACCEPT
+    assert step.state.phase is Phase.SUBMITTING
+    # 다시 제출하는 동안의 [답변 완료]는 받지 않는다
+    assert next_answer_end(step.state, SubmitRequested()).decision is Decision.ALREADY_SUBMITTING
+
+
+def test_submit_failure_is_ignored_unless_submitting() -> None:
+    listening, _ = run([START, Speech(1_000)])
+    assert next_answer_end(listening, SubmitFailed()).state == listening
 
 
 def test_manual_submit_stops_auto_submit() -> None:

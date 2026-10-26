@@ -14,6 +14,7 @@ from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, JobRequest, cli
 
 from app.agent.answer_capture import AnswerCapture, CapturedAnswer
+from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
 from app.agent.interview import InterviewRunner
@@ -218,6 +219,8 @@ async def run_interview(
     마지막 질문 뒤에도 BE가 면접방을 닫을 때까지 남는다(AI 명세 6.1).
     """
     room = ctx.room
+    results = ResultPublisher(create_redis(load_settings(os.environ)))
+    delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
     runner = InterviewRunner(
         assignment,
         speaker,
@@ -225,6 +228,7 @@ async def run_interview(
         lambda destination, payload: send_answer_state(
             room.local_participant, destination, payload
         ),
+        on_answer=delivery.deliver,
     )
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:

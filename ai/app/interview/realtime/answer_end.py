@@ -13,6 +13,8 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   STT 오류는 지원자가 일으킨 것이 아니므로 이미 인식된 글을 폐기하지 않는다.
 - STT 오류 뒤 발화가 없으면 제출할 글이 없어 [답변 완료]로 끝낼 수 없으므로,
   오류 상태에서도 60초를 계속 계산해 timedOut으로 끝낸다.
+- 답변 결과를 BE에 전달하지 못하면(submitFailed) 그 답변을 다시 제출할 때까지 기다리고,
+  [답변 완료]를 수신하면 같은 답변을 다시 제출한다(AI 명세 6.5).
 - 채팅은 화면이 답변 제출 API(5.7) 성공 뒤 [답변 완료]를 보내므로 발화 검사 없이 받고,
   음성을 듣지 않으므로 7초·60초를 계산하지 않는다.
 시각은 호출 측이 전달하고 타이머는 호출 측이 next_deadline으로 설정한다.
@@ -43,6 +45,7 @@ class Phase(StrEnum):
     RECONNECTING = "reconnecting"  # STT 자동 재연결 중
     ERROR = "error"  # STT 오류, 발화가 있었으면 [답변 완료]로 제출할 수 있다
     SUBMITTING = "submitting"  # 제출 중(수동·자동)
+    SUBMIT_FAILED = "submit_failed"  # 제출 실패, [답변 완료]로 같은 답변을 다시 제출한다
 
 
 class Decision(StrEnum):
@@ -105,12 +108,24 @@ class SubmitRequested:
 
 
 @dataclass(frozen=True)
+class SubmitFailed:
+    pass
+
+
+@dataclass(frozen=True)
 class Tick:
     now: int
 
 
 AnswerEndEvent = (
-    AnswerStarted | Speech | Reconnecting | Reconnected | SttError | SubmitRequested | Tick
+    AnswerStarted
+    | Speech
+    | Reconnecting
+    | Reconnected
+    | SttError
+    | SubmitRequested
+    | SubmitFailed
+    | Tick
 )
 
 
@@ -182,6 +197,9 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
             # 자동 제출과 [답변 완료]가 겹쳐도 한 번만 제출한다
             if state.phase is Phase.SUBMITTING:
                 return AnswerEndStep(state, Decision.ALREADY_SUBMITTING)
+            # 이미 발화를 확인하고 제출한 답변이므로 발화 검사 없이 다시 제출한다
+            if state.phase is Phase.SUBMIT_FAILED:
+                return AnswerEndStep(replace(state, phase=Phase.SUBMITTING), Decision.ACCEPT)
             # 답변 시작 전(질문 음성 재생 중)이다
             if state.phase is not Phase.ERROR and not _is_active(state.phase):
                 return AnswerEndStep(state, Decision.NOT_ANSWERING)
@@ -189,6 +207,11 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
                 return AnswerEndStep(state, Decision.EMPTY_ANSWER)
             submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
             return AnswerEndStep(submitting, Decision.ACCEPT)
+
+        case SubmitFailed():
+            if state.phase is not Phase.SUBMITTING:
+                return AnswerEndStep(state)
+            return AnswerEndStep(replace(state, phase=Phase.SUBMIT_FAILED))
 
         case Tick(now=now):
             if (
