@@ -2,8 +2,8 @@
 
 AI 명세 5장의 「3회 재시도」는 첫 호출 뒤 재시도 3번, 즉 최대 4번 호출로 해석한다.
 재시도 대상은 타임아웃·429·5xx이고, 그 밖의 4xx는 요청 자체가 잘못된 것이라 재시도해도
-결과가 같으므로 즉시 실패로 처리한다. 출력 구조 깨짐의 재시도는 응답을 검증하는
-호출 측이 담당한다.
+결과가 같으므로 즉시 실패로 처리한다.
+출력 구조 깨짐의 재시도는 응답을 검증하는 호출 측이 담당한다.
 전송 함수를 주입받으므로 테스트는 유료 호출 없이 동작한다.
 작업마다 BE 최대 대기 시간이 있으므로(AI 명세 5장) 호출 전마다 마감을 확인하는 with_deadline을
 질문 생성과 결과 생성이 함께 사용한다.
@@ -26,13 +26,15 @@ from app.common.versions import REGISTRY, VersionKind
 
 log = logging.getLogger(__name__)
 
-# 재시도 간격(초)과 요청 타임아웃(초). 운영 응답 시간을 측정하기 전이라 GMS 일시 장애가
+# 재시도 간격(초)과 요청 타임아웃(초).
+# 운영 응답 시간을 측정하기 전이라 GMS 일시 장애가
 # 해소될 때까지 대기할 수 있는 값으로 두었고, 측정 뒤 조정한다
 BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 REQUEST_TIMEOUT_SECONDS = 60.0
 # 재시도마다 간격이 하나씩 필요하므로 횟수를 간격 목록에서 계산해 두 값이 어긋나지 않게 한다
 MAX_RETRIES = len(BACKOFF_SECONDS)
-# Retry-After 상한(초). 서버가 긴 대기를 지정해도 작업자가 장시간 정지하지 않도록 한다
+# Retry-After 상한(초).
+# 서버가 긴 대기를 지정해도 작업자가 장시간 정지하지 않도록 한다
 MAX_RETRY_AFTER_SECONDS = 60.0
 # AI 명세 5장: 응답 구조가 깨지면(JSON 아님, 개수·판정 값 틀림) 1회 재시도한다.
 # 질문 생성·채점·결과 생성이 같은 횟수를 사용하도록 GMS 호출 모듈 한 곳에 둔다
@@ -50,7 +52,8 @@ class HttpResponse:
     body: bytes
 
 
-# 요청 본문을 전송하고 응답을 반환한다. 시간 초과면 TimeoutError를 발생시킨다.
+# 요청 본문을 전송하고 응답을 반환한다.
+# 시간 초과면 TimeoutError를 발생시킨다.
 Transport = Callable[[dict[str, Any]], HttpResponse]
 
 
@@ -64,13 +67,15 @@ class TokenLogprob:
 @dataclass(frozen=True)
 class GmsResult:
     content: dict[str, Any]
-    # 응답에 확률이 없으면 None이다. 호출 측은 이 값으로 PROBABILITY·FIXED 방식을 선택한다
+    # 응답에 확률이 없으면 None이다.
+    # 호출 측은 이 값으로 PROBABILITY·FIXED 방식을 선택한다
     token_logprobs: list[TokenLogprob] | None
     model: str
 
 
-# 메시지를 전송하고 GMS 응답을 반환한다. GmsClient.chat_json의 인자를 고정한 함수이고, 테스트는 유료
-# 호출 대신 대역을 주입한다
+# 메시지를 전송하고 GMS 응답을 반환한다.
+# GmsClient.chat_json의 인자를 고정한 함수이고,
+# 테스트는 유료 호출 대신 대역을 주입한다
 Chat = Callable[[Sequence[Mapping[str, str]]], GmsResult]
 
 
@@ -86,8 +91,22 @@ class GmsDeadlineError(Exception):
     """작업 마감이 지나 GMS를 호출하지 않았다(AI 명세 5장 BE 최대 대기 시간 초과)."""
 
 
+def with_structure_retry[T](
+    attempt: Callable[[], T], *, retry_on: tuple[type[Exception], ...], label: str
+) -> T:
+    """지정한 출력 구조 오류만 재시도하고 최종 오류는 재전파한다."""
+    for _ in range(STRUCTURE_RETRIES):
+        try:
+            return attempt()
+        except retry_on as error:
+            log.warning("출력 구조 오류 재시도 %s error=%s", label, type(error).__name__)
+    return attempt()
+
+
 def with_deadline(chat: Chat, deadline: float, clock: Callable[[], float] = time.time) -> Chat:
-    """GMS를 호출하기 전마다 마감을 확인한다. 출력 구조 재시도의 호출도 포함한다.
+    """GMS를 호출하기 전마다 마감을 확인한다.
+
+    출력 구조 재시도의 호출도 포함한다.
 
     마감은 BE가 작업을 요청한 시각에서 계산한 Unix 시각(초)이므로 clock도 같은 기준(time.time)이다.
 
@@ -239,7 +258,8 @@ def urllib_transport(url: str, api_key: str | None) -> Transport:
             # 응답 수신 중 시간 초과도 재시도 대상이므로 그대로 전파한다
             raise
         except (OSError, http.client.HTTPException) as e:
-            # 응답 수신 중 연결이 중단된 경우다. 재시도 대상(타임아웃·429·5xx)이 아니므로
+            # 응답 수신 중 연결이 중단된 경우다.
+            # 재시도 대상(타임아웃·429·5xx)이 아니므로,
             # 연결 실패와 같이 처리해 호출 측이 GmsUnavailableError 하나만 처리하게 한다
             raise GmsUnavailableError("GMS 응답을 수신하지 못했다") from e
 

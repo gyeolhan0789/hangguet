@@ -24,6 +24,11 @@ from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
+from app.interview.scoring.job import (
+    ScoreAnswerJobHandler,
+    gms_score_chat,
+    register_score_answer_handler,
+)
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import ReceiveResult, RedisJobQueue
 
@@ -65,6 +70,9 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     dispatcher = Dispatcher()
     client = lazy_gms_client(settings)
     register_plan_handler(dispatcher, PlanJobHandler(results, gms_plan_chat(client)))
+    register_score_answer_handler(
+        dispatcher, ScoreAnswerJobHandler(results, gms_score_chat(client))
+    )
     return dispatcher
 
 
