@@ -98,6 +98,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(HERE), **kwargs)
 
+    def end_headers(self) -> None:
+        # 매일 작업이 viewer_data.js를 덮어쓰는데, Cloudflare·브라우저가 .js를 몇 시간 저장해 두면
+        # 갱신된 카드가 늦게 보인다. 매번 서버에 확인하게 한다(바뀌지 않았으면 304라 가볍다)
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def _send(self, status: int, body: Any) -> None:
         data = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
