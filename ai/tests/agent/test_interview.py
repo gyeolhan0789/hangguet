@@ -1,686 +1,518 @@
+"""면접 진행 시험.
+
+7초·60초를 짧게 바꿔 실제 시간으로 진행한다.
+"""
+
 import asyncio
 import json
-import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 
 import pytest
 from livekit import rtc
 
-from app.agent.assignment import AssignedQuestion, Assignment
-from app.agent.interview import (
-    ANSWER_STATE_METHOD,
-    ANSWER_SUBMIT_METHOD,
-    EMPTY_ANSWER,
-    NOT_ANSWERING,
-    AnswerEnd,
-    AnswerState,
-    InterviewConductor,
-    answer_state_payload,
-    submitted_seq,
-)
-from app.agent.stt import SttSettings
-from app.common.answer import SpeechToken, VoiceMetrics
-from app.common.results import KST, ResultPublishError, ResultType
-from app.common.session import InterviewMode, Persona
-from app.interview.realtime.answer_end import AUTO_SUBMIT_SILENCE_MS, NO_SPEECH_TIMEOUT_MS
+from app.agent import interview as interview_module
+from app.agent.answer_capture import CapturedAnswer
+from app.agent.assignment import parse_assignment
+from app.agent.interview import FinishedAnswer, InterviewRunner
+from app.agent.stt import SttError
+from app.common.results import KST, ResultPublishError
+from app.interview.realtime import answer_end
 from app.interview.realtime.progress import EndReason
 
-# 기준: AI 명세 6.2 진행 흐름 · 6.3 answerState · answerSubmit · 6.5 실패 처리
-# · 사용자 결정(2026-10-26: [답변 완료] 또는 마지막 말 뒤 7초 침묵이면 다음 질문,
-#   한마디도 안 했으면 넘어가지 않음)
-# LiveKit 방 · 질문 음성 · STT 캡처 · 결과 큐는 대역으로 바꾸고, 시각은 테스트가 직접 진행한다.
-
-STARTED_AT = datetime(2026, 10, 26, 15, 0, 0, 250000, tzinfo=KST)
+STARTED_AT = datetime(2026, 10, 26, 14, 0, tzinfo=KST)
+CANDIDATE = "candidate"
 
 
-def assignment(mode: InterviewMode, current_seq: int = 1) -> Assignment:
-    return Assignment(
-        session_id=55,
-        mode=mode,
-        persona=Persona.DEVIL,
-        current_seq=current_seq,
-        questions={seq: AssignedQuestion(f"질문 {seq}", "기준") for seq in range(1, 6)},
+@pytest.fixture(autouse=True)
+def short_timers(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(answer_end, "AUTO_SUBMIT_SILENCE_MS", 60)
+    monkeypatch.setattr(answer_end, "NO_SPEECH_TIMEOUT_MS", 150)
+
+
+def assignment(current_seq: int = 1, mode: str = "VIDEO") -> Any:
+    return parse_assignment(
+        json.dumps(
+            {
+                "sessionId": 55,
+                "mode": mode,
+                "persona": "DEVIL",
+                "currentSeq": current_seq,
+                "questions": [
+                    {"seq": seq, "content": f"질문 {seq}", "criteria": "기준"}
+                    for seq in range(1, 6)
+                ],
+            }
+        )
     )
 
 
-class Clock:
+class FakeAsker:
     def __init__(self) -> None:
-        self.now = 1_000
+        self.prepared: list[int] = []
+        self.asked: list[tuple[int, str, Any, bool]] = []
+        self.hold: asyncio.Event | None = None
+        self.speaking = asyncio.Event()
 
-    def __call__(self) -> int:
-        return self.now
+    async def prepare(self, seq: int) -> Any:
+        self.prepared.append(seq)
+        return f"audio-{seq}"
 
-
-async def settle() -> None:
-    """대기 중인 작업이 더 진행할 수 없을 때까지 이벤트 루프를 돌린다(실제 시간은 안 기다림)."""
-    for _ in range(50):
-        await asyncio.sleep(0)
-
-
-def has_length(items: list[Any], count: int) -> Callable[[], bool]:
-    return lambda: len(items) == count
-
-
-async def until(condition: Callable[[], bool]) -> None:
-    """조건이 맞을 때까지 기다린다.
-
-    결과 큐 전송은 별도 스레드에서 끝나므로 이벤트 루프를 돌리는 것만으로는 부족하다.
-    """
-    async with asyncio.timeout(5):
-        while not condition():
-            await asyncio.sleep(0.001)
+    async def ask(self, seq: int, destination: str, audio: Any, *, announce: bool = True) -> None:
+        self.asked.append((seq, destination, audio, announce))
+        self.speaking.set()
+        try:
+            if self.hold is not None:
+                await self.hold.wait()
+        finally:
+            self.speaking.clear()
 
 
-# --- AnswerEnd: 답변 끝 판단 부품을 시각에 맞춰 부르는지 ---
-
-
-def test_auto_submits_seven_seconds_after_last_speech() -> None:
-    async def scenario() -> None:
-        clock = Clock()
-        states: list[AnswerState] = []
-        answer = AnswerEnd(InterviewMode.VIDEO, clock_ms=clock, on_state=states.append)
-        waiting = asyncio.create_task(answer.wait())
-        answer.speech()
-        clock.now += AUTO_SUBMIT_SILENCE_MS - 1
-        answer.tick()
-        await settle()
-        assert not waiting.done()
-        # 7초 안에 다시 말하면 처음부터 다시 센다
-        answer.speech()
-        clock.now += AUTO_SUBMIT_SILENCE_MS
-        answer.tick()
-        assert await waiting is EndReason.AUTO_SUBMIT
-        assert states == [AnswerState.AUTO_SUBMITTED]
-
-    asyncio.run(scenario())
-
-
-def test_without_speech_times_out_once_and_keeps_listening_until_speech() -> None:
-    async def scenario() -> None:
-        clock = Clock()
-        states: list[AnswerState] = []
-        answer = AnswerEnd(InterviewMode.VIDEO, clock_ms=clock, on_state=states.append)
-        waiting = asyncio.create_task(answer.wait())
-        clock.now += AUTO_SUBMIT_SILENCE_MS * 2
-        answer.tick()
-        await settle()
-        # 한마디도 안 했으면 7초로 넘어가지 않는다
-        assert not waiting.done() and states == []
-
-        clock.now += NO_SPEECH_TIMEOUT_MS
-        answer.tick()
-        clock.now += NO_SPEECH_TIMEOUT_MS
-        answer.tick()
-        await settle()
-        assert states == [AnswerState.TIMED_OUT]
-        assert not waiting.done()
-
-        # 그 뒤에 말을 시작하면 7초 규칙으로 끝난다
-        answer.speech()
-        clock.now += AUTO_SUBMIT_SILENCE_MS
-        answer.tick()
-        assert await waiting is EndReason.AUTO_SUBMIT
-
-    asyncio.run(scenario())
-
-
-def test_manual_submit_needs_speech_in_video_but_not_in_chat() -> None:
-    async def scenario() -> None:
-        video = AnswerEnd(InterviewMode.VIDEO, clock_ms=Clock())
-        assert video.request_submit().value == "empty_answer"
-        video.speech()
-        assert video.request_submit().value == "accept"
-        assert video.request_submit().value == "already_submitting"
-        assert await video.wait() is EndReason.MANUAL_SUBMIT
-
-        chat = AnswerEnd(InterviewMode.CHAT, clock_ms=Clock())
-        assert chat.request_submit().value == "accept"
-        assert await chat.wait() is EndReason.MANUAL_SUBMIT
-
-    asyncio.run(scenario())
-
-
-def test_stt_failure_is_announced_once_and_spoken_answer_can_still_be_submitted() -> None:
-    async def scenario() -> None:
-        states: list[AnswerState] = []
-        answer = AnswerEnd(InterviewMode.VIDEO, clock_ms=Clock(), on_state=states.append)
-        answer.speech()
-        answer.stt_failed()
-        answer.stt_failed()
-        assert states == [AnswerState.STT_FAILED]
-        assert answer.request_submit().value == "accept"
-        assert await answer.wait() is EndReason.MANUAL_SUBMIT
-
-    asyncio.run(scenario())
-
-
-def test_payload_helpers() -> None:
-    assert json.loads(answer_state_payload(55, 2, AnswerState.SUBMITTED)) == {
-        "type": "answer.state",
-        "sessionId": 55,
-        "seq": 2,
-        "state": "submitted",
-    }
-    assert submitted_seq('{"type":"answer.submit","sessionId":55,"seq":3}') == 3
-    for payload in ("not json", "[]", '{"seq":"3"}', '{"seq":true}', "{}"):
-        assert submitted_seq(payload) is None
-
-
-# --- InterviewConductor: 질문 진행 ---
-
-
-class FakeLocalParticipant:
-    def __init__(self) -> None:
-        self.methods: dict[str, Callable[[rtc.RpcInvocationData], Any]] = {}
-        self.rpc: list[tuple[str, str, dict[str, Any]]] = []
-
-    def register_rpc_method(self, name: str, handler: Callable[..., Any]) -> None:
-        self.methods[name] = handler
-
-    def unregister_rpc_method(self, name: str) -> None:
-        self.methods.pop(name, None)
-
-    async def perform_rpc(
-        self, *, destination_identity: str, method: str, payload: str, response_timeout: float
-    ) -> str:
-        self.rpc.append((destination_identity, method, json.loads(payload)))
-        return ""
-
-    def states(self) -> list[tuple[int, str]]:
-        return [(p["seq"], p["state"]) for _, m, p in self.rpc if m == ANSWER_STATE_METHOD]
-
-
-class FakeRoom:
-    def __init__(self) -> None:
-        self.local_participant = FakeLocalParticipant()
-        self.handlers: dict[str, Callable[..., None]] = {}
-        self.remote_participants: dict[str, Participant] = {}
-
-    def on(self, event: str, handler: Callable[..., None]) -> None:
-        self.handlers[event] = handler
-
-    def off(self, event: str, _handler: Callable[..., None]) -> None:
-        self.handlers.pop(event, None)
-
-    def leave(self, identity: str) -> None:
-        self.remote_participants.pop(identity, None)
-        self.handlers["participant_disconnected"](Participant(identity))
-
-
-class Participant:
-    def __init__(self, identity: str) -> None:
-        self.identity = identity
-
-
-class FakeSpeaker:
-    """질문을 말한 기록. hold가 있으면 그 질문은 테스트가 끝낼 때까지 말하는 중이다."""
-
-    def __init__(self) -> None:
-        self.asked: list[tuple[int, str, bool]] = []
-        self.hold: set[int] = set()
-        self.release = asyncio.Event()
-        self.cancelled: list[int] = []
-
-    async def publish_track(self) -> None:
-        pass
-
-    async def prepare(self, seq: int) -> None:
-        return None
-
-    async def ask(self, seq: int, destination: str, audio: object, *, announce: bool) -> None:
-        self.asked.append((seq, destination, announce))
-        if seq in self.hold:
-            try:
-                await self.release.wait()
-            except asyncio.CancelledError:
-                self.cancelled.append(seq)
-                raise
-
-
-class FakeCapture:
-    def __init__(self, on_speech: Callable[[], None], on_error: Callable[[], None]) -> None:
-        self.started_at = STARTED_AT
+class FakeSession:
+    def __init__(self, on_speech: Callable[[], None]) -> None:
         self.on_speech = on_speech
-        self.on_error = on_error
-        self.content = "조회 쿼리 실행 계획을 봤습니다."
-        self.finished = False
-        self.discarded = False
+        self.stopped = asyncio.Event()
+        self.failure: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.closed = False
+        self.failed = False
+        self.spoken = 0
 
-    def tokens(self) -> tuple[SpeechToken, ...]:
-        return (SpeechToken("조회", 0, 280),)
+    def speak(self) -> None:
+        self.spoken += 1
+        self.on_speech()
 
-    async def voice(self, _tokens: object) -> VoiceMetrics:
-        return VoiceMetrics(trailing_off_ratio=12.5, pitch_range_st=6.2)
+    def break_stt(self) -> None:
+        self.failure.set_exception(SttError("Soniox STT 오류 (code=503)"))
 
-    async def finish(self) -> None:
-        self.finished = True
+    def answer(self) -> CapturedAnswer:
+        content = "답변" * self.spoken
+        return CapturedAnswer(STARTED_AT, content, None, b"pcm")
 
-    async def discard(self) -> None:
-        if not self.finished:
-            self.discarded = True
+    async def run(self) -> CapturedAnswer:
+        stop = asyncio.create_task(self.stopped.wait())
+        try:
+            await asyncio.wait((stop, self.failure), return_when=asyncio.FIRST_COMPLETED)
+            if self.failure.done():
+                self.failure.result()
+            return self.answer()
+        finally:
+            stop.cancel()
 
+    def stop(self) -> None:
+        self.stopped.set()
 
-class FakeResults:
-    def __init__(self) -> None:
-        self.published: list[tuple[ResultType, int, dict[str, Any]]] = []
-        self.fail = False
-        # 설정하면 테스트가 풀 때까지 결과 큐에 넣는 중이다(별도 스레드에서 기다린다)
-        self.hold: threading.Event | None = None
-        self.holding = threading.Event()
+    def snapshot(self) -> CapturedAnswer:
+        return self.answer()
 
-    def publish(self, result_type: ResultType, session_id: int, fields: dict[str, Any]) -> None:
-        if self.hold is not None:
-            self.holding.set()
-            self.hold.wait(5)
-        if self.fail:
-            raise ResultPublishError("결과 큐에 넣지 못했다")
-        self.published.append((result_type, session_id, dict(fields)))
+    def fail(self) -> None:
+        self.failed = True
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 class Harness:
-    def __init__(self, mode: InterviewMode, current_seq: int = 1) -> None:
-        self.room = FakeRoom()
-        self.speaker = FakeSpeaker()
-        self.results = FakeResults()
-        self.captures: list[FakeCapture] = []
-        self.identity = "candidate"
-        self.present = asyncio.Event()
-        self.present.set()
-        self.closed = False
-        # 캡처를 열지 못할 횟수 · 캡처마다 확정될 답변 글
-        self.open_fails = 0
-        self.contents: list[str] = []
-        self.conductor = InterviewConductor(
-            self.room,  # type: ignore[arg-type]
-            assignment(mode, current_seq),
-            self.speaker,  # type: ignore[arg-type]
-            self.results,  # type: ignore[arg-type]
-            SttSettings(api_key="key"),
-            self.wait_participant,  # type: ignore[arg-type]
-            clock=lambda: STARTED_AT,
-            clock_ms=Clock(),
-            capture_factory=self.capture,  # type: ignore[arg-type]
+    def __init__(self, current_seq: int = 1, mode: str = "VIDEO") -> None:
+        self.asker = FakeAsker()
+        self.sessions: list[FakeSession] = []
+        self.states: list[tuple[int, str]] = []
+        self.answers: list[FinishedAnswer] = []
+        self.deliveries: list[int] = []
+        # 남은 결과 큐 전송 실패 횟수
+        self.publish_failures = 0
+        self.saved = True
+        self.running: asyncio.Task[None] | None = None
+        self.session_opened = asyncio.Event()
+        self.runner = InterviewRunner(
+            assignment(current_seq, mode),
+            self.asker,
+            self.open_capture,
+            self.send_state,
+            on_answer=self.on_answer,
         )
 
-    async def wait_participant(self) -> Participant | None:
-        await self.present.wait()
-        if self.closed:
-            return None
-        participant = Participant(self.identity)
-        self.room.remote_participants[self.identity] = participant
-        return participant
+    def open_capture(self, identity: str, on_speech: Callable[[], None]) -> FakeSession:
+        assert identity == CANDIDATE
+        session = FakeSession(on_speech)
+        self.sessions.append(session)
+        self.session_opened.set()
+        return session
 
-    def capture(
-        self, _room: object, _participant: object, _settings: object, **kwargs: Any
-    ) -> FakeCapture:
-        if self.open_fails:
-            self.open_fails -= 1
-            raise RuntimeError("음성 스트림을 열지 못했다")
-        capture = FakeCapture(kwargs["on_speech"], kwargs["on_error"])
-        if self.contents:
-            capture.content = self.contents.pop(0)
-        self.captures.append(capture)
-        return capture
+    async def send_state(self, destination: str, payload: str) -> None:
+        message = json.loads(payload)
+        assert destination == CANDIDATE
+        assert (message["type"], message["sessionId"]) == ("answer.state", 55)
+        self.states.append((message["seq"], message["state"]))
 
-    async def submit(self, seq: int) -> dict[str, Any]:
-        handler = self.room.local_participant.methods[ANSWER_SUBMIT_METHOD]
-        data = rtc.RpcInvocationData(
-            request_id="r",
-            caller_identity=self.identity,
-            payload=json.dumps({"type": "answer.submit", "sessionId": 55, "seq": seq}),
-            response_timeout=3,
+    async def on_answer(self, answer: FinishedAnswer) -> bool:
+        self.deliveries.append(answer.seq)
+        await asyncio.sleep(0)
+        if self.publish_failures:
+            self.publish_failures -= 1
+            raise ResultPublishError("결과 메시지 전송 4회 실패")
+        if self.saved:
+            self.answers.append(answer)
+        return self.saved
+
+    async def next_session(self) -> FakeSession:
+        count = len(self.sessions)
+        while len(self.sessions) == count:
+            self.session_opened.clear()
+            await asyncio.wait_for(self.session_opened.wait(), timeout=1)
+        return self.sessions[-1]
+
+    def submit(self, seq: int) -> str:
+        return self.runner.submit_requested(
+            json.dumps({"type": "answer.submit", "sessionId": 55, "seq": seq})
         )
-        result: dict[str, Any] = json.loads(await handler(data))
-        return result
-
-    def completed(self) -> list[dict[str, Any]]:
-        return [f for t, _, f in self.results.published if t is ResultType.ANSWER_COMPLETED]
 
 
-def test_video_asks_each_question_and_moves_on_after_submit_until_the_fifth() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        running = asyncio.create_task(h.conductor.run())
+async def until(check: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if check():
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("조건을 만족하지 않았다")
+
+
+def run_async(
+    scenario: Callable[[Harness], Awaitable[None]], current_seq: int = 1, mode: str = "VIDEO"
+) -> Harness:
+    async def main() -> Harness:
+        harness = Harness(current_seq, mode)
+        harness.runner.candidate_joined(CANDIDATE)
+        running = asyncio.create_task(harness.runner.run())
+        harness.running = running
+        try:
+            await scenario(harness)
+        finally:
+            if not running.done():
+                running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+        return harness
+
+    return asyncio.run(main())
+
+
+def rpc_code(call: Callable[[], object]) -> int:
+    with pytest.raises(rtc.RpcError) as raised:
+        call()
+    return raised.value.code
+
+
+def test_runs_every_question_with_auto_submit() -> None:
+    async def scenario(h: Harness) -> None:
+        for _ in range(5):
+            session = await h.next_session()
+            session.speak()
+        # 마지막 답변의 submitted까지 확인하도록 진행이 스스로 끝날 때까지 기다린다
+        assert h.running is not None
+        await asyncio.wait_for(h.running, timeout=1)
+
+    h = run_async(scenario)
+    assert [a.seq for a in h.answers] == [1, 2, 3, 4, 5]
+    assert {a.end_reason for a in h.answers} == {EndReason.AUTO_SUBMIT}
+    assert [(seq, audio, announce) for seq, _, audio, announce in h.asker.asked] == [
+        (seq, f"audio-{seq}", True) for seq in range(1, 6)
+    ]
+    assert h.states == [
+        state for seq in range(1, 6) for state in ((seq, "autoSubmitted"), (seq, "submitted"))
+    ]
+    assert all(s.closed for s in h.sessions)
+
+
+def test_starts_from_current_seq() -> None:
+    async def scenario(h: Harness) -> None:
+        for _ in range(2):
+            (await h.next_session()).speak()
+        await until(lambda: len(h.answers) == 2)
+
+    h = run_async(scenario, current_seq=4)
+    assert [a.seq for a in h.answers] == [4, 5]
+
+
+def test_next_question_audio_is_prepared_while_answering() -> None:
+    async def scenario(h: Harness) -> None:
+        await h.next_session()
+        assert h.asker.prepared == [1, 2]
+
+    run_async(scenario)
+
+
+def test_submit_while_question_is_playing_is_not_answering() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
+        assert rpc_code(lambda: h.submit(1)) == 2002
+        h.asker.hold.set()
+        await h.next_session()
+
+    run_async(scenario)
+
+
+def test_manual_submit_rules() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        assert rpc_code(lambda: h.submit(1)) == 2001
+        session.speak()
+        assert rpc_code(lambda: h.submit(2)) == 2002
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        assert json.loads(h.submit(1)) == {"accepted": False}
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
+    assert h.answers[0].answer.content == "답변"
+    assert h.states == [(1, "submitted")]
+
+
+def test_video_submit_for_finished_question_is_not_answering() -> None:
+    async def scenario(h: Harness) -> None:
+        (await h.next_session()).speak()
+        await h.next_session()
+        assert rpc_code(lambda: h.submit(1)) == 2002
+
+    run_async(scenario)
+
+
+def test_timed_out_once_then_answer_still_accepted() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        await until(lambda: h.states == [(1, "timedOut")])
+        await asyncio.sleep(0.2)
+        assert h.states == [(1, "timedOut")]
+        session.speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.states == [(1, "timedOut"), (1, "autoSubmitted"), (1, "submitted")]
+
+
+def test_stt_failure_after_speech_submits_recognized_text() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.break_stt()
+        await until(lambda: (1, "sttFailed") in h.states)
+        await asyncio.sleep(0.1)
+        assert h.answers == []
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: len(h.answers) == 1)
+        assert session.failed
+
+    h = run_async(scenario)
+    assert h.answers[0].answer.content == "답변"
+
+
+def test_stt_failure_without_speech_times_out() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.break_stt()
+        await until(lambda: h.states == [(1, "sttFailed"), (1, "timedOut")])
+        assert rpc_code(lambda: h.submit(1)) == 2001
+
+    run_async(scenario)
+
+
+def test_leaving_during_answer_discards_it_and_restarts_same_question() -> None:
+    async def scenario(h: Harness) -> None:
+        first = await h.next_session()
+        first.speak()
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: first.closed)
+        h.runner.candidate_joined(CANDIDATE)
+        second = await h.next_session()
+        second.speak()
+        second.speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert [a.seq for a in h.answers] == [1]
+    # 전달된 답변은 재입장 뒤에 들은 답변이다
+    assert h.answers[0].answer.content == "답변답변"
+    # 답변 중 퇴장이면 질문은 다시 말하지 않는다
+    assert [seq for seq, _, _, _ in h.asker.asked].count(1) == 1
+    assert h.sessions[0].stopped.is_set()
+
+
+def test_leaving_during_question_repeats_it_without_announcing_again() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: not h.asker.speaking.is_set())
+        h.asker.hold.set()
+        h.runner.candidate_joined(CANDIDATE)
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert [(seq, announce) for seq, _, _, announce in h.asker.asked] == [(1, True), (1, False)]
+
+
+def test_quick_rejoin_still_discards_answer() -> None:
+    """퇴장 직후 재입장해도 퇴장 전 답변은 폐기한다."""
+
+    async def scenario(h: Harness) -> None:
+        first = await h.next_session()
+        first.speak()
+        h.runner.candidate_left(CANDIDATE)
+        h.runner.candidate_joined(CANDIDATE)
+        second = await h.next_session()
+        assert first.closed
+        second.speak()
+        second.speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.answers[0].answer.content == "답변답변"
+
+
+def test_submit_failure_waits_for_resubmit_of_same_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 2
+        session = await h.next_session()
+        session.speak()
+        await until(lambda: h.states[-1:] == [(1, "submitFailed")])
+        await asyncio.sleep(0.1)
+        # 제출에 실패한 질문에서 멈추고 다음 질문으로 진행하지 않는다
+        assert len(h.sessions) == 1
+        assert [seq for seq, _, _, _ in h.asker.asked] == [1]
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: h.states.count((1, "submitFailed")) == 2)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1, 1]
+    assert [a.end_reason for a in h.answers] == [EndReason.AUTO_SUBMIT]
+    assert h.states == [
+        (1, "autoSubmitted"),
+        (1, "submitFailed"),
+        (1, "submitFailed"),
+        (1, "submitted"),
+    ]
+
+
+def test_submit_while_resubmitting_is_not_accepted() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        assert json.loads(h.submit(1)) == {"accepted": False}
+        await until(lambda: (1, "submitted") in h.states)
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1]
+
+
+def test_rejoin_after_submit_failure_repeats_failure_state() -> None:
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        h.runner.candidate_left(CANDIDATE)
+        h.runner.candidate_joined(CANDIDATE)
+        await until(lambda: h.states.count((1, "submitFailed")) == 2)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1]
+
+
+def test_answer_that_cannot_be_saved_moves_on_without_submitted() -> None:
+    async def scenario(h: Harness) -> None:
+        h.saved = False
+        (await h.next_session()).speak()
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.deliveries == [1]
+    assert h.states == [(1, "autoSubmitted")]
+
+
+async def asked(h: Harness, count: int) -> None:
+    await until(lambda: len(h.asker.asked) == count)
+
+
+def test_chat_moves_to_next_question_on_submit_without_listening() -> None:
+    async def scenario(h: Harness) -> None:
         for seq in range(1, 6):
-            await until(has_length(h.captures, seq))
-            assert h.speaker.asked[-1] == (seq, "candidate", True)
-            h.captures[-1].on_speech()
-            assert await h.submit(seq) == {"accepted": True}
-        await running
+            await asked(h, seq)
+            await until(lambda: not h.asker.speaking.is_set())
+            assert json.loads(h.submit(seq)) == {"accepted": True}
+        await asyncio.sleep(0.05)
 
-        assert [seq for seq, _, _ in h.speaker.asked] == [1, 2, 3, 4, 5]
-        assert all(capture.finished for capture in h.captures)
-        assert [answer["seq"] for answer in h.completed()] == [1, 2, 3, 4, 5]
-        first = h.completed()[0]
-        assert first["endReason"] == "MANUAL_SUBMIT"
-        assert first["answerStartedAt"] == "2026-10-26T15:00:00.250+09:00"
-        assert first["content"] == "조회 쿼리 실행 계획을 봤습니다."
-        assert first["speech"] == {"trailingOffRatio": 12.5, "pitchRangeSt": 6.2}
-        assert h.room.local_participant.states() == [(seq, "submitted") for seq in range(1, 6)]
-        # 다 진행한 뒤에도 면접방이 닫힐 때까지 지난 질문의 [답변 완료]에 false로 답한다
-        assert await h.submit(5) == {"accepted": False}
-        h.conductor.aclose()
-        assert ANSWER_SUBMIT_METHOD not in h.room.local_participant.methods
-
-    asyncio.run(scenario())
+    h = run_async(scenario, mode="CHAT")
+    assert [seq for seq, _, _, _ in h.asker.asked] == [1, 2, 3, 4, 5]
+    # 채팅 답변은 화면이 5.7로 저장하므로 음성을 듣거나 답변을 전달하지 않는다
+    assert h.sessions == []
+    assert h.deliveries == []
+    assert h.states == []
 
 
-def test_video_starts_from_current_seq_of_reassignment() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO, current_seq=4)
-        running = asyncio.create_task(h.conductor.run())
-        for count, seq in enumerate((4, 5), start=1):
-            await until(has_length(h.captures, count))
-            h.captures[-1].on_speech()
-            await h.submit(seq)
-        await running
-        assert [seq for seq, _, _ in h.speaker.asked] == [4, 5]
+def test_chat_submit_rules() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
+        assert rpc_code(lambda: h.submit(1)) == 2002
+        h.asker.hold.set()
+        await until(lambda: not h.asker.speaking.is_set())
+        assert rpc_code(lambda: h.submit(2)) == 2002
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await asked(h, 2)
+        # 이미 진행한 질문의 [답변 완료]는 받지 않는다(5.7 409 뒤 다시 전송)
+        assert json.loads(h.submit(1)) == {"accepted": False}
+        assert len(h.asker.asked) == 2
 
-    asyncio.run(scenario())
-
-
-def test_video_rejects_submit_while_asking_before_speech_and_for_other_questions() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.speaker.hold.add(1)
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        # 질문 음성 재생 중
-        with pytest.raises(rtc.RpcError) as asking:
-            await h.submit(1)
-        assert asking.value.code == NOT_ANSWERING
-
-        h.speaker.release.set()
-        await settle()
-        # 한마디도 안 했으면
-        with pytest.raises(rtc.RpcError) as empty:
-            await h.submit(1)
-        assert empty.value.code == EMPTY_ANSWER
-        # 지금 질문이 아니면 무시한다
-        assert await h.submit(2) == {"accepted": False}
-        assert h.completed() == []
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
+    run_async(scenario, mode="CHAT")
 
 
-def test_leaving_while_answering_discards_the_answer_and_listens_again_without_asking() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        h.present.clear()
-        h.room.leave("candidate")
-        await settle()
-        assert h.captures[0].discarded
+def test_chat_resumed_from_current_seq_ignores_earlier_question() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        assert json.loads(h.submit(2)) == {"accepted": False}
+        assert rpc_code(lambda: h.submit(4)) == 2002
 
-        h.identity = "candidate"
-        h.present.set()
-        await settle()
-        assert len(h.captures) == 2
-        assert len(h.speaker.asked) == 1
-        h.captures[1].on_speech()
-        await h.submit(1)
-        await until(lambda: len(h.completed()) == 1)
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
+    h = run_async(scenario, current_seq=3, mode="CHAT")
+    assert [seq for seq, _, _, _ in h.asker.asked] == [3]
 
 
-def test_leaving_while_asking_repeats_the_question_without_announcing_again() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.speaker.hold.add(1)
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.present.clear()
-        h.room.leave("candidate")
-        await settle()
-        h.speaker.hold.clear()
-        h.present.set()
-        await settle()
-        assert h.speaker.asked == [(1, "candidate", True), (1, "candidate", False)]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
+def test_chat_keeps_waiting_for_same_answer_after_rejoin() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        await until(lambda: not h.asker.speaking.is_set())
+        h.runner.candidate_left(CANDIDATE)
+        await asyncio.sleep(0.05)
+        h.runner.candidate_joined(CANDIDATE)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await asked(h, 2)
 
-    asyncio.run(scenario())
+    h = run_async(scenario, mode="CHAT")
+    assert [(seq, announce) for seq, _, _, announce in h.asker.asked] == [(1, True), (2, True)]
 
 
-def test_failed_delivery_waits_for_retry_then_moves_on() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.results.fail = True
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        await h.submit(1)
-        await until(lambda: len(h.room.local_participant.states()) == 1)
-        assert h.room.local_participant.states() == [(1, "submitFailed")]
-        assert len(h.speaker.asked) == 1
+def test_closing_room_drops_answer_in_progress() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
 
-        h.results.fail = False
-        assert await h.submit(1) == {"accepted": True}
-        await until(lambda: len(h.speaker.asked) == 2)
-        assert h.room.local_participant.states() == [(1, "submitFailed"), (1, "submitted")]
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        assert h.speaker.asked[-1][0] == 2
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
+    h = run_async(scenario)
+    assert h.answers == []
+    assert h.sessions[0].closed
 
 
-def test_chat_moves_on_after_submit_even_if_it_arrives_while_asking() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.CHAT)
-        h.speaker.hold.add(1)
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        # 질문 음성 재생 중에 온 [답변 완료]도 받아 두고, 다 말한 뒤 다음 질문으로 간다
-        assert await h.submit(1) == {"accepted": True}
-        await settle()
-        assert [seq for seq, _, _ in h.speaker.asked] == [1]
-        h.speaker.release.set()
-        await settle()
-        assert [seq for seq, _, _ in h.speaker.asked] == [1, 2]
-        # 이미 진행한 질문의 [답변 완료](새로고침 뒤 다시 낸 답변)는 무시한다
-        assert await h.submit(1) == {"accepted": False}
+def test_other_candidate_identity_leaving_is_ignored() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        h.runner.candidate_left("recorder")
+        session.speak()
+        await until(lambda: len(h.answers) == 1)
 
-        for seq in range(2, 6):
-            await until(has_length(h.speaker.asked, seq))
-            await h.submit(seq)
-        await running
-        # 채팅 답변은 화면이 5.7로 내므로 에이전트는 듣지도 내지도 않는다
-        assert h.captures == [] and h.completed() == []
-        assert h.room.local_participant.states() == []
-
-    asyncio.run(scenario())
+    run_async(scenario)
 
 
-def test_stops_when_the_room_closes_while_waiting_for_the_candidate() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.closed = True
-        await h.conductor.run()
-        assert h.speaker.asked == []
-
-    asyncio.run(scenario())
-
-
-def test_submit_while_delivering_is_not_accepted_twice() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.results.hold = threading.Event()
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        assert await h.submit(1) == {"accepted": True}
-        await until(h.results.holding.is_set)
-        # 결과 큐에 내는 중이면 이미 제출 중이라 받지 않는다(2002가 아니라 false)
-        assert await h.submit(1) == {"accepted": False}
-        h.results.hold.set()
-        await until(has_length(h.speaker.asked, 2))
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_answer_without_confirmed_text_is_listened_again() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.contents = ["   "]
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        await h.submit(1)
-        # 낼 답변이 없으니 질문을 다시 말하지 않고 새 캡처로 다시 듣는다
-        await until(has_length(h.captures, 2))
-        assert h.completed() == [] and len(h.speaker.asked) == 1
-        h.captures[1].on_speech()
-        await h.submit(1)
-        await until(has_length(h.speaker.asked, 2))
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_capture_open_failure_announces_stt_failure_and_retries_after_rejoin() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.open_fails = 1
-        running = asyncio.create_task(h.conductor.run())
-        await until(lambda: h.room.local_participant.states() == [(1, "sttFailed")])
-        assert h.captures == []
-
-        h.present.clear()
-        h.room.leave("candidate")
-        await settle()
-        h.present.set()
-        await until(has_length(h.captures, 1))
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_stt_failure_after_the_answer_ended_is_not_announced() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.results.hold = threading.Event()
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        await h.submit(1)
-        await until(h.results.holding.is_set)
-        h.captures[0].on_error()
-        h.results.hold.set()
-        await until(has_length(h.speaker.asked, 2))
-        assert h.room.local_participant.states() == [(1, "submitted")]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_stt_failure_while_answering_is_announced_and_spoken_answer_can_be_submitted() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        h.captures[0].on_error()
-        await until(lambda: h.room.local_participant.states() == [(1, "sttFailed")])
-        assert await h.submit(1) == {"accepted": True}
-        await until(has_length(h.speaker.asked, 2))
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_closing_the_room_stops_the_question_and_discards_the_answer() -> None:
-    async def scenario() -> None:
-        asking = Harness(InterviewMode.VIDEO)
-        asking.speaker.hold.add(1)
-        running = asyncio.create_task(asking.conductor.run())
-        await settle()
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-        # 말하던 질문 음성도 멈춘다
-        assert asking.speaker.cancelled == [1]
-
-        answering = Harness(InterviewMode.VIDEO)
-        running = asyncio.create_task(answering.conductor.run())
-        await settle()
-        answering.captures[0].on_speech()
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-        assert answering.captures[0].discarded
-        assert answering.completed() == []
-
-    asyncio.run(scenario())
-
-
-def test_failed_delivery_is_announced_again_after_rejoin() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        h.results.fail = True
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        h.captures[0].on_speech()
-        await h.submit(1)
-        await until(lambda: len(h.room.local_participant.states()) == 1)
-
-        h.present.clear()
-        h.room.leave("candidate")
-        await settle()
-        h.present.set()
-        await until(lambda: len(h.room.local_participant.states()) == 2)
-        assert h.room.local_participant.states() == [(1, "submitFailed"), (1, "submitFailed")]
-
-        h.results.fail = False
-        assert await h.submit(1) == {"accepted": True}
-        await until(has_length(h.speaker.asked, 2))
-        assert [answer["seq"] for answer in h.completed()] == [1]
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
-def test_candidate_who_left_right_after_being_found_is_waited_for_again() -> None:
-    async def scenario() -> None:
-        h = Harness(InterviewMode.VIDEO)
-        original = h.wait_participant
-        returned = 0
-
-        async def leaves_once() -> Participant | None:
-            nonlocal returned
-            participant = await original()
-            returned += 1
-            if returned == 1:
-                # 찾은 직후, 진행이 다시 실행되기 전에 퇴장한다
-                h.room.remote_participants.pop("candidate")
-            return participant
-
-        h.conductor._wait_participant = leaves_once  # type: ignore[assignment]
-        running = asyncio.create_task(h.conductor.run())
-        await settle()
-        # 질문 전에 두 번(처음 찾은 지원자는 이미 나갔다), 답변 전에 한 번 기다린다
-        assert returned == 3
-        assert len(h.speaker.asked) == 1 and len(h.captures) == 1
-        running.cancel()
-        await asyncio.gather(running, return_exceptions=True)
-
-    asyncio.run(scenario())
+def test_monotonic_clock_is_the_default() -> None:
+    assert interview_module._monotonic_ms() >= 0

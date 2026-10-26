@@ -32,6 +32,8 @@ nav button { display: flex; justify-content: space-between; width: 100%; padding
 nav button:hover { background: var(--bg) }
 nav button[aria-current="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600 }
 nav .count { color: var(--muted); font: 12px var(--mono) }
+nav button.pending { color: var(--muted) }
+nav .wait { font-size: 11px; padding: 0 6px; border: 1px solid var(--line); border-radius: 999px }
 main { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; align-items: start; align-content: start }
 .meta { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font: 12px var(--mono) }
 .meta b { color: var(--fg); font: 600 20px var(--font); margin-right: 8px }
@@ -90,9 +92,11 @@ dialog textarea { min-height: 90px; resize: vertical }
 <body>
 <header><h1>회사 카드 확인</h1><span class="stat" id="stat"></span><button class="add" id="open-add">+ 회사 추가</button></header>
 <div class="layout"><nav id="list" aria-label="회사 목록"></nav><main id="view"></main></div>
-<script src="data/viewer_data.js"></script>
+<!-- 매일 갱신되는 데이터라 주소에 시각을 붙여 Cloudflare·브라우저가 저장해 둔 옛 파일을 쓰지 않게 한다.
+     아래 화면 코드가 바로 읽으므로 document.write로 순서대로(동기) 불러온다 -->
+<script>document.write('<script src="data/viewer_data.js?t=' + Date.now() + '"><\/script>');</script>
 <script>
-const rows = window.VIEWER_DATA;
+const rows = window.VIEWER_DATA || [];
 let current = null; // 지금 보고 있는 회사 행
 // 카드 항목과 그 항목의 근거 원문(viewer.py가 넣는 키)
 const FIELDS = [["talent", "인재상"], ["direction", "사업 방향"], ["market", "경쟁·시장"], ["recent", "최근 이슈"]];
@@ -124,7 +128,7 @@ function highlight(text, quotes) {
   return html + esc(text.slice(at));
 }
 
-if (!rows) {
+if (!rows.length) {
   $("view").innerHTML = `<div class="notice">데이터가 없습니다. <code>ai</code> 폴더에서
     <code>uv run --env-file .env python -m pipeline.run</code>을 실행하면 이 화면이 읽을
     <code>data/viewer_data.js</code>가 만들어집니다.</div>`;
@@ -134,12 +138,34 @@ if (!rows) {
   $("list").innerHTML = rows.map((r, i) =>
     `<button data-i="${i}"><span>${esc(r.card.name)}</span>
      <span class="count">${FIELDS.map(([f]) => count(r, f)).join("·")}</span></button>`).join("");
-  $("list").addEventListener("click", (e) => {
-    const b = e.target.closest("button");
-    if (b) show(+b.dataset.i);
-  });
   show(0);
 }
+// 카드가 하나도 없어도 대기 중인 회사는 눌러 볼 수 있게 목록 클릭은 항상 받는다
+$("list").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (b?.dataset.pending) showPending(b.dataset.pending);
+  else if (b) show(+b.dataset.i);
+});
+
+// 회사 목록에는 있지만 카드가 아직 없는 회사(방금 추가한 회사 등)를 목록 끝에 "대기"로 붙인다
+async function loadPending() {
+  let list = [];
+  try { list = await (await fetch("/api/companies")).json(); } catch { return; }
+  if (!Array.isArray(list)) return;
+  const pending = list.filter((c) => !c.has_card).map((c) => c.name);
+  document.querySelectorAll("nav button.pending").forEach((b) => b.remove());
+  $("list").insertAdjacentHTML("beforeend", pending.map((n) =>
+    `<button class="pending" data-pending="${esc(n)}"><span>${esc(n)}</span><span class="wait">대기</span></button>`).join(""));
+  const base = $("stat").textContent.replace(/ · 카드 대기 \d+곳$/, "");
+  $("stat").textContent = pending.length ? `${base} · 카드 대기 ${pending.length}곳` : base;
+}
+
+function showPending(name) {
+  document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.pending === name));
+  $("view").innerHTML = `<div class="notice"><b>${esc(name)}</b>: 카드 생성 대기 중입니다.<br>
+    다음 매일 작업(13:00)이나 Airflow에서 <code>company_news_daily</code>를 실행하면 카드가 만들어집니다.</div>`;
+}
+loadPending();
 
 function show(i) {
   const r = rows[i], c = r.card;
@@ -210,7 +236,7 @@ $("view").addEventListener("click", (e) => {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const label = (c) => `${c.listed ? "상장" : "비상장"} · ${c.code}`;
-  let picked = null, timer = null;
+  let picked = null, timer = null, serverMode = false;
   const say = (text, cls = "") => { $("msg").textContent = text; $("msg").className = cls; };
   const api = async (path, init) => {
     const res = await fetch(path, init);
@@ -259,7 +285,9 @@ $("view").addEventListener("click", (e) => {
     const body = { code: picked.code };
     for (const f of ["news_query", "talent_url", "talent_text", "talent_collected_at"]) body[f] = $(f).value;
     try { const r = await api("/api/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      say(`${r.added} 추가됨${r.report ? "" : " (부분 카드)"}. 다음 매일 작업에서 카드가 만들어진다. companies.json 변경은 커밋해야 팀에 반영된다`, "ok");
+      say(`${r.added} 추가됨${r.report ? "" : " (부분 카드)"}. 다음 매일 작업(13:00)이나 Airflow ▶에서 카드가 만들어진다` +
+        (serverMode ? "" : ". companies.json 변경은 커밋해야 팀에 반영된다"), "ok");
+      loadPending();
       $("do-add").disabled = true; picked = null; }
     catch (err) { say(err.message, "err"); }
   });
@@ -269,7 +297,10 @@ $("view").addEventListener("click", (e) => {
   });
   $("close-add").addEventListener("click", () => $("add").close());
   // 서버(읽기 전용)에서는 회사 추가를 숨긴다. 회사 목록은 git(companies.json)으로 관리한다
-  fetch("/api/mode").then((r) => r.json()).then((m) => { if (m.readonly) $("open-add").hidden = true; }).catch(() => {});
+  fetch("/api/mode").then((r) => r.json()).then((m) => {
+    if (m.readonly) $("open-add").hidden = true;
+    serverMode = !!m.server;
+  }).catch(() => {});
 })();
 </script>
 </body>

@@ -107,12 +107,14 @@ def test_question_is_announced_to_be_then_spoken_between_started_and_ended() -> 
     )
 
 
-def test_repeating_the_question_after_rejoin_does_not_announce_it_again() -> None:
+def test_repeated_question_is_spoken_without_announcing_to_be_again() -> None:
+    """재입장 뒤 다시 말할 때는 question.started를 전송하지 않는다.
+
+    BE가 질문 행을 이미 저장했기 때문이다.
+    """
     results = Mock()
     talker, participant, _ = speaker(results)
     asyncio.run(talker.ask(1, "candidate", AUDIO, announce=False))
-    # 화면에는 다시 알리고(started → ended), BE에는 question.started를 다시 보내지 않는다
-    # (AI 명세 6.5)
     assert speeches(participant) == ["started", "ended"]
     results.publish.assert_not_called()
 

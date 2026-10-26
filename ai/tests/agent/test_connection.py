@@ -9,16 +9,15 @@ from livekit import rtc
 from livekit.agents import AutoSubscribe
 
 from app.agent.assignment import parse_assignment
-from app.agent.capture import audio_chunks
 from app.agent.main import (
     accept_request,
-    conduct_interview,
+    audio_chunks,
     entrypoint,
     job_assignment,
     main,
     question_speaker,
+    run_interview,
     server,
-    subscribe_microphone,
     transcribe_participant,
     transcribe_room,
 )
@@ -332,139 +331,72 @@ def test_be_assignment_is_read_from_job_metadata() -> None:
     assert assignment.current_seq == 1
 
 
-def test_interview_failure_is_contained_and_waits_for_room_close() -> None:
+@pytest.mark.parametrize("mode", ["VIDEO", "CHAT"])
+def test_assigned_room_runs_interview_and_releases_voice_on_close(mode: str) -> None:
     async def run() -> None:
         ctx = context()
-        closed = asyncio.Event()
-        ctx.room.remote_participants = {}
-        conductor = Mock(run=AsyncMock(side_effect=RuntimeError("진행 실패")))
-        with patch("app.agent.main.InterviewConductor", return_value=conductor):
-            task = asyncio.create_task(
-                conduct_interview(
-                    ctx, closed, parse_assignment(ASSIGNMENT_JSON), Mock(), Mock(), Mock()
-                )
-            )
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            assert not task.done()
-            closed.set()
-            await asyncio.wait_for(task, timeout=1)
-        conductor.run.assert_awaited_once()
-
-    asyncio.run(run())
-
-
-def test_room_close_stops_the_interview_in_progress() -> None:
-    async def run() -> None:
-        ctx = context()
-        ctx.room.remote_participants = {}
-        closed = asyncio.Event()
-        cancelled = asyncio.Event()
-
-        async def answering() -> None:
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                cancelled.set()
-                raise
-
-        with patch("app.agent.main.InterviewConductor") as conductor:
-            conductor.return_value.run = answering
-            task = asyncio.create_task(
-                conduct_interview(
-                    ctx, closed, parse_assignment(ASSIGNMENT_JSON), Mock(), Mock(), Mock()
-                )
-            )
-            await asyncio.sleep(0)
-            closed.set()
-            await asyncio.wait_for(task, timeout=1)
-        assert cancelled.is_set()
-        ctx.room.off.assert_called_once_with("track_published", subscribe_microphone)
-
-    asyncio.run(run())
-
-
-def test_video_interview_subscribes_only_microphones_and_chat_does_not_listen() -> None:
-    async def run(mode: str) -> tuple[Mock, Mock, Mock]:
-        ctx = context()
-        microphone = Mock(source=rtc.TrackSource.SOURCE_MICROPHONE)
-        camera = Mock(source=rtc.TrackSource.SOURCE_CAMERA)
-        ctx.room.remote_participants = {
-            "candidate": Mock(track_publications={"m": microphone, "c": camera})
-        }
-        closed = asyncio.Event()
-        closed.set()
-        assignment = parse_assignment(ASSIGNMENT_JSON.replace('"VIDEO"', f'"{mode}"'))
-        with patch("app.agent.main.InterviewConductor") as conductor:
-            conductor.return_value.run = AsyncMock()
-            await conduct_interview(ctx, closed, assignment, Mock(), Mock(), Mock())
-        return microphone, camera, conductor
-
-    microphone, camera, conductor = asyncio.run(run("VIDEO"))
-    microphone.set_subscribed.assert_called_once_with(True)
-    camera.set_subscribed.assert_not_called()
-    assert conductor.call_args.args[4] is not None
-
-    microphone, _, conductor = asyncio.run(run("CHAT"))
-    microphone.set_subscribed.assert_not_called()
-    # 채팅은 STT 설정을 넘기지 않아 듣지 않는다
-    assert conductor.call_args.args[4] is None
-
-
-def test_subscribe_microphone_ignores_other_tracks() -> None:
-    microphone = Mock(source=rtc.TrackSource.SOURCE_MICROPHONE)
-    screen = Mock(source=rtc.TrackSource.SOURCE_SCREENSHARE)
-    subscribe_microphone(microphone, Mock())
-    subscribe_microphone(screen, Mock())
-    microphone.set_subscribed.assert_called_once_with(True)
-    screen.set_subscribed.assert_not_called()
-
-
-def test_assigned_room_conducts_interview_and_releases_voice_on_close() -> None:
-    async def run() -> None:
-        ctx = context()
-        ctx.job.metadata = ASSIGNMENT_JSON
+        ctx.job.metadata = ASSIGNMENT_JSON.replace("VIDEO", mode)
         speaker = Mock(aclose=AsyncMock())
         started = asyncio.Event()
 
-        async def conducting(_ctx: object, closed: asyncio.Event, *_args: object) -> None:
+        async def interviewing(*_args: object) -> None:
             started.set()
-            await closed.wait()
+            await asyncio.Event().wait()
 
         with (
-            patch("app.agent.main.question_speaker", return_value=speaker) as factory,
-            patch("app.agent.main.conduct_interview", side_effect=conducting) as conduct,
-            patch("app.agent.main.create_redis") as redis,
+            patch("app.agent.main.question_speaker", return_value=speaker),
+            patch("app.agent.main.run_interview", side_effect=interviewing) as interview,
+            patch("app.agent.main.transcribe_room") as transcribe,
         ):
             task = asyncio.create_task(entrypoint(ctx))
             await started.wait()
-            _ctx, _closed, assignment, given, results, _settings = conduct.call_args.args
-            assert assignment.current_seq == 1
-            assert given is speaker
-            # 질문 시작과 답변 완료를 같은 결과 큐로 보낸다
-            assert factory.call_args.args[2] is results
-            assert results._client is redis.return_value
-            ctx.room.on.call_args.args[1](0)
+            assert interview.call_args.args[3] is speaker
+            transcribe.assert_not_called()
+            ctx.room.on.call_args_list[0].args[1](0)
             await asyncio.wait_for(task, timeout=1)
         speaker.aclose.assert_awaited_once()
 
     asyncio.run(run())
 
 
-def test_question_speaker_uses_elevenlabs_key_and_given_result_queue(
+@pytest.mark.parametrize(("mode", "subscribed"), [("VIDEO", True), ("CHAT", False)])
+def test_interview_subscribes_candidate_microphone_only_for_video(
+    mode: str, subscribed: bool
+) -> None:
+    async def run() -> None:
+        ctx = context()
+        assignment = parse_assignment(ASSIGNMENT_JSON.replace("VIDEO", mode))
+        mic = Mock(source=rtc.TrackSource.SOURCE_MICROPHONE)
+        candidate = Mock(identity="candidate", track_publications={"mic": mic})
+        ctx.room.remote_participants = {"candidate": candidate}
+        speaker = Mock(publish_track=AsyncMock())
+        closed = asyncio.Event()
+        closed.set()
+        with patch("app.agent.main.InterviewRunner") as runner:
+            runner.return_value.run = AsyncMock()
+            await run_interview(ctx, closed, SttSettings(api_key="test"), speaker, assignment)
+        assert mic.set_subscribed.called is subscribed
+        runner.return_value.candidate_joined.assert_called_once_with("candidate")
+
+    asyncio.run(run())
+
+
+def test_question_speaker_uses_elevenlabs_key_and_result_queue(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ELEVENLABS_API_KEY", "voice-key")
     ctx = context()
     assignment = parse_assignment(ASSIGNMENT_JSON)
-    queue = Mock()
-    with patch("app.agent.main.QuestionSpeaker") as speaker:
-        question_speaker(ctx, assignment, queue)
+    with (
+        patch("app.agent.main.QuestionSpeaker") as speaker,
+        patch("app.agent.main.create_redis") as redis,
+    ):
+        question_speaker(ctx, assignment)
     participant, given, tts, results = speaker.call_args.args
     assert participant is ctx.room.local_participant
     assert given is assignment
     assert tts.configured
-    assert results is queue
+    assert results._client is redis.return_value
 
 
 ASSIGNMENT_JSON = json.dumps(
