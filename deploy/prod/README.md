@@ -11,8 +11,10 @@
 | `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis). 키는 환경 변수 `LIVEKIT_KEYS` |
 | `nginx.conf` | `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙). Swagger 경로는 404 |
 | `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress를 더 모은다 |
-| `grafana/` | 데이터 소스 · 대시보드(개발 서버 대시보드를 그대로 복사, uid · 제목만 다름) |
+| `loki.yml` · `alloy.alloy` | 로그 수집(Alloy가 `a301-prod-*` 컨테이너 로그를 Loki에 7일 보관). 개발 서버와 같고 보관 기간 · 이름만 다르다 |
+| `grafana/` | 데이터 소스(Prometheus · Loki) · 대시보드(앱 대시보드, **A301 운영 서버 로그**. 개발 서버 것을 복사, uid · 제목만 다름) |
 | `backup.sh` | 매일 DB 백업(`pg_dump` → S3 `backup/`). 서버 cron이 `/opt/a301/backup.sh`를 실행한다 |
+| `deploy.sh` | 운영 배포 스크립트. CI `prod-deploy`가 실행한다(아래 「배포」) |
 
 ## 서비스
 
@@ -23,6 +25,7 @@
 | `a301-prod-nginx` · `-cloudflared` | 공식 이미지 | 없음(Tunnel이 밖으로 나가는 연결만 씀) |
 | `a301-prod-livekit` · `-egress` | `livekit/livekit-server:v1.13.10` · `livekit/egress:v1.15.0` | LiveKit만 7881/tcp · 7882/udp · 3478/udp · 443/tcp |
 | `a301-prod-prometheus` · `-blackbox` · `-node-exporter` · `-cadvisor` · `-grafana` | 공식 이미지 | 없음(Grafana는 Tunnel) |
+| `a301-prod-loki` · `-alloy` | `grafana/loki:3.7.8` · `grafana/alloy:v1.20.1`(개발 서버와 같음) | 없음 |
 
 Cloudflare Tunnel(`a301-prod`)의 호스트 이름은 컨테이너 이름을 가리킨다(Cloudflare 대시보드에서 설정, 배포 계획 5.1).
 `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
@@ -34,23 +37,37 @@ GitLab CI/CD Variables(배포 계획 7장). compose가 파일 전체를 읽으�
 - 범위 `prod/*`: `DB_PASSWORD`, `JWT_SECRET`, `INQUIRY_ENCRYPTION_KEY`(Base64 32바이트, 잃으면 문의를 풀 수 없으므로 따로 보관), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_EGRESS_S3_ACCESS_KEY`, `LIVEKIT_EGRESS_S3_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`
 - 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행)
 - GMS 주소 · 모델(`LLM_CHAT_URL` · `LLM_MODEL`)은 비밀이 아니라 compose에 적었다(개발과 같은 값)
-- 배포 작업이 넣는 값: `IMAGE_TAG`(커밋 SHA, 필수). `DOCKERHUB_REPO`는 기본값 `hanggeut/a301`
+- 배포 작업이 넣는 값: `IMAGE_TAG`(커밋 짧은 SHA, 필수), `DOCKERHUB_PULL_TOKEN`(범위 `prod/*`). 빌드 잡은 `DOCKERHUB_PUSH_TOKEN`
 
-## 배포 작업이 할 일 (CI `prod-deploy`)
+## 배포 (CI, `.gitlab-ci.yml`의 「운영 서버」)
 
-Lightsail 러너(태그 `a301-prod`, shell)에서 레포 루트 기준으로 실행한다.
-
-1. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로(`DOCKER_CONFIG=$(mktemp -d)`, 배포 계획 8.1). 끝나면 로그아웃하고 지운다
-2. 백업 준비: `deploy/prod/backup.sh`를 `/opt/a301/backup.sh`로 복사(실행 권한)하고, `/opt/a301/backup.env`(권한 600)에 `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` · `AWS_DEFAULT_REGION=ap-northeast-2`를 쓴다
-3. `docker compose -f deploy/prod/compose.yml pull` → `up -d --remove-orphans`
-4. 헬스체크: `http://127.0.0.1:18084/actuator/health`(BE), `http://127.0.0.1:18082/api/health`(FE), `http://127.0.0.1:18083/health`(AI), 나머지는 `docker inspect`의 health 상태(ai-agent · ai-analysis · admin · nginx)
-5. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
-
-수동 실행(서버에서, 값을 환경 변수로 넣은 뒤):
-
-```bash
-IMAGE_TAG=<커밋 SHA> docker compose -f deploy/prod/compose.yml up -d
 ```
+develop → Release MR → master 병합
+  → prod-build (자동, yobi 미니PC 배포 러너): be · fe · ai · admin 이미지 빌드 → Docker Hub push → 미니PC에서 지움
+  → prod-deploy (▶ 버튼, Lightsail 러너 a301-prod): deploy.sh
+```
+
+- 배포 시점을 사람이 고른다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있다
+- 롤백: GitLab Deployments > Environments > `prod/app`에서 이전 배포를 Re-deploy 한다. 그 커밋의 이미지로 다시 띄운다(서버에 최근 3개, Docker Hub에 전부 있음)
+
+`deploy.sh`가 하는 일:
+
+1. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로 하고, 끝나면 성공 · 실패와 관계없이 로그아웃하고 지운다
+2. 배포 파일 복사: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 설정 파일(`livekit.yaml` · `nginx.conf` · `prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)이 바뀐 서비스는 기억해 둔다
+3. 백업 준비: `backup.sh`를 `/opt/a301/backup.sh`로 복사하고, `/opt/a301/backup.env`(권한 600)에 S3 키를 쓴다
+4. `pull` → `up -d --remove-orphans`. 설정 파일만 바뀐 서비스는 다시 시작한다(파일 하나를 붙인 컨테이너는 compose가 다시 만들지 않으므로). 바뀌지 않았으면 LiveKit을 다시 시작하지 않는다
+5. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
+   - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
+   - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`
+   - Cloudflare Tunnel 연결(`Registered tunnel connection`)
+   - 바깥 주소 `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE 한 바퀴)
+6. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
+
+서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`
+
+## 로그 보기
+
+https://grafana.hangguet.co.kr → A301 → **A301 운영 서버 로그**. 팀원은 Viewer 계정으로 본다(배포 계획 3.3). 사용법은 개발 서버와 같다([`deploy/dev/monitoring/README.md`](../dev/monitoring/README.md) 「로그 보기」). 로그에 개인정보(이메일 · 자소서 · 답변 원문 · 토큰)를 남기지 않는 것이 조건이다.
 
 ## 서버에 미리 해 둔 것
 
@@ -72,5 +89,5 @@ IMAGE_TAG=<커밋 SHA> docker compose -f deploy/prod/compose.yml up -d
 
 ## 아직 없는 것
 
-- AI 분석 작업자의 결과 생성(`EVALUATE`) · 녹화 합치기(`MERGE_RECORDING`) 처리: AI 코드에 아직 없다. 들어오는 작업은 큐에 남아 있다가 처리 코드가 배포되면 처리된다. 컨테이너는 그대로 쓴다
+- AI 분석 작업자의 녹화 합치기(`MERGE_RECORDING`) 처리: AI 코드에 아직 없다(질문 생성 · 채점 · 결과 생성은 있음). 들어오는 작업은 큐에 남아 있다가 처리 코드가 배포되면 처리된다. 컨테이너는 그대로 쓴다
 - FE 지표(`A301_DEV_MONITORING`)는 개발 서버에서만 켠다. 그래서 대시보드의 FE 지표 패널은 운영에서 비어 있다
