@@ -651,7 +651,7 @@ ai-deploy:
 
 # 개발 서버 모니터링: 지표(Prometheus) · 로그(Loki · Alloy) · Grafana.
 # GitLab 변수 GRAFANA_ADMIN_PASSWORD(범위 All, 운영 Grafana와 같은 값)가 필요하다. Grafana 볼륨을 처음 만들 때만 적용된다.
-# 모니터링은 앱 Compose와 별도로 실행한다. 앱 배포가 함께 있으면 BE 배포를 기다려 a301-dev 네트워크를 확보한다.
+# 모니터링은 앱 Compose와 별도로 실행한다. a301-dev 네트워크(앱 Compose가 만듦)가 없으면 이유를 남기고 실패한다.
 # Nginx 설정과 Cloudflare Tunnel의 호스트 이름 등록은 미니PC/Cloudflare에서 별도로 적용한다.
 monitoring-deploy:
   stage: deploy
@@ -659,9 +659,10 @@ monitoring-deploy:
     - "a301-mock-deploy"
   interruptible: false
   resource_group: dev-deploy
-  needs:
-    - job: be-deploy
-      optional: true
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # a301-dev 네트워크는 미니PC에 이미 있고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
@@ -789,9 +790,10 @@ admin-deploy:
     - "a301-mock-deploy"
   interruptible: false
   resource_group: dev-deploy
-  needs:
-    - job: be-deploy
-      optional: true
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # 관리 페이지는 BE 배포를 기다릴 필요가 없고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
