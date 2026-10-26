@@ -1,7 +1,7 @@
 """배정받은 LiveKit 방에서 지원자의 마이크를 Soniox STT로 전달하고, 질문을 음성으로 말한다.
 
-배정 정보가 있는 화상 면접은 InterviewRunner로 첫 질문부터 마지막 답변까지 진행한다.
-배정 정보가 없는 시험 방(connect --room)과 채팅 면접은 지금처럼 자막과 첫 질문만 처리한다.
+배정 정보가 있는 면접은 InterviewRunner로 첫 질문부터 마지막 답변까지 진행한다.
+배정 정보가 없는 시험 방(connect --room)은 지금처럼 자막만 처리한다.
 """
 
 import asyncio
@@ -74,7 +74,6 @@ async def entrypoint(ctx: JobContext) -> None:
     closed = asyncio.Event()
     transcription: asyncio.Task[None] | None = None
     interviewing: asyncio.Task[None] | None = None
-    asking: asyncio.Task[None] | None = None
     speaker: QuestionSpeaker | None = None
 
     def on_disconnected(_reason: rtc.DisconnectReason) -> None:
@@ -88,23 +87,14 @@ async def entrypoint(ctx: JobContext) -> None:
     try:
         await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
         log.info("LiveKit 방 참가 완료", extra={"room": ctx.room.name})
+        work: asyncio.Task[None]
         if assignment is not None:
             speaker = question_speaker(ctx, assignment)
-        work: asyncio.Task[None]
-        if (
-            assignment is not None
-            and speaker is not None
-            and assignment.mode is InterviewMode.VIDEO
-        ):
             interviewing = asyncio.create_task(
                 run_interview(ctx, closed, settings, speaker, assignment)
             )
             work = interviewing
         else:
-            if assignment is not None and speaker is not None:
-                asking = asyncio.create_task(
-                    ask_question(ctx, closed, speaker, assignment.current_seq)
-                )
             transcription = asyncio.create_task(transcribe_room(ctx, closed, settings))
             work = transcription
         stop = asyncio.create_task(closed.wait())
@@ -120,10 +110,9 @@ async def entrypoint(ctx: JobContext) -> None:
         try:
             # 면접방이 닫히면 말하던 질문 음성과 진행 중인 답변은
             # 전달할 곳이 없으므로 기다리지 않는다
-            for task in (asking, interviewing):
-                if task is not None:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
+            if interviewing is not None:
+                interviewing.cancel()
+                await asyncio.gather(interviewing, return_exceptions=True)
             if speaker is not None:
                 await speaker.aclose()
             if transcription is not None:
@@ -214,11 +203,13 @@ async def run_interview(
     speaker: QuestionSpeaker,
     assignment: Assignment,
 ) -> None:
-    """배정 정보가 있는 화상 면접을 진행한다.
+    """배정 정보가 있는 면접을 진행한다.
 
     마지막 질문 뒤에도 BE가 면접방을 닫을 때까지 남는다(AI 명세 6.1).
+    채팅 면접은 음성을 듣지 않으므로 지원자 마이크를 구독하지 않는다.
     """
     room = ctx.room
+    video = assignment.mode is InterviewMode.VIDEO
     results = ResultPublisher(create_redis(load_settings(os.environ)))
     delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
     runner = InterviewRunner(
@@ -232,7 +223,11 @@ async def run_interview(
     )
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:
-        if owner.identity == CANDIDATE_IDENTITY and pub.source == rtc.TrackSource.SOURCE_MICROPHONE:
+        if (
+            video
+            and owner.identity == CANDIDATE_IDENTITY
+            and pub.source == rtc.TrackSource.SOURCE_MICROPHONE
+        ):
             pub.set_subscribed(True)
 
     def joined(participant: rtc.RemoteParticipant) -> None:
@@ -272,31 +267,6 @@ def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker
     return QuestionSpeaker(
         ctx.room.local_participant, assignment, tts, ResultPublisher(create_redis(common))
     )
-
-
-async def ask_question(
-    ctx: JobContext, closed: asyncio.Event, speaker: QuestionSpeaker, seq: int
-) -> None:
-    """질문 음성을 미리 합성해 두고, 지원자가 들어오면 질문한다.
-
-    질문 진행(다음 질문으로 넘어가기)은 아직 없어 배정 정보의 currentSeq 질문 하나만 말한다.
-    지원자가 새로고침으로 다시 들어와도 다시 말하지 않는다.
-    """
-    prepared = asyncio.create_task(speaker.prepare(seq))
-    try:
-        await speaker.publish_track()
-        participant = await first_participant(ctx, closed)
-        if participant is None:
-            return
-        await speaker.ask(seq, participant.identity, await prepared)
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # 질문 음성 오류로 음성 인식까지 멈추지 않게 이 작업 안에서 끝낸다
-        log.exception("질문 진행 실패", extra={"seq": seq})
-    finally:
-        prepared.cancel()
-        await asyncio.gather(prepared, return_exceptions=True)
 
 
 async def first_participant(ctx: JobContext, closed: asyncio.Event) -> rtc.RemoteParticipant | None:

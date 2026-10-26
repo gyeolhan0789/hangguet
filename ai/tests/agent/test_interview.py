@@ -31,12 +31,12 @@ def short_timers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(answer_end, "NO_SPEECH_TIMEOUT_MS", 150)
 
 
-def assignment(current_seq: int = 1) -> Any:
+def assignment(current_seq: int = 1, mode: str = "VIDEO") -> Any:
     return parse_assignment(
         json.dumps(
             {
                 "sessionId": 55,
-                "mode": "VIDEO",
+                "mode": mode,
                 "persona": "DEVIL",
                 "currentSeq": current_seq,
                 "questions": [
@@ -113,7 +113,7 @@ class FakeSession:
 
 
 class Harness:
-    def __init__(self, current_seq: int = 1) -> None:
+    def __init__(self, current_seq: int = 1, mode: str = "VIDEO") -> None:
         self.asker = FakeAsker()
         self.sessions: list[FakeSession] = []
         self.states: list[tuple[int, str]] = []
@@ -124,7 +124,7 @@ class Harness:
         self.saved = True
         self.session_opened = asyncio.Event()
         self.runner = InterviewRunner(
-            assignment(current_seq),
+            assignment(current_seq, mode),
             self.asker,
             self.open_capture,
             self.send_state,
@@ -175,9 +175,11 @@ async def until(check: Callable[[], bool]) -> None:
     raise AssertionError("조건을 만족하지 않았다")
 
 
-def run_async(scenario: Callable[[Harness], Awaitable[None]], current_seq: int = 1) -> Harness:
+def run_async(
+    scenario: Callable[[Harness], Awaitable[None]], current_seq: int = 1, mode: str = "VIDEO"
+) -> Harness:
     async def main() -> Harness:
-        harness = Harness(current_seq)
+        harness = Harness(current_seq, mode)
         harness.runner.candidate_joined(CANDIDATE)
         running = asyncio.create_task(harness.runner.run())
         try:
@@ -259,6 +261,15 @@ def test_manual_submit_rules() -> None:
     assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
     assert h.answers[0].answer.content == "답변"
     assert h.states == [(1, "submitted")]
+
+
+def test_video_submit_for_finished_question_is_not_answering() -> None:
+    async def scenario(h: Harness) -> None:
+        (await h.next_session()).speak()
+        await h.next_session()
+        assert rpc_code(lambda: h.submit(1)) == 2002
+
+    run_async(scenario)
 
 
 def test_timed_out_once_then_answer_still_accepted() -> None:
@@ -416,6 +427,67 @@ def test_answer_that_cannot_be_saved_moves_on_without_submitted() -> None:
     h = run_async(scenario)
     assert h.deliveries == [1]
     assert h.states == [(1, "autoSubmitted")]
+
+
+async def asked(h: Harness, count: int) -> None:
+    await until(lambda: len(h.asker.asked) == count)
+
+
+def test_chat_moves_to_next_question_on_submit_without_listening() -> None:
+    async def scenario(h: Harness) -> None:
+        for seq in range(1, 6):
+            await asked(h, seq)
+            await until(lambda: not h.asker.speaking.is_set())
+            assert json.loads(h.submit(seq)) == {"accepted": True}
+        await asyncio.sleep(0.05)
+
+    h = run_async(scenario, mode="CHAT")
+    assert [seq for seq, _, _, _ in h.asker.asked] == [1, 2, 3, 4, 5]
+    # 채팅 답변은 화면이 5.7로 저장하므로 음성을 듣거나 답변을 전달하지 않는다
+    assert h.sessions == []
+    assert h.deliveries == []
+    assert h.states == []
+
+
+def test_chat_submit_rules() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
+        assert rpc_code(lambda: h.submit(1)) == 2002
+        h.asker.hold.set()
+        await until(lambda: not h.asker.speaking.is_set())
+        assert rpc_code(lambda: h.submit(2)) == 2002
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await asked(h, 2)
+        # 이미 진행한 질문의 [답변 완료]는 받지 않는다(5.7 409 뒤 다시 전송)
+        assert json.loads(h.submit(1)) == {"accepted": False}
+        assert len(h.asker.asked) == 2
+
+    run_async(scenario, mode="CHAT")
+
+
+def test_chat_resumed_from_current_seq_ignores_earlier_question() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        assert json.loads(h.submit(2)) == {"accepted": False}
+        assert rpc_code(lambda: h.submit(4)) == 2002
+
+    h = run_async(scenario, current_seq=3, mode="CHAT")
+    assert [seq for seq, _, _, _ in h.asker.asked] == [3]
+
+
+def test_chat_keeps_waiting_for_same_answer_after_rejoin() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        await until(lambda: not h.asker.speaking.is_set())
+        h.runner.candidate_left(CANDIDATE)
+        await asyncio.sleep(0.05)
+        h.runner.candidate_joined(CANDIDATE)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await asked(h, 2)
+
+    h = run_async(scenario, mode="CHAT")
+    assert [(seq, announce) for seq, _, _, announce in h.asker.asked] == [(1, True), (2, True)]
 
 
 def test_closing_room_drops_answer_in_progress() -> None:

@@ -11,12 +11,12 @@ from livekit.agents import AutoSubscribe
 from app.agent.assignment import parse_assignment
 from app.agent.main import (
     accept_request,
-    ask_question,
     audio_chunks,
     entrypoint,
     job_assignment,
     main,
     question_speaker,
+    run_interview,
     server,
     transcribe_participant,
     transcribe_room,
@@ -331,63 +331,11 @@ def test_be_assignment_is_read_from_job_metadata() -> None:
     assert assignment.current_seq == 1
 
 
-def test_question_is_prepared_before_candidate_joins_and_asked_once() -> None:
+@pytest.mark.parametrize("mode", ["VIDEO", "CHAT"])
+def test_assigned_room_runs_interview_and_releases_voice_on_close(mode: str) -> None:
     async def run() -> None:
         ctx = context()
-        joined = asyncio.Event()
-
-        async def candidate() -> Mock:
-            await joined.wait()
-            return Mock(identity="candidate")
-
-        ctx.wait_for_participant = AsyncMock(side_effect=candidate)
-        speaker = Mock(publish_track=AsyncMock(), ask=AsyncMock())
-        audio = object()
-        prepared = asyncio.Event()
-
-        async def prepare(_seq: int) -> object:
-            prepared.set()
-            return audio
-
-        speaker.prepare = AsyncMock(side_effect=prepare)
-        task = asyncio.create_task(ask_question(ctx, asyncio.Event(), speaker, 1))
-        await asyncio.wait_for(prepared.wait(), timeout=1)
-        speaker.prepare.assert_awaited_once_with(1)
-        speaker.ask.assert_not_awaited()
-        joined.set()
-        await asyncio.wait_for(task, timeout=1)
-        speaker.ask.assert_awaited_once_with(1, "candidate", audio)
-
-    asyncio.run(run())
-
-
-def test_room_closing_before_candidate_skips_question() -> None:
-    async def run() -> None:
-        ctx = context()
-        closed = asyncio.Event()
-        speaker = Mock(publish_track=AsyncMock(), ask=AsyncMock(), prepare=AsyncMock())
-        task = asyncio.create_task(ask_question(ctx, closed, speaker, 1))
-        await asyncio.sleep(0)
-        closed.set()
-        await asyncio.wait_for(task, timeout=1)
-        speaker.ask.assert_not_awaited()
-
-    asyncio.run(run())
-
-
-def test_question_failure_is_contained() -> None:
-    ctx = context()
-    ctx.wait_for_participant = AsyncMock(return_value=Mock(identity="candidate"))
-    speaker = Mock(publish_track=AsyncMock(side_effect=RuntimeError("publish")), ask=AsyncMock())
-    speaker.prepare = AsyncMock(return_value=None)
-    asyncio.run(ask_question(ctx, asyncio.Event(), speaker, 1))
-    speaker.ask.assert_not_awaited()
-
-
-def test_assigned_video_room_runs_interview_and_releases_voice_on_close() -> None:
-    async def run() -> None:
-        ctx = context()
-        ctx.job.metadata = ASSIGNMENT_JSON
+        ctx.job.metadata = ASSIGNMENT_JSON.replace("VIDEO", mode)
         speaker = Mock(aclose=AsyncMock())
         started = asyncio.Event()
 
@@ -411,28 +359,24 @@ def test_assigned_video_room_runs_interview_and_releases_voice_on_close() -> Non
     asyncio.run(run())
 
 
-def test_assigned_chat_room_asks_first_question_and_releases_voice_on_close() -> None:
+@pytest.mark.parametrize(("mode", "subscribed"), [("VIDEO", True), ("CHAT", False)])
+def test_interview_subscribes_candidate_microphone_only_for_video(
+    mode: str, subscribed: bool
+) -> None:
     async def run() -> None:
         ctx = context()
-        ctx.job.metadata = ASSIGNMENT_JSON.replace("VIDEO", "CHAT")
-        speaker = Mock(aclose=AsyncMock())
-        asked = asyncio.Event()
-
-        async def asking(*_args: object) -> None:
-            asked.set()
-            await asyncio.Event().wait()
-
-        with (
-            patch("app.agent.main.question_speaker", return_value=speaker) as factory,
-            patch("app.agent.main.ask_question", side_effect=asking) as ask,
-        ):
-            task = asyncio.create_task(entrypoint(ctx))
-            await asked.wait()
-            assert ask.call_args.args[2:] == (speaker, 1)
-            factory.assert_called_once()
-            ctx.room.on.call_args.args[1](0)
-            await asyncio.wait_for(task, timeout=1)
-        speaker.aclose.assert_awaited_once()
+        assignment = parse_assignment(ASSIGNMENT_JSON.replace("VIDEO", mode))
+        mic = Mock(source=rtc.TrackSource.SOURCE_MICROPHONE)
+        candidate = Mock(identity="candidate", track_publications={"mic": mic})
+        ctx.room.remote_participants = {"candidate": candidate}
+        speaker = Mock(publish_track=AsyncMock())
+        closed = asyncio.Event()
+        closed.set()
+        with patch("app.agent.main.InterviewRunner") as runner:
+            runner.return_value.run = AsyncMock()
+            await run_interview(ctx, closed, SttSettings(api_key="test"), speaker, assignment)
+        assert mic.set_subscribed.called is subscribed
+        runner.return_value.candidate_joined.assert_called_once_with("candidate")
 
     asyncio.run(run())
 

@@ -1,7 +1,12 @@
-"""화상 면접에서 질문 → 답변 듣기 → 답변 끝 → 다음 질문을 마지막 질문까지 진행한다.
+"""면접에서 질문 → 답변 → 답변 끝 → 다음 질문을 마지막 질문까지 진행한다.
 
 기준: AI 명세 6.2 진행 흐름, 6.3 면접방 메시지, 6.5 실패 처리,
 API 명세 면접방 메시지의 화상 답변 끝 판단.
+- 채팅 답변은 화면이 답변 제출 API(5.7)로 BE에 저장한 뒤 [답변 완료]를 전송하므로,
+  음성을 듣지 않고 [답변 완료]만 기다린다.
+  이미 진행한 질문의 [답변 완료]는 받지 않는다(accepted false).
+  화면이 새로고침 뒤 다시 제출해 5.7이 409를 반환해도 [답변 완료]를 전송하기 때문이다.
+  채팅은 퇴장해도 폐기할 답변이 없으므로 같은 답변을 계속 기다린다.
 - 답변 끝(7초 자동 제출, 60초 무응답, [답변 완료])은
   app.interview.realtime.answer_end의 결정을 따른다.
   타이머는 next_deadline이 반환한 시각에만 설정한다.
@@ -38,7 +43,7 @@ from app.agent.answer_rpc import (
 from app.agent.assignment import Assignment
 from app.agent.tts import SpeechAudio
 from app.common.results import ResultPublishError
-from app.common.session import MAX_SEQ
+from app.common.session import MAX_SEQ, InterviewMode
 from app.interview.realtime.answer_end import (
     INITIAL_STATE,
     AnswerEndEvent,
@@ -110,6 +115,7 @@ class InterviewRunner:
         monotonic_ms: Callable[[], int] = _monotonic_ms,
     ) -> None:
         self._assignment = assignment
+        self._chat = assignment.mode is InterviewMode.CHAT
         self._asker = asker
         self._open_capture = open_capture
         self._send_state = send_state
@@ -146,9 +152,13 @@ class InterviewRunner:
         거절은 RPC 오류로 발생시킨다.
         """
         seq = parse_answer_submit(payload, self._assignment.session_id)
-        # 지금 질문이 아닌 seq는 지금 답할 수 있는 질문이 아니므로 답변 중 아님(2002)이다
-        current = seq == self._seq
-        decision = self._apply(SubmitRequested()) if current else Decision.NOT_ANSWERING
+        if seq == self._seq:
+            decision = self._apply(SubmitRequested())
+        elif self._chat and self._seq is not None and seq < self._seq:
+            decision = Decision.ALREADY_SUBMITTING
+        else:
+            # 지금 답할 수 있는 질문이 아니므로 답변 중 아님(2002)이다
+            decision = Decision.NOT_ANSWERING
         if decision is Decision.ACCEPT:
             self._finish = EndReason.MANUAL_SUBMIT
             self._wake.set()
@@ -218,6 +228,9 @@ class InterviewRunner:
 
         지원자가 퇴장해 답변을 폐기했으면 False다.
         """
+        if self._chat:
+            await self._chat_answer()
+            return True
         destination = await self._wait_candidate()
         self._finish = None
         self._state = INITIAL_STATE
@@ -249,6 +262,16 @@ class InterviewRunner:
             await session.aclose()
         await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
         return True
+
+    async def _chat_answer(self) -> None:
+        # 질문을 마친 즉시 답변 중으로 전환한다.
+        # 지원자를 기다리는 동안 수신한 [답변 완료]를 2002로 거절하지 않기 위함이다
+        self._finish = None
+        self._state = INITIAL_STATE
+        self._apply(AnswerStarted(self._ms(), self._assignment.mode))
+        while self._finish is None:
+            self._wake.clear()
+            await self._wake.wait()
 
     async def _deliver(self, finished: FinishedAnswer, destination: str) -> None:
         if self._on_answer is None:
