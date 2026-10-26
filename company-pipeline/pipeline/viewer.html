@@ -268,6 +268,8 @@ $("view").addEventListener("click", (e) => {
     $("add").showModal(); $("q").focus();
   });
   $("close-add").addEventListener("click", () => $("add").close());
+  // 서버(읽기 전용)에서는 회사 추가를 숨긴다. 회사 목록은 git(companies.json)으로 관리한다
+  fetch("/api/mode").then((r) => r.json()).then((m) => { if (m.readonly) $("open-add").hidden = true; }).catch(() => {});
 })();
 </script>
 </body>
