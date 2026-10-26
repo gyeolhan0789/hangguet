@@ -81,15 +81,16 @@ com.ssafy.a301
 │  ├─ service      GrowthReviewService(성장 리뷰 계산, 3.1에서 다시 씀)
 │  └─ dto          GrowthDtos
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
-│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
+│  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15 · 8.16), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
 │  ├─ service      AdminAuthService, AdminAccountInitializer(기동 때 환경 변수로 관리자 생성), AdminNoticeService(삭제는 deleted_at), AdminMetricsService,
+│  │               AdminDailyMetricService · AdminDailyMetricScheduler(매일 0시 전날 8.15 집계를 기록, 기동 때 전날 기록이 없을 때만),
 │  │               StreakFreezeGrantService · StreakFreezeGrantScheduler(매일 0시 · 기동 때 지급 · 만료), StreakFreezeService, NoticeService
 │  ├─ dto          AdminDtos
 │  ├─ mapper       AdminMapper
 │  ├─ repository   AdminRepository, NoticeRepository, NoticeReadRepository, StreakFreezeGrantRepository,
 │  │               StreakFreezeGrantTargetRepository, StreakFreezeRepository, AdminUserRepository(회원 조회만),
-│  │               AdminMetricsRepository(JPQL 집계), AdminTokenStore · RedisAdminTokenStore(로그아웃한 토큰)
+│  │               AdminMetricsRepository(JPQL 집계. 재방문 D1·D3·D7만 가입일을 한국 날짜로 바꾸려고 네이티브), AdminDailyMetricRepository, AdminTokenStore · RedisAdminTokenStore(로그아웃한 토큰)
 │  ├─ jwt          AdminTokens(발급자 a301-admin, 유효 시간은 auth.access-ttl)
 │  ├─ config       AdminSecurityConfig(/api/v1/admin/** 전용 필터 체인), AdminProperties, AdminPasswordEncoder(BCrypt)
 │  └─ domain       Admin, Notice, NoticeRead, StreakFreezeGrant, StreakFreezeGrantTarget, StreakFreeze, GrantTarget · GrantStatus · StreakFreezeStatus
@@ -143,6 +144,7 @@ com.ssafy.a301
 | `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
 | `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
 | `StreakFreeze` | `streak_freezes` | N:1 User, N:1 Grant | 유지권 1개. 메울 수 있는 날짜 하나를 연습 기록(`practice_logs`)으로 메운다. 유효기간은 지급 날짜부터 2주 |
+| `AdminDailyMetric` | `admin_daily_metrics` | - | 관리자 일별 메트릭(8.16). PK `metric_date`. 매일 0시(한국 시간)에 전날 8.15 집계를 한 행으로 남기고, 같은 날을 다시 남기면 덮어쓴다. 날짜로 정해지는 값(가입 · 연습 · 재방문)은 그날 기준, 상태가 바뀌는 값(회원 · 면접 · 문의 · 유지권 수)은 `recorded_at` 기준. 비율 대신 분자 · 분모를 둔다 |
 | `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
 | `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
 | `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 지금은 9.10(ADMIN)만 남기고, 회원 직접 변경(USER)도 남길 예정 |

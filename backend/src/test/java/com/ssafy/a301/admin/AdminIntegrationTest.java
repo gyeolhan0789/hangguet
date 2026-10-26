@@ -1,6 +1,7 @@
 package com.ssafy.a301.admin;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -349,7 +350,68 @@ class AdminIntegrationTest {
                 .andExpect(
                         jsonPath("$.practice.daily[6].date").value(LocalDate.now(KST).toString()))
                 .andExpect(jsonPath("$.averageScores.length()").value(4))
-                .andExpect(jsonPath("$.averageScores[0].criterion").value("JOB_FIT"));
+                .andExpect(jsonPath("$.averageScores[0].criterion").value("JOB_FIT"))
+                .andExpect(jsonPath("$.practice.retention[*].days").value(contains(1, 3, 7)))
+                .andExpect(
+                        jsonPath("$.interviews.personas[*].persona")
+                                .value(contains("DEVIL", "COFFEE_CHAT")))
+                .andExpect(jsonPath("$.speech.sessions").isNumber())
+                .andExpect(jsonPath("$.inquiries.waiting").isNumber())
+                .andExpect(jsonPath("$.applications").isNumber());
+    }
+
+    @Test
+    void metricsCountsReturnOnExactlyTheNthDayAfterJoining() throws Exception {
+        String token = login();
+        LocalDate today = LocalDate.now(KST);
+        JsonNode before = metrics(token).get("practice");
+
+        // 어제(한국 시간) 가입해 오늘 연습한 회원: D1 대상이고 돌아왔다
+        long returned = joinedOn(today.minusDays(1));
+        practiced(returned, today);
+        // 어제 가입해 오늘 연습하지 않은 회원: D1 대상이지만 돌아오지 않았다
+        joinedOn(today.minusDays(1));
+        // 그제 가입해 오늘(2일째) 연습한 회원: D1 대상이지만 1일째가 아니라 돌아오지 않았다
+        practiced(joinedOn(today.minusDays(2)), today);
+        // 오늘 가입한 회원: 아직 D1 대상이 아니다
+        practiced(newUser(), today);
+
+        JsonNode after = metrics(token).get("practice");
+        JsonNode d1Before = before.get("retention").get(0);
+        JsonNode d1After = after.get("retention").get(0);
+        assertThat(d1After.get("eligible").asInt() - d1Before.get("eligible").asInt()).isEqualTo(3);
+        assertThat(d1After.get("returned").asInt() - d1Before.get("returned").asInt()).isEqualTo(1);
+        assertThat(after.get("practicedWeek").asInt() - before.get("practicedWeek").asInt())
+                .isEqualTo(3);
+    }
+
+    private JsonNode metrics(String token) throws Exception {
+        return json.readTree(
+                mvc.perform(
+                                get("/api/v1/admin/metrics")
+                                        .header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                        .andExpect(status().isOk())
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    // 그날 한국 시간 정오에 가입한 회원
+    private long joinedOn(LocalDate date) {
+        long id = newUser();
+        jdbc.update(
+                "UPDATE users SET created_at = ? WHERE id = ?",
+                date.atTime(12, 0).atZone(KST).toOffsetDateTime(),
+                id);
+        return id;
+    }
+
+    private void practiced(long userId, LocalDate date) {
+        jdbc.update(
+                "INSERT INTO practice_logs (user_id, practice_date, created_at) VALUES (?, ?,"
+                        + " now())",
+                userId,
+                date);
     }
 
     @Test
