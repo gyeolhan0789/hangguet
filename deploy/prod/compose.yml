@@ -1,0 +1,377 @@
+# 운영 서버 Lightsail 배포 (이해준/deploy_plan)
+# 개발 서버(deploy/dev/compose.yml)와 같은 이름 · 같은 환경 변수로 띄우고, 이미지 출처와 키 값만 다르다.
+# CI(prod-deploy)가 Lightsail 러너에서 실행한다. 수동 실행: 레포 루트에서
+#   IMAGE_TAG=<커밋 SHA> <비밀값들> docker compose -f deploy/prod/compose.yml up -d
+# 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr
+# 외부 요청 경로: Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000
+#   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다(배포 계획 5.1). 컨테이너 이름을 바꾸면 거기도 바꾼다.
+#
+# 네트워크: 프로젝트 전용 네트워크(a301-prod) 하나. 바깥에 여는 포트는 LiveKit의 미디어 · TURN 포트뿐이다(배포 계획 5.2).
+#   Docker가 연 포트는 ufw를 거치지 않으므로, 나머지는 ports를 쓰지 않거나 127.0.0.1에만 연다.
+#
+# 값
+# - 비밀값은 GitLab CI/CD Variables(prod/* 또는 범위 All)에서 받는다(배포 계획 7장). 이름은 개발 서버와 같다.
+# - 이미지: Docker Hub 비공개 저장소 hanggeut/a301, 태그 be-·fe-·ai-·admin-<커밋 SHA>(배포 계획 8.1). IMAGE_TAG는 필수다.
+# - 비밀이 아닌 설정은 이 파일에 적는다.
+# - POSTGRES 비밀번호와 관리자 · Grafana 계정은 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 각 서비스에서 직접 바꾼다.
+#
+# 자원: 4코어 · 15GB 한 대에 모두 올리므로 컨테이너마다 상한을 둔다(배포 계획 3.2).
+# 헬스체크용 포트는 루프백에만 연다(BE 관리 18084, FE 18082, AI 18083). 나머지는 컨테이너 내부에서 확인한다.
+name: a301-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
+# 운영은 서버가 붙는 내부 주소(LIVEKIT_URL)와 브라우저에 알려 줄 주소(LIVEKIT_PUBLIC_URL)가 다르다(배포 계획 4.0).
+x-livekit-env: &livekit-env
+  LIVEKIT_URL: ws://a301-prod-livekit:7880
+  LIVEKIT_PUBLIC_URL: wss://rtc.hangguet.co.kr
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}
+
+services:
+  a301-prod-postgres:
+    image: postgres:18.6-alpine
+    container_name: a301-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: a301
+      POSTGRES_USER: a301
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    volumes:
+      # PostgreSQL 18 이미지는 데이터를 /var/lib/postgresql/<버전>/docker에 저장한다.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 1g
+    networks:
+      - internal
+    logging: *logging
+
+  # 세션 · 리프레시 토큰 · AI 작업 큐 · 결과 큐 · LiveKit과 Egress의 메시지를 함께 둔다.
+  a301-prod-redis:
+    image: redis:7.4-alpine
+    container_name: a301-prod-redis
+    restart: unless-stopped
+    # 리프레시 토큰을 저장하므로 메모리가 차도 키를 지우지 않는다(지우면 로그인이 풀린다).
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-be:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:be-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-be
+    restart: unless-stopped
+    depends_on:
+      a301-prod-postgres:
+        condition: service_healthy
+      a301-prod-redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18084:8081"
+    environment:
+      DB_URL: jdbc:postgresql://a301-prod-postgres:5432/a301
+      DB_USERNAME: a301
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+      REDIS_HOST: a301-prod-redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
+      ADMIN_NAME: ${ADMIN_NAME:-운영자}
+      # Actuator는 별도 포트로 연다. Nginx는 앱 포트(8080)만 프록시한다.
+      MANAGEMENT_SERVER_PORT: "8081"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+      # 개발 서버와 같은 대시보드를 쓰도록 요청 히스토그램을 켠다(p95 응답 시간).
+      SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}}}'
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
+      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 유일한 앱 설정이다
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+      <<: *livekit-env
+      # 화상 면접 녹화(Egress) 원본을 올릴 S3. BE가 녹화 요청에 키를 담아 보낸다(배포 계획 4.3, 개발과 같은 방식)
+      LIVEKIT_EGRESS_S3_ACCESS_KEY: ${LIVEKIT_EGRESS_S3_ACCESS_KEY:?LIVEKIT_EGRESS_S3_ACCESS_KEY CI/CD variable is required}
+      LIVEKIT_EGRESS_S3_SECRET: ${LIVEKIT_EGRESS_S3_SECRET:?LIVEKIT_EGRESS_S3_SECRET CI/CD variable is required}
+      # 프로필 사진 API(Presigned URL)가 쓰는 앱 키(IAM a301-prod-app). AWS SDK 기본 공급자가 이 이름을 읽는다.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
+      S3_BUCKET: hanggeut-a301-prod
+      AWS_REGION: ap-northeast-2
+    mem_limit: 768m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-ai:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18083:8000"
+    # 내부 전용(상태 확인). 외부 주소가 없다.
+    environment:
+      AI_ROOT_PATH: ""
+      <<: *livekit-env
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-ai-agent:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-ai-agent
+    restart: unless-stopped
+    command: ["python", "-m", "app.agent.main", "start"]
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+      a301-prod-livekit:
+        condition: service_started
+    environment:
+      <<: *livekit-env
+      LIVEKIT_AGENT_NAME: a301-interviewer
+      SONIOX_API_KEY: ${SONIOX_API_KEY:?SONIOX_API_KEY CI/CD variable is required}
+      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
+      # 질문 음성(TTS). 없으면 질문 글로만 진행한다
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      REDIS_HOST: a301-prod-redis
+      REDIS_PORT: "6379"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8081/', timeout=3); assert r.read() == b'OK'"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    # 면접마다 처리 프로세스가 생긴다. 동시 면접 수에 맞춰 실측 후 조정한다(배포 계획 3.2)
+    mem_limit: 1g
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-fe:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:fe-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-fe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18082:3000"
+    environment:
+      # FE가 서버에서 부를 API 주소(/api/v1 포함)
+      API_BASE_URL: http://a301-prod-be:8080/api/v1
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-admin:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:admin-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # / → FE, /be/ → BE, /admin/ → 관리 페이지. 설정은 nginx.conf
+  a301-prod-nginx:
+    image: nginx:1.30.6-alpine
+    container_name: a301-prod-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # Cloudflare Tunnel(a301-prod). 바깥으로 나가는 연결만 쓴다
+  a301-prod-cloudflared:
+    image: cloudflare/cloudflared:2026.10.3
+    container_name: a301-prod-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN CI/CD variable is required}
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # 미디어 서버 + TURN(배포 계획 4.1 · 4.2). 설정은 livekit.yaml, 키는 환경 변수 LIVEKIT_KEYS
+  a301-prod-livekit:
+    image: livekit/livekit-server:v1.13.10
+    container_name: a301-prod-livekit
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}"
+    ports:
+      - "7881:7881/tcp"   # 미디어 예비 경로(UDP가 막힌 네트워크)
+      - "7882:7882/udp"   # 미디어(단일 포트 모드)
+      - "3478:3478/udp"   # TURN/UDP
+      - "443:443/tcp"     # TURN/TLS
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+      # TURN 인증서. live/의 파일이 archive/를 가리키는 링크라 폴더 전체를 넣는다(배포 계획 4.2)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  # 서버 녹화(트랙 녹화, 배포 계획 4.3). S3 키는 BE가 녹화 요청에 담아 보내므로 여기에 두지 않는다.
+  # 설정은 EGRESS_CONFIG_BODY로 넣는다(키를 파일에 쓰지 않기 위해).
+  a301-prod-egress:
+    image: livekit/egress:v1.15.0
+    container_name: a301-prod-egress
+    restart: unless-stopped
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+      a301-prod-livekit:
+        condition: service_started
+    environment:
+      EGRESS_CONFIG_BODY: |
+        log_level: info
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}
+        ws_url: ws://a301-prod-livekit:7880
+        redis:
+          address: a301-prod-redis:6379
+        health_port: 8080
+        prometheus_port: 9090
+    # 트랙 녹화는 인코딩하지 않지만 동시 녹화 수에 따라 실측 후 조정한다(배포 계획 3.2)
+    mem_limit: 1g
+    networks:
+      - internal
+    logging: *logging
+
+  # 모니터링(배포 계획 3.3). 개발 서버 모니터링과 같은 수집 설정에 서버 · 컨테이너 · LiveKit 지표를 더한다.
+  a301-prod-prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: a301-prod-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-blackbox:
+    image: quay.io/prometheus/blackbox-exporter:v0.28.0
+    container_name: a301-prod-blackbox
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: a301-prod-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: a301-prod-cadvisor
+    restart: unless-stopped
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-grafana:
+    image: grafana/grafana:13.1.7
+    container_name: a301-prod-grafana
+    restart: unless-stopped
+    depends_on:
+      - a301-prod-prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD CI/CD variable is required}
+      GF_SERVER_ROOT_URL: https://grafana.hangguet.co.kr/
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    mem_limit: 384m
+    networks:
+      - internal
+    logging: *logging
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  internal:
+    name: a301-prod

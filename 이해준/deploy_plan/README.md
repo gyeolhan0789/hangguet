@@ -153,19 +153,23 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 ### 3.2 컨테이너
 
+실제 구성은 [`deploy/prod/compose.yml`](../../deploy/prod/compose.yml)이다(10/26 작성, 개발 서버 compose와 같은 이름 · 같은 환경 변수).
+
 | 컨테이너 | 역할 | 외부 노출 | 메모리 상한 **[제안]** |
 |---|---|---|---|
 | `a301-prod-cloudflared` | Cloudflare Tunnel(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`) | 밖으로 나가는 연결만 | 64m |
-| `a301-prod-nginx` | `/` → FE, (`/be/` → BE Swagger, 운영 공개 **[미정]**) | 없음 | 64m |
+| `a301-prod-nginx` | `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | 없음 | 64m |
+| `a301-prod-admin` | 관리 페이지 정적 파일 | 없음 | 64m |
+| `a301-prod-ai` | AI 상태 확인(`/health`)만 하는 HTTP. 개발 서버와 같다 | 없음 | 256m |
 | `a301-prod-fe` | Next standalone. `livekit-client`로 면접방 접속. `API_BASE_URL=http://a301-prod-be:8080/api/v1` | 없음 | 512m |
 | `a301-prod-be` | CRUD + LiveKit 입장 토큰 발급 + 녹화 시작 · 종료 요청 + 큐 작업 등록 + AI 결과 큐 처리(저장). DB를 다루는 유일한 서비스. `-Xmx512m` | 없음 | 768m |
 | `a301-prod-livekit` | 미디어 서버 + TURN(4장) | UDP 7882, TCP 7881, UDP 3478, TCP 443 | 512m |
 | `a301-prod-egress` | 서버 녹화(4.3). 트랙 녹화라 인코딩을 하지 않는다 | 없음 | 1g **[제안]** 실측 |
 | `a301-prod-ai-agent` | 면접방 참가자. STT → Jev, 질문 TTS, 리액션 데이터 메시지, 질문 시작 · 답변을 Redis 결과 큐로 전달. 질문 5개 · 채점 기준은 배정 메타데이터로 받는다 | 없음 | **[미정]** 면접 1건마다 처리 프로세스가 생겨 동시 면접 수에 비례. 실측 |
-| `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달 | 없음 | **[미정]** 음성 분석 라이브러리 · ffmpeg를 정한 뒤 실측 |
+| `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. **아직 compose에 없다**: 개발 서버에도 띄우지 않았으므로 개발에 추가할 때 같은 모양으로 넣는다 | 없음 | **[미정]** 음성 분석 라이브러리 · ffmpeg를 정한 뒤 실측 |
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
-| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` | 모니터링(3.3) | 없음(Grafana만 Tunnel) | 합계 약 1g |
+| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름이라 같은 대시보드를 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.3g |
 
 AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
@@ -229,6 +233,10 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 
 ### 4.1 구성 **[제안]**
 
+실제 파일은 [`deploy/prod/livekit.yaml`](../../deploy/prod/livekit.yaml)이다. 아래 초안과 달리 인증서는 `/etc/letsencrypt`를 통째로 넣어 `live/` 경로를 그대로 쓰고(4.2), `room.empty_timeout`은 BE가 방을 만들 때 정하므로(BE 설계 5.6) 뺐다.
+
+- **시험 기동(10/26)**: 임시 네트워크에서 이 설정으로 띄워 TURN/TLS 443 시작, STUN으로 공인 IP `13.209.81.168` 확인, Redis 연결, 지표 포트(6789) 응답을 확인했다. Egress(`v1.15.0`)도 같은 Redis · LiveKit에 붙어 `service ready`가 났다. 시험 컨테이너는 바로 지웠다
+
 ```yaml
 # deploy/prod/livekit.yaml
 port: 7880               # 시그널링(WebSocket). Tunnel로만 받는다
@@ -273,7 +281,7 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 | 항목 | 내용 | 왜 |
 |---|---|---|
 | 방식 | **트랙 녹화(Track Egress)**: 사용자 영상 · 음성, 면접관(AI 에이전트) 음성을 인코딩 없이 그대로 저장한다 | 방 전체를 화면처럼 녹화하는 방식(RoomComposite)은 헤드리스 Chrome으로 다시 인코딩해 녹화 1건에 CPU 2~4코어를 쓴다. 4코어 서버 한 대에 다 올린 구조에서는 감당할 수 없다 |
-| 저장 | Egress가 S3 `recordings/raw/{면접 id}/`에 바로 올린다 | 서버 디스크를 거치지 않아 디스크가 차지 않고, 서버가 죽어도 원본이 남는다 |
+| 저장 | Egress가 S3 `recordings/raw/{면접 id}/`에 바로 올린다. S3 키 · 버킷은 BE가 녹화 요청에 담아 보낸다(`LIVEKIT_EGRESS_S3_*` · `S3_BUCKET` · `AWS_REGION`, IAM `a301-prod-egress`). Egress 설정 파일에는 S3 키를 두지 않는다 **[결정]** | 서버 디스크를 거치지 않아 디스크가 차지 않고, 서버가 죽어도 원본이 남는다. 키를 요청에 담는 것은 개발(LiveKit Cloud)과 같은 방식이라, 코드와 compose는 그대로 두고 키 값만 바꿔 운영에 올릴 수 있다 |
 | 합치기 | 면접이 끝나면 AI 분석 작업자가 ffmpeg로 트랙을 하나의 mp4로 합쳐 `recordings/{면접 id}.mp4`에 올리고, Redis 결과 큐로 완료를 알린다(DB 기록은 BE). 원본 트랙 위치는 BE가 녹화를 시작할 때 정해 작업 메시지에 담는다 | 면접 중이 아니라 끝난 뒤 큐 작업으로 하므로 면접 중 CPU를 쓰지 않는다 |
 | 시작 · 종료 | 화상 면접만 녹화한다. BE가 면접 시작(5.4) 때 녹화를 시작하고 면접 끝(5.8) 때 멈춘다(LiveKit 서버 API). 채팅 면접은 녹화하지 않는다 | 면접 상태를 아는 BE가 시작 · 종료를 맡아야 상태와 녹화가 어긋나지 않는다. 채팅은 영상이 없다 |
 | 다시보기 | 6.4가 합친 mp4의 Presigned URL을 준다. 브라우저가 S3에서 바로 재생한다 | 큰 영상이 우리 서버와 Cloudflare를 거치지 않는다 |
@@ -351,21 +359,60 @@ sudo ufw status numbered
 
 | 리소스 | 내용 | 왜 |
 |---|---|---|
-| S3 버킷 하나 (우리 AWS 계정) | 접두사 `profile/` · `recordings/raw/`(트랙 원본) · `recordings/`(합친 mp4) · `backup/`. Block Public Access 켬. 브라우저 업로드 · 재생은 Presigned URL. 버킷 이름 **[미정]** | 버킷 하나에 접두사로 나누면 권한을 접두사 단위로 줄 수 있다. 공개를 막고 Presigned URL로만 주면 남의 파일을 볼 수 없다 |
+| S3 버킷 하나 (우리 AWS 계정) | 접두사 `profile/` · `recordings/raw/`(트랙 원본) · `recordings/`(합친 mp4) · `backup/`. Block Public Access 켬. 브라우저 업로드 · 재생은 Presigned URL. 버킷 이름 `hanggeut-a301-prod`(서울, 글로벌 네임스페이스) **[결정]** | 버킷 하나에 접두사로 나누면 권한을 접두사 단위로 줄 수 있다. 공개를 막고 Presigned URL로만 주면 남의 파일을 볼 수 없다 |
 | Docker Hub (운영 이미지) | **비공개 저장소 `hanggeut/a301`**에 서비스를 태그로 구분한다: `be-<커밋 SHA>` · `fe-<커밋 SHA>` · `ai-<커밋 SHA>` **[결정]**. 토큰은 push용(Read & Write, `a301-ci-push`)과 pull용(Read-only, `a301-prod-pull`) 두 개 | 무료 플랜은 비공개 저장소가 1개라 태그로 나눈다. 공개 저장소는 쓰지 않는다(이미지 안에 코드가 그대로 들어 있다). 토큰을 나눠 운영 서버의 토큰이 새도 이미지를 바꿔치기할 수 없게 한다 |
 
 녹화 원본은 Egress가, 합친 영상은 AI 분석 작업자가 S3에 올린다(4.3). 채점에 쓸 답변별 음성을 녹화 원본에서 잘라 쓸지 따로 저장할지는 12장에서 정한다.
 
-### 6.2 IAM **[제안]**
+**운영 버킷 설정(10/26 생성)**
+
+| 항목 | 값 | 왜 |
+|---|---|---|
+| 기본 | ACL 비활성화(버킷 소유자 적용), 모든 퍼블릭 액세스 차단, 버전 관리 끔, SSE-S3 | 권한을 정책 한 곳에서만 다루고, 공개 설정 실수로 파일이 열리지 않게 한다 |
+| CORS | 출처 `https://hangguet.co.kr`, 메서드 `GET` · `PUT` · `HEAD`, 헤더 `content-type`, 노출 `ETag` | 브라우저가 Presigned URL로 S3에 직접 `PUT`하고, BE가 `Content-Type`을 서명에 넣기 때문에 사전 요청(preflight)이 통과해야 한다. 다른 출처 · 메서드는 막는다 |
+| 버킷 정책 | `aws:SecureTransport` = false면 모두 거부(HTTPS만) | 키나 Presigned URL이 평문 HTTP로 오가지 않게 한다 |
+| 수명 주기 | `abort-incomplete-multipart`: 완료되지 않은 멀티파트 업로드 7일 뒤 삭제. 객체 자체는 지우지 않는다 | 녹화 업로드가 중간에 끊기면 보이지 않는 조각이 남아 요금이 나온다. 녹화 · 백업 보관 기간은 아직 **[미정]**(13장) |
+
+- 확인: 밖에서 리전(`ap-northeast-2`), 익명 목록 · 읽기 거부, `hangguet.co.kr`의 `PUT` · `GET` 사전 요청 허용과 다른 출처 · `DELETE` · `http://` 출처 거부를 확인했다. 정책 · 수명 주기는 밖에서 확인할 수 없어 콘솔 화면으로만 확인했다
+- 개발은 별도 버킷 `a301-livekit-recordings-dev`와 IAM 사용자 `livekit-egress-dev`(녹화) · `a301-dev-app`(앱)을 쓴다(`deploy/dev/compose.yml`, 6.2). 왜: 개발에서는 LiveKit Cloud 서버가 S3에 직접 올리므로 운영 버킷의 IP 조건(6.2)에 막히고, 개발 키가 새도 운영 파일에 닿지 않게 한다
+
+### 6.2 IAM **[결정]**(IP 조건은 **[제안]**)
 
 IAM 역할을 못 쓰므로 IAM 사용자 키를 서버에 둔다. 키마다 권한을 최소로 하고, 버킷 정책에 `aws:SourceIp` = Lightsail 공인 IP 조건을 걸어 키가 새도 다른 곳에서는 못 쓰게 한다.
 
-| 키 | 쓰는 곳 | 허용 |
-|---|---|---|
-| `a301-prod-app` | BE(Presigned URL), AI(녹화 합치기 · 음성 파일), 백업 스크립트 | S3 해당 접두사 읽기·쓰기 |
-| `a301-prod-egress` | Egress | S3 `recordings/raw/` 쓰기만 |
+- IP 조건은 서버가 직접 보내는 요청(`s3:authType` = `REST-HEADER`)에만 건다 **[제안]**. 왜: Presigned URL 요청(`REST-QUERY-STRING`)은 사용자 브라우저 IP에서 오므로, 모든 요청에 걸면 프로필 업로드와 다시보기 재생이 막힌다. Presigned URL은 유효 시간(업로드 10분 · 다운로드 1시간)으로 제한한다
 
-- 왜 키를 나누나: 한 키가 새도 피해 범위가 그 키의 권한으로 한정된다. Egress는 녹화 원본을 쓰는 일만 하므로 읽기도 주지 않는다
+**만든 사용자(10/26)** **[결정]**: 개발과 운영은 같은 역할 · 같은 정책 모양으로 두고 버킷과 키 값만 다르다. 콘솔 접근 없이 액세스 키만 만들었다.
+
+| 역할 | 운영 사용자 · 정책 | 개발 사용자 · 정책 | 변수 이름(운영 `prod/*`, 개발 `dev/*`) | 쓰는 곳 |
+|---|---|---|---|---|
+| 녹화 | `a301-prod-egress` · `a301-prod-egress-s3` | `livekit-egress-dev` | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | BE가 녹화 요청에 담아 Egress에 넘김(4.3) |
+| 앱 | `a301-prod-app` · `a301-prod-app-s3` | `a301-dev-app` · `a301-dev-app-s3` | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | BE 프로필 사진(Presigned URL). 나중에 AI 녹화 합치기 · 백업 스크립트 |
+
+| 정책 | 허용 |
+|---|---|
+| 녹화 | `recordings/*`에 `PutObject` · `GetObject` · `AbortMultipartUpload` · `ListMultipartUploadParts`, 버킷에 `GetBucketLocation` |
+| 앱 | `profile/*`에 `PutObject` · `GetObject` · `DeleteObject`. `recordings/*` · `backup/*`에 `PutObject` · `GetObject` · `AbortMultipartUpload` · `ListMultipartUploadParts`. 버킷에 `ListBucket` · `GetBucketLocation` |
+
+- 왜 키를 나누나: 한 키가 새도 피해 범위가 그 키의 권한으로 한정된다. 녹화 키는 프로필 · 백업에 닿지 않는다
+- 왜 녹화 정책이 개발과 같은가: 개발에서 이미 동작하는 정책을 버킷만 바꿔 옮겼다. 좁히면(예: `recordings/raw/` 쓰기만) 운영에서만 실패할 수 있어 개발과 다르게 두지 않는다
+- 왜 앱에 `ListBucket`을 주나: 없으면 없는 파일을 확인할 때 S3가 404 대신 403을 돌려 BE(`S3FileStorage.exists`)가 오류로 처리한다
+- 앱 키 이름은 AWS SDK 기본 공급자가 읽는 이름이다. BE 코드는 자격 증명을 따로 설정하지 않는다
+- IP 조건은 첫 운영 배포에서 녹화 · 프로필 업로드를 확인한 뒤 버킷 정책에 넣는다 **[제안]**. 왜: 처음부터 넣으면 업로드 실패가 키 문제인지 IP 조건 문제인지 가려내기 어렵다. 넣을 정책(기존 HTTPS 정책에 문장 추가, `<계정 ID>`는 콘솔에서 확인)
+
+```json
+{
+  "Sid": "DenyServerKeysOutsideLightsail",
+  "Effect": "Deny",
+  "Principal": { "AWS": ["arn:aws:iam::<계정 ID>:user/a301-prod-app", "arn:aws:iam::<계정 ID>:user/a301-prod-egress"] },
+  "Action": "s3:*",
+  "Resource": ["arn:aws:s3:::hanggeut-a301-prod", "arn:aws:s3:::hanggeut-a301-prod/*"],
+  "Condition": {
+    "StringEquals": { "s3:authType": "REST-HEADER" },
+    "NotIpAddress": { "aws:SourceIp": "13.209.81.168/32" }
+  }
+}
+```
 
 Docker Hub는 액세스 토큰을 권한별로 나눈다 **[제안]**: push용(Read & Write)은 이미지 빌드 작업에만, pull용(Read-only)은 Lightsail 배포 작업에만 쓴다. 왜: 운영 서버에 있는 토큰이 새도 이미지를 바꿔치기할 수 없다.
 
@@ -373,18 +420,25 @@ Docker Hub는 액세스 토큰을 권한별로 나눈다 **[제안]**: push용(R
 
 GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`. 개발 서버와 **다른 값**을 쓴다 **[결정]**. 왜: 개발 서버 값이 새도 운영에는 영향이 없고, Protected라 보호 브랜치(master) 파이프라인에서만 읽힌다.
 
+**예외: 개발과 같은 값(범위 All)** **[결정]**: 관리자 계정(`ADMIN_LOGIN_ID` · `ADMIN_PASSWORD`), `GRAFANA_ADMIN_PASSWORD`, 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `LLM_API_KEY`). 모두 Protected라 보호 브랜치 파이프라인에서만 읽힌다.
+
+- 왜: 관리자 · Grafana는 팀이 한 계정으로 두 환경을 같이 관리한다. 외부 API 키는 서비스마다 키를 하나로 쓴다(GMS처럼 더 받을 수 없는 키도 있다)
+- 대가: 개발 쪽에서 값이 새면 운영도 같이 바꿔야 한다. 외부 API는 개발 사용량과 운영이 한도를 나눠 쓴다
+
 | 이름 | 비밀 | 쓰는 곳 |
 |---|---|---|
-| `DB_PASSWORD` | O | postgres, BE(AI는 DB에 접속하지 않는다) |
-| `JWT_SECRET` | O | BE |
+| `DB_PASSWORD` | O | postgres, BE(AI는 DB에 접속하지 않는다). DB 볼륨을 처음 만들 때만 적용되므로 첫 배포 전에 확정한다 |
+| `JWT_SECRET` | O | BE(HS256, 32바이트 이상) |
+| `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` | O(아이디는 기동 로그에 찍혀 Masked 안 함) | BE 관리 페이지 계정. 처음 기동할 때 계정이 없으면 만든다. 범위 All(위 예외) |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
 | `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
 | `ELEVENLABS_API_KEY` · `JEV_API_KEY` | O | AI 에이전트 연결 예정. 현재 AI 공통 설정의 변수 이름 |
 | `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`company-pipeline/pipeline/README.md`](../../company-pipeline/pipeline/README.md))과 같게 한다 |
 | `CLOUDFLARE_TUNNEL_TOKEN` | O | cloudflared |
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
-| `GRAFANA_ADMIN_PASSWORD` | O | Grafana |
-| AWS 키(6.2) | O | 각 사용처 |
+| `GRAFANA_ADMIN_PASSWORD` | O | Grafana(개발 · 운영 같은 이름, 범위 All). Grafana 볼륨을 처음 만들 때만 적용된다 |
+| `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | O | BE(녹화 요청에 담아 Egress에 넘김). IAM `a301-prod-egress`(6.2) |
+| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | O | BE(프로필 사진), 나중에 AI 분석 작업자 · 백업 스크립트. IAM `a301-prod-app`(6.2) |
 | `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만. 이 작업에도 `prod/` 환경 이름을 붙여야 읽힌다(8.1) |
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
@@ -451,7 +505,11 @@ LiveKit · Egress · PostgreSQL · Redis · cloudflared · Prometheus · Grafana
 
 스냅샷을 쓸 수 없으므로 **DB 백업을 1단계에 넣는다** **[제안]**. 왜: 서버가 망가지면 DB를 되살릴 방법이 이것뿐이다.
 
-- 매일 `pg_dump` → S3 `backup/`(서버 cron 또는 컨테이너). 보관 기간 **[미정]**
+- 매일 `pg_dump` → S3 `backup/`. 보관 기간 **[미정]**
+- 방식 **[결정]**: 서버 cron(러너 계정, 매일 04:30 한국 시간)이 [`deploy/prod/backup.sh`](../../deploy/prod/backup.sh)를 실행한다. custom 형식 덤프를 `/opt/a301/backup/`에 만들고(서버에는 7일만 남김) aws-cli 컨테이너로 S3에 올린다. 업로드가 실패해도 서버 덤프는 남긴다
+  - S3 키는 배포 작업이 GitLab 변수로 `/opt/a301/backup.env`(권한 600)에 써 둔다. 왜: 키 원본을 GitLab 한 곳에만 두고, 키를 바꾸면 다음 배포 때 서버에도 반영된다
+  - 스크립트는 배포 작업이 `/opt/a301/backup.sh`로 복사한다. DB 컨테이너가 없으면 건너뛴다(첫 배포 전에도 cron이 실패로 남지 않음)
+  - 서버에 cron과 스크립트를 넣어 두었다(10/26)
 - 복원을 실제로 한 번 해 본다([CONTRIBUTING 6.4](../../docs/CONTRIBUTING.md#64-infra)). 왜: 복원해 보지 않은 백업은 쓸 수 있는지 모른다
 
 ## 10. 비용
@@ -477,16 +535,24 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 시험용 LiveKit으로 TURN · UDP 접속 확인(SSAFY 와이파이 · 핫스팟)
 - [x] 시험용 컨테이너(`a301-prod-livekit`, `cloudflared-try`) · 네트워크(`a301-try`) · `~/livekit-try` 정리. **정식 이름으로 띄운 시험 컨테이너가 남으면 CI 배포와 충돌한다**
 - [x] Docker Hub 비공개 저장소(`hanggeut/a301`) · push/pull 토큰 · GitLab 변수. 미니PC push, Lightsail pull 성공, pull 토큰으로 push가 막히는 것(`insufficient scopes`)까지 확인
-- [ ] S3 버킷, IAM 키(6.2)
+- [x] S3 버킷 `hanggeut-a301-prod`: 퍼블릭 차단 · CORS · HTTPS 정책 · 수명 주기(6.1)
+- [x] IAM 사용자 · 키 `a301-prod-egress` · `a301-prod-app`, 개발 앱 키 `a301-dev-app`, GitLab 변수 등록(6.2)
+- [ ] 버킷 정책의 IP 조건: 첫 운영 배포에서 녹화 · 프로필 업로드를 확인한 뒤(6.2)
 - [x] Lightsail에 protected 러너 등록(`a301-prod`, shell)
 - [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
-- [ ] `deploy/prod/compose.yml` · `livekit.yaml` · Egress 설정 · Prometheus 설정 · Nginx 설정, CI 작업(이미지 빌드 · `prod-deploy`)
-- [ ] Grafana 대시보드(서버 · 컨테이너 · LiveKit), 팀원 계정
-- [ ] GitLab 변수(`prod/*`) 등록: `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문) 등록함. 나머지(DB · JWT · 외부 API · AWS · Docker Hub · Grafana)는 남음
+- [x] 운영 배포 파일 [`deploy/prod/`](../../deploy/prod/README.md): `compose.yml` · `livekit.yaml` · Egress 설정(compose의 `EGRESS_CONFIG_BODY`) · `nginx.conf` · `prometheus.yml` · Grafana 설정 · `backup.sh`. 서버에서 compose · Nginx · Prometheus 설정 검사와 LiveKit · Egress 시험 기동까지 함
+- [x] 서버 준비(10/26): 공개 이미지 미리 받기, 백업 스크립트 · cron, 시험 이미지 정리
+- [ ] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
+- [ ] CI 작업: 이미지 빌드(be · fe · ai · admin) · push, `prod-deploy`(할 일은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포 작업이 할 일」)
+- [ ] Grafana 대시보드: 앱 대시보드(개발 서버와 같음)는 넣어 둠. 서버 · 컨테이너 · LiveKit 대시보드와 팀원 계정은 첫 배포 뒤
+- [x] GitLab 변수 등록(7장): `prod/*`에 `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN`, S3 키(`LIVEKIT_EGRESS_S3_*` · `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`), `DB_PASSWORD` · `JWT_SECRET`. 범위 All(개발과 같은 값)에 `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `GRAFANA_ADMIN_PASSWORD`, 외부 API 키 3개
+  - [x] Protected 정리: `CLOUDFLARE_TUNNEL_TOKEN`, 외부 API 키 3개, `ADMIN_PASSWORD`, `DB_PASSWORD`(운영), 개발 `AWS_SECRET_ACCESS_KEY`
+  - [x] Egress S3 키(`LIVEKIT_EGRESS_S3_*`)를 All에서 `dev/*`로 좁힘(운영은 같은 이름의 `prod/*` 값을 씀, 4.3)
+  - [ ] `DEV_GRAFANA_ADMIN_PASSWORD` 지우기. 개발 모니터링은 이미 떠 있어 배포 잡(`monitoring-deploy`)을 꺼 두었으므로 언제 지워도 된다. 잡을 다시 켜면 `GRAFANA_ADMIN_PASSWORD`를 읽는다
 
 ### 먼저 develop에 들어가야 하는 것
 
-- [ ] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다
+- [x] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다 → 상대 주소(`redirectToPath`)로 고침(`f4b52c0`, S15P31A301-183)
 - [ ] BE LiveKit 입장 토큰 발급 · 녹화 시작/종료, AI 에이전트, AI 녹화 합치기, FE 면접방 접속 · 다시보기(12장)
 
 ### 릴리즈
@@ -540,10 +606,9 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 채점용 답변별 음성, 5.5 유지 여부, 7초 자동 제출 판단 주체(12장) | **[미정]** (BE · AI · FE) |
 | Redis 결과 큐 이름(`ai:results`) · 결과 메시지 형식 | **[제안]** (BE · AI) |
 | BE 지표 내보내기, 알림 기준 | **[미정]** |
-| 운영 BE Swagger 공개, S3 버킷 이름, 녹화 · 백업 보관 기간 | **[미정]** |
+| 녹화 · 백업 보관 기간 | **[미정]** |
 | 구조도 | 새 구조로 다시 그린다. `architecture-draft.webp`는 이전 초안 |
 | LiveKit Cloud 무료 구간 정확한 값(대략은 4.0) · 팀 계정 소유자 | 대시보드 요금 화면에서 확인 (인프라) |
-| 개발용 녹화 저장소 | 개발에서는 LiveKit Cloud 서버가 S3에 직접 올리므로 운영 버킷의 `aws:SourceIp` 조건(6.2)에 막힌다. 개발용 버킷(또는 접두사)과 IAM 키를 따로 둔다 **[제안]** (인프라) |
 | 개발 서버 LiveKit을 미니PC 셀프 호스팅으로 바꿀지 | 앞 장비(통신사 공유기) 관리자 계정을 알게 되면 DMZ(→ ipTIME `192.168.45.235`) 설정 후 전환 |
 
 ## 14. 변경 기록
@@ -559,3 +624,9 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 1 · 4.0 · 7 · 13 | 개발은 LiveKit Cloud, 운영은 셀프 호스팅으로 나눔. LiveKit 팀원 규칙(환경 변수, Cloud 전용 기능 금지, SDK 버전, 웹훅, 테스트 데이터) 추가 | 개발 서버(미니PC)가 이중 NAT 뒤에 있어 바깥에서 미디어 포트로 들어올 수 없고, 앞 장비 관리자 계정을 몰라 해결할 수 없어서. 코드는 같게 두고 주소 · 키만 바꾸기 위해 규칙을 정함 |
 | 인프라 | 3.1 · 3.3 · 4.0 · 4.2 · 5.1 · 5.2 · 11 · 13 | Lightsail 기본 셋팅 결과 기록(OS · Docker · 방화벽 · 러너 · Cloudflare · TURN 인증서). Grafana를 Cloudflare Access에서 Grafana 자체 로그인으로 변경. 시험용 LiveKit으로 TURN · UDP 접속 확인 결과와 SSAFY 와이파이 포트 실측, LiveKit Cloud 무료 구간 · 로컬 키 요청 방법 추가. 확인이 끝난 13장 항목 3개를 지우고 해당 장으로 옮김 | 운영 서버를 실제로 셋팅하며 확인한 사실을 남겨, 팀원이 같은 확인을 반복하지 않고 접속 문제가 생겼을 때 비교 기준으로 쓰게 하려고. Grafana는 팀원이 별도 인증 없이 들어갈 수 있게 하려고 |
 | 인프라 | 6.1 · 7 · 8.1 · 8.2 · 11 | Docker Hub 연동 완료(비공개 저장소 `hanggeut/a301`, push · pull 토큰 분리, GitLab 변수 `prod/*`). 로그인은 작업마다 임시 폴더에서 하고 지우는 방식, 빌드 작업에 `prod/build` 환경 이름을 붙이는 방식 추가. 계정 · 저장소 이름은 변수가 아니라 CI 파일에 적기로 함 | 운영 이미지를 받아 올 경로를 미리 확인하고, 토큰이 서버나 develop 파이프라인에 새지 않게 하려고 |
+| 인프라 | 11 | 준비 항목 재확인(10/26): 서버 셋팅 · ufw · DNS · TURN 인증서 · 러너가 그대로임을 확인. GitLab `prod/*` 변수 현황 반영(Docker Hub 토큰 등록됨, 남은 비밀값 · 플래그 정리 항목 추가), Egress S3 키를 `dev/*`로 좁힘. FE 리다이렉트 버그 완료 처리 | 체크리스트가 실제 상태보다 늦어 남은 일을 잘못 판단하지 않게 하려고. dev 녹화 키가 운영으로 넘어가지 않게 하려고 |
+| 인프라 | 6.1 · 6.2 · 11 · 13 | 운영 S3 버킷 `hanggeut-a301-prod` 생성과 설정(퍼블릭 차단 · CORS · HTTPS 정책 · 미완료 멀티파트 정리) 기록. IP 조건을 서버 요청(`REST-HEADER`)에만 거는 안 추가. 13장의 버킷 이름 · 개발용 녹화 저장소 항목을 6.1로 옮김 | 버킷 이름과 설정을 정해 BE · Egress · AI가 같은 값을 쓰게 하려고. IP 조건을 모든 요청에 걸면 브라우저의 Presigned URL 요청이 막히기 때문 |
+| 인프라 | 4.3 · 6.1 · 6.2 · 7 · 11 | IAM 사용자 · 정책 생성(운영 `a301-prod-egress` · `a301-prod-app`, 개발 `a301-dev-app`)과 GitLab 변수 등록. 운영 녹화도 개발처럼 BE가 S3 키를 녹화 요청에 담아 보내기로 함(Egress 설정 파일에 키를 두지 않음). 개발 BE에 앱 키(`AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`)를 넘기도록 `deploy/dev/compose.yml` 수정. IP 조건은 첫 운영 배포 확인 뒤로 미룸 | 개발과 운영이 같은 코드 · 같은 compose로 돌고 키 값만 다르게 하려고. 개발 프로필 사진 API가 키가 없어 실패하던 것도 함께 고침 |
+| 인프라 | 7 · 11 | 남은 GitLab 변수 등록(운영 `DB_PASSWORD` · `JWT_SECRET`)과 Protected 정리. 관리자 계정 · `GRAFANA_ADMIN_PASSWORD` · 외부 API 키는 개발과 같은 값(범위 All)으로 두는 예외 추가. 개발 모니터링 변수 이름을 `DEV_GRAFANA_ADMIN_PASSWORD`에서 `GRAFANA_ADMIN_PASSWORD`로 바꾸고(`deploy/dev/monitoring`), 이미 떠 있는 개발 모니터링의 배포 잡 `monitoring-deploy`는 주석 처리 | 개발과 운영이 같은 이름 · 같은 compose를 쓰게 하려고. 관리자 · Grafana는 팀이 한 계정으로 관리하고, 외부 API 키는 서비스마다 하나로 쓰기 때문 |
+| 인프라 | 3.2 · 4.1 · 9 · 11 | 운영 배포 파일 `deploy/prod/` 작성(개발 compose와 같은 이름 · 환경 변수, 이미지만 Docker Hub). 서버에서 설정 검사, LiveKit · Egress 시험 기동, 공개 이미지 미리 받기, 백업 스크립트 · cron 설치, 시험 이미지 정리. 백업 방식(cron + 배포 작업이 쓰는 키 파일) 결정. `/be/`는 관리 페이지가 써서 연다 | 서버 쪽 준비를 끝내 남은 일을 CI 작업 하나로 줄이려고. 첫 배포 전에 설정 오류 · 이미지 문제를 미리 걸러 내려고 |
+| 인프라 | 3.2 · 13 | 운영 Swagger 미공개 결정: BE에서 끄고 Nginx에서도 경로를 404로 막음. 13장의 Swagger 공개 항목 삭제 | 운영 API 구조를 바깥에 드러낼 이유가 없고, API 확인은 개발 서버 Swagger로 충분해서 |

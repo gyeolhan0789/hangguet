@@ -1,0 +1,10 @@
+apiVersion: 1
+
+datasources:
+  - name: A301 Prometheus
+    uid: a301-prometheus
+    type: prometheus
+    access: proxy
+    url: http://a301-prod-prometheus:9090
+    isDefault: true
+    editable: false
