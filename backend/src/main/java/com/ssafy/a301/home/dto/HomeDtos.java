@@ -1,7 +1,7 @@
 package com.ssafy.a301.home.dto;
 
+import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
-import com.ssafy.a301.interview.domain.Criterion;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -21,10 +21,6 @@ public final class HomeDtos {
         BROKEN,
         FIRST_VISIT
     }
-
-    public record Improvement(
-            @Schema(description = "평가 기준") Criterion criterion,
-            @Schema(description = "직전 연습일 대비 오른 점수", example = "8") int delta) {}
 
     public record HomeResponse(
             HomeState homeState,

@@ -1,0 +1,1866 @@
+{
+ "defaults": {
+  "A": 0.0,
+  "I": 0.0,
+  "U": 0.0,
+  "E": 0.0,
+  "O": 0.0,
+  "Blink": 0.0,
+  "Blink_L": 0.0,
+  "Blink_R": 0.0,
+  "Joy": 0.0,
+  "Fun": 0.0,
+  "Angry": 0.0,
+  "Sorrow": 0.0,
+  "Smile": 0.0,
+  "Surprised": 0.0
+ },
+ "rules": {
+  "FC_Face": {
+   "MTH_A": {
+    "expr": [
+     "/",
+     [
+      "v",
+      "a"
+     ],
+     [
+      "max",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "+",
+       [
+        "+",
+        [
+         "+",
+         [
+          "+",
+          [
+           "v",
+           "a"
+          ],
+          [
+           "v",
+           "i"
+          ]
+         ],
+         [
+          "v",
+          "u"
+         ]
+        ],
+        [
+         "v",
+         "e"
+        ]
+       ],
+       [
+        "v",
+        "o"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_I": {
+    "expr": [
+     "/",
+     [
+      "v",
+      "i"
+     ],
+     [
+      "max",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "+",
+       [
+        "+",
+        [
+         "+",
+         [
+          "+",
+          [
+           "v",
+           "a"
+          ],
+          [
+           "v",
+           "i"
+          ]
+         ],
+         [
+          "v",
+          "u"
+         ]
+        ],
+        [
+         "v",
+         "e"
+        ]
+       ],
+       [
+        "v",
+        "o"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_U": {
+    "expr": [
+     "/",
+     [
+      "v",
+      "u"
+     ],
+     [
+      "max",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "+",
+       [
+        "+",
+        [
+         "+",
+         [
+          "+",
+          [
+           "v",
+           "a"
+          ],
+          [
+           "v",
+           "i"
+          ]
+         ],
+         [
+          "v",
+          "u"
+         ]
+        ],
+        [
+         "v",
+         "e"
+        ]
+       ],
+       [
+        "v",
+        "o"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_E": {
+    "expr": [
+     "/",
+     [
+      "v",
+      "e"
+     ],
+     [
+      "max",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "+",
+       [
+        "+",
+        [
+         "+",
+         [
+          "+",
+          [
+           "v",
+           "a"
+          ],
+          [
+           "v",
+           "i"
+          ]
+         ],
+         [
+          "v",
+          "u"
+         ]
+        ],
+        [
+         "v",
+         "e"
+        ]
+       ],
+       [
+        "v",
+        "o"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_O": {
+    "expr": [
+     "min",
+     [
+      "n",
+      1.0
+     ],
+     [
+      "+",
+      [
+       "/",
+       [
+        "v",
+        "o"
+       ],
+       [
+        "max",
+        [
+         "n",
+         1.0
+        ],
+        [
+         "+",
+         [
+          "+",
+          [
+           "+",
+           [
+            "+",
+            [
+             "v",
+             "a"
+            ],
+            [
+             "v",
+             "i"
+            ]
+           ],
+           [
+            "v",
+            "u"
+           ]
+          ],
+          [
+           "v",
+           "e"
+          ]
+         ],
+         [
+          "v",
+          "o"
+         ]
+        ]
+       ]
+      ],
+      [
+       "*",
+       [
+        "*",
+        [
+         "n",
+         0.7
+        ],
+        [
+         "v",
+         "su"
+        ]
+       ],
+       [
+        "-",
+        [
+         "n",
+         1.0
+        ],
+        [
+         "min",
+         [
+          "n",
+          1.0
+         ],
+         [
+          "+",
+          [
+           "+",
+           [
+            "+",
+            [
+             "+",
+             [
+              "v",
+              "a"
+             ],
+             [
+              "v",
+              "i"
+             ]
+            ],
+            [
+             "v",
+             "u"
+            ]
+           ],
+           [
+            "v",
+            "e"
+           ]
+          ],
+          [
+           "v",
+           "o"
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_Joy": {
+    "expr": [
+     "*",
+     [
+      "min",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "+",
+       [
+        "+",
+        [
+         "v",
+         "j"
+        ],
+        [
+         "*",
+         [
+          "n",
+          0.5
+         ],
+         [
+          "v",
+          "f"
+         ]
+        ]
+       ],
+       [
+        "*",
+        [
+         "n",
+         0.6
+        ],
+        [
+         "v",
+         "sm"
+        ]
+       ]
+      ]
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "*",
+       [
+        "n",
+        0.5
+       ],
+       [
+        "min",
+        [
+         "n",
+         1.0
+        ],
+        [
+         "+",
+         [
+          "+",
+          [
+           "+",
+           [
+            "+",
+            [
+             "v",
+             "a"
+            ],
+            [
+             "v",
+             "i"
+            ]
+           ],
+           [
+            "v",
+            "u"
+           ]
+          ],
+          [
+           "v",
+           "e"
+          ]
+         ],
+         [
+          "v",
+          "o"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_Sad": {
+    "expr": [
+     "*",
+     [
+      "v",
+      "sa"
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "*",
+       [
+        "n",
+        0.5
+       ],
+       [
+        "min",
+        [
+         "n",
+         1.0
+        ],
+        [
+         "+",
+         [
+          "+",
+          [
+           "+",
+           [
+            "+",
+            [
+             "v",
+             "a"
+            ],
+            [
+             "v",
+             "i"
+            ]
+           ],
+           [
+            "v",
+            "u"
+           ]
+          ],
+          [
+           "v",
+           "e"
+          ]
+         ],
+         [
+          "v",
+          "o"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "MTH_Angry": {
+    "expr": [
+     "*",
+     [
+      "v",
+      "ag"
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "*",
+       [
+        "n",
+        0.5
+       ],
+       [
+        "min",
+        [
+         "n",
+         1.0
+        ],
+        [
+         "+",
+         [
+          "+",
+          [
+           "+",
+           [
+            "+",
+            [
+             "v",
+             "a"
+            ],
+            [
+             "v",
+             "i"
+            ]
+           ],
+           [
+            "v",
+            "u"
+           ]
+          ],
+          [
+           "v",
+           "e"
+          ]
+         ],
+         [
+          "v",
+          "o"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Close_L": {
+    "expr": [
+     "*",
+     [
+      "min",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "max",
+       [
+        "v",
+        "bl"
+       ],
+       [
+        "v",
+        "bll"
+       ]
+      ]
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "min",
+       [
+        "n",
+        1.0
+       ],
+       [
+        "+",
+        [
+         "+",
+         [
+          "v",
+          "j"
+         ],
+         [
+          "*",
+          [
+           "n",
+           0.5
+          ],
+          [
+           "v",
+           "f"
+          ]
+         ]
+        ],
+        [
+         "*",
+         [
+          "n",
+          0.3
+         ],
+         [
+          "v",
+          "sm"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Close_R": {
+    "expr": [
+     "*",
+     [
+      "min",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "max",
+       [
+        "v",
+        "bl"
+       ],
+       [
+        "v",
+        "blr"
+       ]
+      ]
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "min",
+       [
+        "n",
+        1.0
+       ],
+       [
+        "+",
+        [
+         "+",
+         [
+          "v",
+          "j"
+         ],
+         [
+          "*",
+          [
+           "n",
+           0.5
+          ],
+          [
+           "v",
+           "f"
+          ]
+         ]
+        ],
+        [
+         "*",
+         [
+          "n",
+          0.3
+         ],
+         [
+          "v",
+          "sm"
+         ]
+        ]
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Joy": {
+    "expr": [
+     "min",
+     [
+      "n",
+      1.0
+     ],
+     [
+      "+",
+      [
+       "+",
+       [
+        "v",
+        "j"
+       ],
+       [
+        "*",
+        [
+         "n",
+         0.5
+        ],
+        [
+         "v",
+         "f"
+        ]
+       ]
+      ],
+      [
+       "*",
+       [
+        "n",
+        0.3
+       ],
+       [
+        "v",
+        "sm"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Sad": {
+    "expr": [
+     "*",
+     [
+      "v",
+      "sa"
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "max",
+       [
+        "v",
+        "bl"
+       ],
+       [
+        "v",
+        "bll"
+       ],
+       [
+        "v",
+        "blr"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Angry": {
+    "expr": [
+     "*",
+     [
+      "v",
+      "ag"
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "max",
+       [
+        "v",
+        "bl"
+       ],
+       [
+        "v",
+        "bll"
+       ],
+       [
+        "v",
+        "blr"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "EYE_Surprised": {
+    "expr": [
+     "*",
+     [
+      "v",
+      "su"
+     ],
+     [
+      "-",
+      [
+       "n",
+       1.0
+      ],
+      [
+       "max",
+       [
+        "v",
+        "bl"
+       ],
+       [
+        "v",
+        "bll"
+       ],
+       [
+        "v",
+        "blr"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   }
+  },
+  "BR_Brows": {
+   "brow_up": {
+    "expr": [
+     "min",
+     [
+      "n",
+      1.0
+     ],
+     [
+      "+",
+      [
+       "+",
+       [
+        "v",
+        "su"
+       ],
+       [
+        "*",
+        [
+         "n",
+         0.4
+        ],
+        [
+         "v",
+         "j"
+        ]
+       ]
+      ],
+      [
+       "*",
+       [
+        "n",
+        0.25
+       ],
+       [
+        "v",
+        "f"
+       ]
+      ]
+     ]
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "brow_angry": {
+    "expr": [
+     "v",
+     "ag"
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   },
+   "brow_sad": {
+    "expr": [
+     "v",
+     "sa"
+    ],
+    "vars": {
+     "a": [
+      "control",
+      "A"
+     ],
+     "i": [
+      "control",
+      "I"
+     ],
+     "u": [
+      "control",
+      "U"
+     ],
+     "e": [
+      "control",
+      "E"
+     ],
+     "o": [
+      "control",
+      "O"
+     ],
+     "bl": [
+      "control",
+      "Blink"
+     ],
+     "bll": [
+      "control",
+      "Blink_L"
+     ],
+     "blr": [
+      "control",
+      "Blink_R"
+     ],
+     "j": [
+      "control",
+      "Joy"
+     ],
+     "f": [
+      "control",
+      "Fun"
+     ],
+     "ag": [
+      "control",
+      "Angry"
+     ],
+     "sa": [
+      "control",
+      "Sorrow"
+     ],
+     "sm": [
+      "control",
+      "Smile"
+     ],
+     "su": [
+      "control",
+      "Surprised"
+     ]
+    }
+   }
+  }
+ }
+}

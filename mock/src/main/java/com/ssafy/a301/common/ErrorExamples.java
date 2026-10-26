@@ -137,6 +137,16 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "이미 연습한 날이라 메울 수 없어요.",
               "instance": "/api/v1/users/me/streak-freezes/use", "code": "STREAK_FREEZE_DATE_NOT_ALLOWED" }\
             """;
+    public static final String INQUIRY_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "문의를 찾을 수 없어요.",
+              "instance": "/api/v1/inquiries/0", "code": "INQUIRY_NOT_FOUND" }\
+            """;
+    public static final String INQUIRY_CLOSED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "종료한 문의예요.",
+              "instance": "/api/v1/inquiries/7/messages", "code": "INQUIRY_CLOSED" }\
+            """;
 
     private ErrorExamples() {}
 }

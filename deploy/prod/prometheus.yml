@@ -1,0 +1,71 @@
+# 운영 서버 지표 수집(배포 계획 3.3). 앱 지표 · 상태 확인은 개발 서버(deploy/dev/monitoring/prometheus.yml)와
+# 같은 job 이름을 써서 같은 대시보드를 쓴다. 서버 · 컨테이너 · LiveKit · Egress 지표를 더 모은다.
+# FE 지표(/api/monitoring/metrics)는 개발 서버에서만 켜므로(A301_DEV_MONITORING) 여기서는 모으지 않는다.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: a301-be
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets:
+          - a301-prod-be:8081
+
+  - job_name: a301-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: [http://a301-prod-fe:3000/api/health]
+        labels:
+          service: fe
+      - targets: [http://a301-prod-be:8081/actuator/health]
+        labels:
+          service: be
+      - targets: [http://a301-prod-ai:8000/health]
+        labels:
+          service: ai
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: a301-prod-blackbox:9115
+
+  # FE 헬스 라우트와 별도로 실제 첫 화면의 HTTP 응답을 확인한다.
+  - job_name: a301-fe-page
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: [http://a301-prod-fe:3000/]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: a301-prod-blackbox:9115
+
+  # 서버 CPU · 메모리 · 디스크 · 네트워크
+  - job_name: a301-node
+    static_configs:
+      - targets: [a301-prod-node-exporter:9100]
+
+  # 컨테이너별 CPU · 메모리
+  - job_name: a301-cadvisor
+    static_configs:
+      - targets: [a301-prod-cadvisor:8080]
+
+  # 면접방 · 참가자 수, 패킷 손실(livekit.yaml prometheus_port)
+  - job_name: a301-livekit
+    static_configs:
+      - targets: [a301-prod-livekit:6789]
+
+  # 녹화 상태(compose.yml EGRESS_CONFIG_BODY prometheus_port)
+  - job_name: a301-egress
+    static_configs:
+      - targets: [a301-prod-egress:9090]

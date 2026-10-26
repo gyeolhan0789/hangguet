@@ -1,13 +1,15 @@
 package com.ssafy.a301.home.controller;
 
+import com.ssafy.a301.common.validation.SupportedMonth;
+import com.ssafy.a301.home.dto.HomeDtos.HomeResponse;
 import com.ssafy.a301.home.dto.HomeDtos.PracticeLogsResponse;
 import com.ssafy.a301.home.dto.HomeDtos.StatsResponse;
+import com.ssafy.a301.home.service.HomeService;
 import com.ssafy.a301.home.service.PracticeStatsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.constraints.Pattern;
 import java.time.YearMonth;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -18,10 +20,23 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "3. 홈 · 스트릭")
 @RestController
 public class HomeController {
+    private final HomeService home;
     private final PracticeStatsService stats;
 
-    public HomeController(PracticeStatsService stats) {
+    public HomeController(HomeService home, PracticeStatsService stats) {
+        this.home = home;
         this.stats = stats;
+    }
+
+    @Operation(
+            summary = "3.1 홈",
+            description =
+                    "홈 화면에 필요한 값을 한 번에 준다. 어떤 홈을 보여 줄지는 homeState로 구분한다."
+                            + " 연습일·스트릭·오늘의 집계는 한국 시간 면접 시작 날짜 기준이다."
+                            + " 기록이 없으면 FIRST_VISIT, 숫자 0, 배열은 빈 배열.")
+    @GetMapping("/api/v1/home")
+    public HomeResponse home(@AuthenticationPrincipal Jwt jwt) {
+        return home.home(userId(jwt));
     }
 
     @Operation(
@@ -45,9 +60,7 @@ public class HomeController {
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "조회할 달(0001-01~9999-12)", example = "2026-10")
                     @RequestParam
-                    @Pattern(
-                            regexp = "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])",
-                            message = "YYYY-MM 형식입니다.")
+                    @SupportedMonth
                     String month) {
         return stats.practiceLogs(userId(jwt), YearMonth.parse(month));
     }

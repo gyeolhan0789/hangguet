@@ -153,6 +153,24 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("from") OffsetDateTime from,
             @Param("to") OffsetDateTime to);
 
+    /** 7.1·7.2 성장 리뷰. :to 전에 시작한 결과 완료 연습 면접을 시작 순으로, 지원서와 함께 준다. */
+    @Query(
+            """
+            select s from InterviewSession s join fetch s.application
+            where s.user.id = :userId
+              and s.user.deletedAt is null
+              and s.status = :status
+              and s.startedAt < :to
+              and exists (
+                  select a.id from Answer a where a.question.session = s
+              )
+            order by s.startedAt, s.id
+            """)
+    List<InterviewSession> findReviewSessions(
+            @Param("userId") long userId,
+            @Param("status") SessionStatus status,
+            @Param("to") OffsetDateTime to);
+
     /** 응답에 회사명·직무가 필요한 조회. 지원서를 함께 가져온다(BE 설계 3장). */
     @Query(
             "select s from InterviewSession s join fetch s.application"

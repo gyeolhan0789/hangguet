@@ -39,14 +39,14 @@ com.ssafy.a301
 │  └─ config       SecurityConfig
 ├─ user
 │  ├─ controller   UserController
-│  ├─ service      UserService
+│  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 모든 기기 로그아웃, 9.10)
 │  ├─ dto          UserDtos
 │  ├─ mapper       UserMapper
-│  ├─ repository   UserRepository, UserAgreementRepository
-│  └─ domain       User, UserAgreement, TermsType
+│  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository
+│  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy
 ├─ home
-│  ├─ controller   HomeController(3.2·3.3)
-│  ├─ service      PracticeStatsService(스트릭·통계·연습 달력, 3.1에서 다시 씀)
+│  ├─ controller   HomeController(3.1~3.3)
+│  ├─ service      HomeService(3.1, 아래 두 서비스 계산을 조합), PracticeStatsService(스트릭·통계·연습 달력·그날 면접 수와 시간·최근 7일, 3.1·7.1에서 다시 씀)
 │  ├─ dto          HomeDtos
 │  ├─ mapper       HomeMapper
 │  ├─ repository   PracticeLogRepository
@@ -72,9 +72,14 @@ com.ssafy.a301
 │  ├─ livekit      LiveKit 서버 API 어댑터(입장 토큰·배정·방 삭제·Egress, 예정)
 │  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·AI 작업·상태 enum
 ├─ result
+│  ├─ controller   ResultController(6.3·6.4)
+│  ├─ service      ResultService
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
-├─ growth/dto      GrowthDtos
+├─ growth
+│  ├─ controller   GrowthReviewController(7.1·7.2)
+│  ├─ service      GrowthReviewService(성장 리뷰 계산, 3.1에서 다시 씀)
+│  └─ dto          GrowthDtos
 ├─ admin           8. 관리자(관리 페이지 + 회원이 쓰는 공지 · 스트릭 유지권). 다른 기능의 코드는 바꾸지 않고 테이블만 읽는다
 │  ├─ controller   AdminAuthController(8.1 · 8.2), AdminNoticeController(8.3 ~ 8.7), AdminMetricsController(8.15), AdminStreakFreezeController(8.10 · 8.11),
 │  │               AdminUserController(8.12), NoticeController(8.8 · 8.9), StreakFreezeController(8.13 · 8.14)
@@ -88,18 +93,27 @@ com.ssafy.a301
 │  ├─ jwt          AdminTokens(발급자 a301-admin, 유효 시간은 auth.access-ttl)
 │  ├─ config       AdminSecurityConfig(/api/v1/admin/** 전용 필터 체인), AdminProperties, AdminPasswordEncoder(BCrypt)
 │  └─ domain       Admin, Notice, NoticeRead, StreakFreezeGrant, StreakFreezeGrantTarget, StreakFreeze, GrantTarget · GrantStatus · StreakFreezeStatus
+├─ inquiry         9. 문의(회원 · 비회원 문의, 관리 페이지 답변 · 비밀번호 변경). 제목 · 본문은 암호화해 저장한다
+│  ├─ controller   InquiryController(9.1 ~ 9.5, 9.2 말고는 로그인 없이도), AdminInquiryController(9.6 ~ 9.10)
+│  ├─ service      InquiryService(접근 확인 · 상태 전이), AdminInquiryService(9.10은 user의 PasswordChangeService를 부른다)
+│  ├─ dto          InquiryDtos
+│  ├─ mapper       InquiryMapper
+│  ├─ repository   InquiryRepository, InquiryMessageRepository
+│  ├─ crypto       InquiryCipher(AES-256-GCM, 키는 INQUIRY_ENCRYPTION_KEY), EncryptedTextConverter(JPA 변환기)
+│  └─ domain       Inquiry, InquiryMessage, InquiryStatus · AuthorType
 ├─ storage
 │  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
 │  └─ domain       UploadPurpose
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler
+├─ common/validation  SupportedDate·SupportedMonth(조회 날짜·월 범위 0001~9999년, 5.13·5.15·3.3·7.1)
 ├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
 └─ config          OpenApiConfig, SchedulingConfig
 ```
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 통계·연습 달력(3.2·3.3) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 홈·통계·연습 달력(3.1~3.3)·결과·다시보기(6.3·6.4)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
@@ -129,10 +143,15 @@ com.ssafy.a301
 | `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
 | `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
 | `StreakFreeze` | `streak_freezes` | N:1 User, N:1 Grant | 유지권 1개. 메울 수 있는 날짜 하나를 연습 기록(`practice_logs`)으로 메운다. 유효기간은 지급 날짜부터 2주 |
+| `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
+| `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
+| `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 지금은 9.10(ADMIN)만 남기고, 회원 직접 변경(USER)도 남길 예정 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
 - 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
 - 공지 수정 · 삭제(8.6 · 8.7)는 공지 행을 잠그고(`SELECT … FOR UPDATE`) 한다. 이미 삭제한 공지는 404 `NOTICE_NOT_FOUND`
+- 문의 쓰기 · 종료(9.4 · 9.5 · 9.8 · 9.9)는 문의 행을 잠그고 한다. 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(`X-Inquiry-Password`)가 맞을 때만 볼 수 있고, 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다
+- 문의 제목 · 본문은 AES-256-GCM으로 암호화해 저장한다(`EncryptedTextConverter`). 키는 환경 변수 `INQUIRY_ENCRYPTION_KEY`(Base64, 32바이트)로만 받고 없으면 기동하지 않는다. 키를 잃거나 바꾸면 저장한 문의를 풀 수 없다
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
@@ -248,16 +267,21 @@ com.ssafy.a301
 ### 6.2 성장 리뷰 (7.1, 7.2, 3.1) **[결정]**
 - 성장 리뷰는 별도 테이블 없이 `session_scores`·`answers`로 계산한다
 - 그날 = 한국 시간 `started_at` 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 `session_scores.score` 기준별 평균(반올림 정수 **[제안]**)
-- 비교 대상 = 그날 이전 가장 최근 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null)
+- 비교 대상 = 그날 이전 가장 최근 연습일 중 결과(`COMPLETED`)가 있는 날. 분석 중·실패만 있는 날은 점수가 없어 건너뛴다 **[제안]**. `delta` = 그날 − 비교 대상(비교 대상이 없으면 null, `isFirst` true)
+- 리뷰가 있는 날 = 그날 시작한 `COMPLETED` 면접이 있는 날. 기준 점수가 4개가 아닌 면접은 경고 로그를 남기고 계산에서 뺀다(과거 면접 하나로 이후 리뷰가 모두 실패하지 않게) **[제안]**. 없으면 7.1은 404 `GROWTH_REVIEW_NOT_FOUND`, 7.2 목록에서 빠진다. `interviewCount`·`practiceMinutes`는 5.13과 같은 연습 면접(분석 중·실패 포함) 기준
 - 다음에 해볼 것 = 그날 `session_scores`(`comment`)와 `answers`(`improve_point`) 중 최저 점수의 문구. 문구가 비면 다음으로 낮은 것. 동점이면 모두
 - `criteria[].comment` = 그날 마지막 면접의 `comment`
-- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준
-- 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순
+- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 첫 연습일이거나 오른 기준이 없으면 둘 다 null
+- 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순(동점이면 기준 순서). 오늘 결과가 아직 없으면(분석 중) 빈 배열
+- 3.1 `nextActions`·`nextActionsDate` = 오늘까지 가장 최근 리뷰의 다음에 해볼 것과 그 날짜(오늘 결과가 있으면 오늘). 리뷰가 없거나 그 리뷰에 다음에 해볼 것이 없으면 빈 배열·null
+- 3.1은 7.1·7.2와 같은 계산을 쓰며, 리뷰 계산은 한 번만 한다(`GrowthReviewService.homeReviews`)
 
 ### 6.3 기타
 - `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
 - `latestJobTitle` = 가장 최근 면접에 쓴 지원서의 직무
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
+- 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
+- 6.4 `videoUrl`은 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있을 때만 Presigned GET. 합치기 전이거나 실패(`recording.mergeFailed`)했으면 null이고 질문 목록은 그대로 준다 **[임시: B-19 결정 전]**
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
@@ -279,7 +303,7 @@ com.ssafy.a301
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
-| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
+| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 9.10 관리자 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
@@ -311,6 +335,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
+- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다
+- 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
 
@@ -336,11 +362,13 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 ## 11. 오류 처리 **[결정]**
 - 응답 형식: ProblemDetail + `code`(+ 400은 `errors`). `GlobalExceptionHandler`가 Spring 자체 오류에도 `code`를 붙인다
 - 업무 오류: `throw new ApiException(ErrorCode.X)`. 필드 사이 검증 실패: `FieldValidationException(field, reason)`
+- 조회 날짜·월 파라미터는 `@SupportedDate`·`@SupportedMonth`로 0001~9999년만 받는다. ISO 날짜는 0000년·다섯 자리 연도도 읽어서, 막지 않으면 시각 계산·DB에서 500이 된다. 범위 밖은 400 `VALIDATION_FAILED`
 - 상태 오류는 엔티티가 던진다(4장)
 
 ## 12. 남은 일
 1. 남은 API(3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
 2. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
-3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후)
+3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
 4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+6. 회원 직접 비밀번호 변경(2.3)을 `PasswordChangeService`로 옮겨 변경 기록(USER)을 남기고 모든 기기를 로그아웃하게 한다(지금 2.3은 다른 기기 로그인을 유지)

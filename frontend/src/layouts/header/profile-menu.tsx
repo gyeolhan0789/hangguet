@@ -92,6 +92,16 @@ export function ProfileMenu({ user }: { user: MeResponse }) {
                 <MaskIcon src="/icons/chevron-right.svg" size={16} className="bg-text-3" />
               </span>
             </Link>
+            {/* Figma C01(18:3110 Menu 문의하기 · I02): 마이페이지 아래, message-circle 18 text-2 · 글자 text-1 · 화살표 없음 */}
+            <Link
+              role="menuitem"
+              href={ROUTES.inquiries}
+              onClick={() => setOpen(false)}
+              className={`${menuItem} text-text-1`}
+            >
+              <MaskIcon src="/icons/message-circle.svg" size={18} className="bg-text-2" />
+              문의하기
+            </Link>
             {/* 로그아웃: 확인 없이 랜딩(S00)으로 */}
             <form action={logout}>
               <button type="submit" role="menuitem" className={`${menuItem} text-text-2`}>

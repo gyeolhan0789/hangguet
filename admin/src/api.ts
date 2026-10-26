@@ -1,8 +1,13 @@
 import { clearSession, loadSession } from './session'
 import type {
+  AdminInquiryListItem,
+  AdminInquiryMessage,
+  AdminInquiryResponse,
+  AdminPasswordChangeRequest,
   AdminMetricsResponse,
   AdminTokenResponse,
   AdminUser,
+  InquiryStatus,
   NoticeCreateRequest,
   NoticeListItem,
   NoticeResponse,
@@ -82,4 +87,14 @@ export const api = {
     request<Page<AdminUser>>(
       `/admin/users?keyword=${encodeURIComponent(keyword)}&page=${page}&size=${size}`,
     ),
+  inquiries: (status: InquiryStatus | null, page: number, size = 10) =>
+    request<Page<AdminInquiryListItem>>(
+      `/admin/inquiries?${status ? `status=${status}&` : ''}page=${page}&size=${size}`,
+    ),
+  inquiry: (id: number) => request<AdminInquiryResponse>(`/admin/inquiries/${id}`),
+  answerInquiry: (id: number, content: string) =>
+    request<AdminInquiryMessage>(`/admin/inquiries/${id}/messages`, { method: 'POST', body: { content } }),
+  closeInquiry: (id: number) => request<void>(`/admin/inquiries/${id}/close`, { method: 'POST' }),
+  changeUserPassword: (userId: number, body: AdminPasswordChangeRequest) =>
+    request<void>(`/admin/users/${userId}/password`, { method: 'PATCH', body }),
 }

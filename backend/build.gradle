@@ -66,6 +66,8 @@ tasks.withType(JavaCompile).configureEach {
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
     environment 'JWT_SECRET', 'test-only-signing-secret-at-least-32-bytes'
+    // 테스트 전용 문의 암호화 키(32바이트를 Base64로)
+    environment 'INQUIRY_ENCRYPTION_KEY', 'dGVzdC1vbmx5LWlucXVpcnkta2V5LTMyLWJ5dGVzISE='
     // 테스트 중 AI 작업 재발행이 다른 테스트의 Outbox 행을 실제 Redis로 보내지 않게 사실상 끈다
     systemProperty 'ai-job.republish-interval', '1h'
     // 테스트 중 결과 큐 처리기가 실제 Redis의 ai:results를 꺼내 가지 않게 끈다

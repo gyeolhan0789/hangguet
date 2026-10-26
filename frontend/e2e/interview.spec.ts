@@ -495,15 +495,27 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByRole("button", { name: "면접 종료" })).toHaveCount(0);
   });
 
-  test("커피챗 면접관은 3D 모델이 없어 면접관 장면 · 번개 · 표시 아이콘 없이 그린다", async ({
+  test("커피챗 면접관은 자기 3D 모델로 그리고, 폭풍 배경 · 번개 · 표시 아이콘은 없다", async ({
     page,
     msw,
   }) => {
+    // 셰이더 컴파일(SwiftShader)까지 기다리므로 테스트 제한 시간을 늘린다.
+    test.slow();
+    const devilAssets: string[] = [];
+    page.on("request", (request) => {
+      if (decodeURIComponent(request.url()).includes("/interview/devil/"))
+        devilAssets.push(request.url());
+    });
+    const coffeeModel = page.waitForResponse("**/interview/coffee-chat/interviewer.glb");
     interviewIs(msw, { ...CHAT, persona: "COFFEE_CHAT" });
     await page.goto(S06);
+    expect((await coffeeModel).ok()).toBe(true);
 
     await expect(page.getByText("개발자 커피챗", { exact: true }).first()).toBeVisible();
-    await expect(stage(page)).toHaveCount(0);
+    // 커피챗 모델은 작아(약 0.4MB) 금방 해석되지만, SwiftShader 셰이더 컴파일 시간만큼 기다린다.
+    await expect(stage(page)).toHaveAttribute("data-state", "ready", { timeout: 60_000 });
+    await expect(stage(page).locator("canvas")).toBeVisible();
+    expect(devilAssets).toEqual([]);
     await expect(page.getByTestId("lightning-flash")).toHaveCount(0);
     await expect(page.getByTestId("storm-vignette")).toHaveCount(0);
     await expect(page.locator('img[src*="icon-flame"]')).toHaveCount(0);

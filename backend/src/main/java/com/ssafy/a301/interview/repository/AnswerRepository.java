@@ -29,6 +29,12 @@ public interface AnswerRepository extends JpaRepository<Answer, Long> {
     /** 면접에서 지금까지 낸 답변 수 */
     int countByQuestionSessionId(Long sessionId);
 
+    /** 성장 리뷰의 "다음에 해볼 것"용. 여러 면접의 답변을 질문과 함께 준다 */
+    @Query(
+            "select a from Answer a join fetch a.question q where q.session.id in :sessionIds"
+                    + " order by q.session.id, q.seq")
+    List<Answer> findWithQuestionBySessionIds(@Param("sessionIds") Collection<Long> sessionIds);
+
     /** 결과 생성 작업 메시지용. 질문을 함께 가져와 질문 순서대로 준다 */
     @Query(
             "select a from Answer a join fetch a.question q where q.session.id = :sessionId"

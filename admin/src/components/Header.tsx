@@ -17,7 +17,13 @@ export function Brand({ name, small = false }: { name?: string; small?: boolean 
 }
 
 export function Header({ route, adminName, onLogout }: Props) {
-  const current = route.name.startsWith('notice') ? 'notices' : route.name.startsWith('grant') ? 'grants' : 'home'
+  const current = route.name.startsWith('notice')
+    ? 'notices'
+    : route.name.startsWith('grant')
+      ? 'grants'
+      : route.name.startsWith('inquir')
+        ? 'inquiries'
+        : 'home'
 
   // 로그아웃(8.2)이 실패해도 이 화면에서는 토큰을 버린다
   const logout = async () => {
@@ -52,6 +58,14 @@ export function Header({ route, adminName, onLogout }: Props) {
           onClick={() => navigate('grants')}
         >
           스트릭 유지권
+        </button>
+        <button
+          type="button"
+          className="nav-item"
+          aria-current={current === 'inquiries' ? 'page' : undefined}
+          onClick={() => navigate('inquiries')}
+        >
+          문의
         </button>
         <span className="nav-divider" />
         <div className="nav-admin">

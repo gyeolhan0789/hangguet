@@ -49,7 +49,7 @@ public class ResultController {
     private static final String REPLAY =
             """
             { "id": 55, "persona": "DEVIL", "mode": "VIDEO", "companyName": "○○전자", "jobTitle": "백엔드 개발자",
-              "startedAt": "2026-10-15T12:00:00+09:00", "videoUrl": "https://…s3…/sessions/55/session.webm?X-Amz-Signature=…",
+              "startedAt": "2026-10-15T12:00:00+09:00", "videoUrl": "https://…s3…/recordings/55.mp4?X-Amz-Signature=…",
               "items": [
                 { "questionId": 301, "seq": 1, "question": "1분 자기소개", "questionCreatedAt": "2026-10-15T12:00:42+09:00",
                   "answer": "안녕하세요, 저는…", "answerCreatedAt": "2026-10-15T12:02:40+09:00", "grade": "GOOD" },
