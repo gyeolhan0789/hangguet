@@ -134,10 +134,23 @@ def test_manual_submit_stops_auto_submit() -> None:
 # 60초 timedOut
 
 
-def test_ends_after_sixty_seconds_without_speech() -> None:
-    state, decisions = run([START, Tick(59_999), Tick(60_000)])
-    assert decisions == ["wait", "timeout"]
-    assert state.phase is Phase.ENDED
+def test_times_out_once_and_keeps_listening() -> None:
+    state, decisions = run([START, Tick(59_999), Tick(60_000), Tick(120_000)])
+    assert decisions == ["wait", "timeout", "wait"]
+    assert (state.phase, state.timed_out) == (Phase.LISTENING, True)
+    assert next_deadline(state) is None
+
+
+def test_speech_after_timeout_submits_after_seven_seconds() -> None:
+    """timedOut 뒤에도 같은 질문에서 계속 듣는다(AI 명세 6.2)."""
+    events = [START, Tick(60_000), Speech(65_000), Tick(71_999), Tick(72_000)]
+    assert run(events)[1] == ["timeout", "wait", "submit"]
+
+
+def test_submit_after_timeout_and_speech_is_accepted() -> None:
+    timed_out, _ = run([START, Tick(60_000)])
+    spoke, _ = run([Speech(61_000)], timed_out)
+    assert next_answer_end(spoke, SubmitRequested()).decision is Decision.ACCEPT
 
 
 def test_does_not_end_after_speech_started() -> None:
@@ -153,11 +166,11 @@ def test_ends_during_reconnect_at_sixty_seconds() -> None:
     assert run([START, Reconnecting(), Tick(60_000)])[1] == ["timeout"]
 
 
-def test_stt_error_without_speech_ends_after_sixty_seconds() -> None:
-    # 발화가 없으면 [답변 완료]로 끝낼 수 없으므로 오류 상태에서도 60초로 끝낸다
-    state, decisions = run([START, SttError(), Tick(59_999), Tick(60_000)])
-    assert decisions == ["wait", "timeout"]
-    assert state.phase is Phase.ENDED
+def test_stt_error_without_speech_times_out_after_sixty_seconds() -> None:
+    # 발화가 없으면 [답변 완료]로 끝낼 수 없으므로 오류 상태에서도 60초 뒤 timedOut을 알린다
+    state, decisions = run([START, SttError(), Tick(59_999), Tick(60_000), Tick(120_000)])
+    assert decisions == ["wait", "timeout", "wait"]
+    assert (state.phase, state.timed_out) == (Phase.ERROR, True)
 
 
 def test_stt_error_after_speech_does_not_end_or_submit() -> None:
@@ -180,16 +193,14 @@ IGNORED: list[AnswerEndEvent] = [
 
 def test_meaningless_events_do_not_change_state() -> None:
     assert run(IGNORED)[0] == INITIAL_STATE
-    ended, _ = run([START, Tick(60_000)])
-    assert run(IGNORED, ended)[0] == ended
 
 
-def test_answer_started_after_end_restarts_count() -> None:
-    ended, _ = run([START, Tick(60_000)])
+def test_answer_started_after_timeout_restarts_count() -> None:
+    timed_out, _ = run([START, Tick(60_000)])
     events = [AnswerStarted(70_000, InterviewMode.VIDEO), Tick(129_999), Tick(130_000)]
-    state, decisions = run(events, ended)
+    state, decisions = run(events, timed_out)
     assert decisions == ["wait", "timeout"]
-    assert state.phase is Phase.ENDED
+    assert state.listen_started_at == 70_000
 
 
 def test_reconnecting_is_ignored_in_error() -> None:
@@ -248,9 +259,10 @@ def test_submit_before_answer_started_is_not_answering() -> None:
     assert after == before
 
 
-def test_submit_after_timeout_is_not_answering() -> None:
+def test_submit_after_timeout_without_speech_is_empty_answer() -> None:
+    # timedOut 뒤에도 답변 중이므로 답변 중 아님(2002)이 아니라 빈 답변(2001)이다
     before, after, decision = submit([START, Tick(60_000)])
-    assert decision is Decision.NOT_ANSWERING
+    assert decision is Decision.EMPTY_ANSWER
     assert after == before
 
 
