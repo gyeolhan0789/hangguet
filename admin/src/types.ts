@@ -19,10 +19,17 @@ export type AdminTokenResponse = {
 
 export type Criterion = 'JOB_FIT' | 'COVER_LETTER' | 'LOGIC' | 'DELIVERY'
 
+export type Persona = 'DEVIL' | 'COFFEE_CHAT'
+
 export type AdminMetricsResponse = {
   date: string
-  users: { total: number; joinedToday: number }
-  practice: { practicedToday: number; daily: { date: string; users: number }[] }
+  users: { total: number; joinedToday: number; withdrawn: number; interviewed: number }
+  practice: {
+    practicedToday: number
+    practicedWeek: number
+    daily: { date: string; users: number }[]
+    retention: { days: number; eligible: number; returned: number }[]
+  }
   interviews: {
     total: number
     completed: number
@@ -31,11 +38,54 @@ export type AdminMetricsResponse = {
     aborted: number
     video: number
     chat: number
+    stuck: number
+    personas: { persona: Persona; count: number }[]
   }
   averageScores: { criterion: Criterion; score: number }[]
+  /** 값이 있는 면접이 없으면 그 지표는 null */
+  speech: {
+    sessions: number
+    fillerPerMin: number | null
+    longPauseCount: number | null
+    speedDeviationPct: number | null
+    trailingOffRatio: number | null
+    pitchRangeSt: number | null
+    gazeRatio: number | null
+  }
+  applications: number
+  inquiries: { waiting: number }
   streakFreezes: { granted: number; used: number; expired: number }
   notices: { id: number; title: string; readCount: number }[]
 }
+
+/** 8.16 그날 0시 기록. 비율 대신 분자 · 분모 */
+export type DailyMetric = {
+  date: string
+  usersTotal: number
+  usersJoined: number
+  usersWithdrawn: number
+  usersInterviewed: number
+  practicedUsers: number
+  practicedWeek: number
+  d1Eligible: number
+  d1Returned: number
+  d3Eligible: number
+  d3Returned: number
+  d7Eligible: number
+  d7Returned: number
+  interviewsTotal: number
+  interviewsCompleted: number
+  interviewsFailed: number
+  interviewsAborted: number
+  interviewsStuck: number
+  applications: number
+  inquiriesWaiting: number
+  freezesGranted: number
+  freezesUsed: number
+  recordedAt: string
+}
+
+export type DailyMetricsResponse = { from: string; to: string; content: DailyMetric[] }
 
 export type NoticeListItem = {
   id: number

@@ -34,6 +34,11 @@ export function fromLocalInput(value: string) {
   return `${value.slice(0, 16)}:00+09:00`
 }
 
+/** 비율(%). 분모가 0이면 '-' */
+export function percent(count: number, total: number) {
+  return total === 0 ? '-' : `${Math.round((count / total) * 100)}%`
+}
+
 /** 한국 시간 오늘(YYYY-MM-DD) */
 export function todayKst() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date())
