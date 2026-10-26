@@ -27,6 +27,9 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
     # 파이프라인 코드(company-pipeline/pipeline)를 import한다. LLM·임베딩은 .env의 GMS 설정을 그대로 쓴다
     PYTHONPATH: /opt/ai
+    # 회사 목록: 배포 때 덮어쓰지 않는 data/ 아래 파일. 확인 화면에서 추가한 회사가 여기에 남는다
+    # (처음에는 git의 pipeline/companies.json을 복사해 시작)
+    COMPANIES_PATH: &companies-path /opt/ai/pipeline/data/companies.json
     # 원문 저장소 MinIO (로컬 전용 계정)
     S3_ENDPOINT: http://minio:9000
     S3_ACCESS_KEY: &minio-user local-minio
@@ -123,15 +126,17 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  # 카드 확인 화면(읽기 전용). 매일 작업(write_viewer)이 갱신한 data/viewer_data.js를 보여 준다.
-  # 회사 추가·검색 API는 막는다(VIEWER_READONLY). 바깥 공개는 Cloudflare Tunnel + Access로만 한다
+  # 카드 확인 화면. 매일 작업(write_viewer)이 갱신한 data/viewer_data.js를 보여 주고, 회사 추가도 된다.
+  # 회사 검색·AI 찾기가 DART·GMS 키를 써서 .env를 넘긴다. 바깥 공개는 Cloudflare Tunnel + Access로만 한다
   viewer:
     image: apache/airflow:3.3.2-python3.13
     entrypoint: ["python", "-m", "pipeline.viewer"]
+    env_file:
+      - ../.env
     environment:
       PYTHONPATH: /opt/ai
       VIEWER_HOST: 0.0.0.0
-      VIEWER_READONLY: "1"
+      COMPANIES_PATH: *companies-path
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: *minio-user
       S3_SECRET_KEY: *minio-password

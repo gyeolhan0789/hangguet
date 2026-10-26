@@ -185,7 +185,9 @@ uv run --env-file .env python -m pipeline.viewer
 - 기사 검색어·인재상(페이지 주소, 원문)은 함께 넣거나 비워 두고 나중에 채운다
 - 추가 후 다음 매일 작업(13:00)이나 Airflow ▶에서 카드가 만들어진다. `companies.json` 변경은 커밋해야 팀에 반영된다
 - 서버는 127.0.0.1에만 열려 이 컴퓨터에서만 쓸 수 있다
-- EC2에서는 compose의 `viewer` 컨테이너가 **읽기 전용**(`VIEWER_READONLY=1`)으로 띄운다. 서버의 `companies.json`은 배포 때마다 git 내용으로 덮어써지므로 회사 추가 버튼을 숨기고 `/api/*`를 막는다. 회사 추가는 노트북에서 하고 커밋한다
+- EC2에서는 compose의 `viewer` 컨테이너가 띄우고, `https://pipeline-cards.hangguet.co.kr/viewer.html`(Cloudflare Access, 허용 이메일만)에서 **바로 회사를 추가**할 수 있다
+- 서버의 회사 목록은 git의 `pipeline/companies.json`이 아니라 `COMPANIES_PATH`(`pipeline/data/companies.json`, 배포 때 덮어쓰지 않음)다. 처음에는 git 목록을 복사해 시작하고, 그 뒤로는 **서버 목록이 기준**이다. git 목록을 고쳐도 서버에는 반영되지 않으니, 서버에 넣으려면 화면에서 추가한다
+- `VIEWER_READONLY=1`로 띄우면 회사 추가·검색 API를 막고 화면만 보여 준다
 
 ## 데이터
 
