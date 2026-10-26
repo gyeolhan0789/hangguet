@@ -30,12 +30,15 @@ import { MicToast, SelfCamera, VideoControls } from "./video-panel";
 // · 모션 메모 S06(18:2569: 번개 플래시는 질문이 바뀔 때만) · 모션 메모 S06-1(18:4469: 면접 화면에서 그대로 이어짐 — 배경 면접관이
 // 흐려지며(opacity 1→.28, blur 0→8px))
 // · 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
-// (채팅: 질문 준비가 끝나면 화면이 자동으로 부른다) · 5.3 면접 플랜 재생성
+// (채팅: 질문 준비가 끝나면 화면이 자동으로 부른다. 채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 5.3 면접 플랜 재생성
 // · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도], S05와 같음)
 // · 웹 Swagger 5.2 · 5.5(서버 작업이 끝났는지는 2초마다(임시 값) 다시 불러 확인 — 다음 질문은 5.5, 질문 준비 · 결과 분석은 5.2)
 
 /** 다음 질문 · 결과 분석을 다시 조회하는 간격(웹 Swagger 5.2 · 5.5 "2초마다(임시 값)") */
 export const SESSION_POLL_MS = 2000;
+/** 채팅 면접방에 다시 들어가기 전 기다리는 시간과 연달아 다시 들어가는 횟수(사용자 결정 2026-10-26) */
+export const CHAT_ROOM_RETRY_MS = 2000;
+export const CHAT_ROOM_RETRIES = 3;
 
 /** 면접 화면. 상태가 결과 분석 중(ANALYZING · COMPLETED)이면 S06-1, 아니면 방식에 따라 S06(화상) · S06-B(채팅)를 그린다. */
 export function InterviewRoom({
@@ -167,6 +170,7 @@ export function InterviewRoom({
                   </p>
                 )}
                 <ChatPanel sessionId={session.id} question={question} />
+                {session.status === "IN_PROGRESS" && <ChatRoomAudio sessionId={session.id} />}
               </Dialog>
             )}
             <EndModal sessionId={session.id} answeredCount={session.answeredCount} />
@@ -254,6 +258,31 @@ function VideoInterview({
       <MicToast level={level} />
     </>
   );
+}
+
+/**
+ * S06-B 채팅: 면접이 시작되면(5.4) 5.14로 입장 정보를 받아 송출 없이 면접방에 들어가 면접관 음성을 듣는다
+ * (웹 Swagger 5.4: 채팅도 면접방에 들어간다(송출 없이 수신·메시지만) · 사용자 결정 2026-10-26: 화상과 같이 5.14로 입장).
+ * 연결 상태는 그리지 않는다(사용자 결정 2026-10-26: 연결 실패는 표시 없이 진행). 이 화면은 질문을 5.5로 다시 불러 받으므로
+ * 연결이 안 돼도 질문 글 · 답변(5.7)은 이어진다.
+ * 연결이 끊기거나(SDK가 다시 잇기를 포기) 5.14가 실패하면 2초 뒤 다시 들어가고, 연달아 3번까지만 한다. 들어가면 횟수를 처음부터
+ * 다시 센다(사용자 결정 2026-10-26).
+ */
+function ChatRoomAudio({ sessionId }: { sessionId: number }) {
+  const { status, retry } = useInterviewRoom(sessionId, null, { listenOnly: true });
+  const [retries, setRetries] = useState(0);
+  if (status === "listening" && retries !== 0) setRetries(0);
+
+  useEffect(() => {
+    if (status !== "failed" || retries >= CHAT_ROOM_RETRIES) return;
+    const timer = setTimeout(() => {
+      setRetries((count) => count + 1);
+      retry();
+    }, CHAT_ROOM_RETRY_MS);
+    return () => clearTimeout(timer);
+  }, [status, retries, retry]);
+
+  return null;
 }
 
 /** 질문이 바뀔 때만 번개처럼 깜빡이는 빛(악마 면접관 배경). 처음 화면에 들어올 때는 깜빡이지 않는다. */
