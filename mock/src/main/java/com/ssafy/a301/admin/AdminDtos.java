@@ -279,7 +279,7 @@ public final class AdminDtos {
 
     @Schema(description = "그날 0시 기록. 날짜로 정해지는 값은 그날 기준, 상태가 바뀌는 값은 기록한 시각 기준(8.15와 같은 정의)")
     public record DailyMetricItem(
-            @Schema(description = "날짜(한국 시간)") LocalDate date,
+            @Schema(description = "날짜(한국 시간)", example = "2026-10-26") LocalDate date,
             @Schema(description = "탈퇴하지 않은 전체 회원 수", example = "120") int usersTotal,
             @Schema(description = "그날 가입한 회원 수", example = "3") int usersJoined,
             @Schema(description = "탈퇴한 회원 수", example = "7") int usersWithdrawn,
@@ -302,11 +302,12 @@ public final class AdminDtos {
             @Schema(description = "답변을 기다리는 문의 수", example = "2") int inquiriesWaiting,
             @Schema(description = "지급한 유지권 수(누적)", example = "260") int freezesGranted,
             @Schema(description = "사용한 유지권 수(누적)", example = "41") int freezesUsed,
-            @Schema(description = "기록한 일시") OffsetDateTime recordedAt) {}
+            @Schema(description = "기록한 일시", example = "2026-10-26T00:00:00+09:00")
+                    OffsetDateTime recordedAt) {}
 
     public record DailyMetricsResponse(
-            @Schema(description = "조회 시작 날짜(한국 시간)") LocalDate from,
-            @Schema(description = "조회 끝 날짜(한국 시간 어제)") LocalDate to,
+            @Schema(description = "조회 시작 날짜(한국 시간)", example = "2026-09-27") LocalDate from,
+            @Schema(description = "조회 끝 날짜(한국 시간 어제)", example = "2026-10-26") LocalDate to,
             @Schema(description = "기간 안의 기록, 날짜 오름차순. 기록이 없는 날은 빠진다")
                     List<DailyMetricItem> content) {}
 
