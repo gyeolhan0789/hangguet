@@ -968,3 +968,55 @@ pipeline-test:
     reports:
       junit: company-pipeline/junit.xml
     expire_in: 1 day
+
+# 교보재 EC2 배포 (company-pipeline/airflow/docker-compose.yaml)
+# - develop에 company-pipeline/ 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
+#   EC2 Docker로 직접 띄운다. 공식 이미지(Airflow·Postgres·MinIO)에 코드 폴더를 연결하므로 이미지는 빌드하지 않는다.
+# - 코드만 /opt/a301-pipeline으로 덮어쓴다. API 키(.env)와 수집 데이터(pipeline/data)·로그는 서버에만 있고 지우지 않는다.
+#   .env는 처음 한 번 서버에 직접 둔다(박다빈/deploy_plan 3.3).
+# - Airflow·MinIO 포트는 127.0.0.1에만 열려 있다. 화면은 SSH 터널로 본다.
+# - 배포 후 Airflow 헬스체크(scheduler)가 healthy가 아니면 잡을 실패시킨다.
+# - 롤백: Deployments > Environments > pipeline에서 이전 배포를 Re-deploy 합니다(그 커밋 코드로 다시 복사·실행).
+pipeline-deploy:
+  stage: deploy
+  tags:
+    - "a301-pipeline-deploy"
+  interruptible: false
+  resource_group: pipeline-deploy
+  # pipeline-test는 MR에서만 돌아 기다릴 잡이 없습니다. 헬스체크가 기동 실패를 막습니다.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - company-pipeline/**/*
+  environment:
+    name: pipeline
+  variables:
+    DEPLOY_DIR: "/opt/a301-pipeline"
+    PIPELINE_HEALTH_TRIES: "60"                                 # 5초 간격으로 확인할 횟수
+  script:
+    # ": "가 있는 한 줄 명령은 YAML이 키-값으로 읽지 않도록 작은따옴표로 감쌉니다.
+    - 'test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }'
+    # 코드만 덮어씁니다. 제외한 경로는 --delete 대상에서도 빠집니다.
+    - rsync -a --delete --exclude .env --exclude pipeline/data/ --exclude airflow/logs/ --exclude __pycache__/
+      company-pipeline/pipeline company-pipeline/airflow "$DEPLOY_DIR/"
+    - mkdir -p "$DEPLOY_DIR/pipeline/data" "$DEPLOY_DIR/airflow/logs"
+    # 컨테이너 안 Airflow는 uid 50000으로 로그·카드를 씁니다. 러너 계정으로는 소유자를 못 바꿔 컨테이너로 바꿉니다.
+    - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs
+    - cd "$DEPLOY_DIR/airflow"
+    - docker compose up -d --remove-orphans
+    - |
+      HEALTHY=0
+      for i in $(seq 1 "$PIPELINE_HEALTH_TRIES"); do
+        # DB만 떠도 "healthy"가 보이므로 작업을 실제로 돌리는 scheduler가 healthy인지 본다
+        if curl -fsS http://127.0.0.1:8080/api/v2/monitor/health 2>/dev/null | grep -Eq '"scheduler": ?\{ ?"status": ?"healthy"'; then
+          HEALTHY=1; break
+        fi
+        sleep 5
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: Airflow 헬스체크가 $((PIPELINE_HEALTH_TRIES * 5))초 안에 healthy가 되지 않았습니다."
+        docker compose logs --tail 100
+        exit 1
+      fi
+    - 'echo "OK: 회사 카드 파이프라인 ${CI_COMMIT_SHORT_SHA} 배포 완료"'
