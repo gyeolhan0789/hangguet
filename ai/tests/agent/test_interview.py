@@ -16,10 +16,13 @@ from app.agent import interview as interview_module
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
 from app.agent.interview import FinishedAnswer, InterviewRunner
+from app.agent.reaction import InvalidChatInputError
 from app.agent.stt import SttError
 from app.common.results import KST, ResultPublishError
 from app.interview.realtime import answer_end
+from app.interview.realtime.interrupt import Interrupt, InterruptReason
 from app.interview.realtime.progress import EndReason
+from app.interview.realtime.sentence import Sentence
 
 STARTED_AT = datetime(2026, 10, 26, 14, 0, tzinfo=KST)
 CANDIDATE = "candidate"
@@ -54,10 +57,27 @@ class FakeAsker:
         self.asked: list[tuple[int, str, Any, bool]] = []
         self.hold: asyncio.Event | None = None
         self.speaking = asyncio.Event()
+        self.notices: list[str] = []
+        self.said: list[Any] = []
+        # 안내 음성 재생을 끝낼 시점을 시험이 정한다
+        self.notice_hold = asyncio.Event()
+        self.saying = asyncio.Event()
 
     async def prepare(self, seq: int) -> Any:
         self.prepared.append(seq)
         return f"audio-{seq}"
+
+    async def prepare_notice(self, text: str) -> Any:
+        self.notices.append(text)
+        return f"notice:{text}"
+
+    async def say(self, audio: Any) -> None:
+        self.said.append(audio)
+        self.saying.set()
+        try:
+            await self.notice_hold.wait()
+        finally:
+            self.saying.clear()
 
     async def ask(self, seq: int, destination: str, audio: Any, *, announce: bool = True) -> None:
         self.asked.append((seq, destination, audio, announce))
@@ -70,8 +90,11 @@ class FakeAsker:
 
 
 class FakeSession:
-    def __init__(self, on_speech: Callable[[], None]) -> None:
+    def __init__(
+        self, on_speech: Callable[[], None], on_sentence: Callable[[Sentence, str], None]
+    ) -> None:
         self.on_speech = on_speech
+        self.on_sentence = on_sentence
         self.stopped = asyncio.Event()
         self.failure: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self.closed = False
@@ -81,6 +104,9 @@ class FakeSession:
     def speak(self) -> None:
         self.spoken += 1
         self.on_speech()
+
+    def end_sentence(self, text: str) -> None:
+        self.on_sentence(Sentence(text, 300.0), f"앞 {text}")
 
     def break_stt(self) -> None:
         self.failure.set_exception(SttError("Soniox STT 오류 (code=503)"))
@@ -105,11 +131,42 @@ class FakeSession:
     def snapshot(self) -> CapturedAnswer:
         return self.answer()
 
+    def answer_tokens(self) -> Any:
+        return ("tokens", self.spoken)
+
     def fail(self) -> None:
         self.failed = True
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class FakeReactions:
+    """리액션 판단기 대역.
+
+    진행기가 호출한 순서를 기록한다.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+        self.listening = False
+        self.on_interrupt: Callable[[Interrupt], None] | None = None
+        # 발화가 갱신될 때 전달된 답변 토큰
+        self.speeches: list[Any] = []
+
+    def start(self, question_seq: int, destination: str) -> None:
+        self.listening = True
+        self.calls.append(("start", question_seq, destination))
+
+    def submit(self, text: str, pause_ms: float, answer: str) -> None:
+        self.calls.append(("submit", text, pause_ms, answer))
+
+    def speaking(self, tokens: Any) -> None:
+        self.speeches.append(tokens)
+
+    async def stop(self) -> None:
+        self.listening = False
+        self.calls.append(("stop",))
 
 
 class Harness:
@@ -124,17 +181,24 @@ class Harness:
         self.saved = True
         self.running: asyncio.Task[None] | None = None
         self.session_opened = asyncio.Event()
+        self.reactions = FakeReactions()
         self.runner = InterviewRunner(
             assignment(current_seq, mode),
             self.asker,
             self.open_capture,
             self.send_state,
             on_answer=self.on_answer,
+            reactions=self.reactions,  # type: ignore[arg-type]
         )
 
-    def open_capture(self, identity: str, on_speech: Callable[[], None]) -> FakeSession:
+    def open_capture(
+        self,
+        identity: str,
+        on_speech: Callable[[], None],
+        on_sentence: Callable[[Sentence, str], None],
+    ) -> FakeSession:
         assert identity == CANDIDATE
-        session = FakeSession(on_speech)
+        session = FakeSession(on_speech, on_sentence)
         self.sessions.append(session)
         self.session_opened.set()
         return session
@@ -516,3 +580,211 @@ def test_other_candidate_identity_leaving_is_ignored() -> None:
 
 def test_monotonic_clock_is_the_default() -> None:
     assert interview_module._monotonic_ms() >= 0
+
+
+def test_video_sentences_are_judged_only_while_listening() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.end_sentence("첫 문장이에요.")
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.calls[:3] == [
+        ("start", 1, CANDIDATE),
+        ("submit", "첫 문장이에요.", 300.0, "앞 첫 문장이에요."),
+        ("stop",),
+    ]
+
+
+def test_leaving_stops_reactions_and_rejoin_listens_to_same_question() -> None:
+    async def scenario(h: Harness) -> None:
+        first = await h.next_session()
+        first.speak()
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: first.closed)
+        h.runner.candidate_joined(CANDIDATE)
+        (await h.next_session()).speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.calls[:4] == [
+        ("start", 1, CANDIDATE),
+        ("stop",),
+        ("start", 1, CANDIDATE),
+        ("stop",),
+    ]
+
+
+def chat_input(h: Harness, question_seq: int, seq: int, text: str = "입력") -> Any:
+    payload = {
+        "type": "chat.input",
+        "sessionId": 55,
+        "questionSeq": question_seq,
+        "seq": seq,
+        "text": text,
+        "pauseMs": 800,
+    }
+    return json.loads(h.runner.chat_input_received(json.dumps(payload)))
+
+
+def test_chat_reactions_listen_from_question_until_submit() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        # 질문 음성 재생 중의 입력도 현재 질문의 입력이다
+        assert chat_input(h, 1, 1, "첫 입력") == {"accepted": True}
+        await until(lambda: not h.asker.speaking.is_set())
+        assert chat_input(h, 1, 2, "첫 입력 이어서") == {"accepted": True}
+        h.submit(1)
+        await asked(h, 2)
+        await asyncio.sleep(0.02)
+
+    h = run_async(scenario, mode="CHAT")
+    assert h.reactions.calls[:5] == [
+        ("start", 1, CANDIDATE),
+        ("submit", "첫 입력", 800.0, "첫 입력"),
+        ("submit", "첫 입력 이어서", 800.0, "첫 입력 이어서"),
+        ("stop",),
+        ("start", 2, CANDIDATE),
+    ]
+
+
+def test_chat_input_rules() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        assert chat_input(h, 1, 3) == {"accepted": True}
+        # 이미 수신한 seq 이하는 늦게 도착한 이전 입력이다
+        assert chat_input(h, 1, 3) == {"accepted": False}
+        assert chat_input(h, 1, 2) == {"accepted": False}
+        # 현재 질문이 아니다
+        assert chat_input(h, 2, 4) == {"accepted": False}
+        h.runner.candidate_left(CANDIDATE)
+        h.runner.candidate_joined(CANDIDATE)
+        # 새로 연결한 화면은 seq를 1부터 다시 보낸다
+        assert chat_input(h, 1, 1) == {"accepted": True}
+
+    h = run_async(scenario, mode="CHAT")
+    assert [call[1] for call in h.reactions.calls if call[0] == "submit"] == ["입력", "입력"]
+
+
+def test_video_does_not_accept_chat_input() -> None:
+    async def scenario(h: Harness) -> None:
+        await h.next_session()
+        assert chat_input(h, 1, 1) == {"accepted": False}
+
+    h = run_async(scenario)
+    assert [call for call in h.reactions.calls if call[0] == "submit"] == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"type": "answer.submit"},
+        {"sessionId": 56},
+        {"questionSeq": 6},
+        {"seq": 0},
+        {"seq": True},
+        {"text": "가" * 1_001},
+        {"pauseMs": -1},
+        {"pauseMs": "800"},
+    ],
+)
+def test_malformed_chat_input_is_rejected(change: dict[str, Any]) -> None:
+    payload = {
+        "type": "chat.input",
+        "sessionId": 55,
+        "questionSeq": 1,
+        "seq": 1,
+        "text": "입력",
+        "pauseMs": 800,
+        **change,
+    }
+    runner = Harness(mode="CHAT").runner
+    with pytest.raises(InvalidChatInputError):
+        runner.chat_input_received(json.dumps(payload))
+
+
+def test_speech_updates_pass_answer_tokens_for_long_answer_check() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.speeches[:2] == [("tokens", 1), ("tokens", 2)]
+
+
+TOO_LONG = Interrupt(InterruptReason.TOO_LONG, "핵심만 짧게 말씀해 주세요.")
+
+
+def test_notices_are_prepared_for_persona_only_in_video() -> None:
+    async def scenario(h: Harness) -> None:
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.asker.notices == ["질문으로 다시 돌아가 볼게요.", "핵심만 짧게 말씀해 주세요."]
+
+    async def chat(h: Harness) -> None:
+        await asked(h, 1)
+
+    assert run_async(chat, mode="CHAT").asker.notices == []
+
+
+def test_notice_pauses_auto_submit_until_it_ends() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        # 재생 중에는 7초(시험에서는 60ms)가 지나도 자동 제출하지 않는다
+        await asyncio.sleep(0.15)
+        assert h.answers == []
+        h.asker.notice_hold.set()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.asker.said == ["notice:핵심만 짧게 말씀해 주세요."]
+    assert h.answers[0].end_reason is EndReason.AUTO_SUBMIT
+
+
+def test_submit_during_notice_stops_it_and_submits() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: len(h.answers) == 1)
+        assert not h.asker.saying.is_set()
+
+    h = run_async(scenario)
+    assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
+
+
+def test_leaving_stops_notice() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: session.closed)
+        assert not h.asker.saying.is_set()
+
+    run_async(scenario)
+
+
+def test_notice_is_not_played_outside_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asked(h, 1)
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.sleep(0.02)
+        h.asker.hold.set()
+
+    assert run_async(scenario).asker.said == []
