@@ -89,6 +89,38 @@ export type StreakFreezeGrantRequest = {
 
 export type AdminUser = { id: number; email: string; nickname: string; createdAt: string }
 
+// 9. 문의(관리자 9.6 ~ 9.10)
+export type InquiryStatus = 'WAITING' | 'ANSWERED' | 'CLOSED'
+export type AuthorType = 'USER' | 'ADMIN'
+
+export type AdminInquiryListItem = {
+  id: number
+  title: string
+  status: InquiryStatus
+  /** 비회원 문의면 null */
+  userId: number | null
+  email: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AdminInquiryMessage = {
+  id: number
+  authorType: AuthorType
+  /** 문의한 사람이 쓴 메시지면 null */
+  adminName: string | null
+  content: string
+  createdAt: string
+}
+
+export type AdminInquiryResponse = AdminInquiryListItem & {
+  /** 비회원 문의면 null */
+  nickname: string | null
+  messages: AdminInquiryMessage[]
+}
+
+export type AdminPasswordChangeRequest = { newPassword: string; inquiryId: number | null }
+
 export type Page<T> = {
   content: T[]
   page: { size: number; number: number; totalElements: number; totalPages: number }

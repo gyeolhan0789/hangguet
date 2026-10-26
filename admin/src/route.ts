@@ -8,6 +8,8 @@ export type Route =
   | { name: 'notice-edit'; id: number }
   | { name: 'grants' }
   | { name: 'grant-new' }
+  | { name: 'inquiries' }
+  | { name: 'inquiry'; id: number }
 
 function parse(hash: string): Route {
   if (hash === '#/notices') return { name: 'notices' }
@@ -16,6 +18,9 @@ function parse(hash: string): Route {
   if (edit) return { name: 'notice-edit', id: Number(edit[1]) }
   if (hash === '#/streak-freezes') return { name: 'grants' }
   if (hash === '#/streak-freezes/new') return { name: 'grant-new' }
+  if (hash === '#/inquiries') return { name: 'inquiries' }
+  const inquiry = /^#\/inquiries\/(\d+)$/.exec(hash)
+  if (inquiry) return { name: 'inquiry', id: Number(inquiry[1]) }
   return { name: 'home' }
 }
 
@@ -33,10 +38,14 @@ function toHash(route: Route): string {
       return '#/streak-freezes'
     case 'grant-new':
       return '#/streak-freezes/new'
+    case 'inquiries':
+      return '#/inquiries'
+    case 'inquiry':
+      return `#/inquiries/${route.id}`
   }
 }
 
-export function navigate(route: Route | Exclude<Route['name'], 'notice-edit'>) {
+export function navigate(route: Route | Exclude<Route['name'], 'notice-edit' | 'inquiry'>) {
   const next = typeof route === 'string' ? ({ name: route } as Route) : route
   window.location.hash = toHash(next)
 }
