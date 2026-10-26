@@ -72,6 +72,8 @@ com.ssafy.a301
 │  ├─ livekit      LiveKit 서버 API 어댑터(입장 토큰·배정·방 삭제·Egress, 예정)
 │  └─ domain       면접·플랜·질문·답변·녹화·점수·음성 지표·AI 작업·상태 enum
 ├─ result
+│  ├─ controller   ResultController(6.3·6.4)
+│  ├─ service      ResultService
 │  ├─ dto          ResultDtos
 │  └─ mapper       ResultMapper
 ├─ growth
@@ -102,7 +104,7 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 홈·통계·연습 달력(3.1~3.3)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 홈·통계·연습 달력(3.1~3.3)·결과·다시보기(6.3·6.4)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
@@ -264,6 +266,8 @@ com.ssafy.a301
 - `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
 - `latestJobTitle` = 가장 최근 면접에 쓴 지원서의 직무
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
+- 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
+- 6.4 `videoUrl`은 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있을 때만 Presigned GET. 합치기 전이거나 실패(`recording.mergeFailed`)했으면 null이고 질문 목록은 그대로 준다 **[임시: B-19 결정 전]**
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
@@ -347,6 +351,6 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 ## 12. 남은 일
 1. 남은 API(3.x, 6.x, 7.x)의 Controller·Service·Repository 구현
 2. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
-3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후)
+3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
 4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
