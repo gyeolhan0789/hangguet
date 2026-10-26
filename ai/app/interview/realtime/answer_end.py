@@ -23,6 +23,9 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
 - STT 자동 재연결(Reconnecting·Reconnected) 동안 7초는 중지하고,
   재연결 뒤 발화를 시작했으면 새로 계산한다.
   60초는 계속 계산한다.
+- 발화 중단 안내 음성을 재생하는 동안 7초는 중지하고,
+  재생이 끝난 시점부터 다시 계산한다(AI 명세 6.2 4번).
+  안내 음성의 합성을 기다리는 동안에는 중지하지 않는다.
 """
 
 from dataclasses import dataclass, replace
@@ -74,6 +77,8 @@ class AnswerEndState:
     # 이 답변에서 timedOut을 이미 알렸는지.
     # 알린 뒤에는 60초를 다시 계산하지 않는다
     timed_out: bool = False
+    # 발화 중단 안내 음성을 재생 중인지
+    notice_playing: bool = False
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,16 @@ class SubmitFailed:
 
 
 @dataclass(frozen=True)
+class NoticeStarted:
+    pass
+
+
+@dataclass(frozen=True)
+class NoticeEnded:
+    at: int
+
+
+@dataclass(frozen=True)
 class Tick:
     now: int
 
@@ -125,6 +140,8 @@ AnswerEndEvent = (
     | SttError
     | SubmitRequested
     | SubmitFailed
+    | NoticeStarted
+    | NoticeEnded
     | Tick
 )
 
@@ -171,8 +188,10 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
         case Speech(at=at):
             if not _is_video(state) or not _is_active(state.phase):
                 return AnswerEndStep(state)
-            # 재연결 중이면 7초는 중지 상태로 유지하고 발화 시작 상태만 기록한다
-            silence = at if state.phase is Phase.LISTENING else None
+            # 재연결 중이거나 안내 음성 재생 중이면 7초는 중지 상태로 유지하고
+            # 발화 시작 상태만 기록한다
+            listening = state.phase is Phase.LISTENING and not state.notice_playing
+            silence = at if listening else None
             return AnswerEndStep(replace(state, spoke=True, silence_started_at=silence))
 
         case Reconnecting():
@@ -185,7 +204,7 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
                 return AnswerEndStep(state)
             # 60초(listen_started_at)는 유지한다.
             # 발화를 시작하기 전이면 7초를 설정하지 않는다
-            silence = at if state.spoke else None
+            silence = at if state.spoke and not state.notice_playing else None
             return AnswerEndStep(replace(state, phase=Phase.LISTENING, silence_started_at=silence))
 
         case SttError():
@@ -207,6 +226,19 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
                 return AnswerEndStep(state, Decision.EMPTY_ANSWER)
             submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
             return AnswerEndStep(submitting, Decision.ACCEPT)
+
+        case NoticeStarted():
+            if not _is_video(state) or not _is_active(state.phase):
+                return AnswerEndStep(state)
+            return AnswerEndStep(replace(state, notice_playing=True, silence_started_at=None))
+
+        case NoticeEnded(at=at):
+            if not state.notice_playing:
+                return AnswerEndStep(state)
+            listening = state.phase is Phase.LISTENING and state.spoke
+            return AnswerEndStep(
+                replace(state, notice_playing=False, silence_started_at=at if listening else None)
+            )
 
         case SubmitFailed():
             if state.phase is not Phase.SUBMITTING:

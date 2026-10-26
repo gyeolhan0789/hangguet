@@ -158,6 +158,9 @@ class ReactionStream:
         # 현재 답변에서 전송한 발화 중단 이유와 마지막으로 계산한 발화 시간
         self._issued: set[InterruptReason] = set()
         self._speaking: int | None = None
+        # 발화 중단을 전송할 때 호출한다.
+        # 면접 진행기가 안내 음성을 재생하도록 연결한다
+        self.on_interrupt: Callable[[Interrupt], None] | None = None
         self.attitude = NEUTRAL_ATTITUDE
         self._question_seq: int | None = None
         self._destination: str | None = None
@@ -254,6 +257,8 @@ class ReactionStream:
 
     async def _emit(self, seq: int, judgment: Judgment, interrupt: Interrupt | None) -> None:
         self._sent_seq = seq
+        if interrupt is not None and self.on_interrupt is not None:
+            self.on_interrupt(interrupt)
         self.attitude = judgment.attitude
         assert self._question_seq is not None and self._destination is not None
         payload = reaction_payload(

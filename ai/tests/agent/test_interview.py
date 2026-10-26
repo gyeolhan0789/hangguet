@@ -20,6 +20,7 @@ from app.agent.reaction import InvalidChatInputError
 from app.agent.stt import SttError
 from app.common.results import KST, ResultPublishError
 from app.interview.realtime import answer_end
+from app.interview.realtime.interrupt import Interrupt, InterruptReason
 from app.interview.realtime.progress import EndReason
 from app.interview.realtime.sentence import Sentence
 
@@ -56,10 +57,27 @@ class FakeAsker:
         self.asked: list[tuple[int, str, Any, bool]] = []
         self.hold: asyncio.Event | None = None
         self.speaking = asyncio.Event()
+        self.notices: list[str] = []
+        self.said: list[Any] = []
+        # 안내 음성 재생을 끝낼 시점을 시험이 정한다
+        self.notice_hold = asyncio.Event()
+        self.saying = asyncio.Event()
 
     async def prepare(self, seq: int) -> Any:
         self.prepared.append(seq)
         return f"audio-{seq}"
+
+    async def prepare_notice(self, text: str) -> Any:
+        self.notices.append(text)
+        return f"notice:{text}"
+
+    async def say(self, audio: Any) -> None:
+        self.said.append(audio)
+        self.saying.set()
+        try:
+            await self.notice_hold.wait()
+        finally:
+            self.saying.clear()
 
     async def ask(self, seq: int, destination: str, audio: Any, *, announce: bool = True) -> None:
         self.asked.append((seq, destination, audio, announce))
@@ -132,6 +150,7 @@ class FakeReactions:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self.listening = False
+        self.on_interrupt: Callable[[Interrupt], None] | None = None
         # 발화가 갱신될 때 전달된 답변 토큰
         self.speeches: list[Any] = []
 
@@ -699,3 +718,78 @@ def test_speech_updates_pass_answer_tokens_for_long_answer_check() -> None:
 
     h = run_async(scenario)
     assert h.reactions.speeches[:2] == [("tokens", 1), ("tokens", 2)]
+
+
+TOO_LONG = Interrupt(InterruptReason.TOO_LONG, "핵심만 짧게 말씀해 주세요.")
+
+
+def test_notices_are_prepared_for_persona_only_in_video() -> None:
+    async def scenario(h: Harness) -> None:
+        await h.next_session()
+
+    h = run_async(scenario)
+    assert h.asker.notices == ["질문으로 다시 돌아가 볼게요.", "핵심만 짧게 말씀해 주세요."]
+
+    async def chat(h: Harness) -> None:
+        await asked(h, 1)
+
+    assert run_async(chat, mode="CHAT").asker.notices == []
+
+
+def test_notice_pauses_auto_submit_until_it_ends() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        # 재생 중에는 7초(시험에서는 60ms)가 지나도 자동 제출하지 않는다
+        await asyncio.sleep(0.15)
+        assert h.answers == []
+        h.asker.notice_hold.set()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.asker.said == ["notice:핵심만 짧게 말씀해 주세요."]
+    assert h.answers[0].end_reason is EndReason.AUTO_SUBMIT
+
+
+def test_submit_during_notice_stops_it_and_submits() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: len(h.answers) == 1)
+        assert not h.asker.saying.is_set()
+
+    h = run_async(scenario)
+    assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
+
+
+def test_leaving_stops_notice() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.wait_for(h.asker.saying.wait(), timeout=1)
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: session.closed)
+        assert not h.asker.saying.is_set()
+
+    run_async(scenario)
+
+
+def test_notice_is_not_played_outside_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asked(h, 1)
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await asyncio.sleep(0.02)
+        h.asker.hold.set()
+
+    assert run_async(scenario).asker.said == []

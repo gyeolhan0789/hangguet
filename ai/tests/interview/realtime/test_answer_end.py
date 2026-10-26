@@ -15,6 +15,8 @@ from app.interview.realtime.answer_end import (
     AnswerEndState,
     AnswerStarted,
     Decision,
+    NoticeEnded,
+    NoticeStarted,
     Phase,
     Reconnected,
     Reconnecting,
@@ -395,3 +397,37 @@ def test_tick_at_deadline_makes_decision() -> None:
     assert deadline is not None
     assert next_answer_end(state, Tick(deadline - 1)).decision is Decision.WAIT
     assert next_answer_end(state, Tick(deadline)).decision is Decision.SUBMIT
+
+
+def test_notice_pauses_seven_seconds_and_restarts_from_its_end() -> None:
+    """발화 중단 안내 재생 중에는 7초를 중지하고 재생이 끝난 시점부터 다시 계산한다."""
+    state, decisions = run(
+        [START, Speech(1_000), NoticeStarted(), Tick(1_000 + AUTO_SUBMIT_SILENCE_MS + 1)]
+    )
+    assert decisions == ["wait"]
+    assert next_deadline(state) is None
+    state, decisions = run([NoticeEnded(9_000), Tick(9_000 + AUTO_SUBMIT_SILENCE_MS - 1)], state)
+    assert decisions == ["wait"]
+    assert next_deadline(state) == 9_000 + AUTO_SUBMIT_SILENCE_MS
+    _, decisions = run([Tick(9_000 + AUTO_SUBMIT_SILENCE_MS)], state)
+    assert decisions == ["submit"]
+
+
+def test_speech_during_notice_does_not_start_seven_seconds() -> None:
+    state, _ = run([START, Speech(1_000), NoticeStarted(), Speech(2_000)])
+    assert next_deadline(state) is None
+    state, _ = run([NoticeEnded(3_000)], state)
+    assert next_deadline(state) == 3_000 + AUTO_SUBMIT_SILENCE_MS
+
+
+def test_submit_during_notice_is_accepted() -> None:
+    state, _ = run([START, Speech(1_000), NoticeStarted()])
+    assert next_answer_end(state, SubmitRequested()).decision is Decision.ACCEPT
+
+
+def test_notice_events_outside_video_answer_change_nothing() -> None:
+    assert next_answer_end(INITIAL_STATE, NoticeStarted()).state == INITIAL_STATE
+    chat, _ = run([CHAT])
+    assert next_answer_end(chat, NoticeStarted()).state == chat
+    state, _ = run([START, Speech(1_000)])
+    assert next_answer_end(state, NoticeEnded(5_000)).state == state

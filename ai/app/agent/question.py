@@ -10,6 +10,8 @@
   합성하지 못하면 failed를 보내고, 화면은 질문 글로 진행한다.
 - 화면이 RPC를 받지 못해도(처리 함수 미등록·응답 지연) 질문 음성은 계속 내보낸다.
   알림 실패로 면접이 멈추지 않게 하기 위함이다.
+- 발화 중단 안내(AI 명세 6.3 interrupt.text)도 같은 트랙으로 말한다.
+  안내 글은 리액션 메시지로 화면에 전달되므로 question 알림과 question.started는 보내지 않는다.
 """
 
 from __future__ import annotations
@@ -131,6 +133,25 @@ class QuestionSpeaker:
             log.warning("질문 음성 합성 실패: %s", e, extra={"seq": seq})
             return None
 
+    async def prepare_notice(self, text: str) -> SpeechAudio | None:
+        """발화 중단 안내 음성을 미리 합성한다.
+
+        실패하면 None이고, 화면은 리액션 메시지의 안내 글로 진행한다.
+        """
+        try:
+            return await self._tts.synthesize(text, self._assignment.persona)
+        except TtsError as e:
+            log.warning("발화 중단 안내 음성 합성 실패: %s", e)
+            return None
+
+    async def say(self, audio: SpeechAudio) -> None:
+        """발화 중단 안내 음성을 재생한다.
+
+        취소하면 남은 음성을 버린다.
+        """
+        if self._source is not None:
+            await self._play(audio)
+
     async def ask(
         self, seq: int, destination: str, audio: SpeechAudio | None, *, announce: bool = True
     ) -> None:
@@ -174,7 +195,7 @@ class QuestionSpeaker:
                 await source.capture_frame(frame)
             await source.wait_for_playout()
         except asyncio.CancelledError:
-            # 면접방이 닫히면 남은 음성을 버린다
+            # 면접방이 닫히거나 안내를 멈추면 남은 음성을 버린다
             source.clear_queue()
             raise
 

@@ -375,3 +375,17 @@ def test_chat_never_interrupts() -> None:
 
     h = run(scenario)
     assert [m["interrupt"] for m in h.sent] == [None]
+
+
+def test_interrupt_is_handed_to_runner_for_notice_voice() -> None:
+    interrupts: list[str] = []
+
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h)
+        h.stream.on_interrupt = lambda interrupt: interrupts.append(interrupt.reason.value)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(LONG_TOKENS)
+        await h.settle()
+
+    run(scenario)
+    assert interrupts == ["TOO_LONG"]

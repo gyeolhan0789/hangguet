@@ -186,3 +186,21 @@ def test_cancel_during_playback_drops_queued_audio() -> None:
         source.aclose.assert_awaited_once()
 
     asyncio.run(run())
+
+
+def test_notice_is_spoken_on_same_track_without_question_messages() -> None:
+    results = Mock()
+    talker, participant, source = speaker(results)
+    asyncio.run(talker.say(AUDIO))
+    assert source.capture_frame.await_count == 3
+    source.wait_for_playout.assert_awaited_once()
+    participant.perform_rpc.assert_not_awaited()
+    results.publish.assert_not_called()
+
+
+def test_notice_is_synthesized_with_persona_voice_and_failure_is_none() -> None:
+    talker, _, _ = speaker()
+    assert asyncio.run(talker.prepare_notice("핵심만 짧게 말씀해 주세요.")) is AUDIO
+    talker._tts.synthesize.assert_awaited_once_with("핵심만 짧게 말씀해 주세요.", Persona.DEVIL)  # type: ignore[attr-defined]
+    talker._tts.synthesize = AsyncMock(side_effect=TtsError("down"))  # type: ignore[method-assign]
+    assert asyncio.run(talker.prepare_notice("안내")) is None
