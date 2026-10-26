@@ -122,6 +122,7 @@ class Harness:
         # 남은 결과 큐 전송 실패 횟수
         self.publish_failures = 0
         self.saved = True
+        self.running: asyncio.Task[None] | None = None
         self.session_opened = asyncio.Event()
         self.runner = InterviewRunner(
             assignment(current_seq, mode),
@@ -182,6 +183,7 @@ def run_async(
         harness = Harness(current_seq, mode)
         harness.runner.candidate_joined(CANDIDATE)
         running = asyncio.create_task(harness.runner.run())
+        harness.running = running
         try:
             await scenario(harness)
         finally:
@@ -204,7 +206,9 @@ def test_runs_every_question_with_auto_submit() -> None:
         for _ in range(5):
             session = await h.next_session()
             session.speak()
-        await until(lambda: len(h.answers) == 5)
+        # 마지막 답변의 submitted까지 확인하도록 진행이 스스로 끝날 때까지 기다린다
+        assert h.running is not None
+        await asyncio.wait_for(h.running, timeout=1)
 
     h = run_async(scenario)
     assert [a.seq for a in h.answers] == [1, 2, 3, 4, 5]
