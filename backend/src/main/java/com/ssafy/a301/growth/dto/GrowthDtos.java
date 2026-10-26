@@ -10,6 +10,10 @@ public final class GrowthDtos {
 
     private GrowthDtos() {}
 
+    public record Improvement(
+            @Schema(description = "평가 기준") Criterion criterion,
+            @Schema(description = "직전 결과일 대비 오른 점수(1 이상)", example = "8") int delta) {}
+
     public record RecentReviewItem(
             @Schema(description = "면접의 한국 시간 시작 날짜") LocalDate practiceDate,
             @Schema(description = "그날 마지막 면접의 회사명", example = "○○전자") String companyName,

@@ -45,8 +45,8 @@ com.ssafy.a301
 │  ├─ repository   UserRepository, UserAgreementRepository
 │  └─ domain       User, UserAgreement, TermsType
 ├─ home
-│  ├─ controller   HomeController(3.2·3.3)
-│  ├─ service      PracticeStatsService(스트릭·통계·연습 달력, 3.1에서 다시 씀)
+│  ├─ controller   HomeController(3.1~3.3)
+│  ├─ service      HomeService(3.1, 아래 두 서비스 계산을 조합), PracticeStatsService(스트릭·통계·연습 달력·그날 면접 수와 시간·최근 7일, 3.1·7.1에서 다시 씀)
 │  ├─ dto          HomeDtos
 │  ├─ mapper       HomeMapper
 │  ├─ repository   PracticeLogRepository
@@ -102,7 +102,7 @@ com.ssafy.a301
 
 - `controller`: HTTP 요청·검증·응답, `service`: 업무 흐름·트랜잭션, `repository`: DB·Redis 접근, `dto`: 요청·응답, `mapper`: 엔티티 → 응답 변환, `domain`: 엔티티·상태 전이·enum을 담당한다.
 - 인증 DTO는 개별 record 파일로 분리했다. 다른 기능의 기존 `*Dtos` 중첩 record는 `dto` 패키지로 이동해 유지한다.
-- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 통계·연습 달력(3.2·3.3)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
+- 현재 인증 Controller·Service, 회원 정보·프로필·탈퇴(2.1~2.7)·지원서(4.1~4.5) Controller·Service, 홈·통계·연습 달력(3.1~3.3)·성장 리뷰(7.1·7.2) Controller·Service, 면접 만들기~지금 질문·채팅 답변·끝내기·결과 재생성(5.1~5.5·5.7~5.9) Controller·Service, 회원·지원서·연습 기록 Repository, JWT Security, Redis 토큰·업로드 키 저장소, S3 파일 어댑터, 면접 플랜 조회 Repository, 멱등성 처리(8장), AI 작업 Outbox·큐 전송과 진행 상태 저장소(5장 5.0·7장)와 공통 오류 처리·Swagger가 구현되어 있다. 다른 기능의 Controller·Service·Repository는 후속 구현 대상이다.
 - 트리에서 「예정」으로 표시한 클래스·패키지는 아직 없는 것으로, 이름과 나눔은 **[제안]**이다
 
 - 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
@@ -256,7 +256,9 @@ com.ssafy.a301
 - 다음에 해볼 것 = 그날 `session_scores`(`comment`)와 `answers`(`improve_point`) 중 최저 점수의 문구. 문구가 비면 다음으로 낮은 것. 동점이면 모두
 - `criteria[].comment` = 그날 마지막 면접의 `comment`
 - 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 첫 연습일이거나 오른 기준이 없으면 둘 다 null
-- 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순
+- 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순(동점이면 기준 순서). 오늘 결과가 아직 없으면(분석 중) 빈 배열
+- 3.1 `nextActions`·`nextActionsDate` = 오늘까지 가장 최근 리뷰의 다음에 해볼 것과 그 날짜(오늘 결과가 있으면 오늘). 리뷰가 없거나 그 리뷰에 다음에 해볼 것이 없으면 빈 배열·null
+- 3.1은 7.1·7.2와 같은 계산을 쓰며, 리뷰 계산은 한 번만 한다(`GrowthReviewService.homeReviews`)
 
 ### 6.3 기타
 - `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
