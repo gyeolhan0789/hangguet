@@ -30,8 +30,8 @@ OUTPUT_FORMAT = "pcm_24000"
 SAMPLE_RATE = 24000
 BYTES_PER_SAMPLE = 2
 VOICE_IDS: Mapping[Persona, str] = {
-    Persona.DEVIL: "DMyrgzQFny3JI1Y1paM5",
-    Persona.COFFEE_CHAT: "21m00Tcm4TlvDq8ikWAM",
+    Persona.DEVIL: "z6Gc8SPkVwBOo9WpiD45",
+    Persona.COFFEE_CHAT: "YS3jk8Ky5hJfXQYGLkLa",
 }
 REQUEST_TIMEOUT = 15
 
