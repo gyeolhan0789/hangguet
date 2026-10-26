@@ -24,6 +24,14 @@ export const ROUTES = {
   mypage: "/mypage",
   /** S09-1 설정 (S09 [설정]으로 들어오고 '‹ 마이페이지'로 돌아간다) */
   settings: "/mypage/settings",
+  /** I02 내 문의 목록(회원). 헤더 프로필 메뉴(C01) [문의하기]로 들어온다. 페이지(page, 0부터)는 주소에 붙인다. */
+  inquiries: "/inquiries",
+  /** I01 문의하기(회원). I02 [+ 문의하기]로 들어온다. */
+  inquiryNew: "/inquiries/new",
+  /** I04 비회원 문의 확인. 로그인 전 헤더 [문의하기]로 들어온다. 확인하면 같은 화면에서 I03 문의 상세를 보여 준다. */
+  guestInquiry: "/inquiries/guest",
+  /** I01-B 문의하기(비회원). I04 [+ 문의하기]로 들어온다. */
+  guestInquiryNew: "/inquiries/guest/new",
   /** 화면을 그리는 도중 액세스 토큰이 만료됐을 때(TOKEN_EXPIRED) 재발급하고 돌아오는 Route Handler */
   tokenRefresh: "/api/auth/refresh",
   /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
@@ -78,8 +86,29 @@ export const growthReviewPath = (practiceDate: string) => `/reviews/${practiceDa
 export const finishedReviewPath = (practiceDate: string) =>
   `${growthReviewPath(practiceDate)}?from=result`;
 
-/** 로그인하지 않아도 볼 수 있는 화면 */
-export const PUBLIC_PATHS: readonly string[] = [ROUTES.landing, ROUTES.login, ROUTES.signup];
+/** I03 문의 상세(회원, 9.3). I02 줄 · I01 [문의 보내기]로 들어온다. 비회원 문의 상세는 I04 화면 안에서 보여 준다. */
+export const inquiryPath = (inquiryId: number) => `${ROUTES.inquiries}/${inquiryId}`;
 
-/** 로그인한 사람은 들어오지 않는 화면(로그인하면 홈으로 보낸다) */
-export const GUEST_ONLY_PATHS: readonly string[] = [ROUTES.login, ROUTES.signup];
+/** I02 내 문의 목록을 page(0부터) 페이지로 연다. 첫 페이지는 page를 붙이지 않는다. */
+export const inquiriesPath = (page = 0) =>
+  page > 0 ? `${ROUTES.inquiries}?page=${page}` : ROUTES.inquiries;
+
+/** 로그인하지 않아도 볼 수 있는 화면 */
+export const PUBLIC_PATHS: readonly string[] = [
+  ROUTES.landing,
+  ROUTES.login,
+  ROUTES.signup,
+  ROUTES.guestInquiry,
+  ROUTES.guestInquiryNew,
+];
+
+/**
+ * 로그인한 사람은 들어오지 않는 화면(로그인하면 홈으로 보낸다). 비회원 문의 화면은 로그인하면 토큰이 붙어 회원 문의가 되므로
+ * 로그인 전에만 연다(회원은 프로필 메뉴의 문의하기로 간다).
+ */
+export const GUEST_ONLY_PATHS: readonly string[] = [
+  ROUTES.login,
+  ROUTES.signup,
+  ROUTES.guestInquiry,
+  ROUTES.guestInquiryNew,
+];
