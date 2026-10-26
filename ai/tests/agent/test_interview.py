@@ -16,6 +16,7 @@ from app.agent import interview as interview_module
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
 from app.agent.interview import FinishedAnswer, InterviewRunner
+from app.agent.reaction import InvalidChatInputError
 from app.agent.stt import SttError
 from app.common.results import KST, ResultPublishError
 from app.interview.realtime import answer_end
@@ -127,14 +128,17 @@ class FakeReactions:
 
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
+        self.listening = False
 
     def start(self, question_seq: int, destination: str) -> None:
+        self.listening = True
         self.calls.append(("start", question_seq, destination))
 
     def submit(self, text: str, pause_ms: float, answer: str) -> None:
         self.calls.append(("submit", text, pause_ms, answer))
 
     async def stop(self) -> None:
+        self.listening = False
         self.calls.append(("stop",))
 
 
@@ -585,12 +589,94 @@ def test_leaving_stops_reactions_and_rejoin_listens_to_same_question() -> None:
     ]
 
 
-def test_chat_does_not_start_sentence_reactions() -> None:
+def chat_input(h: Harness, question_seq: int, seq: int, text: str = "입력") -> Any:
+    payload = {
+        "type": "chat.input",
+        "sessionId": 55,
+        "questionSeq": question_seq,
+        "seq": seq,
+        "text": text,
+        "pauseMs": 800,
+    }
+    return json.loads(h.runner.chat_input_received(json.dumps(payload)))
+
+
+def test_chat_reactions_listen_from_question_until_submit() -> None:
     async def scenario(h: Harness) -> None:
         await asked(h, 1)
+        # 질문 음성 재생 중의 입력도 현재 질문의 입력이다
+        assert chat_input(h, 1, 1, "첫 입력") == {"accepted": True}
         await until(lambda: not h.asker.speaking.is_set())
+        assert chat_input(h, 1, 2, "첫 입력 이어서") == {"accepted": True}
         h.submit(1)
+        await asked(h, 2)
         await asyncio.sleep(0.02)
 
     h = run_async(scenario, mode="CHAT")
-    assert h.reactions.calls == []
+    assert h.reactions.calls[:5] == [
+        ("start", 1, CANDIDATE),
+        ("submit", "첫 입력", 800.0, "첫 입력"),
+        ("submit", "첫 입력 이어서", 800.0, "첫 입력 이어서"),
+        ("stop",),
+        ("start", 2, CANDIDATE),
+    ]
+
+
+def test_chat_input_rules() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        assert chat_input(h, 1, 3) == {"accepted": True}
+        # 이미 수신한 seq 이하는 늦게 도착한 이전 입력이다
+        assert chat_input(h, 1, 3) == {"accepted": False}
+        assert chat_input(h, 1, 2) == {"accepted": False}
+        # 현재 질문이 아니다
+        assert chat_input(h, 2, 4) == {"accepted": False}
+        h.runner.candidate_left(CANDIDATE)
+        h.runner.candidate_joined(CANDIDATE)
+        # 새로 연결한 화면은 seq를 1부터 다시 보낸다
+        assert chat_input(h, 1, 1) == {"accepted": True}
+
+    h = run_async(scenario, mode="CHAT")
+    assert [call[1] for call in h.reactions.calls if call[0] == "submit"] == ["입력", "입력"]
+
+
+def test_video_does_not_accept_chat_input() -> None:
+    async def scenario(h: Harness) -> None:
+        await h.next_session()
+        assert chat_input(h, 1, 1) == {"accepted": False}
+
+    h = run_async(scenario)
+    assert [call for call in h.reactions.calls if call[0] == "submit"] == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"type": "answer.submit"},
+        {"sessionId": 56},
+        {"questionSeq": 6},
+        {"seq": 0},
+        {"seq": True},
+        {"text": "가" * 1_001},
+        {"pauseMs": -1},
+        {"pauseMs": "800"},
+    ],
+)
+def test_malformed_chat_input_is_rejected(change: dict[str, Any]) -> None:
+    payload = {
+        "type": "chat.input",
+        "sessionId": 55,
+        "questionSeq": 1,
+        "seq": 1,
+        "text": "입력",
+        "pauseMs": 800,
+        **change,
+    }
+    runner = InterviewRunner(
+        assignment(1, "CHAT"),
+        FakeAsker(),
+        lambda *_: None,
+        lambda *_: None,  # type: ignore[arg-type,return-value]
+    )
+    with pytest.raises(InvalidChatInputError):
+        runner.chat_input_received(json.dumps(payload))

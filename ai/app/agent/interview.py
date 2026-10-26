@@ -24,6 +24,9 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   그동안 지원자가 재입장하면 화면이 실패 상태를 모르므로 submitFailed를 다시 알린다.
 - 화상 답변은 문장이 끝날 때마다 리액션을 판단한다(AI 명세 6.2 3번).
   답변이 끝나거나 지원자가 퇴장하면 판단 중이던 리액션을 전송하지 않는다(AI 명세 6.5).
+- 채팅은 chat.input을 수신할 때마다 리액션을 판단한다(AI 명세 6.2 3번).
+  질문 음성 재생 중의 입력도 현재 질문의 입력이므로 질문을 말하기 시작할 때부터 수신한다.
+  재입장한 화면은 이전 입력 seq를 모르므로 수신한 seq 기록을 초기화한다(AI 명세 6.5).
 """
 
 from __future__ import annotations
@@ -43,7 +46,7 @@ from app.agent.answer_rpc import (
     parse_answer_submit,
 )
 from app.agent.assignment import Assignment
-from app.agent.reaction import ReactionStream
+from app.agent.reaction import ReactionStream, chat_input_reply, parse_chat_input
 from app.agent.tts import SpeechAudio
 from app.common.results import ResultPublishError
 from app.common.session import MAX_SEQ, InterviewMode
@@ -126,6 +129,8 @@ class InterviewRunner:
         self._send_state = send_state
         self._on_answer = on_answer
         self._reactions = reactions
+        # 현재 질문에서 수신한 마지막 채팅 입력 seq
+        self._chat_input_seq = 0
         self._ms = monotonic_ms
         self._state = INITIAL_STATE
         self._seq: int | None = None
@@ -142,6 +147,7 @@ class InterviewRunner:
         # 퇴장 직후 바로 재입장해도 이전 답변을 폐기하기 위함이다
         self._candidate = identity
         self._present.set()
+        self._chat_input_seq = 0
         if self._state.phase is Phase.SUBMIT_FAILED and self._seq is not None:
             self._notify(identity, self._seq, AnswerState.SUBMIT_FAILED)
 
@@ -170,6 +176,27 @@ class InterviewRunner:
             self._wake.set()
         return answer_submit_reply(decision)
 
+    def chat_input_received(self, payload: str) -> str:
+        """채팅 입력(chat.input) 처리 함수다.
+
+        현재 질문이 아니거나 이미 수신한 seq 이하이면 판단하지 않고 false로 응답한다(AI 명세 6.3).
+        """
+        message = parse_chat_input(payload, self._assignment.session_id)
+        reactions = self._reactions
+        accepted = (
+            self._chat
+            and reactions is not None
+            and reactions.listening
+            and message.question_seq == self._seq
+            and message.seq > self._chat_input_seq
+        )
+        if accepted:
+            assert reactions is not None
+            self._chat_input_seq = message.seq
+            # 채팅은 입력 칸 전체를 전송하므로 그 글이 지금까지의 답변이다
+            reactions.submit(message.text, message.pause_ms, message.text)
+        return chat_input_reply(accepted)
+
     async def run(self) -> None:
         try:
             for seq in range(self._assignment.current_seq, MAX_SEQ + 1):
@@ -186,11 +213,14 @@ class InterviewRunner:
 
     async def _question(self, seq: int) -> None:
         self._seq = seq
+        self._chat_input_seq = 0
         self._prepare(seq)
         self._prepare(seq + 1)
         announce = True
         while True:
             destination = await self._wait_candidate()
+            if self._chat and self._reactions is not None:
+                self._reactions.start(seq, destination)
             # 질문 음성 재생 중에는 답변 중이 아니므로 [답변 완료]를 거절한다
             self._state = INITIAL_STATE
             if await self._speak(seq, destination, announce):
@@ -236,6 +266,8 @@ class InterviewRunner:
         """
         if self._chat:
             await self._chat_answer()
+            if self._reactions is not None:
+                await self._reactions.stop()
             return True
         destination = await self._wait_candidate()
         self._finish = None

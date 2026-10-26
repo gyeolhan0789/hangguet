@@ -20,7 +20,7 @@ from app.agent.assignment import Assignment, AssignmentError, parse_assignment
 from app.agent.interview import InterviewRunner
 from app.agent.jev import JevJudge
 from app.agent.question import QuestionSpeaker
-from app.agent.reaction import REACTION_METHOD, ReactionStream
+from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
@@ -230,6 +230,7 @@ async def run_interview(
             ),
             question=assignment.question,
             criteria=assignment.criteria,
+            latest_only=not video,
         )
     )
     runner = InterviewRunner(
@@ -276,6 +277,11 @@ async def run_interview(
             ANSWER_SUBMIT_METHOD, lambda data: runner.submit_requested(data.payload)
         )
         cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
+        if not video:
+            room.local_participant.register_rpc_method(
+                CHAT_INPUT_METHOD, lambda data: runner.chat_input_received(data.payload)
+            )
+            cleanup.callback(room.local_participant.unregister_rpc_method, CHAT_INPUT_METHOD)
         for participant in list(room.remote_participants.values()):
             joined(participant)
         await speaker.publish_track()

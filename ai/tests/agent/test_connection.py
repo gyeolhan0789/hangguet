@@ -380,6 +380,9 @@ def test_interview_subscribes_candidate_microphone_only_for_video(
             await run_interview(ctx, closed, SttSettings(api_key="test"), speaker, assignment)
         assert mic.set_subscribed.called is subscribed
         runner.return_value.candidate_joined.assert_called_once_with("candidate")
+        methods = [c.args[0] for c in ctx.room.local_participant.register_rpc_method.call_args_list]
+        # 채팅 입력은 채팅 면접에서만 수신한다
+        assert ("interview.chatInput" in methods) is not subscribed
 
     asyncio.run(run())
 
