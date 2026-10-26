@@ -993,7 +993,8 @@ pipeline-deploy:
     DEPLOY_DIR: "/opt/a301-pipeline"
     PIPELINE_HEALTH_TRIES: "60"                                 # 5초 간격으로 확인할 횟수
   script:
-    - test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }
+    # ": "가 있는 한 줄 명령은 YAML이 키-값으로 읽지 않도록 작은따옴표로 감쌉니다.
+    - 'test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }'
     # 코드만 덮어씁니다. 제외한 경로는 --delete 대상에서도 빠집니다.
     - rsync -a --delete --exclude .env --exclude pipeline/data/ --exclude airflow/logs/ --exclude __pycache__/
       company-pipeline/pipeline company-pipeline/airflow "$DEPLOY_DIR/"
