@@ -415,10 +415,7 @@ public class AiResultService {
     }
 
     private static List<CriterionScore> validScores(List<CriterionScore> scores) {
-        Set<Criterion> criteria =
-                scores.stream().map(CriterionScore::criterion).collect(Collectors.toSet());
-        if (scores.size() != Criterion.values().length
-                || !criteria.containsAll(List.of(Criterion.values()))) {
+        if (!Criterion.coversAllOnce(scores.stream().map(CriterionScore::criterion).toList())) {
             throw new InvalidAiResultException("기준별 점수는 4개 기준에 하나씩이다");
         }
         for (CriterionScore score : scores) {

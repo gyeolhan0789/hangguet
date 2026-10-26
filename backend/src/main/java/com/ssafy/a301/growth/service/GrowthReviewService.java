@@ -211,8 +211,8 @@ public class GrowthReviewService {
         for (InterviewSession session : found) {
             // 완료 결과는 기준 4개가 있어야 한다. 불완전한 결과는 점수에 넣지 않는다. 과거 면접 하나 때문에 이후 리뷰가 모두 실패하지 않도록
             // 오류 대신 건너뛴다.
-            if (scoresBySession.getOrDefault(session.getId(), Map.of()).size()
-                    != Criterion.values().length) {
+            if (!Criterion.coversAllOnce(
+                    scoresBySession.getOrDefault(session.getId(), Map.of()).keySet())) {
                 LOG.warn("기준 점수가 4개가 아닌 완료 면접을 성장 리뷰에서 뺐다: sessionId={}", session.getId());
                 continue;
             }

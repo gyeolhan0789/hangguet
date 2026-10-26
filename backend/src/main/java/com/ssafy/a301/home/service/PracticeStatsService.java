@@ -14,7 +14,6 @@ import java.time.OffsetDateTime;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.List;
-import java.util.Set;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PracticeStatsService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final Set<SessionStatus> PRACTICE_STATUSES =
-            Set.of(SessionStatus.ANALYZING, SessionStatus.COMPLETED, SessionStatus.FAILED);
     private static final int RECENT_DAYS = 7;
 
     private final PracticeLogRepository practiceLogs;
@@ -45,6 +42,8 @@ public class PracticeStatsService {
     /** 그날(한국 시간 시작일) 연습 면접 수와 연습 시간(분) */
     public record DailyPractice(int interviewCount, int practiceMinutes) {}
 
+    // 아래 stats(userId, today)를 같은 객체 안에서 부르면 그쪽 @Transactional이 적용되지 않으므로 여기에도 둔다(3.1 홈과 같음)
+    @Transactional(readOnly = true)
     public StatsResponse stats(long userId) {
         return stats(userId, LocalDate.now(KST));
     }
@@ -53,12 +52,13 @@ public class PracticeStatsService {
     public StatsResponse stats(long userId, LocalDate today) {
         Streaks streaks = streaks(userId, today);
         List<String> jobTitles =
-                sessions.findPracticeJobTitles(userId, PRACTICE_STATUSES, Limit.of(1));
+                sessions.findPracticeJobTitles(userId, SessionStatus.PRACTICE, Limit.of(1));
         return new StatsResponse(
                 streaks.current(),
                 streaks.best(),
-                Math.toIntExact(sessions.countPracticeSessions(userId, PRACTICE_STATUSES)),
-                Math.toIntExact(sessions.sumPracticeSeconds(userId) / 60),
+                Math.toIntExact(sessions.countPracticeSessions(userId, SessionStatus.PRACTICE)),
+                Math.toIntExact(
+                        sessions.sumPracticeSeconds(userId, SessionStatus.practiceNames()) / 60),
                 jobTitles.isEmpty() ? null : jobTitles.get(0));
     }
 
@@ -84,7 +84,7 @@ public class PracticeStatsService {
         List<Object[]> durations =
                 sessions.findPracticeDurations(
                         userId,
-                        PRACTICE_STATUSES,
+                        SessionStatus.PRACTICE,
                         date.atStartOfDay(KST).toOffsetDateTime(),
                         date.plusDays(1).atStartOfDay(KST).toOffsetDateTime());
         long seconds = 0;
