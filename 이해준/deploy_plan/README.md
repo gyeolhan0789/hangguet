@@ -193,7 +193,10 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
   - 팀원은 관리자 계정을 같이 쓰지 않고 각자 계정(보기 권한)을 만든다. 누가 무엇을 바꿨는지 남는다
   - 로그인 시도 제한(Grafana 기본 기능)을 끄지 않는다
 - BE 지표(요청 수 · 응답 시간)는 Spring Actuator에 Prometheus 내보내기를 추가해야 한다(BE 작업, **[미정]**)
-- 로그 수집(Loki)은 MVP에서 빼고 `docker logs`로 본다 **[제안]**. 왜: 메모리를 더 쓰고, MVP 규모에서는 `docker logs`로 충분하다
+- 로그 수집은 **Loki + Alloy + Grafana**로 MVP에 넣는다 **[결정]**(10/26, 처음 안은 `docker logs`). Alloy가 `a301-*` 컨테이너 로그를 Loki에 모으고, 팀원은 Grafana의 로그 대시보드(서비스 선택 · 검색어 · 기간)에서 본다
+  - 왜: 팀원이 SSH 없이 로그를 봐야 한다. `docker logs`는 서버 접속이 필요하고 재배포하면 이전 컨테이너 로그가 사라진다. Grafana를 이미 쓰므로 계정 · 화면을 따로 만들 필요가 없다
+  - 보관: 개발 3일, 운영 7일 **[제안]**. 운영 로그는 실제 사용자 데이터가 섞일 수 있어 볼 수 있는 사람의 범위를 정한다 **[미정]**
+  - 개발 서버에 먼저 넣었다([`deploy/dev/monitoring`](../../deploy/dev/monitoring/README.md)). 로컬 시험에서 Loki 약 65MB · Alloy 약 50MB. 운영은 같은 모양으로 `deploy/prod/compose.yml`에 넣는다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**
 
 ## 4. 미디어 서버 (LiveKit)
@@ -545,6 +548,9 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [ ] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
 - [ ] CI 작업: 이미지 빌드(be · fe · ai · admin) · push, `prod-deploy`(할 일은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포 작업이 할 일」)
 - [ ] Grafana 대시보드: 앱 대시보드(개발 서버와 같음)는 넣어 둠. 서버 · 컨테이너 · LiveKit 대시보드와 팀원 계정은 첫 배포 뒤
+- [x] 로그 수집(개발 서버): Loki · Alloy · 로그 대시보드, `monitoring-deploy` 다시 켬(3.3)
+- [ ] 로그 수집(운영): 개발과 같은 모양으로 `deploy/prod/compose.yml`에 추가, 운영 로그를 볼 수 있는 사람 정하기
+- [ ] 개발 Grafana 팀원 계정(Viewer)
 - [x] GitLab 변수 등록(7장): `prod/*`에 `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN`, S3 키(`LIVEKIT_EGRESS_S3_*` · `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`), `DB_PASSWORD` · `JWT_SECRET`. 범위 All(개발과 같은 값)에 `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `GRAFANA_ADMIN_PASSWORD`, 외부 API 키 3개
   - [x] Protected 정리: `CLOUDFLARE_TUNNEL_TOKEN`, 외부 API 키 3개, `ADMIN_PASSWORD`, `DB_PASSWORD`(운영), 개발 `AWS_SECRET_ACCESS_KEY`
   - [x] Egress S3 키(`LIVEKIT_EGRESS_S3_*`)를 All에서 `dev/*`로 좁힘(운영은 같은 이름의 `prod/*` 값을 씀, 4.3)
@@ -565,7 +571,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 
 ### MVP 이후
 
-- [ ] 로그 수집(Loki), 알림
+- [ ] 알림(디스크 · 메모리 임계치)
 - [ ] 공시 파이프라인(로컬 PC: Airflow · MinIO → Spark), SQS · 공시 적재 worker
 
 ## 12. 명세에서 바뀌는 것
@@ -631,3 +637,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.2 · 4.1 · 9 · 11 | 운영 배포 파일 `deploy/prod/` 작성(개발 compose와 같은 이름 · 환경 변수, 이미지만 Docker Hub). 서버에서 설정 검사, LiveKit · Egress 시험 기동, 공개 이미지 미리 받기, 백업 스크립트 · cron 설치, 시험 이미지 정리. 백업 방식(cron + 배포 작업이 쓰는 키 파일) 결정. `/be/`는 관리 페이지가 써서 연다 | 서버 쪽 준비를 끝내 남은 일을 CI 작업 하나로 줄이려고. 첫 배포 전에 설정 오류 · 이미지 문제를 미리 걸러 내려고 |
 | 인프라 | 3.2 · 13 | 운영 Swagger 미공개 결정: BE에서 끄고 Nginx에서도 경로를 404로 막음. 13장의 Swagger 공개 항목 삭제 | 운영 API 구조를 바깥에 드러낼 이유가 없고, API 확인은 개발 서버 Swagger로 충분해서 |
 | 인프라 | 3.2 · 7 | AI 분석 작업자 배포 추가: 개발 `a301-dev-ai-analysis`(CI `ai-analysis-deploy`) · 운영 `a301-prod-ai-analysis`. GMS 주소 · 모델은 회사 카드 파이프라인과 같은 값을 compose에 적고 키는 `LLM_API_KEY`. 헬스체크는 Redis 연결, 컨테이너는 하나로 고정 | 작업자가 어디에도 떠 있지 않아 플랜 생성이 처리되지 않았다. 처리 중 리스트를 공유하는 구조라 늘리면 중복 처리되므로 하나로 둔다 |
+| 인프라 | 3.3 · 11 | 로그 수집을 MVP에 넣음: 개발 서버에 Loki 3.7.8 · Alloy v1.20.1 · Grafana 로그 대시보드 추가(3일 보관, `a301-dev-*`만 수집), 꺼 두었던 `monitoring-deploy` 다시 켬 | 팀원이 SSH 없이 로그를 보게 하고, 재배포해도 로그가 남게 하려고 |
