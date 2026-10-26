@@ -9,6 +9,7 @@ gpt-4.1-mini-2025-04-14로 요청하면 400을 반환하므로,
 요청에는 모델 ID를 사용하고 결과에는 응답의 스냅샷 이름을 기록한다.
 Model은 작업이 아닌 GMS 클라이언트마다 하나이므로,
 클라이언트를 생성할 때 검사한다(app.common.gms).
+Jev 모델도 같은 이유로 판단기를 생성할 때 검사한다(app.agent.jev).
 """
 
 from dataclasses import dataclass
@@ -60,8 +61,14 @@ class VersionRegistry:
 
 REGISTRY = VersionRegistry(
     prompts=frozenset(
-        {"plan-v1", "score-answer-v1", "evaluate-feedback-v1", "evaluate-cover-letter-v1"}
+        {
+            "plan-v1",
+            "score-answer-v1",
+            "evaluate-feedback-v1",
+            "evaluate-cover-letter-v1",
+            "reaction-v1",
+        }
     ),
-    models=frozenset({"gpt-4.1-mini"}),
+    models=frozenset({"gpt-4.1-mini", "jev-1.14.0"}),
     rubrics=frozenset(),
 )
