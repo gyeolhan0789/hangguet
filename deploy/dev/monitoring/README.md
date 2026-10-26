@@ -6,11 +6,13 @@
 
 - 먼저 `deploy/dev/compose.yml`로 앱을 띄워 `a301-dev` Docker 네트워크를 만든다. 미니PC의 기존 Nginx가 사용하는 `server_public-network`도 필요하다.
 - BE에는 관리 포트 8081이 켜져 있어야 한다. 개발 서버 Compose가 설정한다.
-- GitLab CI/CD Variables에 개발 서버 전용 `DEV_GRAFANA_ADMIN_PASSWORD`를 Masked 변수로 등록한다. Environment scope는 `dev/monitoring`으로 둔다. `develop`이 보호 브랜치인 경우 Protected도 적용한다. 운영 서버의 Grafana 비밀번호와 값도 분리한다. 명령 기록이나 저장소에 비밀번호를 적지 않는다.
+- GitLab CI/CD Variables의 `GRAFANA_ADMIN_PASSWORD`(Protected · Masked, 범위 All)를 쓴다. 운영 서버 Grafana와 같은 값이다(운영 배포 계획 7장). Grafana는 데이터 볼륨을 처음 만들 때만 이 값을 적용하므로, 이미 뜬 Grafana의 비밀번호를 바꾸려면 Grafana에서 직접 바꾼다. 명령 기록이나 저장소에 비밀번호를 적지 않는다.
 - Cloudflare Tunnel의 Public Hostname `hangguet-grafana.yobistory.com`을 미니PC의 **기존 Nginx HTTP 80 서비스**로 연결한다. 기존 `hangguet.yobistory.com`과 같은 Tunnel/Nginx를 사용한다.
 - `nginx.conf.example`의 별도 `server` 블록을 미니PC의 활성 Nginx 설정에 추가한다. 기존 `hangguet.yobistory.com` 블록은 유지한다. 적용 전 `nginx -t`, 적용 후 `nginx -s reload`로 반영한다. Nginx 컨테이너가 `server_public-network`에 연결되어 있어야 한다.
 
 ## Runner 배포
+
+**지금은 `monitoring-deploy` 잡을 꺼 두었다**(`.gitlab-ci.yml`에서 주석 처리). 개발 서버 모니터링은 이미 떠 있어 다시 배포하지 않는다. 설정을 바꿔 다시 배포해야 하면 잡의 주석을 풀고 `GRAFANA_ADMIN_PASSWORD` 변수를 확인한다. 잡을 켜면 아래처럼 동작한다.
 
 모니터링 Compose·Prometheus·blackbox 설정 또는 Grafana 프로비저닝·대시보드가 `develop`에서 바뀌면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. README나 Nginx 설정 예시만 바뀌면 자동 실행되지 않는다. 앱 배포가 같은 파이프라인에 있으면 BE 배포 완료를 기다린다. 다른 `develop` push 파이프라인과 수동 파이프라인에는 `monitoring-deploy` 수동 실행 버튼이 생긴다. 버튼을 누르지 않으면 앱 변경만으로 Grafana를 다시 배포하지 않는다.
 
