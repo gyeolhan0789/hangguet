@@ -235,3 +235,88 @@ test.describe("S07-1 면접 다시보기", () => {
     });
   }
 });
+
+// 모바일(sm 미만) 화상 다시보기(사용자 결정 2026-10-26): 영상 아래 자막은 빼고 질문 목록(펼치면 그 질문의 답변 = 스크립트)으로 보며,
+// 영상 · 재생 막대는 위에 고정한 채 질문 목록만 스크롤한다. sm 이상 · 채팅은 그대로다.
+test.describe("S07-1 면접 다시보기 · 모바일", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test.beforeEach(async ({ signIn, page, msw }) => {
+    await signIn();
+    await serveVideo(page);
+    // 질문 목록이 화면보다 길어지도록(스크롤이 생기도록) 질문을 길게 둔다
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({
+          ...REPLAY,
+          videoUrl: VIDEO_URL,
+          items: REPLAY.items.map((item) => ({ ...item, question: `${item.question} `.repeat(4) })),
+        }),
+      ),
+    );
+  });
+
+  const questions = (page: Page) => page.getByRole("region", { name: "질문" });
+
+  test("질문을 누르면 영상이 그 시점으로 가고 답변(스크립트)이 펼쳐지며, 영상 아래 자막은 보이지 않는다", async ({
+    page,
+  }) => {
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+
+    await card(page, "가장 큰 기술적 문제는").click();
+
+    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 372);
+    await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      questions(page).getByText("저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…"),
+    ).toBeVisible();
+    // 자막 상자는 그려지되(질문이 정해짐) CSS로 숨는다
+    await expect(page.getByRole("region", { name: "자막", includeHidden: true })).toHaveCount(1);
+    await expect(page.getByRole("region", { name: "자막", includeHidden: true })).toBeHidden();
+  });
+
+  test("페이지는 스크롤되지 않고, 질문 목록만 스크롤되며 영상은 제자리에 있다", async ({
+    page,
+  }) => {
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+    const list = page.getByTestId("replay-questions-scroll");
+
+    // 페이지 높이는 화면 높이를 넘지 않고, 질문 목록은 내용이 넘쳐 스크롤할 수 있다
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight))
+      .toBeLessThanOrEqual(0);
+    await expect
+      .poll(() => list.evaluate((el) => el.scrollHeight - el.clientHeight))
+      .toBeGreaterThan(0);
+
+    // 마지막 질문까지 내려 볼 수 있고, 그동안 페이지는 그대로라 영상 · 재생 막대가 화면에 다 보인다
+    await card(page, "대용량 트래픽 처리").scrollIntoViewIfNeeded();
+    await expect(card(page, "대용량 트래픽 처리")).toBeInViewport();
+    await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page.getByLabel("녹화 영상")).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("slider", { name: "재생 위치" })).toBeInViewport({ ratio: 1 });
+  });
+});
+
+// 640px(sm)부터는 모바일 배치가 아니다(경계값). 넓은 화면은 기존 테스트(기본 1280)가 본다.
+test.describe("S07-1 면접 다시보기 · sm 경계(640px)", () => {
+  test.use({ viewport: { width: 640, height: 900 } });
+
+  test("질문을 고르면 영상 아래 자막을 보여 준다", async ({ signIn, page, msw }) => {
+    await signIn();
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+
+    await card(page, "가장 큰 기술적 문제는").click();
+    await expect(page.getByRole("region", { name: "자막" })).toBeVisible();
+  });
+});

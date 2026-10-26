@@ -194,7 +194,8 @@ export function PlayerControls({
       {item && (
         <section
           aria-label="자막"
-          className="flex w-full flex-col gap-1 rounded-2xl bg-bg-sub px-[18px] py-3.5 tracking-[-0.2px]"
+          // 모바일(sm 미만)은 자막을 빼고 질문 목록(펼치면 답변)으로 본다(사용자 결정 2026-10-26)
+          className="flex w-full max-sm:hidden flex-col gap-1 rounded-2xl bg-bg-sub px-[18px] py-3.5 tracking-[-0.2px]"
         >
           <p className="text-xs leading-normal font-bold text-text-3">
             자막 · {formatElapsed(offsets[current])}
