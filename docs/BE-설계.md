@@ -39,11 +39,11 @@ com.ssafy.a301
 │  └─ config       SecurityConfig
 ├─ user
 │  ├─ controller   UserController
-│  ├─ service      UserService
+│  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 모든 기기 로그아웃, 9.10)
 │  ├─ dto          UserDtos
 │  ├─ mapper       UserMapper
-│  ├─ repository   UserRepository, UserAgreementRepository
-│  └─ domain       User, UserAgreement, TermsType
+│  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository
+│  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy
 ├─ home
 │  ├─ controller   HomeController(3.2·3.3)
 │  ├─ service      PracticeStatsService(스트릭·통계·연습 달력, 3.1에서 다시 씀)
@@ -91,6 +91,14 @@ com.ssafy.a301
 │  ├─ jwt          AdminTokens(발급자 a301-admin, 유효 시간은 auth.access-ttl)
 │  ├─ config       AdminSecurityConfig(/api/v1/admin/** 전용 필터 체인), AdminProperties, AdminPasswordEncoder(BCrypt)
 │  └─ domain       Admin, Notice, NoticeRead, StreakFreezeGrant, StreakFreezeGrantTarget, StreakFreeze, GrantTarget · GrantStatus · StreakFreezeStatus
+├─ inquiry         9. 문의(회원 · 비회원 문의, 관리 페이지 답변 · 비밀번호 변경). 제목 · 본문은 암호화해 저장한다
+│  ├─ controller   InquiryController(9.1 ~ 9.5, 9.2 말고는 로그인 없이도), AdminInquiryController(9.6 ~ 9.10)
+│  ├─ service      InquiryService(접근 확인 · 상태 전이), AdminInquiryService(9.10은 user의 PasswordChangeService를 부른다)
+│  ├─ dto          InquiryDtos
+│  ├─ mapper       InquiryMapper
+│  ├─ repository   InquiryRepository, InquiryMessageRepository
+│  ├─ crypto       InquiryCipher(AES-256-GCM, 키는 INQUIRY_ENCRYPTION_KEY), EncryptedTextConverter(JPA 변환기)
+│  └─ domain       Inquiry, InquiryMessage, InquiryStatus · AuthorType
 ├─ storage
 │  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
 │  ├─ repository   UploadKeyStore, RedisUploadKeyStore
@@ -132,10 +140,15 @@ com.ssafy.a301
 | `StreakFreezeGrant` | `streak_freeze_grants` | N:1 Admin | 유지권 배포. 지급 날짜 0시(한국 시간)에 대상 회원마다 개수만큼 유지권을 만들고 GRANTED. 전체 회원 배포는 지급할 때 공지를 만든다. 취소 없음 |
 | `StreakFreezeGrantTarget` | `streak_freeze_grant_targets` | N:1 Grant, N:1 User | 지정 회원(USERS) 배포의 받을 회원 |
 | `StreakFreeze` | `streak_freezes` | N:1 User, N:1 Grant | 유지권 1개. 메울 수 있는 날짜 하나를 연습 기록(`practice_logs`)으로 메운다. 유효기간은 지급 날짜부터 2주 |
+| `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
+| `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
+| `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 지금은 9.10(ADMIN)만 남기고, 회원 직접 변경(USER)도 남길 예정 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
 - 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
 - 공지 수정 · 삭제(8.6 · 8.7)는 공지 행을 잠그고(`SELECT … FOR UPDATE`) 한다. 이미 삭제한 공지는 404 `NOTICE_NOT_FOUND`
+- 문의 쓰기 · 종료(9.4 · 9.5 · 9.8 · 9.9)는 문의 행을 잠그고 한다. 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(`X-Inquiry-Password`)가 맞을 때만 볼 수 있고, 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다
+- 문의 제목 · 본문은 AES-256-GCM으로 암호화해 저장한다(`EncryptedTextConverter`). 키는 환경 변수 `INQUIRY_ENCRYPTION_KEY`(Base64, 32바이트)로만 받고 없으면 기동하지 않는다. 키를 잃거나 바꾸면 저장한 문의를 풀 수 없다
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
@@ -283,7 +296,7 @@ com.ssafy.a301
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | userId | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
-| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 때 집합의 키를 모두 지운다 |
+| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 9.10 관리자 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
@@ -315,6 +328,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
+- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다
+- 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
 
@@ -348,3 +363,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 3. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후)
 4. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 5. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+6. 회원 직접 비밀번호 변경(2.3)을 `PasswordChangeService`로 옮겨 변경 기록(USER)을 남기고 모든 기기를 로그아웃하게 한다(지금 2.3은 다른 기기 로그인을 유지)

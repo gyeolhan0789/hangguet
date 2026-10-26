@@ -50,6 +50,10 @@ admin:
     password: ${ADMIN_PASSWORD:}
     name: ${ADMIN_NAME:}
 
+# 문의 제목 · 본문 암호화 키(AES-256). Base64로 인코딩한 32바이트. 없으면 기동하지 않는다(BE 설계 9장)
+inquiry:
+  encryption-key: ${INQUIRY_ENCRYPTION_KEY}
+
 # 면접방(LiveKit, BE 설계 5.6). 주소·키는 환경 변수로만 받는다. 이름은 배포 계획 7장(LiveKit SDK 기본 이름)과 같다
 livekit:
   # 브라우저에 알려 줄 주소(입장 정보 url). 없으면 서버 주소
