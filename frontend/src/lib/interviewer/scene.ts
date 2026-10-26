@@ -1,18 +1,24 @@
 import {
   AnimationClip,
   AnimationMixer,
+  Box3,
   DirectionalLight,
   HemisphereLight,
   LoopOnce,
   MathUtils,
+  Mesh,
+  PCFShadowMap,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
+  ShadowMaterial,
+  SpotLight,
   SRGBColorSpace,
   ACESFilmicToneMapping,
+  Vector3,
   WebGLRenderer,
   type AnimationAction,
   type Material,
-  type Mesh,
   type Object3D,
   type Texture,
 } from "three";
@@ -68,6 +74,13 @@ export interface SceneLights {
   key: { color: number; intensity: number; position: Vec3 };
   /** 보조광 */
   fill: { color: number; intensity: number; position: Vec3 };
+  /**
+   * 주광 그림자. 주면 면접관 · 소품끼리 그림자를 드리우고, 모델 바닥 높이에 그림자만 받는 투명한 바닥을 깔아
+   * 배경 그림의 바닥 위에 그림자가 떨어진다(three.js ShadowMaterial). 폭풍 배경에서는 쓰지 않는다.
+   */
+  shadow?: { color: number; opacity: number };
+  /** 얼굴만 비추는 부드러운 스포트라이트(얼굴 메시 가운데를 겨누고 얼굴 크기만큼만 퍼진다). 폭풍 배경에서는 쓰지 않는다. */
+  face?: { color: number; intensity: number; position: Vec3 };
 }
 
 /** 기본 조명(면접관 3D 모델 웹 미리보기와 같은 값) */
@@ -158,6 +171,9 @@ function returnAssets(model: InterviewerModel, assets: InterviewerAssets) {
   if (!preloaded.has(model.glb)) preloaded.set(model.glb, Promise.resolve(assets));
 }
 
+/** SkinnedMesh를 값으로 불러오지 않고 구분한다 */
+type SkinnedMeshLike = Mesh & { isSkinnedMesh?: boolean };
+
 /** 렌더 배율 상한(미리보기 검증값 1.5: 평균 프레임 25ms) */
 const MAX_PIXEL_RATIO = 1.5;
 
@@ -204,6 +220,11 @@ export async function createInterviewerScene({
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping;
   renderer.toneMappingExposure = lights.exposure;
+  const shadow = stormVideo ? undefined : lights.shadow;
+  if (shadow) {
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = PCFShadowMap;
+  }
 
   const scene = new Scene();
   const camera = new PerspectiveCamera(frame.fov, 1, 0.005, 20);
@@ -270,6 +291,38 @@ export async function createInterviewerScene({
     action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
     mixer.update(0);
 
+    // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
+    if (shadow) {
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.bias = -0.0005;
+      key.shadow.normalBias = 0.02;
+      const box = key.shadow.camera;
+      box.left = -1.5;
+      box.right = 1.5;
+      box.top = 1.5;
+      box.bottom = -1.5;
+      box.near = 0.1;
+      box.far = 8;
+      box.updateProjectionMatrix();
+      // 그림자는 소품(책상 · 컵 · 종이 · 바닥)만 받는다. 면접관 몸(스킨 메시)까지 받으면 안경 · 머리카락 그림자가 얼굴에 줄처럼 진다.
+      gltf.scene.traverse((object) => {
+        const mesh = object as Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.receiveShadow = !(mesh as SkinnedMeshLike).isSkinnedMesh;
+      });
+      gltf.scene.updateMatrixWorld(true);
+      const floor = new Mesh(
+        new PlaneGeometry(8, 8),
+        new ShadowMaterial({ color: shadow.color, opacity: shadow.opacity }),
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = new Box3().setFromObject(gltf.scene).min.y;
+      floor.receiveShadow = true;
+      scene.add(floor);
+    }
+
     // 표정: 규칙에 있는 메시(WEB_<이름> 아래)를 찾아 셰이프 키 세기를 넣는다.
     const normal = (name: string) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
     const faceMeshes: Record<string, Mesh[]> = {};
@@ -294,6 +347,23 @@ export async function createInterviewerScene({
       if (found.length) faceMeshes[name] = found;
     }
     const surfaces = Object.values(faceMeshes).map(createFaceSurface);
+
+    // 얼굴 조명: 표정 메시(얼굴 · 눈썹 등)를 감싼 상자의 가운데를 겨누고, 그 상자만큼만 퍼지게 원뿔 각을 잡는다(가장자리는 부드럽게).
+    const faceLight = stormVideo ? undefined : lights.face;
+    const faceParts = Object.values(faceMeshes).flat();
+    if (faceLight && faceParts.length > 0) {
+      const bounds = new Box3();
+      faceParts.forEach((mesh) => bounds.expandByObject(mesh));
+      const center = bounds.getCenter(new Vector3());
+      const radius = bounds.getSize(new Vector3()).length() / 2;
+      const spot = new SpotLight(faceLight.color, faceLight.intensity);
+      spot.position.set(...faceLight.position);
+      spot.target.position.copy(center);
+      spot.angle = Math.atan(radius / spot.position.distanceTo(center));
+      spot.penumbra = 1;
+      spot.decay = 0;
+      scene.add(spot, spot.target);
+    }
 
     let face: FaceControls = NEUTRAL_FACE;
     let dirty = true;
@@ -343,6 +413,8 @@ export async function createInterviewerScene({
 
     // 폭풍 배경은 매 프레임 움직여 계속 그린다. 폭풍 배경이 아니면(멈춘 그림 배경 포함) 표정이나 크기가 바뀐 프레임에만 다시 그린다.
     let last = performance.now();
+    // 그림자 지도는 첫 프레임에 비어 그려질 수 있어, 처음에는 한 프레임 더 그린다.
+    let warmup = shadow ? 1 : 0;
     renderer.setAnimationLoop((now: number) => {
       if (storm) {
         storm.update(Math.min((now - last) / 1000, 0.25), now);
@@ -351,7 +423,7 @@ export async function createInterviewerScene({
       if (dirty) applyFace();
       if (storm) storm.render();
       else if (dirty) renderer.render(scene, camera);
-      dirty = false;
+      dirty = warmup-- > 0;
     });
 
     return {

@@ -54,14 +54,21 @@ const LOOKS = {
     frame: { position: [0, 0.921, 1.892], target: [0, 0.613, 0.1], fov: 34 },
     still: "/interview/coffee-chat/still.webp",
     // 카페 실내(낮, 왼쪽 큰 창). Codex 이미지 생성(gpt-5.6-sol)으로 만들어 webp로 줄였다.
+    // 사용자 요청(2026-10-26: 캐릭터와 배경의 투시가 맞지 않음) — 이 카메라(frame)로 바닥 · 뒷벽 격자를 그린 그림을 주고
+    // 같은 투시(소실점 가운데 화면 위 22%, 뒷벽 밑선 화면 위 48%, 바닥이 아래 절반)로 다시 그렸다.
     background: "/interview/coffee-chat/cafe.webp",
-    // 배경의 왼쪽 창 햇빛에 맞춘 따뜻한 주광 · 나무 바닥 반사광. 읽는 자세는 고개를 숙여 위에서 비추면 코 밑이 짙게 그늘지므로
-    // 주광을 낮고 앞쪽에 두고 보조광을 아래 앞에서 비춘다(사용자 요청 2026-10-26: 코 아래 그림자가 짙음)
+    // 배경의 햇빛(왼쪽 창에서 조금 뒤쪽 · 낮고 따뜻함)에 맞춘 주광. 바닥 그림자가 오른쪽 앞으로 길게 떨어진다.
+    // 주광이 옆에서 오므로 고개 숙인 얼굴에 위쪽 그늘(코 밑)이 지지 않고, 앞의 보조광 · 나무 바닥 반사광이 그늘진 쪽을 채운다.
     lights: {
-      exposure: 1.15,
-      hemi: { sky: 0xfff2df, ground: 0x9a7656, intensity: 2.3 },
-      key: { color: 0xffd9a8, intensity: 3.0, position: [-1.6, 1.2, 2.2] },
-      fill: { color: 0xf3e6d4, intensity: 1.3, position: [1.2, 0.4, 2.2] },
+      exposure: 1.08,
+      // 아래쪽 반사광은 밝은 나무 바닥 · 피부빛에 가깝게 둬 코 밑 같은 아래를 향한 면이 갈색으로 짙어지지 않게 한다
+      hemi: { sky: 0xffecd2, ground: 0xe0bc98, intensity: 1.1 },
+      key: { color: 0xffc887, intensity: 5.0, position: [-2.4, 1.5, -0.2] },
+      fill: { color: 0xffe6c8, intensity: 1.1, position: [0.8, 0.6, 2.4] },
+      shadow: { color: 0x4a2810, opacity: 0.45 },
+      // 얼굴만 따로 밝힌다(사용자 요청 2026-10-26: 얼굴에만 빛, 안경 그림자 이상함, 코 밑 그늘). 고개를 숙인 얼굴을
+      // 얼굴보다 아래 · 정면에서 비춰 코 밑까지 밝힌다(위에서 비추면 코 밑이 짙게 그늘진다).
+      face: { color: 0xffe2c4, intensity: 3, position: [-0.2, 0.45, 1.8] },
     },
   },
 } satisfies Record<Persona, InterviewerLook | null>;

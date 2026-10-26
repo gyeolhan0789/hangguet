@@ -24,7 +24,7 @@ const PERSONA_INFO = {
     name: "개발자 커피챗",
     difficulty: "난이도 낮음",
     description: "편안한 대화로 실무 이야기",
-    avatar: "/practice/avatar-coffeechat.png",
+    avatar: "/practice/avatar-coffeechat.webp",
   },
 } satisfies Record<Persona, Omit<PersonaInfo, "persona">>;
 
