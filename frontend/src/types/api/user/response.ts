@@ -22,5 +22,13 @@ export interface NicknameChangeResponse extends MeResponse {
   expiresIn: number;
 }
 
+/** 2.3 비밀번호 변경 (200). 변경 전에 발급한 리프레시 토큰은 모두 무효가 되므로 새 토큰을 함께 반환한다 */
+export interface PasswordChangeResponse {
+  accessToken: string;
+  refreshToken: string;
+  /** 액세스 토큰 유효 시간(초) */
+  expiresIn: number;
+}
+
 // 2.4 프로필 사진 업로드 주소(200)는 공통 UploadUrlResponse(../common)
-// 2.3 비밀번호 변경 · 2.6 프로필 사진 삭제 · 2.7 회원 탈퇴는 204(본문 없음)
+// 2.6 프로필 사진 삭제 · 2.7 회원 탈퇴는 204(본문 없음)
