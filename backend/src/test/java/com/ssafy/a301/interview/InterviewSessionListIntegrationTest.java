@@ -338,6 +338,28 @@ class InterviewSessionListIntegrationTest {
     }
 
     @Test
+    void listHandlesDateRangeBoundariesWithoutServerError() throws Exception {
+        User user = user("boundary");
+        em.flush();
+
+        for (String date : new String[] {"0001-01-01", "9999-12-31"}) {
+            mvc.perform(
+                            as(
+                                    user.getId(),
+                                    get("/api/v1/interview-sessions").param("practiceDate", date)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.content").isEmpty());
+        }
+        mvc.perform(
+                        as(
+                                user.getId(),
+                                get("/api/v1/interview-sessions")
+                                        .param("practiceDate", "+999999999-12-31")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
     void withdrawnUserHasNoPracticeRecords() throws Exception {
         User user = user("withdrawn");
         Application application = application(user);

@@ -1,6 +1,8 @@
 package com.ssafy.a301.interview.controller;
 
 import com.ssafy.a301.common.idempotency.Idempotent;
+import com.ssafy.a301.common.validation.SupportedDate;
+import com.ssafy.a301.common.validation.SupportedMonth;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
@@ -23,7 +25,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.Pattern;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -124,12 +125,16 @@ public class InterviewSessionController {
     }
 
     @Operation(summary = "5.13 연습 면접 목록", description = "선택한 한국 날짜에 시작한 본인 면접 기록을 최근 순으로 준다.")
+    @ApiResponse(
+            responseCode = "400",
+            description = "VALIDATION_FAILED: 날짜 누락·형식 오류·0001-01-01~9999-12-31 밖, page·size 범위 오류")
     @GetMapping
     public SessionListResponse list(
             @AuthenticationPrincipal Jwt jwt,
-            @Parameter(description = "연습 날짜(한국 시간)", example = "2026-10-21")
+            @Parameter(description = "연습 날짜(한국 시간, 0001-01-01~9999-12-31)", example = "2026-10-21")
                     @RequestParam
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+                    @SupportedDate
                     LocalDate practiceDate,
             @Parameter(description = "페이지(0부터)", example = "0")
                     @RequestParam(defaultValue = "0")
@@ -152,9 +157,7 @@ public class InterviewSessionController {
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "조회 월(0001-01~9999-12)", example = "2026-10")
                     @RequestParam
-                    @Pattern(
-                            regexp = "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])",
-                            message = "YYYY-MM 형식입니다.")
+                    @SupportedMonth
                     String month) {
         return sessionList.calendar(userId(jwt), YearMonth.parse(month));
     }

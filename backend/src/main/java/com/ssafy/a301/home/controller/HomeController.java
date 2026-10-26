@@ -1,5 +1,6 @@
 package com.ssafy.a301.home.controller;
 
+import com.ssafy.a301.common.validation.SupportedMonth;
 import com.ssafy.a301.home.dto.HomeDtos.HomeResponse;
 import com.ssafy.a301.home.dto.HomeDtos.PracticeLogsResponse;
 import com.ssafy.a301.home.dto.HomeDtos.StatsResponse;
@@ -9,7 +10,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.constraints.Pattern;
 import java.time.YearMonth;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -60,9 +60,7 @@ public class HomeController {
             @AuthenticationPrincipal Jwt jwt,
             @Parameter(description = "조회할 달(0001-01~9999-12)", example = "2026-10")
                     @RequestParam
-                    @Pattern(
-                            regexp = "(?!0000)[0-9]{4}-(0[1-9]|1[0-2])",
-                            message = "YYYY-MM 형식입니다.")
+                    @SupportedMonth
                     String month) {
         return stats.practiceLogs(userId(jwt), YearMonth.parse(month));
     }
