@@ -432,6 +432,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 |---|---|---|
 | `DB_PASSWORD` | O | postgres, BE(AI는 DB에 접속하지 않는다). DB 볼륨을 처음 만들 때만 적용되므로 첫 배포 전에 확정한다 |
 | `JWT_SECRET` | O | BE(HS256, 32바이트 이상) |
+| `INQUIRY_ENCRYPTION_KEY` | O | BE 문의 제목 · 본문 암호화(AES-256-GCM, Base64 32바이트). 개발과 다른 값. **바꾸거나 잃으면 저장된 문의를 풀 수 없으므로** 비밀번호 관리자에 따로 보관한다 |
 | `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` | O(아이디는 기동 로그에 찍혀 Masked 안 함) | BE 관리 페이지 계정. 처음 기동할 때 계정이 없으면 만든다. 범위 All(위 예외) |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
 | `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
@@ -638,3 +639,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.2 · 13 | 운영 Swagger 미공개 결정: BE에서 끄고 Nginx에서도 경로를 404로 막음. 13장의 Swagger 공개 항목 삭제 | 운영 API 구조를 바깥에 드러낼 이유가 없고, API 확인은 개발 서버 Swagger로 충분해서 |
 | 인프라 | 3.2 · 7 | AI 분석 작업자 배포 추가: 개발 `a301-dev-ai-analysis`(CI `ai-analysis-deploy`) · 운영 `a301-prod-ai-analysis`. GMS 주소 · 모델은 회사 카드 파이프라인과 같은 값을 compose에 적고 키는 `LLM_API_KEY`. 헬스체크는 Redis 연결, 컨테이너는 하나로 고정 | 작업자가 어디에도 떠 있지 않아 플랜 생성이 처리되지 않았다. 처리 중 리스트를 공유하는 구조라 늘리면 중복 처리되므로 하나로 둔다 |
 | 인프라 | 3.3 · 11 | 로그 수집을 MVP에 넣음: 개발 서버에 Loki 3.7.8 · Alloy v1.20.1 · Grafana 로그 대시보드 추가(3일 보관, `a301-dev-*`만 수집), 꺼 두었던 `monitoring-deploy` 다시 켬 | 팀원이 SSH 없이 로그를 보게 하고, 재배포해도 로그가 남게 하려고 |
+| 인프라 | 7 | 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수 `prod/*`) | 문의 API가 이 키를 필수로 요구해 없으면 운영 BE가 기동하지 않는다 |

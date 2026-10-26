@@ -92,6 +92,8 @@ services:
       REDIS_HOST: a301-prod-redis
       REDIS_PORT: "6379"
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 문의 제목 · 본문 암호화 키(Base64 32바이트). 개발과 다른 값이다. 바꾸거나 잃으면 이미 저장한 문의를 풀 수 없다
+      INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
       ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
       ADMIN_NAME: ${ADMIN_NAME:-운영자}
