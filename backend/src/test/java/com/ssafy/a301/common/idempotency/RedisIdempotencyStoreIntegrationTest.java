@@ -63,4 +63,25 @@ class RedisIdempotencyStoreIntegrationTest {
 
         assertThat(store.begin(USER_ID, key, "fp")).isEqualTo(done);
     }
+
+    @Test
+    void completeDoesNotOverwriteAnotherRequestsMarker() {
+        // 처리 중 표시가 만료된 뒤 다른 요청(다른 본문)이 같은 키를 잡았다
+        assertThat(store.begin(USER_ID, key, "other")).isNull();
+
+        store.complete(
+                USER_ID, key, IdempotencyRecord.completed("fp", 201, "application/json", "{}"));
+
+        assertThat(store.begin(USER_ID, key, "other"))
+                .isEqualTo(IdempotencyRecord.processing("other"));
+    }
+
+    @Test
+    void completeStoresResponseEvenIfMarkerExpired() {
+        IdempotencyRecord done = IdempotencyRecord.completed("fp", 201, "application/json", "{}");
+
+        store.complete(USER_ID, key, done);
+
+        assertThat(store.begin(USER_ID, key, "fp")).isEqualTo(done);
+    }
 }

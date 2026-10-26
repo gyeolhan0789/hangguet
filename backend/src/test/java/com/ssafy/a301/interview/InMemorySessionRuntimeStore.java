@@ -109,6 +109,13 @@ public class InMemorySessionRuntimeStore implements SessionRuntimeStore {
     }
 
     @Override
+    public void clearAnalysis(long sessionId) {
+        clearAnalysisStep(sessionId);
+        analysisStartedAt.remove(sessionId);
+        evaluateJobIds.remove(sessionId);
+    }
+
+    @Override
     public Optional<Instant> findAnalysisStartedAt(long sessionId) {
         return Optional.ofNullable(analysisStartedAt.get(sessionId));
     }

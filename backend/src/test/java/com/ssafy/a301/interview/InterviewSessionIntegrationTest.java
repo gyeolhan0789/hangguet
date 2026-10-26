@@ -30,6 +30,7 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
+import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -46,6 +47,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -258,6 +264,124 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void othersCannotAnswerEndOrRetryAnalysis() throws Exception {
+        long owner = newUser();
+        long other = newUser();
+        long sessionId = started(owner, "CHAT");
+        long questionId = currentQuestionId(owner, sessionId);
+        String end = "/api/v1/interview-sessions/" + sessionId + "/end";
+        String retry = "/api/v1/interview-sessions/" + sessionId + "/analysis/retry";
+
+        mvc.perform(submit(other, sessionId, questionId, text("남의 답")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+        mvc.perform(as(other, idempotent(post(end))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+        assertThat(answers.countByQuestionSessionId(sessionId)).isZero();
+        assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+
+        mvc.perform(submit(owner, sessionId, questionId, text("답")))
+                .andExpect(status().isAccepted());
+        mvc.perform(as(owner, idempotent(post(end)))).andExpect(status().isAccepted());
+        runtimes.analysisStartedAt.put(sessionId, Instant.now().minusSeconds(601));
+        mvc.perform(as(owner, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        mvc.perform(as(other, post(retry)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+        assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.FAILED);
+    }
+
+    @Test
+    void answerAndEndAtTheSameTimeLeaveConsistentResult() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            for (int round = 0; round < 3; round++) {
+                long user = newUser();
+                long sessionId = started(user, "CHAT");
+                long questionId = currentQuestionId(user, sessionId);
+                CountDownLatch ready = new CountDownLatch(1);
+                Future<Integer> answer =
+                        pool.submit(
+                                () -> {
+                                    ready.await();
+                                    return mvc.perform(
+                                                    submit(user, sessionId, questionId, text("답")))
+                                            .andReturn()
+                                            .getResponse()
+                                            .getStatus();
+                                });
+                Future<Integer> end =
+                        pool.submit(
+                                () -> {
+                                    ready.await();
+                                    return mvc.perform(
+                                                    as(
+                                                            user,
+                                                            idempotent(
+                                                                    post(
+                                                                            "/api/v1/interview-sessions/"
+                                                                                    + sessionId
+                                                                                    + "/end"))))
+                                            .andReturn()
+                                            .getResponse()
+                                            .getStatus();
+                                });
+                ready.countDown();
+                int answerStatus = answer.get(10, TimeUnit.SECONDS);
+                int endStatus = end.get(10, TimeUnit.SECONDS);
+
+                // 면접 행 잠금으로 둘 중 하나가 먼저 끝난다. 어느 순서든 답변 수와 상태가 맞아야 한다
+                SessionStatus status = sessions.findById(sessionId).orElseThrow().getStatus();
+                int answered = answers.countByQuestionSessionId(sessionId);
+                if (answerStatus == 202) {
+                    assertThat(endStatus).isEqualTo(202);
+                    assertThat(status).isEqualTo(SessionStatus.ANALYZING);
+                    assertThat(answered).isEqualTo(1);
+                    assertThat(practiceDates(user)).hasSize(1);
+                } else {
+                    assertThat(answerStatus).isEqualTo(409);
+                    assertThat(endStatus).isEqualTo(200);
+                    assertThat(status).isEqualTo(SessionStatus.ABORTED);
+                    assertThat(answered).isZero();
+                    assertThat(practiceDates(user)).isEmpty();
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void startClosesOpenedRoomWhenItFailsAfterOpening() throws Exception {
+        long user = newUser();
+        long sessionId = create(user, newApplication(user));
+        planReady(sessionId);
+        // 방은 열었는데 입장 정보를 만들다 실패해 시작이 되돌려진다
+        when(rooms.issueAccess(eq(sessionId), anyBoolean()))
+                .thenThrow(new IllegalStateException("입장 토큰 서명 실패"));
+
+        mvc.perform(
+                        as(
+                                user,
+                                idempotent(
+                                        post(
+                                                "/api/v1/interview-sessions/"
+                                                        + sessionId
+                                                        + "/start"))))
+                .andExpect(status().isInternalServerError());
+
+        verify(rooms).open(eq(sessionId), anyBoolean(), any());
+        verify(rooms).close(sessionId);
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.status").value("READY"));
     }
 
     @Test
@@ -536,6 +660,33 @@ class InterviewSessionIntegrationTest {
                                         "EVALUATE".equals(job.get("jobType"))
                                                 && Long.valueOf(sessionId)
                                                         .equals(job.get("sessionId"))));
+    }
+
+    @Test
+    void analysisWithLostRedisStateFailsByEndedAtAndCanBeRetried() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "CHAT");
+        mvc.perform(submit(user, sessionId, currentQuestionId(user, sessionId), text("답")))
+                .andExpect(status().isAccepted());
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(status().isAccepted());
+
+        // Redis 상태가 사라졌고(TTL 만료·재시작) 작업도 잃어 11분째 결과가 없다
+        runtimes.analysisStartedAt.remove(sessionId);
+        jdbc.update(
+                "UPDATE interview_sessions SET ended_at = now() - interval '11 minutes' WHERE id ="
+                        + " ?",
+                sessionId);
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FAILED"));
+
+        // 5.9로 다시 만들 수 있다. 새 시작 시각(Redis)으로 다시 기다린다
+        mvc.perform(as(user, post("/api/v1/interview-sessions/" + sessionId + "/analysis/retry")))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("ANALYZING"));
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.status").value("ANALYZING"));
     }
 
     // 플랜까지 준비해 시작한 면접

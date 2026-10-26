@@ -185,7 +185,7 @@ com.ssafy.a301
 6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`)는 `rawPrefix`·`objectKey`를 담는다(화상만)
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
-1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다
+1. 지원서 소유 확인(지원서 행 잠금, 3장) → `InterviewSession`(READY) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다. 트랜잭션이 되돌려지면 작업은 나가지 않으므로 Redis를 FAILED로 되돌린다(5.3으로 다시 만들 수 있게). 결과 생성 시작(5.8·5.9)도 되돌려지면 시작 시각·작업 id를 지운다(`SessionRuntimeService`)
 2. 플랜 생성은 **비동기**(AI 분석 작업자). BE가 결과 메시지 `plan.progress`를 받아 Redis `planProgress`를 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 바꾼다(AI 명세 5장). 아직 GENERATING일 때만 바꾸고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 본다
 3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5). GENERATING인데 플랜 행이 이미 있으면(저장 뒤 READY를 남기지 못하고 다시 처리) 새로 저장하지 않고 READY만 남긴다
@@ -196,7 +196,7 @@ com.ssafy.a301
    - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 `READY`로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
-   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 5초
+   - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 호출마다 5초(연결·읽기·전체)라 방 만들기·배정·실패 시 방 지우기까지 최대 15초 잠근다. 멱등 대기(20초)는 이보다 길게 둔다
 2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`) → `InterviewQuestion(seq, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
@@ -217,7 +217,7 @@ com.ssafy.a301
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
    - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
-   - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다
+   - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다. 잠근 뒤 시간 초과를 다시 확인해, 그 사이 5.9로 다시 시작한 시도는 실패시키지 않는다. 시작 시각(Redis)이 TTL 만료·재시작으로 없으면 면접 종료 시각(`ended_at`, DB)으로 판단해 ANALYZING에 계속 남지 않게 한다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
      - 채점 대상: 기준 4개(직무 적합성 · 자소서 검증 · 논리성 · 전달력)
      - 판단 근거: 인재상 부합 · 사업·직무 연결 · 질문 의도 · 구체성을 종합
@@ -324,8 +324,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 2. 요청 지문 = SHA-256(메서드 + 경로 + 본문). 같은 키를 다른 API에 쓰면 다른 요청으로 본다
 3. 처리 전에 `idem:` 키를 `SET NX`로 잡는다(처리 중 표시, 1분). 서버가 처리 도중 멈춰도 1분 뒤 같은 키로 다시 시도할 수 있다
 4. 이미 있고 지문이 같으며 처리가 끝났으면 저장한 첫 응답(상태·본문)을 그대로 돌려준다. 컨트롤러는 실행하지 않는다
-5. 지문이 다르면 바로 409 `IDEMPOTENCY_KEY_REUSED`. 같은 요청이 아직 처리 중이면 끝날 때까지 최대 10초(`idempotency.wait-timeout`) 기다린다: 성공했으면 그 응답을 돌려주고, 실패해 처리 중 표시가 지워졌으면 이번 요청이 처리한다. 그래도 끝나지 않으면 409 `IDEMPOTENCY_KEY_REUSED`. 화면은 이 409를 받으면 새 키를 쓰므로, 바로 409를 주면 같은 면접이 두 번 만들어질 수 있다
-6. 2xx로 끝나면 응답을 24시간 저장한다. 4xx·5xx로 끝나면 처리 중 표시를 지워 같은 키로 다시 시도할 수 있게 한다(끝난 기록은 지우지 않음)
+5. 지문이 다르면 바로 409 `IDEMPOTENCY_KEY_REUSED`. 같은 요청이 아직 처리 중이면 끝날 때까지 최대 20초(`idempotency.wait-timeout`, 5.4가 면접방을 여는 최대 15초보다 길게) 기다린다: 성공했으면 그 응답을 돌려주고, 실패해 처리 중 표시가 지워졌으면 이번 요청이 처리한다. 그래도 끝나지 않으면 409 `IDEMPOTENCY_KEY_REUSED`. 화면은 이 409를 받으면 새 키를 쓰므로, 바로 409를 주면 같은 면접이 두 번 만들어질 수 있다
+6. 2xx로 끝나면 응답을 24시간 저장한다. 이 요청의 처리 중 표시가 그대로이거나 만료돼 없을 때만 저장하고, 그 사이 다른 요청(다른 본문)이 잡은 표시는 덮어쓰지 않는다. 4xx·5xx로 끝나면 처리 중 표시를 지워 같은 키로 다시 시도할 수 있게 한다(끝난 기록은 지우지 않음)
 
 ## 9. 인증
 

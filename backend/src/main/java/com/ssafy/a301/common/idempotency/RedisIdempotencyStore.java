@@ -3,6 +3,8 @@ package com.ssafy.a301.common.idempotency;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
@@ -23,6 +25,14 @@ public class RedisIdempotencyStore implements IdempotencyStore {
                     "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL',"
                             + " KEYS[1]) end return 0",
                     Long.class);
+    // 이 요청의 처리 중 표시가 그대로이거나(만료돼) 없을 때만 응답을 저장한다. 표시가 만료된 뒤 다른 요청이 잡은 표시나 이미 끝난 기록은 덮어쓰지 않는다
+    private static final DefaultRedisScript<Long> COMPLETE =
+            new DefaultRedisScript<>(
+                    "local v = redis.call('GET', KEYS[1]) if (not v) or v == ARGV[1] then"
+                            + " redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3]) return 1 end"
+                            + " return 0",
+                    Long.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RedisIdempotencyStore.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final StringRedisTemplate redis;
 
@@ -48,7 +58,16 @@ public class RedisIdempotencyStore implements IdempotencyStore {
 
     @Override
     public void complete(long userId, UUID key, IdempotencyRecord record) {
-        redis.opsForValue().set(key(userId, key), JSON.writeValueAsString(record), COMPLETED_TTL);
+        Long saved =
+                redis.execute(
+                        COMPLETE,
+                        List.of(key(userId, key)),
+                        JSON.writeValueAsString(IdempotencyRecord.processing(record.fingerprint())),
+                        JSON.writeValueAsString(record),
+                        Long.toString(COMPLETED_TTL.toMillis()));
+        if (saved == null || saved == 0) {
+            LOG.warn("멱등 키의 처리 중 표시가 다른 요청 것이라 응답을 저장하지 않았다: user={} key={}", userId, key);
+        }
     }
 
     @Override

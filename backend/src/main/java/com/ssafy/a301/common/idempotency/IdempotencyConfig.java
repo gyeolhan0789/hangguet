@@ -22,7 +22,7 @@ public class IdempotencyConfig implements WebMvcConfigurer {
 
     public IdempotencyConfig(
             ObjectProvider<IdempotencyStore> store,
-            @Value("${idempotency.wait-timeout:10s}") Duration waitTimeout) {
+            @Value("${idempotency.wait-timeout:20s}") Duration waitTimeout) {
         this.store = store;
         this.waitTimeout = waitTimeout;
     }

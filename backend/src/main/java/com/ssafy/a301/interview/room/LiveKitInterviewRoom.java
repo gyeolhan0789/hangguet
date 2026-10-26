@@ -46,6 +46,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private static final Logger LOG = LoggerFactory.getLogger(LiveKitInterviewRoom.class);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    // 호출 하나의 시간 제한(BE 설계 5.2). 5.4는 면접 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     static final String CANDIDATE = "candidate";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
@@ -221,7 +222,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         return new OkHttpClient.Builder()
                 .connectTimeout(TIMEOUT)
                 .readTimeout(TIMEOUT)
-                .callTimeout(TIMEOUT.multipliedBy(2))
+                .callTimeout(TIMEOUT)
                 .build();
     }
 
