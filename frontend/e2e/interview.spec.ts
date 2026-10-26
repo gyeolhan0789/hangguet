@@ -26,7 +26,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 //   · 5.7 답변 제출(TEXT · Idempotency-Key) · 5.8 면접 끝내기(202 ANALYZING · 200 ABORTED)
 //   · 웹 Swagger 5.2 · 5.5(2초마다(임시 값) 다시 확인 — 다음 질문 5.5, 질문 준비 · 결과 분석 5.2) · 5.8(답변 0개 → 홈)
 //   · 면접관 표현 결정 ③-3(실패 시 정지 이미지)
-// 실시간 음성 인식(STT) · 질문 음성(TTS) · 리액션은 아직 연결하지 않았다.
+// 면접방 음성·리액션 메시지 처리는 use-interview-room.test.ts에서 검증한다.
 // 서버 액션의 응답별 처리는 단위 테스트(interview/actions.test.ts), 화면 부품 · 시간 경계는 컴포넌트 테스트가 맡는다.
 // 카메라 · 마이크는 Chromium 가짜 장치를, 3D는 SwiftShader(소프트웨어 WebGL)를 쓴다(새 headless 모드 channel: "chromium").
 //

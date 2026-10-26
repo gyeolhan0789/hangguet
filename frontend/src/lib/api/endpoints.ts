@@ -63,9 +63,6 @@ export const interviewEndpoints = {
   roomToken: (sessionId: Id) => `/interview-sessions/${sessionId}/room-token`,
   /** 5.5 GET 지금 질문 */
   currentQuestion: (sessionId: Id) => `/interview-sessions/${sessionId}/questions/current`,
-  /** 5.6 POST 답변 음성 업로드 주소 */
-  answerAudioUploadUrl: (sessionId: Id, questionId: Id) =>
-    `/interview-sessions/${sessionId}/questions/${questionId}/answer-audio/upload-url`,
   /** 5.7 POST 답변 제출 (Idempotency-Key 필수) */
   answer: (sessionId: Id, questionId: Id) =>
     `/interview-sessions/${sessionId}/questions/${questionId}/answer`,
@@ -73,14 +70,6 @@ export const interviewEndpoints = {
   end: (sessionId: Id) => `/interview-sessions/${sessionId}/end`,
   /** 5.9 POST 결과 재생성 */
   analysisRetry: (sessionId: Id) => `/interview-sessions/${sessionId}/analysis/retry`,
-  /** 5.10 POST 실시간 음성 인식 토큰 */
-  sttToken: (sessionId: Id) => `/interview-sessions/${sessionId}/stt-token`,
-  /** 5.11 POST 면접관 리액션 (화상은 문장이 끝날 때마다, 채팅은 입력이 중지될 때마다) */
-  reactions: (sessionId: Id, questionId: Id) =>
-    `/interview-sessions/${sessionId}/questions/${questionId}/reactions`,
-  /** 5.12 POST 질문 음성 토큰 */
-  ttsToken: (sessionId: Id, questionId: Id) =>
-    `/interview-sessions/${sessionId}/questions/${questionId}/tts-token`,
 } as const;
 
 /** 6. 녹화 · 결과 · 다시보기 */

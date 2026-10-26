@@ -1,7 +1,6 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 129개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 105개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
-  AnswerAudioUploadUrlRequest,
   AnswerRequest,
   AnswerResponse,
   ApplicationCreateRequest,
@@ -23,8 +22,6 @@ import type {
   ProfileImageRequest,
   ProfileImageUploadUrlRequest,
   QuestionResponse,
-  ReactionRequest,
-  ReactionResponse,
   RecentReviewsResponse,
   RecordingCreateRequest,
   RecordingResponse,
@@ -39,14 +36,12 @@ import type {
   SessionResponse,
   SignupRequest,
   StatsResponse,
-  SttTokenResponse,
   TokenResponse,
-  TtsTokenResponse,
   UploadUrlResponse,
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 129;
+export const SWAGGER_EXAMPLE_COUNT = 105;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -714,60 +709,6 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
   } satisfies ProblemDetail,
-  // 5.6 답변 음성 업로드 주소 요청 스키마 example
-  { contentType: "audio/webm" } satisfies AnswerAudioUploadUrlRequest,
-  // 5.6 답변 음성 업로드 주소 200
-  {
-    uploadUrl: "https://…s3…?X-Amz-Signature=…",
-    objectKey: "sessions/55/answers/303.webm",
-    expiresAt: "2026-10-15T12:16:12+09:00",
-  } satisfies UploadUrlResponse,
-  // 5.6 답변 음성 업로드 주소 404 SESSION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "면접을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/0",
-    code: "SESSION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.6 답변 음성 업로드 주소 404 QUESTION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "질문을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/55/questions/0/answer",
-    code: "QUESTION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.6 답변 음성 업로드 주소 409 INVALID_SESSION_STATE
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "지금은 할 수 없는 요청이에요.",
-    instance: "/api/v1/interview-sessions/55/start",
-    code: "INVALID_SESSION_STATE",
-  } satisfies ProblemDetail,
-  // 5.7 답변 제출 요청 S06 화상
-  {
-    inputType: "VOICE",
-    content: "조회 응답 시간을 40% 줄였습니다.",
-    audioObjectKey: "sessions/55/answers/303.webm",
-    tokens: [
-      { text: "조회", startMs: 0, endMs: 280 },
-      { text: " ", startMs: 280, endMs: 320 },
-      { text: "응답", startMs: 320, endMs: 600 },
-      { text: " ", startMs: 600, endMs: 640 },
-      { text: "시간", startMs: 640, endMs: 900 },
-      { text: "을", startMs: 900, endMs: 1000 },
-      { text: " ", startMs: 1000, endMs: 1180 },
-      { text: "40", startMs: 1180, endMs: 1500 },
-      { text: "%", startMs: 1500, endMs: 1700 },
-      { text: " ", startMs: 1700, endMs: 1740 },
-      { text: "줄", startMs: 1740, endMs: 1900 },
-      { text: "였", startMs: 1900, endMs: 2050 },
-      { text: "습니다", startMs: 2050, endMs: 2400 },
-      { text: ".", startMs: 2400, endMs: 2400 },
-    ],
-  } satisfies AnswerRequest,
   // 5.7 답변 제출 요청 S06-B 채팅
   { inputType: "TEXT", content: "캐시 무효화 시점을 직접 설계했습니다." } satisfies AnswerRequest,
   // 5.7 답변 제출 202
@@ -925,154 +866,6 @@ export const swaggerExamples = [
     detail: "지금은 할 수 없는 요청이에요.",
     instance: "/api/v1/interview-sessions/55/start",
     code: "INVALID_SESSION_STATE",
-  } satisfies ProblemDetail,
-  // 5.10 실시간 음성 인식 토큰 200
-  { token: "…", expiresAt: "2026-10-15T12:16:00+09:00" } satisfies SttTokenResponse,
-  // 5.10 실시간 음성 인식 토큰 404 SESSION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "면접을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/0",
-    code: "SESSION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.10 실시간 음성 인식 토큰 409 INVALID_SESSION_STATE
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "지금은 할 수 없는 요청이에요.",
-    instance: "/api/v1/interview-sessions/55/start",
-    code: "INVALID_SESSION_STATE",
-  } satisfies ProblemDetail,
-  // 5.10 실시간 음성 인식 토큰 503 STT_UNAVAILABLE
-  {
-    title: "Service Unavailable",
-    status: 503,
-    detail: "음성 인식을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
-    instance: "/api/v1/interview-sessions/55/stt-token",
-    code: "STT_UNAVAILABLE",
-  } satisfies ProblemDetail,
-  // 5.11 면접관 리액션 요청 S06 화상
-  {
-    seq: 3,
-    text: "그래서 조회 응답 시간을 40% 줄였습니다.",
-    pauseMs: 420,
-  } satisfies ReactionRequest,
-  // 5.11 면접관 리액션 요청 S06-B 채팅
-  {
-    seq: 7,
-    text: "캐시 무효화 시점을 직접 설계했고, 그 결과",
-    pauseMs: 800,
-  } satisfies ReactionRequest,
-  // 5.11 면접관 리액션 200 리액션 있음 (끄덕임)
-  {
-    seq: 3,
-    reaction: {
-      type: "gesture",
-      state: null,
-      expression: null,
-      gesture: "nod",
-      intensity: 0.6,
-      durationMs: 1200,
-      ttlMs: 1500,
-      source: "server",
-    },
-    attitude: { interest: 0.7, trust: 0.6, tension: 0.2 },
-    interrupt: null,
-  } satisfies ReactionResponse,
-  // 5.11 면접관 리액션 200 리액션 없음
-  {
-    seq: 4,
-    reaction: null,
-    attitude: { interest: 0.7, trust: 0.6, tension: 0.2 },
-    interrupt: null,
-  } satisfies ReactionResponse,
-  // 5.11 면접관 리액션 200 말 끊기
-  {
-    seq: 9,
-    reaction: {
-      type: "expression",
-      state: null,
-      expression: "frown",
-      gesture: null,
-      intensity: 0.5,
-      durationMs: 1500,
-      ttlMs: 1500,
-      source: "server",
-    },
-    attitude: { interest: 0.4, trust: 0.5, tension: 0.6 },
-    interrupt: { reason: "OFF_TOPIC", text: "질문으로 다시 돌아가 볼게요." },
-  } satisfies ReactionResponse,
-  // 5.11 면접관 리액션 404 SESSION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "면접을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/0",
-    code: "SESSION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.11 면접관 리액션 404 QUESTION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "질문을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/55/questions/0/answer",
-    code: "QUESTION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.11 면접관 리액션 409 INVALID_SESSION_STATE
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "지금은 할 수 없는 요청이에요.",
-    instance: "/api/v1/interview-sessions/55/start",
-    code: "INVALID_SESSION_STATE",
-  } satisfies ProblemDetail,
-  // 5.11 면접관 리액션 409 ANSWER_ALREADY_SUBMITTED
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "이미 답변한 질문이에요.",
-    instance: "/api/v1/interview-sessions/55/questions/303/answer",
-    code: "ANSWER_ALREADY_SUBMITTED",
-  } satisfies ProblemDetail,
-  // 5.12 질문 음성 토큰 200
-  {
-    token: "…",
-    expiresAt: "2026-10-15T12:21:12+09:00",
-    voiceId: "…",
-    modelId: "…",
-  } satisfies TtsTokenResponse,
-  // 5.12 질문 음성 토큰 404 SESSION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "면접을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/0",
-    code: "SESSION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.12 질문 음성 토큰 404 QUESTION_NOT_FOUND
-  {
-    title: "Not Found",
-    status: 404,
-    detail: "질문을 찾을 수 없어요.",
-    instance: "/api/v1/interview-sessions/55/questions/0/answer",
-    code: "QUESTION_NOT_FOUND",
-  } satisfies ProblemDetail,
-  // 5.12 질문 음성 토큰 409 INVALID_SESSION_STATE
-  {
-    title: "Conflict",
-    status: 409,
-    detail: "지금은 할 수 없는 요청이에요.",
-    instance: "/api/v1/interview-sessions/55/start",
-    code: "INVALID_SESSION_STATE",
-  } satisfies ProblemDetail,
-  // 5.12 질문 음성 토큰 503 TTS_UNAVAILABLE
-  {
-    title: "Service Unavailable",
-    status: 503,
-    detail: "질문 음성을 불러오지 못했어요. 글로 보여 드릴게요.",
-    instance: "/api/v1/interview-sessions/55/questions/303/tts-token",
-    code: "TTS_UNAVAILABLE",
   } satisfies ProblemDetail,
   // 5.15 월별 연습 면접 횟수 200 스키마 example
   {
