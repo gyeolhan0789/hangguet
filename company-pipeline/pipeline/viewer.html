@@ -92,7 +92,9 @@ dialog textarea { min-height: 90px; resize: vertical }
 <body>
 <header><h1>회사 카드 확인</h1><span class="stat" id="stat"></span><button class="add" id="open-add">+ 회사 추가</button></header>
 <div class="layout"><nav id="list" aria-label="회사 목록"></nav><main id="view"></main></div>
-<script src="data/viewer_data.js"></script>
+<!-- 매일 갱신되는 데이터라 주소에 시각을 붙여 Cloudflare·브라우저가 저장해 둔 옛 파일을 쓰지 않게 한다.
+     아래 화면 코드가 바로 읽으므로 document.write로 순서대로(동기) 불러온다 -->
+<script>document.write('<script src="data/viewer_data.js?t=' + Date.now() + '"><\/script>');</script>
 <script>
 const rows = window.VIEWER_DATA || [];
 let current = null; // 지금 보고 있는 회사 행
