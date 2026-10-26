@@ -43,6 +43,14 @@ def test_readonly_blocks_api_but_serves_page(
     assert _get(f"{base_url}/viewer.html")[0] == 200
 
 
+def test_responses_are_not_cached(base_url: str) -> None:
+    # 매일 갱신되는 viewer_data.js를 Cloudflare·브라우저가 오래 저장해 두지 않게 한다
+    with urllib.request.urlopen(f"{base_url}/viewer.html", timeout=5) as res:
+        assert res.headers["Cache-Control"] == "no-cache"
+    with urllib.request.urlopen(f"{base_url}/api/mode", timeout=5) as res:
+        assert res.headers["Cache-Control"] == "no-cache"
+
+
 def test_local_mode_is_not_readonly(base_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VIEWER_READONLY", raising=False)
 
