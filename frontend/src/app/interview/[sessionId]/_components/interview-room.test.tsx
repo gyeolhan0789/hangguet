@@ -51,6 +51,7 @@ const room = vi.hoisted(() => ({
   question: null as QuestionMessage | null,
   retry: () => {},
   submitAnswer: (async () => "accepted") as (seq: number) => Promise<string>,
+  sendChatInput: vi.fn(),
   mounts: 0,
 }));
 vi.mock("@/components/interview/use-interview-room", async () => {
@@ -69,6 +70,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         question: room.question,
         retry: room.retry,
         submitAnswer: room.submitAnswer,
+        sendChatInput: room.sendChatInput,
       };
     },
   };
@@ -124,6 +126,7 @@ beforeEach(() => {
   room.question = null;
   room.retry = vi.fn();
   room.submitAnswer = vi.fn(async () => "accepted");
+  room.sendChatInput.mockReset();
   room.mounts = 0;
   submitTextAnswer.mockReset();
   endSession.mockReset().mockResolvedValue({});
@@ -160,6 +163,43 @@ const analyzing = () => screen.queryByRole("heading", { name: "면접관이 답�
 const waitPoll = () => act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
 
 describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
+  it("채팅 입력은 기존 면접방으로 전송하고 BE 질문 ID가 늦어도 표시 중인 질문 순서를 사용한다", () => {
+    const { rerender } = render(chatRoom());
+    fireEvent.input(screen.getByRole("textbox", { name: "답변" }), {
+      target: { value: "작성 중인 답변" },
+    });
+    act(() => vi.advanceTimersByTime(800));
+    expect(room.sendChatInput).toHaveBeenCalledExactlyOnceWith(3, 1, "작성 중인 답변", 800);
+    expect(room.mounts).toBe(1);
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 4,
+      content: "다음 질문",
+      speech: "started",
+      alignment: null,
+    };
+    rerender(chatRoom());
+    fireEvent.input(screen.getByRole("textbox", { name: "답변" }), {
+      target: { value: "새 질문 표시 중" },
+    });
+    act(() => vi.advanceTimersByTime(800));
+    expect(room.sendChatInput).toHaveBeenCalledTimes(2);
+    expect(room.sendChatInput).toHaveBeenLastCalledWith(4, 1, "새 질문 표시 중", 800);
+    fireEvent.input(screen.getByRole("textbox", { name: "답변" }), {
+      target: { value: "질문 ID 확인 중 입력" },
+    });
+    act(() => vi.advanceTimersByTime(400));
+    rerender(
+      <InterviewRoom
+        session={{ ...SESSION, mode: "CHAT" }}
+        currentQuestion={{ id: 304, seq: 4, content: "다음 질문" }}
+      />,
+    );
+    act(() => vi.advanceTimersByTime(400));
+    expect(room.sendChatInput).toHaveBeenLastCalledWith(4, 2, "질문 ID 확인 중 입력", 800);
+  });
+
   it.each(["ended", "failed"] as const)(
     "채팅 질문 재생 중 제출을 차단하고 %s 수신 뒤 허용한다",
     async (speech) => {

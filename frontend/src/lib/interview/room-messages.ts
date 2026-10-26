@@ -6,6 +6,17 @@ import { z } from "zod";
 export const ANSWER_STATE_METHOD = "interview.answerState";
 export const ANSWER_SUBMIT_METHOD = "interview.answerSubmit";
 export const QUESTION_METHOD = "interview.question";
+export const CHAT_INPUT_METHOD = "interview.chatInput";
+
+export function chatInputPayload(
+  sessionId: number,
+  questionSeq: number,
+  seq: number,
+  text: string,
+  pauseMs: number,
+) {
+  return JSON.stringify({ type: "chat.input", sessionId, questionSeq, seq, text, pauseMs });
+}
 
 // 기준: AI 명세 6.3 interview.question. 질문 ID는 포함하지 않는다.
 export const questionMessageSchema = z.object({

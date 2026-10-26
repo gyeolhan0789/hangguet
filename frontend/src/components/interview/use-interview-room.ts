@@ -9,6 +9,8 @@ import {
   ANSWER_STATE_METHOD,
   ANSWER_SUBMIT_METHOD,
   QUESTION_METHOD,
+  CHAT_INPUT_METHOD,
+  chatInputPayload,
   questionMessageSchema,
   type QuestionMessage,
   answerStateSchema,
@@ -255,5 +257,23 @@ export function useInterviewRoom(
     [sessionId],
   );
 
-  return { ...state, question, retry, submitAnswer };
+  const sendChatInput = useCallback(
+    async (questionSeq: number, seq: number, text: string, pauseMs: number) => {
+      const room = connected.current;
+      const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
+      if (!listenOnly || !room || !agent) return;
+      try {
+        await room.localParticipant.performRpc({
+          destinationIdentity: agent.identity,
+          method: CHAT_INPUT_METHOD,
+          payload: chatInputPayload(sessionId, questionSeq, seq, text, pauseMs),
+        });
+      } catch {
+        // 리액션 입력 전송에 실패해도 답변 제출은 계속 진행한다.
+      }
+    },
+    [sessionId, listenOnly],
+  );
+
+  return { ...state, question, retry, submitAnswer, sendChatInput };
 }

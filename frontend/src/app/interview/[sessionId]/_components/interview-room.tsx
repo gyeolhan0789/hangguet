@@ -428,6 +428,7 @@ function ChatLive({
     retry,
     submitAnswer,
     question: message,
+    sendChatInput,
   } = useInterviewRoom(sessionId, null, { listenOnly: true });
   const [completedSeq, setCompletedSeq] = useState(0);
   const liveQuestion =
@@ -437,6 +438,14 @@ function ChatLive({
   const submissionLocked =
     liveQuestion?.speech === "started" ||
     (liveQuestion !== null && liveQuestion.seq !== question?.seq);
+  const inputQuestionSeq = liveQuestion?.seq ?? question?.seq;
+  const sendInput = useCallback(
+    (questionSeq: number, seq: number, text: string, pauseMs: number) => {
+      if (questionSeq !== inputQuestionSeq) return;
+      void sendChatInput(questionSeq, seq, text, pauseMs);
+    },
+    [inputQuestionSeq, sendChatInput],
+  );
   const router = useRouter();
   // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답으로 확인한다.
   useEffect(() => {
@@ -482,6 +491,8 @@ function ChatLive({
         sessionId={sessionId}
         question={question}
         submissionLocked={submissionLocked}
+        onChatInput={sendInput}
+        inputQuestionSeq={inputQuestionSeq}
         onAnswered={(seq) => {
           setCompletedSeq(seq);
           void send(seq, 0);

@@ -114,6 +114,50 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+describe("채팅 입력 신호 전송", () => {
+  async function joined() {
+    const hook = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    return { ...hook, room };
+  }
+
+  it("입력 전체와 질문·입력 순서·쉰 시간을 기존 연결의 에이전트에 전송한다", async () => {
+    const { result, room } = await joined();
+    await result.current.sendChatInput(3, 2, "작성 중인 답변", 820);
+    expect(room.localParticipant.performRpc).toHaveBeenCalledExactlyOnceWith({
+      destinationIdentity: "agent",
+      method: "interview.chatInput",
+      payload: JSON.stringify({
+        type: "chat.input",
+        sessionId: 55,
+        questionSeq: 3,
+        seq: 2,
+        text: "작성 중인 답변",
+        pauseMs: 820,
+      }),
+    });
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+  });
+
+  it("응답 본문을 사용하지 않으며 전송 오류도 전파하지 않는다", async () => {
+    const { result, room } = await joined();
+    room.localParticipant.performRpc.mockResolvedValueOnce("not json");
+    await expect(result.current.sendChatInput(3, 1, "답", 800)).resolves.toBeUndefined();
+    room.localParticipant.performRpc.mockRejectedValueOnce(new Error("no handler"));
+    await expect(result.current.sendChatInput(3, 2, "", 800)).resolves.toBeUndefined();
+  });
+
+  it("에이전트가 없거나 화면 정리 후에는 전송하지 않는다", async () => {
+    const { result, room, unmount } = await joined();
+    room.remoteParticipants.delete("agent");
+    await result.current.sendChatInput(3, 1, "답", 800);
+    unmount();
+    await result.current.sendChatInput(3, 2, "답변", 800);
+    expect(room.localParticipant.performRpc).not.toHaveBeenCalled();
+  });
+});
+
 describe("질문 메시지 수신", () => {
   const message = (overrides: Record<string, unknown> = {}) =>
     JSON.stringify({
