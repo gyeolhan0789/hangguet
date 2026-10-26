@@ -455,10 +455,11 @@ mock-deploy:
 # - 비밀값 DB_PASSWORD, JWT_SECRET, ADMIN_LOGIN_ID, ADMIN_PASSWORD는 GitLab CI/CD Variables
 #   (Environment scope dev/*)에서 받습니다. compose가 파일 전체를 읽으므로 앱 배포 잡 모두에 필요합니다.
 #   외부 API 키 SONIOX_API_KEY·ELEVENLABS_API_KEY도 Variables에서 받아 AI 에이전트에 넘깁니다(ELEVENLABS_API_KEY는 없어도 배포됩니다).
+#   GMS 키 LLM_API_KEY도 Variables에서 받아 AI 분석 작업자에 넘깁니다.
 #   녹화 S3 키 LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET도 Variables에서 받아 BE에 넘깁니다(없으면 화상 면접 시작이 실패합니다).
 #   앱 S3 키 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY도 Variables에서 받아 BE에 넘깁니다(없으면 프로필 사진 API만 실패합니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
-# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
+# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/admin에서 이전 배포를 Re-deploy 합니다.
 
 # 헬스체크: 서비스별 정상 응답을 기다리고, 안 되면 로그를 남기고 실패합니다.
 # 배포 잡(.dev-deploy)과 FE API 전환 잡(.fe-api-switch)이 함께 씁니다.
@@ -708,6 +709,24 @@ ai-agent-deploy:
     DEV_HEALTH_SOURCE: "container"
   environment:
     name: dev/ai-agent
+
+# AI 분석 작업자: HTTP가 없어 Compose의 컨테이너 상태 검사(Redis 연결 확인)를 사용합니다.
+# GMS 주소·모델은 deploy/dev/compose.yml에, 키(LLM_API_KEY)는 Variables에 있습니다.
+ai-analysis-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/**/*
+        - .gitlab-ci.yml
+  before_script:
+    - 'test -n "$LLM_API_KEY" || { echo "FAIL: LLM_API_KEY가 필요합니다."; exit 1; }'
+  variables:
+    DEV_SERVICE: "a301-dev-ai-analysis"
+    DEV_HEALTH_SOURCE: "container"
+  environment:
+    name: dev/ai-analysis
 
 ## 관리자 페이지 ##
 
