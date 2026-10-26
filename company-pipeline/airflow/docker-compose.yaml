@@ -1,12 +1,22 @@
-# 회사 카드 파이프라인용 로컬 Airflow 3.3 + MinIO(원문 저장소)
+# 회사 카드 파이프라인용 Airflow 3.3 + MinIO(원문 저장소). 로컬과 EC2(CI pipeline-deploy)에서 같은 파일을 쓴다.
 # 공식 docker-compose(3.3.2)에서 Celery·Redis·워커·트리거러·Flower를 빼고 LocalExecutor로 줄였다.
 # 띄우기: cd company-pipeline/airflow && docker compose up -d  → http://localhost:8080
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 x-airflow-common: &airflow-common
   image: apache/airflow:3.3.2-python3.13
+  logging: *logging
   env_file:
     - ../.env # DART_API_KEY, NAVER_CLIENT_ID/SECRET, LLM_* (git 제외)
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    # 실행 프로세스를 동시 실행 수만큼 미리 띄운다(하나에 약 150MB). 기본 32개면 약 1GB라 4GB 서버에서
+    # 메모리 부족으로 작업이 죽는다. llm 풀이 1이라 실제로 동시에 도는 작업은 1~2개뿐
+    AIRFLOW__CORE__PARALLELISM: "4"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
     AIRFLOW__API_AUTH__JWT_SECRET: local-only-jwt-secret
@@ -48,6 +58,7 @@ services:
       retries: 5
       start_period: 5s
     restart: always
+    logging: *logging
 
   # 원문 저장소. 공식 minio/minio 이미지 배포가 끝나 MinIO 원본 코드로 만든 Chainguard 이미지를 쓴다
   # (무료는 latest 태그만 있다). 저장소 localhost:9000, 웹 화면 localhost:9001
@@ -63,6 +74,7 @@ services:
     volumes:
       - minio-data:/data
     restart: always
+    logging: *logging
 
   # 처음 한 번: 버킷 생성 (이미 있으면 그대로)
   minio-init:
@@ -73,6 +85,7 @@ services:
     depends_on:
       - minio
     restart: on-failure  # MinIO가 아직 준비 전이면 다시 시도
+    logging: *logging
 
   airflow-apiserver:
     <<: *airflow-common

@@ -1,6 +1,6 @@
-# 회사 카드 파이프라인 Airflow + MinIO (로컬)
+# 회사 카드 파이프라인 Airflow + MinIO
 
-`company-pipeline/pipeline`의 회사 카드 만들기를 Airflow 3.3으로 자동 실행하고, 받은 원문은 MinIO에 쌓는다. 노트북 로컬용이다.
+`company-pipeline/pipeline`의 회사 카드 만들기를 Airflow 3.3으로 자동 실행하고, 받은 원문은 MinIO에 쌓는다. 로컬과 교보재 EC2에서 같은 compose 파일을 쓴다([EC2 배포](#ec2-배포)).
 
 ## DAG
 
@@ -43,6 +43,33 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 - 날짜·회사별 결과: 격자 보기(`w`). 회사별 칸 이름이 회사명으로 보인다
 - 실패한 회사만 다시: 빨간 칸 → 로그 확인 → Clear
 - 카드 내용 확인: `cd company-pipeline && uv run python -m pipeline.viewer` (MinIO 원문을 읽으려면 아래 `.env` 4줄 필요)
+
+## EC2 배포
+
+`company-pipeline/` 변경이 develop에 병합되면 CI `pipeline-deploy` 잡이 교보재 EC2에 배포한다(팀 개발 서버와 같은 방식).
+
+```
+develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
+→ 코드를 /opt/a301-pipeline 으로 복사 (.env·pipeline/data·airflow/logs는 그대로)
+→ docker compose up -d → scheduler 헬스체크
+```
+
+| 항목 | 내용 |
+|---|---|
+| 서버 | 교보재 EC2 t3.medium(2코어·4GB) + 스왑 2GB, 서울, `13.209.132.209`. 보안 그룹은 SSH(22)만 |
+| 배포 폴더 | `/opt/a301-pipeline` (러너 계정 `gitlab-runner` 소유) |
+| API 키 | `/opt/a301-pipeline/.env`에 처음 한 번 직접 둔다(소유자 `gitlab-runner`, 권한 600). git·CI 변수에 두지 않는다 |
+| 메모리 | `AIRFLOW__CORE__PARALLELISM=4`. 기본 32면 실행 프로세스가 약 1GB를 잡아 4GB에서 작업이 메모리 부족으로 죽었다 |
+| 폴더 권한 | 컨테이너 안 Airflow는 uid 50000. 배포 잡이 `pipeline/data`·`airflow/logs` 소유자를 맞춘다 |
+
+- 처음 배포한 뒤 DAG는 꺼져 있다. 화면에서 `company_news_daily`를 켜야 13:00에 돈다
+- 화면은 SSH 터널로 본다. Airflow가 로그인 없이 관리자로 들어가는 설정이라 8080·9001을 바깥에 열지 않는다
+  ```bash
+  ssh -i <pem> -L 8080:127.0.0.1:8080 ubuntu@13.209.132.209   # 브라우저 http://localhost:8080
+  ```
+- 롤백: GitLab Deployments → Environments → `pipeline` → 이전 배포 **Re-deploy**
+- 급히 멈출 때: 서버에서 `cd /opt/a301-pipeline/airflow && sudo docker compose down` (수집 데이터 볼륨은 남는다. `-v`는 붙이지 않는다)
+- 서버 처음 셋팅·러너 등록 방법: [박다빈/deploy_plan](../../박다빈/deploy_plan/README.md)
 
 ## 회사 추가
 
