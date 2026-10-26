@@ -10,6 +10,8 @@
   답변 끝 판단이 이 시점을 발화로 보고 7초를 계산한다(app.interview.realtime.answer_end).
 - STT 오류가 발생해도 그때까지 인식된 글은 snapshot으로 제공한다.
   STT 오류 뒤 발화가 있었으면 [답변 완료]로 그 글을 제출하기 때문이다(AI 명세 6.5).
+- 끝 감지(<end>)를 수신할 때 문장 끝이면 on_sentence에 문장과 지금까지의 답변 글을 전달한다.
+  면접관 리액션은 문장이 끝날 때마다 판단하기 때문이다(AI 명세 6.2 3번).
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from datetime import datetime
 from app.agent.stt import SonioxSTT
 from app.common.answer import SpeechToken
 from app.common.results import KST
+from app.interview.realtime.sentence import Sentence, SentenceTracker
 
 
 def _now() -> datetime:
@@ -51,15 +54,18 @@ class AnswerCapture:
         *,
         on_speech: Callable[[], None],
         on_update: Callable[[str, str], None] | None = None,
+        on_sentence: Callable[[Sentence, str], None] | None = None,
         clock: Callable[[], datetime] = _now,
     ) -> None:
         self._on_speech = on_speech
         self._on_update = on_update
+        self._on_sentence = on_sentence
         self._clock = clock
         self._speech_end_ms: float | None = None
         self._pcm = bytearray()
         self._started_at: datetime | None = None
         self._stt = stt_factory(self._updated)
+        self._sentences = SentenceTracker(self._stt.transcript)
 
     async def run(self, audio: AsyncIterable[bytes]) -> CapturedAnswer:
         """음성이 끝날 때까지 STT로 전송한다.
@@ -97,3 +103,8 @@ class AnswerCapture:
         if end is not None and (self._speech_end_ms is None or end > self._speech_end_ms):
             self._speech_end_ms = end
             self._on_speech()
+        proc_ms = self._stt.endpoint_proc_ms
+        if proc_ms is not None and self._on_sentence is not None:
+            sentence = self._sentences.on_endpoint(proc_ms)
+            if sentence is not None:
+                self._on_sentence(sentence, self._stt.transcript.content())

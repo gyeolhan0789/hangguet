@@ -15,6 +15,7 @@ from typing import Any
 
 import aiohttp
 
+from app.interview.realtime.sentence import has_endpoint
 from app.interview.realtime.transcript import Transcript, soniox_tokens
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ class SonioxSTT:
         self.transcript = Transcript()
         self.transcript.begin_connection(0)
         self._on_update = on_update
+        # 마지막 응답에 끝 감지(<end>)가 있었으면 그 응답의 total_audio_proc_ms, 없으면 None이다.
+        # on_update에서 문장 끝을 판단할 수 있도록 on_update를 호출하기 전에 갱신한다
+        self.endpoint_proc_ms: float | None = None
 
     @property
     def text(self) -> str:
@@ -66,7 +70,16 @@ class SonioxSTT:
             # 공급자 메시지에는 입력값이 포함될 수 있어 원문을 로그에 남기지 않는다.
             raise SttError(f"Soniox STT 오류 (code={response.get('error_code', 'unknown')})")
         before = self.transcript.final_count
-        self.transcript.apply(soniox_tokens(response))
+        tokens = soniox_tokens(response)
+        self.transcript.apply(tokens)
+        proc_ms = response.get("total_audio_proc_ms")
+        self.endpoint_proc_ms = (
+            float(proc_ms)
+            if has_endpoint(tokens)
+            and isinstance(proc_ms, int | float)
+            and not isinstance(proc_ms, bool)
+            else None
+        )
         confirmed = self.transcript.final_count - before
         if self._on_update is not None:
             self._on_update(self.text, self.interim_text)

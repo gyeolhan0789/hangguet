@@ -125,3 +125,22 @@ def test_started_at_is_taken_when_listening_begins() -> None:
     result = asyncio.run(made.run(chunks(3)))
     assert result.started_at == STARTED_AT
     assert made.snapshot().started_at == STARTED_AT
+
+
+def test_sentences_are_reported_with_answer_so_far() -> None:
+    """실제 Soniox 응답에서 두 문장이 각각 끝 감지와 함께 문장 끝으로 판단된다."""
+    sentences: list[tuple[str, float, str]] = []
+    made = AnswerCapture(
+        lambda on_update: ReplaySTT(on_update, RESPONSES),
+        on_speech=lambda: None,
+        on_sentence=lambda sentence, answer: sentences.append(
+            (sentence.text, sentence.pause_ms, answer)
+        ),
+        clock=lambda: STARTED_AT,
+    )
+    asyncio.run(made.run(chunks(len(RESPONSES))))
+    assert [(text, answer) for text, _, answer in sentences] == [
+        (FIRST_SENTENCE, FIRST_SENTENCE),
+        (SECOND_SENTENCE, f"{FIRST_SENTENCE} {SECOND_SENTENCE}"),
+    ]
+    assert all(pause >= 0 for _, pause, _ in sentences)

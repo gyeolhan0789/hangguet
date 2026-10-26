@@ -18,14 +18,17 @@ from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
 from app.agent.interview import InterviewRunner
+from app.agent.jev import JevJudge
 from app.agent.question import QuestionSpeaker
+from app.agent.reaction import REACTION_METHOD, ReactionStream
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.session import InterviewMode
-from app.common.settings import load_settings
+from app.common.settings import Settings, load_settings
+from app.interview.realtime.sentence import Sentence
 
 log = logging.getLogger(__name__)
 server = AgentServer(num_idle_processes=0)
@@ -135,6 +138,7 @@ class RoomCapture:
         identity: str,
         settings: SttSettings,
         on_speech: Callable[[], None],
+        on_sentence: Callable[[Sentence, str], None],
     ) -> None:
         self._room = room
         self._identity = identity
@@ -144,6 +148,7 @@ class RoomCapture:
             lambda on_update: SonioxSTT(settings, on_update=on_update),
             on_speech=on_speech,
             on_update=self._publisher.update,
+            on_sentence=on_sentence,
         )
 
     async def run(self) -> CapturedAnswer:
@@ -177,15 +182,15 @@ class RoomCapture:
         await self._publisher.aclose()
 
 
-async def send_answer_state(
-    participant: rtc.LocalParticipant, destination: str, payload: str
+async def send_room_message(
+    participant: rtc.LocalParticipant, destination: str, method: str, payload: str
 ) -> None:
     """화면이 받지 못해도(처리 함수 없음·응답 지연) 면접은 계속 진행한다(AI 명세 6.3)."""
     try:
         await asyncio.wait_for(
             participant.perform_rpc(
                 destination_identity=destination,
-                method=ANSWER_STATE_METHOD,
+                method=method,
                 payload=payload,
                 response_timeout=STATE_RPC_TIMEOUT,
             ),
@@ -193,7 +198,7 @@ async def send_answer_state(
         )
     except (rtc.RpcError, TimeoutError) as e:
         code = e.code if isinstance(e, rtc.RpcError) else "timeout"
-        log.info("답변 상태 화면 전달 실패 code=%s", code)
+        log.info("면접방 메시지 화면 전달 실패 method=%s code=%s", method, code)
 
 
 async def run_interview(
@@ -210,16 +215,34 @@ async def run_interview(
     """
     room = ctx.room
     video = assignment.mode is InterviewMode.VIDEO
-    results = ResultPublisher(create_redis(load_settings(os.environ)))
+    common = load_settings(os.environ)
+    results = ResultPublisher(create_redis(common))
     delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
+    judge = reaction_judge(common)
+    reactions = (
+        None
+        if judge is None
+        else ReactionStream(
+            assignment.session_id,
+            judge,
+            lambda destination, payload: send_room_message(
+                room.local_participant, destination, REACTION_METHOD, payload
+            ),
+            question=assignment.question,
+            criteria=assignment.criteria,
+        )
+    )
     runner = InterviewRunner(
         assignment,
         speaker,
-        lambda identity, on_speech: RoomCapture(room, identity, settings, on_speech),
-        lambda destination, payload: send_answer_state(
-            room.local_participant, destination, payload
+        lambda identity, on_speech, on_sentence: RoomCapture(
+            room, identity, settings, on_speech, on_sentence
+        ),
+        lambda destination, payload: send_room_message(
+            room.local_participant, destination, ANSWER_STATE_METHOD, payload
         ),
         on_answer=delivery.deliver,
+        reactions=reactions,
     )
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:
@@ -241,6 +264,8 @@ async def run_interview(
         runner.candidate_left(participant.identity)
 
     async with AsyncExitStack() as cleanup:
+        if judge is not None:
+            cleanup.push_async_callback(judge.aclose)
         room.on("track_published", subscribe)
         cleanup.callback(room.off, "track_published", subscribe)
         room.on("participant_connected", joined)
@@ -256,6 +281,16 @@ async def run_interview(
         await speaker.publish_track()
         await runner.run()
         await closed.wait()
+
+
+def reaction_judge(settings: Settings) -> JevJudge | None:
+    if settings.jev_api_key is None:
+        # Jev 실패와 같이 리액션 없이 진행한다(AI 명세 6.5).
+        # TTS와 같이 실행을 막지 않는다.
+        # 리액션이 없어도 면접은 진행할 수 있기 때문이다
+        log.warning("JEV_API_KEY가 없어 리액션 없이 진행한다")
+        return None
+    return JevJudge(settings.jev_api_key)
 
 
 def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker:

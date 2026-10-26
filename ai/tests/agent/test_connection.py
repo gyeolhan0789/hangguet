@@ -9,6 +9,7 @@ from livekit import rtc
 from livekit.agents import AutoSubscribe
 
 from app.agent.assignment import parse_assignment
+from app.agent.jev import JevJudge
 from app.agent.main import (
     accept_request,
     audio_chunks,
@@ -16,12 +17,14 @@ from app.agent.main import (
     job_assignment,
     main,
     question_speaker,
+    reaction_judge,
     run_interview,
     server,
     transcribe_participant,
     transcribe_room,
 )
 from app.agent.stt import SttSettings
+from app.common.settings import load_settings
 
 
 @pytest.fixture(autouse=True)
@@ -408,3 +411,9 @@ ASSIGNMENT_JSON = json.dumps(
         "questions": [{"seq": seq, "content": "질문", "criteria": "기준"} for seq in range(1, 6)],
     }
 )
+
+
+def test_reactions_are_skipped_without_jev_key() -> None:
+    """Jev 키가 없으면 Jev 실패와 같이 리액션 없이 진행한다(AI 명세 6.5)."""
+    assert reaction_judge(load_settings({})) is None
+    assert isinstance(reaction_judge(load_settings({"JEV_API_KEY": "jev-key"})), JevJudge)

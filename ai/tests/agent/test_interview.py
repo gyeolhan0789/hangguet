@@ -20,6 +20,7 @@ from app.agent.stt import SttError
 from app.common.results import KST, ResultPublishError
 from app.interview.realtime import answer_end
 from app.interview.realtime.progress import EndReason
+from app.interview.realtime.sentence import Sentence
 
 STARTED_AT = datetime(2026, 10, 26, 14, 0, tzinfo=KST)
 CANDIDATE = "candidate"
@@ -70,8 +71,11 @@ class FakeAsker:
 
 
 class FakeSession:
-    def __init__(self, on_speech: Callable[[], None]) -> None:
+    def __init__(
+        self, on_speech: Callable[[], None], on_sentence: Callable[[Sentence, str], None]
+    ) -> None:
         self.on_speech = on_speech
+        self.on_sentence = on_sentence
         self.stopped = asyncio.Event()
         self.failure: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self.closed = False
@@ -81,6 +85,9 @@ class FakeSession:
     def speak(self) -> None:
         self.spoken += 1
         self.on_speech()
+
+    def end_sentence(self, text: str) -> None:
+        self.on_sentence(Sentence(text, 300.0), f"앞 {text}")
 
     def break_stt(self) -> None:
         self.failure.set_exception(SttError("Soniox STT 오류 (code=503)"))
@@ -112,6 +119,25 @@ class FakeSession:
         self.closed = True
 
 
+class FakeReactions:
+    """리액션 판단기 대역.
+
+    진행기가 호출한 순서를 기록한다.
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def start(self, question_seq: int, destination: str) -> None:
+        self.calls.append(("start", question_seq, destination))
+
+    def submit(self, text: str, pause_ms: float, answer: str) -> None:
+        self.calls.append(("submit", text, pause_ms, answer))
+
+    async def stop(self) -> None:
+        self.calls.append(("stop",))
+
+
 class Harness:
     def __init__(self, current_seq: int = 1, mode: str = "VIDEO") -> None:
         self.asker = FakeAsker()
@@ -124,17 +150,24 @@ class Harness:
         self.saved = True
         self.running: asyncio.Task[None] | None = None
         self.session_opened = asyncio.Event()
+        self.reactions = FakeReactions()
         self.runner = InterviewRunner(
             assignment(current_seq, mode),
             self.asker,
             self.open_capture,
             self.send_state,
             on_answer=self.on_answer,
+            reactions=self.reactions,  # type: ignore[arg-type]
         )
 
-    def open_capture(self, identity: str, on_speech: Callable[[], None]) -> FakeSession:
+    def open_capture(
+        self,
+        identity: str,
+        on_speech: Callable[[], None],
+        on_sentence: Callable[[Sentence, str], None],
+    ) -> FakeSession:
         assert identity == CANDIDATE
-        session = FakeSession(on_speech)
+        session = FakeSession(on_speech, on_sentence)
         self.sessions.append(session)
         self.session_opened.set()
         return session
@@ -516,3 +549,48 @@ def test_other_candidate_identity_leaving_is_ignored() -> None:
 
 def test_monotonic_clock_is_the_default() -> None:
     assert interview_module._monotonic_ms() >= 0
+
+
+def test_video_sentences_are_judged_only_while_listening() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.end_sentence("첫 문장이에요.")
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.calls[:3] == [
+        ("start", 1, CANDIDATE),
+        ("submit", "첫 문장이에요.", 300.0, "앞 첫 문장이에요."),
+        ("stop",),
+    ]
+
+
+def test_leaving_stops_reactions_and_rejoin_listens_to_same_question() -> None:
+    async def scenario(h: Harness) -> None:
+        first = await h.next_session()
+        first.speak()
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: first.closed)
+        h.runner.candidate_joined(CANDIDATE)
+        (await h.next_session()).speak()
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.reactions.calls[:4] == [
+        ("start", 1, CANDIDATE),
+        ("stop",),
+        ("start", 1, CANDIDATE),
+        ("stop",),
+    ]
+
+
+def test_chat_does_not_start_sentence_reactions() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        await until(lambda: not h.asker.speaking.is_set())
+        h.submit(1)
+        await asyncio.sleep(0.02)
+
+    h = run_async(scenario, mode="CHAT")
+    assert h.reactions.calls == []

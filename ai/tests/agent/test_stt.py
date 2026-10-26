@@ -260,3 +260,23 @@ def test_audio_failure_closes_connection_and_preserves_error() -> None:
         ws.send_str.assert_not_awaited()
 
     asyncio.run(run())
+
+
+def test_endpoint_processing_time_is_kept_only_for_endpoint_response() -> None:
+    seen: list[float | None] = []
+    stt = SonioxSTT(
+        SttSettings("secret"),
+        on_update=lambda _confirmed, _interim: seen.append(stt.endpoint_proc_ms),
+    )
+    stt.accept_response(
+        {
+            "tokens": [{"text": "답변이에요.", "is_final": True, "start_ms": 0, "end_ms": 900}],
+            "total_audio_proc_ms": 1200,
+        }
+    )
+    stt.accept_response(
+        {"tokens": [{"text": "<end>", "is_final": True}], "total_audio_proc_ms": 1500}
+    )
+    stt.accept_response({"tokens": [], "total_audio_proc_ms": 1800})
+    # 문장 끝 판단이 on_update에서 읽을 수 있도록 호출 전에 갱신한다
+    assert seen == [None, 1500.0, None]

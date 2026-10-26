@@ -22,6 +22,8 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   결과 큐 전송이 재시도 후에도 실패하면 submitFailed를 알리고 다음 질문으로 진행하지 않는다.
   [답변 완료]를 수신하면 보관한 같은 답변을 다시 전달한다(AI 명세 6.5).
   그동안 지원자가 재입장하면 화면이 실패 상태를 모르므로 submitFailed를 다시 알린다.
+- 화상 답변은 문장이 끝날 때마다 리액션을 판단한다(AI 명세 6.2 3번).
+  답변이 끝나거나 지원자가 퇴장하면 판단 중이던 리액션을 전송하지 않는다(AI 명세 6.5).
 """
 
 from __future__ import annotations
@@ -41,6 +43,7 @@ from app.agent.answer_rpc import (
     parse_answer_submit,
 )
 from app.agent.assignment import Assignment
+from app.agent.reaction import ReactionStream
 from app.agent.tts import SpeechAudio
 from app.common.results import ResultPublishError
 from app.common.session import MAX_SEQ, InterviewMode
@@ -59,6 +62,7 @@ from app.interview.realtime.answer_end import (
     next_deadline,
 )
 from app.interview.realtime.progress import EndReason
+from app.interview.realtime.sentence import Sentence
 
 log = logging.getLogger(__name__)
 
@@ -88,7 +92,7 @@ class CaptureSession(Protocol):
     async def aclose(self) -> None: ...
 
 
-CaptureOpener = Callable[[str, Callable[[], None]], CaptureSession]
+CaptureOpener = Callable[[str, Callable[[], None], Callable[[Sentence, str], None]], CaptureSession]
 StateSender = Callable[[str, str], Coroutine[Any, Any, None]]
 
 
@@ -112,6 +116,7 @@ class InterviewRunner:
         send_state: StateSender,
         *,
         on_answer: Callable[[FinishedAnswer], Awaitable[bool]] | None = None,
+        reactions: ReactionStream | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
     ) -> None:
         self._assignment = assignment
@@ -120,6 +125,7 @@ class InterviewRunner:
         self._open_capture = open_capture
         self._send_state = send_state
         self._on_answer = on_answer
+        self._reactions = reactions
         self._ms = monotonic_ms
         self._state = INITIAL_STATE
         self._seq: int | None = None
@@ -235,7 +241,9 @@ class InterviewRunner:
         self._finish = None
         self._state = INITIAL_STATE
         self._apply(AnswerStarted(self._ms(), self._assignment.mode))
-        session = self._open_capture(destination, self._speech)
+        if self._reactions is not None:
+            self._reactions.start(seq, destination)
+        session = self._open_capture(destination, self._speech, self._sentence)
         capturing = asyncio.create_task(session.run())
         failed = False
         finished = False
@@ -259,6 +267,8 @@ class InterviewRunner:
                 session.stop()
                 capturing.cancel()
                 await asyncio.gather(capturing, return_exceptions=True)
+            if self._reactions is not None:
+                await self._reactions.stop()
             await session.aclose()
         await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
         return True
@@ -312,6 +322,10 @@ class InterviewRunner:
         step = next_answer_end(self._state, event)
         self._state = step.state
         return step.decision
+
+    def _sentence(self, sentence: Sentence, answer: str) -> None:
+        if self._reactions is not None:
+            self._reactions.submit(sentence.text, sentence.pause_ms, answer)
 
     def _speech(self) -> None:
         self._apply(Speech(self._ms()))
