@@ -62,6 +62,8 @@ export interface SessionResponse {
   createdAt: OffsetDateTime;
   /** 이번에 끝낸 면접으로 스트릭이 올라 뱃지 구간이 바뀌었으면 true. 5.8 응답에만 값이 있고, 그 외에는 null */
   leveledUp: boolean | null;
+  /** 면접방 입장 정보. 5.4 응답에만 값이 있고, 그 외에는 null */
+  room: RoomResponse | null;
 }
 
 /** 5.5 지금 질문 (200) */

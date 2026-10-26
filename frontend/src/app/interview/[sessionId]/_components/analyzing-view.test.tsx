@@ -32,6 +32,7 @@ const SESSION: SessionResponse = {
   endedAt: "2026-10-15T12:18:00+09:00",
   createdAt: "2026-10-15T11:58:30+09:00",
   leveledUp: null,
+  room: null,
 };
 
 afterEach(() => {

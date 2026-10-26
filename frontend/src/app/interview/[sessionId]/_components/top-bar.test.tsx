@@ -28,6 +28,7 @@ const SESSION: SessionResponse = {
   endedAt: null,
   createdAt: "2026-10-15T11:58:30+09:00",
   leveledUp: null,
+  room: null,
 };
 
 /** 5.5 지금 질문(Swagger 5.2 예시의 질문 303 · 3번) */

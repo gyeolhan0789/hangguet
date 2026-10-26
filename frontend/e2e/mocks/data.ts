@@ -199,6 +199,7 @@ export const SESSION = {
   endedAt: null,
   createdAt: "2026-10-15T11:58:30+09:00",
   leveledUp: null,
+  room: null,
 } as const satisfies SessionResponse;
 
 /** 5.2 면접 조회 200 — Swagger 예시 'S05·S05-E 질문 준비 78%' · 'S05 플랜 생성 실패'. 준비 완료는 예시가 없어 5.4 시작 전 상태로 만든다. */
@@ -216,6 +217,11 @@ export const SESSION_STARTED = {
   planProgress: null,
   currentQuestion: { id: 301, seq: 1, content: "1분 동안 자기소개 부탁드려요." },
   startedAt: "2026-10-15T12:00:00+09:00",
+  room: {
+    url: "wss://rtc.hangguet.co.kr",
+    token: "eyJhbGciOiJIUzI1NiJ9…",
+    expiresAt: "2026-10-15T12:10:00+09:00",
+  },
 } as const satisfies SessionResponse;
 
 /** 5.2 면접 조회 200 — Swagger 예시 'S06·S06-B 면접 중' · 'S06 다음 질문 생성 중' · 'S06-1 결과 분석 중' */
@@ -266,6 +272,7 @@ export const SESSION_ENDED = {
     startedAt: "2026-10-15T12:00:00+09:00",
     endedAt: "2026-10-15T12:08:42+09:00",
     leveledUp: true,
+    room: null,
   },
   ABORTED: {
     ...SESSION,
@@ -277,6 +284,7 @@ export const SESSION_ENDED = {
     startedAt: "2026-10-15T12:00:00+09:00",
     endedAt: "2026-10-15T12:01:35+09:00",
     leveledUp: false,
+    room: null,
   },
 } as const satisfies Record<string, SessionResponse>;
 
