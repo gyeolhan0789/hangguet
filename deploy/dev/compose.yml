@@ -170,6 +170,8 @@ services:
       SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
       # 질문 음성(TTS). 질문 시작(question.started)은 BE와 같은 Redis의 결과 큐로 보낸다
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
+      JEV_API_KEY: ${JEV_API_KEY:-}
       REDIS_HOST: a301-dev-redis
       REDIS_PORT: "6379"
     healthcheck:

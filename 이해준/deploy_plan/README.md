@@ -426,7 +426,7 @@ Docker Hub는 액세스 토큰을 권한별로 나눈다 **[제안]**: push용(R
 
 GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`. 개발 서버와 **다른 값**을 쓴다 **[결정]**. 왜: 개발 서버 값이 새도 운영에는 영향이 없고, Protected라 보호 브랜치(master) 파이프라인에서만 읽힌다.
 
-**예외: 개발과 같은 값(범위 All)** **[결정]**: 관리자 계정(`ADMIN_LOGIN_ID` · `ADMIN_PASSWORD`), `GRAFANA_ADMIN_PASSWORD`, 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `LLM_API_KEY`). 모두 Protected라 보호 브랜치 파이프라인에서만 읽힌다.
+**예외: 개발과 같은 값(범위 All)** **[결정]**: 관리자 계정(`ADMIN_LOGIN_ID` · `ADMIN_PASSWORD`), `GRAFANA_ADMIN_PASSWORD`, 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `JEV_API_KEY` · `LLM_API_KEY`). 모두 Protected라 보호 브랜치 파이프라인에서만 읽힌다.
 
 - 왜: 관리자 · Grafana는 팀이 한 계정으로 두 환경을 같이 관리한다. 외부 API 키는 서비스마다 키를 하나로 쓴다(GMS처럼 더 받을 수 없는 키도 있다)
 - 대가: 개발 쪽에서 값이 새면 운영도 같이 바꿔야 한다. 외부 API는 개발 사용량과 운영이 한도를 나눠 쓴다
@@ -439,7 +439,8 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` | O(아이디는 기동 로그에 찍혀 Masked 안 함) | BE 관리 페이지 계정. 처음 기동할 때 계정이 없으면 만든다. 범위 All(위 예외) |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
 | `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
-| `ELEVENLABS_API_KEY` · `JEV_API_KEY` | O | AI 에이전트 연결 예정. 현재 AI 공통 설정의 변수 이름 |
+| `ELEVENLABS_API_KEY` | O | AI 에이전트(질문 음성). 없으면 질문 글로만 진행한다. 범위 All(위 예외) |
+| `JEV_API_KEY` | O | AI 에이전트(답변 리액션). 없으면 리액션 없이 진행한다. 범위 All(위 예외) |
 | `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`company-pipeline/pipeline/README.md`](../../company-pipeline/pipeline/README.md))과 같게 한다 |
 | `CLOUDFLARE_TUNNEL_TOKEN` | O | cloudflared |
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
@@ -650,3 +651,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.3 · 11 | 로그 수집을 MVP에 넣음: 개발 서버에 Loki 3.7.8 · Alloy v1.20.1 · Grafana 로그 대시보드 추가(3일 보관, `a301-dev-*`만 수집), 꺼 두었던 `monitoring-deploy` 다시 켬 | 팀원이 SSH 없이 로그를 보게 하고, 재배포해도 로그가 남게 하려고 |
 | 인프라 | 7 | 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수 `prod/*`) | 문의 API가 이 키를 필수로 요구해 없으면 운영 BE가 기동하지 않는다 |
 | 인프라 | 3.2 · 3.3 · 8.1 · 11 | 운영 CI 작성(`prod-build` 자동 · `prod-deploy` 버튼, `deploy/prod/deploy.sh`, `workflow`에 master 추가). 결정: 운영 배포는 ▶ 버튼, 이미지는 yobi 미니PC에서 빌드, 운영 로그 수집을 첫 배포에 넣고 팀원 전원 Viewer · 7일, 러너 토큰은 다시 받지 않음 | 배포 시점을 사람이 골라 진행 중인 면접을 끊지 않고, 첫 배포 문제를 로그로 보려고. 각 결정의 이유는 해당 장 |
+| 인프라 | 7 | 개발 · 운영 compose의 AI 에이전트에 `JEV_API_KEY` 전달 추가(범위 All, 없으면 리액션 없이 진행) | GitLab 변수는 compose `environment:`에 적은 것만 컨테이너로 들어가, 키를 등록해도 리액션이 꺼진 채 떴다 |

@@ -35,7 +35,7 @@ Cloudflare Tunnel(`a301-prod`)의 호스트 이름은 컨테이너 이름을 가
 GitLab CI/CD Variables(배포 계획 7장). compose가 파일 전체를 읽으므로 어느 서비스를 띄우든 모두 필요하다.
 
 - 범위 `prod/*`: `DB_PASSWORD`, `JWT_SECRET`, `INQUIRY_ENCRYPTION_KEY`(Base64 32바이트, 잃으면 문의를 풀 수 없으므로 따로 보관), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_EGRESS_S3_ACCESS_KEY`, `LIVEKIT_EGRESS_S3_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`
-- 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행)
+- 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행), `JEV_API_KEY`(없으면 리액션 없이 진행)
 - GMS 주소 · 모델(`LLM_CHAT_URL` · `LLM_MODEL`)은 비밀이 아니라 compose에 적었다(개발과 같은 값)
 - 배포 작업이 넣는 값: `IMAGE_TAG`(커밋 짧은 SHA, 필수), `DOCKERHUB_PULL_TOKEN`(범위 `prod/*`). 빌드 잡은 `DOCKERHUB_PUSH_TOKEN`
 
