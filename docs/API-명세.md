@@ -488,7 +488,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 | `state`: `idle` · `listening` · `thinking` · `speaking` | 자세·시선·입 움직임으로 표현 | 상태별 기본 이미지 |
 | `expression`: `smile` · `frown` · `smirk` | `intensity`(세기)에 따라 연속 변형 | 표정별 이미지. `intensity` 무시 |
 | `gesture`: `small_nod` · `nod` · `tilt` | 끄덕·갸웃 동작 | 무시 |
-| `attitude`: `interest` · `trust` (0~1) | 표정이 서서히 바뀜 | 무시 |
+| `attitude`: `interest` · `trust` (0~1) | 리액션을 표시하는 `durationMs` 동안만 약하게 더하고, 지나면 기본 상태로 돌아감. 표정 리액션이면 표정은 리액션 값을 따름 | 무시 |
 | `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
 
 리액션이 없을 때와 `durationMs`(1,200ms)가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다.
