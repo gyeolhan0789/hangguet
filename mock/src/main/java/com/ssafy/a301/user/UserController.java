@@ -7,6 +7,7 @@ import com.ssafy.a301.user.UserDtos.MeResponse;
 import com.ssafy.a301.user.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.UserDtos.NicknameRequest;
 import com.ssafy.a301.user.UserDtos.PasswordChangeRequest;
+import com.ssafy.a301.user.UserDtos.PasswordChangeResponse;
 import com.ssafy.a301.user.UserDtos.ProfileImageRequest;
 import com.ssafy.a301.user.UserDtos.ProfileImageUploadUrlRequest;
 import com.ssafy.a301.user.UserDtos.UploadUrlResponse;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +45,10 @@ public class UserController {
             { "id": 1, "email": "example@ssafy.com", "nickname": "면접왕", "profileImageUrl": "https://…",
               "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7, "accessToken": "eyJ…",
               "expiresIn": 3600 }\
+            """;
+    private static final String PASSWORD_CHANGE_EXAMPLE =
+            """
+            { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600 }\
             """;
     private static final String UPLOAD_URL_EXAMPLE =
             """
@@ -88,8 +94,14 @@ public class UserController {
                 jwtIssuer.accessTokenTtlSeconds());
     }
 
-    @Operation(summary = "2.3 비밀번호 변경")
-    @ApiResponse(responseCode = "204")
+    @Operation(
+            summary = "2.3 비밀번호 변경",
+            description =
+                    "이 기기는 새 토큰으로 로그인을 유지하고, 다른 기기는 모두 로그아웃한다. 바꾸기 전에 받은 리프레시 토큰은 이 기기 것도"
+                            + " 쓸 수 없으므로 응답의 토큰으로 바꿔 저장한다.")
+    @ApiResponse(
+            responseCode = "200",
+            content = @Content(examples = @ExampleObject(value = PASSWORD_CHANGE_EXAMPLE)))
     @ApiResponse(
             responseCode = "400",
             content =
@@ -100,8 +112,14 @@ public class UserController {
                                             name = "PASSWORD_MISMATCH",
                                             value = ErrorExamples.PASSWORD_MISMATCH)))
     @PatchMapping("/password")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(@Valid @RequestBody PasswordChangeRequest request) {}
+    public PasswordChangeResponse changePassword(
+            @Valid @RequestBody PasswordChangeRequest request) {
+        MeResponse me = stub.read(ME_EXAMPLE, MeResponse.class);
+        return new PasswordChangeResponse(
+                jwtIssuer.issueAccessToken(me.id(), me.nickname()),
+                UUID.randomUUID().toString(),
+                jwtIssuer.accessTokenTtlSeconds());
+    }
 
     @Operation(summary = "2.4 프로필 사진 업로드 주소")
     @ApiResponse(

@@ -71,6 +71,15 @@ public final class UserDtos {
                             message = "8~64자, 영문과 숫자를 모두 포함해야 합니다.")
                     String newPassword) {}
 
+    public record PasswordChangeResponse(
+            @Schema(description = "새 액세스 토큰. 1.3 응답의 accessToken과 같은 형식", example = "eyJ…")
+                    String accessToken,
+            @Schema(
+                            description = "새 리프레시 토큰. 이 기기를 포함해 바꾸기 전에 받은 리프레시 토큰은 모두 쓸 수 없다",
+                            example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
+                    String refreshToken,
+            @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn) {}
+
     public record ProfileImageUploadUrlRequest(
             @Schema(
                             description = "올릴 파일 형식",
