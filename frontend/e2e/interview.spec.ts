@@ -364,6 +364,8 @@ test.describe("S06 면접 화면", () => {
     const state = { plan: "GENERATING" as keyof typeof SESSION_PLAN, started: false };
     let polls = 0;
     const keys: (string | null)[] = [];
+    // 면접방 입장 토큰(5.14)을 요청한 때 면접이 시작돼 있었는지. RTC 연결은 하지 않도록 409로 답한다.
+    const roomRequests: boolean[] = [];
     msw.use(
       http.get(api("/interview-sessions/:sessionId"), () => {
         polls++;
@@ -376,6 +378,15 @@ test.describe("S06 면접 화면", () => {
         state.started = true;
         return HttpResponse.json({ ...SESSION_STARTED, mode: "CHAT" });
       }),
+      http.post(api("/interview-sessions/:sessionId/room-token"), () => {
+        roomRequests.push(state.started);
+        return problemResponse({
+          title: "Conflict",
+          status: 409,
+          code: "INVALID_SESSION_STATE",
+          detail: "지금은 할 수 없는 요청이에요.",
+        });
+      }),
     );
     await page.clock.install();
     await page.goto(S06);
@@ -387,6 +398,8 @@ test.describe("S06 면접 화면", () => {
     await nextPoll(page);
     await expect.poll(() => polls).toBeGreaterThan(before);
     expect(keys).toHaveLength(0);
+    // 시작 전에는 면접방에 들어가지 않는다(5.14는 면접 중에만 된다).
+    expect(roomRequests).toHaveLength(0);
 
     // 준비가 끝나면 다음 조회에서 5.4를 한 번 부르고, 첫 질문을 받는다.
     state.plan = "READY";
@@ -396,6 +409,22 @@ test.describe("S06 면접 화면", () => {
     await expect(answerBox(page)).toBeEnabled();
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    // 면접이 시작되면 송출 없이 면접방에 들어간다(Swagger 5.4: 채팅도 면접방에 들어간다).
+    // 입장 정보를 받지 못하면(409) 2초 뒤 다시 들어가고, 연달아 3번까지만 한다(처음 1번 + 다시 3번).
+    // 다시 들어가는 때는 시계에 달려 있으므로 중간 횟수는 보지 않고, 시계를 충분히 진행한 뒤의 결과만 본다.
+    // 확인할 때마다 시계를 2초 진행한다(앞 시도의 응답이 와야 다음 2초가 걸리므로 한 번에 몰아 진행하지 않는다).
+    await expect
+      .poll(
+        async () => {
+          await nextPoll(page);
+          return roomRequests;
+        },
+        { timeout: 15_000 },
+      )
+      .toEqual([true, true, true, true]);
+    await nextPoll(page);
+    await nextPoll(page);
+    expect(roomRequests).toEqual([true, true, true, true]);
   });
 
   test("[면접 종료] → S06-E: 답변한 질문 수 · 스트릭 인정을 알리고, [계속하기] · Esc로 닫힌다", async ({

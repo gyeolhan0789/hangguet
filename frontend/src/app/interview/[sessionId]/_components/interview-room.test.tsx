@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
-import { InterviewRoom, SESSION_POLL_MS } from "./interview-room";
+import {
+  CHAT_ROOM_RETRIES,
+  CHAT_ROOM_RETRY_MS,
+  InterviewRoom,
+  SESSION_POLL_MS,
+} from "./interview-room";
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
@@ -31,12 +36,31 @@ vi.mock("@/components/interview/interviewer-stage", () => ({
 vi.mock("./use-interview-media", () => ({
   useInterviewMedia: () => ({ stream: null, level: motionValue(0.5) }),
 }));
+// 면접방(LiveKit) 입장도 경계다. 어떤 인자로 들어가는지와, 테스트가 바꾸는 연결 상태에 따라 다시 들어가는지만 본다
+// (입장 동작은 use-interview-room.test.ts).
+const joinRoom = vi.fn();
+// mounts: 훅을 쓰는 컴포넌트가 붙은 횟수(다시 붙으면 실제 훅은 새로 입장한다)
+const room = vi.hoisted(() => ({ status: "idle", retry: () => {}, mounts: 0 }));
+vi.mock("@/components/interview/use-interview-room", async () => {
+  const { useEffect } = await import("react");
+  return {
+    useInterviewRoom: (...args: unknown[]) => {
+      joinRoom(...args);
+      useEffect(() => {
+        room.mounts += 1;
+      }, []);
+      return { status: room.status, confirmedText: "", interimText: "", retry: room.retry };
+    },
+  };
+});
 
 // 기준: 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
 // · 5.3 면접 플랜 재생성 · Idempotency-Key(같은 키면 처음 결과를 그대로 반환)
 // · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도])
 // · 웹 Swagger 5.2 · 5.5(2초마다(임시 값) 다시 불러 확인) · 채팅은 질문 준비가 끝나면 화면이 5.4를 자동으로 부른다
 // · 기획 메모 S06-1(18:3531: 마지막 답변 · 끝내기 직후 결과 분석 중)
+// · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만))
+// · 사용자 결정(2026-10-26: 채팅 면접방 연결 실패는 표시 없이 2초 뒤 다시 들어가고, 연달아 3번까지만)
 
 // Swagger 5.2 200 예시 'S06·S06-B 면접 중'
 const SESSION: SessionResponse = {
@@ -71,6 +95,9 @@ beforeEach(() => {
   useInterviewStore.getState().reset();
   startSession.mockReset().mockResolvedValue({});
   retryPlan.mockReset().mockResolvedValue({});
+  room.status = "idle";
+  room.retry = vi.fn();
+  room.mounts = 0;
   online = true;
   vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
 });
@@ -81,6 +108,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** 면접 중인 채팅 화면. rerender에 같은 요소를 다시 넘기면 React가 다시 그리지 않으므로 매번 새로 만든다 */
+const chatRoom = () => (
+  <InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />
+);
 const thinking = () => screen.queryByRole("status", { name: "면접관이 생각하는 중" });
 const analyzing = () => screen.queryByRole("heading", { name: "면접관이 답변을 검토하고 있어요" });
 const waitPoll = () => act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
@@ -231,6 +262,89 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       />,
     );
     expect(startSession).not.toHaveBeenCalled();
+  });
+
+  it("채팅: 면접이 시작되면(IN_PROGRESS) 송출 없이 면접방에 들어간다", () => {
+    render(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />);
+    expect(joinRoom).toHaveBeenCalledWith(55, null, { listenOnly: true });
+    expect(joinRoom).not.toHaveBeenCalledWith(55, null);
+  });
+
+  it("채팅: 다음 질문을 기다리는 동안에도 방에 남고, 질문이 바뀌어도 다시 들어가지 않는다", () => {
+    const { rerender } = render(
+      <InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={null} />,
+    );
+    expect(joinRoom).toHaveBeenCalledWith(55, null, { listenOnly: true });
+    rerender(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />);
+    expect(room.mounts).toBe(1);
+  });
+
+  it("채팅: 면접 시작 전(READY)에는 면접방에 들어가지 않는다", () => {
+    // 질문 준비 중(GENERATING)이라 자동 시작(5.4)도 하지 않는 상태
+    render(
+      <InterviewRoom
+        session={{
+          ...SESSION,
+          mode: "CHAT",
+          status: "READY",
+          planStatus: "GENERATING",
+          currentQuestion: null,
+        }}
+        currentQuestion={null}
+      />,
+    );
+    expect(joinRoom).not.toHaveBeenCalled();
+  });
+
+  it("채팅: 면접방 연결이 실패하면 2초 뒤 다시 들어가고, 연달아 3번까지만 한다", () => {
+    room.status = "failed";
+    render(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={QUESTION} />);
+
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS - 1));
+    expect(room.retry).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(room.retry).toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS));
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS));
+    expect(room.retry).toHaveBeenCalledTimes(CHAT_ROOM_RETRIES);
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS * 10));
+    expect(room.retry).toHaveBeenCalledTimes(CHAT_ROOM_RETRIES);
+    // 연결 실패는 화면에 그리지 않는다.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("채팅: 다시 들어가는 데 성공하면 횟수를 처음부터 다시 센다", () => {
+    room.status = "failed";
+    const { rerender } = render(chatRoom());
+    // 다음 시도는 앞 시도로 다시 그린 뒤에 걸리므로 2초씩 나눠 진행한다.
+    for (let i = 0; i < CHAT_ROOM_RETRIES; i++)
+      act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS));
+    expect(room.retry).toHaveBeenCalledTimes(CHAT_ROOM_RETRIES);
+
+    room.status = "listening";
+    rerender(chatRoom());
+    room.status = "failed";
+    rerender(chatRoom());
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS));
+    expect(room.retry).toHaveBeenCalledTimes(CHAT_ROOM_RETRIES + 1);
+  });
+
+  it("채팅: 연결 중이거나 듣는 중이면 다시 들어가지 않는다", () => {
+    room.status = "connecting";
+    const { rerender } = render(chatRoom());
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS * 5));
+    room.status = "listening";
+    rerender(chatRoom());
+    act(() => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS * 5));
+    expect(room.retry).not.toHaveBeenCalled();
+  });
+
+  it("화상은 listenOnly 없이 장치 스트림으로 면접방에 들어간다", () => {
+    render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
+    // useInterviewMedia 대역의 스트림은 null이다. 송출 방식(listenOnly 없음)만 본다.
+    expect(joinRoom).toHaveBeenCalledWith(55, null);
+    expect(joinRoom).not.toHaveBeenCalledWith(55, null, { listenOnly: true });
   });
 
   it("악마 면접관은 번개 빛을 깔고, 커피챗은 깔지 않는다", () => {
