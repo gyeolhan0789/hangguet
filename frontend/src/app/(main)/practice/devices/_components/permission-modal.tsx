@@ -5,9 +5,8 @@ import Image from "next/image";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
+import { Spinner } from "@/components/spinner";
 import { useLockScroll } from "@/components/use-lock-scroll";
-
-import { Spinner } from "./spinner";
 
 // 기준: Figma S05-E 장치 점검 · 권한 거부(18:4013: Dim rgba(25,33,40,.5) · Modal 18:4175 520px · 둥글기 24 · 패딩 32
 // · 그림자 0 20 24 rgba(25,33,40,.25) · camera-off 타일 64 · 제목 24 ExtraBold · 설명 15 Medium · 3단계 안내

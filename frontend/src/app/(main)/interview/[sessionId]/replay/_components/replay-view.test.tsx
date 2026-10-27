@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { REPLAY } from "@/test/result-examples";
 
-import { ReplayView } from "./replay-view";
+import { REPLAY_POLL_MS, ReplayView } from "./replay-view";
 
 // 기준: Figma S07-1 면접 다시보기(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프,
 // 재생 중인 질문 강조 + 자막 동기화, 채팅은 영상 대신 대화 기록) · Swagger 6.4 200 예시(마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30)
@@ -47,7 +47,12 @@ vi.mock("motion/react", async (importOriginal) => {
   };
 });
 
+// 다시 그리기(6.4 다시 조회)는 경계다. 부른 횟수만 본다.
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 beforeEach(() => {
+  refresh.mockReset();
   motion.reduced = true;
   // 흔들기(animate) 기록과 남은 once 구현을 테스트마다 비우고 실제 animate로 되돌린다.
   motion.animate
@@ -317,5 +322,75 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
 
       expect(card("1분 자기소개").getAttribute("aria-expanded")).toBe("false");
     });
+  });
+});
+
+// 기준: API 명세 6.4 videoStatus(MERGING: 플레이어 자리에 처리 중 안내 + 10초마다 다시 조회, FAILED: 불러오지 못했다고 안내,
+// 두 경우 모두 질문 목록과 답변은 보여 준다) · S15P31A301-259
+describe("ReplayView · 녹화 상태(videoStatus)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const merging = { ...REPLAY, videoStatus: "MERGING" as const, videoUrl: null };
+  const failed = { ...REPLAY, videoStatus: "FAILED" as const, videoUrl: null };
+
+  it("합치는 중(MERGING)이면 플레이어 대신 처리 중임을 알리고, 질문 목록과 답변은 그대로 보여 준다", () => {
+    render(<ReplayView replay={merging} />);
+    expect(screen.getByRole("status").textContent).toBe("녹화를 처리하는 중이에요");
+    expect(screen.queryByLabelText("녹화 영상")).toBeNull();
+    expect(screen.queryByRole("slider", { name: "재생 위치" })).toBeNull();
+
+    fireEvent.click(card("가장 큰 기술적 문제는"));
+    expect(screen.getByText(REPLAY.items[2].answer)).toBeTruthy();
+  });
+
+  it("합치는 중이면 10초마다 6.4를 다시 조회한다", () => {
+    render(<ReplayView replay={merging} />);
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS - 1));
+    expect(refresh).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("합치는 중이어도 인터넷이 끊기면 다시 조회하지 않고, 다시 연결되면 이어서 10초 뒤 조회한다", () => {
+    let online = false;
+    vi.spyOn(navigator, "onLine", "get").mockImplementation(() => online);
+    render(<ReplayView replay={merging} />);
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
+
+    online = true;
+    act(() => window.dispatchEvent(new Event("online")));
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("합치기가 끝나 영상이 오면(READY) 조회를 멈추고 플레이어를 보여 준다", () => {
+    const { rerender } = render(<ReplayView replay={merging} />);
+    rerender(<ReplayView replay={REPLAY} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByLabelText("녹화 영상")).toBeTruthy();
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("합치기에 실패했으면(FAILED) 불러오지 못했다고 알리고 다시 조회하지 않으며, 질문 목록과 답변은 보여 준다", () => {
+    render(<ReplayView replay={failed} />);
+    expect(screen.getByRole("status").textContent).toBe("녹화를 불러오지 못했어요");
+    expect(screen.queryByLabelText("녹화 영상")).toBeNull();
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
+
+    fireEvent.click(card("가장 큰 기술적 문제는"));
+    expect(screen.getByText(REPLAY.items[2].answer)).toBeTruthy();
+  });
+
+  it("채팅(videoStatus null)은 안내 없이 질문 목록만 보여 준다", () => {
+    render(<ReplayView replay={{ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null }} />);
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => vi.advanceTimersByTime(REPLAY_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

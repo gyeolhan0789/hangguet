@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
@@ -29,6 +30,7 @@ from livekit import rtc
 from app.agent.assignment import Assignment
 from app.agent.tts import BYTES_PER_SAMPLE, SAMPLE_RATE, ElevenLabsTTS, SpeechAudio, TtsError
 from app.common.results import KST, ResultPublisher, ResultPublishError
+from app.common.timing import elapsed_ms
 from app.interview.realtime.progress import question_started
 
 log = logging.getLogger(__name__)
@@ -107,12 +109,14 @@ class QuestionSpeaker:
         results: ResultPublisher | None,
         *,
         clock: Callable[[], datetime] = _now,
+        timer: Callable[[], float] = time.monotonic,
     ) -> None:
         self._participant = participant
         self._assignment = assignment
         self._tts = tts
         self._results = results
         self._clock = clock
+        self._timer = timer
         self._source: rtc.AudioSource | None = None
 
     async def publish_track(self) -> None:
@@ -125,24 +129,34 @@ class QuestionSpeaker:
 
     async def prepare(self, seq: int) -> SpeechAudio | None:
         """질문 음성을 미리 합성한다. 실패하면 None이고, ask가 failed로 알린다."""
+        text = self._assignment.question(seq)
+        started = self._timer()
         try:
-            return await self._tts.synthesize(
-                self._assignment.question(seq), self._assignment.persona
-            )
+            audio = await self._tts.synthesize(text, self._assignment.persona)
         except TtsError as e:
-            log.warning("질문 음성 합성 실패: %s", e, extra={"seq": seq})
+            ms = elapsed_ms(started, self._timer())
+            log.warning("질문 음성 합성 실패: %s ms=%d", e, ms, extra={"seq": seq})
             return None
+        ms = elapsed_ms(started, self._timer())
+        log.info("질문 음성 합성 완료 ms=%d chars=%d", ms, len(text), extra={"seq": seq})
+        return audio
 
     async def prepare_notice(self, text: str) -> SpeechAudio | None:
         """발화 중단 안내 음성을 미리 합성한다.
 
         실패하면 None이고, 화면은 리액션 메시지의 안내 글로 진행한다.
         """
+        started = self._timer()
         try:
-            return await self._tts.synthesize(text, self._assignment.persona)
+            audio = await self._tts.synthesize(text, self._assignment.persona)
         except TtsError as e:
-            log.warning("발화 중단 안내 음성 합성 실패: %s", e)
+            log.warning(
+                "발화 중단 안내 음성 합성 실패: %s ms=%d", e, elapsed_ms(started, self._timer())
+            )
             return None
+        ms = elapsed_ms(started, self._timer())
+        log.info("발화 중단 안내 음성 합성 완료 ms=%d chars=%d", ms, len(text))
+        return audio
 
     async def say(self, audio: SpeechAudio) -> None:
         """발화 중단 안내 음성을 재생한다.

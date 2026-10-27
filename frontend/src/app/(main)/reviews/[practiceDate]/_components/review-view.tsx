@@ -85,7 +85,7 @@ export function ReviewView({
         ) : (
           <ImprovedCard criteria={review.criteria} today={today} />
         )}
-        <NextActionCard actions={review.nextActions} today={today} />
+        <NextActionCard actions={review.nextActions} />
       </div>
       <ReviewDecision today={today} />
       {round !== null && surveyUrl && userId !== null && (

@@ -20,6 +20,7 @@ from typing import Any, TypeGuard
 
 import aiohttp
 
+from app.agent.metrics import ELEVENLABS_CHARACTERS
 from app.common.session import Persona
 
 log = logging.getLogger(__name__)
@@ -123,6 +124,8 @@ class ElevenLabsTTS:
                 body = await response.json()
         except (aiohttp.ClientError, TimeoutError, ValueError) as e:
             raise TtsError(f"ElevenLabs 호출 실패 ({type(e).__name__})") from e
+        # ElevenLabs는 합성에 성공한 글자 수로 과금하므로 200 응답을 받은 뒤에 기록한다
+        ELEVENLABS_CHARACTERS.inc(len(text))
         return speech_audio(body)
 
 

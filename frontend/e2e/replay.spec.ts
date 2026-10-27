@@ -191,6 +191,58 @@ test.describe("S07-1 면접 다시보기", () => {
     expect(log.indexOf("head")).toBeGreaterThan(log.indexOf("wobble"));
   });
 
+  // 기준: API 명세 6.4 videoStatus(MERGING: 처리 중 안내 + 10초마다 다시 조회, FAILED: 불러오지 못함 안내) · S15P31A301-259
+  test("화상 · 녹화 합치는 중(MERGING): 처리 중임을 알리고 10초마다 6.4를 다시 불러, 합치기가 끝나면(READY) 영상을 보여 준다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    // 6.4는 테스트가 바꾸는 상태를 준다: 합치는 중 → (테스트가 바꿈) 준비됨
+    const state = { ready: false };
+    let calls = 0;
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () => {
+        calls++;
+        return HttpResponse.json(
+          state.ready
+            ? { ...REPLAY, videoStatus: "READY", videoUrl: VIDEO_URL }
+            : { ...REPLAY, videoStatus: "MERGING", videoUrl: null },
+        );
+      }),
+    );
+    // 시계를 깔고 10초를 직접 진행한다(10초 경계는 단위 테스트가 본다)
+    await page.clock.install();
+    await page.goto(S07_1);
+    await expect(page.getByRole("status")).toHaveText("녹화를 처리하는 중이에요");
+    await expect(page.getByLabel("녹화 영상")).toHaveCount(0);
+    // 질문 목록과 답변은 보여 준다
+    await card(page, "가장 큰 기술적 문제는").click();
+    await expect(page.getByText(REPLAY.items[2].answer)).toBeVisible();
+
+    const before = calls;
+    state.ready = true;
+    await page.clock.runFor(10_000);
+    await expect.poll(() => calls).toBeGreaterThan(before);
+    await expect(page.getByLabel("녹화 영상")).toBeVisible();
+    await expect(page.getByRole("status")).toHaveCount(0);
+  });
+
+  test("화상 · 녹화 합치기 실패(FAILED): 불러오지 못했다고 알리고 질문 목록과 답변은 보여 준다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoStatus: "FAILED", videoUrl: null }),
+      ),
+    );
+    await page.goto(S07_1);
+    await expect(page.getByRole("status")).toHaveText("녹화를 불러오지 못했어요");
+    await expect(page.getByLabel("녹화 영상")).toHaveCount(0);
+    await card(page, "가장 큰 기술적 문제는").click();
+    await expect(page.getByText(REPLAY.items[2].answer)).toBeVisible();
+  });
+
   test("'‹ 결과로'를 누르면 S07 피드백 결과로 돌아간다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>
@@ -298,6 +350,26 @@ test.describe("S07-1 면접 다시보기 · 모바일", () => {
     await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
     await expect(page.getByLabel("녹화 영상")).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole("slider", { name: "재생 위치" })).toBeInViewport({ ratio: 1 });
+  });
+
+  test("녹화 합치는 중(MERGING): 안내 상자는 위에 고정되고 페이지는 스크롤되지 않으며 질문 목록만 스크롤된다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoStatus: "MERGING", videoUrl: null }),
+      ),
+    );
+    await page.goto(S07_1);
+    const notice = page.getByRole("status");
+    await expect(notice).toHaveText("녹화를 처리하는 중이에요");
+    const top = (await notice.boundingBox())!.y;
+    const list = page.getByTestId("replay-questions-scroll");
+    await list.evaluate((element) => element.scrollBy(0, 400));
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect((await notice.boundingBox())!.y).toBe(top);
+    expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
   });
 });
 
