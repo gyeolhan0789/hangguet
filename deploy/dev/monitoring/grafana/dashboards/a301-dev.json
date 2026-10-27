@@ -595,13 +595,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "a301_ai_jobs_queued{job=\"a301-be\"}",
-          "legendFormat": "대기"
+          "expr": "sum by (queue) (a301_ai_jobs_queued{job=\"a301-be\"})",
+          "legendFormat": "대기 {{queue}}"
         },
         {
           "refId": "B",
-          "expr": "a301_ai_jobs_processing{job=\"a301-be\"}",
-          "legendFormat": "처리 중"
+          "expr": "sum by (queue) (a301_ai_jobs_processing{job=\"a301-be\"})",
+          "legendFormat": "처리 중 {{queue}}"
         }
       ],
       "fieldConfig": {
