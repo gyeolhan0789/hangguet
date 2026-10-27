@@ -339,6 +339,55 @@ class RedisAuthIntegrationTest {
                         offset(60.0));
     }
 
+    @Test
+    void passwordChangeKeepsThisDeviceWithNewTokensAndLogsOutOthers() throws Exception {
+        Account account = signup();
+        var otherDevice =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        String other = remember(body(otherDevice).path("refreshToken").asText());
+
+        var changed =
+                http.send(
+                        HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
+                                .timeout(Duration.ofSeconds(10))
+                                .header("Content-Type", "application/json")
+                                .header("Authorization", "Bearer " + account.access())
+                                .method(
+                                        "PATCH",
+                                        HttpRequest.BodyPublishers.ofString(
+                                                json.writeValueAsString(
+                                                        Map.of(
+                                                                "currentPassword",
+                                                                "testPass1234",
+                                                                "newPassword",
+                                                                "newPass5678"))))
+                                .build(),
+                        HttpResponse.BodyHandlers.ofString());
+        assertThat(changed.statusCode()).isEqualTo(200);
+        String next = remember(body(changed).path("refreshToken").asText());
+        assertThat(get("/api/v1/users/me", body(changed).path("accessToken").asText()).statusCode())
+                .isEqualTo(200);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT changed_by FROM password_changes WHERE user_id = ?",
+                                String.class,
+                                account.id()))
+                .isEqualTo("USER");
+
+        // 바꾸기 전 토큰은 이 기기 것도, 다른 기기 것도 쓸 수 없다
+        for (String old : List.of(account.refresh(), other)) {
+            var rejected = post("/api/v1/auth/token/refresh", Map.of("refreshToken", old), null);
+            assertThat(rejected.statusCode()).isEqualTo(401);
+        }
+        // 응답으로 받은 새 토큰은 재발급된다
+        var refreshed = post("/api/v1/auth/token/refresh", Map.of("refreshToken", next), null);
+        assertThat(refreshed.statusCode()).isEqualTo(200);
+        remember(body(refreshed).path("refreshToken").asText());
+    }
+
     private Account signup() throws Exception {
         return signup("redis-it-" + UUID.randomUUID() + "@example.com");
     }

@@ -112,8 +112,8 @@ public class AuthService {
     }
 
     /**
-     * 토큰을 돌려 쓴다(쓴 토큰은 지움). 로그인한 뒤 관리자가 비밀번호를 바꿨으면 거절한다. 비밀번호 변경 때 토큰 폐기가 실패하거나 재발급과 겹쳐도 로그인 시각은
-     * 재발급해도 이어지므로 다음 재발급에서 막힌다.
+     * 토큰을 돌려 쓴다(쓴 토큰은 지움). 로그인한 뒤 비밀번호를 바꿨으면(2.3 회원·9.10 관리자) 거절한다. 비밀번호 변경 때 토큰 폐기가 실패하거나 재발급과 겹쳐도
+     * 로그인 시각은 재발급해도 이어지므로 다음 재발급에서 막힌다.
      */
     public RefreshResponse refresh(String token) {
         RefreshSession session = refreshTokens.consume(token);

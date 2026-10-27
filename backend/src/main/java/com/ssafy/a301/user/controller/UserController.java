@@ -4,10 +4,12 @@ import com.ssafy.a301.user.dto.UserDtos.MeResponse;
 import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.NicknameRequest;
 import com.ssafy.a301.user.dto.UserDtos.PasswordChangeRequest;
+import com.ssafy.a301.user.dto.UserDtos.PasswordChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.ProfileImageRequest;
 import com.ssafy.a301.user.dto.UserDtos.ProfileImageUploadUrlRequest;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.dto.UserDtos.WithdrawRequest;
+import com.ssafy.a301.user.service.PasswordChangeService;
 import com.ssafy.a301.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -31,9 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/users/me")
 public class UserController {
     private final UserService service;
+    private final PasswordChangeService passwordChanges;
 
-    public UserController(UserService service) {
+    public UserController(UserService service, PasswordChangeService passwordChanges) {
         this.service = service;
+        this.passwordChanges = passwordChanges;
     }
 
     @Operation(summary = "2.1 내 정보", description = "현재 스트릭과 프로필 사진 임시 주소를 함께 준다.")
@@ -51,14 +55,18 @@ public class UserController {
         return service.changeNickname(userId(jwt), request.nickname());
     }
 
-    @Operation(summary = "2.3 비밀번호 변경", description = "다른 기기의 로그인은 유지한다.")
-    @ApiResponse(responseCode = "204", description = "변경")
+    @Operation(
+            summary = "2.3 비밀번호 변경",
+            description =
+                    "이 기기는 새 토큰으로 로그인을 유지하고, 다른 기기는 모두 로그아웃한다. 바꾸기 전에 받은 리프레시 토큰은 이 기기 것도"
+                            + " 쓸 수 없으므로 응답의 토큰으로 바꿔 저장한다.")
+    @ApiResponse(responseCode = "200", description = "변경")
     @ApiResponse(responseCode = "400", description = "PASSWORD_MISMATCH: 현재 비밀번호 틀림")
     @PatchMapping("/password")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void changePassword(
+    public PasswordChangeResponse changePassword(
             @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody PasswordChangeRequest request) {
-        service.changePassword(userId(jwt), request.currentPassword(), request.newPassword());
+        return passwordChanges.changeByUser(
+                userId(jwt), request.currentPassword(), request.newPassword());
     }
 
     @Operation(

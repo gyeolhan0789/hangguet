@@ -126,28 +126,6 @@ class UserServiceTest {
     }
 
     @Test
-    void passwordChangeStoresNewHash() {
-        when(passwords.matches("current1", "hash")).thenReturn(true);
-        when(passwords.encode("newpass1")).thenReturn("new-hash");
-
-        service.changePassword(USER_ID, "current1", "newpass1");
-
-        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
-        verify(txManager).commit(any());
-    }
-
-    @Test
-    void wrongCurrentPasswordIsRejected() {
-        when(passwords.matches("wrong123", "hash")).thenReturn(false);
-
-        assertCode(
-                () -> service.changePassword(USER_ID, "wrong123", "newpass1"),
-                ErrorCode.PASSWORD_MISMATCH);
-        assertThat(user.getPasswordHash()).isEqualTo("hash");
-        verify(txManager, never()).commit(any());
-    }
-
-    @Test
     void uploadUrlUsesOwnKeyAndRecordsIssue() {
         var expiresAt = OffsetDateTime.now();
         when(storage.presignUpload(anyString(), eq("image/png"), eq(1024L)))
