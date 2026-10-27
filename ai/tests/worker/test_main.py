@@ -15,7 +15,6 @@ from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
 from app.common.gms import GmsClient, HttpResponse
-from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import load_settings
 from app.interview.scoring.judge import TOP_LOGPROBS
@@ -223,8 +222,11 @@ def test_dispatcher_handles_plan_after_checking_gms_settings() -> None:
     assert [json.loads(raw)["type"] for raw in redis.pushed] == ["plan.failed"]
 
 
-def test_dispatcher_has_no_handler_until_job_types_are_implemented() -> None:
-    """처리 함수가 없는 작업은 미처리로 남아 유실되지 않는다."""
+def test_dispatcher_handles_merge_recording_without_s3_settings() -> None:
+    """녹화 합치기 처리 함수가 등록돼 있다.
+
+    S3_BUCKET이 없으면 작업자는 시작하고, 녹화 합치기만 저장소 실패로 알린다.
+    """
     job = MergeRecordingJob(
         job_id="8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
         session_id=55,
@@ -232,11 +234,12 @@ def test_dispatcher_has_no_handler_until_job_types_are_implemented() -> None:
         raw_prefix="recordings/raw/55/",
         object_key="recordings/55.mp4",
     )
-    settings = load_settings({})
-    # 클라이언트 생성은 Redis에 접속하지 않으므로 Redis 없이 분배기를 생성할 수 있다
-    results = ResultPublisher(create_redis(settings))
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
 
-    assert build_dispatcher(settings, results).dispatch(job) is DispatchResult.NO_HANDLER
+    assert dispatcher.dispatch(job) is DispatchResult.HANDLED
+    [pushed] = [json.loads(message) for message in redis.pushed]
+    assert (pushed["type"], pushed["reason"]) == ("recording.mergeFailed", "STORAGE_ERROR")
 
 
 def test_dispatcher_handles_scoring_without_gms_settings() -> None:

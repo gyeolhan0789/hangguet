@@ -6,6 +6,9 @@
   (AI 명세 1장).
 - LLM_*: company-pipeline/pipeline/card.py
 - JEV_API_KEY: Jev SDK 예제의 TYPESAFE_API_KEY와 같은 값이다.
+- S3_BUCKET·AWS_REGION: BE와 같은 이름이다(deploy/dev/compose.yml).
+  녹화 합치기가 같은 버킷에서 원본 트랙을 다운로드하고 합친 녹화를 업로드한다.
+  자격 증명은 BE와 같이 AWS 기본 공급자(AWS_ACCESS_KEY_ID 등)에서 읽으므로 이 모듈에 두지 않는다.
 AI는 DB에 접속하지 않으므로(AI 명세 1장) DB 접속 변수는 두지 않는다.
 기본값은 BE application.yml의 기본값(로컬 docker-compose 기준)과 같다.
 """
@@ -39,6 +42,8 @@ class Settings:
     jev_api_key: str | None = field(repr=False)
     soniox_api_key: str | None = field(repr=False)
     elevenlabs_api_key: str | None = field(repr=False)
+    s3_bucket: str | None = None
+    aws_region: str | None = None
 
     def llm(self) -> LlmSettings:
         """GMS 접속 값을 반환한다. LLM_CHAT_URL·LLM_MODEL이 없으면 누락된 이름을 포함해 실패한다.
@@ -87,4 +92,6 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         jev_api_key=_optional(env, "JEV_API_KEY"),
         soniox_api_key=_optional(env, "SONIOX_API_KEY"),
         elevenlabs_api_key=_optional(env, "ELEVENLABS_API_KEY"),
+        s3_bucket=_optional(env, "S3_BUCKET"),
+        aws_region=_optional(env, "AWS_REGION"),
     )
