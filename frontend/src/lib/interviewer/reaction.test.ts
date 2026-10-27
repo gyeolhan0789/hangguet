@@ -86,6 +86,25 @@ describe("아바타 리액션 변환", () => {
       });
     },
   );
+  it("수신한 durationMs 동안 표현하고 그 뒤 원래 상태로 복귀한다", () => {
+    const current = snapshot({
+      reaction: {
+        type: "expression",
+        expression: "smile",
+        gesture: null,
+        intensity: 0.4,
+        durationMs: 2400,
+      },
+    });
+    expect(reactionFrame(current, 1400).emotion).toBe("Smile");
+    expect(reactionFrame(current, 2499).emotion).toBe("Smile");
+    expect(reactionFrame(current, 2500)).toEqual({
+      emotion: "neutral",
+      emotionWeight: 0,
+      pitch: 0,
+      roll: 0,
+    });
+  });
   it("태도는 반응 구간에서만 반영하고 반응이 없으면 높은 관심·낮은 신뢰도 표시하지 않는다", () => {
     const gesture = {
       type: "gesture",
