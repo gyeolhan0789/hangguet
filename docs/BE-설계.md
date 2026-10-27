@@ -142,7 +142,7 @@ com.ssafy.a301
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`, `recording.merged`로 받음). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
-| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
+| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 항상 null(API 명세 6.3), 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
 | `Admin` | `admins` | - | 관리 페이지 계정. 회원과 따로 둔다. 아이디는 삭제하지 않은 관리자끼리만 중복 불가(V5) |
 | `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다. 삭제(8.7)는 soft delete: `deleted_at`만 기록하고 관리 목록 · 8.8 · 8.9 · 8.15에서 뺀다. 8.6에서 `endsAt`을 null로 보내면 지운다(안 보내면 그대로) |
@@ -229,7 +229,7 @@ com.ssafy.a301
      - 전달력: 화상은 답변 + 말하기 지표(비어 있으면 빼고), 채팅은 답변 글로 판단
      - 3단계는 BE가 점수로 계산(경계 API 명세 6.3)
    - 자소서 검증도 다른 기준과 같이 3단계로 판정하고, 자소서 대조로 확정한다 **[결정]**
-3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 녹화 영상에서 구한다. 계산 주체·시점 **[미정]**(API 명세 B-14). 녹화가 없으면 null
+3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 계산하지 않아 항상 null이다(API 명세 6.3)
 
 ### 5.5 결과 큐 처리 (`ai:results`)
 1. `AiResultConsumer`가 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 메시지를 꺼낸다
@@ -378,4 +378,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 ## 12. 남은 일
 1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-3. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19)
+3. 답변별 음성(B-19)

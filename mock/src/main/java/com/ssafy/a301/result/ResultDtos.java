@@ -52,10 +52,7 @@ public final class ResultDtos {
                     BigDecimal trailingOffRatio,
             @Schema(description = "억양 변화 폭(세미톤)", nullable = true, example = "6.2")
                     BigDecimal pitchRangeSt,
-            @Schema(
-                            description = "말하는 동안 면접관을 바라본 시간 비율(%). 녹화 영상으로 구하므로 녹화가 없으면 null",
-                            nullable = true,
-                            example = "71.5")
+            @Schema(description = "말하는 동안 면접관을 바라본 시간 비율(%). 계산하지 않아 항상 null", nullable = true)
                     BigDecimal gazeRatio) {}
 
     public record ResultResponse(

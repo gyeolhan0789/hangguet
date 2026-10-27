@@ -157,7 +157,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **시작** BE가 답변을 저장한 직후(화상은 `answer.completed`, 채팅은 5.7). `answers.evaluation`이 비어 있을 때만 작업을 넣는다
 - **입력(작업 메시지)** `answerId`, `mode`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
 - **말하기 분석(화상만)** 입력은 `tokens`와 작업 메시지의 `speech`
-  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 사용하지 않는다
+  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 계산하지 않는다(API 명세 6.3)
   - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를 구한다
   - 말끝 흐림·억양 폭은 면접 에이전트가 답변을 듣는 동안 실시간 음성으로 계산해 `answer.completed`로 전송한 값(6.2)을 그대로 사용한다. 답변 음성 파일은 사용하지 않는다
@@ -231,7 +231,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `long_pause_count` | `longPauseCount` | 답변별 합계 |
 | `speed_deviation_pct` | `speedDeviationPct` | (면접 말 속도 − 265) ÷ 265 × 100(%, 소수 둘째 자리). 면접 말 속도는 답변별 `syllablesPerMin`(3장)을 발화 시간(`speakingMs`)으로 가중한 평균이고, 265는 일반 성인의 대화 말 속도(음절/분)다 |
 | `trailing_off_ratio` · `pitch_range_st` | `trailingOffRatio` · `pitchRangeSt` | 말한 시간으로 가중한 평균 |
-| `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 B-14) |
+| `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 6.3) |
 
 - 값이 있는 답변만으로 계산하고, 모든 답변에 값이 없으면 null이다
 - 컬럼이 `NUMERIC(5, 2)`이므로 999.99를 넘는 값은 구하지 못한 것으로 간주해 null로 전송한다. 상한으로 잘라 전송하면 실제와 다른 지표가 되기 때문이다

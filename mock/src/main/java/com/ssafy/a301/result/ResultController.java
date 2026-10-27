@@ -44,7 +44,7 @@ public class ResultController {
                   "goodPoint": null, "improvePoint": "자소서 내용과 연결하지 못했어요" },
                 { "questionId": 305, "seq": 5, "question": "대용량 트래픽 처리 방법은?", "content": "읽기 부하는 캐시로…", "score": 81, "grade": "GOOD",
                   "goodPoint": "단계별로 설명했어요", "improvePoint": "실제 수치 예시가 있으면 좋아요" } ],
-              "speechMetrics": { "fillerPerMin": 2.1, "longPauseCount": 3, "speedDeviationPct": 8.5, "trailingOffRatio": 12.0, "pitchRangeSt": 6.2, "gazeRatio": 71.5 } }\
+              "speechMetrics": { "fillerPerMin": 2.1, "longPauseCount": 3, "speedDeviationPct": 8.5, "trailingOffRatio": 12.0, "pitchRangeSt": 6.2, "gazeRatio": null } }\
             """;
     private static final String REPLAY =
             """

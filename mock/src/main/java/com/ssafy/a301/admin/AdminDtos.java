@@ -254,7 +254,7 @@ public final class AdminDtos {
                     Double trailingOffRatio,
             @Schema(description = "억양 변화 폭(세미톤)", nullable = true, example = "5.9")
                     Double pitchRangeSt,
-            @Schema(description = "면접관을 바라본 시간 비율(%)", nullable = true, example = "68.2")
+            @Schema(description = "면접관을 바라본 시간 비율(%). 계산하지 않아 항상 null", nullable = true)
                     Double gazeRatio) {}
 
     public record InquiryMetrics(
