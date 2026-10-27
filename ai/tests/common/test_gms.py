@@ -393,3 +393,32 @@ def test_failed_call_logs_total_time_and_attempts(
     ):
         timed_client(FakeTransport(outcomes), 0.0, 1.5).chat_json(MESSAGES)
     assert caplog.records[-1].getMessage() == message
+
+
+def test_token_usage_is_logged_per_call(caplog: pytest.LogCaptureFixture) -> None:
+    """비용을 작업 종류·면접별로 다시 집계하도록 호출마다 토큰 수를 남긴다."""
+    body = {
+        "model": "gpt-served",
+        "choices": [{"message": {"content": '{"level": 3}'}}],
+        "usage": {"prompt_tokens": 1200, "completion_tokens": 85, "total_tokens": 1285},
+    }
+    transport = FakeTransport([HttpResponse(200, {}, json.dumps(body).encode())])
+    with caplog.at_level(logging.INFO, logger="app.common.gms"):
+        client(transport, []).chat_json(MESSAGES)
+    assert "GMS 사용량 promptTokens=1200 completionTokens=85" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+@pytest.mark.parametrize("usage", [None, {"prompt_tokens": "1200", "completion_tokens": 85}])
+def test_missing_or_malformed_usage_is_not_logged(
+    caplog: pytest.LogCaptureFixture, usage: object
+) -> None:
+    body: dict[str, Any] = {"choices": [{"message": {"content": '{"level": 3}'}}]}
+    if usage is not None:
+        body["usage"] = usage
+    transport = FakeTransport([HttpResponse(200, {}, json.dumps(body).encode())])
+    with caplog.at_level(logging.INFO, logger="app.common.gms"):
+        result = client(transport, []).chat_json(MESSAGES)
+    assert result.content == {"level": 3}
+    assert not [r for r in caplog.records if r.getMessage().startswith("GMS 사용량")]

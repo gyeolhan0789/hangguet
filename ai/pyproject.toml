@@ -9,6 +9,7 @@ dependencies = [
     "fastapi>=0.143.0",
     "livekit-agents>=1.4,<2",
     "numpy>=2.5.4",
+    "prometheus-client>=0.26,<1",
     "redis>=8.1.0",
     "uvicorn[standard]>=0.54.0",
 ]

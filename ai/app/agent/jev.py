@@ -22,6 +22,7 @@ from typing import Any
 
 import aiohttp
 
+from app.agent.metrics import JEV_REQUESTS
 from app.common.timing import elapsed_ms
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.realtime.reaction import (
@@ -73,10 +74,13 @@ class JevJudge:
                 )
             judgment = judgment_from(answers)
         except TimeoutError:
+            JEV_REQUESTS.labels(result="timeout").inc()
             log.warning("Jev 판단 시간 초과 ms=%d", elapsed_ms(started, self._timer()))
         except (JevError, InvalidJudgmentError) as e:
+            JEV_REQUESTS.labels(result="error").inc()
             log.warning("Jev 판단 실패: %s ms=%d", e, elapsed_ms(started, self._timer()))
         else:
+            JEV_REQUESTS.labels(result="ok").inc()
             log.info("Jev 판단 완료 ms=%d", elapsed_ms(started, self._timer()))
             return judgment
         return Judgment(None, context.attitude)

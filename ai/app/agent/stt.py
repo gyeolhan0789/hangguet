@@ -15,12 +15,15 @@ from typing import Any
 
 import aiohttp
 
+from app.agent.metrics import SONIOX_AUDIO_SECONDS
 from app.interview.realtime.sentence import has_endpoint
 from app.interview.realtime.transcript import Transcript, soniox_tokens
 
 log = logging.getLogger(__name__)
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 SAMPLE_RATE = 16000
+# audio_format pcm_s16le: 표본 하나가 2바이트(16비트)다
+BYTES_PER_SAMPLE = 2
 
 
 class SttError(RuntimeError):
@@ -140,6 +143,8 @@ class SonioxSTT:
     ) -> None:
         async for chunk in audio:
             await asyncio.wait_for(ws.send_bytes(chunk), timeout=10)
+            # Soniox는 전송한 음성 길이로 과금하므로 보낸 PCM 길이를 초로 환산해 기록한다
+            SONIOX_AUDIO_SECONDS.inc(len(chunk) / (SAMPLE_RATE * BYTES_PER_SAMPLE))
         ended.set()
         await asyncio.wait_for(ws.send_str(""), timeout=10)
 

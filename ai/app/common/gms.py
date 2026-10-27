@@ -142,6 +142,21 @@ def _retry_after(headers: Mapping[str, str]) -> float | None:
     return min(max(0.0, seconds), MAX_RETRY_AFTER_SECONDS)
 
 
+def _log_usage(data: Mapping[str, Any]) -> None:
+    """GMS 비용을 작업 종류·면접별로 다시 집계할 수 있도록 호출마다 토큰 수를 로그로 남긴다.
+
+    분석 작업자에는 지표 서버가 없고, 호출 단위로 남겨야 나중에 원하는 기준으로 묶을 수 있다.
+    응답에 사용량이 없으면 판정에는 영향이 없으므로 남기지 않는다.
+    """
+    usage = data.get("usage")
+    if not isinstance(usage, Mapping):
+        return
+    prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    if not isinstance(prompt, int) or not isinstance(completion, int):
+        return
+    log.info("GMS 사용량 promptTokens=%d completionTokens=%d", prompt, completion)
+
+
 def _parse_logprobs(choice: Mapping[str, Any]) -> list[TokenLogprob] | None:
     content = (choice.get("logprobs") or {}).get("content")
     if not content:
@@ -209,6 +224,7 @@ class GmsClient:
             raise GmsBadOutputError("GMS 응답을 JSON으로 해석하지 못했다") from e
         if not isinstance(content, dict):
             raise GmsBadOutputError("GMS 응답이 JSON 객체가 아니다")
+        _log_usage(data)
         return GmsResult(
             content=content,
             token_logprobs=token_logprobs,
