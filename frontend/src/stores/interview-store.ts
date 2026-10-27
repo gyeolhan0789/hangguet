@@ -9,6 +9,10 @@ interface InterviewState {
   endOpen: boolean;
   /** 방금 답한 질문 id. 다음 질문이 올 때까지 면접관이 '생각 중'이다. 없으면 null */
   answeredQuestionId: number | null;
+  /** 에이전트가 제출됨(answer.state submitted)을 알린 마지막 화상 답변의 seq. 5.8 전에 저장됐는지 확인한다(API 명세 5.8). 없으면 null */
+  submittedSeq: number | null;
+  /** [끝내기] 뒤 직전 답변 저장을 기다리는 중. 그동안 면접 화면이 5.2를 2초마다 다시 부른다(API 명세 5.8) */
+  confirmingSave: boolean;
   /** 5.8 면접 끝내기 응답의 레벨업. 결과 분석이 끝난 뒤 S08에서 S02-L을 띄울 때 쓴다(웹 Swagger leveledUp). 모르면 null */
   leveledUp: boolean | null;
   /** 질문 말풍선을 접었다: 지금 질문을 한 줄로 말줄임한다(사용자 요청 2026-10-27) */
@@ -20,6 +24,8 @@ interface InterviewState {
   openEnd: () => void;
   closeEnd: () => void;
   setAnsweredQuestion: (questionId: number | null) => void;
+  setSubmittedSeq: (seq: number | null) => void;
+  setConfirmingSave: (confirming: boolean) => void;
   setLeveledUp: (leveledUp: boolean | null) => void;
   /** 다른 면접 화면으로 들어올 때 처음 상태로 되돌린다. 이미 끝낸 면접(결과 분석 중)이면 레벨업은 남긴다. */
   reset: (options?: { keepLeveledUp?: boolean }) => void;
@@ -28,6 +34,8 @@ interface InterviewState {
 const initial = {
   endOpen: false,
   answeredQuestionId: null,
+  submittedSeq: null,
+  confirmingSave: false,
   leveledUp: null,
   collapsed: false,
   uiHidden: false,
@@ -44,6 +52,8 @@ export const useInterviewStore = create<InterviewState>()(
       openEnd: () => set({ endOpen: true }),
       closeEnd: () => set({ endOpen: false }),
       setAnsweredQuestion: (answeredQuestionId) => set({ answeredQuestionId }),
+      setSubmittedSeq: (submittedSeq) => set({ submittedSeq }),
+      setConfirmingSave: (confirmingSave) => set({ confirmingSave }),
       setLeveledUp: (leveledUp) => set({ leveledUp }),
       reset: (options) =>
         set(
@@ -51,6 +61,8 @@ export const useInterviewStore = create<InterviewState>()(
             ? {
                 endOpen: initial.endOpen,
                 answeredQuestionId: initial.answeredQuestionId,
+                submittedSeq: initial.submittedSeq,
+                confirmingSave: initial.confirmingSave,
                 collapsed: initial.collapsed,
                 uiHidden: initial.uiHidden,
               }

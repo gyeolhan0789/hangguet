@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
 import { useInterviewRoom, type RoomPresentation } from "@/components/interview/use-interview-room";
@@ -33,6 +33,7 @@ import {
 } from "./room-alerts";
 import { AnswerNotice, MicToast, SelfCamera, VideoControls } from "./video-panel";
 import { ChatWaiting } from "./chat-waiting";
+import { useSaveConfirmed } from "./use-save-confirmed";
 
 // 기준: Figma S06 화상(18:2497) · S06-B 채팅(18:2574): 면접관 장면 위에 Fade Top(위 200 · rgba(11,13,20,.8)→0)
 // · Fade Bottom(아래 480 · 0→rgba(11,13,20,.95)) · Lightning Flash(72% · 12% 지점 rgba(185,212,255,.18) 원형 빛)
@@ -41,7 +42,8 @@ import { ChatWaiting } from "./chat-waiting";
 // · 모션 메모 S06(18:2569: 번개 플래시는 질문이 바뀔 때만) · 모션 메모 S06-1(18:4469: 면접 화면에서 그대로 이어짐 — 배경 면접관이
 // 흐려지며(opacity 1→.28, blur 0→8px))
 // · 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
-// (채팅: 질문 준비가 끝나면 대기 화면의 [면접 시작]으로 부른다. 채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 5.3 면접 플랜 재생성
+// (채팅: 질문 준비가 끝나면 대기 화면 뒤에서 미리 부르고, [면접 시작]을 누르면 면접방에 들어간다. 채팅도 면접방에 들어간다
+// (송출 없이 수신·메시지만)) · 5.3 면접 플랜 재생성
 // · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도], S05와 같음)
 // · 웹 Swagger 5.2 · 5.5(서버 작업이 끝났는지는 2초마다(임시 값) 다시 불러 확인 — 다음 질문은 5.5, 질문 준비 · 결과 분석은 5.2)
 // · 웹 Swagger SessionResponse.status START_FAILED(배정 거절로 시작 못 함) · Figma S06-F2(345:1815)
@@ -67,6 +69,7 @@ export function InterviewRoom({
   const router = useRouter();
   const reduce = useReducedMotion();
   const reset = useInterviewStore((state) => state.reset);
+  const confirmingSave = useInterviewStore((state) => state.confirmingSave);
   const answeredQuestionId = useInterviewStore((state) => state.answeredQuestionId);
   // 화면 숨기기(눈 버튼): 면접관 · [면접 종료] · [화면 보이기]만 남긴다. 면접방 연결 · 녹음이 끊기지 않게 화면에서 빼지 않고 숨기기만 한다.
   const uiHidden = useInterviewStore((state) => state.uiHidden);
@@ -84,20 +87,29 @@ export function InterviewRoom({
   // 채팅 면접 중에는 면접방 메시지를 받는 ChatLive가 다시 그리기를 맡는다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   const waiting =
     (session.status === "IN_PROGRESS" && question === null && session.mode !== "CHAT") ||
+    // [끝내기] 뒤 직전 답변 저장을 기다리는 동안(다음 질문이 이미 보여도) 5.2를 계속 부른다(API 명세 5.8)
+    (session.status === "IN_PROGRESS" && confirmingSave) ||
     session.status === "ANALYZING" ||
     preparing;
   // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
   const planFailed = session.status === "READY" && session.planStatus === "FAILED";
-  // 5.4 시작([면접 시작]을 누른 뒤). 실패하면 2초 뒤 다시 조회해 다시 시도한다(attempt). 서버가 실패로 답했으면 새 키로
-  // (웹 Swagger: 같은 키·같은 본문이면 처음 결과를 그대로 반환). 실패 문구(detail)는 말풍선 아래에 보여 준다.
+  // 5.4 시작(질문 준비가 끝나면 미리). 실패하면 2초 뒤 다시 조회해 다시 시도한다(attempt). 서버가 실패로 답했으면 새 키로
+  // (웹 Swagger: 같은 키·같은 본문이면 처음 결과를 그대로 반환). 실패 문구(detail)는 대기 화면 진행 막대 아래에 보여 준다.
   const [start, setStart] = useState(() => ({ key: crypto.randomUUID(), attempt: 0 }));
   const startedAttempt = useRef(-1);
   const [startError, setStartError] = useState<string>();
   const [startRetry, setStartRetry] = useState<{ newKey: boolean } | null>(null);
-  // 채팅 대기 화면(탑 쌓기)에서 [면접 시작]을 눌렀다. 누르기 전에는 5.4를 보내지 않는다(사용자 요청 2026-10-27).
+  // 채팅 대기 화면(탑 쌓기): 질문 준비가 끝나면 게임 중에 5.4를 미리 보내 둔다(선로딩 — 면접방이 열리고 면접관이
+  // 첫 질문 음성까지 준비해 둔다). [면접 시작]을 누르면 그때 면접방에 들어가 바로 첫 질문을 받는다(사용자 요청 2026-10-27).
+  // 대기 화면에서 들어온 면접만 그렇다. 이미 면접 중인 화면에 새로고침으로 들어오면 대기 화면 없이 바로 들어간다.
+  const [enteredPreparing] = useState(session.mode === "CHAT" && session.status === "READY");
   const [chatStartRequested, setChatStartRequested] = useState(false);
+  const holdingRoom = enteredPreparing && !chatStartRequested;
   const chatWaiting =
-    session.mode === "CHAT" && session.status === "READY" && !planFailed && !chatStartRequested;
+    session.mode === "CHAT" &&
+    holdingRoom &&
+    !planFailed &&
+    (session.status === "READY" || session.status === "IN_PROGRESS");
   // S06-F2: 면접관 배정 거절(START_FAILED) 뒤 [다시 시작](5.4). 시작하면 면접방에 처음부터 다시 들어가도록 몇 번째 시작인지 센다.
   const startFailed = session.status === "START_FAILED";
   const [restart, setRestart] = useState(() => ({ key: crypto.randomUUID(), count: 0 }));
@@ -121,19 +133,15 @@ export function InterviewRoom({
   // 떠날 때는 지우지 않는다: 5.8의 레벨업(leveledUp)을 결과 화면(S08)까지 기억해야 한다(웹 Swagger leveledUp: 5.8 응답에만 값).
   // 이미 끝낸 면접(S06-1 결과 분석 중)을 새로고침해 들어온 것이면 그 면접의 레벨업이므로 남긴다.
   const [enteredEnded] = useState(analyzing);
-  useEffect(() => {
+  // 그리기 전에 지운다(지난 면접의 값이 새 면접 첫 화면에 한 번이라도 보이지 않게)
+  useLayoutEffect(() => {
     reset({ keepLeveledUp: enteredEnded });
   }, [reset, enteredEnded]);
 
-  // 채팅: 질문 준비가 끝나고(5.2 planStatus READY) 대기 화면의 [면접 시작]을 누르면 면접을 시작한다(5.4).
+  // 채팅: 질문 준비가 끝나면(5.2 planStatus READY) 대기 화면 뒤에서 면접을 시작해 둔다(5.4, 선로딩).
   // 실패하면(서버 실패 · 연결 오류) 2초 뒤 화면을 다시 그려 5.2로 지금 상태를 받고, 아직 시작 전이면 다시 보낸다.
   useEffect(() => {
-    if (
-      session.mode !== "CHAT" ||
-      session.status !== "READY" ||
-      session.planStatus !== "READY" ||
-      !chatStartRequested
-    ) {
+    if (session.mode !== "CHAT" || session.status !== "READY" || session.planStatus !== "READY") {
       return;
     }
     if (startedAttempt.current === start.attempt) return;
@@ -142,7 +150,7 @@ export function InterviewRoom({
       setStartError(result.formError);
       if (result.formError) setStartRetry({ newKey: Boolean(result.keySpent) });
     });
-  }, [session.id, session.mode, session.status, session.planStatus, start, chatStartRequested]);
+  }, [session.id, session.mode, session.status, session.planStatus, start]);
 
   // 시작이 실패했으면 2초 뒤 다시 그려 5.2로 지금 상태를 받고, 다음 시도(attempt)를 연다.
   useEffect(() => {
@@ -201,52 +209,57 @@ export function InterviewRoom({
               <LightningFlash questionId={question?.id ?? null} />
             )}
 
-            <TopBar session={session} question={question} uiHidden={uiHidden} />
-            {session.mode === "VIDEO" ? (
-              <VideoInterview
-                key={restart.count}
-                uiHidden={uiHidden}
-                startFailed={startFailed}
-                // 답변 5개가 저장돼 끝내는 중(5.8)이면 BE가 방을 닫아도 끊김으로 보지 않는다
-                live={session.status === "IN_PROGRESS" && session.answeredCount < TOTAL_QUESTIONS}
-                sessionId={session.id}
-                interviewer={interviewer}
-                question={question}
-                answeredCount={session.answeredCount}
-                onPresentation={setPresentation}
-              />
-            ) : (
-              <Dialog bottom="pb-[5px]" hidden={uiHidden}>
-                {planFailed ? (
-                  <PlanFailed sessionId={session.id} />
-                ) : session.status !== "IN_PROGRESS" ? (
-                  <QuestionBubble interviewer={interviewer} question={question} />
-                ) : null}
-                {startError && session.status === "READY" && (
-                  <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
-                    {startError}
-                  </p>
-                )}
-                {session.status === "IN_PROGRESS" ? (
-                  <ChatLive
-                    key={restart.count}
-                    sessionId={session.id}
-                    question={question}
-                    interviewer={interviewer}
-                    onPresentation={setPresentation}
-                  />
-                ) : (
-                  <ChatPanel sessionId={session.id} question={question} />
-                )}
-              </Dialog>
-            )}
-            <ShowUiButton />
-            <EndModal sessionId={session.id} answeredCount={session.answeredCount} />
+            {/* 대기 화면이 떠 있는 동안 뒤쪽 화면은 누르거나 Tab으로 닿지 않는다 */}
+            <div inert={chatWaiting} className="contents">
+              <TopBar session={session} question={question} uiHidden={uiHidden} />
+              {session.mode === "VIDEO" ? (
+                <VideoInterview
+                  key={restart.count}
+                  uiHidden={uiHidden}
+                  startFailed={startFailed}
+                  // 답변 5개가 저장된 것이 보여 끝내는 중(5.8)이면 BE가 방을 닫아도 끊김으로 보지 않는다(10초가 지나 끝내는 경우는 VideoInterview가 본다)
+                  live={session.status === "IN_PROGRESS" && session.answeredCount < TOTAL_QUESTIONS}
+                  sessionId={session.id}
+                  interviewer={interviewer}
+                  question={question}
+                  answeredCount={session.answeredCount}
+                  onPresentation={setPresentation}
+                />
+              ) : (
+                <Dialog bottom="pb-[5px]" hidden={uiHidden}>
+                  {planFailed ? (
+                    <PlanFailed sessionId={session.id} />
+                  ) : session.status !== "IN_PROGRESS" ? (
+                    <QuestionBubble interviewer={interviewer} question={question} />
+                  ) : null}
+                  {/* 선로딩 중(대기 화면)에는 면접방에 아직 들어가지 않는다. 들어가면 면접관이 첫 질문을 시작한다 */}
+                  {session.status === "IN_PROGRESS" && !holdingRoom ? (
+                    <ChatLive
+                      key={restart.count}
+                      sessionId={session.id}
+                      question={question}
+                      interviewer={interviewer}
+                      onPresentation={setPresentation}
+                    />
+                  ) : (
+                    <ChatPanel sessionId={session.id} question={question} />
+                  )}
+                </Dialog>
+              )}
+              <ShowUiButton />
+            </div>
+            <EndModal
+              sessionId={session.id}
+              answeredCount={session.answeredCount}
+              video={session.mode === "VIDEO"}
+            />
             <ChatWaiting
               open={chatWaiting}
               persona={session.persona}
               planStatus={session.planStatus}
               planProgress={session.planProgress}
+              started={session.status === "IN_PROGRESS"}
+              startError={session.status === "READY" ? startError : undefined}
               onStart={() => setChatStartRequested(true)}
             />
             <StartFailedModal
@@ -334,7 +347,7 @@ function Dialog({
  * 답변은 에이전트가 듣고 저장한다. [답변 완료] · [다시 시도]가 받아들여지거나 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리면
  * 그 질문은 내는 중이 되어 2초마다 5.5로 다음 질문을 확인한다. 제출됨(answer.state submitted)을 받으면 면접관이
  * '생각 중'이 된다. 알림을 놓쳐도 다음 질문이 오면 넘어간다(에이전트는 알림을 한 번만 보낸다).
- * 5.2로 답변 5개가 저장된 것이 보이면 면접을 끝낸다(5.8).
+ * 5.2로 답변 5개가 저장된 것이 보이거나, 마지막 답변이 제출되고 10초가 지나면 면접을 끝낸다(5.8).
  * (API 명세 면접방 메시지 · 화상 답변 끝 판단, 사용자 결정 2026-10-26: 다음 질문은 5.5로 받는다,
  * [답변 완료]는 내 답변 자막이 있을 때만, 마지막 답변 뒤 자동으로 끝내기)
  */
@@ -368,6 +381,9 @@ function VideoInterview({
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
   const openEnd = useInterviewStore((state) => state.openEnd);
+  const submittedSeq = useInterviewStore((state) => state.submittedSeq);
+  const setSubmittedSeq = useInterviewStore((state) => state.setSubmittedSeq);
+  const confirmingSave = useInterviewStore((state) => state.confirmingSave);
   // [답변 완료] · [다시 시도]를 보내 에이전트의 응답을 기다리는 중
   const [requesting, setRequesting] = useState(false);
   // 에이전트가 답변을 내는 중인 질문(id)
@@ -392,6 +408,7 @@ function VideoInterview({
     setAnswerNotice(message);
     if (message.state === "autoSubmitted") startSubmitting(question.id);
     if (message.state === "submitted") {
+      setSubmittedSeq(message.seq);
       setCompletedSeq(message.seq);
       setDoneStream(stt.streamId);
       setAnsweredQuestion(question.id);
@@ -432,19 +449,28 @@ function VideoInterview({
   }
 
   // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
+  // [끝내기] 뒤 저장을 기다리는 동안은 면접 화면이 다시 그린다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   useEffect(() => {
-    if (!submitting || refreshing || !online) return;
+    if (!submitting || confirmingSave || refreshing || !online) return;
     const timer = setTimeout(() => startRefresh(() => router.refresh()), SESSION_POLL_MS);
     return () => clearTimeout(timer);
-  }, [submitting, refreshing, online, router]);
+  }, [submitting, confirmingSave, refreshing, online, router]);
 
-  useFinishAfterLastAnswer(sessionId, answeredCount >= TOTAL_QUESTIONS, setLeveledUp);
+  // 마지막 답변이 제출됐으면 5.2 answeredCount로 저장을 확인한 뒤 끝낸다. 10초가 지나도 보이지 않으면 그대로 끝낸다
+  // (API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257). 기다리는 동안 저장 중임을 안내한다.
+  const lastSaved = answeredCount >= TOTAL_QUESTIONS;
+  const lastSubmitted = submittedSeq === TOTAL_QUESTIONS;
+  const lastConfirmed = useSaveConfirmed(lastSubmitted, lastSaved);
+  const savingLast = lastSubmitted && !lastConfirmed;
+  useFinishAfterLastAnswer(sessionId, lastSaved || lastConfirmed, setLeveledUp);
 
   // S06-F: 다시 연결하는 중이면 위 배너로 지난 초를 세고, 5초를 넘기거나 SDK가 다시 잇기를 포기하면 '잠시 멈춤' 카드.
   // 끊기면 5.2를 다시 불러 면접관 배정 거절(START_FAILED)인지 본다(그러면 S06-F2).
   const reconnectSeconds = useReconnectSeconds(stt.status === "reconnecting");
-  const disconnected = live && stt.status === "failed";
-  const paused = live && (disconnected || reconnectSeconds * 1000 >= PAUSE_AFTER_MS);
+  // 마지막 답변 뒤 끝내는 중(저장이 보이거나 10초가 지남)이면 BE가 방을 닫아 끊겨도 끊김으로 보지 않는다
+  const connected = live && !(lastSaved || lastConfirmed);
+  const disconnected = connected && stt.status === "failed";
+  const paused = connected && (disconnected || reconnectSeconds * 1000 >= PAUSE_AFTER_MS);
   useEffect(() => {
     if (disconnected) router.refresh();
   }, [disconnected, router]);
@@ -457,15 +483,17 @@ function VideoInterview({
     !submitting &&
     !requesting;
   // S06-A 답변 상태 토스트(answer.state). 음성 인식이 끊긴 것은 자막 스트림이 알려 줄 수도 있다.
-  const noticeMessage = submissionFailed
-    ? "답변을 저장하지 못했어요"
-    : notice?.state === "sttFailed" || stt.status === "sttFailed"
-      ? "음성 인식이 끊겼어요"
-      : notice?.state === "sttReconnecting"
-        ? "음성 인식을 다시 연결하는 중…"
-        : notice?.state === "timedOut" && !spoke
-          ? "답변을 기다리고 있어요. 말씀을 시작해 주세요"
-          : null;
+  const noticeMessage = savingLast
+    ? "답변을 저장하는 중이에요"
+    : submissionFailed
+      ? "답변을 저장하지 못했어요"
+      : notice?.state === "sttFailed" || stt.status === "sttFailed"
+        ? "음성 인식이 끊겼어요"
+        : notice?.state === "sttReconnecting"
+          ? "음성 인식을 다시 연결하는 중…"
+          : notice?.state === "timedOut" && !spoke
+            ? "답변을 기다리고 있어요. 말씀을 시작해 주세요"
+            : null;
 
   return (
     <>
@@ -474,7 +502,7 @@ function VideoInterview({
       </div>
       <AnimatePresence>
         {/* 재연결 안내는 화면을 숨긴 동안에도 보인다(사용자 요청 2026-10-27) */}
-        {live && stt.status === "reconnecting" && !paused && (
+        {connected && stt.status === "reconnecting" && !paused && (
           <ReconnectBanner seconds={reconnectSeconds} />
         )}
       </AnimatePresence>
@@ -520,7 +548,7 @@ function VideoInterview({
 }
 
 /**
- * 화상 답변이 모두 저장되면(ready) 면접을 끝낸다(5.8). 실패하면 2초 뒤 다시 보낸다.
+ * 화상 답변이 모두 저장된 것이 보이거나 저장 확인 시간(10초)이 지나면(ready) 면접을 끝낸다(5.8). 실패하면 2초 뒤 다시 보낸다.
  * 같은 끝내기는 같은 멱등 키로 보내고, 서버가 실패로 답했으면 새 키로 보낸다(채팅 마지막 답변과 같음).
  */
 function useFinishAfterLastAnswer(

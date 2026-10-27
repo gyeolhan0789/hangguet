@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
+import { Spinner } from "@/components/spinner";
 import { useOnline } from "@/components/use-online";
 import { retryPlan } from "@/lib/interview/actions";
 import type { PreloadStatus } from "@/stores/interviewer-preload-store";
 import type { SessionResponse } from "@/types/api";
 
 import { RowButton } from "./check-row";
-import { Spinner } from "./spinner";
 
 // 기준: Figma S05 Preparing(18:2472: brand-soft 줄 · loader 18 · '면접관이 질문을 준비하고 있어요' 15 Bold brand-ink
 // · 오른쪽 '78%' 14 ExtraBold · 6px 트랙(bg-sub) · 채움 brand-strong) · Swagger 5.2 면접 조회(planStatus · planProgress, 2초마다)
