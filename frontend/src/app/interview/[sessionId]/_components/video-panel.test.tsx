@@ -59,14 +59,28 @@ describe("SelfCamera · VideoControls", () => {
     expect(screen.getByLabelText("내 카메라 화면").className).toContain("hidden");
   });
 
-  it("내 답변 상자 맨 아래 줄은 파형만 있고(마이크 · [답변 완료] 없음), 질문을 말하는 중(locked)이면 흐리게 한다", () => {
+  it("내 답변 상자 맨 아래 줄은 파형과 [답변 완료]만 있고(마이크 없음), 질문을 말하는 중(locked)이면 파형을 흐리게 한다", () => {
     const { rerender } = render(<VideoControls level={motionValue(0)} />);
-    expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("img", { name: "마이크 듣는 중" })).toBeNull();
     const wave = () => screen.getByTestId("waveform").parentElement?.className;
     expect(wave()).not.toContain("opacity-30");
     rerender(<VideoControls level={motionValue(0)} locked />);
     expect(wave()).toContain("opacity-30");
+  });
+
+  it("[답변 완료]는 낼 수 있을 때(canSubmit)만 누를 수 있고, 누르면 알린다. 내는 중에는 막고 바쁨을 알린다", () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(<VideoControls level={motionValue(0)} onSubmit={onSubmit} />);
+    const button = () => screen.getByRole("button", { name: "답변 완료" });
+    expect(button()).toHaveProperty("disabled", true);
+
+    rerender(<VideoControls level={motionValue(0)} canSubmit onSubmit={onSubmit} />);
+    fireEvent.click(button());
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    rerender(<VideoControls level={motionValue(0)} canSubmit submitting onSubmit={onSubmit} />);
+    expect(button()).toHaveProperty("disabled", true);
+    expect(button().getAttribute("aria-busy")).toBe("true");
   });
 });
 

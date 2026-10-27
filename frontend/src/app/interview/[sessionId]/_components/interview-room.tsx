@@ -326,14 +326,14 @@ function Dialog({
 }
 
 /**
- * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 파형 · 마이크 끊김 토스트. 답변은 에이전트가 낸다(사용자 요청 2026-10-27: [답변 완료] 없음),
- * 결과 큐에 내지 못하면(submitFailed) 안내의 [다시 시도]로 다시 낸다.
- * 답변은 에이전트가 듣고 저장한다. 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리거나 [다시 시도]가 받아들여지면
+ * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 파형 · [답변 완료] · 마이크 끊김 토스트.
+ * 결과 큐에 내지 못하면(submitFailed) 안내의 [다시 시도] 또는 [답변 완료]로 다시 낸다.
+ * 답변은 에이전트가 듣고 저장한다. [답변 완료] · [다시 시도]가 받아들여지거나 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리면
  * 그 질문은 내는 중이 되어 2초마다 5.5로 다음 질문을 확인한다. 제출됨(answer.state submitted)을 받으면 면접관이
  * '생각 중'이 된다. 알림을 놓쳐도 다음 질문이 오면 넘어간다(에이전트는 알림을 한 번만 보낸다).
  * 5.2로 답변 5개가 저장된 것이 보이면 면접을 끝낸다(5.8).
  * (API 명세 면접방 메시지 · 화상 답변 끝 판단, 사용자 결정 2026-10-26: 다음 질문은 5.5로 받는다,
- * 마지막 답변 뒤 자동으로 끝내기)
+ * [답변 완료]는 내 답변 자막이 있을 때만, 마지막 답변 뒤 자동으로 끝내기)
  */
 function VideoInterview({
   uiHidden,
@@ -365,14 +365,14 @@ function VideoInterview({
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
   const openEnd = useInterviewStore((state) => state.openEnd);
-  // [다시 시도]를 보내 에이전트의 응답을 기다리는 중
+  // [답변 완료] · [다시 시도]를 보내 에이전트의 응답을 기다리는 중
   const [requesting, setRequesting] = useState(false);
   // 에이전트가 답변을 내는 중인 질문(id)
   const [submittingId, setSubmittingId] = useState<number | null>(null);
   // 답변을 낸 자막 캡처. 에이전트가 다음 답변을 들으려 새 캡처를 열 때까지 지난 답변 글을 감춘다.
   // 내기 시작할 때 정해 두어, 제출됨 알림이 늦거나 오지 않아도 다음 질문 아래에 지난 글이 남지 않는다.
   const [doneStream, setDoneStream] = useState<string | null>(null);
-  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [다시 시도]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
+  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료] · [다시 시도]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
   const [failedId, setFailedId] = useState<number | null>(null);
   const [completedSeq, setCompletedSeq] = useState(0);
   const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
@@ -499,7 +499,13 @@ function VideoInterview({
           interimText={caption.interimText}
           locked={speechLocked}
         >
-          <VideoControls level={level} locked={speechLocked} />
+          <VideoControls
+            level={level}
+            canSubmit={canSubmit}
+            submitting={submitting || requesting}
+            locked={speechLocked}
+            onSubmit={() => void submit()}
+          />
         </AnswerCaption>
       </Dialog>
       <div className={uiHidden ? "hidden" : "contents"}>

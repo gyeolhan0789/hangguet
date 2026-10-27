@@ -202,7 +202,7 @@ test.describe("S06 면접 화면", () => {
     await signIn();
   });
 
-  test("화상: 위 막대(면접관 · 회사 직무 · 질문 3 / 5 · 경과 시간) · 질문(5.5) · 내 카메라 · 음파를 보여 준다", async ({
+  test("화상: 위 막대(면접관 · 회사 직무 · 질문 3 / 5 · 경과 시간) · 질문(5.5) · 내 카메라 · 음파 · [답변 완료]를 보여 준다", async ({
     page,
     msw,
   }) => {
@@ -234,10 +234,11 @@ test.describe("S06 면접 화면", () => {
     const camera = page.getByLabel("내 카메라 화면");
     await expect(camera).toBeVisible();
     await expect(camera.locator("xpath=..").getByText("나", { exact: true })).toBeVisible();
-    // 내 답변 상자에는 음파만 있다(사용자 요청 2026-10-27: 마이크 · [답변 완료] 없음, 답변은 에이전트가 낸다)
+    // 내 답변 상자 맨 아래 줄은 파형과 [답변 완료](사용자 요청 2026-10-27: 마이크 없음)
     await expect(page.getByTestId("waveform")).toBeVisible();
     await expect(page.getByRole("img", { name: "마이크 듣는 중" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "답변 완료" })).toHaveCount(0);
+    // 내 답변 자막이 없으면 누를 수 없다.
+    await expect(page.getByRole("button", { name: "답변 완료" })).toBeDisabled();
     // 화상에는 채팅 입력창이 없다.
     await expect(answerBox(page)).toHaveCount(0);
   });
@@ -259,6 +260,7 @@ test.describe("S06 면접 화면", () => {
       page.getByLabel("내 카메라 화면").locator("xpath=..").getByText("나", { exact: true }),
       page.getByRole("region", { name: "내 답변 음성 인식" }),
       page.getByTestId("waveform"),
+      page.getByRole("button", { name: "답변 완료" }),
       page.getByText("질문 3 / 5"),
     ];
     for (const part of parts) await expect(part).toBeVisible();

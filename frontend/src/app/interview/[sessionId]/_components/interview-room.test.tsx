@@ -99,7 +99,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
 // · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만))
 // · API 명세 면접방 메시지(answer.submit · answer.state) · 5.7(202 · 409 ANSWER_ALREADY_SUBMITTED면 answer.submit)
 // · 사용자 결정(2026-10-26: 다음 질문은 5.5로 받는다, 화상 마지막 답변 뒤 자동 끝내기)
-// · 사용자 요청(2026-10-27: 화상 [답변 완료] 없음 — 에이전트가 내고, 저장 실패 시 안내의 [다시 시도])
+// · 사용자 요청(2026-10-27: 화상 [답변 완료]는 파형 오른쪽, 마이크 없음 · 말을 멈추면 에이전트가 스스로 내기도 함)
 // · 사용자 결정(2026-10-26: 채팅 면접방 연결 실패는 표시 없이 2초 뒤 다시 들어가고, 연달아 3번까지만)
 
 // Swagger 5.2 200 예시 'S06·S06-B 면접 중'
@@ -165,6 +165,7 @@ afterEach(() => {
 const videoRoom = (question: CurrentQuestion | null = QUESTION, answeredCount = 2) => (
   <InterviewRoom session={{ ...SESSION, answeredCount }} currentQuestion={question} />
 );
+const submitButton = () => screen.getByRole("button", { name: "답변 완료" }) as HTMLButtonElement;
 /** S06-A 제출 실패 토스트의 [다시 시도] */
 const retryButton = () => screen.getByRole("button", { name: "다시 시도" }) as HTMLButtonElement;
 const caption = () => screen.getByRole("region", { name: "내 답변 음성 인식" }).textContent;
@@ -575,6 +576,59 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       null,
       expect.objectContaining({ listenOnly: true }),
     );
+  });
+
+  it("화상: 질문이 있고 내 답변 자막이 있을 때만 [답변 완료]를 누를 수 있고, 누르면 그 질문 순서로 보낸다", async () => {
+    const { rerender } = render(videoRoom());
+    expect(submitButton()).toHaveProperty("disabled", true);
+
+    room.streamId = "capture-1";
+    room.interimText = "저는";
+    rerender(videoRoom());
+    expect(submitButton()).toHaveProperty("disabled", false);
+
+    // 다음 질문을 기다리는 중(질문 없음)이면 누를 수 없다
+    rerender(videoRoom(null));
+    expect(submitButton()).toHaveProperty("disabled", true);
+
+    rerender(videoRoom());
+    await act(async () => fireEvent.click(submitButton()));
+    expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
+    // 받아들여지면 내는 중이라 다시 누를 수 없고, 낸 답변 글은 감춘다
+    expect(submitButton()).toHaveProperty("disabled", true);
+    expect(caption()).not.toContain("저는");
+  });
+
+  it.each(["rejected", "failed"])(
+    "화상: 에이전트가 받지 않으면(%s) 다시 누를 수 있고 답변 글도 그대로다",
+    async (result) => {
+      room.streamId = "capture-1";
+      room.confirmedText = "트래픽을 나눠 받았어요";
+      room.submitAnswer = vi.fn(async () => result);
+      render(videoRoom());
+
+      await act(async () => fireEvent.click(submitButton()));
+      expect(submitButton()).toHaveProperty("disabled", false);
+      expect(caption()).toContain("트래픽을 나눠 받았어요");
+    },
+  );
+
+  it("화상: 질문 음성이 나오는 동안(started)은 [답변 완료]를 막는다", () => {
+    room.streamId = "capture-1";
+    room.confirmedText = "이전 캡처의 발화";
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 3,
+      content: "질문 메시지",
+      speech: "started",
+      alignment: null,
+    };
+    const { rerender } = render(videoRoom());
+    expect(submitButton()).toHaveProperty("disabled", true);
+    room.question = { ...room.question, speech: "ended" };
+    rerender(videoRoom());
+    expect(submitButton()).toHaveProperty("disabled", false);
   });
 
   it("화상: 제출됨(submitted)이면 면접관이 생각 중이 되고 지난 답변 자막을 감추며, 다음 답변 캡처가 오면 다시 보여 준다", () => {
@@ -1071,6 +1125,7 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
       camera(),
       screen.getByRole("region", { name: "악마 면접관 질문" }),
       screen.getByTestId("waveform"),
+      submitButton(),
     ];
     for (const part of parts()) expect(hiddenBox(part)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "화면 숨기기" }));
