@@ -9,6 +9,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { endSession, submitTextAnswer } from "@/lib/interview/actions";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import { ANSWER_TEXT_MAX, answerTextSchema, type AnswerTextValues } from "@/lib/interview/schemas";
+import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion } from "@/types/api";
 
@@ -53,6 +54,7 @@ export function ChatPanel({
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
+  const addHistory = useInterviewHistoryStore((state) => state.add);
   const [pending, startSubmit] = useTransition();
   const [sent, setSent] = useState<{ id: number; text: string } | null>(null);
   const [formError, setFormError] = useState<string>();
@@ -127,6 +129,11 @@ export function ChatPanel({
         return;
       }
       if (!already) setSent({ id: question.id, text: values.content });
+      addHistory(sessionId, {
+        seq: question.seq,
+        question: question.content,
+        answer: values.content,
+      });
       reset({ content: "" });
       requestAnimationFrame(fit);
       setAnsweredQuestion(question.id);

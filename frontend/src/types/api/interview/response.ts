@@ -3,9 +3,12 @@ import type { LocalDate, OffsetDateTime, Page } from "../common";
 import type { Criterion, Grade } from "../growth/response";
 import type { InputType, Mode, Persona } from "./request";
 
-/** 면접 상태. READY 시작 전 · IN_PROGRESS 면접 중 · ANALYZING 결과 생성 중 · COMPLETED 결과 있음 · ABORTED 답변 없이 끝남 · FAILED 결과 생성 실패 */
+/**
+ * 면접 상태. READY 시작 전 · IN_PROGRESS 면접 중 · ANALYZING 결과 생성 중 · COMPLETED 결과 있음 · ABORTED 답변 없이 끝남
+ * · FAILED 결과 생성 실패 · START_FAILED 배정 거절로 시작 못 함(웹 Swagger SessionResponse.status)
+ */
 export type SessionStatus =
-  "READY" | "IN_PROGRESS" | "ANALYZING" | "COMPLETED" | "ABORTED" | "FAILED";
+  "READY" | "IN_PROGRESS" | "ANALYZING" | "COMPLETED" | "ABORTED" | "FAILED" | "START_FAILED";
 
 /** 면접 플랜(질문 · 평가 기준) 상태. GENERATING 만드는 중(S05 [면접 시작] 비활성) · READY 완료 · FAILED 실패(5.3으로 재시도) */
 export type PlanStatus = "GENERATING" | "READY" | "FAILED";

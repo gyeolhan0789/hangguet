@@ -11,6 +11,12 @@ interface InterviewState {
   answeredQuestionId: number | null;
   /** 5.8 면접 끝내기 응답의 레벨업. 결과 분석이 끝난 뒤 S08에서 S02-L을 띄울 때 쓴다(웹 Swagger leveledUp). 모르면 null */
   leveledUp: boolean | null;
+  /** 질문 말풍선을 접었다: 지금 질문은 한 줄로 말줄임하고 이전 질문 기록은 숨긴다(사용자 요청 2026-10-27, 접기는 하나로) */
+  collapsed: boolean;
+  toggleCollapsed: () => void;
+  /** 화면 숨기기(눈 버튼): 실제 면접처럼 면접관 음성만 듣고 답하도록 면접관 · [면접 종료] · [화면 보이기]만 남기고 상단 바 나머지 · 질문 · 이전 질문 · 내 답변 · 파형 · 내 카메라 · 토스트를 숨긴다(사용자 요청 2026-10-27) */
+  uiHidden: boolean;
+  toggleUiHidden: () => void;
   openEnd: () => void;
   closeEnd: () => void;
   setAnsweredQuestion: (questionId: number | null) => void;
@@ -19,7 +25,13 @@ interface InterviewState {
   reset: (options?: { keepLeveledUp?: boolean }) => void;
 }
 
-const initial = { endOpen: false, answeredQuestionId: null, leveledUp: null };
+const initial = {
+  endOpen: false,
+  answeredQuestionId: null,
+  leveledUp: null,
+  collapsed: false,
+  uiHidden: false,
+};
 
 // 레벨업은 S06-1 · S07 · S08에서 새로고침해도 S08까지 남아야 해서 sessionStorage에 둔다(탭을 닫으면 지워진다).
 // 모달 · 답한 질문은 그 화면에서만 쓰므로 남기지 않는다.
@@ -27,6 +39,8 @@ export const useInterviewStore = create<InterviewState>()(
   persist(
     (set) => ({
       ...initial,
+      toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
+      toggleUiHidden: () => set((state) => ({ uiHidden: !state.uiHidden })),
       openEnd: () => set({ endOpen: true }),
       closeEnd: () => set({ endOpen: false }),
       setAnsweredQuestion: (answeredQuestionId) => set({ answeredQuestionId }),
@@ -34,7 +48,12 @@ export const useInterviewStore = create<InterviewState>()(
       reset: (options) =>
         set(
           options?.keepLeveledUp
-            ? { endOpen: initial.endOpen, answeredQuestionId: initial.answeredQuestionId }
+            ? {
+                endOpen: initial.endOpen,
+                answeredQuestionId: initial.answeredQuestionId,
+                collapsed: initial.collapsed,
+                uiHidden: initial.uiHidden,
+              }
             : initial,
         ),
     }),

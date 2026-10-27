@@ -98,6 +98,13 @@ describe("TopBar (S06 · S06-B 위 막대)", () => {
     expect(screen.getByText("질문 3 / 5")).toBeTruthy();
   });
 
+  it("화면 숨기기(uiHidden) 중에는 면접관 · 진행 표시를 숨기고 [면접 종료]만 남긴다", () => {
+    render(<TopBar session={SESSION} question={QUESTION} uiHidden />);
+    expect(screen.getByText("질문 3 / 5").closest(".invisible")).toBeTruthy();
+    expect(screen.getByText("악마 면접관").closest(".invisible")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "면접 종료" }).closest(".invisible")).toBeNull();
+  });
+
   it("[면접 종료]를 누르면 종료 확인 모달을 연다", () => {
     render(<TopBar session={SESSION} question={QUESTION} />);
     fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
