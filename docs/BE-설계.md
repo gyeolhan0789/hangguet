@@ -321,7 +321,7 @@ com.ssafy.a301
 | `ai:jobs:plan` | List. PLAN 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:plan:processing`에 옮겨 처리 | 없음 | 5.1·5.3 (5.0) |
 | `ai:jobs:recording` | List. MERGE_RECORDING 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:recording:processing`에 옮겨 처리 | 없음 | 5.8(화상) (5.0) |
 | `ai:jobs` | List. SCORE_ANSWER·EVALUATE 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 답변 저장·5.8·5.9 (5.0) |
-| `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 길이만 지표로 본다(`AiQueueMetrics`) |
+| `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 큐별 길이만 지표로 본다(`AiQueueMetrics`, 대기 · 처리 중 지표에 `queue` 태그로 큐 이름) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
