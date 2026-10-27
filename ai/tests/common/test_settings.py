@@ -22,6 +22,7 @@ def test_starts_without_any_variable() -> None:
     assert settings.elevenlabs_api_key is None
     assert settings.s3_bucket is None
     assert settings.aws_region is None
+    assert settings.worker_queue is None
 
 
 def test_llm_reports_every_missing_name_without_values() -> None:
@@ -80,6 +81,7 @@ def test_reads_every_variable() -> None:
         "ELEVENLABS_API_KEY": "elevenlabs-key",
         "S3_BUCKET": "recordings-bucket",
         "AWS_REGION": "ap-northeast-2",
+        "AI_WORKER_QUEUE": "plan",
     }
 
     settings = load_settings(env)
@@ -95,6 +97,7 @@ def test_reads_every_variable() -> None:
         elevenlabs_api_key="elevenlabs-key",
         s3_bucket="recordings-bucket",
         aws_region="ap-northeast-2",
+        worker_queue="plan",
     )
 
 

@@ -11,7 +11,7 @@
 | 저장소 | PostgreSQL 18.x(영구 데이터), Redis(진행 중 상태·토큰·멱등 키·AI 작업 큐·결과 큐) |
 | 파일 | S3. DB에는 `object_key`만 저장 **[결정]** |
 | 면접방 | LiveKit 서버 API(입장 토큰 서명, 에이전트 배정, 방 삭제, Egress 녹화). 서버 SDK는 LiveKit 공식 JVM SDK `io.livekit:livekit-server` **[결정]**(5.6) |
-| AI 연동 | BE와 AI는 HTTP로 서로 부르지 않는다. Redis 작업 큐(`ai:jobs`)로 일을 넘기고 결과 큐(`ai:results`)로 돌려받는다. **DB는 BE만 다룬다** **[결정]**([AI 명세](AI-명세.md) 1장) |
+| AI 연동 | BE와 AI는 HTTP로 서로 부르지 않는다. Redis 작업 큐(작업 종류별 3개, AI 명세 1.3)로 일을 넘기고 결과 큐(`ai:results`)로 돌려받는다. **DB는 BE만 다룬다** **[결정]**([AI 명세](AI-명세.md) 1장) |
 | 스키마 | Flyway `backend/src/main/resources/db/migration`. JPA는 `ddl-auto: validate`로 엔티티와 DDL이 어긋나면 기동 실패 |
 | 시간 | 저장은 `timestamptz`, 응답은 `+09:00`. "날짜"(연습일)는 한국 시간 면접 시작일 기준 **[결정]** |
 
@@ -189,10 +189,10 @@ com.ssafy.a301
 
 ### 5.0 AI 작업 전송 (Outbox) **[결정]**
 1. 업무 트랜잭션 안에서 `AiJobService.enqueue(AiJob.plan/scoreAnswer/evaluate(...))`로 `ai_job_outbox`에 넣는다. 트랜잭션 밖에서 부르면 예외(업무가 롤백되면 작업도 남지 않음)
-2. 커밋 직후 `AiJobPublisher`가 Redis `ai:jobs`에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
+2. 커밋 직후 `AiJobPublisher`가 작업 종류에 맞는 Redis 큐(PLAN `ai:jobs:plan`, MERGE_RECORDING `ai:jobs:recording`, 그 밖 `ai:jobs`, AI 명세 1.3)에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
 3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
 4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 결과 큐 처리에서 거른다([AI 명세](AI-명세.md) 1.4)
-5. 작업자는 `BLMOVE ai:jobs ai:jobs:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
+5. 작업자는 큐마다 1대이고, `BLMOVE {큐} {큐}:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
 6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`)는 `rawPrefix`·`objectKey`를 담는다(화상만)
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
@@ -318,8 +318,10 @@ com.ssafy.a301
 | `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 2.3 · 9.10 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
-| `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
-| `ai:jobs:processing` | List. 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 길이만 지표로 본다(`AiQueueMetrics`) |
+| `ai:jobs:plan` | List. PLAN 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:plan:processing`에 옮겨 처리 | 없음 | 5.1·5.3 (5.0) |
+| `ai:jobs:recording` | List. MERGE_RECORDING 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:recording:processing`에 옮겨 처리 | 없음 | 5.8(화상) (5.0) |
+| `ai:jobs` | List. SCORE_ANSWER·EVALUATE 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 답변 저장·5.8·5.9 (5.0) |
+| `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 길이만 지표로 본다(`AiQueueMetrics`) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
