@@ -140,9 +140,12 @@ class MapperTest {
         assertThat(result.answers().getFirst().grade()).isEqualTo(Grade.GOOD);
         assertThat(result.speechMetrics()).isNull();
 
-        ReplayResponse replay = ResultMapper.toReplay(s, items, "https://video");
+        ReplayResponse replay =
+                ResultMapper.toReplay(s, items, ResultDtos.VideoStatus.READY, "https://video");
         assertThat(replay.items()).extracting(ResultDtos.ReplayItem::seq).containsExactly(1, 2);
         assertThat(replay.items().get(1).answer()).isNull();
+        // 채팅은 녹화가 없다
+        assertThat(replay.videoStatus()).isNull();
         assertThat(replay.videoUrl()).isNull();
     }
 
@@ -157,8 +160,10 @@ class MapperTest {
         ResultResponse result = ResultMapper.toResult(s, List.of(), List.of(), metric);
         assertThat(result.speechMetrics().longPauseCount()).isEqualTo(3);
         assertThat(result.speechMetrics().gazeRatio()).isNull();
-        assertThat(ResultMapper.toReplay(s, List.of(), "https://video").videoUrl())
-                .isEqualTo("https://video");
+        ReplayResponse replay =
+                ResultMapper.toReplay(s, List.of(), ResultDtos.VideoStatus.READY, "https://video");
+        assertThat(replay.videoStatus()).isEqualTo(ResultDtos.VideoStatus.READY);
+        assertThat(replay.videoUrl()).isEqualTo("https://video");
     }
 
     @Test

@@ -294,7 +294,7 @@ com.ssafy.a301
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
-- 6.4 `videoStatus`(화상만): 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있으면 `READY`이고 `videoUrl`은 Presigned GET이다. 합치기 실패를 저장했거나 면접 종료(`ended_at`) 후 15분(임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
+- 6.4 `videoStatus`(화상만): 합친 녹화 행(`SESSION_VIDEO`, `recordings/{sessionId}.mp4`)이 `READY`이면 `READY`이고 `videoUrl`은 Presigned GET이다. 행이 `FAILED`이거나, `MERGING`이거나 행이 없는데 면접 종료(`ended_at`) 후 15분(`ResultService.MERGE_WAIT`, 임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. 15분 판정은 저장하지 않고 조회할 때 계산하므로 늦게 온 `recording.merged`로 `READY`가 된다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
