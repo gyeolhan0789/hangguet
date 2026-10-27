@@ -186,11 +186,14 @@ export function ChatPanel({
           aria-invalid={Boolean(errors.content) || undefined}
           placeholder="답변을 입력하세요…"
           maxLength={ANSWER_TEXT_MAX}
-          disabled={disabled}
+          // disabled면 브라우저가 포커스를 빼 주황 테두리(focus-within)가 풀리고, 다음 질문 때 다시 눌러야 한다.
+          // 내는 중 · 다음 질문을 기다리는 동안은 읽기 전용으로 막아 포커스를 그대로 둔다(사용자 요청 2026-10-27).
+          readOnly={disabled}
+          aria-disabled={disabled || undefined}
           onKeyDown={onKeyDown}
           onInput={(event) => inputChanged(event.currentTarget.value)}
           style={{ height: MIN_PX }}
-          className="w-full resize-none bg-transparent text-[17px] leading-normal font-medium text-white outline-none placeholder:text-white/50 disabled:cursor-not-allowed"
+          className="w-full resize-none bg-transparent text-[17px] leading-normal font-medium text-white outline-none placeholder:text-white/50 read-only:cursor-not-allowed"
         />
         <div className="flex items-center justify-between gap-3">
           {error ? (

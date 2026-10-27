@@ -72,7 +72,7 @@ from app.interview.realtime.answer_end import (
 )
 from app.interview.realtime.interrupt import INTERRUPT_PHRASES, Interrupt, InterruptReason
 from app.interview.realtime.progress import EndReason
-from app.interview.realtime.sentence import Sentence
+from app.interview.realtime.sentence import Sentence, last_sentence
 
 log = logging.getLogger(__name__)
 
@@ -213,8 +213,10 @@ class InterviewRunner:
         if accepted:
             assert reactions is not None
             self._chat_input_seq = message.seq
-            # 채팅은 입력 칸 전체를 전송하므로 그 글이 지금까지의 답변이다
-            reactions.submit(message.text, message.pause_ms, message.text)
+            # 채팅은 입력 칸 전체를 전송하므로 그 글이 지금까지의 답변이다.
+            # 반응 여부는 마지막 문장으로 판단한다.
+            # 전체로 판단하면 입력마다 결과가 거의 같기 때문이다(AI 명세 6.4)
+            reactions.submit(last_sentence(message.text), message.pause_ms, message.text)
         return chat_input_reply(accepted)
 
     async def run(self) -> None:

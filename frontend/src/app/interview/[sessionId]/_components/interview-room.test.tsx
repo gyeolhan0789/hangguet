@@ -19,6 +19,7 @@ import {
   SESSION_POLL_MS,
 } from "./interview-room";
 import { PAUSE_AFTER_MS } from "./room-alerts";
+import { SAVE_WAIT_MS } from "./use-save-confirmed";
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
@@ -481,7 +482,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("채팅: 질문을 준비하는 동안(5.2 READY · GENERATING) 다시 조회하고, 준비가 끝난 뒤 [면접 시작]을 누르면 5.4를 한 번만 부른다", async () => {
+  it("채팅: 질문을 준비하는 동안(5.2 READY · GENERATING) 다시 조회하고, 준비가 끝나면 [면접 시작]을 누르기 전에 5.4를 한 번만 미리 부른다(선로딩)", () => {
     const chat = { ...SESSION, mode: "CHAT", status: "READY", currentQuestion: null } as const;
     const { rerender } = render(
       <InterviewRoom
@@ -495,13 +496,11 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(startSession).not.toHaveBeenCalled();
 
     rerender(<InterviewRoom session={{ ...chat, planStatus: "READY" }} currentQuestion={null} />);
-    // 준비가 끝나도 대기 화면의 [면접 시작]을 눌러야 시작한다
-    expect(startSession).not.toHaveBeenCalled();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "면접 시작" })));
     rerender(<InterviewRoom session={{ ...chat, planStatus: "READY" }} currentQuestion={null} />);
-
-    expect(startSession).toHaveBeenCalledTimes(1);
-    expect(startSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/));
+    expect(startSession).toHaveBeenCalledExactlyOnceWith(
+      55,
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+    );
   });
 
   it("채팅: 5.4 시작이 서버 실패면 2초 뒤 다시 조회하고 새 키로, 연결 오류면 같은 키로 다시 보낸다", async () => {
@@ -510,9 +509,11 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     let result: object = { formError: "지금은 할 수 없는 요청이에요.", keySpent: true };
     startSession.mockImplementation(async () => result);
     render(<InterviewRoom session={chat} currentQuestion={null} />);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "면접 시작" })));
+    await act(async () => {});
     const firstKey = startSession.mock.calls[0][1];
-    expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
+    // 실패 문구는 대기 화면(진행 막대 아래)에 보인다
+    const waiting = screen.getByRole("region", { name: "면접관이 면접을 준비하고 있어요" });
+    expect(within(waiting).getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
 
     result = { formError: "잠시 후 다시 시도해 주세요." };
     await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
@@ -917,6 +918,106 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(endSession).toHaveBeenCalledTimes(1);
   });
 
+  it("화상: 제출됨(submitted)을 받으면 그 답변 순서를 기억하고, 마지막이 아니면 저장 중 안내도 끝내기(5.8)도 하지 않는다", () => {
+    render(videoRoom());
+    answerState({ seq: 3, state: "submitted" });
+    expect(useInterviewStore.getState().submittedSeq).toBe(3);
+    expect(screen.queryByText("답변을 저장하는 중이에요")).toBeNull();
+    act(() => vi.advanceTimersByTime(SAVE_WAIT_MS));
+    expect(endSession).not.toHaveBeenCalled();
+  });
+
+  it("화상: 마지막 답변이 제출됐지만 아직 저장이 보이지 않으면 저장 중임을 알리고 2초마다 5.2를 다시 부르며 기다리다가, 10초가 지나면 그대로 끝낸다(5.8)", async () => {
+    endSession.mockResolvedValue({ leveledUp: false });
+    const last = { id: 305, seq: 5, content: "마지막 질문" };
+    room.streamId = "capture-1";
+    room.confirmedText = "마지막 답";
+    render(videoRoom(last, 4));
+    // 실제 흐름: 에이전트가 자동 제출을 알리고, 결과 큐에 넣은 뒤 제출됨을 알린다
+    answerState({ seq: 5, state: "autoSubmitted" });
+    answerState({ seq: 5, state: "submitted" });
+    expect(screen.getByText("답변을 저장하는 중이에요").closest('[role="status"]')).toBeTruthy();
+
+    refresh.mockClear();
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS - SESSION_POLL_MS - 1));
+    expect(endSession).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 마지막 답변이 제출된 뒤 5.2로 저장이 보이면 10초를 기다리지 않고 끝내고, 남은 대기 시간이 지나도 다시 보내지 않는다", async () => {
+    endSession.mockResolvedValue({ leveledUp: false });
+    const last = { id: 305, seq: 5, content: "마지막 질문" };
+    const { rerender } = render(videoRoom(last, 4));
+    answerState({ seq: 5, state: "submitted" });
+    expect(screen.getByText("답변을 저장하는 중이에요")).toBeTruthy();
+    rerender(videoRoom(null, 5));
+    await act(async () => {});
+    expect(endSession).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("답변을 저장하는 중이에요")).toBeNull();
+    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
+    expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 마지막 답변을 기다리는 중에 [면접 종료] → [끝내기]를 눌러도 5.8은 한 번만 보낸다(자동 종료가 보낸다)", async () => {
+    endSession.mockResolvedValue({ leveledUp: false });
+    const last = { id: 305, seq: 5, content: "마지막 질문" };
+    render(videoRoom(last, 4));
+    answerState({ seq: 5, state: "submitted" });
+    fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    expect(endSession).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
+    expect(endSession).toHaveBeenCalledTimes(1);
+    // 자동 종료가 보낸 뒤에도 모달은 저장 중이라 [끝내기]를 다시 눌러도 보내지 않는다
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    expect(endSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: [끝내기] 뒤 직전 답변 저장을 기다리는 동안에는 다음 질문이 이미 보여도 2초마다 5.2를 다시 부른다", async () => {
+    // 3번 답변이 제출됐고 다음 질문(4번)이 보이지만 answeredCount는 아직 2다
+    const { rerender } = render(videoRoom());
+    answerState({ seq: 3, state: "submitted" });
+    rerender(videoRoom({ id: 304, seq: 4, content: "다음 질문" }, 2));
+    refresh.mockClear();
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 2));
+    expect(refresh).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    expect(endSession).not.toHaveBeenCalled();
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 다음 답변을 내는 중에 [끝내기]로 저장을 기다리면 5.2는 한 곳에서만 다시 부른다(두 요청이 서로를 끊지 않게)", async () => {
+    const { rerender } = render(videoRoom());
+    answerState({ seq: 3, state: "submitted" });
+    room.streamId = "capture-2";
+    room.interimText = "다음 답변";
+    rerender(videoRoom({ id: 304, seq: 4, content: "다음 질문" }, 2));
+    await act(async () => fireEvent.click(submitButton()));
+
+    fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    refresh.mockClear();
+    await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 마지막 답변 저장을 10초 기다린 뒤 끝내는 중에 BE가 면접방을 닫아 끊겨도 '잠시 멈춤'을 띄우지 않는다", async () => {
+    endSession.mockResolvedValue({ leveledUp: false });
+    const last = { id: 305, seq: 5, content: "마지막 질문" };
+    const { rerender } = render(videoRoom(last, 4));
+    answerState({ seq: 5, state: "submitted" });
+    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
+    room.status = "failed";
+    rerender(videoRoom(last, 4));
+    expect(screen.queryByRole("alertdialog", { name: "면접이 잠시 멈췄어요" })).toBeNull();
+  });
+
   it("화상: 끝내기(5.8)가 실패하면 2초 뒤 다시 보내고(서버가 실패로 답했으면 새 키), 성공하면 멈춘다", async () => {
     endSession
       .mockResolvedValueOnce({ formError: "잠시 후 다시 시도해 주세요." })
@@ -1160,10 +1261,32 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeTruthy();
   });
 
-  it("채팅: [면접 시작]을 누르면 대기 화면을 닫는다", async () => {
-    render(chatReady("READY"));
+  it("채팅: 미리 시작한 뒤(IN_PROGRESS)에도 [면접 시작]을 누르기 전에는 대기 화면을 두고 면접방에 들어가지 않으며, 누르면 대기 화면을 닫고 들어간다", async () => {
+    const { rerender } = render(chatReady("READY"));
+    // 미리 시작하기 전에는 [면접 시작]이 없다
+    expect(screen.queryByRole("button", { name: "면접 시작" })).toBeNull();
+    rerender(
+      <InterviewRoom
+        session={{ ...SESSION, mode: "CHAT", currentQuestion: null }}
+        currentQuestion={QUESTION}
+      />,
+    );
+    expect(waitingScreen()).toBeTruthy();
+    expect(joinRoom).not.toHaveBeenCalled();
+    // 대기 화면 뒤의 [면접 종료] · 입력칸은 누르거나 Tab으로 닿지 않는다
+    const endButton = screen.getByRole("button", { name: "면접 종료" });
+    expect(endButton.closest("[inert]")).not.toBeNull();
+
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "면접 시작" })));
     expect(waitingScreen()).toBeNull();
+    expect(endButton.closest("[inert]")).toBeNull();
+    expect(joinRoom).toHaveBeenCalledWith(55, null, expect.objectContaining({ listenOnly: true }));
+  });
+
+  it("채팅: 이미 면접 중인 화면에 새로고침으로 들어오면 대기 화면 없이 바로 면접방에 들어간다", () => {
+    render(chatRoom());
+    expect(waitingScreen()).toBeNull();
+    expect(joinRoom).toHaveBeenCalledWith(55, null, expect.objectContaining({ listenOnly: true }));
   });
 
   it("화상: 답변 5개가 저장돼 끝내는 중(5.8)이면 BE가 면접방을 닫아 끊겨도 '잠시 멈춤'을 띄우지 않는다", async () => {

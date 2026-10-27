@@ -24,7 +24,7 @@
 브라우저 ⇄ LiveKit 면접방 ⇄ AI 면접 에이전트  음성 · 면접방 메시지 (6장)
                               └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev
 
-BE ─ Redis 작업 큐 ai:jobs ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg      PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
+BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
 BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준) · 방 삭제 · Egress 녹화
 ```
@@ -55,7 +55,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ### 1.3 작업 메시지 (BE → AI)
 
-- 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+- 큐는 작업 종류별 Redis List 3개다. BE가 `jobType`에 맞는 큐에 `LPUSH`하고, 작업자는 `BLMOVE {큐} {처리 중 리스트} RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+
+  | 큐 | 처리 중 리스트 | 작업 | 작업자(`AI_WORKER_QUEUE`) |
+  |---|---|---|---|
+  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN | `plan` |
+  | `ai:jobs:recording` | `ai:jobs:recording:processing` | MERGE_RECORDING | `recording` |
+  | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE · WRITE_HEADLINE(임시, 4.1) | `default`(기본값) |
+
+- 작업자는 작업을 하나씩 처리하므로, 큐가 하나이면 녹화 합치기·결과 생성이 몰릴 때 사용자가 기다리는 PLAN이 최대 대기 시간(5장)을 넘긴다. 그래서 PLAN과 MERGE_RECORDING을 별도 큐로 나눈다
+- 큐마다 작업자를 1대 둔다. 작업자는 시작할 때 자기 처리 중 리스트에 남은 작업만 자기 큐로 되돌리므로, 큐마다 처리 중 리스트가 달라야 다른 작업자가 처리 중인 작업을 되돌리지 않는다
+- `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING` · `WRITE_HEADLINE`(임시, 4.1)), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
@@ -320,7 +330,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 
 1. **질문** `question.started` 결과 메시지(`seq`, `startedAt`)를 보내고, 면접방 메시지 `question`(`started`)을 보낸 뒤 질문 글을 TTS로 말한다. 다 말하면 `question`(`ended`), 합성에 실패하면 `failed`
 2. **듣기(화상)** 지원자 음성을 STT로 수신해 확정 토큰과 시각을 수집한다. 에이전트는 `interview.stt` 텍스트 스트림으로 확정 글·미확정 글의 전체 스냅샷을 지원자 화면에 전달한다. 미확정 글은 교체하며 토큰별 시각은 에이전트에 보존한다. 같은 음성으로 말끝 흐림·억양 폭(3장)을 계산한다
-3. **리액션** 화상은 문장이 끝날 때마다(문장 끝 기준은 API 명세 면접방 메시지), 채팅은 `chat.input`을 받을 때마다 Jev로 판단해 `reaction`을 보낸다(6.4)
+3. **리액션** 화상은 문장이 끝날 때마다(문장 끝 기준은 API 명세 면접방 메시지), 채팅은 `chat.input`을 받을 때마다 입력 글의 마지막 문장을 Jev로 판단해 `reaction`을 보낸다(6.4)
 4. **답변 끝(화상)** 마지막 말소리 뒤 7초 침묵(임시 값) 또는 `answer.submit`이면 답변을 끝낸다. 말 끊기 안내 음성(6.3)을 재생하는 동안에는 7초 계산을 멈추고, 재생이 끝난 시점부터 7초를 다시 계산한다. 안내 음성의 합성을 기다리는 동안에는 계산을 멈추지 않는다. 한마디도 안 했으면 끝내지 않고, 60초(임시 값) 동안 말을 시작하지 않으면 `answer.state`(`timedOut`)를 보낸다. 전송한 뒤에도 같은 질문에서 계속 듣고, 말을 시작하면 7초 규칙으로 끝낸다. 다음 질문으로 진행하지 않으며, 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용한다. STT 오류 뒤에도 같다(6.5)
 5. **답변 전달(화상)** `answer.completed` 결과 메시지를 보내고 `answer.state`(`submitted`)를 보낸다
 
@@ -378,7 +388,8 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 ### 6.4 리액션 판단 (Jev)
 
-- 입력: 질문·채점 기준(배정 정보), 전송된 글(문장 또는 채팅 입력)과 쉰 시간, 지금까지의 답변 글, 직전 태도(`attitude`). 면접 방식은 발화 중단을 판단할지 정하는 데만 쓴다. 최근 글·태도는 에이전트가 면접 동안 메모리에 둔다
+- 입력: 질문·채점 기준(배정 정보), 전송된 글(화상은 끝난 문장, 채팅은 입력 글의 마지막 문장)과 쉰 시간, 지금까지의 답변 글, 직전 태도(`attitude`). 면접 방식은 발화 중단을 판단할지 정하는 데만 쓴다. 최근 글·태도는 에이전트가 면접 동안 메모리에 둔다
+- 채팅은 반응 여부·종류를 입력 글의 마지막 문장으로 판단하고, 관심·신뢰는 입력 글 전체로 판단한다. 마지막 문장은 3장 말하기 지표와 같은 문장 경계로 나누며, 종결어미 없이 끝난 작성 중인 글도 한 문장으로 본다. 반응 여부를 입력 글 전체로 판단하면 입력이 멈출 때마다 판단 결과가 거의 같아, 화상보다 리액션이 드물게 전송되기 때문이다
 - 면접관 종류(`persona`)는 넣지 않는다. 리액션 값은 면접관과 관계없고 화면이 면접관별로 표현을 달리하므로(API 명세 B-8) 판단에 필요하지 않다
 - Jev(`POST /v1/systemone`, 질문 유형 `choice`·`score`·`noul`)로 `reaction`·`attitude`를 판단한다. 모델은 버전 ID `jev-1.14.0`으로 고정한다. 별칭(`jev-latest`)은 새 버전이 나오면 코드 변경 없이 호출 모델이 변경돼 리액션·발화 중단 기준값이 맞지 않게 되기 때문이다
 - 발화 중단(`interrupt`) 중 질문 이탈(`OFF_TOPIC`)은 Jev로 판단하고, 지나치게 긴 답변(`TOO_LONG`)은 발화 시간(3장 `speakingMs`)으로 코드에서 판단한다. 수치 비교는 Jev가 아니라 코드에서 처리한다. Jev는 글을 생성하지 않으므로 `interrupt.text`는 이유(`reason`)·면접관별로 설정에 둔 문구를 사용한다. 채팅이면 발화 중단은 판단하지 않는다

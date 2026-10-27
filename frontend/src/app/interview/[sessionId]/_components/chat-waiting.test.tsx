@@ -17,7 +17,7 @@ vi.mock("@/lib/interviewer/preload", () => ({
   preloadInterviewer: (...args: unknown[]) => preloadInterviewer(...args),
 }));
 
-// 기준: 사용자 요청(2026-10-27: 채팅 대기 화면 · 탑 쌓기 · 막대마다 속도 조금씩 다르게 · 퍼펙트 효과
+// 기준: 사용자 요청(2026-10-27: 채팅 대기 화면 · 선로딩(5.4를 게임 중에 미리) · 탑 쌓기 · 막대마다 속도 조금씩 다르게 · 퍼펙트 효과
 // · 제목 '면접관이 면접을 준비하고 있어요' · 소제목 '간단한 게임으로 긴장을 풀어볼까요?')
 // · 웹 Swagger 5.2(planStatus · planProgress) · 사용자 결정(2026-10-22: 진행률은 질문 준비 · 모델 받기 중 작은 쪽)
 
@@ -76,6 +76,7 @@ describe("ChatWaiting (채팅 대기 화면)", () => {
       persona="DEVIL"
       planStatus="GENERATING"
       planProgress={80}
+      started
       onStart={vi.fn()}
       {...props}
     />
@@ -107,6 +108,28 @@ describe("ChatWaiting (채팅 대기 화면)", () => {
     rerender(view({ planStatus: "READY", planProgress: null }));
     expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("95");
     expect(screen.queryByRole("button", { name: "면접 시작" })).toBeNull();
+  });
+
+  it("질문 준비 · 모델 받기가 끝나도 면접을 미리 시작해 두기(5.4) 전에는 [면접 시작]을 보이지 않는다(선로딩)", () => {
+    useInterviewerPreloadStore.setState({ status: "ready", progress: 1 });
+    const { rerender } = render(view({ planStatus: "READY", planProgress: null, started: false }));
+    expect(screen.queryByRole("button", { name: "면접 시작" })).toBeNull();
+    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
+    rerender(view({ planStatus: "READY", planProgress: null, started: true }));
+    expect(screen.getByRole("button", { name: "면접 시작" })).toBeTruthy();
+  });
+
+  it("미리 보낸 5.4가 실패하면 진행 막대 아래에 서버 문구를 보인다", () => {
+    render(
+      view({
+        planStatus: "READY",
+        planProgress: null,
+        started: false,
+        startError: "지금은 할 수 없는 요청이에요.",
+      }),
+    );
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
   });
 
   it("둘 다 끝나면 [면접 시작]을 보이고, 누르면 알린다", () => {

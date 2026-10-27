@@ -371,7 +371,9 @@ test.describe("S06 면접 화면", () => {
     await answerBox(page).press("Enter");
 
     await expect(thinking(page)).toBeVisible();
-    await expect(answerBox(page)).toBeDisabled();
+    await expect(answerBox(page)).not.toBeEditable();
+    // 막는 동안에도 입력칸 포커스(주황 테두리)를 잃지 않는다(사용자 요청 2026-10-27)
+    await expect(answerBox(page)).toBeFocused();
     expect(requests).toHaveLength(1);
     expect(requests[0].questionId).toBe("303");
     expect(requests[0].body).toEqual({
@@ -391,7 +393,8 @@ test.describe("S06 면접 화면", () => {
     await expect(question(page).filter({ hasText: NEXT_QUESTION.content })).toBeVisible();
     await expect(question(page)).toHaveCount(1);
     await expect(page.getByText("질문 4 / 5")).toBeVisible();
-    await expect(answerBox(page)).toBeEnabled();
+    await expect(answerBox(page)).toBeEditable();
+    await expect(answerBox(page)).toBeFocused();
     await expect(answerBox(page)).toHaveValue("");
 
     // 말풍선의 꺾쇠로 지금 질문을 한 줄로 접는다(사용자 요청 2026-10-27).
@@ -475,7 +478,7 @@ test.describe("S06 면접 화면", () => {
       page.getByRole("region", { name: "면접관이 면접을 준비하고 있어요" }),
     ).toBeVisible();
     await expect(page.getByText("간단한 게임으로 긴장을 풀어볼까요?")).toBeVisible();
-    await expect(answerBox(page)).toBeDisabled();
+    await expect(answerBox(page)).not.toBeEditable();
     // 준비 중이면 다시 조회해도 시작하지 않는다.
     const before = polls;
     await nextPoll(page);
@@ -484,18 +487,19 @@ test.describe("S06 면접 화면", () => {
     // 시작 전에는 면접방에 들어가지 않는다(5.14는 면접 중에만 된다).
     expect(roomRequests).toHaveLength(0);
 
-    // 준비가 끝나도 [면접 시작]을 누르기 전에는 시작하지 않는다. 누르면 5.4를 한 번 부르고, 첫 질문을 받는다.
+    // 준비가 끝나면 [면접 시작]을 누르기 전에 5.4를 한 번 미리 부른다(선로딩). 면접방에는 누를 때 들어가 첫 질문을 받는다.
     state.plan = "READY";
     await nextPoll(page);
     const start = page.getByRole("button", { name: "면접 시작" });
     await expect(page.getByText("면접 준비에 실패했어요")).toHaveCount(0);
     await stepUntilVisible(page, start);
-    expect(keys).toHaveLength(0);
+    expect(keys).toHaveLength(1);
+    expect(roomRequests).toHaveLength(0);
     await start.click();
     await nextPoll(page);
     await expect(question(page).filter({ hasText: QUESTION_CURRENT.content })).toBeVisible();
     await expect(question(page)).toHaveCount(1);
-    await expect(answerBox(page)).toBeEnabled();
+    await expect(answerBox(page)).toBeEditable();
     expect(keys).toHaveLength(1);
     expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
     // 면접이 시작되면 송출 없이 면접방에 들어간다(Swagger 5.4: 채팅도 면접방에 들어간다).

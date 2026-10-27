@@ -11,6 +11,7 @@ app.interview.speech.ends_sentence를 사용한다.
 같은 응답을 두 곳에서 따로 해석하면 한쪽만 변경됐을 때 답변 글과 문장이 어긋나기 때문이다.
 """
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -67,3 +68,16 @@ class SentenceTracker:
         pause_ms = 0.0 if last_end_ms is None else max(0.0, total_audio_proc_ms - last_end_ms)
         # 리액션은 끝맺은 문장을 대상으로 하므로 길면 문장 끝 쪽을 남긴다
         return Sentence(text=text.strip()[-MAX_SENTENCE_LENGTH:].strip(), pause_ms=pause_ms)
+
+
+def last_sentence(text: str) -> str:
+    """채팅 입력 글에서 리액션을 판단할 마지막 문장을 반환한다(AI 명세 6.4).
+
+    종결어미로 끝난 어절 뒤를 문장 경계로 보며, 종결어미 없이 끝난 작성 중인 글도 한 문장으로 본다.
+    """
+    start = 0
+    words = list(re.finditer(r"\S+", text))
+    for word in words[:-1]:
+        if ends_sentence(word.group()):
+            start = word.end()
+    return text[start:].strip()

@@ -8,6 +8,7 @@ from redis import Redis
 
 from app.common.redis import SOCKET_TIMEOUT_SECONDS
 from app.common.results import RESULT_QUEUE_KEY, ResultPublisher
+from app.common.settings import SettingsError
 from app.worker.dispatch import Dispatcher
 from app.worker.messages import EvaluateJob, Job, PlanJob, ScoreAnswerJob
 from app.worker.queue import (
@@ -16,6 +17,8 @@ from app.worker.queue import (
     QUEUE_KEY,
     ReceiveResult,
     RedisJobQueue,
+    WorkerQueue,
+    worker_queue,
 )
 
 JOB_1 = "8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34"
@@ -113,7 +116,11 @@ class FakeListRedis:
 
 
 def make_queue(
-    redis: FakeListRedis, handlers: dict[type[Job], list[Job]] | None = None, *, fail: bool = False
+    redis: FakeListRedis,
+    handlers: dict[type[Job], list[Job]] | None = None,
+    *,
+    fail: bool = False,
+    queue: WorkerQueue = WorkerQueue.DEFAULT,
 ) -> RedisJobQueue:
     dispatcher = Dispatcher()
     for job_class, received in (handlers or {}).items():
@@ -125,7 +132,7 @@ def make_queue(
 
         dispatcher.register(job_class, handle)
     results = ResultPublisher(cast(Redis, redis), sleep=lambda seconds: None)
-    return RedisJobQueue(cast(Redis, redis), dispatcher, results, block_timeout=1)
+    return RedisJobQueue(cast(Redis, redis), dispatcher, results, queue=queue, block_timeout=1)
 
 
 def test_handled_job_is_removed_from_processing() -> None:
@@ -367,3 +374,75 @@ def test_recover_with_empty_processing_moves_nothing() -> None:
 
     assert make_queue(redis).recover() == 0
     assert redis.items(QUEUE_KEY) == [SCORE]
+
+
+def test_worker_queue_keys_match_spec() -> None:
+    """큐 이름은 BE가 LPUSH하는 이름과 같아야 하므로 AI 명세 1.3의 표와 그대로 맞춘다."""
+    assert {queue.value: (queue.key, queue.processing_key) for queue in WorkerQueue} == {
+        "default": ("ai:jobs", "ai:jobs:processing"),
+        "plan": ("ai:jobs:plan", "ai:jobs:plan:processing"),
+        "recording": ("ai:jobs:recording", "ai:jobs:recording:processing"),
+    }
+
+
+@pytest.mark.parametrize("queue", list(WorkerQueue))
+def test_receives_only_from_own_queue(queue: WorkerQueue) -> None:
+    redis = FakeListRedis()
+    for other in WorkerQueue:
+        redis.lpush(other.key, SCORE)
+    received: list[Job] = []
+
+    result = make_queue(redis, {ScoreAnswerJob: received}, queue=queue).receive_once()
+
+    assert result is ReceiveResult.HANDLED
+    assert len(received) == 1
+    assert redis.items(queue.key) == []
+    assert redis.items(queue.processing_key) == []
+    for other in WorkerQueue:
+        if other is not queue:
+            assert redis.items(other.key) == [SCORE]
+
+
+def test_job_without_handler_stays_in_own_processing() -> None:
+    redis = FakeListRedis()
+    redis.lpush(WorkerQueue.PLAN.key, SCORE)
+
+    result = make_queue(redis, queue=WorkerQueue.PLAN).receive_once()
+
+    assert result is ReceiveResult.NO_HANDLER
+    assert redis.items(WorkerQueue.PLAN.processing_key) == [SCORE]
+    assert redis.items(PROCESSING_KEY) == []
+
+
+def test_recover_moves_only_own_processing() -> None:
+    """같은 Redis를 쓰는 다른 큐 작업자가 처리 중인 작업은 되돌리지 않는다."""
+    redis = FakeListRedis()
+    redis.lpush(WorkerQueue.PLAN.processing_key, EVALUATE)
+    redis.lpush(PROCESSING_KEY, SCORE)
+
+    assert make_queue(redis, queue=WorkerQueue.PLAN).recover() == 1
+    assert redis.items(WorkerQueue.PLAN.key) == [EVALUATE]
+    assert redis.items(PROCESSING_KEY) == [SCORE]
+    assert redis.items(QUEUE_KEY) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        (None, WorkerQueue.DEFAULT),
+        ("default", WorkerQueue.DEFAULT),
+        ("plan", WorkerQueue.PLAN),
+        ("recording", WorkerQueue.RECORDING),
+    ],
+)
+def test_worker_queue_from_setting(name: str | None, expected: WorkerQueue) -> None:
+    assert worker_queue(name) is expected
+
+
+@pytest.mark.parametrize("name", ["plans", "PLAN", "ai:jobs:plan"])
+def test_unknown_worker_queue_fails_with_variable_name(name: str) -> None:
+    with pytest.raises(SettingsError) as raised:
+        worker_queue(name)
+
+    assert "AI_WORKER_QUEUE" in str(raised.value)
+    assert name not in str(raised.value)

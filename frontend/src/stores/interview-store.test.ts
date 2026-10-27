@@ -54,10 +54,20 @@ describe("useInterviewStore (면접 화면 상태)", () => {
     expect(useInterviewStore.getState()).toMatchObject({ collapsed: false, uiHidden: false });
   });
 
+  it("제출된 답변 순서(submittedSeq) · 저장 확인 중(confirmingSave)은 저장하지 않는다", () => {
+    useInterviewStore.getState().setSubmittedSeq(3);
+    useInterviewStore.getState().setConfirmingSave(true);
+    const saved = JSON.parse(sessionStorage.getItem(KEY) ?? "null").state;
+    expect(saved).not.toHaveProperty("submittedSeq");
+    expect(saved).not.toHaveProperty("confirmingSave");
+  });
+
   it("reset은 모두 지우고, keepLeveledUp이면 레벨업만 남긴다", () => {
     useInterviewStore.setState({
       endOpen: true,
       answeredQuestionId: 1,
+      submittedSeq: 3,
+      confirmingSave: true,
       leveledUp: true,
       collapsed: true,
       uiHidden: true,
@@ -66,6 +76,8 @@ describe("useInterviewStore (면접 화면 상태)", () => {
     expect(useInterviewStore.getState()).toMatchObject({
       endOpen: false,
       answeredQuestionId: null,
+      submittedSeq: null,
+      confirmingSave: false,
       leveledUp: true,
       collapsed: false,
       uiHidden: false,
