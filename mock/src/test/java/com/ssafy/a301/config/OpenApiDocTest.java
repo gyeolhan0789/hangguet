@@ -3,6 +3,8 @@ package com.ssafy.a301.config;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -72,6 +74,19 @@ class OpenApiDocTest {
         }
 
         assertThat(missing).isEmpty();
+    }
+
+    // MR의 목 서버 Swagger로 FE 예시 파일이 최신인지 검사하도록(.gitlab-ci.yml fe-swagger-types),
+    // 배포 전 문서를 CI 결과물로 저장한다.
+    @Test
+    void writesApiDocsForFeTypeCheck() throws Exception {
+        MvcTestResult result = mockMvc.get().uri("/v3/api-docs").exchange();
+        assertThat(result).hasStatusOk();
+        Path output = Path.of("build", "api-docs.json");
+        Files.createDirectories(output.getParent());
+        Files.writeString(output, result.getResponse().getContentAsString(UTF_8), UTF_8);
+
+        assertThat(output).isNotEmptyFile();
     }
 
     /** 본문 예시가 없어 FE 예시 생성기가 스키마 필드 예시로 본문을 만드는 경우만 검사한다. */
