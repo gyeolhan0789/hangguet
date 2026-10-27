@@ -2,10 +2,20 @@
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
-import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useTransition,
+  type KeyboardEvent,
+} from "react";
 
 import { endSession } from "@/lib/interview/actions";
+import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import { useInterviewStore } from "@/stores/interview-store";
+
+import { useSaveConfirmed } from "./use-save-confirmed";
 
 // 기준: Figma S06-E 면접 종료 확인(18:4226: Dim rgba(11,13,20,.65) · Modal 440 · 흰색 · 둥글기 24 · 패딩 32 · 간격 16
 // · 그림자 0 20 24 rgba(25,33,40,.25) · Icon Tile 56(#f2f4f6 · 둥글기 20 · door-open 28) · '면접을 끝낼까요?' 24 ExtraBold #191f28
@@ -14,15 +24,20 @@ import { useInterviewStore } from "@/stores/interview-store";
 // · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기)을 강조, 끝내기 → S06-1, 답변 0개면 '결과 없이 나가요' 문구 + 스트릭 미인정)
 // · 모션 메모 S06-E(18:4318: 배경 dim 페이드 + 모달 팝, 답변 0개일 때는 '결과 없이 나가요 · 스트릭 미인정' 문구로 교체)
 // · 웹 Swagger 5.8 면접 끝내기(답변이 1개 이상이면 결과 분석 시작, 없으면 결과 없이 끝남)
+// · API 명세 5.8 「직전 답변 저장 확인」(화상: 제출됨을 받은 답변이 5.2 answeredCount에 보일 때까지, 최대 10초 기다린 뒤 5.8.
+//   기다리는 동안 답변을 저장하는 중임을 안내한다) · S15P31A301-257
 // S06 계열은 라이트 · 다크 구분 없는 화면이라, 모달 색은 테마에 따라 바뀌는 토큰 대신 Figma 값을 그대로 쓴다.
 
 /** S06-E 면접 종료 확인 모달 */
 export function EndModal({
   sessionId,
   answeredCount,
+  video,
 }: {
   sessionId: number;
   answeredCount: number;
+  /** 화상 면접. 마지막 답변 뒤 면접 화면이 5.8을 보내고 실패해도 다시 보낸다 */
+  video: boolean;
 }) {
   const reduce = useReducedMotion();
   const open = useInterviewStore((state) => state.endOpen);
@@ -33,6 +48,31 @@ export function EndModal({
   const key = useRef<string | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const keep = useRef<HTMLButtonElement>(null);
+  // 화상에서 제출됨을 받은 답변이 아직 answeredCount에 보이지 않으면, [끝내기] 뒤 저장을 확인하고(최대 10초) 끝낸다.
+  // 채팅은 5.7 응답으로 저장을 확인했으므로 기다리지 않는다(submittedSeq를 쓰지 않는다).
+  const submittedSeq = useInterviewStore((state) => state.submittedSeq);
+  const unsaved = submittedSeq !== null && answeredCount < submittedSeq;
+  // 화상: 마지막(5번째) 답변이 제출됐거나 5개가 저장됐으면 면접 화면이 스스로 끝낸다(5.8, 실패하면 다시 보낸다). 모달은 저장 중임만
+  // 알리고(화면이 결과 분석으로 넘어갈 때까지) 보내지 않는다(두 번 보내지 않게). 채팅의 마지막 5.8은 다시 보내지 않으므로 모달이 보낸다.
+  const autoEnding =
+    video && (submittedSeq === TOTAL_QUESTIONS || answeredCount >= TOTAL_QUESTIONS);
+  const [confirming, setConfirming] = useState(false);
+  const confirmed = useSaveConfirmed(confirming, !unsaved);
+  const saving = confirming && (!confirmed || autoEnding);
+  const busy = pending || saving;
+  const sentAfterConfirm = useRef(false);
+  // 기다리는 동안 면접 화면이 5.2를 2초마다 다시 부르게 알린다
+  const setConfirmingSave = useInterviewStore((state) => state.setConfirmingSave);
+  useEffect(() => {
+    setConfirmingSave(saving);
+    return () => setConfirmingSave(false);
+  }, [saving, setConfirmingSave]);
+  // 기다리거나 보내는 동안 버튼이 막혀 빠진 포커스를, 다시 누를 수 있게 되면 [계속하기]로 되돌린다(Esc · Tab이 모달에서 듣도록)
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy && open) keep.current?.focus();
+    wasBusy.current = busy;
+  }, [busy, open]);
 
   // 열리면 안전한 쪽([계속하기])에 포커스를 둔다.
   useEffect(() => {
@@ -41,11 +81,12 @@ export function EndModal({
 
   function close() {
     setError(undefined);
+    setConfirming(false);
+    sentAfterConfirm.current = false;
     closeEnd();
   }
 
-  function end() {
-    setError(undefined);
+  function send() {
     key.current ??= crypto.randomUUID();
     startEnd(async () => {
       const result = await endSession(sessionId, key.current!);
@@ -58,9 +99,26 @@ export function EndModal({
     });
   }
 
+  function end() {
+    setError(undefined);
+    if (autoEnding || (unsaved && !confirmed)) {
+      setConfirming(true);
+      return;
+    }
+    send();
+  }
+
+  // 저장이 보이거나 기다리는 시간이 지나면 한 번 끝낸다
+  const sendConfirmed = useEffectEvent(() => send());
+  useEffect(() => {
+    if (!confirmed || sentAfterConfirm.current || autoEnding) return;
+    sentAfterConfirm.current = true;
+    sendConfirmed();
+  }, [confirmed, autoEnding]);
+
   // Esc로 닫고, 모달 안에서만 Tab이 돈다(aria-modal). 끝내는 중에는 닫지 않는다.
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !pending) {
+    if (event.key === "Escape" && !busy) {
       event.preventDefault();
       close();
       return;
@@ -142,8 +200,8 @@ export function EndModal({
               <button
                 type="button"
                 onClick={end}
-                disabled={pending}
-                aria-busy={pending || undefined}
+                disabled={busy}
+                aria-busy={busy || undefined}
                 className="flex h-[52px] flex-1 cursor-pointer items-center justify-center rounded-[14px] bg-[#f2f4f6] px-6 text-base leading-normal font-bold text-[#f04452] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f04452] disabled:cursor-wait"
               >
                 끝내기
@@ -152,12 +210,20 @@ export function EndModal({
                 ref={keep}
                 type="button"
                 onClick={close}
-                disabled={pending}
+                disabled={busy}
                 className="flex h-[52px] flex-1 cursor-pointer items-center justify-center rounded-[14px] bg-brand-strong px-6 text-base leading-normal font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-strong disabled:cursor-not-allowed"
               >
                 계속하기
               </button>
             </div>
+            {saving && (
+              <p
+                role="status"
+                className="text-center text-[13px] leading-normal font-medium text-[#4e5968]"
+              >
+                답변을 저장하는 중이에요
+              </p>
+            )}
             {error && (
               <p
                 role="alert"

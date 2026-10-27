@@ -9,6 +9,7 @@ import type { Persona, SessionResponse } from "@/types/api";
 
 // 기준: 사용자 요청(2026-10-27: 채팅 면접은 질문 준비 · 면접관 모델 준비가 오래 걸려 대기 화면을 둔다, 게임은 탑 쌓기,
 // 막대마다 속도를 조금씩 다르게, 딱 맞게 쌓으면 퍼펙트 효과, 제목 '면접관이 면접을 준비하고 있어요' · 소제목 '간단한 게임으로 긴장을 풀어볼까요?')
+// · 사용자 요청(2026-10-27: 게임이 끝난 뒤 로딩이 없게 — 질문 준비가 끝나면 게임 중에 5.4를 미리 보내 둔다(선로딩))
 // · 웹 Swagger 5.2(planStatus · planProgress 0~100) · 사용자 결정(2026-10-22: 진행률은 질문 준비 · 모델 받기 중 작은 쪽)
 // Figma에 없는 화면이라 면접 화면 색(S06 Dim rgba(11,13,20,.6) · Modal 둥글기 24 · 패딩 32)과 S05 준비 줄(brand-strong 채움)을 쓴다.
 
@@ -20,20 +21,26 @@ const CANVAS_W = 400;
 const CANVAS_H = 300;
 
 /**
- * S06-B 채팅 면접 대기 화면. 질문 준비(5.2)와 면접관 모델 받기가 끝날 때까지 탑 쌓기를 하며 기다리고,
- * 다 되면 [면접 시작]으로 면접을 시작한다(5.4).
+ * S06-B 채팅 면접 대기 화면. 질문 준비(5.2)와 면접관 모델 받기가 끝날 때까지 탑 쌓기를 하며 기다린다.
+ * 면접 시작(5.4)은 질문 준비가 끝나면 면접 화면이 미리 보내 두고, 다 되면 [면접 시작]으로 면접방에 들어간다.
  */
 export function ChatWaiting({
   open,
   persona,
   planStatus,
   planProgress,
+  started,
+  startError,
   onStart,
 }: {
   open: boolean;
   persona: Persona;
   planStatus: SessionResponse["planStatus"];
   planProgress: SessionResponse["planProgress"];
+  /** 면접을 미리 시작해 뒀다(5.4 · 5.2 IN_PROGRESS). 면접방이 열리고 면접관이 첫 질문을 준비해 둔다 */
+  started: boolean;
+  /** 미리 보낸 5.4가 실패한 문구(서버 detail). 면접 화면이 2초 뒤 다시 보낸다 */
+  startError?: string;
   onStart: () => void;
 }) {
   const reduce = useReducedMotion();
@@ -49,7 +56,8 @@ export function ChatWaiting({
 
   const plan = planStatus === "READY" ? 100 : (planProgress ?? 0);
   const percent = Math.round(Math.min(plan, modelProgress * 100));
-  const ready = planStatus === "READY" && modelStatus === "ready";
+  // 질문 준비 · 모델 받기 · 면접 시작(선로딩)이 모두 끝나야 [면접 시작]을 보인다. 누르면 바로 첫 질문을 받는다.
+  const ready = planStatus === "READY" && modelStatus === "ready" && started;
 
   return (
     <AnimatePresence>
@@ -122,6 +130,11 @@ export function ChatWaiting({
                     transition={{ duration: 0.4, ease: "easeOut" }}
                   />
                 </div>
+                {startError && (
+                  <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
+                    {startError}
+                  </p>
+                )}
               </div>
             )}
           </motion.section>
