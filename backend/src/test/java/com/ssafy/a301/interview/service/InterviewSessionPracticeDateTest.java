@@ -23,6 +23,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.practice.repository.PracticeLogRepository;
 import com.ssafy.a301.practice.service.PracticeService;
@@ -57,6 +58,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private AiJobService aiJobs;
     @Mock private TransactionTemplate transactions;
     @Mock private InterviewRoom rooms;
+    @Mock private RecordingRepository recordings;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -74,7 +76,8 @@ class InterviewSessionPracticeDateTest {
                         runtimes,
                         aiJobs,
                         transactions,
-                        rooms);
+                        rooms,
+                        recordings);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

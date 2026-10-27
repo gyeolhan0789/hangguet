@@ -11,7 +11,6 @@ import type { CurrentQuestion } from "@/types/api";
 // · 좌우 22 · 위아래 18 · 간격 8 · Speaker(dot 8 · 면접관 이름 14 Bold brand · volume-2 14) · 질문 20 SemiBold 흰색)
 // · Swagger 5.2 currentQuestion(id · seq · content)
 // · 사용자 요청(2026-10-27: 질문도 펼치기 · 접기, 접으면 한 줄로 '…' 말줄임, 모바일(sm 미만)은 글자를 줄인다 20 → 17,
-//   접기는 하나로 — 이 말풍선의 꺾쇠가 이전 질문 기록(InterviewHistory)도 함께 접고 편다,
 //   꺾쇠 옆 눈 버튼: 누르면 면접관 · [면접 종료] · [화면 보이기]만 남기고 화면을 모두 숨겨 실제 면접처럼 듣기만으로 연습한다)
 // · 모션 메모 S06(18:2569: 질문 글자가 타자 치듯 등장(stagger 0.02s) · 스피커 아이콘 펄스, 답변을 내면 말풍선 위로 사라지고
 // 다음 질문 말풍선 아래에서 등장) · 모션 메모 S06-B(18:2615: 전송 → 면접관 '생각 중' 점 3개 → 다음 질문 타자 등장)
@@ -33,7 +32,7 @@ export function QuestionBubble({
     (Pick<CurrentQuestion, "seq" | "content"> & Partial<Pick<CurrentQuestion, "id">>) | null;
 }) {
   const reduce = useReducedMotion();
-  // 접으면 질문을 한 줄로 줄이고 이전 질문 기록도 숨긴다. 다음 질문에서도 사용자가 고른 대로 둔다.
+  // 접으면 질문을 한 줄로 줄인다. 다음 질문에서도 사용자가 고른 대로 둔다.
   const collapsed = useInterviewStore((state) => state.collapsed);
   return (
     // 화면 읽기 프로그램이 바뀐 질문을 읽도록 알림 영역(aria-live)은 질문이 바뀌어도 그대로 두고, 안의 말풍선만 바꾼다.
@@ -165,7 +164,7 @@ function ThinkingDots() {
 
 /**
  * 말풍선 머리 오른쪽의 눈 · 꺾쇠. 질문을 기다리는 중('생각 중')에도 둔다.
- * 눈: 화면 숨기기 · 꺾쇠: 지금 질문 한 줄 말줄임 + 이전 질문 기록 접기(사용자 요청 2026-10-27)
+ * 눈: 화면 숨기기 · 꺾쇠: 지금 질문 한 줄 말줄임(사용자 요청 2026-10-27)
  */
 function BubbleActions() {
   const collapsed = useInterviewStore((state) => state.collapsed);

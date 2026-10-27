@@ -6,6 +6,7 @@ import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -16,9 +17,12 @@ import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
+import com.ssafy.a301.result.dto.ResultDtos.VideoStatus;
 import com.ssafy.a301.result.mapper.ResultMapper;
 import com.ssafy.a301.result.mapper.ResultMapper.QuestionAndAnswer;
 import com.ssafy.a301.storage.s3.S3FileStorage;
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class ResultService {
+    // 합치기 결과를 기다리는 상한(API 명세 6.4, 임시 값). 트랙 대기 60초와 합치기 상한 300초에 여유를 둔다
+    static final Duration MERGE_WAIT = Duration.ofMinutes(15);
+
     private final InterviewSessionRepository sessions;
     private final InterviewQuestionRepository questions;
     private final AnswerRepository answers;
@@ -82,10 +89,7 @@ public class ResultService {
                 session.isVideo() ? speechMetrics.findById(sessionId).orElse(null) : null);
     }
 
-    /**
-     * 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화(recording.merged로 저장한 SESSION_VIDEO)가 있을 때만 주소를 주고, 합치기
-     * 전이거나 실패했으면 videoUrl이 null이다(B-19 결정 전 임시 동작).
-     */
+    /** 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화의 상태를 주고, READY일 때만 주소를 준다 */
     @Transactional(readOnly = true)
     public ReplayResponse replay(long userId, long sessionId) {
         InterviewSession session = completedSession(userId, sessionId);
@@ -98,15 +102,31 @@ public class ResultService {
                 questions.findBySessionIdOrderBySeq(sessionId).stream()
                         .map(q -> new QuestionAndAnswer(q, answerByQuestion.get(q.getId())))
                         .toList();
-        return ResultMapper.toReplay(session, items, videoUrl(session));
-    }
-
-    private String videoUrl(InterviewSession session) {
         if (!session.isVideo()) {
-            return null;
+            return ResultMapper.toReplay(session, items, null, null);
         }
         String key = Recording.sessionVideoKey(session.getId());
-        return recordings.existsByObjectKey(key) ? storage.presignDownload(key) : null;
+        VideoStatus videoStatus =
+                videoStatus(
+                        session,
+                        recordings.findByObjectKey(key).map(Recording::getStatus).orElse(null),
+                        OffsetDateTime.now());
+        String videoUrl = videoStatus == VideoStatus.READY ? storage.presignDownload(key) : null;
+        return ResultMapper.toReplay(session, items, videoStatus, videoUrl);
+    }
+
+    // 합치는 중(행이 없는 녹화 상태 추가 이전 면접 포함)이어도 종료 후 MERGE_WAIT가 지나면 실패로 본다.
+    // 작업자 장애로 합치기 결과가 오지 않아도 MERGING에 계속 남지 않게 하기 위함이다(API 명세 6.4)
+    static VideoStatus videoStatus(
+            InterviewSession session, RecordingStatus recording, OffsetDateTime now) {
+        if (recording == RecordingStatus.READY) {
+            return VideoStatus.READY;
+        }
+        if (recording == RecordingStatus.FAILED
+                || !now.isBefore(session.getEndedAt().plus(MERGE_WAIT))) {
+            return VideoStatus.FAILED;
+        }
+        return VideoStatus.MERGING;
     }
 
     /** 없거나 남의 면접 404, 결과 생성 중·실패(또는 아직 안 끝남) 409 RESULT_NOT_READY, 답변 없이 끝남 409 NO_RESULT */

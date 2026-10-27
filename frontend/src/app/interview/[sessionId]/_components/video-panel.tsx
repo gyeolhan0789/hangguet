@@ -13,8 +13,9 @@ import { useEffect, useRef, useState } from "react";
 
 // 기준: Figma S06 Self Camera(18:2519: 오른쪽 24 · 위 88 · 240×160 · #2a2f3a · 테두리 흰색 20% · 둥글기 20 · user-round 72
 // · Me Chip(왼 11 · rgba(14,16,22,.7) · mic 12 · '나' 12 Bold))
-// · STT Bubble 맨 아래 줄(18:2539 Bottom: Waveform 막대 14개 4px · 간격 4 · 흰색 70%)
-// · 사용자 요청(2026-10-27: 마이크 · [답변 완료]는 빼고 파형만 오른쪽에) · S06-Q(344:1577: 질문 음성이 나오는 동안 파형 30%로 잠김)
+// · STT Bubble 맨 아래 줄(18:2539 Bottom: Waveform 막대 14개 4px · 간격 4 · 흰색 70% · [답변 완료] 높이 44 · 흰색 · 둥글기 12 · 좌우 18
+// · check 20 · 17 Bold #191f28) · 사용자 요청(2026-10-27: 마이크는 빼고 파형 오른쪽에 [답변 완료])
+// · S06-Q(344:1577: 질문 음성이 나오는 동안 파형 30% · [답변 완료] 잠김)
 // · S06-A 답변 상태 토스트(344:1649: 500 · #191f28 · 둥글기 16 · 좌우 18 · 간격 10 · circle-alert 18 danger · 15 SemiBold 흰색
 // · 오른쪽 '다시 시도' 14 Bold brand)
 // · S06-F Mic Toast(18:4421: 500×56 · #191f28 · 둥글기 16 · 좌우 18 · mic-off 18 · 15 SemiBold 흰색 · '마이크 확인' 14 Bold brand · 화면 아래 44)
@@ -66,22 +67,42 @@ export function SelfCamera({ stream }: { stream: MediaStream | null }) {
 }
 
 /**
- * S06 화상: 내 답변 상자 맨 아래 줄 — 오른쪽에 파형만 둔다(사용자 요청 2026-10-27: 마이크 · [답변 완료]를 빼고 파형을 오른쪽으로.
- * 답변은 에이전트가 말이 끝난 것을 보고 낸다(마지막 말 뒤 7초 — answer.state autoSubmitted))
+ * S06 화상: 내 답변 상자 맨 아래 줄 — 오른쪽에 파형 · [답변 완료](누르면 에이전트에 답변을 내라고 보낸다)
+ * (사용자 요청 2026-10-27: 마이크는 빼고, 파형 오른쪽에 [답변 완료]를 둔다. 말을 멈추면 에이전트가 스스로 내기도 한다)
  */
 export function VideoControls({
   level,
+  canSubmit = false,
+  submitting = false,
   locked = false,
+  onSubmit,
 }: {
   level: MotionValue<number>;
+  /** [답변 완료]를 누를 수 있다(질문이 있고 인식된 답변 글이 있으며 내는 중이 아님) */
+  canSubmit?: boolean;
+  /** 에이전트가 답변을 내는 중 */
+  submitting?: boolean;
   /** 면접관이 질문을 말하는 중(파형을 흐리게) */
   locked?: boolean;
+  onSubmit?: () => void;
 }) {
   return (
-    <div className="flex w-full justify-end">
+    <div className="flex w-full items-center justify-end gap-3">
       <span className={locked ? "opacity-30" : undefined}>
         <Waveform level={level} />
       </span>
+      <button
+        type="button"
+        disabled={!canSubmit || submitting}
+        aria-busy={submitting || undefined}
+        onClick={onSubmit}
+        className="flex h-11 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-[18px] disabled:cursor-default disabled:opacity-40"
+      >
+        <Image src="/interview/icon-check.svg" alt="" width={20} height={20} />
+        <span className="text-[17px] leading-normal font-bold tracking-[-0.2px] whitespace-nowrap text-[#191f28]">
+          답변 완료
+        </span>
+      </button>
     </div>
   );
 }

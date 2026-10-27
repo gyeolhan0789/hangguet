@@ -113,6 +113,7 @@ class ResultIntegrationTest {
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/replay")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").value("CHAT"))
+                .andExpect(jsonPath("$.videoStatus").isEmpty())
                 .andExpect(jsonPath("$.videoUrl").isEmpty())
                 .andExpect(jsonPath("$.items.length()").value(3));
     }
@@ -122,13 +123,14 @@ class ResultIntegrationTest {
         User user = user("replay");
         InterviewSession session = completed(user, InterviewMode.VIDEO);
         String key = Recording.sessionVideoKey(session.getId());
-        em.persist(Recording.sessionVideo(session, key));
+        em.persist(Recording.mergedSessionVideo(session));
         when(storage.presignDownload(key)).thenReturn("https://s3.test/video.mp4");
         em.flush();
         em.clear();
 
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/replay")))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.videoStatus").value("READY"))
                 .andExpect(jsonPath("$.videoUrl").value("https://s3.test/video.mp4"))
                 .andExpect(jsonPath("$.startedAt").value("2026-10-21T10:00:00+09:00"))
                 .andExpect(jsonPath("$.items.length()").value(3))
@@ -145,16 +147,40 @@ class ResultIntegrationTest {
     }
 
     @Test
-    void videoReplayBeforeMergeHasNullVideoUrl() throws Exception {
+    void videoReplayWhileMergingHasNoVideoUrl() throws Exception {
         User user = user("before-merge");
-        InterviewSession session = completed(user, InterviewMode.VIDEO);
+        InterviewSession session = completed(user, InterviewMode.VIDEO, OffsetDateTime.now());
+        em.persist(Recording.mergingSessionVideo(session));
         em.flush();
         em.clear();
 
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/replay")))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.videoStatus").value("MERGING"))
                 .andExpect(jsonPath("$.videoUrl").isEmpty())
                 .andExpect(jsonPath("$.items.length()").value(3));
+        verify(storage, never()).presignDownload(anyString());
+    }
+
+    @Test
+    void videoReplayAfterMergeFailureOrWithoutRecordingIsFailed() throws Exception {
+        User user = user("merge-failed");
+        InterviewSession failed = completed(user, InterviewMode.VIDEO, OffsetDateTime.now());
+        Recording recording = Recording.mergingSessionVideo(failed);
+        recording.markMergeFailed();
+        em.persist(recording);
+        // 녹화 상태를 추가하기 전에 끝나 행이 없고, 종료 후 15분이 지난 면접
+        InterviewSession withoutRecording = completed(user, InterviewMode.VIDEO);
+        em.flush();
+        em.clear();
+
+        for (InterviewSession session : new InterviewSession[] {failed, withoutRecording}) {
+            mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/replay")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.videoStatus").value("FAILED"))
+                    .andExpect(jsonPath("$.videoUrl").isEmpty())
+                    .andExpect(jsonPath("$.items.length()").value(3));
+        }
         verify(storage, never()).presignDownload(anyString());
     }
 
@@ -206,6 +232,10 @@ class ResultIntegrationTest {
 
     /** 질문 3개 중 1·2번에 답하고 결과가 나온 면접 */
     private InterviewSession completed(User owner, InterviewMode mode) {
+        return completed(owner, mode, START.plusMinutes(10));
+    }
+
+    private InterviewSession completed(User owner, InterviewMode mode, OffsetDateTime endedAt) {
         InterviewSession session = session(owner, mode);
         InputType inputType = mode == InterviewMode.VIDEO ? InputType.VOICE : InputType.TEXT;
         for (int seq = 1; seq <= 3; seq++) {
@@ -218,7 +248,7 @@ class ResultIntegrationTest {
                 em.persist(answer);
             }
         }
-        session.end(START.plusMinutes(10), 2);
+        session.end(endedAt, 2);
         session.complete("총평");
         em.persist(new SessionScore(session, Criterion.DELIVERY, 50, "전달"));
         em.persist(new SessionScore(session, Criterion.LOGIC, 70, "논리"));

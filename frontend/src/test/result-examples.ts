@@ -88,6 +88,7 @@ export const REPLAY = {
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
   startedAt: "2026-10-15T12:00:00+09:00",
+  videoStatus: "READY",
   videoUrl: "https://…s3…/sessions/55/session.webm?X-Amz-Signature=…",
   items: [
     {
