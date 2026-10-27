@@ -1,0 +1,42 @@
+# 운영 서버 로그 저장소(Loki). 개발 서버(deploy/dev/monitoring/loki.yml)와 같고 보관 기간만 다르다. Alloy가 a301-prod-* 컨테이너 로그를 보내고 Grafana가 조회한다.
+# 서버 한 대에서 혼자 도는 구성(단일 바이너리, 파일 저장)이다. 보관 기간이 지난 로그는 compactor가 지운다.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: warn
+
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+
+schema_config:
+  configs:
+    - from: 2026-10-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 운영은 7일 남긴다(배포 계획 3.3). 로그에 개인정보를 남기지 않는 것이 조건이다
+  retention_period: 168h
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false

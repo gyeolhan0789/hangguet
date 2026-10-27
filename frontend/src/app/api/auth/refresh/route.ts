@@ -1,0 +1,27 @@
+import type { NextRequest } from "next/server";
+
+import { clearAuthCookies, REFRESH_TOKEN_COOKIE, setAuthCookies } from "@/lib/api/auth-cookies";
+import { refreshTokens } from "@/lib/api/token-refresh";
+import { markJustRefreshed, safeNextPath } from "@/lib/auth/auth-errors";
+import { redirectToPath } from "@/lib/auth/redirect-to-path";
+import { ROUTES } from "@/lib/routes";
+
+// 화면을 그리는 도중 API가 401 TOKEN_EXPIRED를 주면 여기로 온다(src/lib/auth/auth-errors.ts).
+// 1.4로 재발급해 쿠키에 저장하고 원래 화면(next)으로 돌려보낸다. 다시 로그인해야 하면(웹 Swagger 1.4 REFRESH_TOKEN_INVALID)
+// 쿠키를 지우고 로그인 화면으로 보낸다. 그 밖의 실패(500 · 연결 오류)는 쿠키를 두고 오류로 넘긴다.
+export async function GET(request: NextRequest) {
+  const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  const tokens = refreshToken ? await refreshTokens(refreshToken) : null;
+
+  if (!tokens) {
+    const response = redirectToPath(ROUTES.login);
+    clearAuthCookies(response.cookies);
+    return response;
+  }
+
+  const next = safeNextPath(request.nextUrl.searchParams.get("next"));
+  const response = redirectToPath(next);
+  setAuthCookies(response.cookies, tokens);
+  markJustRefreshed(response.cookies);
+  return response;
+}

@@ -1,0 +1,308 @@
+# 개발 서버 미니PC 배포 (목 서버와 같은 미니PC)
+# CI(be-deploy·fe-deploy·ai-deploy·ai-agent-deploy)가 서비스 하나씩 실행한다. 수동 실행: 레포 루트에서
+#   DB_PASSWORD=... JWT_SECRET=... INQUIRY_ENCRYPTION_KEY=... docker compose -f deploy/dev/compose.yml up -d --build <서비스>
+# 외부 주소: https://hangguet.yobistory.com/ (FE), /be/docs (BE Swagger). AI는 내부 전용이라 외부 주소가 없다.
+# 외부 요청 경로: Cloudflare Tunnel → Nginx 컨테이너(nginx.conf.example) → a301-dev-fe:3000, a301-dev-be:8080
+#
+# 네트워크
+# - proxy(server_public-network): Nginx가 붙어 있는 미니PC 공용 네트워크. FE·BE만 붙인다.
+#   목 서버(a301-mock)도 여기 있어서 FE가 목 서버를 볼 때도 이 네트워크로 간다.
+# - internal(a301-dev): 이 프로젝트 전용. DB·Redis·AI는 여기에만 둬서 미니PC의 다른 컨테이너가 접근하지 못한다.
+# 공용 네트워크에서는 서비스 이름도 주소가 되므로, 다른 프로젝트와 겹치지 않게 서비스 이름을 컨테이너 이름과 같이 a301-dev-*로 짓는다.
+#
+# 값
+# - 비밀값(DB_PASSWORD, JWT_SECRET, INQUIRY_ENCRYPTION_KEY, ADMIN_LOGIN_ID, ADMIN_PASSWORD)은 GitLab CI/CD Variables에서 받는다.
+#   compose는 파일 전체를 읽으므로 어느 앱 서비스를 배포하든 다섯 값이 필요하다.
+# - 외부 API 키(SONIOX_API_KEY·ELEVENLABS_API_KEY)도 CI/CD Variables에서 받아 AI 에이전트에만 넘긴다.
+#   SONIOX_API_KEY는 에이전트 배포에 필요하고(ai-agent-deploy가 검사), ELEVENLABS_API_KEY가 없으면 질문 음성 없이 질문 글로만 진행한다.
+# - GMS 키(LLM_API_KEY)도 CI/CD Variables에서 받아 분석 작업자(ai-analysis · ai-plan)에만 넘긴다. 두 작업자 배포에 필요하다(ai-analysis-deploy · ai-plan-deploy가 검사).
+# - 녹화 S3 키(LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 화상 면접 시작(5.4)이 실패한다.
+# - 앱 S3 키(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 프로필 사진 API만 실패한다.
+# - LiveKit: 개발 서버는 LiveKit Cloud를 쓴다(운영은 셀프 호스팅, 이해준/deploy_plan 4.0). 키·시크릿은 CI/CD Variables,
+#   주소는 비밀이 아니라 이 파일에 적는다. 없어도 BE·AI는 뜨고 면접방 기능만 실패하므로 필수로 두지 않는다.
+# - 비밀이 아닌 설정은 이 파일에 적는다.
+# - POSTGRES_DB·POSTGRES_USER·DB_PASSWORD는 DB 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 DB에서도 직접 바꿔야 한다.
+#
+# 자원: 미니PC의 다른 컨테이너와 메모리를 나눠 쓰므로 컨테이너마다 상한을 둔다(합계 약 2.2GB).
+# 호스트 포트는 루프백에만 연다(BE 앱 18081, FE 18082, AI 18083).
+# BE 관리 포트는 다른 서비스와 충돌하지 않도록 Docker가 빈 루프백 포트를 자동 배정한다.
+# 호스트 포트는 루프백에만 연다(BE 앱 18081, BE 관리·헬스체크 18084, FE 18082, AI 18083).
+# 자원: 미니PC의 다른 컨테이너와 메모리를 나눠 쓰므로 컨테이너마다 상한을 둔다.
+# 헬스체크용 포트는 루프백에만 연다(BE 18081, FE 18082, AI 18083). 에이전트는 컨테이너 내부에서 확인한다.
+name: a301-dev
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# BE(입장 토큰 서명·녹화 요청)와 AI(면접방 에이전트)가 같이 쓰는 LiveKit 설정.
+# 이름은 LiveKit SDK가 기본으로 읽는 이름과 같다. LIVEKIT_PUBLIC_URL은 BE가 브라우저에 알려 줄 주소로,
+# 운영은 서버 내부 주소(LIVEKIT_URL)와 다르지만 Cloud를 쓰는 개발 서버는 둘이 같다.
+x-livekit-env: &livekit-env
+  LIVEKIT_URL: wss://a301-dev-gdbmpfm5.livekit.cloud
+  LIVEKIT_PUBLIC_URL: wss://a301-dev-gdbmpfm5.livekit.cloud
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+
+# 분석 작업자 3개(ai-analysis · ai-plan · ai-recording)가 같이 쓰는 설정.
+# 에이전트와 같은 이미지를 명령만 바꿔 띄우고, AI_WORKER_QUEUE로 수신할 큐만 다르다(AI 명세 1.3).
+x-ai-worker: &ai-worker
+  build:
+    context: ../../ai
+  restart: unless-stopped
+  command: ["python", "-m", "app.worker"]
+  depends_on:
+    a301-dev-redis:
+      condition: service_healthy
+  # 작업자에는 HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다(프로세스가 죽으면 컨테이너가 멈춘다)
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  networks:
+    - internal
+  logging: *logging
+
+x-ai-worker-redis-env: &ai-worker-redis-env
+  REDIS_HOST: a301-dev-redis
+  REDIS_PORT: "6379"
+
+# GMS 접속 값(PLAN · SCORE_ANSWER · EVALUATE). 이름과 값은 회사 카드 파이프라인(company-pipeline/pipeline/README.md)과 같다.
+# 모델은 AI에 등록된 버전(ai/app/common/versions.py)만 쓸 수 있다
+x-gms-env: &gms-env
+  LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
+  LLM_MODEL: gpt-4.1-mini
+  LLM_API_KEY: ${LLM_API_KEY:-}
+
+# 녹화 합치기(MERGE_RECORDING): BE와 같은 버킷 · 앱 키로 원본 트랙(recordings/raw/)을 받고 합친 mp4를 올린다.
+# 없으면 합치기만 STORAGE_ERROR로 알리고 다른 작업은 처리한다
+x-recording-s3-env: &recording-s3-env
+  S3_BUCKET: a301-livekit-recordings-dev
+  AWS_REGION: ap-northeast-2
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+
+services:
+  a301-dev-postgres:
+    image: postgres:18.6-alpine
+    container_name: a301-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: a301
+      POSTGRES_USER: a301
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    volumes:
+      # PostgreSQL 18 이미지는 데이터를 /var/lib/postgresql/<버전>/docker에 저장한다.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-redis:
+    image: redis:7.4-alpine
+    container_name: a301-dev-redis
+    restart: unless-stopped
+    # 리프레시 토큰을 저장하므로 메모리가 차도 키를 지우지 않는다(지우면 로그인이 풀린다). 기본 저장 설정으로 /data에 남긴다.
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 128m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-be:
+    build:
+      context: ../../backend
+    image: a301-dev-be:${IMAGE_TAG:-local}
+    container_name: a301-dev-be
+    restart: unless-stopped
+    depends_on:
+      a301-dev-postgres:
+        condition: service_healthy
+      a301-dev-redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DEV_BE_HOST_PORT:-18081}:8080"
+      - "127.0.0.1::8081"
+    environment:
+      DB_URL: jdbc:postgresql://a301-dev-postgres:5432/a301
+      DB_USERNAME: a301
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+      REDIS_HOST: a301-dev-redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 문의 제목 · 본문 암호화 키(Base64 32바이트). 바꾸면 이미 저장한 문의를 풀 수 없다
+      INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
+      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
+      ADMIN_NAME: ${ADMIN_NAME:-운영자}
+      # Actuator는 개발 서버에서만 별도 포트로 연다. Nginx는 앱 포트(8080)만 프록시한다.
+      MANAGEMENT_SERVER_PORT: "8081"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+      # 개발 서버에서만 요청 히스토그램을 켜 p95 응답 시간을 계산한다.
+      SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}}}'
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
+      <<: *livekit-env
+      # 화상 면접 녹화(Egress) 원본을 올릴 S3. LiveKit Cloud는 저장소가 없으면 방 만들기를 거절한다(BE 설계 5.6).
+      # 프로필 사진도 같은 버킷의 profile/ 아래에 둔다(녹화는 recordings/)
+      LIVEKIT_EGRESS_S3_ACCESS_KEY: ${LIVEKIT_EGRESS_S3_ACCESS_KEY:-}
+      LIVEKIT_EGRESS_S3_SECRET: ${LIVEKIT_EGRESS_S3_SECRET:-}
+      # 프로필 사진 API(Presigned URL)가 쓰는 앱 키(IAM a301-dev-app). AWS SDK 기본 공급자가 이 이름을 읽는다.
+      # 없어도 BE는 뜨고 파일 API만 실패한다. 운영은 같은 이름에 a301-prod-app 키를 넣는다
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: a301-livekit-recordings-dev
+      AWS_REGION: ap-northeast-2
+    mem_limit: 768m
+    networks:
+      - internal
+      - proxy
+    logging: *logging
+
+  a301-dev-ai:
+    build:
+      context: ../../ai
+    image: a301-dev-ai:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEV_AI_HOST_PORT:-18083}:8000"
+    # 내부 전용. BE가 http://a301-dev-ai:8000으로 부른다.
+    # 외부에 열 때: networks에 proxy 추가, AI_ROOT_PATH에 경로(/ai) 지정, Nginx에 location 추가
+    environment:
+      AI_ROOT_PATH: ""
+      <<: *livekit-env
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-dev-ai-agent:
+    build:
+      context: ../../ai
+    image: a301-dev-ai-agent:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-agent
+    restart: unless-stopped
+    command: ["python", "-m", "app.agent.main", "start"]
+    depends_on:
+      a301-dev-redis:
+        condition: service_healthy
+    environment:
+      <<: *livekit-env
+      LIVEKIT_AGENT_NAME: a301-interviewer
+      SONIOX_API_KEY: ${SONIOX_API_KEY:-}
+      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
+      # 질문 음성(TTS). 질문 시작(question.started)은 BE와 같은 Redis의 결과 큐로 보낸다
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      REDIS_HOST: a301-dev-redis
+      REDIS_PORT: "6379"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8081/', timeout=3); assert r.read() == b'OK'"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    # STT·TTS는 외부 API를 사용한다. 동시 면접에 따른 메모리 사용량은 실측한다.
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  # 분석 작업자: BE가 Redis 작업 큐에 넣은 작업을 처리해 결과 큐(ai:results)로 돌려준다(AI 명세 1장).
+  # 작업을 한 번에 하나씩 처리하므로, 사용자가 기다리는 질문 생성(PLAN)이 다른 작업에 밀리지 않게 큐마다 작업자를 둔다(AI 명세 1.3).
+  # 같은 큐의 작업자는 늘리지 않는다(처리 중 리스트를 공유해, 늘리면 재시작 때 중복 처리된다).
+  # 기본 작업자(ai:jobs): 답변 채점(SCORE_ANSWER) · 결과 생성(EVALUATE).
+  # 큐를 나누기 전에 ai:jobs에 들어간 PLAN · 녹화 합치기도 처리하도록 GMS · S3 값을 모두 받는다
+  a301-dev-ai-analysis:
+    <<: *ai-worker
+    image: a301-dev-ai-analysis:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-analysis
+    environment:
+      <<: [*ai-worker-redis-env, *gms-env, *recording-s3-env]
+      # 자기소개서 검증(AI 명세 2.1): 지원서 저장 전에 Jev로 판단한다. 없으면 검증이 모두 실패해 지원서를 저장할 수 없다.
+      # 검증 큐(ai:checks)는 기본 작업자만 받으므로 이 작업자에만 넘긴다
+      JEV_API_KEY: ${JEV_API_KEY:-}
+    mem_limit: 256m
+
+  # 질문 생성 작업자(ai:jobs:plan). 사용자가 화면 앞에서 3분 안에 받아야 하는 작업만 처리한다
+  a301-dev-ai-plan:
+    <<: *ai-worker
+    image: a301-dev-ai-plan:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-plan
+    environment:
+      <<: [*ai-worker-redis-env, *gms-env]
+      AI_WORKER_QUEUE: plan
+    # GMS 응답을 기다리는 시간이 대부분이라 기본 작업자와 같게 둔다. 실측해 조정한다
+    mem_limit: 256m
+
+  # 녹화 합치기 작업자(ai:jobs:recording). ffmpeg가 CPU를 쓰므로 실시간 면접과 나눠 쓰도록 1코어 · 256m로 제한한다.
+  # 로컬 PC에서 15분 녹화 합치기에 CPU 약 9초, 메모리 약 90MB를 썼다. 운영 서버의 첫 합치기에서 다시 확인한다
+  a301-dev-ai-recording:
+    <<: *ai-worker
+    image: a301-dev-ai-recording:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-recording
+    environment:
+      <<: [*ai-worker-redis-env, *recording-s3-env]
+      AI_WORKER_QUEUE: recording
+    mem_limit: 256m
+    cpus: 1
+
+  a301-dev-fe:
+    build:
+      context: ../../frontend
+      args:
+        NEXT_PUBLIC_A301_DEV_MONITORING: "1"
+    image: a301-dev-fe:${IMAGE_TAG:-local}
+    container_name: a301-dev-fe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DEV_FE_HOST_PORT:-18082}:3000"
+    environment:
+      A301_DEV_MONITORING: "1"
+      # FE가 부를 API 주소(/api/v1 포함). CI(fe-deploy)가 DEV_FE_API_TARGET(be|mock)에 맞춰 넣는다.
+      # - be:   http://a301-dev-be:8080/api/v1
+      # - mock: http://a301-mock:8080/api/v1
+      API_BASE_URL: ${API_BASE_URL:-http://a301-dev-be:8080/api/v1}
+    mem_limit: 512m
+    networks:
+      - internal
+      - proxy
+    logging: *logging
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  internal:
+    name: a301-dev
+  # 미니PC의 Nginx 컨테이너가 붙어 있는 네트워크. 미니PC에서 미리 만들어 둔 것을 쓴다
+  proxy:
+    external: true
+    name: server_public-network

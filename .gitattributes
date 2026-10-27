@@ -1,0 +1,19 @@
+# 저장소에는 LF로 저장한다. Windows에서 CRLF로 커밋되면 Linux CI 러너에서 스크립트가 실행되지 않는다.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+gradlew text eol=lf
+
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.glb binary
+*.wav binary
+*.mp3 binary
+*.woff binary
+*.woff2 binary

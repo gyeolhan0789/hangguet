@@ -1,0 +1,533 @@
+# 운영 서버 Lightsail 배포 (이해준/deploy_plan)
+# 개발 서버(deploy/dev/compose.yml)와 같은 이름 · 같은 환경 변수로 띄우고, 이미지 출처와 키 값만 다르다.
+# CI(prod-deploy)가 Lightsail 러너에서 실행한다. 수동 실행: 레포 루트에서
+#   IMAGE_TAG=<커밋 SHA> <비밀값들> docker compose -f deploy/prod/compose.yml up -d
+# 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr
+# 외부 요청 경로: Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000
+#   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다(배포 계획 5.1). 컨테이너 이름을 바꾸면 거기도 바꾼다.
+#
+# 네트워크: 프로젝트 전용 네트워크(a301-prod) 하나. 바깥에 여는 포트는 LiveKit의 미디어 · TURN 포트뿐이다(배포 계획 5.2).
+#   Docker가 연 포트는 ufw를 거치지 않으므로, 나머지는 ports를 쓰지 않거나 127.0.0.1에만 연다.
+#
+# 값
+# - 비밀값은 GitLab CI/CD Variables(prod/* 또는 범위 All)에서 받는다(배포 계획 7장). 이름은 개발 서버와 같다.
+# - 이미지: Docker Hub 비공개 저장소 hanggeut/a301, 태그 be-·fe-·ai-·admin-<커밋 SHA>(배포 계획 8.1). IMAGE_TAG는 필수다.
+# - 비밀이 아닌 설정은 이 파일에 적는다.
+# - POSTGRES 비밀번호와 관리자 · Grafana 계정은 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 각 서비스에서 직접 바꾼다.
+#
+# 자원: 4코어 · 15GB 한 대에 모두 올리므로 컨테이너마다 상한을 둔다(배포 계획 3.2).
+# 헬스체크용 포트는 루프백에만 연다(BE 관리 18084, FE 18082, AI 18083). 나머지는 컨테이너 내부에서 확인한다.
+name: a301-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
+# 운영은 서버가 붙는 내부 주소(LIVEKIT_URL)와 브라우저에 알려 줄 주소(LIVEKIT_PUBLIC_URL)가 다르다(배포 계획 4.0).
+x-livekit-env: &livekit-env
+  LIVEKIT_URL: ws://a301-prod-livekit:7880
+  LIVEKIT_PUBLIC_URL: wss://rtc.hangguet.co.kr
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}
+
+# 분석 작업자 3개(ai-analysis · ai-plan · ai-recording)가 같이 쓰는 설정. 개발 서버와 같은 모양이다.
+# 같은 ai- 이미지를 명령만 바꿔 띄우고, AI_WORKER_QUEUE로 수신할 큐만 다르다(AI 명세 1.3).
+x-ai-worker: &ai-worker
+  image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+  restart: unless-stopped
+  command: ["python", "-m", "app.worker"]
+  depends_on:
+    a301-prod-redis:
+      condition: service_healthy
+  # HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  networks:
+    - internal
+  logging: *logging
+
+x-ai-worker-redis-env: &ai-worker-redis-env
+  REDIS_HOST: a301-prod-redis
+  REDIS_PORT: "6379"
+
+# GMS 접속 값. 개발 서버와 같다
+x-gms-env: &gms-env
+  LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
+  LLM_MODEL: gpt-4.1-mini
+  LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
+
+# 녹화 합치기: BE와 같은 버킷 · 앱 키(IAM a301-prod-app, 배포 계획 6.2)로 원본 트랙을 받고 합친 mp4를 올린다
+x-recording-s3-env: &recording-s3-env
+  S3_BUCKET: hanggeut-a301-prod
+  AWS_REGION: ap-northeast-2
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
+
+services:
+  a301-prod-postgres:
+    image: postgres:18.6-alpine
+    container_name: a301-prod-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: a301
+      POSTGRES_USER: a301
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    volumes:
+      # PostgreSQL 18 이미지는 데이터를 /var/lib/postgresql/<버전>/docker에 저장한다.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 1g
+    networks:
+      - internal
+    logging: *logging
+
+  # 세션 · 리프레시 토큰 · AI 작업 큐 · 결과 큐 · LiveKit과 Egress의 메시지를 함께 둔다.
+  a301-prod-redis:
+    image: redis:7.4-alpine
+    container_name: a301-prod-redis
+    restart: unless-stopped
+    # 리프레시 토큰을 저장하므로 메모리가 차도 키를 지우지 않는다(지우면 로그인이 풀린다).
+    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-be:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:be-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-be
+    restart: unless-stopped
+    depends_on:
+      a301-prod-postgres:
+        condition: service_healthy
+      a301-prod-redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18084:8081"
+    environment:
+      DB_URL: jdbc:postgresql://a301-prod-postgres:5432/a301
+      DB_USERNAME: a301
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+      REDIS_HOST: a301-prod-redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
+      # 문의 제목 · 본문 암호화 키(Base64 32바이트). 개발과 다른 값이다. 바꾸거나 잃으면 이미 저장한 문의를 풀 수 없다
+      INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
+      ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:?ADMIN_LOGIN_ID CI/CD variable is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD CI/CD variable is required}
+      ADMIN_NAME: ${ADMIN_NAME:-운영자}
+      # Actuator는 별도 포트로 연다. Nginx는 앱 포트(8080)만 프록시한다.
+      MANAGEMENT_SERVER_PORT: "8081"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+      # 개발 서버와 같은 대시보드를 쓰도록 요청 히스토그램을 켠다(p95 응답 시간).
+      SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}}}'
+      # 메모리가 모자라 힙 할당이 실패하면 바로 종료해 restart로 다시 띄운다. 반쯤 망가진 채로 요청을 받지 않게 한다
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError"
+      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 앱 설정은 이것과 메모리(JVM 옵션 · mem_limit)뿐이다
+      SPRINGDOC_API_DOCS_ENABLED: "false"
+      SPRINGDOC_SWAGGER_UI_ENABLED: "false"
+      <<: *livekit-env
+      # 화상 면접 녹화(Egress) 원본을 올릴 S3. BE가 녹화 요청에 키를 담아 보낸다(배포 계획 4.3, 개발과 같은 방식)
+      LIVEKIT_EGRESS_S3_ACCESS_KEY: ${LIVEKIT_EGRESS_S3_ACCESS_KEY:?LIVEKIT_EGRESS_S3_ACCESS_KEY CI/CD variable is required}
+      LIVEKIT_EGRESS_S3_SECRET: ${LIVEKIT_EGRESS_S3_SECRET:?LIVEKIT_EGRESS_S3_SECRET CI/CD variable is required}
+      # 프로필 사진 API(Presigned URL)가 쓰는 앱 키(IAM a301-prod-app). AWS SDK 기본 공급자가 이 이름을 읽는다.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
+      S3_BUCKET: hanggeut-a301-prod
+      AWS_REGION: ap-northeast-2
+    # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 쓴다(10/27 로컬 실측, 운영과 같은 SerialGC).
+    # 768m에서는 부하만으로 90%에 닿아 강제 종료될 수 있어 여유를 두고 올렸다(배포 계획 3.2)
+    mem_limit: 1280m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-ai:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18083:8000"
+    # 내부 전용(상태 확인). 외부 주소가 없다.
+    environment:
+      AI_ROOT_PATH: ""
+      <<: *livekit-env
+    mem_limit: 256m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-ai-agent:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-ai-agent
+    restart: unless-stopped
+    command: ["python", "-m", "app.agent.main", "start"]
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+      a301-prod-livekit:
+        condition: service_started
+    environment:
+      <<: *livekit-env
+      LIVEKIT_AGENT_NAME: a301-interviewer
+      SONIOX_API_KEY: ${SONIOX_API_KEY:?SONIOX_API_KEY CI/CD variable is required}
+      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
+      # 질문 음성(TTS). 없으면 질문 글로만 진행한다
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
+      JEV_API_KEY: ${JEV_API_KEY:-}
+      REDIS_HOST: a301-prod-redis
+      REDIS_PORT: "6379"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8081/', timeout=3); assert r.read() == b'OK'"
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    # 면접마다 처리 프로세스가 생긴다(면접 1건 약 150~200MB로 추정, 실측 전). 4g는 동시 면접 약 20건 분량이다.
+    # 서버 15GB에서 다른 컨테이너 상한을 빼고 남는 만큼 잡았다. 실제 한도는 CPU가 먼저 정할 수 있어 첫 배포 뒤 실측해 조정한다(배포 계획 3.2)
+    mem_limit: 4g
+    networks:
+      - internal
+    logging: *logging
+
+  # 분석 작업자. 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
+  # 질문 생성(PLAN)이 다른 작업에 밀리지 않게 큐마다 작업자를 두고(AI 명세 1.3), 같은 큐의 작업자는 늘리지 않는다.
+  # 기본 작업자(ai:jobs): 답변 채점 · 결과 생성. 큐를 나누기 전에 들어간 PLAN · 녹화 합치기도 처리하도록 GMS · S3 값을 모두 받는다
+  a301-prod-ai-analysis:
+    <<: *ai-worker
+    container_name: a301-prod-ai-analysis
+    environment:
+      <<: [*ai-worker-redis-env, *gms-env, *recording-s3-env]
+      # 자기소개서 검증(AI 명세 2.1): 지원서 저장 전에 Jev로 판단한다. 없으면 검증이 모두 실패해 지원서를 저장할 수 없다.
+      # 검증 큐(ai:checks)는 기본 작업자만 받으므로 이 작업자에만 넘긴다
+      JEV_API_KEY: ${JEV_API_KEY:-}
+    # GMS 응답을 기다리는 동안은 거의 쓰지 않는다. 첫 배포 뒤 실측해 조정한다(배포 계획 3.2)
+    mem_limit: 256m
+
+  # 질문 생성 작업자(ai:jobs:plan). 사용자가 화면 앞에서 3분 안에 받아야 하는 작업만 처리한다
+  a301-prod-ai-plan:
+    <<: *ai-worker
+    container_name: a301-prod-ai-plan
+    environment:
+      <<: [*ai-worker-redis-env, *gms-env]
+      AI_WORKER_QUEUE: plan
+    mem_limit: 256m
+
+  # 녹화 합치기 작업자(ai:jobs:recording). ffmpeg가 CPU를 쓰므로 4코어를 실시간 면접과 나눠 쓰도록 1코어 · 256m로 제한한다.
+  # 로컬 PC에서 15분 녹화 합치기에 CPU 약 9초, 메모리 약 90MB를 썼다. 운영 서버의 첫 합치기에서 다시 확인한다
+  a301-prod-ai-recording:
+    <<: *ai-worker
+    container_name: a301-prod-ai-recording
+    environment:
+      <<: [*ai-worker-redis-env, *recording-s3-env]
+      AI_WORKER_QUEUE: recording
+    mem_limit: 256m
+    cpus: 1
+
+  a301-prod-fe:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:fe-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-fe
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18082:3000"
+    environment:
+      # FE가 서버에서 부를 API 주소(/api/v1 포함)
+      API_BASE_URL: http://a301-prod-be:8080/api/v1
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-admin:
+    image: ${DOCKERHUB_REPO:-hanggeut/a301}:admin-${IMAGE_TAG:?IMAGE_TAG is required}
+    container_name: a301-prod-admin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # / → FE, /be/ → BE, /admin/ → 관리 페이지. 설정은 nginx.conf
+  a301-prod-nginx:
+    image: nginx:1.30.6-alpine
+    container_name: a301-prod-nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # Cloudflare Tunnel(a301-prod). 바깥으로 나가는 연결만 쓴다
+  a301-prod-cloudflared:
+    image: cloudflare/cloudflared:2026.10.3
+    container_name: a301-prod-cloudflared
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN CI/CD variable is required}
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # 미디어 서버 + TURN(배포 계획 4.1 · 4.2). 설정은 livekit.yaml, 키는 환경 변수 LIVEKIT_KEYS
+  a301-prod-livekit:
+    image: livekit/livekit-server:v1.13.10
+    container_name: a301-prod-livekit
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+    environment:
+      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}"
+    ports:
+      - "7881:7881/tcp"   # 미디어 예비 경로(UDP가 막힌 네트워크)
+      - "7882:7882/udp"   # 미디어(단일 포트 모드)
+      - "3478:3478/udp"   # TURN/UDP
+      - "443:443/tcp"     # TURN/TLS
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+      # TURN 인증서. live/의 파일이 archive/를 가리키는 링크라 폴더 전체를 넣는다(배포 계획 4.2)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  # 서버 녹화(트랙 녹화, 배포 계획 4.3). S3 키는 BE가 녹화 요청에 담아 보내므로 여기에 두지 않는다.
+  # 설정은 EGRESS_CONFIG_BODY로 넣는다(키를 파일에 쓰지 않기 위해).
+  a301-prod-egress:
+    image: livekit/egress:v1.15.0
+    container_name: a301-prod-egress
+    restart: unless-stopped
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+      a301-prod-livekit:
+        condition: service_started
+    environment:
+      EGRESS_CONFIG_BODY: |
+        log_level: info
+        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}
+        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}
+        ws_url: ws://a301-prod-livekit:7880
+        redis:
+          address: a301-prod-redis:6379
+        health_port: 8080
+        prometheus_port: 9090
+    # 트랙 녹화는 인코딩하지 않지만 동시 녹화 수에 따라 실측 후 조정한다(배포 계획 3.2)
+    mem_limit: 1g
+    networks:
+      - internal
+    logging: *logging
+
+  # 모니터링(배포 계획 3.3). 개발 서버 모니터링과 같은 수집 설정에 서버 · 컨테이너 · LiveKit · Redis · PostgreSQL 지표를 더한다.
+  a301-prod-prometheus:
+    image: prom/prometheus:v3.13.3
+    container_name: a301-prod-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-blackbox:
+    image: quay.io/prometheus/blackbox-exporter:v0.28.0
+    container_name: a301-prod-blackbox
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-node-exporter:
+    image: prom/node-exporter:v1.12.1
+    container_name: a301-prod-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.6
+    container_name: a301-prod-cadvisor
+    restart: unless-stopped
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    # 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써서 올렸다(배포 계획 3.2)
+    mem_limit: 384m
+    networks:
+      - internal
+    logging: *logging
+
+  # Redis 메모리 · 연결 · 명령 지표. Redis는 메모리가 차면 쓰기를 거부하므로(noeviction) 상한 대비 사용량을 본다
+  a301-prod-redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    container_name: a301-prod-redis-exporter
+    restart: unless-stopped
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis://a301-prod-redis:6379
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # PostgreSQL 연결 수 · 트랜잭션 · DB 크기 · 잠금 지표. 앱과 같은 계정(a301)으로 읽기만 한다
+  a301-prod-postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: a301-prod-postgres-exporter
+    restart: unless-stopped
+    depends_on:
+      a301-prod-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: a301-prod-postgres:5432/a301?sslmode=disable
+      DATA_SOURCE_USER: a301
+      DATA_SOURCE_PASS: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # 로그 저장소(7일 보관, loki.yml). 개발 서버와 같은 모양이다(deploy/dev/monitoring). 바깥에 열지 않는다
+  a301-prod-loki:
+    image: grafana/loki:3.7.8
+    container_name: a301-prod-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+      - loki-data:/loki
+    mem_limit: 512m
+    networks:
+      - internal
+    logging: *logging
+
+  # 로그 수집. Docker 소켓으로 a301-prod-* 컨테이너 로그만 읽는다(alloy.alloy).
+  # Docker 소켓은 읽기 전용으로 붙이지만 API 호출 자체를 막지는 못하므로, 공식 이미지 · 고정 버전만 쓴다.
+  a301-prod-alloy:
+    image: grafana/alloy:v1.20.1
+    container_name: a301-prod-alloy
+    restart: unless-stopped
+    depends_on:
+      - a301-prod-loki
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - --disable-reporting
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 어디까지 보냈는지 기억해, 재시작해도 같은 로그를 다시 보내지 않는다
+      - alloy-data:/var/lib/alloy/data
+    mem_limit: 128m
+    networks:
+      - internal
+    logging: *logging
+
+  a301-prod-grafana:
+    image: grafana/grafana:13.1.7
+    container_name: a301-prod-grafana
+    restart: unless-stopped
+    depends_on:
+      - a301-prod-prometheus
+      - a301-prod-loki
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD CI/CD variable is required}
+      GF_SERVER_ROOT_URL: https://grafana.hangguet.co.kr/
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    mem_limit: 384m
+    networks:
+      - internal
+    logging: *logging
+
+volumes:
+  postgres-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  alloy-data:
+
+networks:
+  internal:
+    name: a301-prod

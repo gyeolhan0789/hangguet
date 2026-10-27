@@ -1,0 +1,58 @@
+[project]
+name = "a301-ai"
+version = "0.1.0"
+description = "한끗 AI 서버"
+requires-python = ">=3.13"
+dependencies = [
+    "aiohttp>=3.14,<4",
+    "boto3>=1.40,<2",
+    "fastapi>=0.143.0",
+    "livekit-agents>=1.4,<2",
+    "numpy>=2.5.4",
+    "prometheus-client>=0.26,<1",
+    "redis>=8.1.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.0",
+]
+
+# 배포용 패키지를 만들지 않는 애플리케이션 프로젝트다.
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import 정렬, N: Naming, B: bugbear, UP: 최신 문법, SIM: 단순화
+select = ["E", "W", "F", "I", "N", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["app", "eval", "tests"]
+
+[[tool.mypy.overrides]]
+# boto3·botocore는 형식 정보를 제공하지 않는다
+module = ["boto3", "boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["app"]
+# coverage.xml에 상대 경로를 남긴다. CI의 test job과 sonar job은 작업 경로가 다를 수 있다.
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true

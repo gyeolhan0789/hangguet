@@ -1,0 +1,80 @@
+{
+  "poses": [
+    "read",
+    "rest",
+    "tilt"
+  ],
+  "segments": {
+    "read_to_rest": {
+      "id": "read_to_rest",
+      "from": "read",
+      "to": "rest",
+      "body": "down",
+      "seconds": 2.0,
+      "start": 0.0,
+      "end": 2.0
+    },
+    "rest_to_tilt": {
+      "id": "rest_to_tilt",
+      "from": "rest",
+      "to": "tilt",
+      "body": "up",
+      "seconds": 2.0,
+      "start": 2.0833333333333335,
+      "end": 4.083333333333333
+    },
+    "tilt_to_read": {
+      "id": "tilt_to_read",
+      "from": "tilt",
+      "to": "read",
+      "body": "hold",
+      "seconds": 0.8,
+      "start": 4.166666666666667,
+      "end": 6.166666666666667
+    },
+    "read_to_tilt": {
+      "id": "read_to_tilt",
+      "from": "read",
+      "to": "tilt",
+      "body": "hold",
+      "seconds": 0.8,
+      "start": 6.25,
+      "end": 8.25
+    },
+    "tilt_to_rest": {
+      "id": "tilt_to_rest",
+      "from": "tilt",
+      "to": "rest",
+      "body": "down",
+      "seconds": 2.0,
+      "start": 8.333333333333334,
+      "end": 10.333333333333334
+    },
+    "rest_to_read": {
+      "id": "rest_to_read",
+      "from": "rest",
+      "to": "read",
+      "body": "up",
+      "seconds": 2.0,
+      "start": 10.416666666666666,
+      "end": 12.416666666666666
+    }
+  },
+  "nativeSource": "C:\\Users\\SSAFY\\Documents\\Blender\\CodexCrowley\\body_rig\\20261022\\three_pose_final\\demon_office_three_poses.blend",
+  "fps": 24,
+  "bodyMorphsReused": 50,
+  "poseEndpoints": {
+    "read": [
+      "read_to_tilt",
+      0.0
+    ],
+    "rest": [
+      "read_to_rest",
+      1.0
+    ],
+    "tilt": [
+      "read_to_tilt",
+      1.0
+    ]
+  }
+}

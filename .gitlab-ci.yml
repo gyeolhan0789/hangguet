@@ -1,0 +1,1227 @@
+stages:
+  - convention
+  - build
+  - test
+  - sonar
+  - deploy
+
+variables:
+  JIRA_KEY: "S15P31A301"                                        # Jira 프로젝트 키
+  RELEASE_BRANCH: "master"                                      # 시연·운영 Release 브랜치
+  GET_SOURCES_ATTEMPTS: 3                                       # 소스 가져오기 재시도 횟수
+  # Run pipeline 화면에 드롭다운으로 나옵니다. 실제 기본값은 CI/CD Variables에 저장한 값(be)이 우선합니다.
+  DEV_FE_API_TARGET:
+    value: "be"
+    options:
+      - "be"
+      - "mock"
+    description: "개발 서버 FE가 볼 API (be: 실제 BE, mock: 목 서버). develop 수동 실행의 fe-deploy에 적용됩니다."
+
+# MR 파이프라인, develop push · 수동 실행 파이프라인, master push 파이프라인만 만듭니다.
+# - MR: 규칙 검사 · 빌드 · 테스트 · 소나큐브
+# - develop push(MR 병합): 목 서버·개발 서버 배포만 돕니다. 검사는 MR에서 끝냈으므로 다른 잡은 rules에서 뺍니다.
+#   개발 서버 FE가 볼 API를 바꾸는 버튼(fe-use-mock·fe-use-be)도 여기에 생깁니다.
+# - develop 수동 실행(Build > Pipelines > Run pipeline): 개발 서버 FE만 다시 빌드·실행합니다(fe-deploy).
+# - master push(Release MR 병합): 운영 이미지 빌드(prod-build)가 돌고, 운영 배포(prod-deploy)는 ▶ 버튼으로 남습니다.
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $RELEASE_BRANCH'
+
+# 모든 잡은 이 프로젝트에 할당한 러너(태그 s15p31a301)에서만 돕니다.
+# 지금은 yobi-mini-pc-runner(#2163)와 데일밴드 CI/CD 러너(#1940) 중 비어 있는 쪽이 가져갑니다.
+# 배포 잡(목 서버·개발 서버)과 운영 이미지 빌드만 예외로 미니PC의 배포 전용 러너(태그 a301-mock-deploy)에서 돕니다.
+# 운영 배포는 Lightsail의 protected 러너(태그 a301-prod)에서 돕니다.
+# 같은 MR에 새 커밋이 올라오면 이전 파이프라인은 취소해도 됩니다.
+default:
+  tags:
+    - "s15p31a301"
+  interruptible: true
+
+# 규칙 검사 공통 설정
+# MR 정보(CI_MERGE_REQUEST_*)로 검사하므로 MR 파이프라인에서만 돕니다.
+.convention:
+  stage: convention
+  image: alpine:3.22
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+# 브랜치 이름 검사
+# 형식: S15P31A301-<Jira 번호>/<part>/<type>/<slug>
+# 예:   S15P31A301-42/ai/feature/answer-evaluator
+branch-name:
+  extends: .convention
+  script:
+    - |
+      BRANCH="$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+      echo "검사 브랜치: $BRANCH"
+      if [ "$BRANCH" = "$RELEASE_BRANCH" ] || [ "$BRANCH" = "develop" ]; then
+        echo "보호 브랜치 → 통과"; exit 0
+      fi
+      # GitLab 화면의 Revert 버튼이 만드는 브랜치
+      if printf '%s' "$BRANCH" | grep -Eq '^revert-[0-9a-f]+$'; then
+        echo "GitLab Revert 브랜치 → 통과"; exit 0
+      fi
+      PARTS="fe|be|ai|infra|common"
+      TYPES="feature|fix|hotfix|docs"
+      PATTERN="^${JIRA_KEY}-[0-9]+/(${PARTS})/(${TYPES})/[A-Za-z0-9_-]+$"
+      if printf '%s' "$BRANCH" | grep -Eq "$PATTERN"; then
+        echo "OK: 브랜치 이름 규칙 통과"
+      else
+        echo "FAIL: 브랜치 이름 규칙 위반"
+        echo "  형식 : ${JIRA_KEY}-<Jira 번호>/<part>/<type>/<slug>"
+        echo "  part : ${PARTS}"
+        echo "  type : ${TYPES}"
+        echo "  slug : 영문·숫자와 하이픈(-)·언더스코어(_)"
+        echo "  예)   ${JIRA_KEY}-42/ai/feature/answer-evaluator"
+        echo "  참고 : docs/CONTRIBUTING.md 2. 브랜치 전략"
+        exit 1
+      fi
+
+# 병합 대상 브랜치 검사
+# Release 브랜치에는 develop 또는 hotfix 브랜치만 병합합니다.
+target-branch:
+  extends: .convention
+  script:
+    - |
+      SOURCE="$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME"
+      TARGET="$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+      echo "$SOURCE -> $TARGET"
+      if [ "$TARGET" = "develop" ]; then
+        echo "OK: develop 통합 대상"
+      elif [ "$TARGET" = "$RELEASE_BRANCH" ]; then
+        if [ "$SOURCE" = "develop" ] || printf '%s' "$SOURCE" | grep -Eq "/hotfix/"; then
+          echo "OK: ${RELEASE_BRANCH} 병합 대상"
+        else
+          echo "FAIL: ${RELEASE_BRANCH}에는 develop 또는 hotfix 브랜치만 병합할 수 있습니다."
+          echo "  참고 : docs/CONTRIBUTING.md 3. 병합 순서"
+          exit 1
+        fi
+      else
+        echo "OK: 작업 브랜치 간 병합"
+      fi
+
+# 커밋 메시지 검사
+# 형식: <type>(<scope>): <subject> [Jira ID]   (scope·Jira ID는 생략 가능, Jira ID 표기는 검사하지 않음)
+# 예:   feat(interview): 면접 Turn 상태 전이 구현 [S15P31A301-43]
+commit-message:
+  extends: .convention
+  variables:
+    GIT_DEPTH: "0"                                              # 분기점까지 히스토리가 필요합니다.
+  before_script:
+    - command -v git >/dev/null 2>&1 || apk add --no-cache git
+  script:
+    - |
+      TYPES="feat|fix|docs|style|refactor|test|chore"
+      PATTERN="^(${TYPES})(\([A-Za-z0-9._/-]+\))?: .+"
+      # MR에 새로 들어온 커밋만 검사하고, Merge 커밋은 제외합니다.
+      if ! git log --no-merges --format=%s "${CI_MERGE_REQUEST_DIFF_BASE_SHA}..HEAD" > /tmp/msgs.txt; then
+        echo "FAIL: 커밋 목록을 가져오지 못했습니다. (base=${CI_MERGE_REQUEST_DIFF_BASE_SHA})"
+        exit 1
+      fi
+      if [ ! -s /tmp/msgs.txt ]; then
+        echo "FAIL: 검사할 커밋이 없습니다."
+        exit 1
+      fi
+      FAIL=0
+      while IFS= read -r MSG; do
+        [ -z "$MSG" ] && continue
+        # GitLab·git이 만드는 Revert 커밋은 그대로 허용합니다.
+        if printf '%s' "$MSG" | grep -Eq '^Revert ".+"$'; then
+          echo "OK  : $MSG"; continue
+        fi
+        if ! printf '%s' "$MSG" | grep -Eq "$PATTERN"; then
+          echo "FAIL: $MSG"; FAIL=1; continue
+        fi
+        echo "OK  : $MSG"
+      done < /tmp/msgs.txt
+      if [ "$FAIL" -ne 0 ]; then
+        echo "커밋 메시지 형식: <type>(<scope>): <subject> [Jira ID]"
+        echo "  type : ${TYPES}"
+        echo "  예)   feat(interview): 면접 Turn 상태 전이 구현 [${JIRA_KEY}-43]"
+        echo "  참고 : docs/CONTRIBUTING.md 4. 커밋 메시지"
+        echo "  수정 : git commit --amend 또는 git rebase -i 로 고친 뒤 git push --force-with-lease"
+        exit 1
+      fi
+
+### 빌드·테스트·소나큐브 분석 ###
+# 파트 폴더나 이 파일이 바뀐 MR에서만 해당 파트 잡이 돕니다.
+# develop push 파이프라인에서는 돌지 않습니다.
+# 순서: build(format·lint·빌드) → test(테스트·커버리지) → sonar(분석 결과 업로드)
+# SonarQube 서버 주소와 토큰은 GitLab CI/CD Variables의 SONAR_HOST_URL, SONAR_TOKEN에서 주입합니다.
+# 프로젝트는 파트마다 따로 둡니다: A301-be, A301-fe, A301-ai
+
+# 파트별 실행 조건
+.be-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+
+.fe-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+
+.ai-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - ai/**/*
+        - .gitlab-ci.yml
+
+.mock-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - mock/**/*
+        - .gitlab-ci.yml
+
+# 소나큐브 분석은 수동 실행입니다. 파이프라인에 ▶ 버튼으로만 남고 자동으로 돌지 않습니다.
+# rules 안에서 when: manual을 쓰면 allow_failure 기본값이 false가 되어
+# 버튼을 누르기 전까지 파이프라인이 끝나지 않으므로 allow_failure: true를 함께 적습니다.
+# 병합 전에 버튼을 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 합니다.
+.be-sonar-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.fe-sonar-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+.ai-sonar-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - ai/**/*
+        - .gitlab-ci.yml
+      when: manual
+      allow_failure: true
+
+# 소나큐브 분석 공통 설정
+# - 분석 결과를 업로드하면 잡은 바로 끝납니다. 품질 게이트 판정은 서버가 따로 처리하고,
+#   판정이 끝나면 SonarQube Webhook이 Mattermost로 결과를 알립니다.
+#   알림에 어느 MR의 결과인지 표시하도록 sonar.analysis.* 속성으로 MR 정보를 함께 보냅니다.
+# - 미니PC에서 도는 서버가 꺼져 있어도 MR이 막히지 않도록 실패를 허용합니다.
+# - New Code(최근 30일) 판정에 git blame이 필요해 전체 이력을 받습니다.
+# - 이미지에 Java가 있어 스캐너가 서버에서 JRE를 내려받지 않게 합니다(sonar.scanner.skipJreProvisioning).
+# - 분석기 플러그인은 $SONAR_USER_HOME/cache에 받으므로 잡마다 캐시합니다.
+#   러너 캐시는 러너 PC에 저장되어 러너마다 첫 실행은 플러그인을 내려받습니다.
+.sonar:
+  stage: sonar
+  allow_failure: true
+  variables:
+    GIT_DEPTH: "0"
+    SONAR_USER_HOME: "$CI_PROJECT_DIR/.sonar"
+  before_script:
+    - |
+      test -n "$SONAR_HOST_URL" || { echo "SONAR_HOST_URL CI/CD variable is required"; exit 1; }
+      test -n "$SONAR_TOKEN" || { echo "SONAR_TOKEN CI/CD variable is required"; exit 1; }
+
+# 스캐너는 SONAR_HOST_URL, SONAR_TOKEN 환경 변수를 직접 읽습니다.
+.sonar-scanner:
+  extends: .sonar
+  image:
+    name: sonarsource/sonar-scanner-cli:12.2.0.4256_8.1.0
+    entrypoint: [""]
+  # 언어마다 받는 플러그인이 달라 잡 이름으로 캐시를 나눕니다.
+  # 분석이 실패해도 이미 받은 플러그인은 남기도록 항상 저장합니다.
+  cache:
+    key: sonar-$CI_JOB_NAME
+    paths:
+      - .sonar/cache/
+    when: always
+
+## BE ##
+
+# Gradle 공통 설정
+# 캐시에는 의존성과 Gradle Build Cache(caches/build-cache-1, 컴파일 결과)가 함께 들어 있습니다.
+# 러너 캐시는 러너 PC에만 저장되어, be-build와 be-test가 다른 러너로 가면 적중하지 않습니다.
+# 그래서 be-build와 be-test 모두 캐시를 저장해, 어느 BE 잡이든 한 번 돈 러너에는 캐시가 생기게 합니다.
+.be:
+  extends: .be-rules
+  image: eclipse-temurin:21-jdk-noble
+  variables:
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-home"
+  cache:
+    key:
+      files:
+        - backend/gradle/wrapper/gradle-wrapper.properties
+        - backend/build.gradle
+    paths:
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+    policy: pull-push
+
+# 포맷·정적 분석·컴파일
+be-build:
+  extends: .be
+  stage: build
+  script:
+    - cd backend
+    - ./gradlew spotlessCheck checkstyleMain checkstyleTest assemble --no-daemon
+
+# 테스트 + JaCoCo 커버리지
+# @SpringBootTest가 실제 DataSource를 요구하므로 PostgreSQL 서비스 컨테이너를 붙입니다.
+be-test:
+  extends: .be
+  stage: test
+  needs:
+    - job: be-build
+  services:
+    - name: postgres:18.6-alpine
+      alias: postgres
+    - name: redis:7.4-alpine
+      alias: redis
+  variables:
+    POSTGRES_DB: a301
+    POSTGRES_USER: a301
+    POSTGRES_PASSWORD: a301-ci
+    DB_URL: jdbc:postgresql://postgres:5432/a301
+    DB_USERNAME: a301
+    DB_PASSWORD: a301-ci
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+  script:
+    - cd backend
+    - ./gradlew test redisIntegrationTest --no-daemon
+  artifacts:
+    when: always
+    paths:
+      - backend/build/reports/jacoco/test/jacocoTestReport.xml
+    reports:
+      junit:
+        - backend/build/test-results/test/*.xml
+        - backend/build/test-results/redisIntegrationTest/*.xml
+    expire_in: 1 day
+
+# 소나큐브 분석 (Gradle 플러그인)
+# 플러그인이 컴파일된 클래스와 라이브러리 경로를 직접 넘겨 Java 규칙을 정확히 분석합니다.
+# sonar 태스크는 컴파일을 하지 않아 classes·testClasses를 함께 실행합니다.
+be-sonar:
+  extends:
+    - .be
+    - .sonar
+    - .be-sonar-rules
+  needs:
+    - job: be-test
+      artifacts: true
+  # Gradle 의존성 캐시는 읽기만 하고, 소나큐브 플러그인 캐시는 따로 저장합니다.
+  cache:
+    - key:
+        files:
+          - backend/gradle/wrapper/gradle-wrapper.properties
+          - backend/build.gradle
+      paths:
+        - .gradle-home/caches/
+        - .gradle-home/wrapper/
+      policy: pull
+    - key: sonar-$CI_JOB_NAME
+      paths:
+        - .sonar/cache/
+      when: always
+  script:
+    - cd backend
+    - |
+      test -f build/reports/jacoco/test/jacocoTestReport.xml || {
+        echo "JaCoCo XML 리포트가 없습니다. be-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - ./gradlew classes testClasses sonar --no-daemon
+      -Dsonar.projectKey=A301-be
+      -Dsonar.projectName=A301-be
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## MOCK ##
+
+# 목 서버(mock/): API 명세(Swagger)와 예시 응답. DB가 없어 서비스 컨테이너를 붙이지 않습니다.
+.mock:
+  extends: .mock-rules
+  image: eclipse-temurin:21-jdk-noble
+  variables:
+    GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle-home"
+  cache:
+    key:
+      files:
+        - mock/gradle/wrapper/gradle-wrapper.properties
+        - mock/build.gradle
+    paths:
+      - .gradle-home/caches/
+      - .gradle-home/wrapper/
+    policy: pull-push
+
+# 포맷·정적 분석·컴파일
+mock-build:
+  extends: .mock
+  stage: build
+  script:
+    - cd mock
+    - ./gradlew spotlessCheck checkstyleMain checkstyleTest assemble --no-daemon
+
+mock-test:
+  extends: .mock
+  stage: test
+  needs:
+    - job: mock-build
+  script:
+    - cd mock
+    - ./gradlew test --no-daemon
+  # api-docs.json은 이 MR의 Swagger 문서입니다. fe-swagger-types가 FE 예시 파일 검사에 사용합니다.
+  artifacts:
+    when: always
+    paths:
+      - mock/build/api-docs.json
+    reports:
+      junit: mock/build/test-results/test/*.xml
+    expire_in: 1 day
+
+# 미니PC 배포
+# - develop에 mock/ 또는 deploy/mock/ 변경이 병합되면 자동으로 배포합니다.
+# - 미니PC의 배포 전용 러너(shell executor, 태그 a301-mock-deploy, Protected)가 호스트 Docker로 직접 빌드·실행합니다.
+#   공용 태그(s15p31a301)는 다른 러너도 가져가므로 쓰지 않습니다.
+# - 외부 요청은 Cloudflare Tunnel → Nginx 컨테이너 → a301-mock:8080(Docker 네트워크 server_public-network)으로 들어옵니다.
+#   호스트에는 헬스체크용으로 127.0.0.1:${MOCK_HOST_PORT}만 엽니다.
+# - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
+# - 롤백: Deployments > Environments > mock에서 이전 배포를 Re-deploy 합니다(그 커밋으로 다시 빌드).
+mock-deploy:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: mock-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - mock/**/*
+        - deploy/mock/**/*
+  # mock-build·mock-test는 MR에서만 돌아 기다릴 잡이 없습니다.
+  # 이미지 빌드(bootJar)가 컴파일 오류를, 아래 헬스체크가 기동 실패를 막습니다.
+  needs: []
+  variables:
+    MOCK_IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+    MOCK_HOST_PORT: "18080"
+    MOCK_KEEP_IMAGES: "3"                                       # 롤백용으로 남길 이미지 수
+  environment:
+    name: mock
+    url: https://hangguet.yobistory.com/mock/be/docs
+  script:
+    - docker compose -f deploy/mock/compose.yml up -d --build --remove-orphans
+    - |
+      HEALTH_URL="http://127.0.0.1:${MOCK_HOST_PORT}/actuator/health"
+      HEALTHY=0
+      for i in $(seq 1 45); do
+        if curl -fsS "$HEALTH_URL" 2>/dev/null | grep -q '"UP"'; then
+          HEALTHY=1; break
+        fi
+        sleep 2
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: ${HEALTH_URL} 가 90초 안에 UP이 되지 않았습니다."
+        docker compose -f deploy/mock/compose.yml logs --tail 100
+        exit 1
+      fi
+      echo "OK: 목 서버 ${MOCK_IMAGE_TAG} 배포 완료"
+    # 최근 이미지 몇 개만 남기고 지웁니다(docker images는 최신순).
+    - docker images a301-mock --format '{{.Repository}}:{{.Tag}}' | tail -n +$((MOCK_KEEP_IMAGES + 1)) | xargs -r docker rmi || true
+
+## 개발 서버 ##
+
+# 미니PC 개발 서버 배포 (deploy/dev/compose.yml)
+# - develop에 파트 폴더나 deploy/dev/compose.yml 변경이 병합되면 바뀐 서비스를 다시 빌드·실행합니다.
+#   모니터링 Compose · 수집 설정 · Grafana 대시보드 변경은 앱을 다시 빌드하지 않고 monitoring-deploy만 실행합니다.
+#   코드 변경 없이 다시 띄울 때(Variables만 바꾼 경우 등)는 BE·AI 잡의 ▶ 버튼을 누릅니다(.dev-redeploy-button). FE는 Run pipeline으로 돕니다.
+#   postgres·redis는 BE를 띄울 때 함께 뜨고, 설정이 바뀌지 않으면 다시 만들지 않아 데이터가 남습니다.
+# - 목 서버와 같은 배포 전용 러너(태그 a301-mock-deploy)가 호스트 Docker로 직접 빌드·실행합니다.
+# - 개발 서버 배포 잡은 같은 resource_group으로 한 번에 하나씩 돕니다. N100에서 빌드가 겹치지 않게 합니다.
+# - 비밀값 DB_PASSWORD, JWT_SECRET, INQUIRY_ENCRYPTION_KEY, ADMIN_LOGIN_ID, ADMIN_PASSWORD는 GitLab CI/CD Variables
+#   (Environment scope dev/*)에서 받습니다. compose가 파일 전체를 읽으므로 앱 배포 잡 모두에 필요합니다.
+#   외부 API 키 SONIOX_API_KEY·ELEVENLABS_API_KEY도 Variables에서 받아 AI 에이전트에 넘깁니다(ELEVENLABS_API_KEY는 없어도 배포됩니다).
+#   GMS 키 LLM_API_KEY도 Variables에서 받아 AI 분석 작업자에 넘깁니다.
+#   녹화 S3 키 LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET도 Variables에서 받아 BE에 넘깁니다(없으면 화상 면접 시작이 실패합니다).
+#   앱 S3 키 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY도 Variables에서 받아 BE에 넘깁니다(없으면 프로필 사진 API만 실패합니다).
+# - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
+# - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/ai-plan·dev/ai-recording·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
+
+# 헬스체크: 서비스별 정상 응답을 기다리고, 안 되면 로그를 남기고 실패합니다.
+# 배포 잡(.dev-deploy)과 FE API 전환 잡(.fe-api-switch)이 함께 씁니다.
+.dev-health-check:
+  script:
+    - |
+      HEALTHY=0
+      for i in $(seq 1 "$DEV_HEALTH_TRIES"); do
+        if [ "${DEV_HEALTH_SOURCE:-http}" = "container" ]; then
+          if docker inspect --format '{{.State.Health.Status}}' "$DEV_SERVICE" 2>/dev/null | grep -qx healthy; then
+            HEALTHY=1; break
+          fi
+        elif curl -fsS "$DEV_HEALTH_URL" 2>/dev/null | grep -q "$DEV_HEALTH_PATTERN"; then
+          HEALTHY=1; break
+        fi
+        sleep 2
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: ${DEV_SERVICE} 상태 확인이 $((DEV_HEALTH_TRIES * 2))초 안에 성공하지 않았습니다."
+        docker compose -f deploy/dev/compose.yml logs --tail 100 "$DEV_SERVICE"
+        exit 1
+      fi
+
+# FE가 부를 API 주소: FE_API_TARGET(be|mock)을 API_BASE_URL로 바꿉니다. compose가 이 값을 FE 컨테이너에 넣습니다.
+# fe-deploy와 FE API 전환 잡(fe-use-mock·fe-use-be)이 함께 씁니다.
+.fe-api-target:
+  script:
+    - |
+      case "$FE_API_TARGET" in
+        be)   export API_BASE_URL="http://a301-dev-be:8080/api/v1" ;;
+        mock) export API_BASE_URL="http://a301-mock:8080/api/v1" ;;
+        *)
+          echo "FAIL: FE가 볼 API는 be 또는 mock이어야 합니다. (현재: ${FE_API_TARGET})"
+          exit 1
+          ;;
+      esac
+
+# 다시 배포 버튼: 코드 변경 없이 다시 띄울 때 씁니다(예: CI/CD Variables의 키만 바꾼 뒤 반영).
+# 자동 실행 조건(changes)에 맞지 않는 develop 병합 파이프라인과 수동 파이프라인(Run pipeline)에 ▶ 버튼으로 생깁니다.
+# 누르지 않아도 파이프라인은 통과합니다. 각 배포 잡의 rules 끝에 붙여 씁니다(admin-deploy와 같은 방식).
+.dev-redeploy-button:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+
+.dev-deploy:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: dev-deploy
+  # 빌드·테스트 잡은 MR에서만 돌아 기다릴 잡이 없습니다. 이미지 빌드가 컴파일 오류를, 헬스체크가 기동 실패를 막습니다.
+  needs: []
+  variables:
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+    DEV_BE_HOST_PORT: "18081"
+    DEV_FE_HOST_PORT: "18082"
+    DEV_AI_HOST_PORT: "18083"
+    DEV_HEALTH_PATTERN: '"UP"'
+    DEV_KEEP_IMAGES: "3"                                        # 롤백용으로 남길 이미지 수
+    DEV_HEALTH_TRIES: "60"                                      # 2초 간격으로 확인할 횟수
+  script:
+    - docker compose -f deploy/dev/compose.yml up -d --build "$DEV_SERVICE"
+    - |
+      if [ "$DEV_SERVICE" = "a301-dev-be" ]; then
+        MANAGEMENT_ADDRESS=$(docker compose -f deploy/dev/compose.yml port "$DEV_SERVICE" 8081)
+        if [ -z "$MANAGEMENT_ADDRESS" ]; then
+          echo "FAIL: BE 관리 포트가 호스트에 할당되지 않았습니다."
+          exit 1
+        fi
+        export DEV_HEALTH_URL="http://${MANAGEMENT_ADDRESS}/actuator/health"
+      fi
+    - !reference [.dev-health-check, script]
+    # ": "가 있는 한 줄 명령은 YAML이 키-값으로 읽지 않도록 작은따옴표로 감쌉니다.
+    - 'echo "OK: ${DEV_SERVICE} ${IMAGE_TAG} 배포 완료"'
+    # 최근 이미지 몇 개만 남기고 지웁니다(docker images는 최신순). 이미지 이름이 서비스 이름과 같습니다.
+    - docker images "$DEV_SERVICE" --format '{{.Repository}}:{{.Tag}}' | tail -n +$((DEV_KEEP_IMAGES + 1)) | xargs -r docker rmi || true
+
+# BE: 처음 배포할 때 postgres·redis도 함께 띄웁니다. 테이블은 BE가 뜰 때 Flyway가 만듭니다.
+be-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - backend/**/*
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
+  variables:
+    DEV_SERVICE: "a301-dev-be"
+  environment:
+    name: dev/be
+    url: https://hangguet.yobistory.com/be/docs
+
+# FE: DEV_FE_API_TARGET(be|mock, 기본 be)에 맞춰 FE가 부를 API 주소를 정합니다.
+# - 평소: CI/CD Variables의 DEV_FE_API_TARGET은 be로 둡니다. fe-deploy가 돌 때마다 FE는 이 값으로 돌아옵니다.
+# - FE가 볼 API만 바꿀 때는 아래 fe-use-mock·fe-use-be 버튼을 씁니다.
+fe-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - frontend/**/*
+        - deploy/dev/compose.yml
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+  variables:
+    DEV_SERVICE: "a301-dev-fe"
+    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_FE_HOST_PORT}/api/health"
+  environment:
+    name: dev/fe
+    url: https://hangguet.yobistory.com/
+  before_script:
+    - export FE_API_TARGET="${DEV_FE_API_TARGET:-be}"
+    - !reference [.fe-api-target, script]
+    - 'echo "FE가 보는 API: ${FE_API_TARGET} → ${API_BASE_URL}"'
+
+# FE API 전환 버튼 (fe-use-mock·fe-use-be)
+# - develop 병합 파이프라인마다 ▶ 버튼으로 생깁니다. 누르지 않아도 파이프라인은 통과합니다.
+# - 누르면 지금 떠 있는 FE 이미지를 그대로 쓰고(빌드 없음) API 주소만 바꿔 FE 컨테이너만 다시 띄웁니다.
+#   오래된 파이프라인의 버튼을 눌러도 FE 코드는 그 시점으로 돌아가지 않습니다.
+# - 팀 전체에 적용됩니다. 이후 fe-deploy가 돌면(frontend/·deploy/dev/ 변경 병합) DEV_FE_API_TARGET(be)로 돌아옵니다.
+#   BE·AI만 바뀐 병합에서는 FE를 다시 띄우지 않아 바꾼 상태가 그대로 남습니다.
+# - 목 서버는 토큰을 검사하지 않아 BE → mock은 로그인이 유지되고, mock → BE는 다시 로그인해야 합니다.
+# - compose가 파일 전체를 읽어 비밀값(dev/* scope)이 필요하므로 dev/fe 환경에 속하게 하되,
+#   action: access로 배포 기록(롤백 목록)에는 남기지 않습니다.
+# - 버튼 값은 CI/CD Variables와 이름이 겹치지 않는 FE_API_TARGET으로 넘깁니다.
+#   (Settings에 저장한 변수가 이 파일의 잡 변수보다 우선하므로, DEV_FE_API_TARGET을 쓰면 저장된 be가 이깁니다.)
+.fe-api-switch:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: dev-deploy
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true                                       # 누르지 않아도 파이프라인이 끝나도록
+  environment:
+    name: dev/fe
+    action: access
+  variables:
+    DEV_SERVICE: "a301-dev-fe"
+    DEV_FE_HOST_PORT: "18082"
+    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_FE_HOST_PORT}/api/health"
+    DEV_HEALTH_TRIES: "30"
+    DEV_HEALTH_PATTERN: '"UP"'
+  script:
+    - !reference [.fe-api-target, script]
+    - |
+      if ! IMAGE=$(docker inspect -f '{{.Config.Image}}' "$DEV_SERVICE" 2>/dev/null); then
+        echo "FAIL: ${DEV_SERVICE} 컨테이너가 없습니다. fe-deploy로 먼저 배포하세요."
+        exit 1
+      fi
+      export IMAGE_TAG="${IMAGE##*:}"
+      echo "FE가 보는 API: ${FE_API_TARGET} → ${API_BASE_URL} (이미지 ${IMAGE})"
+    - docker compose -f deploy/dev/compose.yml up -d --no-build --no-deps "$DEV_SERVICE"
+    - !reference [.dev-health-check, script]
+    - 'echo "OK: FE가 ${FE_API_TARGET}를 봅니다."'
+
+fe-use-mock:
+  extends: .fe-api-switch
+  variables:
+    FE_API_TARGET: "mock"
+
+fe-use-be:
+  extends: .fe-api-switch
+  variables:
+    FE_API_TARGET: "be"
+
+# AI: 내부 전용이라 외부 주소(environment url)가 없습니다. BE가 http://a301-dev-ai:8000으로 부릅니다.
+ai-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
+  variables:
+    DEV_SERVICE: "a301-dev-ai"
+    DEV_HEALTH_URL: "http://127.0.0.1:${DEV_AI_HOST_PORT}/health"
+  environment:
+    name: dev/ai
+
+# 개발 서버 모니터링: 지표(Prometheus) · 로그(Loki · Alloy) · Grafana.
+# GitLab 변수 GRAFANA_ADMIN_PASSWORD(범위 All, 운영 Grafana와 같은 값)가 필요하다. Grafana 볼륨을 처음 만들 때만 적용된다.
+# 모니터링은 앱 Compose와 별도로 실행한다. a301-dev 네트워크(앱 Compose가 만듦)가 없으면 이유를 남기고 실패한다.
+# Nginx 설정과 Cloudflare Tunnel의 호스트 이름 등록은 미니PC/Cloudflare에서 별도로 적용한다.
+monitoring-deploy:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: dev-deploy
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # a301-dev 네트워크는 미니PC에 이미 있고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - deploy/dev/monitoring/compose.yml
+        - deploy/dev/monitoring/prometheus.yml
+        - deploy/dev/monitoring/blackbox.yml
+        - deploy/dev/monitoring/loki.yml
+        - deploy/dev/monitoring/alloy.alloy
+        - deploy/dev/monitoring/grafana/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+  variables:
+    DEV_GRAFANA_HOST_PORT: "18090"
+    GRAFANA_ROOT_URL: "https://hangguet-grafana.yobistory.com/"
+  environment:
+    name: dev/monitoring
+    url: https://hangguet-grafana.yobistory.com/
+  script:
+    - |
+      for NETWORK in a301-dev server_public-network; do
+        if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+          echo "FAIL: ${NETWORK} Docker 네트워크가 없습니다. 앱 배포와 미니PC 프록시 네트워크를 먼저 확인하세요."
+          exit 1
+        fi
+      done
+    - docker compose -f deploy/dev/monitoring/compose.yml config --quiet
+    - docker compose -f deploy/dev/monitoring/compose.yml up -d
+    - |
+      HEALTH_URL="http://127.0.0.1:${DEV_GRAFANA_HOST_PORT}/api/health"
+      HEALTHY=0
+      for i in $(seq 1 30); do
+        if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+          HEALTHY=1; break
+        fi
+        sleep 2
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: Grafana가 60초 안에 응답하지 않았습니다."
+        docker compose -f deploy/dev/monitoring/compose.yml logs --tail 100 a301-dev-grafana
+        exit 1
+      fi
+    # 로그 수집: 설정이 틀리면 Loki · Alloy가 재시작을 반복하므로 20초 뒤에도 실행 중이고 재시작이 없는지 본다
+    - |
+      sleep 20
+      for SERVICE in a301-dev-loki a301-dev-alloy; do
+        STATE=$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$SERVICE" 2>/dev/null || echo "missing")
+        if [ "$STATE" != "true 0" ]; then
+          echo "FAIL: ${SERVICE} 상태가 정상이 아닙니다(실행 중 · 재시작 수: ${STATE})."
+          docker compose -f deploy/dev/monitoring/compose.yml logs --tail 100 "$SERVICE"
+          exit 1
+        fi
+      done
+    - 'echo "OK: 개발 서버 Grafana · 로그 수집 실행 중 (${GRAFANA_ROOT_URL})"'
+
+# AI 에이전트: 별도 호스트 포트 없이 Compose의 컨테이너 내부 상태 검사를 사용합니다.
+ai-agent-deploy:
+  extends: .dev-deploy
+  rules:
+    # 재시작하면 진행 중인 면접에서 면접관이 빠지므로 AI 코드나 앱 Compose가 바뀔 때만 자동으로 돈다
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
+  before_script:
+    - 'test -n "$LIVEKIT_API_KEY" && test -n "$LIVEKIT_API_SECRET" || { echo "FAIL: LiveKit API 키와 시크릿이 필요합니다."; exit 1; }'
+    - 'test -n "$SONIOX_API_KEY" || { echo "FAIL: SONIOX_API_KEY가 필요합니다."; exit 1; }'
+  variables:
+    DEV_SERVICE: "a301-dev-ai-agent"
+    DEV_HEALTH_SOURCE: "container"
+  environment:
+    name: dev/ai-agent
+
+# AI 분석 작업자: HTTP가 없어 Compose의 컨테이너 상태 검사(Redis 연결 확인)를 사용합니다.
+# GMS 주소·모델은 deploy/dev/compose.yml에, 키(LLM_API_KEY)는 Variables에 있습니다.
+ai-analysis-deploy:
+  extends: .dev-deploy
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - ai/**/*
+        - deploy/dev/compose.yml
+    - !reference [.dev-redeploy-button, rules]
+  before_script:
+    - 'test -n "$LLM_API_KEY" || { echo "FAIL: LLM_API_KEY가 필요합니다."; exit 1; }'
+  variables:
+    DEV_SERVICE: "a301-dev-ai-analysis"
+    DEV_HEALTH_SOURCE: "container"
+  environment:
+    name: dev/ai-analysis
+
+# 질문 생성 · 녹화 합치기 작업자: 큐만 다른 분석 작업자라 ai-analysis-deploy와 같은 조건 · 검사로 배포합니다(AI 명세 1.3).
+ai-plan-deploy:
+  extends: ai-analysis-deploy
+  variables:
+    DEV_SERVICE: "a301-dev-ai-plan"
+  environment:
+    name: dev/ai-plan
+
+# 녹화 합치기는 GMS를 쓰지 않으므로 LLM_API_KEY를 검사하지 않습니다.
+ai-recording-deploy:
+  extends: ai-analysis-deploy
+  before_script: []
+  variables:
+    DEV_SERVICE: "a301-dev-ai-recording"
+  environment:
+    name: dev/ai-recording
+
+## 관리자 페이지 ##
+
+# 관리 앱은 앱 Compose와 분리한다. DB·JWT·관리자 비밀번호를 정적 웹 컨테이너에 전달하지 않는다.
+admin-build:
+  stage: build
+  image: node:24-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - admin/**/*
+        - deploy/dev/admin/**/*
+        - .gitlab-ci.yml
+  variables:
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files:
+        - admin/package-lock.json
+    paths:
+      - .npm/
+  script:
+    - cd admin
+    - npm ci --prefer-offline --no-audit --no-fund
+    - npm run lint
+    - npm run build
+
+admin-deploy:
+  stage: deploy
+  tags:
+    - "a301-mock-deploy"
+  interruptible: false
+  resource_group: dev-deploy
+  # be-deploy는 다시 배포 버튼 때문에 늘 파이프라인에 있다(누르지 않으면 수동 상태).
+  # needs로 기다리게 하면 버튼을 누르지 않았을 때 이 잡이 건너뛰어지므로 기다리지 않는다.
+  # 관리 페이지는 BE 배포를 기다릴 필요가 없고, 배포 잡끼리는 resource_group으로 한 번에 하나씩 돈다.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - admin/**/*
+        - deploy/dev/admin/**/*
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+      when: manual
+      allow_failure: true
+  variables:
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  environment:
+    name: dev/admin
+    url: https://hangguet.yobistory.com/admin/
+  script:
+    - |
+      docker network inspect server_public-network >/dev/null 2>&1 || {
+        echo "FAIL: server_public-network Docker 네트워크가 없습니다."
+        exit 1
+      }
+    - docker compose -f deploy/dev/admin/compose.yml config --quiet
+    - docker compose -f deploy/dev/admin/compose.yml up -d --build
+    - |
+      HEALTHY=0
+      for i in $(seq 1 30); do
+        if docker inspect --format '{{.State.Health.Status}}' a301-dev-admin 2>/dev/null | grep -qx healthy; then
+          HEALTHY=1; break
+        fi
+        sleep 2
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: 관리자 페이지가 60초 안에 정상 기동하지 않았습니다."
+        docker compose -f deploy/dev/admin/compose.yml logs --tail 100 a301-dev-admin
+        exit 1
+      fi
+    - 'echo "OK: 관리자 페이지 ${IMAGE_TAG} 배포 완료"'
+
+## 운영 서버 ##
+
+# 운영 서버 Lightsail 배포 (deploy/prod, 이해준/deploy_plan 8장)
+# - master 병합(Release MR) → prod-build가 자동으로 이미지 4개(be · fe · ai · admin)를 빌드해 Docker Hub에 올립니다.
+#   태그: hanggeut/a301:<서비스>-<커밋 짧은 SHA>. AI 이미지 하나를 HTTP · 에이전트 · 분석 작업자가 같이 씁니다.
+# - prod-deploy는 ▶ 버튼으로 돕니다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어
+#   시점을 사람이 고릅니다. 하는 일은 deploy/prod/deploy.sh(로그인 → 파일 복사 → 백업 준비 → pull · up → 상태 확인 → 이미지 정리)
+# - 롤백: Deployments > Environments > prod/app에서 이전 배포를 Re-deploy 합니다(그 커밋의 이미지로 다시 띄움).
+# - 비밀값은 CI/CD Variables(prod/* · All)에서 받습니다. Protected라 master 파이프라인에서만 읽힙니다.
+# - Docker Hub 로그인은 잡마다 임시 폴더에서 하고 끝나면 지웁니다. 계정 · 저장소 이름은 비밀이 아니라 여기에 적습니다.
+.prod:
+  interruptible: false
+  variables:
+    IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+    DOCKERHUB_USER: "hanggeut"
+    DOCKERHUB_REPO: "hanggeut/a301"
+
+# 운영 이미지 빌드: 개발 서버 빌드와 같은 미니PC에서 빌드하고, 올린 뒤 미니PC에서는 지웁니다(디스크).
+# 개발 서버 배포 잡과 같은 resource_group이라 미니PC에서 빌드가 겹치지 않습니다.
+# push 토큰 범위가 prod/*라 환경 이름(prod/build)을 붙여야 읽힙니다. 배포 기록에는 남기지 않습니다(action: prepare).
+prod-build:
+  extends: .prod
+  stage: build
+  tags:
+    - "a301-mock-deploy"
+  resource_group: dev-deploy
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $RELEASE_BRANCH'
+  environment:
+    name: prod/build
+    action: prepare
+  script:
+    - 'test -n "$DOCKERHUB_PUSH_TOKEN" || { echo "FAIL: DOCKERHUB_PUSH_TOKEN이 필요합니다(범위 prod/*)."; exit 1; }'
+    - |
+      export DOCKER_CONFIG="$(mktemp -d)"
+      trap 'docker logout >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
+      printf '%s' "$DOCKERHUB_PUSH_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin >/dev/null
+      for SVC in be fe ai admin; do
+        case "$SVC" in
+          be) CONTEXT="backend" ;;
+          fe) CONTEXT="frontend" ;;
+          ai) CONTEXT="ai" ;;
+          admin) CONTEXT="admin" ;;
+        esac
+        IMAGE="${DOCKERHUB_REPO}:${SVC}-${IMAGE_TAG}"
+        echo "== ${IMAGE} (${CONTEXT}/)"
+        docker build --pull -t "$IMAGE" "$CONTEXT"
+        docker push "$IMAGE"
+        docker rmi "$IMAGE" >/dev/null
+      done
+      echo "OK: 운영 이미지 ${IMAGE_TAG} 4개를 올렸습니다. prod-deploy ▶ 버튼으로 배포합니다."
+
+# 운영 배포: Lightsail protected 러너에서 deploy/prod/deploy.sh를 실행합니다.
+# 누르지 않아도 파이프라인은 통과합니다. 한 번에 하나만 돕니다(resource_group prod-deploy).
+prod-deploy:
+  extends: .prod
+  stage: deploy
+  tags:
+    - "a301-prod"
+  resource_group: prod-deploy
+  needs:
+    - job: prod-build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $RELEASE_BRANCH'
+      when: manual
+      allow_failure: true
+  environment:
+    name: prod/app
+    url: https://hangguet.co.kr
+    deployment_tier: production
+  script:
+    - bash deploy/prod/deploy.sh
+
+## FE ##
+
+# Node 공통 설정
+.fe:
+  extends: .fe-rules
+  image: node:24-alpine
+  variables:
+    NEXT_TELEMETRY_DISABLED: "1"
+    npm_config_cache: "$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - .npm/
+  before_script:
+    - cd frontend
+    - npm ci --prefer-offline --no-audit --no-fund
+
+# 포맷·린트·타입 검사·빌드
+fe-build:
+  extends: .fe
+  stage: build
+  script:
+    - npm run format:check
+    - npm run lint
+    - npm run typecheck
+    - npm run build
+
+# 단위 테스트 + lcov 커버리지
+fe-test:
+  extends: .fe
+  stage: test
+  needs:
+    - job: fe-build
+  script:
+    - npm run test:coverage -- --reporter=default --reporter=junit --outputFile.junit=junit.xml
+  artifacts:
+    when: always
+    paths:
+      - frontend/coverage/lcov.info
+    reports:
+      junit: frontend/junit.xml
+    expire_in: 1 day
+
+# Swagger 예시 타입 검사
+# - 예시 파일(swagger-examples.ts)을 다시 만들어 커밋된 파일과 비교합니다.
+#   mock만 바꾼 MR은 다른 FE 잡이 돌지 않아, 예시 파일을 다시 만들지 않아도 알 수 없던 문제를 드러냅니다.
+# - FE API 타입·생성기를 바꾼 MR은 예시 파일을 갱신하는 단계이므로, 다르면 실패합니다.
+# - mock만 바꾼 MR(계약 MR)은 예시 파일 갱신이 병합 뒤 단계(CONTRIBUTING 3.1)라서, 다르면 경고(주황)로만 표시합니다.
+# - mock을 바꾼 MR은 mock-test가 저장한 이 MR의 Swagger로, 그 외에는 배포된 목 서버 Swagger로 만듭니다.
+# - node 이미지에 git이 없어 커밋된 파일을 복사해 두고 diff로 비교합니다.
+fe-swagger-types:
+  extends: .fe
+  stage: test
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - frontend/src/types/api/**/*
+        - frontend/scripts/swagger-type-examples.mjs
+        - .gitlab-ci.yml
+    - changes:
+        - mock/**/*
+      allow_failure: true
+  needs:
+    - job: mock-test
+      artifacts: true
+      optional: true
+  script:
+    - cp src/types/api/__tests__/swagger-examples.ts /tmp/committed-examples.ts
+    - |
+      if [ -f ../mock/build/api-docs.json ]; then
+        npm run types:examples -- ../mock/build/api-docs.json
+      else
+        npm run types:examples
+      fi
+    - npx prettier --write src/types/api/__tests__/swagger-examples.ts
+    - |
+      diff -u /tmp/committed-examples.ts src/types/api/__tests__/swagger-examples.ts || {
+        echo "Swagger 예시가 바뀌었습니다. frontend에서 npm run types:examples로 다시 만들어 커밋해 주세요."
+        exit 1
+      }
+    - npm run typecheck
+
+# 소나큐브 분석
+# 소스와 테스트가 같은 src 아래에 있어, 테스트 파일은 소스에서 빼고 테스트로만 잡습니다.
+fe-sonar:
+  extends:
+    - .sonar-scanner
+    - .fe-sonar-rules
+  needs:
+    - job: fe-test
+      artifacts: true
+  script:
+    - cd frontend
+    - |
+      test -f coverage/lcov.info || {
+        echo "lcov 리포트가 없습니다. fe-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - sonar-scanner
+      -Dsonar.projectKey=A301-fe
+      -Dsonar.projectName=A301-fe
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.sources=src
+      -Dsonar.tests=src
+      -Dsonar.exclusions="src/**/*.test.ts,src/**/*.test.tsx,**/*.d.ts"
+      -Dsonar.test.inclusions="src/**/*.test.ts,src/**/*.test.tsx"
+      -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## AI ##
+
+# 파이썬은 컴파일이 없어 build 잡 없이 test 잡에서 검사와 테스트를 함께 돌립니다.
+# uv 버전은 로컬에서 uv.lock을 만든 버전과 맞춥니다.
+# 녹화 합치기 코드 · 시험이나 AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 ffmpeg 시험(tests/recording)을 돌립니다.
+# 다른 AI MR은 설치 시간을 쓰지 않고, 그 시험은 건너뜁니다(skipif). Release MR은 모든 파일이 바뀌어 항상 설치합니다.
+# 운영 이미지(ai/Dockerfile)와 같은 Debian apt의 ffmpeg라 시험한 버전과 운영 버전이 같습니다.
+ai-test:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - ai/app/recording/**/*
+        - ai/tests/recording/**/*
+        - ai/Dockerfile
+        - .gitlab-ci.yml
+      variables:
+        INSTALL_FFMPEG: "1"
+    - changes:
+        - ai/**/*
+  stage: test
+  image: python:3.13-slim
+  needs: []
+  variables:
+    UV_VERSION: "0.12.5"
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+    UV_PYTHON_DOWNLOADS: "never"
+    UV_LINK_MODE: "copy"
+  cache:
+    key:
+      files:
+        - ai/uv.lock
+    paths:
+      - .uv-cache/
+  before_script:
+    - '[ "$INSTALL_FFMPEG" != "1" ] || { apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null; }'
+    - pip install --no-cache-dir "uv==${UV_VERSION}"
+    - cd ai
+    - uv sync --locked
+  script:
+    - uv run ruff format --check .
+    - uv run ruff check .
+    - uv run mypy
+    - uv run pytest --cov --cov-report=xml --junitxml=junit.xml
+  artifacts:
+    when: always
+    paths:
+      - ai/coverage.xml
+    reports:
+      junit: ai/junit.xml
+    expire_in: 1 day
+
+# 소나큐브 분석
+ai-sonar:
+  extends:
+    - .sonar-scanner
+    - .ai-sonar-rules
+  needs:
+    - job: ai-test
+      artifacts: true
+  script:
+    - cd ai
+    - |
+      test -f coverage.xml || {
+        echo "coverage.xml이 없습니다. ai-test 아티팩트를 확인하세요."
+        exit 1
+      }
+    - sonar-scanner
+      -Dsonar.projectKey=A301-ai
+      -Dsonar.projectName=A301-ai
+      -Dsonar.scanner.skipJreProvisioning=true
+      -Dsonar.sources=app
+      -Dsonar.tests=tests
+      -Dsonar.python.version=3.13
+      -Dsonar.python.coverage.reportPaths=coverage.xml
+      -Dsonar.sourceEncoding=UTF-8
+      -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
+      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
+      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+
+## 회사 카드 파이프라인 ##
+
+# company-pipeline/(회사 카드 파이프라인)이나 이 파일이 바뀐 MR에서만 돕니다.
+.pipeline-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - company-pipeline/**/*
+        - .gitlab-ci.yml
+
+# ai-test와 같은 방식: 검사(ruff·mypy)와 테스트(pytest)를 한 잡에서 돌립니다.
+# 소나큐브 프로젝트가 없어 커버리지는 만들지 않습니다.
+pipeline-test:
+  extends: .pipeline-rules
+  stage: test
+  image: python:3.13-slim
+  needs: []
+  variables:
+    UV_VERSION: "0.12.5"
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+    UV_PYTHON_DOWNLOADS: "never"
+    UV_LINK_MODE: "copy"
+  cache:
+    key:
+      files:
+        - company-pipeline/uv.lock
+    paths:
+      - .uv-cache/
+  before_script:
+    - pip install --no-cache-dir "uv==${UV_VERSION}"
+    - cd company-pipeline
+    - uv sync --locked
+  script:
+    - uv run ruff format --check .
+    - uv run ruff check .
+    - uv run mypy
+    - uv run pytest --junitxml=junit.xml
+  artifacts:
+    when: always
+    reports:
+      junit: company-pipeline/junit.xml
+    expire_in: 1 day
+
+# 교보재 EC2 배포 (company-pipeline/airflow/docker-compose.yaml)
+# - develop에 company-pipeline/ 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
+#   EC2 Docker로 직접 띄운다. 공식 이미지(Airflow·Postgres·MinIO)에 코드 폴더를 연결하므로 이미지는 빌드하지 않는다.
+# - 코드만 /opt/a301-pipeline으로 덮어쓴다. API 키(.env)와 수집 데이터(pipeline/data)·로그는 서버에만 있고 지우지 않는다.
+#   .env는 처음 한 번 서버에 직접 둔다(박다빈/deploy_plan 3.3).
+# - Airflow·MinIO 포트는 127.0.0.1에만 열려 있다. 화면은 SSH 터널로 본다.
+# - 배포 후 Airflow 헬스체크(scheduler)가 healthy가 아니면 잡을 실패시킨다.
+# - 롤백: Deployments > Environments > pipeline에서 이전 배포를 Re-deploy 합니다(그 커밋 코드로 다시 복사·실행).
+pipeline-deploy:
+  stage: deploy
+  tags:
+    - "a301-pipeline-deploy"
+  interruptible: false
+  resource_group: pipeline-deploy
+  # pipeline-test는 MR에서만 돌아 기다릴 잡이 없습니다. 헬스체크가 기동 실패를 막습니다.
+  needs: []
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - company-pipeline/**/*
+  environment:
+    name: pipeline
+  variables:
+    DEPLOY_DIR: "/opt/a301-pipeline"
+    PIPELINE_HEALTH_TRIES: "60"                                 # 5초 간격으로 확인할 횟수
+  script:
+    # ": "가 있는 한 줄 명령은 YAML이 키-값으로 읽지 않도록 작은따옴표로 감쌉니다.
+    - 'test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }'
+    # 코드만 덮어씁니다. 제외한 경로는 --delete 대상에서도 빠집니다.
+    - rsync -a --delete --exclude .env --exclude pipeline/data/ --exclude airflow/logs/ --exclude __pycache__/
+      company-pipeline/pipeline company-pipeline/airflow "$DEPLOY_DIR/"
+    - mkdir -p "$DEPLOY_DIR/pipeline/data" "$DEPLOY_DIR/airflow/logs"
+    # 컨테이너 안 Airflow는 uid 50000으로 로그·카드를 씁니다. 러너 계정으로는 소유자를 못 바꿔 컨테이너로 바꿉니다.
+    - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs
+    - cd "$DEPLOY_DIR/airflow"
+    - docker compose up -d --remove-orphans
+    # viewer는 계속 떠 있는 프로세스라 켜질 때 읽은 코드를 그대로 쓴다. compose 설정이 같으면 up이 다시 띄우지 않으므로
+    # 새 코드를 읽도록 다시 시작한다(Airflow 작업은 실행마다 코드를 새로 읽어 필요 없다)
+    - docker compose restart viewer
+    - |
+      HEALTHY=0
+      for i in $(seq 1 "$PIPELINE_HEALTH_TRIES"); do
+        # DB만 떠도 "healthy"가 보이므로 작업을 실제로 돌리는 scheduler가 healthy인지 본다
+        if curl -fsS http://127.0.0.1:8080/api/v2/monitor/health 2>/dev/null | grep -Eq '"scheduler": ?\{ ?"status": ?"healthy"'; then
+          HEALTHY=1; break
+        fi
+        sleep 5
+      done
+      if [ "$HEALTHY" -ne 1 ]; then
+        echo "FAIL: Airflow 헬스체크가 $((PIPELINE_HEALTH_TRIES * 5))초 안에 healthy가 되지 않았습니다."
+        docker compose logs --tail 100
+        exit 1
+      fi
+    - 'echo "OK: 회사 카드 파이프라인 ${CI_COMMIT_SHORT_SHA} 배포 완료"'

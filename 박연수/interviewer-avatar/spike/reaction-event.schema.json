@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://proto.local/schema/reaction-event.schema.json",
+  "title": "ReactionEvent",
+  "definitions": {
+    "unit": { "type": "number", "minimum": 0, "maximum": 1 },
+    "durationMs": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "표정: 유지 시간(상승·하강 제외). 갸웃: 전체 길이(표현 모듈이 400~1200ms 로 제한)"
+    },
+    "base": {
+      "type": "object",
+      "required": ["eventId", "sessionId", "turnId", "sequence", "ttlMs", "source", "type"],
+      "properties": {
+        "eventId": { "type": "string", "minLength": 1 },
+        "sessionId": { "type": "string", "minLength": 1 },
+        "turnId": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 },
+        "ttlMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "받은 시각 + ttlMs 가 지나면 무시. 발화 연계 반응은 실행 시점(발화 시작 + offsetMs)에도 같은 기준으로 다시 확인"
+        },
+        "source": { "enum": ["local", "server"] },
+        "intensity": {
+          "$ref": "#/definitions/unit",
+          "description": "표현 강도. 최종값 = 기본값 × 페르소나 배율 × intensity. attitude 에도 적용(태도 표정 세기)"
+        },
+        "utteranceId": { "type": "string", "minLength": 1 },
+        "offsetMs": { "type": "integer", "minimum": 0 }
+      },
+      "dependencies": { "offsetMs": ["utteranceId"] }
+    },
+    "state": {
+      "type": "object",
+      "required": ["type", "state"],
+      "properties": {
+        "type": { "const": "state" },
+        "state": { "enum": ["idle", "listening", "thinking", "speaking"] }
+      }
+    },
+    "attitude": {
+      "type": "object",
+      "required": ["type", "interest", "trust", "tension"],
+      "properties": {
+        "type": { "const": "attitude" },
+        "interest": { "$ref": "#/definitions/unit" },
+        "trust": { "$ref": "#/definitions/unit" },
+        "tension": { "$ref": "#/definitions/unit" }
+      }
+    },
+    "expression": {
+      "type": "object",
+      "required": ["type", "expression"],
+      "properties": {
+        "type": { "const": "expression" },
+        "expression": { "enum": ["smile", "frown", "smirk"] },
+        "durationMs": { "$ref": "#/definitions/durationMs" }
+      }
+    },
+    "gesture": {
+      "type": "object",
+      "required": ["type", "gesture"],
+      "properties": {
+        "type": { "const": "gesture" },
+        "gesture": { "enum": ["small_nod", "nod", "tilt"] },
+        "durationMs": { "$ref": "#/definitions/durationMs" }
+      }
+    }
+  },
+  "allOf": [
+    { "$ref": "#/definitions/base" },
+    {
+      "oneOf": [
+        { "$ref": "#/definitions/state" },
+        { "$ref": "#/definitions/attitude" },
+        { "$ref": "#/definitions/expression" },
+        { "$ref": "#/definitions/gesture" }
+      ]
+    }
+  ]
+}

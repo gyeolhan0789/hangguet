@@ -1,0 +1,93 @@
+{
+  "general": [
+    { "key": "domain", "value": "Software development, computer science" },
+    { "key": "setting", "value": "Mock developer job interview" },
+    { "key": "speakers", "value": "1 speaker, a job candidate answering interview questions" },
+    { "key": "topic", "value": "Candidate's past projects and technical decisions, CS fundamentals, backend, frontend, infrastructure" }
+  ],
+  "terms": [
+    "Java", "Kotlin", "Python", "JDK", "JVM", "JIT", "GC", "Garbage Collection", "OOM", "Stop-the-world",
+    "Memory Leak", "메모리 누수", "Heap Dump",
+    "Interface", "추상 클래스", "Overloading", "Overriding", "Generic", "Lambda", "Stream", "Optional", "Annotation", "Reflection",
+    "static", "final", "equals", "hashCode", "Immutable", "불변 객체", "Wrapper Class", "Autoboxing",
+    "Call by Value", "Call by Reference", "원시 타입", "참조 타입",
+    "Exception", "RuntimeException", "NullPointerException", "NPE", "Checked Exception", "Unchecked Exception", "예외 처리",
+    "String Pool", "StringBuilder", "HashMap", "ConcurrentHashMap", "ArrayList", "LinkedList", "Collection",
+    "synchronized", "volatile", "Atomic", "ThreadLocal", "Thread Pool", "CompletableFuture", "Virtual Thread",
+    "직렬화", "역직렬화",
+
+    "Spring", "Spring Boot", "Spring MVC", "Spring Security", "Spring Data JPA", "Spring Batch", "Spring Cloud", "WebFlux",
+    "Bean", "Component Scan", "DI", "의존성 주입", "IoC", "제어의 역전", "AOP", "관점 지향 프로그래밍", "Dynamic Proxy",
+    "DispatcherServlet", "Servlet", "Filter", "Interceptor", "@ControllerAdvice", "@RestController", "@Autowired",
+    "Controller", "Service", "Repository", "Entity", "DTO", "DAO", "Lombok", "Validation",
+    "@Transactional", "Propagation", "트랜잭션 전파",
+    "JPA", "Hibernate", "QueryDSL", "MyBatis", "ORM",
+    "영속성 컨텍스트", "Dirty Checking", "변경 감지", "N+1", "Fetch Join",
+    "Lazy Loading", "지연 로딩", "Eager Loading", "즉시 로딩",
+    "Gradle", "Maven", "Swagger", "Postman", "JUnit", "Mockito", "Mock",
+
+    "JavaScript", "TypeScript", "Node.js", "Event Loop", "Promise", "async/await", "Closure", "Prototype", "Hoisting",
+    "React", "Next.js", "Vue.js", "DOM", "Virtual DOM", "Reflow", "Repaint", "Component", "Props", "useState", "useEffect", "useMemo", "useCallback",
+    "Context API", "Redux", "Zustand", "React Query", "Tailwind CSS", "Webpack", "Vite", "Code Splitting",
+    "CSR", "SSR", "SSG", "SPA", "Hydration", "SEO", "Debounce", "Throttle", "Memoization",
+
+    "REST API", "RESTful", "GraphQL", "gRPC", "WebSocket", "SSE", "Polling", "Long Polling", "JSON",
+    "HTTP", "HTTPS", "HTTP/2", "HTTP Method", "Header", "Body", "Payload", "상태 코드", "멱등성",
+    "TCP", "UDP", "IP", "Port", "Socket", "TLS", "SSL", "DNS", "URL", "URI", "OSI 7계층", "3-way handshake", "4-way handshake",
+    "CORS", "Preflight", "Same-Origin Policy",
+    "흐름 제어", "혼잡 제어", "대칭키", "공개키", "암호화", "Hashing", "인증서",
+    "Proxy", "Reverse Proxy", "CDN", "Load Balancer", "부하 분산",
+    "Cookie", "Session", "Stateless", "무상태", "Sticky Session",
+    "인증", "인가", "JWT", "OAuth", "OAuth 2.0", "Access Token", "Refresh Token", "SSO", "CSRF", "XSS", "SQL Injection",
+
+    "MySQL", "PostgreSQL", "Oracle", "MongoDB", "Redis", "Elasticsearch", "RDBMS", "NoSQL", "SQL", "Query",
+    "기본키", "PK", "외래키", "FK", "후보키", "Index", "Clustered Index", "Covering Index", "B+Tree", "Full Scan",
+    "Join", "실행 계획", "Slow Query", "Pagination",
+    "Transaction", "ACID", "원자성", "일관성", "격리성", "지속성", "Isolation Level", "격리 수준",
+    "Read Committed", "Repeatable Read", "Dirty Read", "Non-Repeatable Read", "Phantom Read", "MVCC",
+    "Lock", "Deadlock", "교착 상태", "낙관적 락", "비관적 락", "분산 락",
+    "정규화", "반정규화", "이상 현상", "Replication", "Read Replica", "Sharding", "Partitioning", "Connection Pool", "HikariCP",
+
+    "Cache", "Cache Hit", "Cache Miss", "TTL", "Look Aside", "Write Through", "Write Back",
+    "Kafka", "RabbitMQ", "Message Queue", "Producer", "Consumer", "Topic", "Partition", "Offset", "Pub/Sub",
+    "Event-Driven", "이벤트 기반", "MSA", "Monolithic", "API Gateway", "Circuit Breaker", "Rate Limiting", "Retry", "Timeout",
+    "분산 트랜잭션", "Saga Pattern", "CQRS", "Eventual Consistency", "CAP 이론",
+    "고가용성", "Failover", "SPOF", "Scale-up", "Scale-out", "수평 확장", "수직 확장", "Auto Scaling",
+    "Throughput", "처리량", "Latency", "응답 시간", "TPS", "병목", "부하 테스트", "동시성", "병렬성",
+
+    "Docker", "Docker Compose", "Container", "Image", "Kubernetes", "K8s", "Pod", "Linux", "SSH", "Nginx", "Tomcat", "Web Server", "WAS",
+    "AWS", "EC2", "S3", "RDS", "AWS Lambda", "CloudFront", "VPC", "IAM",
+    "CI/CD", "Jenkins", "GitHub Actions", "배포", "무중단 배포", "Blue-Green", "Rolling Update", "Rollback", "Health Check",
+    "운영 환경", "개발 환경", "환경 변수", "장애", "장애 대응", "Hotfix",
+    "Prometheus", "Grafana", "ELK", "Sentry", "APM", "Logging", "Monitoring",
+
+    "Process", "Thread", "Multi-thread", "Context Switching", "문맥 교환", "CPU Scheduling", "Round Robin",
+    "Interrupt", "System Call", "Kernel", "PCB", "IPC", "Fork",
+    "Race Condition", "경쟁 상태", "임계 영역", "Mutex", "Semaphore", "Spin Lock", "Starvation", "기아 상태",
+    "가상 메모리", "Paging", "Segmentation", "Page Fault", "페이지 교체", "LRU", "Thrashing", "단편화", "지역성",
+    "Blocking", "Non-Blocking", "동기", "비동기",
+
+    "OOP", "객체 지향", "SOLID", "SRP", "OCP", "LSP", "ISP", "DIP", "캡슐화", "상속", "다형성", "추상화",
+    "단일 책임 원칙", "개방 폐쇄 원칙", "리스코프 치환 원칙", "인터페이스 분리 원칙", "의존 역전 원칙",
+    "결합도", "응집도", "의존성", "Composition", "조합",
+    "Design Pattern", "Singleton", "Factory Pattern", "Strategy Pattern", "전략 패턴", "Template Method", "Observer Pattern",
+    "Proxy Pattern", "Builder Pattern", "MVC",
+    "Layered Architecture", "계층형 아키텍처", "Clean Architecture", "Hexagonal Architecture", "DDD",
+    "TDD", "Unit Test", "단위 테스트", "Integration Test", "통합 테스트", "E2E Test", "Test Coverage",
+    "Refactoring", "Clean Code", "Legacy", "기술 부채",
+
+    "자료구조", "Array", "Stack", "Queue", "Heap", "Priority Queue", "우선순위 큐", "Hash Table", "해시 충돌",
+    "Tree", "이진 트리", "이진 탐색 트리", "Graph",
+    "이진 탐색", "Quick Sort", "Merge Sort", "Heap Sort", "BFS", "DFS", "너비 우선 탐색", "깊이 우선 탐색",
+    "DP", "동적 계획법", "Greedy", "완전 탐색", "Backtracking", "재귀", "Two Pointer", "Sliding Window",
+    "Union-Find", "Dijkstra", "최단 경로", "위상 정렬",
+    "시간 복잡도", "공간 복잡도", "Big-O",
+
+    "Git", "GitHub", "GitLab", "Git Flow", "Branch", "Commit", "Merge", "Rebase", "Conflict",
+    "Pull Request", "PR", "Merge Request", "MR", "Code Review", "Code Convention", "ESLint", "Prettier",
+    "Jira", "Agile", "Scrum", "Sprint", "회고", "MVP", "PoC", "ERD", "요구사항 명세서", "API 명세서", "Figma",
+
+    "LLM", "GPT", "RAG", "Embedding", "Vector DB", "Prompt", "Prompt Engineering", "Fine-tuning", "Hallucination", "Token",
+    "Context Window", "Agent", "MCP", "Function Calling", "LangChain", "OpenAI API", "STT", "TTS"
+  ]
+}

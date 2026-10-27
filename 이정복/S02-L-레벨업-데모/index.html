@@ -1,0 +1,217 @@
+<!doctype html>
+<!--
+  한끗 · S02-L 스트릭 레벨업 축하 데모
+  흐름: 이전 구간 뱃지가 가운데 있음 → 왼쪽으로 슬쩍 이동하며 작아지고 흐려짐 → 새 구간 뱃지가 오른쪽에서 따라와 가운데 자리
+        → 반짝! (뱃지 위로 사선 빛줄기가 지나감 + 살짝 커졌다 돌아옴 + 후광 확 퍼짐) → 종이폭죽 펑
+        → LEVEL UP 칩 · 제목 · 설명 · 다음 단계 카드 · 계속하기 버튼이 차례로 뿅 (다음 단계 진행 바는 0에서 차오름)
+  뒤 화면: pen.dev S02-L 목업과 같은 값 (배경 #0B0D14, 뱃지 148px, 이전 뱃지 72px · 투명도 45%)
+  구간: 1일 불씨(회색 → 빨강) / 3일 활활 불꽃 / 6일 황금 불꽃 / 8일 푸른 불꽃 / 14일 전설의 불꽃(글래스) — 스트릭 뱃지 확정 색과 동일
+  애니메이션: Motion (motion@12.4.7, 실서비스는 motion/react의 animate · useAnimate에 같은 값 사용)
+  종이폭죽: Motion 파티클 70개 (네모 · 동그라미 · 별, 구간 색 3가지) — Lottie(Flex Confetti) 대신 Motion으로 교체, 외부 애니 파일 없음
+-->
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>한끗 레벨업 축하 데모</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/static/pretendard.min.css">
+<style>
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:#0B0D14;color:#fff;overflow:hidden;font-family:Pretendard,system-ui,"Malgun Gothic",sans-serif}
+#stage{position:absolute;left:50%;top:50%;width:1440px;height:900px;transform-origin:center}
+#glow{position:absolute;left:420px;top:-41px;width:600px;height:600px;border-radius:50%;opacity:0}
+#embers{position:absolute;inset:0}
+.ember{position:absolute;border-radius:50%;opacity:0}
+#confetti{position:absolute;left:720px;top:259px;width:0;height:0;pointer-events:none;z-index:4}
+.piece{position:absolute;left:0;top:0;border-radius:2px}.piece.circle{border-radius:50%}
+.piece.star{clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)}
+.slot{position:absolute;left:720px;top:259px;width:0;height:0;z-index:2}
+.badge{position:absolute;left:-74px;top:-74px;width:148px;height:148px;border-radius:999px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.badge svg{width:72px;height:72px;position:relative;z-index:1}
+.badge.glass{backdrop-filter:blur(7px)}
+.badge .hl{position:absolute;left:22px;top:11px;width:74px;height:37px;border-radius:50%;transform:rotate(20deg);background:linear-gradient(180deg,#FFFFFFCC,#FFFFFF00)}
+.shine{position:absolute;left:62px;top:-36px;width:24px;height:220px;background:#FFFFFF8C;transform:rotate(30deg);z-index:2}
+.shine-wrap{position:absolute;inset:0;transform:translateX(-160px)}
+#chev{position:absolute;left:-130px;top:-14px;width:28px;height:28px;opacity:0}
+#content{position:absolute;left:0;right:0;top:353px;display:flex;flex-direction:column;align-items:center;gap:20px;z-index:3}
+#content>*{opacity:0}
+.chip{display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:1px;line-height:20px}
+.chip svg{width:14px;height:14px}
+.title{font-size:60px;font-weight:800;letter-spacing:-2px;line-height:78px;white-space:nowrap}
+.sub{font-size:19px;font-weight:500;letter-spacing:-.2px;line-height:29px;color:#FFFFFFB3;white-space:nowrap}
+.next{width:440px;padding:20px;border-radius:20px;background:#FFFFFF14;outline:1px solid #FFFFFF26;outline-offset:-.5px;display:flex;flex-direction:column;gap:12px}
+.next .head{display:flex;justify-content:space-between;align-items:center}
+.next .l{font-size:15px;font-weight:700;letter-spacing:-.2px;line-height:23px}
+.next .r{font-size:14px;font-weight:700;letter-spacing:-.2px;line-height:21px}
+.track{height:8px;border-radius:999px;background:#FFFFFF26;position:relative;overflow:hidden}
+.fill{position:absolute;left:0;top:0;height:8px;border-radius:999px;width:0}
+.cta{width:280px;height:60px;border:0;border-radius:16px;background:#fff;color:#191F28;font:700 18px Pretendard,system-ui,sans-serif;letter-spacing:-.2px;cursor:pointer}
+.panel{position:fixed;z-index:10;left:50%;transform:translateX(-50%);bottom:16px;background:rgba(25,31,40,.92);border:1px solid #FFFFFF1F;color:#fff;border-radius:16px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;max-width:calc(100% - 32px)}
+.panel label{font-size:13px;font-weight:600;display:flex;flex-wrap:wrap;gap:8px;align-items:center;white-space:nowrap}
+.tiers{display:flex;gap:6px;flex-wrap:wrap}
+.tiers button{border:2px solid transparent;border-radius:999px;padding:5px 10px;font:700 12px Pretendard,system-ui,sans-serif;cursor:pointer;color:#fff}
+.tiers button.on{border-color:#fff}
+.go{border:0;border-radius:10px;background:#FF7A26;color:#fff;font:700 14px Pretendard,system-ui,sans-serif;padding:10px 16px;cursor:pointer}
+.state{font:600 12px Pretendard,system-ui,sans-serif;color:#B0B8C1;min-width:150px}
+</style>
+<div id="stage">
+  <div id="glow"></div>
+  <div id="embers"></div>
+  <div class="slot" id="slot">
+    <div class="badge" id="oldBadge"></div>
+    <svg id="chev" viewBox="0 0 14 14"><path fill="#FFFFFF66" d="M3.35986 3.51367q-0.12646 0.02734-0.23925 0.1333-0.10938 0.10596-0.16748 0.23242-0.06836 0.2085 0 0.417 0.02734 0.07178 0.22216 0.27685 0.19824 0.20166 1.1211 1.12451l1.28857 1.30225-1.28857 1.30225q-0.92285 0.92285-1.1211 1.12793-0.19482 0.20166-0.22216 0.27343-0.06836 0.2085 0.01367 0.42725 0.08545 0.21533 0.28027 0.31445 0.09912 0.04102 0.25293 0.04102l0.04102 0q0.11279 0.01367 0.19824-0.04102 0.10938-0.07178 0.40332-0.36572 0.21191-0.19482 0.98096-0.96729l1.48339-1.49707q0.2666-0.28027 0.33838-0.38964 0.05469-0.07178 0.04102-0.18457l0-0.08204q0.01367-0.11279-0.04102-0.18457-0.07178-0.10938-0.33838-0.38964l-1.21679-1.23389q-1.5415-1.53809-1.62696-1.5791-0.08203-0.04443-0.19482-0.05811-0.10938-0.01367-0.2085 0z m4.08789 0q-0.19482 0.05469-0.32812 0.23242-0.1333 0.17432-0.11963 0.36914l0 0.02735q0.01367 0.11279 0.05469 0.18457 0.07178 0.10938 0.33838 0.37598l2.27978 2.29687-1.28857 1.28857q-0.85107 0.85449-1.06983 1.08692-0.21533 0.229-0.25976 0.29736-0.10938 0.23926-0.01367 0.46485 0.09912 0.22217 0.32128 0.32128 0.22559 0.0957 0.46485-0.01367 0.06836-0.04443 0.33496-0.29394 0.2666-0.25293 1.30225-1.28858 1.52441-1.52783 1.56543-1.60986 0.04443-0.08545 0.04443-0.25293 0-0.16748-0.04443-0.24951-0.04101-0.08545-1.56543-1.61328-1.0083-1.02197-1.28858-1.28516-0.28027-0.2666-0.35205-0.29394-0.06836-0.03076-0.18115-0.04444-0.10938-0.01367-0.19483 0z"/></svg>
+    <div class="badge" id="newBadge"></div>
+  </div>
+  <div id="confetti"></div>
+  <div id="content">
+    <div class="chip" id="chip"><svg viewBox="0 0 14 14"><path id="trophy" d="M3.94775 0.58789q-0.39307 0.04102-0.70068 0.34863-0.14014 0.15381-0.2085 0.28028-0.11279 0.25293-0.11279 0.44775l0 0.08545-0.19482 0q-0.95361 0-1.54151 0.60156-0.39307 0.37939-0.5332 0.89209-0.13672 0.50928-0.01367 1.02881 0.12646 0.51611 0.49219 0.90918 0.23584 0.24951 0.54345 0.41016 0.31104 0.16064 0.63233 0.21875 0.11279 0.01367 0.37597 0.01367l0.2666 0 0.01368 0.12646q0.09912 0.56055 0.37939 1.10401 0.29395 0.61865 0.82715 1.12109 0.46143 0.44775 0.96387 0.71436l0.11279 0.05468 0 0.33838q0 0.23584-0.01367 0.30762-0.01367 0.06836-0.02735 0.12647-0.07178 0.15381-0.32128 0.32128-0.49219 0.37598-0.85108 0.93653-0.35547 0.56055-0.46826 1.16211l-0.02734 0.11279-0.61524 0q-0.62891 0-0.72119 0.02051-0.09229 0.02051-0.18457 0.07861-0.08887 0.05469-0.15723 0.14014-0.12646 0.16748-0.11279 0.38623 0.01367 0.21533 0.18115 0.36914 0.12646 0.12646 0.29395 0.15381 0.11279 0.02734 4.7749 0.02734 4.66211 0 4.7749-0.02734 0.16748-0.02734 0.29395-0.15381 0.22217-0.22559 0.16748-0.51953-0.05469-0.29395-0.35205-0.43408-0.05469-0.02734-0.16065-0.02735-0.10254 0-0.59472-0.01367l-0.66993 0-0.02734-0.11279q-0.11279-0.60156-0.46484-1.15186-0.34863-0.55371-0.8545-0.9331-0.24951-0.19482-0.32128-0.33496-0.01367-0.05811-0.02735-0.12647-0.01367-0.07178-0.01367-0.29394l0-0.35206 0.19482-0.10937q0.29395-0.15381 0.51612-0.32813 0.22559-0.17773 0.46484-0.43066 0.34863-0.34863 0.57422-0.72803 0.39307-0.64258 0.5332-1.39795l0.01368-0.12646 0.2666 0q0.22217 0 0.34179-0.01367 0.11963-0.01367 0.28711-0.05811 0.42041-0.12305 0.7417-0.39648 0.32129-0.27344 0.51953-0.66651 0.24951-0.50244 0.2085-1.03564-0.04101-0.5332-0.33496-0.98096-0.29394-0.44775-0.79981-0.69726-0.42041-0.22559-1.0083-0.22559l-0.19482 0 0-0.08545q0-0.19482-0.11279-0.43408-0.06836-0.14014-0.22217-0.29395-0.15381-0.15381-0.29395-0.22216l-0.0581-0.02735q-0.0957-0.05811-0.2085-0.07178-0.16748-0.02734-0.67334-0.02734l-2.41992 0q-3.01123 0-3.1377 0z m5.96436 3.05225q0 0.04102 0 0.12646l0 1.34326q-0.01367 0.40674-0.02734 0.57422-0.01367 0.12646-0.07178 0.30762l0 0.02734q-0.22217 0.77246-0.78272 1.31934-0.56055 0.54346-1.31591 0.73828-0.25293 0.07178-0.5879 0.08545-0.33496 0.01367-0.57421-0.02734-0.93994-0.15381-1.59961-0.80323-0.65625-0.65283-0.82373-1.59277-0.02734-0.14014-0.04102-0.43408l-0.01367-3.55469 5.85156 0-0.01367 1.89014z m-6.98633 0.15381l0 0.88183-0.18115 0q-0.25293 0-0.42725-0.06152-0.17432-0.06494-0.31445-0.21875-0.29395-0.29395-0.24609-0.69043 0.04785-0.3999 0.38623-0.63916 0.15381-0.09912 0.29394-0.12647 0.04102-0.01367 0.2666-0.01367l0.22217 0 0 0.86817z m8.76367-0.82715q0.28027 0.12646 0.43408 0.37939 0.15381 0.25293 0.11963 0.54688-0.03418 0.29395-0.24609 0.51611-0.14014 0.14014-0.31445 0.20508-0.17432 0.06152-0.42725 0.06152l-0.18115 0 0-1.76367 0.2666 0.01367q0.24951 0.01367 0.34863 0.04102z m-4.68945 6.35742q0.40674 0 0.48877-0.01367l0.08545-0.01368 0.01367 0.2085q0.04102 0.89551 0.7417 1.41504 0.43408 0.32129 0.67334 0.72803 0.06836 0.11279 0.14355 0.29394 0.07861 0.18115 0.10596 0.2666l0 0.04102-4.50488 0 0.01367-0.04102q0.01367-0.08545 0.08887-0.2666 0.07861-0.18115 0.14697-0.29394 0.23926-0.40674 0.67334-0.72803 0.4751-0.35205 0.64258-0.85449 0.08545-0.25293 0.09912-0.56055l0.01367-0.2085 0.08545 0.01368q0.08203 0.01367 0.48877 0.01367z"/></svg><span id="chipText">LEVEL UP · 6일</span></div>
+    <div class="title" id="title">황금 불꽃 달성!</div>
+    <div class="sub" id="sub">6일 연속 연습 · 불꽃이 금색으로 바뀌었어요</div>
+    <div class="next" id="next">
+      <div class="head"><span class="l" id="nextL">다음 단계 · 푸른 불꽃</span><span class="r" id="nextR">2일 남음</span></div>
+      <div class="track"><div class="fill" id="fill"></div></div>
+    </div>
+    <button class="cta" id="cta">계속하기</button>
+  </div>
+</div>
+<div class="panel">
+  <button class="go" id="go">레벨업 실행 ▶</button>
+  <label>달성 구간 <span class="tiers" id="tiers"></span></label>
+  <span class="state" id="state">대기</span>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/motion@12.4.7/dist/motion.js"></script>
+<script>
+const FLAME="M6.84619 1.18945q-0.23926 0.07178-0.78271 0.61524-0.51953 0.5332-0.78614 1.05273-0.2666 0.51611-0.32129 1.09033-0.01367 0.21191 0.02735 0.5127 0.04102 0.30078 0.1333 0.56055 0.09229 0.25635 0.33496 0.77588 0.24609 0.51611 0.30078 0.70068 0.05811 0.18115 0.07178 0.46142 0 0.18115-0.00684 0.23926-0.00684 0.05469-0.03418 0.10938-0.12646 0.29395-0.37939 0.44092-0.25293 0.14697-0.54688 0.11962-0.29395-0.02734-0.50244-0.23925-0.12646-0.12646-0.18457-0.24952-0.05469-0.12646-0.08203-0.34179-0.02734-0.21875-0.09912-0.34522-0.06836-0.12646-0.23584-0.21191-0.05811-0.02734-0.09912-0.04102-0.04102-0.01367-0.15381-0.01367-0.11279 0-0.15381 0.01367-0.04102 0.01367-0.09912 0.04102-0.14014 0.07178-0.28027 0.2666-0.42041 0.57422-0.55713 1.30225-0.1709 0.86816 0.06152 1.81494 0.23242 0.94336 0.80322 1.69873 0.57422 0.75537 1.40137 1.23389 0.82715 0.4751 1.79102 0.58789 0.18457 0.02734 0.5332 0.02734 0.34863 0 0.51953-0.02734 1.04932-0.12647 1.92432-0.65625 0.875-0.5332 1.44922-1.40137 0.51611-0.77246 0.69043-1.69531 0.17773-0.92285-0.02051-1.80469-0.10938-0.43408-0.3418-0.88867-0.23242-0.45801-0.54004-0.86133-0.2085-0.2666-0.40674-0.45459-0.19482-0.19141-0.58789-0.54004-0.54346-0.49219-0.91601-0.96045-0.36914-0.46826-0.66309-1.05615-0.33838-0.67334-0.50586-1.34326-0.06836-0.2666-0.18115-0.3794-0.15381-0.15381-0.39307-0.16748-0.14014 0-0.18115 0.01367z m-0.05469 1.79102q0.14014 0.37939 0.33496 0.74512 0.34863 0.65625 0.76905 1.18261 0.42041 0.52295 1.03564 1.06299 0.61523 0.54004 0.95703 1.0083 0.34521 0.46826 0.49903 0.9878 0.21191 0.7417 0.0205 1.56201-0.18799 0.81689-0.72119 1.4458-0.48877 0.60156-1.17578 0.92627-0.88184 0.43408-1.86963 0.32812-0.98438-0.10596-1.78418-0.70752-0.28027-0.22559-0.55371-0.54687-0.27002-0.32129-0.46142-0.72803-0.18799-0.40674-0.27344-0.79639-0.0957-0.54688-0.05469-0.90918l0.01367-0.08545 0.1128 0.09913q0.37939 0.32129 0.86132 0.43408 0.48193 0.10938 0.95704-0.01367 0.68701-0.1709 1.11425-0.72803 0.42725-0.56055 0.42725-1.26123 0-0.50586-0.2085-1.04932-0.05811-0.15381-0.25293-0.58789-0.2666-0.54688-0.33837-0.75537-0.06836-0.21191-0.06836-0.49219 0-0.22217 0.03418-0.34179 0.0376-0.11963 0.11962-0.30079 0.08545-0.18457 0.16065-0.30078 0.07861-0.11963 0.16748-0.23242 0.09229-0.11279 0.10596-0.09912 0.01367 0.01367 0.07177 0.15381z";
+const {animate,stagger}=Motion;
+// 스트릭 뱃지 구간 (확정 색과 동일) · 불 온도 순서: 회색 → 빨강(불씨) → 주황(활활) → 금색 → 파랑 → 오로라
+const T={
+  0:{name:"스트릭 끊김",from:"#C9CFD6",to:"#8B95A1",light:"#C9CFD6"},
+  1:{name:"불씨",from:"#FF7A45",to:"#F0441F",light:"#FF9A6B"},
+  3:{name:"활활 불꽃",from:"#FFA766",to:"#FF7A26",light:"#FFB27A"},
+  6:{name:"황금 불꽃",from:"#FFD66B",to:"#F5A000",light:"#FFD66B"},
+  8:{name:"푸른 불꽃",from:"#7CC4FF",to:"#2F6BFF",light:"#7CC4FF"},
+  14:{name:"전설의 불꽃",from:"#C9B6FF",to:"#8F78FF",light:"#C9B6FF",glass:true}};
+const LEVELS=[
+  {day:1,prev:0,next:3,sub:"1일 연속 연습 · 불씨가 붙었어요"},
+  {day:3,prev:1,next:6,sub:"3일 연속 연습 · 불꽃이 활활 타올라요"},
+  {day:6,prev:3,next:8,sub:"6일 연속 연습 · 불꽃이 금색으로 바뀌었어요"},
+  {day:8,prev:6,next:14,sub:"8일 연속 연습 · 불꽃이 파랗게 바뀌었어요"},
+  {day:14,prev:8,next:null,sub:"14일 연속 연습 · 2주를 완주했어요"}];
+const $=id=>document.getElementById(id);
+const st=s=>$("state").textContent=s;
+let level=LEVELS[2],busy=false,loops=[],runId=0;
+
+LEVELS.forEach(l=>{const b=document.createElement("button");b.textContent=l.day+"일 · "+T[l.day].name;
+  b.style.background=T[l.day].glass?"linear-gradient(-135deg,#C9B6FF,#8FD3FF,#FFB8E8)":T[l.day].to;b.style.color=l.day===6?"#2B1A00":"#fff";
+  b.onclick=()=>{level=l;sync();if(!busy)run()};$("tiers").appendChild(b)});
+function sync(){[...$("tiers").children].forEach((b,i)=>b.classList.toggle("on",LEVELS[i]===level))}
+
+function fit(){$("stage").style.transform="translate(-50%,-50%) scale("+Math.min(innerWidth/1440,innerHeight/900)+")"}
+addEventListener("resize",fit);fit();
+
+// 뱃지 그리기: 일반 = 세로 그라데이션 + 빛 번짐, 14일 = 글래스
+function paintBadge(el,t){
+  el.className="badge"+(t.glass?" glass":"");
+  el.style.background=t.glass
+    ?"radial-gradient(ellipse 45% 35% at 30% 20%,#FFFFFFB3 0%,#FFFFFF00 100%),linear-gradient(-135deg,#C9B6FFE6 14.6%,#8FD3FFD9 50%,#FFB8E8E6 85.4%)"
+    :"linear-gradient(180deg,"+t.from+" 0%,"+t.to+" 100%)";
+  el.style.boxShadow=t.glass?"0 14px 44px #8B7CFF59, inset 0 -7px 18px #7B5CFF40":"0 0 60px "+t.to+"AA";
+  el.innerHTML=(t.glass?'<div class="hl"></div>':"")+
+    '<svg viewBox="0 0 14 14"'+(t.glass?' style="filter:drop-shadow(0 3px 5px #6B4DFF66)"':"")+'><path fill="#FFFFFF" d="'+FLAME+'"/></svg>'+
+    '<div class="shine-wrap"><div class="shine"></div></div>';
+}
+
+// 종이폭죽: Motion 파티클 — 물리 계산(초속도 + 중력 + 공기 저항)으로 궤적을 미리 뽑아 keyframes로 재생
+// 뱃지에서 위·옆으로 펑 → 공기 저항에 금방 느려짐 → 종이처럼 좌우로 살랑이며 천천히 떨어지고 뒤집힘 → 마지막 1/3에서 사라짐
+const rand=(a,b)=>a+Math.random()*(b-a);
+const SHAPES=["rect","rect","rect","circle","star"];
+function burst(t){
+  const box=$("confetti"),pal=t.glass?["#C9B6FF","#8FD3FF","#FFB8E8"]:[t.light,t.to,"#FFFFFF"],runs=[];
+  box.innerHTML="";
+  for(let i=0;i<70;i++){
+    const p=document.createElement("div"),shape=SHAPES[i%SHAPES.length],s=rand(9,16),w=shape==="rect"?s*.55:s;
+    p.className="piece "+shape;Object.assign(p.style,{background:pal[i%pal.length],width:w+"px",height:s+"px",marginLeft:-w/2+"px",marginTop:-s/2+"px"});
+    box.appendChild(p);
+    const a=rand(0,Math.PI*2),v=rand(380,900),G=1100,K=rand(2.8,3.6),D=rand(2.2,3),dt=1/60;
+    const P=1.3; // 터지는 세기 (퍼지는 거리 배율)
+    let vx=Math.cos(a)*v*1.5*P,vy=(Math.sin(a)*v*.75-rand(250,500))*P,x=0,y=0;
+    const sway=rand(16,36),freq=rand(3,6),ph=rand(0,6.3),spin=rand(-540,540),flip=rand(6,12);
+    const xs=[],ys=[],rs=[],sy=[];
+    for(let k=0;k*dt<=D;k++){
+      const tt=k*dt;
+      if(k%3===0){const fall=Math.min(1,Math.max(0,(tt-.3)/.6));
+        xs.push(x+Math.sin(tt*freq+ph)*sway*fall);ys.push(y);rs.push(spin*tt);sy.push(shape==="circle"?1:Math.cos(tt*flip))}
+      vy+=G*dt;vx-=vx*K*dt;vy-=vy*K*dt;x+=vx*dt;y+=vy*dt;
+    }
+    runs.push(animate(p,{x:xs,y:ys,rotate:rs,scaleY:sy,scale:[.4,1,1,1,1,1],opacity:[1,1,1,0]},{duration:D,ease:"linear"}));
+  }
+  Promise.all(runs).then(()=>{if(box.childElementCount===70)box.innerHTML=""});
+}
+
+// 주변 불씨: 각자 다른 박자로 반짝(밝기 · 크기) + 살짝씩 둥실 흔들림
+function twinkle(els){els.forEach(e=>{
+  loops.push(animate(e,{opacity:[1,.3,1],scale:[1,.7,1.6,1]},{duration:rand(1.2,2.6),delay:rand(0,1.2),repeat:Infinity,ease:"easeInOut"}));
+  loops.push(animate(e,{x:[0,rand(-6,6),0],y:[0,rand(-10,-4),0]},{duration:rand(3,6),delay:rand(0,1),repeat:Infinity,ease:"easeInOut"}));
+})}
+
+// 배경 불씨 점 (목업 Gold Embers와 같은 분포)
+const EMBERS=[[970,644,3],[510,677,5],[1103,259,6],[1070,206,5],[1095,108,3],[813,589,7],[594,455,3],[1046,335,6],[1184,753,7],[417,242,5],[972,495,5],[700,457,4],[961,428,6],[905,165,6],[948,459,4],[1183,66,4],[450,250,6],[782,825,4],[439,257,4],[526,113,6],[666,573,4],[1197,50,3],[452,758,7],[1000,847,7]];
+EMBERS.forEach(([x,y,s])=>{const e=document.createElement("div");e.className="ember";Object.assign(e.style,{left:x+"px",top:y+"px",width:s+"px",height:s+"px"});$("embers").appendChild(e)});
+
+function setup(){
+  const t=T[level.day],p=T[level.prev],n=level.next&&T[level.next];
+  paintBadge($("oldBadge"),p);paintBadge($("newBadge"),t);
+  $("glow").style.background="radial-gradient(ellipse 50% 50% at 50% 50%,"+t.to+"59 0%,"+t.to+"00 100%)";
+  document.querySelectorAll(".ember").forEach(e=>{e.style.background=t.light;e.style.boxShadow="0 0 8px 1px "+t.light});
+  $("chip").style.background=t.to+"26";$("chip").style.color=t.light;$("trophy").setAttribute("fill",t.light);
+  $("chipText").textContent="LEVEL UP · "+level.day+"일";
+  $("title").textContent=t.name+" 달성!";
+  $("sub").textContent=level.sub;
+  if(n){$("nextL").textContent="다음 단계 · "+n.name;$("nextR").textContent=(level.next-level.day)+"일 남음";$("nextR").style.color=n.light;
+    $("fill").style.background="linear-gradient(90deg,"+t.light+" 0%,"+n.light+" 100%)"}
+  else{$("nextL").textContent="모든 단계 달성 · 2주 완주";$("nextR").textContent="14 / 14일";$("nextR").style.color=t.light;
+    $("fill").style.background="linear-gradient(90deg,#C9B6FF 0%,#8FD3FF 50%,#FFB8E8 100%)"}
+  // 시작 상태: 이전 뱃지만 가운데
+  loops.forEach(l=>l.stop());loops=[];
+  animate($("oldBadge"),{x:0,scale:1,opacity:1},{duration:0});
+  animate($("newBadge"),{x:260,scale:.5,opacity:0},{duration:0});
+  animate($("chev"),{opacity:0,x:-8},{duration:0});
+  animate("#content > *",{opacity:0,y:24,scale:.7},{duration:0});
+  animate($("glow"),{opacity:0,scale:.7},{duration:0});
+  animate(".ember",{opacity:0,x:0,y:0,scale:1},{duration:0});
+  animate($("fill"),{width:"0%"},{duration:0});
+  $("confetti").innerHTML="";
+}
+
+const wait=s=>new Promise(r=>setTimeout(r,s*1000));
+async function run(){
+  if(busy)return;busy=true;setup();const token=++runId;
+  const t=T[level.day],fillTo=level.next?"7%":"100%";
+  st("① 이전 뱃지");await wait(.7);
+
+  // ② 이전 뱃지는 왼쪽으로 슬쩍 + 작아지며 흐려짐, 새 뱃지가 오른쪽에서 따라와 가운데
+  st("② 새 뱃지 등장");
+  animate($("oldBadge"),{x:-194,scale:72/148,opacity:.45,boxShadow:"0 0 0px #00000000"},{duration:.6,ease:[.4,0,.2,1]});
+  animate($("newBadge"),{x:0,scale:1,opacity:1},{type:"spring",stiffness:210,damping:20,delay:.12});
+  animate($("chev"),{opacity:1,x:0},{duration:.3,delay:.45});
+  await wait(.95);
+
+  // ③ 반짝! 빛줄기 지나감 + 뱃지 콩 + 후광 확 + 종이폭죽 펑
+  st("③ 반짝 · 펑");
+  const shine=$("newBadge").querySelector(".shine-wrap");
+  animate(shine,{x:[-160,180]},{duration:.55,ease:[.4,0,.2,1]});
+  animate($("newBadge"),{scale:[1,1.14,1]},{duration:.5,ease:"easeOut"});
+  animate($("glow"),{opacity:[0,1,.85],scale:[.7,1.25,1]},{duration:.9,ease:"easeOut"});
+  animate(".ember",{opacity:[0,1]},{duration:.6,delay:stagger(.03,{from:"center"})});
+  setTimeout(()=>{if(token===runId)twinkle([...document.querySelectorAll(".ember")])},1400);
+  burst(t);
+  await wait(.25);
+
+  // ④ 아래 텍스트 차례로 뿅
+  st("④ 안내 뿅");
+  animate("#content > *",{opacity:1,y:0,scale:1},{type:"spring",bounce:.45,duration:.6,delay:stagger(.09)});
+  await wait(.45);
+  await animate($("fill"),{width:fillTo},{duration:.8,ease:[.2,.8,.2,1]});
+  st("끝 · 계속하기 누르면 다시");busy=false;
+}
+$("go").onclick=run;$("cta").onclick=run;
+sync();setup();
+document.fonts.ready.then(()=>run());
+</script>
