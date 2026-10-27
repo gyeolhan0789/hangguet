@@ -51,8 +51,6 @@ class ResultType(StrEnum):
     EVALUATION_FAILED = "evaluation.failed"
     RECORDING_MERGED = "recording.merged"
     RECORDING_MERGE_FAILED = "recording.mergeFailed"
-    # 임시: WRITE_HEADLINE 결과(AI 명세 4.1)
-    HEADLINE_WRITTEN = "headline.written"
     QUESTION_STARTED = "question.started"
     ANSWER_COMPLETED = "answer.completed"
 

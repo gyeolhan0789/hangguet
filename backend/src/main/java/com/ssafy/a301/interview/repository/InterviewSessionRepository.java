@@ -195,12 +195,6 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("from") OffsetDateTime from,
             @Param("before") OffsetDateTime before);
 
-    /** 임시(HeadlineBackfill): 한 줄 총평 없이 summary만 있는 면접 */
-    @Query(
-            "select s.id from InterviewSession s where s.status = :status"
-                    + " and s.headline is null and s.summary is not null order by s.id")
-    List<Long> findIdsWithoutHeadline(@Param("status") SessionStatus status);
-
     /** 응답에 회사명·직무가 필요한 조회. 지원서를 함께 가져온다(BE 설계 3장). */
     @Query(
             "select s from InterviewSession s join fetch s.application"

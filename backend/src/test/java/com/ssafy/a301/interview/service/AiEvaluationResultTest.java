@@ -287,32 +287,6 @@ class AiEvaluationResultTest {
         assertThat(em.find(InterviewSession.class, missing.getId()).getHeadline()).isNull();
     }
 
-    // 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다
-    @Test
-    void writtenHeadlineFillsOnlyCompletedSessionWithoutOne() {
-        InterviewSession session = analyzing(InterviewMode.CHAT, 1);
-        Map<String, Object> message = completed(session, JOB_ID, answersOf(session));
-        message.remove("headline");
-        results.handle(json(message));
-        Map<String, Object> written = new LinkedHashMap<>();
-        written.put("type", "headline.written");
-        written.put("sessionId", session.getId());
-        written.put("jobId", UUID.randomUUID().toString());
-        written.put("headline", "협력 경험을 더 구체적으로");
-
-        assertThat(results.handle(json(written))).isEqualTo(Outcome.SAVED);
-        written.put("headline", "다시 온 결과");
-        assertThat(results.handle(json(written))).isEqualTo(Outcome.DISCARDED);
-        em.flush();
-        em.clear();
-        assertThat(em.find(InterviewSession.class, session.getId()).getHeadline())
-                .isEqualTo("협력 경험을 더 구체적으로");
-
-        InterviewSession analyzing = analyzing(InterviewMode.CHAT, 1);
-        written.put("sessionId", analyzing.getId());
-        assertThat(results.handle(json(written))).isEqualTo(Outcome.DISCARDED);
-    }
-
     @Test
     void recordingResultsOfChatSessionAreDiscarded() {
         InterviewSession chat = analyzing(InterviewMode.CHAT, 1);

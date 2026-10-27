@@ -102,15 +102,6 @@ public class InterviewSession {
         this.status = SessionStatus.COMPLETED;
     }
 
-    /** 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다. 채웠으면 true */
-    public boolean fillHeadline(String headline) {
-        if (status != SessionStatus.COMPLETED || this.headline != null) {
-            return false;
-        }
-        this.headline = headline;
-        return true;
-    }
-
     // 결과 생성 실패
     public void failAnalysis() {
         requireStatus(SessionStatus.ANALYZING);

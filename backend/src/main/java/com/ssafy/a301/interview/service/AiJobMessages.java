@@ -58,8 +58,6 @@ public class AiJobMessages {
             case SCORE_ANSWER -> putScoreAnswer(message, job, session);
             case EVALUATE -> putEvaluate(message, job, session);
             case MERGE_RECORDING -> putMergeRecording(message, session);
-            // 임시(HeadlineBackfill): 줄일 summary
-            case WRITE_HEADLINE -> message.put("summary", session.getSummary());
             default -> throw new IllegalStateException("메시지를 만들 수 없는 작업 종류: " + job.getJobType());
         }
         return message;
