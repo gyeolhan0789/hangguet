@@ -88,7 +88,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `evaluation.completed` | 분석 작업자 | 4장 | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
-| `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | 다시보기 처리 **[미정]**(API 명세 B-19) |
+| `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 | `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
@@ -157,7 +157,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **시작** BE가 답변을 저장한 직후(화상은 `answer.completed`, 채팅은 5.7). `answers.evaluation`이 비어 있을 때만 작업을 넣는다
 - **입력(작업 메시지)** `answerId`, `mode`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
 - **말하기 분석(화상만)** 입력은 `tokens`와 작업 메시지의 `speech`
-  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 녹화 영상으로 면접 단위로 구하므로 판정에 사용하지 않는다
+  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 계산하지 않는다(API 명세 6.3)
   - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를 구한다
   - 말끝 흐림·억양 폭은 면접 에이전트가 답변을 듣는 동안 실시간 음성으로 계산해 `answer.completed`로 전송한 값(6.2)을 그대로 사용한다. 답변 음성 파일은 사용하지 않는다
@@ -231,7 +231,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `long_pause_count` | `longPauseCount` | 답변별 합계 |
 | `speed_deviation_pct` | `speedDeviationPct` | (면접 말 속도 − 265) ÷ 265 × 100(%, 소수 둘째 자리). 면접 말 속도는 답변별 `syllablesPerMin`(3장)을 발화 시간(`speakingMs`)으로 가중한 평균이고, 265는 일반 성인의 대화 말 속도(음절/분)다 |
 | `trailing_off_ratio` · `pitch_range_st` | `trailingOffRatio` · `pitchRangeSt` | 말한 시간으로 가중한 평균 |
-| `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 B-14) |
+| `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 6.3) |
 
 - 값이 있는 답변만으로 계산하고, 모든 답변에 값이 없으면 null이다
 - 컬럼이 `NUMERIC(5, 2)`이므로 999.99를 넘는 값은 구하지 못한 것으로 간주해 null로 전송한다. 상한으로 잘라 전송하면 실제와 다른 지표가 되기 때문이다
@@ -306,7 +306,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 - `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
 - **채팅** 답변은 화면이 5.7로 BE에 낸다. 화면은 5.7 응답이 202이거나 409 `ANSWER_ALREADY_SUBMITTED`이면 `answer.submit`(`seq`)을 전송한다. 409를 포함하는 것은 새로고침 뒤 다시 제출해 이미 저장된 답변도 다음 질문으로 진행하게 하기 위함이다. 에이전트는 `seq`가 지금 질문일 때만 다음 질문으로 진행하고, 이미 진행한 질문의 `answer.submit`은 무시하고 `false`로 응답한다
-- 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기와의 순서는 API 명세 B-18 **[미정]**
+- 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기는 화면이 답변 저장을 확인한 뒤 호출한다(API 명세 5.8)
 
 ### 6.3 면접방 메시지 형식 **[제안]**
 
@@ -384,7 +384,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 - **처리** 영상은 다시 인코딩하지 않고 그대로 복사하고, 두 음성은 한 트랙으로 혼합해 AAC로 인코딩한 mp4를 `objectKey`에 업로드한다
   - 화상 면접 화면은 카메라 영상을 H.264로 송출한다. Egress 트랙 녹화는 영상을 다시 인코딩하지 않고 코덱에 맞는 형식으로 저장하므로(H.264는 MP4, Opus는 OGG) 합친 mp4도 브라우저에서 그대로 재생된다
   - 영상을 다시 인코딩하면 합치기가 면접 길이에 비례해 오래 걸려, 작업을 하나씩 처리하는 작업자에서 뒤에 대기한 작업이 BE 최대 대기 시간을 넘을 수 있다
-- **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. 다시보기 처리는 **[미정]**(API 명세 B-19)
+- **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4)
 
 ## 8. 회사 공시 요약 (고도화)
 

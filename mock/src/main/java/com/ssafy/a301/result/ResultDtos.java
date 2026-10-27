@@ -13,6 +13,12 @@ public final class ResultDtos {
 
     private ResultDtos() {}
 
+    public enum VideoStatus {
+        READY,
+        MERGING,
+        FAILED
+    }
+
     public record SessionScore(
             Criterion criterion,
             @Schema(description = "점수(0~100). 답한 질문들의 이 기준 판정 점수 평균", example = "82") int score,
@@ -46,10 +52,7 @@ public final class ResultDtos {
                     BigDecimal trailingOffRatio,
             @Schema(description = "억양 변화 폭(세미톤)", nullable = true, example = "6.2")
                     BigDecimal pitchRangeSt,
-            @Schema(
-                            description = "말하는 동안 면접관을 바라본 시간 비율(%). 녹화 영상으로 구하므로 녹화가 없으면 null",
-                            nullable = true,
-                            example = "71.5")
+            @Schema(description = "말하는 동안 면접관을 바라본 시간 비율(%). 계산하지 않아 항상 null", nullable = true)
                     BigDecimal gazeRatio) {}
 
     public record ResultResponse(
@@ -84,8 +87,12 @@ public final class ResultDtos {
             @Schema(description = "지원 직무", example = "백엔드 개발자") String jobTitle,
             @Schema(description = "녹화 기준 시각(면접 시작 일시). 상단 날짜도 이 값") OffsetDateTime startedAt,
             @Schema(
-                            description = "녹화 영상 임시 주소(만료됨). 채팅이거나 녹화가 없거나 보관 기간이 지났으면 null",
+                            description =
+                                    "녹화 영상 상태. READY 재생 가능, MERGING 녹화 합치기 중(10초마다 다시 조회), FAILED"
+                                            + " 합치기 실패(면접 종료 후 15분이 지나도 결과가 없을 때 포함). 채팅이면 null",
                             nullable = true)
+                    VideoStatus videoStatus,
+            @Schema(description = "녹화 영상 임시 주소(만료됨). videoStatus가 READY일 때만 값이 있다", nullable = true)
                     String videoUrl,
             @Schema(description = "질문 순") List<ReplayItem> items) {}
 }

@@ -142,7 +142,7 @@ com.ssafy.a301
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`, `recording.merged`로 받음). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
-| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 녹화 영상에서, 나머지는 답변 음성에서 |
+| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 항상 null(API 명세 6.3), 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
 | `Admin` | `admins` | - | 관리 페이지 계정. 회원과 따로 둔다. 아이디는 삭제하지 않은 관리자끼리만 중복 불가(V5) |
 | `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다. 삭제(8.7)는 soft delete: `deleted_at`만 기록하고 관리 목록 · 8.8 · 8.9 · 8.15에서 뺀다. 8.6에서 `endsAt`을 null로 보내면 지운다(안 보내면 그대로) |
@@ -208,7 +208,7 @@ com.ssafy.a301
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
-1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다(5.8과의 순서는 **[미정]**, API 명세 B-18)
+1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다. 화면이 저장을 확인한 뒤 5.8을 호출한다(API 명세 5.8)
 2. **채팅**: 5.7 한 트랜잭션에서 질문 소유·현재 질문 확인 → `Answer` 저장 → SCORE_ANSWER enqueue. 다음 질문으로 넘어가는 신호는 화면이 에이전트에 보낸다(API 명세 면접방 메시지) **[제안]**
 3. 답변 음성 파일을 따로 받지 않는다. 채점용 답변별 음성은 **[미정]**(API 명세 B-19)
 
@@ -221,7 +221,6 @@ com.ssafy.a301
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
    - 답변 ≥1이면 EVALUATE enqueue → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue한다(5.9에서는 다시 하지 않음)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
-   - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다. 잠근 뒤 시간 초과를 다시 확인해, 그 사이 5.9로 다시 시작한 시도는 실패시키지 않는다. 시작 시각(Redis)이 TTL 만료·재시작으로 없으면 면접 종료 시각(`ended_at`, DB)으로 판단해 ANALYZING에 계속 남지 않게 한다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
@@ -230,7 +229,7 @@ com.ssafy.a301
      - 전달력: 화상은 답변 + 말하기 지표(비어 있으면 빼고), 채팅은 답변 글로 판단
      - 3단계는 BE가 점수로 계산(경계 API 명세 6.3)
    - 자소서 검증도 다른 기준과 같이 3단계로 판정하고, 자소서 대조로 확정한다 **[결정]**
-3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 녹화 영상에서 구한다. 계산 주체·시점 **[미정]**(API 명세 B-14). 녹화가 없으면 null
+3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 계산하지 않아 항상 null이다(API 명세 6.3)
 
 ### 5.5 결과 큐 처리 (`ai:results`)
 1. `AiResultConsumer`가 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 메시지를 꺼낸다
@@ -245,7 +244,7 @@ com.ssafy.a301
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
-11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 다시보기 처리(B-19)가 정해질 때까지 경고 로그만 남긴다
+11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 그 면접의 합치기 실패를 저장한다(저장 위치 **[제안]**, API 명세 6.4 `videoStatus: FAILED`)
 
 ### 5.6 면접방 (LiveKit)
 - 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`
@@ -290,7 +289,7 @@ com.ssafy.a301
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
-- 6.4 `videoUrl`은 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있을 때만 Presigned GET. 합치기 전이거나 실패(`recording.mergeFailed`)했으면 null이고 질문 목록은 그대로 준다 **[임시: B-19 결정 전]**
+- 6.4 `videoStatus`(화상만): 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있으면 `READY`이고 `videoUrl`은 Presigned GET이다. 합치기 실패를 저장했거나 면접 종료(`ended_at`) 후 15분(임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
@@ -379,6 +378,5 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ## 12. 남은 일
 1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
-2. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
-3. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
+3. 답변별 음성(B-19)
