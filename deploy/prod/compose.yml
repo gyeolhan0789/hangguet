@@ -172,7 +172,7 @@ services:
       - internal
     logging: *logging
 
-  # 분석 작업자(질문 생성 · 답변 채점). 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
+  # 분석 작업자(질문 생성 · 답변 채점 · 녹화 합치기). 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
   # 작업을 한 번에 하나씩 처리하므로 컨테이너를 늘리지 않는다.
   a301-prod-ai-analysis:
     image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
@@ -189,6 +189,11 @@ services:
       LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
       LLM_MODEL: gpt-4.1-mini
       LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
+      # 녹화 합치기: BE와 같은 버킷 · 앱 키(IAM a301-prod-app, 배포 계획 6.2)로 원본 트랙을 받고 합친 mp4를 올린다
+      S3_BUCKET: hanggeut-a301-prod
+      AWS_REGION: ap-northeast-2
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
     # HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다
     healthcheck:
       test:

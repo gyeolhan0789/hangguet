@@ -19,6 +19,13 @@ RUN uv sync --locked --no-dev
 FROM python:3.13-slim
 WORKDIR /app
 
+# 녹화 합치기(app/recording)가 ffmpeg를 실행한다. 없으면 모든 합치기가 MERGE_ERROR가 된다.
+# 앱 코드보다 앞 레이어에 두어 코드만 바뀌면 빌드 캐시를 다시 쓰고, 서버도 이 레이어를 다시 받지 않는다.
+# 추천 패키지(그래픽 가속 드라이버 등)는 쓰지 않으므로 설치하지 않는다.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system --gid 10001 a301 \
     && useradd --system --uid 10001 --gid a301 a301
 

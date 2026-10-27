@@ -211,6 +211,12 @@ services:
       LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
       LLM_MODEL: gpt-4.1-mini
       LLM_API_KEY: ${LLM_API_KEY:-}
+      # 녹화 합치기(MERGE_RECORDING): BE와 같은 버킷 · 앱 키로 원본 트랙(recordings/raw/)을 받고 합친 mp4를 올린다.
+      # 없으면 합치기만 STORAGE_ERROR로 알리고 다른 작업은 처리한다
+      S3_BUCKET: a301-livekit-recordings-dev
+      AWS_REGION: ap-northeast-2
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
     # 작업자에는 HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다(프로세스가 죽으면 컨테이너가 멈춘다)
     healthcheck:
       test:

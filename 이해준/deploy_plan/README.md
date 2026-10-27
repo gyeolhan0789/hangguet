@@ -393,7 +393,7 @@ IAM 역할을 못 쓰므로 IAM 사용자 키를 서버에 둔다. 키마다 권
 | 역할 | 운영 사용자 · 정책 | 개발 사용자 · 정책 | 변수 이름(운영 `prod/*`, 개발 `dev/*`) | 쓰는 곳 |
 |---|---|---|---|---|
 | 녹화 | `a301-prod-egress` · `a301-prod-egress-s3` | `livekit-egress-dev` | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | BE가 녹화 요청에 담아 Egress에 넘김(4.3) |
-| 앱 | `a301-prod-app` · `a301-prod-app-s3` | `a301-dev-app` · `a301-dev-app-s3` | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | BE 프로필 사진(Presigned URL). 나중에 AI 녹화 합치기 · 백업 스크립트 |
+| 앱 | `a301-prod-app` · `a301-prod-app-s3` | `a301-dev-app` · `a301-dev-app-s3` | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | BE 프로필 사진(Presigned URL), AI 분석 작업자 녹화 합치기(`recordings/raw/` 읽기 · 합친 mp4 쓰기), 백업 스크립트 |
 
 | 정책 | 허용 |
 |---|---|
@@ -446,7 +446,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
 | `GRAFANA_ADMIN_PASSWORD` | O | Grafana(개발 · 운영 같은 이름, 범위 All). Grafana 볼륨을 처음 만들 때만 적용된다 |
 | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | O | BE(녹화 요청에 담아 Egress에 넘김). IAM `a301-prod-egress`(6.2) |
-| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | O | BE(프로필 사진), 나중에 AI 분석 작업자 · 백업 스크립트. IAM `a301-prod-app`(6.2) |
+| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | O | BE(프로필 사진), AI 분석 작업자(녹화 합치기) · 백업 스크립트. IAM `a301-prod-app`(6.2) |
 | `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만. 이 작업에도 `prod/` 환경 이름을 붙여야 읽힌다(8.1) |
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
@@ -662,3 +662,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.2 · 3.3 · 8.1 · 11 | 운영 CI 작성(`prod-build` 자동 · `prod-deploy` 버튼, `deploy/prod/deploy.sh`, `workflow`에 master 추가). 결정: 운영 배포는 ▶ 버튼, 이미지는 yobi 미니PC에서 빌드, 운영 로그 수집을 첫 배포에 넣고 팀원 전원 Viewer · 7일, 러너 토큰은 다시 받지 않음 | 배포 시점을 사람이 골라 진행 중인 면접을 끊지 않고, 첫 배포 문제를 로그로 보려고. 각 결정의 이유는 해당 장 |
 | 인프라 | 7 | 개발 · 운영 compose의 AI 에이전트에 `JEV_API_KEY` 전달 추가(범위 All, 없으면 리액션 없이 진행) | GitLab 변수는 compose `environment:`에 적은 것만 컨테이너로 들어가, 키를 등록해도 리액션이 꺼진 채 떴다 |
 | 인프라 | 11 | 운영 배포 사전 점검 결과 기록(코드 · GitLab · 서버 · Cloudflare), Cloudflare 호스트 이름 확인 · `DEV_GRAFANA_ADMIN_PASSWORD` 삭제 체크. 남은 것으로 문의 암호화 키 범위 결정, Protected 꺼진 비밀값 추가 | 첫 Release MR 전에 막히는 곳이 없는지 확인하고, 첫 배포 뒤에는 바꿀 수 없는 결정(문의 키)을 놓치지 않으려고 |
+| 인프라 | 6.2 · 7 | 녹화 합치기 연결: AI 이미지(`ai/Dockerfile`)에 ffmpeg 설치(앞 레이어, `--no-install-recommends`), CI `ai-test`는 녹화 코드 · 시험 · AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 시험을 돌림, 개발 · 운영 분석 작업자에 BE와 같은 버킷 · 앱 키(`S3_BUCKET` · `AWS_REGION` · `AWS_*`) 전달 | ffmpeg가 없으면 모든 합치기가 `MERGE_ERROR`, S3 설정이 없으면 `STORAGE_ERROR`가 된다. 앱 키 정책에 이미 `recordings/*` 읽기 · 쓰기와 `ListBucket`이 있어 새 IAM 키를 만들지 않는다. CI 설치는 필요한 MR에서만 해 다른 AI MR의 시간을 아낀다 |
