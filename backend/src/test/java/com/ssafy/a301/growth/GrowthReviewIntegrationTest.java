@@ -215,7 +215,7 @@ class GrowthReviewIntegrationTest {
     }
 
     @Test
-    void recentHasNoCriterionWhenNothingImproved() throws Exception {
+    void recentShowsDeliveryZeroWhenNothingImprovedAndNothingOnFirstDay() throws Exception {
         User owner = user("no-improvement");
         Application application = application(owner, "○○전자");
         scores(
@@ -246,12 +246,17 @@ class GrowthReviewIntegrationTest {
         mvc.perform(as(owner.getId(), get("/api/v1/growth-reviews").param("size", "5")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(3))
+                // 오른 기준이 없으면(그대로 · 모두 떨어짐) 전달력 +0
                 .andExpect(jsonPath("$.content[0].practiceDate").value("2026-10-21"))
-                .andExpect(jsonPath("$.content[0].criterion").isEmpty())
-                .andExpect(jsonPath("$.content[0].delta").isEmpty())
+                .andExpect(jsonPath("$.content[0].criterion").value("DELIVERY"))
+                .andExpect(jsonPath("$.content[0].delta").value(0))
                 .andExpect(jsonPath("$.content[1].practiceDate").value("2026-10-20"))
-                .andExpect(jsonPath("$.content[1].criterion").isEmpty())
-                .andExpect(jsonPath("$.content[1].delta").isEmpty());
+                .andExpect(jsonPath("$.content[1].criterion").value("DELIVERY"))
+                .andExpect(jsonPath("$.content[1].delta").value(0))
+                // 첫 연습일은 비교할 날이 없어 null
+                .andExpect(jsonPath("$.content[2].practiceDate").value("2026-10-19"))
+                .andExpect(jsonPath("$.content[2].criterion").isEmpty())
+                .andExpect(jsonPath("$.content[2].delta").isEmpty());
         // 7.1의 기준별 delta는 떨어져도 그대로 준다
         mvc.perform(as(owner.getId(), get("/api/v1/growth-reviews/2026-10-20")))
                 .andExpect(jsonPath("$.criteria[0].delta").value(-10))

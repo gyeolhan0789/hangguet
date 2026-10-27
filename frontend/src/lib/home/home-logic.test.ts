@@ -143,4 +143,13 @@ describe("formatReviewImprovement", () => {
   it("오른 기준이 있으면 '전달력 +8'", () => {
     expect(formatReviewImprovement(HOME_BROKEN.recentReviews[0])).toBe("전달력 +8");
   });
+
+  // 사용자 결정(2026-10-27): 오른 기준이 없으면 BE가 전달력 0을 주고, 첫 연습일이면 배지를 숨긴다
+  it("오른 기준이 없으면 '전달력 +0', 첫 연습일(null)이면 null", () => {
+    const review = HOME_BROKEN.recentReviews[0];
+    expect(formatReviewImprovement({ ...review, criterion: "DELIVERY", delta: 0 })).toBe(
+      "전달력 +0",
+    );
+    expect(formatReviewImprovement({ ...review, criterion: null, delta: null })).toBeNull();
+  });
 });
