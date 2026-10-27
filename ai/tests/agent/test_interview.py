@@ -634,16 +634,17 @@ def test_chat_reactions_listen_from_question_until_submit() -> None:
         # 질문 음성 재생 중의 입력도 현재 질문의 입력이다
         assert chat_input(h, 1, 1, "첫 입력") == {"accepted": True}
         await until(lambda: not h.asker.speaking.is_set())
-        assert chat_input(h, 1, 2, "첫 입력 이어서") == {"accepted": True}
+        assert chat_input(h, 1, 2, "첫 입력입니다. 이어서 쓰는 중") == {"accepted": True}
         h.submit(1)
         await asked(h, 2)
         await asyncio.sleep(0.02)
 
     h = run_async(scenario, mode="CHAT")
+    # 반응 여부는 마지막 문장으로, 태도는 입력 전체로 판단한다
     assert h.reactions.calls[:5] == [
         ("start", 1, CANDIDATE),
         ("submit", "첫 입력", 800.0, "첫 입력"),
-        ("submit", "첫 입력 이어서", 800.0, "첫 입력 이어서"),
+        ("submit", "이어서 쓰는 중", 800.0, "첫 입력입니다. 이어서 쓰는 중"),
         ("stop",),
         ("start", 2, CANDIDATE),
     ]
