@@ -210,8 +210,9 @@ services:
       timeout: 5s
       start_period: 30s
       retries: 3
-    # 면접마다 처리 프로세스가 생긴다. 동시 면접 수에 맞춰 실측 후 조정한다(배포 계획 3.2)
-    mem_limit: 1g
+    # 면접마다 처리 프로세스가 생긴다(면접 1건 약 150~200MB로 추정, 실측 전). 4g는 동시 면접 약 20건 분량이다.
+    # 서버 15GB에서 다른 컨테이너 상한을 빼고 남는 만큼 잡았다. 실제 한도는 CPU가 먼저 정할 수 있어 첫 배포 뒤 실측해 조정한다(배포 계획 3.2)
+    mem_limit: 4g
     networks:
       - internal
     logging: *logging
