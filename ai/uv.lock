@@ -17,6 +17,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "livekit-agents" },
     { name = "numpy" },
+    { name = "prometheus-client" },
     { name = "redis" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -37,6 +38,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.143.0" },
     { name = "livekit-agents", specifier = ">=1.4,<2" },
     { name = "numpy", specifier = ">=2.5.4" },
+    { name = "prometheus-client", specifier = ">=0.26,<1" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]

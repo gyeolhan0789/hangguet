@@ -7,8 +7,9 @@
 import asyncio
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AsyncExitStack
+from typing import Any
 
 from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe, JobContext, JobRequest, cli
@@ -19,6 +20,7 @@ from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
 from app.agent.interview import InterviewRunner
 from app.agent.jev import JevJudge
+from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
@@ -32,7 +34,11 @@ from app.common.settings import Settings, load_settings
 from app.interview.realtime.sentence import Sentence
 
 log = logging.getLogger(__name__)
-server = AgentServer(num_idle_processes=0)
+server = AgentServer(
+    num_idle_processes=0,
+    prometheus_port=METRICS_PORT,
+    prometheus_multiproc_dir=METRICS_DIR,
+)
 # AI 명세 6.1: 화상 녹화 파일 이름이 참가자 이름으로 시작하므로(7장) 이 이름으로 들어온다
 AGENT_IDENTITY = "interviewer"
 # AI 명세 6.1: 지원자 참가자 이름(BE가 발급하는 입장 토큰의 identity)
@@ -95,7 +101,7 @@ async def entrypoint(ctx: JobContext) -> None:
         if assignment is not None:
             speaker = question_speaker(ctx, assignment)
             interviewing = asyncio.create_task(
-                run_interview(ctx, closed, settings, speaker, assignment)
+                counted_interview(run_interview(ctx, closed, settings, speaker, assignment))
             )
             work = interviewing
         else:
@@ -184,6 +190,15 @@ class RoomCapture:
     async def aclose(self) -> None:
         self._stop.set()
         await self._publisher.aclose()
+
+
+async def counted_interview(interview: Coroutine[Any, Any, None]) -> None:
+    """면접을 진행하는 동안 진행 중인 면접 수에 포함한다. 취소·실패로 끝나도 수에서 뺀다."""
+    ACTIVE_INTERVIEWS.inc()
+    try:
+        await interview
+    finally:
+        ACTIVE_INTERVIEWS.dec()
 
 
 async def send_room_message(
