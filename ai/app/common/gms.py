@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.settings import Settings
+from app.common.timing import elapsed_ms
 from app.common.versions import REGISTRY, VersionKind
 
 log = logging.getLogger(__name__)
@@ -162,10 +163,12 @@ class GmsClient:
         model: str,
         transport: Transport,
         sleep: Callable[[float], None] = time.sleep,
+        timer: Callable[[], float] = time.monotonic,
     ) -> None:
         self._model = model
         self._transport = transport
         self._sleep = sleep
+        self._timer = timer
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "GmsClient":
@@ -213,6 +216,8 @@ class GmsClient:
         )
 
     def _send_with_retry(self, payload: dict[str, Any]) -> HttpResponse:
+        # 재시도 대기를 포함한 전체 시간이 BE 대기 상한에 영향을 주므로 호출 전체를 잰다
+        started = self._timer()
         for attempt in range(MAX_RETRIES + 1):
             try:
                 response = self._transport(payload)
@@ -220,8 +225,11 @@ class GmsClient:
                 reason, wait = "timeout", None
             else:
                 if 200 <= response.status < 300:
+                    ms = elapsed_ms(started, self._timer())
+                    log.info("GMS 호출 완료 ms=%d attempts=%d", ms, attempt + 1)
                     return response
                 if not _retryable(response.status):
+                    self._log_failure(started, attempt + 1)
                     raise GmsUnavailableError(f"GMS 오류 응답 {response.status}")
                 reason, wait = str(response.status), _retry_after(response.headers)
             if attempt == MAX_RETRIES:
@@ -230,7 +238,12 @@ class GmsClient:
             delay = wait if wait is not None else BACKOFF_SECONDS[attempt]
             log.warning("GMS 재시도 %d/%d (%s)", attempt + 1, MAX_RETRIES, reason)
             self._sleep(delay)
+        self._log_failure(started, MAX_RETRIES + 1)
         raise GmsUnavailableError(f"GMS 호출 {MAX_RETRIES + 1}회 실패")
+
+    def _log_failure(self, started: float, attempts: int) -> None:
+        ms = elapsed_ms(started, self._timer())
+        log.warning("GMS 호출 실패 ms=%d attempts=%d", ms, attempts)
 
 
 def urllib_transport(url: str, api_key: str | None) -> Transport:

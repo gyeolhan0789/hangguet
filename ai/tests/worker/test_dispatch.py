@@ -110,3 +110,43 @@ def test_duplicate_registration_raises() -> None:
 
     with pytest.raises(DuplicateHandlerError, match="EVALUATE"):
         dispatcher.register(EvaluateJob, lambda job: None)
+
+
+def test_wait_and_processing_time_are_logged_per_job_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """BE 대기 상한은 요청 시각부터 계산하므로 큐 대기와 처리 시간을 함께 남긴다(AI 명세 1.3)."""
+    ticks = iter([100.0, 141.0])
+    dispatcher = Dispatcher(
+        now=lambda: REQUESTED_AT + timedelta(seconds=2.1), timer=lambda: next(ticks)
+    )
+    dispatcher.register(PlanJob, lambda job: None)
+    with caplog.at_level(logging.INFO, logger="app.worker.dispatch"):
+        dispatcher.dispatch(PLAN)
+    assert [record.getMessage() for record in caplog.records] == [
+        "작업 시작 jobType=PLAN jobId=job-3 sessionId=56 waitMs=2100",
+        "작업 끝 jobType=PLAN jobId=job-3 result=HANDLED ms=41000",
+    ]
+
+
+def test_failed_job_logs_failure_and_processing_time(caplog: pytest.LogCaptureFixture) -> None:
+    ticks = iter([0.0, 0.5])
+    dispatcher = Dispatcher(now=lambda: REQUESTED_AT, timer=lambda: next(ticks))
+
+    def fail(job: ScoreAnswerJob) -> None:
+        raise RuntimeError("결과 전송 실패")
+
+    dispatcher.register(ScoreAnswerJob, fail)
+    with caplog.at_level(logging.INFO, logger="app.worker.dispatch"):
+        assert dispatcher.dispatch(SCORE) is DispatchResult.FAILED
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages[1] == "작업 처리 실패 jobType=SCORE_ANSWER jobId=job-1 sessionId=55"
+    assert messages[2] == "작업 끝 jobType=SCORE_ANSWER jobId=job-1 result=FAILED ms=500"
+
+
+def test_unregistered_job_type_logs_no_processing_time(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="app.worker.dispatch"):
+        Dispatcher().dispatch(PLAN)
+    assert [record.getMessage() for record in caplog.records] == [
+        "처리 함수 없음 jobType=PLAN jobId=job-3"
+    ]
