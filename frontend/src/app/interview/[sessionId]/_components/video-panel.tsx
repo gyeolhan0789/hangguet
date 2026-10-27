@@ -13,12 +13,13 @@ import { useEffect, useRef, useState } from "react";
 
 // 기준: Figma S06 Self Camera(18:2519: 오른쪽 24 · 위 88 · 240×160 · #2a2f3a · 테두리 흰색 20% · 둥글기 20 · user-round 72
 // · Me Chip(왼 11 · rgba(14,16,22,.7) · mic 12 · '나' 12 Bold))
-// · Controls(18:2544: 위 8 · 간격 20 · Mic 64(brand-strong · 그림자 0 0 12 rgba(255,122,38,.6) · mic 28) · Waveform 막대 14개 4px
-// · 간격 4 · 흰색 70% · [답변 완료] 높이 56 · 흰색 · 둥글기 16 · check 20 · 17 Bold #191f28)
+// · STT Bubble 맨 아래 줄(18:2539 Bottom: Waveform 막대 14개 4px · 간격 4 · 흰색 70%)
+// · 사용자 요청(2026-10-27: 마이크 · [답변 완료]는 빼고 파형만 오른쪽에) · S06-Q(344:1577: 질문 음성이 나오는 동안 파형 30%로 잠김)
+// · S06-A 답변 상태 토스트(344:1649: 500 · #191f28 · 둥글기 16 · 좌우 18 · 간격 10 · circle-alert 18 danger · 15 SemiBold 흰색
+// · 오른쪽 '다시 시도' 14 Bold brand)
 // · S06-F Mic Toast(18:4421: 500×56 · #191f28 · 둥글기 16 · 좌우 18 · mic-off 18 · 15 SemiBold 흰색 · '마이크 확인' 14 Bold brand · 화면 아래 44)
-// · 모션 메모 S06(18:2569: 마이크 듣는 중 주황 링 펄스(scale 1→1.4, opacity .6→0, 1.2s 루프) · 파형은 실제 볼륨 연동)
+// · 모션 메모 S06(18:2569: 파형은 실제 볼륨 연동)
 // · 기획 · 모션 메모 S06-F(18:3575 · 18:4432: 마이크 입력이 10초 이상 0 → 하단 토스트 y 40→0 등장, 화상(S06)에서만)
-// · API 명세 면접방 메시지([답변 완료] = answer.submit) · 사용자 결정(2026-10-26: [답변 완료]는 내 답변 자막이 있을 때만 누를 수 있다)
 
 /** 파형 막대 높이(Figma Waveform 14개) */
 const WAVE_HEIGHTS = [8, 14, 22, 30, 18, 26, 12, 20, 32, 16, 10, 24, 14, 8];
@@ -64,66 +65,24 @@ export function SelfCamera({ stream }: { stream: MediaStream | null }) {
   );
 }
 
-/** S06 화상: 아래 마이크 · 파형 · [답변 완료](누르면 에이전트에 답변을 내라고 보낸다) */
+/**
+ * S06 화상: 내 답변 상자 맨 아래 줄 — 오른쪽에 파형만 둔다(사용자 요청 2026-10-27: 마이크 · [답변 완료]를 빼고 파형을 오른쪽으로.
+ * 답변은 에이전트가 말이 끝난 것을 보고 낸다(마지막 말 뒤 7초 — answer.state autoSubmitted))
+ */
 export function VideoControls({
   level,
-  canSubmit = false,
-  submitting = false,
-  submitLabel = "답변 완료",
-  onSubmit,
+  locked = false,
 }: {
   level: MotionValue<number>;
-  /** [답변 완료]를 누를 수 있다(질문이 있고 인식된 답변 글이 있으며 내는 중이 아님) */
-  canSubmit?: boolean;
-  /** 에이전트가 답변을 내는 중 */
-  submitting?: boolean;
-  submitLabel?: string;
-  onSubmit?: () => void;
+  /** 면접관이 질문을 말하는 중(파형을 흐리게) */
+  locked?: boolean;
 }) {
   return (
-    <div className="flex w-full items-center justify-center gap-5 pt-2">
-      <MicButton />
-      <Waveform level={level} />
-      <button
-        type="button"
-        disabled={!canSubmit || submitting}
-        aria-busy={submitting || undefined}
-        onClick={onSubmit}
-        className="flex h-14 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-2xl bg-white px-6 disabled:cursor-default"
-      >
-        <Image src="/interview/icon-check.svg" alt="" width={20} height={20} />
-        <span className="text-[17px] leading-normal font-bold whitespace-nowrap text-[#191f28]">
-          {submitLabel}
-        </span>
-      </button>
-    </div>
-  );
-}
-
-/** 듣는 중 마이크. 주황 링이 퍼지며 사라지기를 되풀이한다. */
-function MicButton() {
-  const reduce = useReducedMotion();
-  return (
-    <span className="relative flex size-16 shrink-0 items-center justify-center">
-      {!reduce && (
-        <motion.span
-          aria-hidden
-          data-testid="mic-pulse"
-          // 모션 메모 S06: 듣는 중 주황 링 펄스
-          className="absolute inset-0 rounded-full border-2 border-brand-strong"
-          initial={{ scale: 1, opacity: 0.6 }}
-          animate={{ scale: 1.4, opacity: 0 }}
-          transition={{ duration: 1.2, ease: "easeOut", repeat: Infinity }}
-        />
-      )}
-      <span
-        role="img"
-        aria-label="마이크 듣는 중"
-        className="relative flex size-16 items-center justify-center rounded-full bg-brand-strong drop-shadow-[0_0_12px_rgba(255,122,38,0.6)]"
-      >
-        <Image src="/interview/icon-mic.svg" alt="" width={28} height={28} loading="eager" />
+    <div className="flex w-full justify-end">
+      <span className={locked ? "opacity-30" : undefined}>
+        <Waveform level={level} />
       </span>
-    </span>
+    </div>
   );
 }
 
@@ -204,5 +163,43 @@ export function MicToast({ level }: { level: MotionValue<number> }) {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * S06-A 답변 상태 토스트. 에이전트가 보낸 답변 상태(answer.state)를 내 답변 상자 위에 한 줄로 알린다.
+ * action이 있으면 오른쪽 끝에 그 버튼을 둔다(제출 실패 → [다시 시도]).
+ */
+export function AnswerNotice({
+  message,
+  action,
+}: {
+  message: string;
+  action?: { label: string; onClick: () => void; disabled?: boolean };
+}) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div
+      role={action ? "alert" : "status"}
+      className="flex min-h-14 w-full max-w-[500px] items-center gap-2.5 self-center rounded-2xl bg-[#191f28] px-[18px] py-3 tracking-[-0.2px]"
+      initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+    >
+      <Image src="/interview/icon-circle-alert.svg" alt="" width={18} height={18} />
+      <span className="min-w-0 flex-1 text-[15px] leading-normal font-semibold break-keep text-white">
+        {message}
+      </span>
+      {action && (
+        <button
+          type="button"
+          onClick={action.onClick}
+          disabled={action.disabled}
+          className="shrink-0 cursor-pointer text-sm leading-normal font-bold whitespace-nowrap text-brand disabled:cursor-default disabled:opacity-60"
+        >
+          {action.label}
+        </button>
+      )}
+    </motion.div>
   );
 }
