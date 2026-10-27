@@ -24,7 +24,7 @@
 브라우저 ⇄ LiveKit 면접방 ⇄ AI 면접 에이전트  음성 · 면접방 메시지 (6장)
                               └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev
 
-BE ─ Redis 작업 큐 ai:jobs ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg      PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
+BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
 BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준) · 방 삭제 · Egress 녹화
 ```
@@ -54,7 +54,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ### 1.3 작업 메시지 (BE → AI)
 
-- 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+- 큐는 작업 종류별 Redis List 3개다. BE가 `jobType`에 맞는 큐에 `LPUSH`하고, 작업자는 `BLMOVE {큐} {처리 중 리스트} RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
+
+  | 큐 | 처리 중 리스트 | 작업 | 작업자(`AI_WORKER_QUEUE`) |
+  |---|---|---|---|
+  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN | `plan` |
+  | `ai:jobs:recording` | `ai:jobs:recording:processing` | MERGE_RECORDING | `recording` |
+  | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE | `default`(기본값) |
+
+- 작업자는 작업을 하나씩 처리하므로, 큐가 하나이면 녹화 합치기·결과 생성이 몰릴 때 사용자가 기다리는 PLAN이 최대 대기 시간(5장)을 넘긴다. 그래서 PLAN과 MERGE_RECORDING을 별도 큐로 나눈다
+- 큐마다 작업자를 1대 둔다. 작업자는 시작할 때 자기 처리 중 리스트에 남은 작업만 자기 큐로 되돌리므로, 큐마다 처리 중 리스트가 달라야 다른 작업자가 처리 중인 작업을 되돌리지 않는다
+- `default` 작업자는 네 작업의 처리 함수를 모두 등록한다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
