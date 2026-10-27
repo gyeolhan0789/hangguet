@@ -208,7 +208,7 @@ com.ssafy.a301
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
-1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다(5.8과의 순서는 **[미정]**, API 명세 B-18)
+1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다. 화면이 저장을 확인한 뒤 5.8을 호출한다(API 명세 5.8)
 2. **채팅**: 5.7 한 트랜잭션에서 질문 소유·현재 질문 확인 → `Answer` 저장 → SCORE_ANSWER enqueue. 다음 질문으로 넘어가는 신호는 화면이 에이전트에 보낸다(API 명세 면접방 메시지) **[제안]**
 3. 답변 음성 파일을 따로 받지 않는다. 채점용 답변별 음성은 **[미정]**(API 명세 B-19)
 
@@ -221,7 +221,6 @@ com.ssafy.a301
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
    - 답변 ≥1이면 EVALUATE enqueue → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue한다(5.9에서는 다시 하지 않음)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
-   - 화상 마지막 답변이 아직 결과 큐에 남아 있을 때의 순서는 **[미정]**(API 명세 B-18)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다. 잠근 뒤 시간 초과를 다시 확인해, 그 사이 5.9로 다시 시작한 시도는 실패시키지 않는다. 시작 시각(Redis)이 TTL 만료·재시작으로 없으면 면접 종료 시각(`ended_at`, DB)으로 판단해 ANALYZING에 계속 남지 않게 한다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
@@ -380,4 +379,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
 3. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
+4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19)

@@ -306,7 +306,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 - `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
 - **채팅** 답변은 화면이 5.7로 BE에 낸다. 화면은 5.7 응답이 202이거나 409 `ANSWER_ALREADY_SUBMITTED`이면 `answer.submit`(`seq`)을 전송한다. 409를 포함하는 것은 새로고침 뒤 다시 제출해 이미 저장된 답변도 다음 질문으로 진행하게 하기 위함이다. 에이전트는 `seq`가 지금 질문일 때만 다음 질문으로 진행하고, 이미 진행한 질문의 `answer.submit`은 무시하고 `false`로 응답한다
-- 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기와의 순서는 API 명세 B-18 **[미정]**
+- 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기는 화면이 답변 저장을 확인한 뒤 호출한다(API 명세 5.8)
 
 ### 6.3 면접방 메시지 형식 **[제안]**
 
