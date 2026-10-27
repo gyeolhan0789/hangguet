@@ -537,11 +537,14 @@ CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(M
 | `fe-build` · `fe-test` | Prettier·ESLint·TypeScript·빌드, Vitest·lcov | [12.2 Part별 도구](#122-part별-도구) |
 | `ai-test` | Ruff·mypy, pytest·coverage | [12.2 Part별 도구](#122-part별-도구) |
 | `mock-build` · `mock-test` | Spotless·Checkstyle·빌드, 테스트 | [12.2 Part별 도구](#122-part별-도구)의 BE와 같음 |
+| `fe-swagger-types` | 목 서버 Swagger로 FE 예시 파일(`swagger-examples.ts`)을 다시 만들어 커밋된 파일과 비교, TypeScript | FE API 타입·생성기를 바꾼 MR은 다르면 실패, `mock/`만 바꾼 MR은 경고 |
 | `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`). 수동 실행 | 보조 지표. 실패해도 MR을 막지 않는다 |
 | `mock-deploy` | `develop` 병합 시 목 서버 이미지 빌드·배포, Health 확인 (빌드·테스트 Job을 다시 돌리지 않음) | [목 서버 배포](../mock/README.md#배포) |
 
 실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
 
 `sonar` Job은 자동으로 돌지 않고, 파이프라인의 ▶ 버튼을 눌러야 실행된다. 병합 전에 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 한다. 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 MR 결과가 보인다. MR별 판정은 Mattermost 알림으로 확인한다.
+
+`fe-swagger-types`는 Swagger 변경이 FE 타입에 반영되지 않은 채 남는 것을 막는다. `mock/`을 바꾼 MR은 그 MR의 목 서버 Swagger로, 그 외에는 배포된 목 서버 Swagger로 예시 파일을 만든다. 계약 MR은 FE 구현을 함께 넣지 않으므로([3.1 공통 계약 변경](#31-공통-계약-변경)) 경고(주황)로만 표시되고, 계약 MR이 병합되면 FE에서 `npm run types:examples`로 예시 파일을 다시 만들어 FE 타입과 함께 반영한다.
 
 배포 방식, Health 확인 기준, Rollback 방법은 [목 서버 배포](../mock/README.md#배포)를 따른다.
