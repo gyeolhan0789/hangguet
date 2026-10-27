@@ -93,7 +93,8 @@ public final class InterviewDtos {
             @Schema(description = "면접 시작 일시") OffsetDateTime startedAt,
             @Schema(description = "면접 종료 일시") OffsetDateTime endedAt,
             @Schema(description = "실제로 제출한 답변 수", example = "5") int answeredCount,
-            @Schema(description = "완료된 면접의 한 줄 총평", nullable = true) String summary,
+            @Schema(description = "완료된 면접의 한 줄 총평(6.3과 같음, 30자 이내)", nullable = true)
+                    String summary,
             @Schema(description = "완료된 면접의 평가 기준별 등급") List<CriterionGrade> criterionGrades) {}
 
     public record PageMetadata(int size, int number, long totalElements, int totalPages) {}

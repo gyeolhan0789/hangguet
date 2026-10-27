@@ -9,6 +9,7 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
@@ -57,6 +58,8 @@ public class AiJobMessages {
             case SCORE_ANSWER -> putScoreAnswer(message, job, session);
             case EVALUATE -> putEvaluate(message, job, session);
             case MERGE_RECORDING -> putMergeRecording(message, session);
+            // 임시(HeadlineBackfill): 줄일 summary
+            case WRITE_HEADLINE -> message.put("summary", session.getSummary());
             default -> throw new IllegalStateException("메시지를 만들 수 없는 작업 종류: " + job.getJobType());
         }
         return message;
@@ -96,6 +99,20 @@ public class AiJobMessages {
                                 })
                         .toList();
         message.put("answers", answered);
+        message.put("earlierSummaries", earlierSummaries(session));
+    }
+
+    // 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 summary. summary를 그날 누적 "다음에 해볼 것"으로 만든다(AI 명세 4장)
+    private List<String> earlierSummaries(InterviewSession session) {
+        if (session.getStartedAt() == null) {
+            return List.of();
+        }
+        return sessions.findSummariesStartedBetween(
+                session.getUser().getId(),
+                session.getId(),
+                SessionStatus.COMPLETED,
+                KoreaTime.startOfDay(KoreaTime.dateOf(session.getStartedAt())),
+                session.getStartedAt());
     }
 
     // AI 명세 7장. 위치는 면접마다 정해져 있다

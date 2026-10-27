@@ -56,6 +56,8 @@ public class AiResultService {
     private static final int MAX_TOKEN_COUNT = 10_000;
     // 총평·기준 코멘트(VARCHAR(255), 글자 수)
     private static final int MAX_COMMENT_LENGTH = 255;
+    // interview_sessions.headline 길이. AI가 30자를 넘기면 자르지만(AI 명세 4장) 저장이 실패하지 않게 BE도 자른다
+    private static final int MAX_HEADLINE_LENGTH = 30;
     // 말하기 지표 컬럼 NUMERIC(5, 2)
     private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
 
@@ -119,6 +121,7 @@ public class AiResultService {
                     case "evaluation.failed" -> evaluationFailed(sessionId, message);
                     case "recording.merged" -> recordingMerged(sessionId, message);
                     case "recording.mergeFailed" -> recordingMergeFailed(sessionId, message);
+                    case "headline.written" -> headlineWritten(sessionId, message);
                     default ->
                             throw new InvalidAiResultException("처리하지 않는 결과 종류: " + message.type());
                 };
@@ -292,6 +295,7 @@ public class AiResultService {
         if (summary.isBlank()) {
             throw new InvalidAiResultException("총평이 비었다: session=" + sessionId);
         }
+        String headline = headline(message.headline());
         List<EvaluatedAnswer> evaluated = required(message.answers(), "answers");
         List<CriterionScore> scores =
                 validScores(required(message.sessionScores(), "sessionScores"));
@@ -346,7 +350,7 @@ public class AiResultService {
                                                 metrics.trailingOffRatio(),
                                                 metrics.pitchRangeSt()));
                             }
-                            session.complete(summary);
+                            session.complete(headline, summary);
                             return Outcome.SAVED;
                         });
         if (outcome == Outcome.SAVED) {
@@ -403,6 +407,20 @@ public class AiResultService {
 
     // 다시보기(API 명세 6.4)가 FAILED로 응답하도록 MERGING 행을 FAILED로 변경한다.
     // 이미 READY이거나 행이 없으면(V10 이전에 끝남) 버린다. 행이 없는 면접은 6.4가 종료 시각으로 판단한다
+    // 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다
+    private Outcome headlineWritten(long sessionId, AiResultMessage message) {
+        String headline = headline(message.headline());
+        if (headline == null) {
+            throw new InvalidAiResultException("headline이 비었다: session=" + sessionId);
+        }
+        return transactions.execute(
+                status ->
+                        sessions.findByIdForUpdate(sessionId)
+                                .filter(session -> session.fillHeadline(headline))
+                                .map(session -> Outcome.SAVED)
+                                .orElse(Outcome.DISCARDED));
+    }
+
     private Outcome recordingMergeFailed(long sessionId, AiResultMessage message) {
         LOG.warn("녹화 합치기 실패: session={} reason={}", sessionId, message.reason());
         return transactions.execute(
@@ -459,6 +477,18 @@ public class AiResultService {
         if (required(score, field) < 0 || score > 100) {
             throw new InvalidAiResultException(field + "는 0~100이다: " + score);
         }
+    }
+
+    // 없거나 비었으면(headline을 보내기 전 AI) null
+    private static String headline(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String stripped = text.strip();
+        if (stripped.codePointCount(0, stripped.length()) <= MAX_HEADLINE_LENGTH) {
+            return stripped;
+        }
+        return stripped.substring(0, stripped.offsetByCodePoints(0, MAX_HEADLINE_LENGTH)).strip();
     }
 
     private static String withinCommentLength(String text, String field) {

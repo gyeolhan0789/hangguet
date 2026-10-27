@@ -36,7 +36,7 @@ public class HomeController {
               "practiceDates": ["2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15"],
               "todayInterviewCount": 1, "todayPracticeMinutes": 18,
               "todayImprovements": [ { "criterion": "DELIVERY", "delta": 8 }, { "criterion": "LOGIC", "delta": 4 } ],
-              "nextActions": ["꼬리 질문엔 근거부터 짧게", "직무 적합성 질문 1개 더 연습하기"], "nextActionsDate": "2026-10-15",
+              "nextActions": ["꼬리 질문엔 근거부터 짧게"], "nextActionsDate": "2026-10-15",
               "recentReviews": [
                 { "practiceDate": "2026-10-15", "companyName": "○○전자", "criterion": "DELIVERY", "delta": 8 },
                 { "practiceDate": "2026-10-14", "companyName": "○○전자", "criterion": "DELIVERY", "delta": 8 } ] }\

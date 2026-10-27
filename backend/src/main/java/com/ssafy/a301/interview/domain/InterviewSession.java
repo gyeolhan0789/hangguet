@@ -52,6 +52,11 @@ public class InterviewSession {
     @Column(nullable = false, length = 20)
     private SessionStatus status;
 
+    // 결과 화면 맨 위의 한 줄 총평(30자 이내)
+    @Column(length = 30)
+    private String headline;
+
+    // 성장 리뷰의 "다음에 해볼 것". 그날 이 면접까지를 모두 반영한 요약
     @Column(length = 255)
     private String summary;
 
@@ -90,10 +95,20 @@ public class InterviewSession {
     }
 
     // 결과 생성 완료
-    public void complete(String summary) {
+    public void complete(String headline, String summary) {
         requireStatus(SessionStatus.ANALYZING);
+        this.headline = headline;
         this.summary = summary;
         this.status = SessionStatus.COMPLETED;
+    }
+
+    /** 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다. 채웠으면 true */
+    public boolean fillHeadline(String headline) {
+        if (status != SessionStatus.COMPLETED || this.headline != null) {
+            return false;
+        }
+        this.headline = headline;
+        return true;
     }
 
     // 결과 생성 실패

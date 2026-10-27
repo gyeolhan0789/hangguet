@@ -100,6 +100,7 @@ class AiEvaluationResultTest {
 
         InterviewSession saved = em.find(InterviewSession.class, session.getId());
         assertThat(saved.getStatus()).isEqualTo(SessionStatus.COMPLETED);
+        assertThat(saved.getHeadline()).isEqualTo("근거는 분명하나 결론이 늦어요");
         assertThat(saved.getSummary()).isEqualTo("총평");
         Answer first = em.find(Answer.class, answered.getFirst().getId());
         assertThat(first.getScore()).isEqualTo(80);
@@ -266,6 +267,52 @@ class AiEvaluationResultTest {
         assertThat(sessionVideos(withoutRow)).isEmpty();
     }
 
+    // 기준: AI 명세 4장(headline은 30자 이내, 넘으면 자른다. 없으면(이전 AI) 비워 둔다)
+    @Test
+    void longHeadlineIsCutAndMissingHeadlineIsEmpty() {
+        InterviewSession longOne = analyzing(InterviewMode.CHAT, 1);
+        Map<String, Object> message = completed(longOne, JOB_ID, answersOf(longOne));
+        message.put("headline", "가".repeat(29) + "😀끝");
+        assertThat(results.handle(json(message))).isEqualTo(Outcome.SAVED);
+
+        InterviewSession missing = analyzing(InterviewMode.CHAT, 1);
+        Map<String, Object> old = completed(missing, JOB_ID, answersOf(missing));
+        old.remove("headline");
+        assertThat(results.handle(json(old))).isEqualTo(Outcome.SAVED);
+        em.flush();
+        em.clear();
+
+        assertThat(em.find(InterviewSession.class, longOne.getId()).getHeadline())
+                .isEqualTo("가".repeat(29) + "😀");
+        assertThat(em.find(InterviewSession.class, missing.getId()).getHeadline()).isNull();
+    }
+
+    // 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다
+    @Test
+    void writtenHeadlineFillsOnlyCompletedSessionWithoutOne() {
+        InterviewSession session = analyzing(InterviewMode.CHAT, 1);
+        Map<String, Object> message = completed(session, JOB_ID, answersOf(session));
+        message.remove("headline");
+        results.handle(json(message));
+        Map<String, Object> written = new LinkedHashMap<>();
+        written.put("type", "headline.written");
+        written.put("sessionId", session.getId());
+        written.put("jobId", UUID.randomUUID().toString());
+        written.put("headline", "협력 경험을 더 구체적으로");
+
+        assertThat(results.handle(json(written))).isEqualTo(Outcome.SAVED);
+        written.put("headline", "다시 온 결과");
+        assertThat(results.handle(json(written))).isEqualTo(Outcome.DISCARDED);
+        em.flush();
+        em.clear();
+        assertThat(em.find(InterviewSession.class, session.getId()).getHeadline())
+                .isEqualTo("협력 경험을 더 구체적으로");
+
+        InterviewSession analyzing = analyzing(InterviewMode.CHAT, 1);
+        written.put("sessionId", analyzing.getId());
+        assertThat(results.handle(json(written))).isEqualTo(Outcome.DISCARDED);
+    }
+
     @Test
     void recordingResultsOfChatSessionAreDiscarded() {
         InterviewSession chat = analyzing(InterviewMode.CHAT, 1);
@@ -337,6 +384,7 @@ class AiEvaluationResultTest {
         message.put("jobId", jobId.toString());
         message.put("answers", answersJson(answered));
         message.put("sessionScores", scores);
+        message.put("headline", "근거는 분명하나 결론이 늦어요");
         message.put("summary", "총평");
         return message;
     }

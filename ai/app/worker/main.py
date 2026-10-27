@@ -26,6 +26,10 @@ from app.common.settings import Settings, load_settings
 from app.interview.cover_letter import CoverLetterChecker
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.interview.result.feedback import gms_feedback_chat
+from app.interview.result.headline import (
+    WriteHeadlineJobHandler,
+    register_write_headline_handler,
+)
 from app.interview.result.job import EvaluateJobHandler, register_evaluate_handler
 from app.interview.scoring.job import (
     ScoreAnswerJobHandler,
@@ -83,6 +87,10 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     register_evaluate_handler(
         dispatcher,
         EvaluateJobHandler(results, gms_score_chat(client), gms_feedback_chat(client)),
+    )
+    # 임시: 한 줄 총평 채우기. 피드백과 같이 확률을 요청하지 않는다
+    register_write_headline_handler(
+        dispatcher, WriteHeadlineJobHandler(results, gms_feedback_chat(client))
     )
     register_merge_recording_handler(
         dispatcher,

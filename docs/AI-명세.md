@@ -56,12 +56,12 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ### 1.3 작업 메시지 (BE → AI)
 
 - 큐는 Redis List `ai:jobs`다. BE가 `LPUSH`하고, 작업자는 `BLMOVE ai:jobs ai:jobs:processing RIGHT LEFT`로 꺼내 처리한 뒤 처리 중 리스트에서 지운다(작업자가 멈춰도 메시지가 남음)
-- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING` · `WRITE_HEADLINE`(임시, 4.1)), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
   - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
-  - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
+  - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점). WRITE_HEADLINE도 실패 결과 없이 끝낸다
   - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
 
@@ -86,9 +86,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
-| `evaluation.completed` | 분석 작업자 | 4장 | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
+| `evaluation.completed` | 분석 작업자 | 4장(`headline`·`summary` 포함) | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
+| `headline.written` | 분석 작업자 | `headline`(4.1, 임시) | `interview_sessions.headline`이 비었을 때만 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
@@ -225,7 +226,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -239,10 +240,22 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `evaluation.completed`에 다음을 담는다 **[제안]**
   - `answers[]`: `answerId`, `score`, `goodPoint`, `improvePoint`, `evaluation`(`COVER_LETTER` 확정본)
   - `sessionScores[]`: `criterion`, `score`, `comment`
-  - `speechMetrics`(화상만, 채팅은 null, 아래 집계), `summary`
-- 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 `summary`와 해당 답변의 `improvePoint`에 기록한다. 결과 화면에 표시되는 글이 총평과 질문별 잘한 점·아쉬운 점이기 때문이다
+  - `speechMetrics`(화상만, 채팅은 null, 아래 집계)
+  - `headline`: 결과 화면 맨 위의 한 줄 총평. 30자 이내. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다(BE도 30자를 넘으면 자른다). BE가 `interview_sessions.headline`에 저장하고 6.3·5.13의 `summary`로 준다
+  - `summary`: 성장 리뷰의 "다음에 해볼 것". 다음 면접에서 해 볼 것을 한두 문장으로 쓰고, `earlierSummaries`가 있으면 그 내용과 이번 면접을 모두 반영해 그날 전체에서 가장 중요한 것을 쓴다. BE는 그날 마지막 면접의 `summary`를 7.1에 보여 준다
+- 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 해당 답변의 `improvePoint`에 기록한다
+- 프롬프트 버전은 `evaluate-feedback-v2`(9장)
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
+
+### 4.1 한 줄 총평 채우기 (임시)
+
+`headline`(BE 마이그레이션 V11)이 생기기 전에 끝난 면접을 채운다. 개발·운영 서버에서 모두 채운 뒤 지운다.
+
+- **시작** BE가 기동할 때 `headline`이 없고 `summary`가 있는 `COMPLETED` 면접마다 `WRITE_HEADLINE` 작업을 한 번 보낸다(이미 보낸 면접은 다시 보내지 않는다)
+- **입력** `summary`(그 면접의 총평)
+- **처리(GMS)** 뜻을 바꾸지 않고 30자 이내 한 줄로 줄인다. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다. 프롬프트 버전 `write-headline-v1`
+- **결과** `headline.written`(`headline`). BE는 `COMPLETED`이고 `headline`이 없을 때만 저장한다. 실패하면 결과를 보내지 않는다(그 면접은 결과 화면에서 한 줄 총평 없이 보인다)
 
 **`speech_metrics` 집계**
 

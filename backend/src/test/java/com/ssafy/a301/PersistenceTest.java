@@ -78,7 +78,7 @@ class PersistenceTest {
                         new BigDecimal("6.20"));
         em.persist(metric);
         metric.recordGazeRatio(new BigDecimal("71.50"));
-        session.complete("총평");
+        session.complete("총평", "다음에 해볼 것");
         em.persist(new PracticeLog(user, LocalDate.of(2026, 10, 15)));
         em.flush();
         em.clear();

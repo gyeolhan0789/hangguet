@@ -61,7 +61,7 @@ public final class ResultDtos {
             Mode mode,
             @Schema(description = "지원 회사명", example = "○○전자") String companyName,
             @Schema(description = "지원 직무", example = "백엔드 개발자") String jobTitle,
-            @Schema(description = "맨 위 한 줄 총평", nullable = true) String summary,
+            @Schema(description = "맨 위 한 줄 총평(30자 이내)", nullable = true) String summary,
             @Schema(description = "면접 시작 일시. 화면의 \"18분\"은 endedAt과의 차이") OffsetDateTime startedAt,
             @Schema(description = "면접 종료 일시") OffsetDateTime endedAt,
             @Schema(description = "평가 기준 4개") List<SessionScore> sessionScores,

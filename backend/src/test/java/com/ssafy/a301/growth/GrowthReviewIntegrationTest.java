@@ -61,7 +61,6 @@ class GrowthReviewIntegrationTest {
         em.persist(new SessionScore(morning, Criterion.JOB_FIT, 70, "아침 직무"));
         em.persist(new SessionScore(morning, Criterion.COVER_LETTER, 80, "아침 자소서"));
         em.persist(new SessionScore(morning, Criterion.LOGIC, 81, "아침 논리"));
-        // 가장 낮지만 문구가 비어 다음으로 낮은 문구를 쓴다
         em.persist(new SessionScore(morning, Criterion.DELIVERY, 50, " "));
         answer(morning, 2, 55, "근거부터 말하기");
         practice(user, first, SessionStatus.ANALYZING, at("2026-10-21T12:00"), 5);
@@ -112,9 +111,9 @@ class GrowthReviewIntegrationTest {
                 .andExpect(jsonPath("$.criteria[2].grade").value("GOOD"))
                 .andExpect(jsonPath("$.criteria[3].score").value(60))
                 .andExpect(jsonPath("$.criteria[3].delta").value(0))
-                .andExpect(jsonPath("$.nextActions.length()").value(2))
-                .andExpect(jsonPath("$.nextActions[0]").value("근거부터 말하기"))
-                .andExpect(jsonPath("$.nextActions[1]").value("수치로 말하기"));
+                // 그날 마지막 면접(밤)의 summary. 앞선 면접은 결과 생성 때 summary에 반영돼 있다(AI 명세 4장)
+                .andExpect(jsonPath("$.nextActions.length()").value(1))
+                .andExpect(jsonPath("$.nextActions[0]").value("2026-10-21T23:50 다음에 해볼 것"));
     }
 
     @Test
@@ -126,10 +125,8 @@ class GrowthReviewIntegrationTest {
                 .andExpect(jsonPath("$.streakOnDate").value(1))
                 .andExpect(jsonPath("$.criteria[0].delta").isEmpty())
                 .andExpect(jsonPath("$.criteria[0].comment").value("19일 코멘트"))
-                // 직무 적합성·전달력이 60점으로 같아 둘 다 준다
-                .andExpect(jsonPath("$.nextActions.length()").value(2))
-                .andExpect(jsonPath("$.nextActions[0]").value("19일 코멘트"))
-                .andExpect(jsonPath("$.nextActions[1]").value("19일 코멘트 전달"));
+                .andExpect(jsonPath("$.nextActions.length()").value(1))
+                .andExpect(jsonPath("$.nextActions[0]").value("2026-10-19T09:00 다음에 해볼 것"));
     }
 
     @Test
@@ -207,7 +204,8 @@ class GrowthReviewIntegrationTest {
                 .andExpect(jsonPath("$.isFirst").value(true))
                 .andExpect(jsonPath("$.criteria[0].score").value(80))
                 .andExpect(jsonPath("$.criteria[0].comment").value("정상"))
-                .andExpect(jsonPath("$.nextActions[0]").value("정상"));
+                // 기준 점수가 불완전한 면접(10시)은 빼고 정상 면접(9시)의 summary를 준다
+                .andExpect(jsonPath("$.nextActions[0]").value("2026-10-19T09:00 다음에 해볼 것"));
         mvc.perform(as(owner.getId(), get("/api/v1/growth-reviews")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content.length()").value(1))
@@ -304,7 +302,7 @@ class GrowthReviewIntegrationTest {
         em.persist(answer);
         session.end(startedAt.plusMinutes(minutes), 1);
         if (status == SessionStatus.COMPLETED) {
-            session.complete("총평");
+            session.complete("총평", startedAt.toLocalDateTime() + " 다음에 해볼 것");
         } else if (status == SessionStatus.FAILED) {
             session.failAnalysis();
         }

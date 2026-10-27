@@ -402,7 +402,7 @@ BE는 면접방을 닫아 AI 에이전트를 내보내고, 화상이면 녹화�
 쿼리 `practiceDate`는 필수(`YYYY-MM-DD`). 한국 시간의 면접 **시작일**로 조회한다. `page`는 0부터(기본 0), `size`는 1~20(기본 5)이다. 본인의 답변 1개 이상인 연습 면접(`ANALYZING`·`COMPLETED`·`FAILED`)만 포함하고 `startedAt` 내림차순, 같은 시각이면 `id` 내림차순으로 준다. `READY`·`IN_PROGRESS`·`ABORTED`는 포함하지 않는다. 21일 23:50 시작·22일 00:10 종료 면접은 21일 목록에만 들어간다.
 
 - `content`: 면접별 `id`, 회사·직무, 면접관(`persona`), 방식(`mode`), 상태(`status`), 시작·종료 시각, 답변 수(`answeredCount`), 한 줄 총평(`summary`), 기준별 등급(`criterionGrades[{ criterion, grade }]`). 질문별 답변·상세 피드백·말하기 지표·영상 주소는 넣지 않는다
-- `content[].summary`: 6.3 결과의 한 줄 총평과 같다. `COMPLETED`라도 총평이 없으면 null이고, 화면은 그 문장 영역을 숨긴다
+- `content[].summary`: 6.3 결과의 한 줄 총평(30자 이내)과 같다. `COMPLETED`라도 총평이 없으면 null이고, 화면은 그 문장 영역을 숨긴다
 - `criterionGrades`: `COMPLETED` 면접의 6.3 `sessionScores`에서 기준·등급만 가져온다. 화면은 점수 대신 좋아요·보통·아쉬워요로 표시한다. `ANALYZING`·`FAILED`는 총평 null·등급 빈 배열이며 상태 안내만 표시한다
 - `page.totalElements`: 선택 날짜의 전체 연습 면접 수. 페이지를 바꿔도 같다
 - 최상위 `summary.totalInterviewCount`: 날짜 필터와 무관한 본인의 전체 연습 면접 수. 상단 보관함 건수에 쓴다
@@ -514,6 +514,8 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 
 화면 표시: 기준 이름(`JOB_FIT` → 직무 적합성, `COVER_LETTER` → 자소서 검증, `LOGIC` → 논리성, `DELIVERY` → 전달력)과 `grade` 문구는 화면이 바꾼다. 질문별 피드백은 첫 번째 `WEAK`·`NORMAL` 질문만 펼친다.
 
+- `summary`: 맨 위 한 줄 총평. 30자 이내이고, 없으면 null(화면은 그 줄을 그리지 않는다)
+
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
 - **409 / RESULT_NOT_READY**: `ANALYZING` 또는 `FAILED`. 화면은 S06-1로
@@ -538,7 +540,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 
 ### 7. 성장 리뷰
 
-저장하지 않고 조회 시 계산. 그날 = 면접의 한국 시간 시작 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 기준별 평균. 비교 대상 = 직전 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null). 다음에 해볼 것 = 그날 평가 기준 점수와 질문별 점수 중 가장 낮은 것의 문구(기준은 `comment`, 질문은 `improvePoint`), 동점이면 모두.
+저장하지 않고 조회 시 계산. 그날 = 면접의 한국 시간 시작 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 기준별 평균. 비교 대상 = 직전 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null). 다음에 해볼 것(`nextActions`) = 그날 마지막으로 시작한 면접의 다음에 해볼 것 한 문장. 결과를 만들 때 그날 앞선 면접들의 내용까지 반영해 만든다(AI 명세 4장). 비었으면 그 앞 면접 것을 쓰고, 모두 비었으면 빈 배열이다.
 
 #### 7.1 날짜별 성장 리뷰
 

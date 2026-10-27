@@ -259,7 +259,7 @@ export const swaggerExamples = [
       { criterion: "DELIVERY", delta: 8 },
       { criterion: "LOGIC", delta: 4 },
     ],
-    nextActions: ["꼬리 질문엔 근거부터 짧게", "직무 적합성 질문 1개 더 연습하기"],
+    nextActions: ["꼬리 질문엔 근거부터 짧게"],
     nextActionsDate: "2026-10-15",
     recentReviews: [
       { practiceDate: "2026-10-15", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },

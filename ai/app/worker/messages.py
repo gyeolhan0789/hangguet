@@ -29,6 +29,8 @@ class JobType(StrEnum):
     SCORE_ANSWER = "SCORE_ANSWER"
     EVALUATE = "EVALUATE"
     MERGE_RECORDING = "MERGE_RECORDING"
+    # 임시: 한 줄 총평 없이 끝난 면접 채우기(AI 명세 4.1). 채운 뒤 지운다
+    WRITE_HEADLINE = "WRITE_HEADLINE"
 
 
 class ClaimType(StrEnum):
@@ -106,6 +108,14 @@ class EvaluateJob(Job):
     cover_letter: str
     claims: tuple[Claim, ...]
     answers: tuple[EvaluateAnswer, ...]
+    # 같은 날 앞서 끝난 면접들의 summary(AI 명세 4장). 이전 BE 메시지에는 없다
+    earlier_summaries: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class WriteHeadlineJob(Job):
+    job_type: ClassVar[JobType] = JobType.WRITE_HEADLINE
+    summary: str
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -234,6 +244,16 @@ def _claims(data: Mapping[str, Any]) -> tuple[Claim, ...]:
     if len({claim.id for claim in claims}) != len(claims):
         raise InvalidJobError("claims의 id가 중복된다")
     return tuple(claims)
+
+
+def _earlier_summaries(data: Mapping[str, Any]) -> tuple[str, ...]:
+    """없으면(이전 BE 메시지) 빈 목록이다. 빈 글은 반영할 내용이 없으므로 뺀다."""
+    if data.get("earlierSummaries") is None:
+        return ()
+    items = _list(data, "earlierSummaries")
+    if not all(isinstance(item, str) for item in items):
+        raise InvalidJobError("earlierSummaries는 문자열 목록이어야 한다")
+    return tuple(item for item in items if not is_java_blank(item))
 
 
 def _evaluate_answers(data: Mapping[str, Any]) -> tuple[EvaluateAnswer, ...]:
@@ -388,6 +408,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 cover_letter=_text(data, "coverLetter"),
                 claims=_claims(data),
                 answers=_evaluate_answers(data),
+                earlier_summaries=_earlier_summaries(data),
             )
         case JobType.MERGE_RECORDING:
             raw_prefix, object_key = _merge_locations(data, session_id)
@@ -397,4 +418,11 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 requested_at=requested_at,
                 raw_prefix=raw_prefix,
                 object_key=object_key,
+            )
+        case JobType.WRITE_HEADLINE:
+            return WriteHeadlineJob(
+                job_id=job_id,
+                session_id=session_id,
+                requested_at=requested_at,
+                summary=_text(data, "summary"),
             )

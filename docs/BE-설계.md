@@ -140,7 +140,7 @@ com.ssafy.a301
 | `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]** |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
-| `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장) |
+| `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장). `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접의 `headline`은 기동할 때 `HeadlineBackfill`이 `WRITE_HEADLINE` 작업으로 채운다(임시, AI 명세 4.1) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`) |
@@ -179,7 +179,7 @@ com.ssafy.a301
 | `START_FAILED` **(예정)** | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 질문으로 다시 배정한다. 아직 구현 전(12장) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 ≥1) | `ANALYZING` | `end(now, answeredCount)` → true | 연습 기록 남김(6.1) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 0) | `ABORTED` | `end(now, 0)` → false | 결과·연습 인정 없음 |
-| `ANALYZING` | 결과 생성 완료 | `COMPLETED` | `complete(summary)` | |
+| `ANALYZING` | 결과 생성 완료 | `COMPLETED` | `complete(headline, summary)` | |
 | `ANALYZING` | 결과 생성 실패 | `FAILED` | `failAnalysis()` | |
 | `FAILED` | 5.9 재생성 | `ANALYZING` | `retryAnalysis()` | |
 
@@ -245,7 +245,7 @@ com.ssafy.a301
 6. 실패 처리 **[결정]**: DB·Redis 연결 장애, 시간 초과, 잠금 대기처럼 잠시 뒤 될 수 있는 실패만 처리 중 리스트에 두고 5초(`ai-result.retry-delay`)마다 같은 메시지를 다시 처리한다(순서 유지, 장애 동안 메시지를 잃지 않도록 횟수 제한 없음). 그 밖의 실패(JSON이 아님, 모르는 `type`, 필수 필드 없음, 질문 수 틀림, 질문 글·채점 기준 빈 값, DB 제약 위반, 예상하지 못한 오류)는 다시 해도 같으므로 `ai:results:failed`로 옮기고 경고 로그를 남긴다. 처리기가 하나라 한 메시지가 뒤의 모든 결과를 막지 않게 하기 위해서다
 7. 처리기는 BE 하나에 스레드 하나로 순서대로 처리한다. 기동하면 처리 중 리스트에 남은 메시지(지난번에 처리 도중 멈춘 것)부터 처리한다
 8. 받는 결과: `plan.*`·`question.started`·`answer.completed`·`answer.scored`·`evaluation.*`·`recording.*`
-9. `evaluation.completed`(AI 명세 4장): 면접 행을 잠그고 `ANALYZING`·마지막 `jobId`일 때만 한 트랜잭션에서 답변 점수·피드백·`evaluation`(확정본으로 덮어씀)을 쓰고, `session_scores`·`speech_metrics`를 지우고 다시 쓴 뒤 `COMPLETED`·`summary`로 바꾼다. 커밋 뒤 `analysisStep`을 지운다
+9. `evaluation.completed`(AI 명세 4장): 면접 행을 잠그고 `ANALYZING`·마지막 `jobId`일 때만 한 트랜잭션에서 답변 점수·피드백·`evaluation`(확정본으로 덮어씀)을 쓰고, `session_scores`·`speech_metrics`를 지우고 다시 쓴 뒤 `COMPLETED`·`headline`·`summary`로 바꾼다. `headline`은 30자를 넘으면 자르고, 없으면(이전 AI) 비워 둔다. 커밋 뒤 `analysisStep`을 지운다
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
@@ -281,7 +281,7 @@ com.ssafy.a301
 - 그날 = 한국 시간 `started_at` 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 `session_scores.score` 기준별 평균(반올림 정수 **[제안]**)
 - 비교 대상 = 그날 이전 가장 최근 연습일 중 결과(`COMPLETED`)가 있는 날. 분석 중·실패만 있는 날은 점수가 없어 건너뛴다 **[제안]**. `delta` = 그날 − 비교 대상(비교 대상이 없으면 null, `isFirst` true)
 - 리뷰가 있는 날 = 그날 시작한 `COMPLETED` 면접이 있는 날. 기준 점수가 4개가 아닌 면접은 경고 로그를 남기고 계산에서 뺀다(과거 면접 하나로 이후 리뷰가 모두 실패하지 않게) **[제안]**. 없으면 7.1은 404 `GROWTH_REVIEW_NOT_FOUND`, 7.2 목록에서 빠진다. `interviewCount`·`practiceMinutes`는 5.13과 같은 연습 면접(분석 중·실패 포함) 기준
-- 다음에 해볼 것 = 그날 `session_scores`(`comment`)와 `answers`(`improve_point`) 중 최저 점수의 문구. 문구가 비면 다음으로 낮은 것. 동점이면 모두
+- 다음에 해볼 것 = 그날 마지막으로 시작한 면접의 `interview_sessions.summary` 한 문장. 결과 생성 때 EVALUATE 작업에 그날 앞선 면접들의 `summary`(`earlierSummaries`)를 담아 그날 누적 요약으로 만든다(AI 명세 4장). 비었으면 그 앞 면접 것, 모두 비었으면 빈 배열
 - `criteria[].comment` = 그날 마지막 면접의 `comment`
 - 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 오른 기준이 없으면 `DELIVERY`·`0`, 첫 연습일이면 둘 다 null **[결정]**
 - 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순(동점이면 기준 순서). 오늘 결과가 아직 없으면(분석 중) 빈 배열
@@ -301,7 +301,7 @@ com.ssafy.a301
 
 - 로그인한 회원의 세션 중 답변이 1개 이상이고 `ANALYZING`·`COMPLETED`·`FAILED`인 세션을 조회한다. 날짜는 한국 시간 `started_at` 기준이며 날짜 시작 이상·다음 날 시작 미만 범위를 사용한다. 스트릭도 같은 시작일 기준이며, 연습 기록 달력의 날짜별 횟수는 5.15로 조회한다
 - 세션을 `started_at DESC, id DESC`로 먼저 페이징하고, 해당 페이지의 답변 수·기준별 등급을 일괄 조회한다. 기본 크기는 5(허용 1~20)다. 점수 4개를 join한 행에 직접 페이징하면 세션 중복과 잘못된 전체 건수가 생기므로 피한다
-- 회사·직무는 해당 세션이 참조한 지원서, 총평은 `interview_sessions.summary`, 등급은 `session_scores`에서 읽는다. 새 평가를 생성하지 않는다. 분석 중·실패는 총평 null·등급 빈 배열이다
+- 회사·직무는 해당 세션이 참조한 지원서, 한 줄 총평은 `interview_sessions.headline`, 등급은 `session_scores`에서 읽는다. 새 평가를 생성하지 않는다. 분석 중·실패는 총평 null·등급 빈 배열이다
 - 날짜별 전체 건수·시간 집계는 페이지 제한 없이 계산한다. 보관함 전체 건수는 날짜 필터를 적용하지 않는다. 소유자·탈퇴 여부·연습 면접 조건은 목록과 집계에 동일하게 적용한다
 - 시간은 선택 날짜 전체 세션의 `ended_at − started_at` 초 합 / 60 내림으로 계산한다. `elapsedSeconds`와 혼용하지 않는다
 
