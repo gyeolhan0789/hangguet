@@ -63,7 +63,7 @@ livekit:
   api-key: ${LIVEKIT_API_KEY:}
   api-secret: ${LIVEKIT_API_SECRET:}
   agent-name: a301-interviewer
-  # 입장 토큰 유효 시간(B-20). 재접속은 5.14로 다시 받는다
+  # 입장 토큰 유효 시간(API 명세 5.14). 재접속은 5.14로 다시 받는다
   token-ttl: 10m
   # 녹화 원본을 올릴 S3. 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅)
   egress-s3:

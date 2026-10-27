@@ -1,8 +1,8 @@
 # A301 API 명세
 
-> API별 요청·응답 형식과 예시는 목 서버 Swagger에서 본다. 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
+> API별 요청·응답 형식과 예시는 백엔드 Swagger에서 본다(1.x~9.x 모두 구현). 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
 >
-> - Swagger: https://hangguet.yobistory.com/mock/be/docs (로컬: `mock/`에서 `./gradlew bootRun` → http://localhost:8080/docs)
+> - Swagger: https://hangguet.yobistory.com/be/docs (로컬: `backend/`에서 `./gradlew bootRun` → http://localhost:8080/docs). 목 서버 https://hangguet.yobistory.com/mock/be/docs 는 같은 계약의 예시 응답만 준다
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
 > - API 번호(1.1, 5.13 등)는 Swagger 요약 앞 번호와 같다
 > - 면접 AI 내부 처리(작업·입출력·실패)는 [AI 명세](AI-명세.md)
@@ -289,7 +289,7 @@
 
 ### 5. 면접 진행
 
-**면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(동시 면접 상한 초과·배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다.
+**면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(동시 면접 상한 초과·배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다. **`START_FAILED`는 예정(아직 미구현)**: 지금 백엔드는 이 상태를 주지 않는다.
 
 **면접 플랜 상태** `planStatus`: `GENERATING` · `READY` · `FAILED`. **분석 단계** `analysisStep`: `ORGANIZING_ANSWERS` → `SCORING` → `WRITING_FEEDBACK`.
 
@@ -333,12 +333,12 @@
 
 채팅은 장치 점검 없이 5.1 직후 S06-B로 바로 넘어간다. 면접관을 띄워 둔 채 5.2에서 `planStatus: READY`를 받으면 화면이 이 API를 자동으로 부른다. 별도 대기 화면은 없다. 채팅도 면접방에 들어가며, 마이크·카메라 없이 면접관 음성만 받는다.
 
-- **200**: 시작. 5.2 형식(`status: IN_PROGRESS`) + `room`. `currentQuestion`은 null이다. 질문은 에이전트가 말할 때 생기고 면접방 메시지 `question`으로 온다 **[결정]**(B-16)
+- **200**: 시작. 5.2 형식(`status: IN_PROGRESS`) + `room`. `currentQuestion`은 null이다. 질문은 에이전트가 말할 때 생기고 면접방 메시지 `question`으로 온다 **[결정]**
 - **404 / SESSION_NOT_FOUND**
 - **409 / PLAN_NOT_READY**: 플랜 생성 중이거나 실패
-- **409 / INVALID_SESSION_STATE**: `READY`·`START_FAILED`가 아님
+- **409 / INVALID_SESSION_STATE**: `READY`가 아님(`START_FAILED` 구현 뒤에는 `READY`·`START_FAILED`가 아님)
 - **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정·녹화 설정이 실패함. 면접은 `READY` 그대로라 화면은 다시 시도한다 **[결정]**
-- 배정 요청은 에이전트가 수락하기 전에 성공하므로, 에이전트의 배정 거절(동시 면접 상한 초과·배정 정보 형식 오류)은 5.4 응답으로 알 수 없다. 거절하면 BE가 면접방을 닫고 면접을 `START_FAILED`로 변경한다([AI 명세](AI-명세.md) 1.4). 화면은 면접방 연결이 끊기면 5.2로 상태를 확인하고, `START_FAILED`면 면접관을 연결하지 못했다고 안내한 뒤 5.4로 다시 시작한다
+- 배정 요청은 에이전트가 수락하기 전에 성공하므로, 에이전트의 배정 거절(동시 면접 상한 초과·배정 정보 형식 오류)은 5.4 응답으로 알 수 없다. **예정(아직 미구현)**: 거절하면 BE가 면접방을 닫고 면접을 `START_FAILED`로 변경한다([AI 명세](AI-명세.md) 1.4). 화면은 면접방 연결이 끊기면 5.2로 상태를 확인하고, `START_FAILED`면 면접관을 연결하지 못했다고 안내한 뒤 5.4로 다시 시작한다
 
 #### 5.5 지금 질문
 
@@ -347,7 +347,7 @@
 지금 답할 질문을 준다. 면접 중 다음 질문은 AI 에이전트가 면접방 메시지 `question`으로 알리므로, 이 API는 새로고침·재접속으로 화면을 다시 그릴 때만 부른다.
 
 - **200**: 답할 질문 있음
-- **202 / QUESTION_GENERATING**: 아직 질문이 없음(에이전트가 다음 질문을 말하기 전, 시작 직후 포함). 질문 5개를 미리 만들어 두므로 "생성 중"이 아니라 "아직 내지 않음"이다 **[결정]**(B-16)
+- **202 / QUESTION_GENERATING**: 아직 질문이 없음(에이전트가 다음 질문을 말하기 전, 시작 직후 포함). 질문 5개를 미리 만들어 두므로 "생성 중"이 아니라 "아직 내지 않음"이다 **[결정]**
 - **404 / SESSION_NOT_FOUND**
 - **409 / INVALID_SESSION_STATE**: `IN_PROGRESS`가 아니거나 5개 질문에 모두 답함(더 낼 질문이 없다)
 
@@ -403,7 +403,7 @@ BE는 면접방을 닫아 AI 에이전트를 내보내고, 화상이면 녹화�
 - 최상위 `summary.totalInterviewCount`: 날짜 필터와 무관한 본인의 전체 연습 면접 수. 상단 보관함 건수에 쓴다
 - 최상위 `summary.practiceMinutes`: 선택 날짜 **전체** 연습 시간(분). Σ(`endedAt − startedAt`)의 초 합을 60으로 나눠 소수점 아래를 버린다. 연결이 끊겨 멈춘 시간도 포함하며, 5.2의 `elapsedSeconds`와 의미가 다르다. 페이지를 바꿔도 같다
 
-화면 연결 시 한국 시간 오늘을 선택하고 5.15 월별 횟수 달력·5.13 목록을 조회한다. 카드별로 6.3을 미리 호출하지 않는다. [상세 피드백]은 `id`로 6.3, [다시보기]는 6.4를 조회하는 화면으로 연결한다. 성장 리뷰(7.1)도 동일한 시작일 기준이다. 분석 중·실패 기록만 있고 완료 결과가 없는 시작 날짜는 성장 리뷰가 없을 수 있다(7.1의 404). 프론트 구현은 이번 브랜치 범위에 포함하지 않는다.
+화면 연결 시 한국 시간 오늘을 선택하고 5.15 월별 횟수 달력·5.13 목록을 조회한다. 카드별로 6.3을 미리 호출하지 않는다. [상세 피드백]은 `id`로 6.3, [다시보기]는 6.4를 조회하는 화면으로 연결한다. 성장 리뷰(7.1)도 동일한 시작일 기준이다. 분석 중·실패 기록만 있고 완료 결과가 없는 시작 날짜는 성장 리뷰가 없을 수 있다(7.1의 404).
 
 - **200**: 항상. 기록 없는 날짜는 빈 `content`, `page.totalElements: 0`, `page.totalPages: 0`, `summary.practiceMinutes: 0`. 전체 보관함 건수는 유지한다. 범위를 넘는 페이지도 빈 `content`와 실제 전체 건수·집계를 준다
 - **400 / VALIDATION_FAILED**: 날짜 누락·잘못된 날짜(0001-01-01~9999-12-31 밖 포함)·음수 페이지·`size` 범위 오류
@@ -421,9 +421,9 @@ BE는 면접방을 닫아 AI 에이전트를 내보내고, 화상이면 녹화�
 |---|---|
 | `url` | 면접방 주소(`wss://rtc.hangguet.co.kr`, 운영 배포 계획 5.1) |
 | `token` | 입장 토큰. BE가 LiveKit API 키로 서명한다 |
-| `expiresAt` | 토큰 만료 시각. 발급 후 10분 **[결정]**(B-20). 토큰은 접속할 때만 쓰이고 접속 중에는 끊기지 않는다 |
+| `expiresAt` | 토큰 만료 시각. 발급 후 10분 **[결정]**. 토큰은 접속할 때만 쓰이고 접속 중에는 끊기지 않는다 |
 
-- 토큰은 이 면접의 방(이름 `interview-{sessionId}` **[결정]**, B-20) 하나·본인(참가자 이름 `candidate`)에게만 권한을 준다
+- 토큰은 이 면접의 방(이름 `interview-{sessionId}` **[결정]**) 하나·본인(참가자 이름 `candidate`)에게만 권한을 준다
 - 권한: 화상은 마이크·카메라 송출, 면접관 음성 수신, 메시지 송신. 채팅은 송출 없이 면접관 음성 수신, 메시지 송신만
 
 - **200**: 발급
@@ -513,6 +513,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 - **404 / SESSION_NOT_FOUND**
 - **409 / RESULT_NOT_READY**: `ANALYZING` 또는 `FAILED`. 화면은 S06-1로
 - **409 / NO_RESULT**: `ABORTED`
+- **500 / INTERNAL_ERROR**: 완료 결과에 기준 4개 점수가 모두 있지 않음(저장이 불완전한 결과를 정상 평가로 내보내지 않음)
 
 #### 6.4 다시보기
 
@@ -752,8 +753,8 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `AGREEMENT_REQUIRED` · `EMAIL_DUPLICATED` | 400 · 409 | 1.2 |
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
 | `FILE_NOT_FOUND` | 404 | 2.5 |
-| `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.x, 5.1 |
-| `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x, 6.x |
+| `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.2·4.4·4.5·5.1 (`APPLICATION_IN_USE`는 4.4·4.5) |
+| `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x·6.x (`QUESTION_NOT_FOUND`는 5.7) |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
