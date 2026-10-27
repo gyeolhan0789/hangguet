@@ -1,5 +1,6 @@
 import http.client
 import json
+import logging
 import urllib.error
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
@@ -355,3 +356,40 @@ def test_with_deadline_stops_after_deadline_without_calling() -> None:
     with pytest.raises(GmsDeadlineError):
         with_deadline(chat, 10.0, lambda: 10.001)([])
     assert calls == []
+
+
+def timed_client(transport: FakeTransport, *ticks: float) -> GmsClient:
+    clock = iter(ticks)
+    return GmsClient(
+        model="gpt-test", transport=transport, sleep=lambda _: None, timer=lambda: next(clock)
+    )
+
+
+def test_call_time_includes_retries_and_keeps_retry_phrase(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Infra 경보가 「GMS 재시도」로 건수를 세므로 재시도 문구는 그대로 둔다."""
+    with caplog.at_level(logging.INFO, logger="app.common.gms"):
+        timed_client(FakeTransport([status(429), ok()]), 10.0, 18.4).chat_json(MESSAGES)
+    assert [record.getMessage() for record in caplog.records] == [
+        "GMS 재시도 1/3 (429)",
+        "GMS 호출 완료 ms=8400 attempts=2",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "message"),
+    [
+        ([status(500)] * 4, "GMS 호출 실패 ms=1500 attempts=4"),
+        ([status(400)], "GMS 호출 실패 ms=1500 attempts=1"),
+    ],
+)
+def test_failed_call_logs_total_time_and_attempts(
+    caplog: pytest.LogCaptureFixture, outcomes: list[HttpResponse], message: str
+) -> None:
+    with (
+        caplog.at_level(logging.INFO, logger="app.common.gms"),
+        pytest.raises(GmsUnavailableError),
+    ):
+        timed_client(FakeTransport(outcomes), 0.0, 1.5).chat_json(MESSAGES)
+    assert caplog.records[-1].getMessage() == message

@@ -10,10 +10,13 @@
 """
 
 import logging
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from app.common.timing import elapsed_ms
 from app.worker.messages import Job, JobType
 
 log = logging.getLogger(__name__)
@@ -30,9 +33,16 @@ class DuplicateHandlerError(ValueError):
 
 
 class Dispatcher:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        now: Callable[[], datetime] = lambda: datetime.now(UTC),
+        timer: Callable[[], float] = time.monotonic,
+    ) -> None:
         # 등록할 때 작업 클래스와 처리 함수의 형식을 일치시키므로 값은 Any 인자로 보관한다
         self._handlers: dict[JobType, Callable[[Any], None]] = {}
+        self._now = now
+        self._timer = timer
 
     def register[J: Job](self, job_class: type[J], handler: Callable[[J], None]) -> None:
         """작업 클래스(PlanJob 등)의 처리 함수를 등록한다.
@@ -50,6 +60,27 @@ class Dispatcher:
         if handler is None:
             log.warning("처리 함수 없음 jobType=%s jobId=%s", job.job_type, job.job_id)
             return DispatchResult.NO_HANDLER
+        # BE 대기 상한은 요청 시각부터 계산하므로(AI 명세 1.3) 큐에서 기다린 시간을 함께 남긴다
+        wait_ms = round((self._now() - job.requested_at).total_seconds() * 1000)
+        log.info(
+            "작업 시작 jobType=%s jobId=%s sessionId=%s waitMs=%d",
+            job.job_type,
+            job.job_id,
+            job.session_id,
+            wait_ms,
+        )
+        started = self._timer()
+        result = self._run(handler, job)
+        log.info(
+            "작업 끝 jobType=%s jobId=%s result=%s ms=%d",
+            job.job_type,
+            job.job_id,
+            result,
+            elapsed_ms(started, self._timer()),
+        )
+        return result
+
+    def _run(self, handler: Callable[[Any], None], job: Job) -> DispatchResult:
         try:
             handler(job)
         except Exception:

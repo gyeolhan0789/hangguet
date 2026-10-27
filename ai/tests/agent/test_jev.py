@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -154,3 +155,47 @@ def test_video_judge_also_asks_off_topic() -> None:
     assert judgment.off_topic == 0.75
     sent = session.post.call_args.kwargs["json"]["questions"]
     assert sent == reaction_questions(off_topic=True)
+
+
+def timer(*ticks: float) -> Any:
+    clock = iter(ticks)
+    return lambda: next(clock)
+
+
+def test_judgment_time_is_logged_in_milliseconds(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="app.agent.jev"):
+        judge_with(http_session(), timer=timer(1.0, 1.312))
+    assert [record.getMessage() for record in caplog.records] == ["Jev 판단 완료 ms=312"]
+
+
+@pytest.mark.parametrize(
+    ("session", "message"),
+    [
+        (http_session(status=429), "Jev 판단 실패: "),
+        (http_session(payload={"answers": {}}), "Jev 판단 실패: "),
+    ],
+)
+def test_judgment_failure_keeps_alert_phrase_and_adds_time(
+    caplog: pytest.LogCaptureFixture, session: MagicMock, message: str
+) -> None:
+    with caplog.at_level(logging.INFO, logger="app.agent.jev"):
+        judge_with(session, timer=timer(0.0, 0.25))
+    [record] = caplog.records
+    assert record.getMessage().startswith(message)
+    assert record.getMessage().endswith(" ms=250")
+
+
+def test_judgment_timeout_keeps_alert_phrase_and_adds_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Infra 경보가 「Jev 판단 시간 초과」로 건수를 세므로 문구는 그대로 두고 시간만 덧붙인다."""
+    session = http_session()
+
+    async def never() -> object:
+        await asyncio.Event().wait()
+        return body()
+
+    session.post.return_value.json = never
+    with caplog.at_level(logging.INFO, logger="app.agent.jev"):
+        judge_with(session, timeout_seconds=0.01, timer=timer(0.0, 0.8))
+    assert [record.getMessage() for record in caplog.records] == ["Jev 판단 시간 초과 ms=800"]

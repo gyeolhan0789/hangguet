@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -204,3 +205,35 @@ def test_notice_is_synthesized_with_persona_voice_and_failure_is_none() -> None:
     talker._tts.synthesize.assert_awaited_once_with("핵심만 짧게 말씀해 주세요.", Persona.DEVIL)  # type: ignore[attr-defined]
     talker._tts.synthesize = AsyncMock(side_effect=TtsError("down"))  # type: ignore[method-assign]
     assert asyncio.run(talker.prepare_notice("안내")) is None
+
+
+def timed_speaker(tts: Mock, *ticks: float) -> QuestionSpeaker:
+    clock = iter(ticks)
+    return QuestionSpeaker(Mock(), ASSIGNMENT, tts, None, timer=lambda: next(clock))
+
+
+def test_synthesis_time_is_logged_in_milliseconds(caplog: pytest.LogCaptureFixture) -> None:
+    tts = Mock(synthesize=AsyncMock(return_value=AUDIO))
+    talker = timed_speaker(tts, 10.0, 11.25, 20.0, 20.5)
+    with caplog.at_level(logging.INFO, logger="app.agent.question"):
+        asyncio.run(talker.prepare(1))
+        asyncio.run(talker.prepare_notice("안내"))
+    assert [record.getMessage() for record in caplog.records] == [
+        "질문 음성 합성 완료 ms=1250 chars=2",
+        "발화 중단 안내 음성 합성 완료 ms=500 chars=2",
+    ]
+
+
+def test_synthesis_failure_keeps_alert_phrase_and_adds_time(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Infra 경보가 기존 실패 문구로 건수를 세므로 문구는 그대로 두고 시간만 덧붙인다."""
+    tts = Mock(synthesize=AsyncMock(side_effect=TtsError("ElevenLabs 합성 실패 (status=500)")))
+    talker = timed_speaker(tts, 0.0, 2.0, 5.0, 5.3)
+    with caplog.at_level(logging.INFO, logger="app.agent.question"):
+        asyncio.run(talker.prepare(1))
+        asyncio.run(talker.prepare_notice("안내"))
+    assert [record.getMessage() for record in caplog.records] == [
+        "질문 음성 합성 실패: ElevenLabs 합성 실패 (status=500) ms=2000",
+        "발화 중단 안내 음성 합성 실패: ElevenLabs 합성 실패 (status=500) ms=300",
+    ]

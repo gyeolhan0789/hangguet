@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
 
+from app.common.timing import elapsed_ms
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.realtime.reaction import (
     REACTION_PROMPT_VERSION,
@@ -49,6 +52,7 @@ class JevJudge:
         *,
         off_topic: bool = False,
         timeout_seconds: float = JEV_TIMEOUT_SECONDS,
+        timer: Callable[[], float] = time.monotonic,
     ) -> None:
         """off_topic이면 발화 중단을 위한 질문 이탈도 판단한다(화상 면접)."""
         self._api_key = api_key
@@ -56,20 +60,25 @@ class JevJudge:
         self._model = REGISTRY.require(VersionKind.MODEL, JEV_MODEL)
         REGISTRY.require(VersionKind.PROMPT, REACTION_PROMPT_VERSION)
         self._timeout_seconds = timeout_seconds
+        self._timer = timer
         self._session: aiohttp.ClientSession | None = None
 
     async def judge(self, context: ReactionContext) -> Judgment:
         """판단하지 못하면 리액션 없이 직전 태도를 반환한다(AI 명세 6.4)."""
+        started = self._timer()
         try:
             async with asyncio.timeout(self._timeout_seconds):
                 answers = await self._ask(
                     context.state(), reaction_questions(off_topic=self._off_topic)
                 )
-            return judgment_from(answers)
+            judgment = judgment_from(answers)
         except TimeoutError:
-            log.warning("Jev 판단 시간 초과")
+            log.warning("Jev 판단 시간 초과 ms=%d", elapsed_ms(started, self._timer()))
         except (JevError, InvalidJudgmentError) as e:
-            log.warning("Jev 판단 실패: %s", e)
+            log.warning("Jev 판단 실패: %s ms=%d", e, elapsed_ms(started, self._timer()))
+        else:
+            log.info("Jev 판단 완료 ms=%d", elapsed_ms(started, self._timer()))
+            return judgment
         return Judgment(None, context.attitude)
 
     async def aclose(self) -> None:
