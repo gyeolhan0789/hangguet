@@ -50,6 +50,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     static final String CANDIDATE = "candidate";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
     private static final int EMPTY_TIMEOUT_SECONDS = 600;
+    // 브라우저에 알려 줄 주소와 BE가 서버 API를 부르는 주소의 설정 이름. 시험이 같은 이름으로 실제 값을 확인한다.
+    // livekit.url로 두면 Spring이 환경 변수 LIVEKIT_URL(서버 주소)을 그 이름으로 읽어 LIVEKIT_PUBLIC_URL을 덮어쓴다
+    static final String URL_PROPERTY = "${livekit.public-url}";
+    static final String API_URL_PROPERTY = "${livekit.api-url}";
 
     private final String url;
     private final String apiUrl;
@@ -62,8 +66,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private AgentDispatchServiceClient dispatches;
 
     public LiveKitInterviewRoom(
-            @Value("${livekit.url}") String url,
-            @Value("${livekit.api-url}") String apiUrl,
+            @Value(URL_PROPERTY) String url,
+            @Value(API_URL_PROPERTY) String apiUrl,
             @Value("${livekit.api-key}") String apiKey,
             @Value("${livekit.api-secret}") String apiSecret,
             @Value("${livekit.agent-name}") String agentName,
