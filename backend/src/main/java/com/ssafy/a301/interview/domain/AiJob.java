@@ -66,10 +66,6 @@ public class AiJob {
         return new AiJob(AiJobType.MERGE_RECORDING, sessionId, null);
     }
 
-    public static AiJob writeHeadline(long sessionId) {
-        return new AiJob(AiJobType.WRITE_HEADLINE, sessionId, null);
-    }
-
     public void markPublished(OffsetDateTime now) {
         this.publishedAt = now;
     }

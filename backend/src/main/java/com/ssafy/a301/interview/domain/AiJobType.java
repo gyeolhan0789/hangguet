@@ -9,7 +9,5 @@ public enum AiJobType {
     // 5.8·5.9 결과 만들기
     EVALUATE,
     // 5.8(화상) 녹화 트랙을 mp4 하나로 합치기
-    MERGE_RECORDING,
-    // 임시: headline 없이 끝난 면접의 summary를 30자 한 줄로 줄이기(HeadlineBackfill). 채운 뒤 지운다
-    WRITE_HEADLINE
+    MERGE_RECORDING
 }

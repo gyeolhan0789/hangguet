@@ -1,7 +1,6 @@
 package com.ssafy.a301.interview.repository;
 
 import com.ssafy.a301.interview.domain.AiJob;
-import com.ssafy.a301.interview.domain.AiJobType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -11,9 +10,6 @@ import org.springframework.data.repository.query.Param;
 
 /** AI 작업 Outbox. 보낼 작업은 잠가서(SKIP LOCKED) 가져와 같은 작업을 동시에 두 번 보내지 않는다. */
 public interface AiJobRepository extends JpaRepository<AiJob, UUID> {
-
-    /** 임시(HeadlineBackfill): 이 면접에 이 작업을 보낸 적이 있는지 */
-    boolean existsByJobTypeAndSessionId(AiJobType jobType, Long sessionId);
 
     /** 커밋 직후 보낼 작업. 이미 보냈거나 재발행이 잡고 있으면 비어 있다. */
     @Query(

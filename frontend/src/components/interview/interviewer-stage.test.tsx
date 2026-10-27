@@ -3,7 +3,7 @@ import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { interviewerLook } from "@/lib/interviewer/models";
-import type { ReactionSnapshot } from "@/lib/interview/room-messages";
+import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
 
 import { InterviewerStage } from "./interviewer-stage";
 
@@ -70,6 +70,60 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
     return { setFace, setHead };
   }
   const activity = () => ({ questionSeq: 3, streamId: "capture-1", speechAt: performance.now() });
+  // 기준: AI 명세 6.3 interview.question(started의 alignment.chars) · 사용자 결정(2026-10-27: 150ms 늦춰 모음별 입 모양,
+  // 동작 줄이기면 입을 움직이지 않는다)
+  const question = (speech: QuestionMessage["speech"]): QuestionMessage => ({
+    type: "question",
+    sessionId: 55,
+    seq: 1,
+    content: "가이",
+    speech,
+    alignment:
+      speech === "started"
+        ? {
+            chars: [
+              { char: "가", startMs: 0, endMs: 200 },
+              { char: "이", startMs: 200, endMs: 400 },
+            ],
+          }
+        : null,
+  });
+  const lastMouth = (setFace: ReturnType<typeof vi.fn>) =>
+    setFace.mock.calls.filter(([face]) => face.mouth).at(-1)?.[0].mouth;
+
+  it("질문 음성이 시작되면 150ms 뒤부터 발음 시각대로 입을 바꾸고 끝나면 닫는다", async () => {
+    const { setFace } = animated();
+    const { rerender } = render(
+      <InterviewerStage persona="DEVIL" question={question("started")} />,
+    );
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(140));
+    expect(lastMouth(setFace) ?? { A: 0 }).toMatchObject({ A: 0 });
+    act(() => vi.advanceTimersByTime(160));
+    expect(lastMouth(setFace).A).toBeGreaterThan(0);
+    act(() => vi.advanceTimersByTime(200));
+    expect(lastMouth(setFace).I).toBeGreaterThan(0);
+
+    rerender(<InterviewerStage persona="DEVIL" question={question("ended")} />);
+    expect(lastMouth(setFace)).toEqual({ A: 0, I: 0, U: 0, E: 0, O: 0 });
+    const count = setFace.mock.calls.length;
+    act(() => vi.advanceTimersByTime(1000));
+    expect(setFace).toHaveBeenCalledTimes(count);
+  });
+  it("발음 시각이 없거나 동작 줄이기를 켰으면 입을 움직이지 않는다", async () => {
+    const { setFace } = animated();
+    const { rerender } = render(
+      <InterviewerStage persona="DEVIL" question={{ ...question("started"), alignment: null }} />,
+    );
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(500));
+    expect(lastMouth(setFace)).toBeUndefined();
+
+    motionPreference.reduced = true;
+    rerender(<InterviewerStage persona="DEVIL" question={question("started")} />);
+    act(() => vi.advanceTimersByTime(500));
+    expect(lastMouth(setFace)).toBeUndefined();
+  });
   it("자막 변경 뒤 1초 동안 대기한 다음 한 번만 작게 끄덕이고 복귀한다", async () => {
     const { setHead } = animated();
     render(<InterviewerStage persona="DEVIL" listening={activity()} />);

@@ -121,7 +121,6 @@ public class AiResultService {
                     case "evaluation.failed" -> evaluationFailed(sessionId, message);
                     case "recording.merged" -> recordingMerged(sessionId, message);
                     case "recording.mergeFailed" -> recordingMergeFailed(sessionId, message);
-                    case "headline.written" -> headlineWritten(sessionId, message);
                     default ->
                             throw new InvalidAiResultException("처리하지 않는 결과 종류: " + message.type());
                 };
@@ -407,20 +406,6 @@ public class AiResultService {
 
     // 다시보기(API 명세 6.4)가 FAILED로 응답하도록 MERGING 행을 FAILED로 변경한다.
     // 이미 READY이거나 행이 없으면(V10 이전에 끝남) 버린다. 행이 없는 면접은 6.4가 종료 시각으로 판단한다
-    // 임시(HeadlineBackfill): 한 줄 총평이 없는 결과 완료 면접에만 채운다
-    private Outcome headlineWritten(long sessionId, AiResultMessage message) {
-        String headline = headline(message.headline());
-        if (headline == null) {
-            throw new InvalidAiResultException("headline이 비었다: session=" + sessionId);
-        }
-        return transactions.execute(
-                status ->
-                        sessions.findByIdForUpdate(sessionId)
-                                .filter(session -> session.fillHeadline(headline))
-                                .map(session -> Outcome.SAVED)
-                                .orElse(Outcome.DISCARDED));
-    }
-
     private Outcome recordingMergeFailed(long sessionId, AiResultMessage message) {
         LOG.warn("녹화 합치기 실패: session={} reason={}", sessionId, message.reason());
         return transactions.execute(
