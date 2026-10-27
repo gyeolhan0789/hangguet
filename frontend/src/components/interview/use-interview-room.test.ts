@@ -23,7 +23,7 @@ const sdk = vi.hoisted(() => {
       ["other", { identity: "other", isAgent: false }],
     ]);
     localParticipant = {
-      publishTrack: vi.fn(async () => {}),
+      publishTrack: vi.fn<(track: unknown, options?: unknown) => Promise<void>>(async () => {}),
       unpublishTrack: vi.fn(async () => {}),
       performRpc: vi.fn<(params: unknown) => Promise<string>>(async () =>
         JSON.stringify({ accepted: true }),
@@ -72,14 +72,21 @@ vi.mock("livekit-client", () => ({
     TrackSubscribed: "trackSubscribed",
     TrackUnsubscribed: "trackUnsubscribed",
   },
-  Track: { Source: { Microphone: "microphone" }, Kind: { Audio: "audio", Video: "video" } },
+  Track: {
+    Source: { Microphone: "microphone", Camera: "camera" },
+    Kind: { Audio: "audio", Video: "video" },
+  },
 }));
 vi.mock("@/lib/interview/actions", () => ({ issueRoomToken: sdk.issueRoomToken }));
 
-function media() {
+function media({ withCamera = false } = {}) {
   const microphone = Object.assign(new EventTarget(), { readyState: "live", stop: vi.fn() });
-  const stream = { getAudioTracks: () => [microphone] } as unknown as MediaStream;
-  return { stream, microphone };
+  const camera = Object.assign(new EventTarget(), { readyState: "live", stop: vi.fn() });
+  const stream = {
+    getAudioTracks: () => [microphone],
+    getVideoTracks: () => (withCamera ? [camera] : []),
+  } as unknown as MediaStream;
+  return { stream, microphone, camera };
 }
 
 function snapshot(revision: number, overrides: Record<string, unknown> = {}) {
@@ -791,5 +798,54 @@ describe("답변 상태(answer.state) 받기 · [답변 완료](answer.submit) �
     expect(result.current.streamId).toBe("capture-1");
     await deliver(room, snapshot(1, { streamId: "capture-2", confirmedText: "", interimText: "" }));
     expect(result.current.streamId).toBe("capture-2");
+  });
+});
+
+// 기준: API 명세 녹화(화면은 카메라 영상을 H.264로 송출한다) · AI 명세 7장
+// · 사용자 결정(2026-10-27: 카메라 송출이 실패해도 면접은 표시 없이 계속)
+describe("녹화용 카메라 송출", () => {
+  it("화상은 마이크 다음에 카메라를 H.264 · 화질 단계 없이 올리고, 원본 카메라는 끄지 않는다", async () => {
+    const { stream, microphone, camera } = media({ withCamera: true });
+    const { unmount } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalledTimes(2));
+    expect(room.localParticipant.publishTrack.mock.calls).toEqual([
+      [microphone, { source: "microphone" }],
+      [camera, { source: "camera", videoCodec: "h264", simulcast: false }],
+    ]);
+    unmount();
+    expect(camera.stop).not.toHaveBeenCalled();
+  });
+
+  it("카메라가 없으면 마이크만 올린다", async () => {
+    const { stream, microphone } = media();
+    renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    await act(async () => {});
+    expect(room.localParticipant.publishTrack.mock.calls).toEqual([
+      [microphone, { source: "microphone" }],
+    ]);
+  });
+
+  it("카메라를 올리다 실패해도 면접방 연결은 실패로 보지 않는다", async () => {
+    const { stream } = media({ withCamera: true });
+    const { result } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    room.localParticipant.publishTrack.mockImplementation(async (track: unknown) => {
+      if (track !== stream.getAudioTracks()[0]) throw new Error("H.264 송출 실패");
+    });
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(result.current.status).not.toBe("failed");
+    expect(room.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("채팅(listenOnly)은 스트림에 카메라가 있어도 올리지 않는다", async () => {
+    const { stream } = media({ withCamera: true });
+    const { result } = renderHook(() => useInterviewRoom(55, stream, { listenOnly: true }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(result.current.status).toBe("listening"));
+    expect(room.localParticipant.publishTrack).not.toHaveBeenCalled();
   });
 });
