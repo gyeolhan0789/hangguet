@@ -5,7 +5,12 @@
 
 import pytest
 
-from app.interview.realtime.sentence import Sentence, SentenceTracker, has_endpoint
+from app.interview.realtime.sentence import (
+    Sentence,
+    SentenceTracker,
+    has_endpoint,
+    last_sentence,
+)
 from app.interview.realtime.transcript import SonioxToken, Transcript
 from app.interview.speech import ends_sentence
 from tests.interview.realtime.replay import FIRST_SENTENCE, SECOND_SENTENCE, load_responses
@@ -57,6 +62,24 @@ def test_sentence_ending(text: str) -> None:
 @pytest.mark.parametrize("text", ["음.", "몰랐는데,", "결과.", "줄였습니다,", "", "   "])
 def test_not_sentence_ending(text: str) -> None:
     assert not ends_sentence(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("결제 서버를 맡았습니다. 응답이 느렸습니다.", "응답이 느렸습니다."),
+        # 종결어미 없이 끝난 작성 중인 글도 한 문장이다
+        ("결제 서버를 맡았습니다. 가장 어려웠던 건", "가장 어려웠던 건"),
+        ("결제 서버를 맡았습니다.", "결제 서버를 맡았습니다."),
+        ("결제 서버를 맡았고", "결제 서버를 맡았고"),
+        # 쉼표로 끝난 어절은 문장 경계가 아니다
+        ("줄였습니다, 그래서 빨라졌습니다.", "줄였습니다, 그래서 빨라졌습니다."),
+        ("맡았습니다.\n줄였어요 ", "줄였어요"),
+        ("", ""),
+    ],
+)
+def test_last_sentence_of_chat_input(text: str, expected: str) -> None:
+    assert last_sentence(text) == expected
 
 
 def test_endpoint_after_ending_returns_sentence_and_resets() -> None:
