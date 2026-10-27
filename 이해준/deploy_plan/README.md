@@ -169,10 +169,10 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. 에이전트와 같은 이미지를 `python -m app.worker`로 띄운다(개발 `a301-dev-ai-analysis`도 같은 모양, 10/26 추가). 지금 처리하는 작업은 PLAN · SCORE_ANSWER이고 나머지는 처리 코드가 배포될 때까지 큐에 남는다. HTTP가 없어 헬스체크는 컨테이너 안에서 Redis 연결로 한다. **컨테이너를 늘리지 않는다**: 처리 중 리스트를 작업자끼리 공유해, 늘리면 재시작 때 다른 작업자의 작업까지 되돌려 중복 처리된다. 늘리려면 AI 코드 변경이 먼저다 | 없음 | 256m **[제안]** 실측 |
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
-| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름이라 같은 대시보드를 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.3g |
+| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.5g(cAdvisor 384m) |
 | `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
-AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
+AI 두 컨테이너를 뺀 합계 약 6.6GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
 - 왜 외부 노출을 LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Tunnel로만 들어온다
 - 왜 AI 메모리는 [미정]인가: 에이전트는 면접마다 프로세스가 늘고, 분석 작업자는 라이브러리가 정해지지 않았다. 추측으로 잡으면 강제 종료가 나거나 메모리를 낭비하므로 실측해서 정한다
@@ -185,6 +185,7 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 | node-exporter | 서버 CPU · 메모리 · 디스크 · 네트워크 |
 | cAdvisor | 컨테이너별 CPU · 메모리(어느 서비스가 무거운지) |
 | LiveKit · Egress 내장 지표 | 면접방 · 참가자 수, 패킷 손실, 녹화 상태. `livekit.yaml`의 `prometheus_port`로 내보낸다 |
+| redis_exporter · postgres_exporter | Redis 메모리(상한 대비) · 연결 · 오류, PostgreSQL 연결 · 트랜잭션 · 크기 · 잠금(10/27 추가) |
 | Grafana | 대시보드. `grafana.hangguet.co.kr`을 Tunnel로 열고 **Grafana 자체 로그인**(아이디 · 비밀번호)으로 막는다 **[결정]** |
 
 - 의도: 서버 한 대에 모든 서비스가 있으므로, 느려졌을 때 "어느 컨테이너 때문인지"를 바로 알아야 한다. 그래야 그 서비스만 떼어 낼지(MSA) 판단할 수 있다(1.1)
@@ -200,6 +201,9 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
     - 왜: 6명 모두 이 서비스를 만드는 개발자라 운영 문제를 직접 봐야 빨리 고친다. 무료 Grafana(OSS)는 데이터 소스별 권한이 없어 대시보드를 숨겨도 계정이 있으면 Loki를 조회할 수 있으므로, 일부만 보게 하는 설정은 실제로 막히지 않는다. 실제 사용자가 많아지면 운영 Grafana 계정을 인프라만 갖게 좁힌다
   - 운영도 첫 배포에 넣는다(`deploy/prod/compose.yml`의 `a301-prod-loki` · `a301-prod-alloy`, 대시보드 **A301 운영 서버 로그**). 왜: 첫 배포에서 생기는 문제를 보려면 로그가 필요하다
   - 개발 서버에 먼저 넣었다([`deploy/dev/monitoring`](../../deploy/dev/monitoring/README.md)). 로컬 시험에서 Loki 약 65MB · Alloy 약 50MB. 운영은 같은 모양으로 `deploy/prod/compose.yml`에 넣는다
+- 대시보드 구성(10/27): **A301 운영 서버**는 전체 현황 → 서버 → BE · AI → LiveKit · 녹화 → Redis → PostgreSQL → FE → 컨테이너 순서의 줄로 나누고(컨테이너별 상세는 원인을 좁힐 때만 보므로 맨 아래), **A301 운영 서버 로그**는 흐름별 오류 · 전체 로그로 나눈다. 자세한 패널은 [`deploy/prod/README.md`](../../deploy/prod/README.md) 「대시보드」
+  - 왜 Redis · PostgreSQL exporter를 넣었나: Redis는 `noeviction`이라 메모리가 차면 쓰기를 거부해 로그인 · 면접이 막히는데, cAdvisor는 컨테이너 메모리만 보여 Redis 상한(192MB) 대비 사용량을 알 수 없다. DB도 HikariCP 풀만으로는 DB 쪽 연결 · 잠금 · 긴 트랜잭션을 볼 수 없다. 둘 다 64MB 상한이다
+  - 운영 대시보드에서 FE 브라우저 지표 패널은 뺐다. 운영은 FE 지표를 켜지 않아 늘 비어 있기 때문이다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**
 
 ## 4. 미디어 서버 (LiveKit)
@@ -663,3 +667,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 7 | 개발 · 운영 compose의 AI 에이전트에 `JEV_API_KEY` 전달 추가(범위 All, 없으면 리액션 없이 진행) | GitLab 변수는 compose `environment:`에 적은 것만 컨테이너로 들어가, 키를 등록해도 리액션이 꺼진 채 떴다 |
 | 인프라 | 11 | 운영 배포 사전 점검 결과 기록(코드 · GitLab · 서버 · Cloudflare), Cloudflare 호스트 이름 확인 · `DEV_GRAFANA_ADMIN_PASSWORD` 삭제 체크. 남은 것으로 문의 암호화 키 범위 결정, Protected 꺼진 비밀값 추가 | 첫 Release MR 전에 막히는 곳이 없는지 확인하고, 첫 배포 뒤에는 바꿀 수 없는 결정(문의 키)을 놓치지 않으려고 |
 | 인프라 | 6.2 · 7 | 녹화 합치기 연결: AI 이미지(`ai/Dockerfile`)에 ffmpeg 설치(앞 레이어, `--no-install-recommends`), CI `ai-test`는 녹화 코드 · 시험 · AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 시험을 돌림, 개발 · 운영 분석 작업자에 BE와 같은 버킷 · 앱 키(`S3_BUCKET` · `AWS_REGION` · `AWS_*`) 전달 | ffmpeg가 없으면 모든 합치기가 `MERGE_ERROR`, S3 설정이 없으면 `STORAGE_ERROR`가 된다. 앱 키 정책에 이미 `recordings/*` 읽기 · 쓰기와 `ListBucket`이 있어 새 IAM 키를 만들지 않는다. CI 설치는 필요한 MR에서만 해 다른 AI MR의 시간을 아낀다 |
+| 인프라 | 3.2 · 3.3 | 운영 대시보드 작성: 지표 대시보드를 전체 현황 · 서버 · 컨테이너 · BE · AI · LiveKit · Redis · PostgreSQL · FE 줄로 다시 구성, 로그 대시보드에 수준 필터 · 흐름별 오류 패널 추가. Redis · PostgreSQL exporter 추가(각 64m), cAdvisor 상한 256m → 384m. 3.2의 메모리 합계를 실제 상한 합으로 고침(5.2GB → 6.6GB) | 개발 대시보드를 복사한 상태라 이미 모으던 서버 · 컨테이너 · LiveKit 지표를 화면에서 볼 수 없었다. Redis가 차면 로그인이 막히는데 그 사용량을 볼 곳이 없었다. cAdvisor는 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써 강제 종료될 수 있었다 |

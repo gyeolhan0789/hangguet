@@ -1,5 +1,6 @@
 package com.ssafy.a301.result.controller;
 
+import com.ssafy.a301.common.web.CurrentUserId;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
 import com.ssafy.a301.result.service.ResultService;
@@ -7,8 +8,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,9 +34,9 @@ public class ResultController {
                     "RESULT_NOT_READY: 결과 생성 중·실패(ANALYZING·FAILED) · NO_RESULT: 답변 없이 끝남(ABORTED)")
     @GetMapping("/result")
     public ResultResponse result(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return results.result(userId(jwt), sessionId);
+        return results.result(userId, sessionId);
     }
 
     @Operation(
@@ -52,12 +51,8 @@ public class ResultController {
                     "RESULT_NOT_READY: 결과 생성 중·실패(ANALYZING·FAILED) · NO_RESULT: 답변 없이 끝남(ABORTED)")
     @GetMapping("/replay")
     public ReplayResponse replay(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return results.replay(userId(jwt), sessionId);
-    }
-
-    private static long userId(Jwt jwt) {
-        return Long.parseLong(jwt.getSubject());
+        return results.replay(userId, sessionId);
     }
 }

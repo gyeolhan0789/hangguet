@@ -1,5 +1,6 @@
 package com.ssafy.a301.common.idempotency;
 
+import com.ssafy.a301.common.crypto.Hashes;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
@@ -7,10 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.method.HandlerMethod;
@@ -127,15 +125,10 @@ public class IdempotencyInterceptor implements HandlerInterceptor {
     private static String fingerprint(HttpServletRequest request) {
         CachedBodyRequest cached = WebUtils.getNativeRequest(request, CachedBodyRequest.class);
         byte[] body = cached == null ? new byte[0] : cached.body();
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(
-                    (request.getMethod() + " " + request.getRequestURI() + "\n")
-                            .getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest.digest(body));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
-        }
+        return Hashes.sha256Hex(
+                (request.getMethod() + " " + request.getRequestURI() + "\n")
+                        .getBytes(StandardCharsets.UTF_8),
+                body);
     }
 
     private static void replay(HttpServletResponse response, IdempotencyRecord record)

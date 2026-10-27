@@ -1,5 +1,6 @@
 package com.ssafy.a301.inquiry.controller;
 
+import com.ssafy.a301.common.web.CurrentAdminId;
 import com.ssafy.a301.inquiry.domain.InquiryStatus;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.AdminInquiryListItem;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.AdminInquiryMessage;
@@ -16,8 +17,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -82,10 +81,10 @@ public class AdminInquiryController {
     @PostMapping("/inquiries/{inquiryId}/messages")
     @ResponseStatus(HttpStatus.CREATED)
     public AdminInquiryMessage answer(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentAdminId long adminId,
             @Parameter(description = ID, example = "7") @PathVariable long inquiryId,
             @Valid @RequestBody InquiryMessageRequest request) {
-        return service.answer(Long.parseLong(jwt.getSubject()), inquiryId, request.content());
+        return service.answer(adminId, inquiryId, request.content());
     }
 
     @Operation(
@@ -112,9 +111,9 @@ public class AdminInquiryController {
     @PatchMapping("/users/{userId}/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentAdminId long adminId,
             @Parameter(description = "회원 id", example = "12") @PathVariable long userId,
             @Valid @RequestBody AdminPasswordChangeRequest request) {
-        service.changeUserPassword(Long.parseLong(jwt.getSubject()), userId, request);
+        service.changeUserPassword(adminId, userId, request);
     }
 }

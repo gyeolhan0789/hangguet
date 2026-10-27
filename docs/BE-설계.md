@@ -1,6 +1,6 @@
 # A301 BE 설계
 
-> API 계약은 목 서버(`mock/`)의 Swagger(`/docs`)와 [API 명세](API-명세.md)가 기준이다. Swagger는 API별 요청·응답을, 명세 문서는 공통 규약·업무 규칙·보류 목록을 담는다. 이 문서는 그 API를 **어떻게 구현하는지**를 적는다.
+> API 계약은 백엔드(`backend/`)의 Swagger(`/docs`)와 [API 명세](API-명세.md)가 기준이다(1.x~9.x 모두 구현). Swagger는 API별 요청·응답을, 명세 문서는 공통 규약·업무 규칙·보류 목록을 담는다. 이 문서는 그 API를 **어떻게 구현하는지**를 적는다.
 > 표기: **[결정]** 팀에서 정한 것 · **[제안]** 이 문서가 제안하는 것(확정 전) · **[미정]** 보류 목록([API 명세 4장](API-명세.md#4-보류--확인-필요-b) B-번호)
 
 ## 1. 범위 · 스택
@@ -10,7 +10,7 @@
 | 런타임 | Java 21, Spring Boot 4.1.x |
 | 저장소 | PostgreSQL 18.x(영구 데이터), Redis(진행 중 상태·토큰·멱등 키·AI 작업 큐·결과 큐) |
 | 파일 | S3. DB에는 `object_key`만 저장 **[결정]** |
-| 면접방 | LiveKit 서버 API(입장 토큰 서명, 에이전트 배정, 방 삭제, Egress 녹화). 서버 SDK는 **[제안]**(LiveKit 공식 JVM SDK `io.livekit.server`) |
+| 면접방 | LiveKit 서버 API(입장 토큰 서명, 에이전트 배정, 방 삭제, Egress 녹화). 서버 SDK는 LiveKit 공식 JVM SDK `io.livekit:livekit-server` **[결정]**(5.6) |
 | AI 연동 | BE와 AI는 HTTP로 서로 부르지 않는다. Redis 작업 큐(`ai:jobs`)로 일을 넘기고 결과 큐(`ai:results`)로 돌려받는다. **DB는 BE만 다룬다** **[결정]**([AI 명세](AI-명세.md) 1장) |
 | 스키마 | Flyway `backend/src/main/resources/db/migration`. JPA는 `ddl-auto: validate`로 엔티티와 DDL이 어긋나면 기동 실패 |
 | 시간 | 저장은 `timestamptz`, 응답은 `+09:00`. "날짜"(연습일)는 한국 시간 면접 시작일 기준 **[결정]** |
@@ -21,7 +21,7 @@
 
 | 폴더 | 역할 |
 |---|---|
-| `mock/` | API별 요청·응답(Swagger)과 예시 응답. 실제 로직·DB 없음. FE가 실제 백엔드 완성 전에 붙여 개발 |
+| `mock/` | API별 요청·응답(Swagger)과 예시 응답. 실제 로직·DB 없음. 백엔드가 모두 구현돼 지금은 예시 확인용(12장에서 정리 예정) |
 | `backend/` | 실제 백엔드. DB 스키마·도메인·DTO·Mapper와 API 구현(구현 현황은 아래) |
 
 두 폴더 모두 패키지는 `com.ssafy.a301`이고, 포맷·정적 분석 규칙이 같다. API를 `backend/`에 구현하면 그 API는 `backend/`의 Swagger가 기준이 되고, 모두 구현되면 `mock/`의 Controller·Swagger 설정을 `backend/`로 옮긴 뒤 `mock/`을 지운다 **[결정]**.
@@ -34,7 +34,7 @@ com.ssafy.a301
 │  ├─ controller   AuthController
 │  ├─ service      AuthService
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
-│  ├─ jwt          AccessTokens, AuthProperties
+│  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
 │  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore
 │  └─ config       SecurityConfig
 ├─ user
@@ -65,7 +65,8 @@ com.ssafy.a301
 │  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9·5.14), AnswerService(5.7 채팅),
 │  │               InterviewSessionListService(5.13·5.15), InterviewStatsService(연습 면접 수·시간 집계, 3.x·5.13·7.1에서 같이 씀),
 │  │               AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
-│  │               AiJobMessages(작업 메시지), AiResultConsumer·AiResultService(결과 큐 처리)
+│  │               AiJobMessages(작업 메시지), AiJobEnqueued(커밋 뒤 큐 전송 이벤트),
+│  │               AiResultConsumer·AiResultService(결과 큐 처리), InvalidAiResultException(저장할 수 없는 결과 메시지)
 │  ├─ dto          InterviewDtos, AiResultMessage
 │  ├─ mapper       InterviewMapper
 │  ├─ repository   InterviewSessionRepository, InterviewQuestionRepository, InterviewPlanRepository, AnswerRepository,
@@ -114,7 +115,11 @@ com.ssafy.a301
 ├─ common/error    ErrorCode, ApiException, FieldValidationException, GlobalExceptionHandler,
 │                  FilterExceptionFilter·ProblemResponses(보안 필터에서 난 오류도 같은 실패 응답으로)
 ├─ common/validation  SupportedDate·SupportedMonth(조회 날짜·월 범위 0001~9999년, 5.13·5.15·3.3·7.1)
-├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
+├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore,
+│                  IdempotencyRecord(저장 값), CachedBodyRequest(지문용 요청 본문)
+├─ common/time     KoreaTime(서비스 시간대 Asia/Seoul. now·today·startOfDay·dateOf)
+├─ common/web      CurrentUserId·CurrentAdminId(컨트롤러 인자로 로그인 id 받기)
+├─ common/crypto   Hashes(SHA-256 hex. 토큰 Redis 키·멱등성 지문)
 └─ config          OpenApiConfig, SchedulingConfig
 ```
 
@@ -163,7 +168,7 @@ com.ssafy.a301
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
-- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(홈·통계), `ix_interview_sessions_application`(지원서 사용 여부), `uk_interview_questions_session_seq`(질문 순서 중복 방지)
+- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(지원서 사용 여부), `uk_interview_questions_session_seq`(질문 순서 중복 방지)
 
 ## 4. 면접 상태 전이
 
@@ -314,6 +319,7 @@ com.ssafy.a301
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 2.3 · 9.10 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
+| `ai:jobs:processing` | List. 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 길이만 지표로 본다(`AiQueueMetrics`) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
@@ -380,3 +386,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변별 음성(B-19)
+4. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다

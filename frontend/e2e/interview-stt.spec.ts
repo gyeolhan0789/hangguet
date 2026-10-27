@@ -30,7 +30,11 @@ test.beforeEach(async ({ page, signIn, msw }) => {
   );
 });
 
-test("입장 토큰 발급 실패를 표시하고 다시 연결을 요청할 수 있다", async ({ page, msw }) => {
+// 기준: Figma S06-F(18:4323 '면접이 잠시 멈췄어요' · [다시 시도]) · 웹 Swagger 5.14(끊기면 입장 정보를 다시 받아 재접속)
+test("입장 토큰 발급에 실패하면 '면접이 잠시 멈췄어요'를 띄우고 [다시 시도]로 다시 입장을 요청한다", async ({
+  page,
+  msw,
+}) => {
   let requests = 0;
   msw.use(
     http.post(api("/interview-sessions/:sessionId/room-token"), () => {
@@ -44,13 +48,12 @@ test("입장 토큰 발급 실패를 표시하고 다시 연결을 요청할 수
     }),
   );
   await page.goto(`/interview/${SESSION_INTERVIEW.IN_PROGRESS.id}`);
-  await expect(page.getByLabel("내 답변 음성 인식").getByRole("alert")).toContainText(
-    "음성 인식에 연결하지 못했어요.",
-  );
+  const paused = page.getByRole("alertdialog", { name: "면접이 잠시 멈췄어요" });
+  await expect(paused).toBeVisible();
   expect(requests).toBe(1);
-  await page.getByRole("button", { name: "다시 연결" }).click();
+  await paused.getByRole("button", { name: "다시 시도" }).click();
   await expect.poll(() => requests).toBe(2);
-  await expect(page.getByLabel("내 답변 음성 인식")).toBeVisible();
+  await expect(page.getByLabel("내 답변 음성 인식")).toBeAttached();
 });
 
 test("마이크를 LiveKit으로 송출하고 에이전트가 보낸 텍스트를 표시한다", async ({

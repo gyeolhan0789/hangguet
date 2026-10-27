@@ -30,8 +30,11 @@ const MARK: Partial<Record<SessionResponse["persona"], string>> = {
 export function TopBar({
   session,
   question,
+  uiHidden = false,
 }: {
   session: SessionResponse;
+  /** 화면 숨기기(눈 버튼) 중: [면접 종료]만 남긴다(사용자 요청 2026-10-27) */
+  uiHidden?: boolean;
   /** 5.5 지금 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
 }) {
@@ -45,7 +48,7 @@ export function TopBar({
   return (
     // 좁은 화면에서는 진행 표시가 두 번째 줄로 내려간다(Figma는 1440 폭 한 장뿐이다).
     <div className="relative z-10 flex flex-wrap items-start justify-between gap-3 px-4 pt-5 md:px-6">
-      <div className={`${pill} min-w-0 gap-2.5 px-4 py-2.5`}>
+      <div className={`${pill} min-w-0 gap-2.5 px-4 py-2.5 ${uiHidden ? "invisible" : ""}`}>
         {mark && (
           <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-brand-strong">
             <Image src={mark} alt="" width={14} height={14} />
@@ -60,7 +63,7 @@ export function TopBar({
       </div>
 
       <div
-        className={`${pill} order-last h-11 w-full justify-center gap-3.5 px-[18px] md:absolute md:top-5 md:left-1/2 md:order-none md:w-[360px] md:-translate-x-1/2`}
+        className={`${pill} order-last h-11 w-full justify-center gap-3.5 px-[18px] md:absolute md:top-5 md:left-1/2 md:order-none md:w-[360px] md:-translate-x-1/2 ${uiHidden ? "invisible" : ""}`}
       >
         <ProgressPill seq={seq} />
         <Elapsed

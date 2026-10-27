@@ -5,13 +5,13 @@ import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.user.domain.PasswordChange;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.dto.UserDtos.PasswordChangeResponse;
 import com.ssafy.a301.user.repository.PasswordChangeRepository;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,7 +27,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class PasswordChangeService {
     private static final Logger LOG = LoggerFactory.getLogger(PasswordChangeService.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UserRepository users;
     private final PasswordChangeRepository changes;
@@ -70,7 +69,7 @@ public class PasswordChangeService {
                             user.changePasswordHash(passwords.encode(newPassword));
                             // 잠금을 얻은 뒤의 시각을 쓴다. 리프레시 토큰의 로그인 시각은 밀리초 단위라 같은 단위로 맞춘다
                             OffsetDateTime changedAt =
-                                    OffsetDateTime.now(KST).truncatedTo(ChronoUnit.MILLIS);
+                                    KoreaTime.now().truncatedTo(ChronoUnit.MILLIS);
                             changes.save(PasswordChange.byUser(userId, changedAt));
                             return new UserChange(user.getNickname(), changedAt);
                         });
@@ -95,8 +94,7 @@ public class PasswordChangeService {
                                     .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
                     user.changePasswordHash(passwords.encode(newPassword));
                     changes.save(
-                            PasswordChange.byAdmin(
-                                    userId, adminId, inquiryId, OffsetDateTime.now(KST)));
+                            PasswordChange.byAdmin(userId, adminId, inquiryId, KoreaTime.now()));
                 });
         revokeAll(userId);
     }

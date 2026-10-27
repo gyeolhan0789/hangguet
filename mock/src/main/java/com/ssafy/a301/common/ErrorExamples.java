@@ -12,6 +12,13 @@ public final class ErrorExamples {
               "errors": [ { "field": "password", "reason": "8~64자, 영문과 숫자를 모두 포함해야 합니다." } ] }\
             """;
 
+    public static final String PROFILE_IMAGE_KEY_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
+              "instance": "/api/v1/users/me/profile-image", "code": "VALIDATION_FAILED",
+              "errors": [ { "field": "objectKey", "reason": "본인에게 발급된 키가 아닙니다." } ] }\
+            """;
+
     public static final String LOGIN_FAILED =
             """
             { "title": "Unauthorized", "status": 401, "detail": "이메일 또는 비밀번호를 확인해 주세요.",

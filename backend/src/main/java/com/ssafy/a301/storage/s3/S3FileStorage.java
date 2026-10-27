@@ -1,7 +1,7 @@
 package com.ssafy.a301.storage.s3;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -11,7 +11,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 /** S3 파일 접근. DB에는 object key만 저장하고 주소는 요청마다 만든다(BE 설계 10장). */
 @Component
 public class S3FileStorage {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final S3Client s3;
     private final S3Presigner presigner;
@@ -36,7 +35,8 @@ public class S3FileStorage {
                                                                 .contentType(contentType)
                                                                 .contentLength(size)));
         return new PresignedUrl(
-                presigned.url().toString(), OffsetDateTime.ofInstant(presigned.expiration(), KST));
+                presigned.url().toString(),
+                OffsetDateTime.ofInstant(presigned.expiration(), KoreaTime.ZONE));
     }
 
     /** 키가 없으면(파일을 등록하지 않았으면) null */

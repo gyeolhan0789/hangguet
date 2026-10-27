@@ -11,8 +11,7 @@ import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.repository.NoticeRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import com.ssafy.a301.common.time.KoreaTime;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PagedModel;
@@ -25,7 +24,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class AdminNoticeService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // 최근 작성 순. 같은 시각이면 id로 순서를 고정한다
     private static final Sort RECENT_FIRST =
             Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
@@ -86,8 +84,7 @@ public class AdminNoticeService {
     }
 
     public void delete(long noticeId) {
-        transactions.executeWithoutResult(
-                status -> editable(noticeId).delete(OffsetDateTime.now(KST)));
+        transactions.executeWithoutResult(status -> editable(noticeId).delete(KoreaTime.now()));
     }
 
     private Notice editable(long noticeId) {

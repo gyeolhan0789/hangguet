@@ -234,7 +234,7 @@ class InterviewSessionIntegrationTest {
         assertThat((List<Map<String, Object>>) assignment.getValue().get("questions"))
                 .extracting(question -> question.get("seq"))
                 .containsExactly(1, 2, 3, 4, 5);
-        // 질문 행은 에이전트가 질문을 말할 때 생긴다(B-16)
+        // 질문 행은 에이전트가 질문을 말할 때 생긴다(API 명세 5.4)
         assertThat(questions.findFirstBySessionIdOrderBySeqDesc(sessionId)).isEmpty();
         mvc.perform(as(user, get(start.replace("/start", ""))))
                 .andExpect(jsonPath("$.room").doesNotExist());

@@ -10,9 +10,9 @@
 | `compose.yml` | 운영 서비스 전체(프로젝트 `a301-prod`, 네트워크 `a301-prod`) |
 | `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis). 키는 환경 변수 `LIVEKIT_KEYS` |
 | `nginx.conf` | `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙). Swagger 경로는 404 |
-| `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress를 더 모은다 |
+| `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress · Redis · PostgreSQL을 더 모은다 |
 | `loki.yml` · `alloy.alloy` | 로그 수집(Alloy가 `a301-prod-*` 컨테이너 로그를 Loki에 7일 보관). 개발 서버와 같고 보관 기간 · 이름만 다르다 |
-| `grafana/` | 데이터 소스(Prometheus · Loki) · 대시보드(앱 대시보드, **A301 운영 서버 로그**. 개발 서버 것을 복사, uid · 제목만 다름) |
+| `grafana/` | 데이터 소스(Prometheus · Loki) · 대시보드 **A301 운영 서버**(지표) · **A301 운영 서버 로그**(아래 「대시보드」) |
 | `backup.sh` | 매일 DB 백업(`pg_dump` → S3 `backup/`). 서버 cron이 `/opt/a301/backup.sh`를 실행한다 |
 | `deploy.sh` | 운영 배포 스크립트. CI `prod-deploy`가 실행한다(아래 「배포」) |
 
@@ -25,6 +25,7 @@
 | `a301-prod-nginx` · `-cloudflared` | 공식 이미지 | 없음(Tunnel이 밖으로 나가는 연결만 씀) |
 | `a301-prod-livekit` · `-egress` | `livekit/livekit-server:v1.13.10` · `livekit/egress:v1.15.0` | LiveKit만 7881/tcp · 7882/udp · 3478/udp · 443/tcp |
 | `a301-prod-prometheus` · `-blackbox` · `-node-exporter` · `-cadvisor` · `-grafana` | 공식 이미지 | 없음(Grafana는 Tunnel) |
+| `a301-prod-redis-exporter` · `-postgres-exporter` | `oliver006/redis_exporter:v1.93.0` · `quay.io/prometheuscommunity/postgres-exporter:v0.20.1` | 없음 |
 | `a301-prod-loki` · `-alloy` | `grafana/loki:3.7.8` · `grafana/alloy:v1.20.1`(개발 서버와 같음) | 없음 |
 
 Cloudflare Tunnel(`a301-prod`)의 호스트 이름은 컨테이너 이름을 가리킨다(Cloudflare 대시보드에서 설정, 배포 계획 5.1).
@@ -65,9 +66,34 @@ develop → Release MR → master 병합
 
 서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`
 
-## 로그 보기
+## 대시보드
 
-https://grafana.hangguet.co.kr → A301 → **A301 운영 서버 로그**. 팀원은 Viewer 계정으로 본다(배포 계획 3.3). 사용법은 개발 서버와 같다([`deploy/dev/monitoring/README.md`](../dev/monitoring/README.md) 「로그 보기」). 로그에 개인정보(이메일 · 자소서 · 답변 원문 · 토큰)를 남기지 않는 것이 조건이다.
+https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(배포 계획 3.3). 대시보드는 `grafana/dashboards/` 파일에서 자동 등록되고 화면에서는 고칠 수 없다. 파일을 고쳐 배포하면 Grafana가 다시 시작되며 반영된다.
+
+**A301 운영 서버**(지표, 30초마다 새로 고침). 위에서부터 줄(row) 단위로 본다.
+
+| 줄 | 보는 것 | 출처(job) |
+|---|---|---|
+| 전체 현황 | FE · BE · AI 상태, 서버 CPU · 메모리 · 디스크 %, Redis 메모리 %, 면접방 · 참가자 · 녹화 수, DB 연결 %, 메모리 초과 종료 수, 지표 수집 실패 수. 70% 노랑 · 85% 빨강 | 여러 곳 |
+| 서버 | CPU(용도별) · load average · 메모리 · 디스크 남은 용량 · 디스크 읽기/쓰기 · 서버 네트워크 | `a301-node`, 네트워크만 `a301-cadvisor` |
+| BE · AI | 개발 서버와 같은 패널(요청 · 5xx · 응답 시간 · DB 풀 · JVM · AI 큐 · AI 실패) | `a301-be` · `a301-health` |
+| LiveKit · 녹화 | 면접방 · 참가자 · 녹화 수, 패킷 손실률, RTT · 지터 p95, 입장 실패 · 녹화 결과 | `a301-livekit` · `a301-egress` |
+| Redis | 메모리(상한 192MB 대비) · 연결 · 명령/초 · 키 수 · 오류(OOM) | `a301-redis` |
+| PostgreSQL | 연결 수(상태별) · 트랜잭션/초 · DB 크기 · 캐시 적중률 · 가장 오래 열린 트랜잭션 · 잠금 · 교착 | `a301-postgres` |
+| FE | 첫 화면 응답 시간 · 실패(서버 쪽 검사) | `a301-fe-page` |
+| 컨테이너 | 컨테이너별 CPU · 메모리 · 메모리 상한(`mem_limit`) 대비 · 네트워크 · 가동 시간 · 재시작/메모리 초과 종료 | `a301-cadvisor` |
+
+- 서버 네트워크는 cAdvisor의 호스트 값(`id="/"`, Docker 브리지 · veth 제외)으로 본다. node-exporter는 컨테이너 네트워크 안에 있어 자기 네트워크만 보이기 때문이다
+- 면접이 없으면 LiveKit 패킷 · 지연 패널은 「면접 트래픽 없음」으로 비어 있다
+- 컨테이너 재시작은 같은 컨테이너가 다시 뜬 횟수다. 배포로 새로 만든 컨테이너는 「가동 시간」이 짧아지는 것으로 본다
+- postgres-exporter는 앱과 같은 DB 계정(`a301`, `DB_PASSWORD`)으로 통계 뷰만 읽는다
+
+**A301 운영 서버 로그**(Loki, 7일 보관). 사용법은 개발 서버와 같고([`deploy/dev/monitoring/README.md`](../dev/monitoring/README.md) 「로그 보기」) 아래가 더 있다.
+
+- 위의 **수준**에서 전체 · 오류 · 경고 이상을 고른다(아래 「로그」 패널에 적용)
+- 흐름별 오류 · 경고: BE(예외 스택 포함), 면접 진행(AI 에이전트), 분석 작업, 미디어 · 녹화(LiveKit · Egress), Nginx 5xx 응답, 기동 · 재시작 로그
+
+로그에 개인정보(이메일 · 자소서 · 답변 원문 · 토큰)를 남기지 않는 것이 조건이다.
 
 ## 서버에 미리 해 둔 것
 
@@ -89,4 +115,5 @@ https://grafana.hangguet.co.kr → A301 → **A301 운영 서버 로그**. 팀�
 
 ## 아직 없는 것
 
-- FE 지표(`A301_DEV_MONITORING`)는 개발 서버에서만 켠다. 그래서 대시보드의 FE 지표 패널은 운영에서 비어 있다
+- FE 지표(`A301_DEV_MONITORING`)는 개발 서버에서만 켠다. 그래서 운영 대시보드에는 브라우저 오류 · Web Vitals 패널이 없다
+- 알림(디스크 · 메모리 임계치)은 배포 계획 3.3에서 [미정]이다. 지금은 대시보드 색으로만 본다
