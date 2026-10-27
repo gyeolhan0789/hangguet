@@ -31,6 +31,8 @@ from app.interview.scoring.job import (
     gms_score_chat,
     register_score_answer_handler,
 )
+from app.recording.job import RecordingMerger, register_merge_recording_handler
+from app.recording.storage import create_s3_storage
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import ReceiveResult, RedisJobQueue
 
@@ -66,7 +68,8 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     """작업 종류별 처리 함수를 등록한 분배기를 생성한다.
 
     처리 함수는 그 작업 종류를 구현하는 변경에서 이 함수에 등록하고, 결과는 results로 전송한다.
-    AI는 DB에 접속하지 않으므로 처리 함수에 넘기는 출력 수단은 결과 전송기 하나다(AI 명세 1장).
+    AI는 DB에 접속하지 않으므로 처리 함수에 넘기는 출력 수단은 결과 전송기다(AI 명세 1장).
+    녹화 합치기만 합친 mp4를 녹화 저장소(S3)에 업로드하고 위치를 결과 메시지로 전달한다.
     등록 전에 도착한 작업은 처리 중 리스트에 남아 등록 뒤 재시작할 때 처리된다.
     """
     dispatcher = Dispatcher()
@@ -78,6 +81,10 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     register_evaluate_handler(
         dispatcher,
         EvaluateJobHandler(results, gms_score_chat(client), gms_feedback_chat(client)),
+    )
+    register_merge_recording_handler(
+        dispatcher,
+        RecordingMerger(functools.cache(lambda: create_s3_storage(settings)), results),
     )
     return dispatcher
 

@@ -2,6 +2,7 @@ package com.ssafy.a301.growth.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.growth.dto.GrowthDtos.CriterionReview;
 import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
 import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
@@ -19,8 +20,6 @@ import com.ssafy.a301.interview.service.InterviewStatsService;
 import com.ssafy.a301.interview.service.InterviewStatsService.DailyPractice;
 import com.ssafy.a301.practice.service.PracticeService;
 import java.time.LocalDate;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -46,8 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class GrowthReviewService {
+    /** 오른 기준이 없는 날의 최근 성장 리뷰 표시. "전달력 +0"(사용자 결정 2026-10-27) */
+    private static final Improvement NOTHING_IMPROVED = new Improvement(Criterion.DELIVERY, 0);
+
     private static final Logger LOG = LoggerFactory.getLogger(GrowthReviewService.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int HOME_RECENT_REVIEWS = 2;
 
     private final InterviewSessionRepository sessions;
@@ -135,7 +136,7 @@ public class GrowthReviewService {
     @Transactional(readOnly = true)
     public PagedModel<RecentReviewItem> recent(long userId, int page, int size) {
         List<RecentReviewItem> items =
-                recentItems(reviewDays(userId, LocalDate.now(KST).plusDays(1)));
+                recentItems(reviewDays(userId, KoreaTime.today().plusDays(1)));
         PageRequest pageable = PageRequest.of(page, size);
         long from = Math.min(pageable.getOffset(), items.size());
         int to = (int) Math.min(from + size, items.size());
@@ -165,13 +166,19 @@ public class GrowthReviewService {
                 recent.subList(0, Math.min(HOME_RECENT_REVIEWS, recent.size())));
     }
 
-    /** 리뷰가 있는 날을 최근 날짜 순으로. 기준·변화량은 그날 가장 많이 오른 기준이고, 오른 기준이 없으면 null */
+    /**
+     * 리뷰가 있는 날을 최근 날짜 순으로. 기준·변화량은 그날 가장 많이 오른 기준이다. 첫 연습일이면 비교할 날이 없어 null이고, 오른 기준이 없으면 전달력
+     * +0이다(사용자 결정 2026-10-27)
+     */
     private static List<RecentReviewItem> recentItems(List<ReviewDay> days) {
         List<RecentReviewItem> items = new ArrayList<>();
         for (int i = days.size() - 1; i >= 0; i--) {
             ReviewDay day = days.get(i);
-            List<Improvement> improved = i > 0 ? improvements(day, days.get(i - 1)) : List.of();
-            Improvement best = improved.isEmpty() ? null : improved.get(0);
+            Improvement best = null;
+            if (i > 0) {
+                List<Improvement> improved = improvements(day, days.get(i - 1));
+                best = improved.isEmpty() ? NOTHING_IMPROVED : improved.get(0);
+            }
             items.add(GrowthMapper.toRecentReviewItem(day.date(), day.last(), best));
         }
         return items;
@@ -192,7 +199,8 @@ public class GrowthReviewService {
 
     private List<ReviewDay> reviewDays(long userId, LocalDate until) {
         List<InterviewSession> found =
-                sessions.findReviewSessions(userId, SessionStatus.COMPLETED, startOf(until));
+                sessions.findReviewSessions(
+                        userId, SessionStatus.COMPLETED, KoreaTime.startOfDay(until));
         if (found.isEmpty()) {
             return List.of();
         }
@@ -214,8 +222,7 @@ public class GrowthReviewService {
                 continue;
             }
             byDate.computeIfAbsent(
-                            session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
-                            ignored -> new ArrayList<>())
+                            KoreaTime.dateOf(session.getStartedAt()), ignored -> new ArrayList<>())
                     .add(session);
         }
         List<ReviewDay> days = new ArrayList<>();
@@ -278,9 +285,5 @@ public class GrowthReviewService {
         if (score != null && text != null && !text.isBlank()) {
             byScore.computeIfAbsent(score, ignored -> new LinkedHashSet<>()).add(text.strip());
         }
-    }
-
-    private static OffsetDateTime startOf(LocalDate date) {
-        return date.atStartOfDay(KST).toOffsetDateTime();
     }
 }

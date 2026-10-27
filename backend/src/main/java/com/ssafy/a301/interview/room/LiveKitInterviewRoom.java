@@ -2,6 +2,7 @@ package com.ssafy.a301.interview.room;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import io.livekit.server.AccessToken;
@@ -17,7 +18,6 @@ import io.livekit.server.RoomService;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -44,7 +44,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class LiveKitInterviewRoom implements InterviewRoom {
     private static final Logger LOG = LoggerFactory.getLogger(LiveKitInterviewRoom.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final JsonMapper JSON = JsonMapper.builder().build();
     // 호출 하나의 시간 제한(BE 설계 5.2). 5.4는 면접 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
@@ -105,7 +104,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         if (video) {
             token.addGrants(new CanPublishSources(List.of("camera", "microphone")));
         }
-        OffsetDateTime expiresAt = OffsetDateTime.now(KST).plus(tokenTtl);
+        OffsetDateTime expiresAt = KoreaTime.now().plus(tokenTtl);
         return new RoomResponse(url, token.toJwt(), expiresAt);
     }
 

@@ -30,7 +30,8 @@ public final class InterviewDtos {
     @Schema(
             description =
                     "면접 상태. READY 시작 전 · IN_PROGRESS 면접 중 · ANALYZING 결과 생성 중 · COMPLETED 결과 있음 ·"
-                            + " ABORTED 답변 없이 끝남 · FAILED 결과 생성 실패 · START_FAILED 배정 거절로 시작 못 함")
+                        + " ABORTED 답변 없이 끝남 · FAILED 결과 생성 실패 · START_FAILED 배정 거절로 시작 못 함(예정. 실제"
+                        + " 백엔드는 아직 주지 않음)")
     public enum SessionStatus {
         READY,
         IN_PROGRESS,

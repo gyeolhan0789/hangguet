@@ -1,10 +1,10 @@
 package com.ssafy.a301.practice.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.practice.domain.PracticeLog;
 import com.ssafy.a301.practice.domain.Streak;
 import com.ssafy.a301.practice.repository.PracticeLogRepository;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class PracticeService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int RECENT_DAYS = 7;
 
     private final PracticeLogRepository practiceLogs;
@@ -37,7 +36,7 @@ public class PracticeService {
     /** 한국 시간 오늘 기준 현재 스트릭 */
     @Transactional(readOnly = true)
     public int currentStreak(long userId) {
-        return Streak.current(practiceLogs.findPracticeDatesByUserId(userId), LocalDate.now(KST));
+        return Streak.current(practiceLogs.findPracticeDatesByUserId(userId), KoreaTime.today());
     }
 
     /** 그날 포함 최근 7일 중 연습한 날, 날짜 오름차순 */

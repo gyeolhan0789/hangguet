@@ -169,10 +169,10 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-ai-analysis` | Redis 큐 작업(PLAN · SCORE_ANSWER · EVALUATE) + 녹화 합치기(ffmpeg). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. 에이전트와 같은 이미지를 `python -m app.worker`로 띄운다(개발 `a301-dev-ai-analysis`도 같은 모양, 10/26 추가). 지금 처리하는 작업은 PLAN · SCORE_ANSWER이고 나머지는 처리 코드가 배포될 때까지 큐에 남는다. HTTP가 없어 헬스체크는 컨테이너 안에서 Redis 연결로 한다. **컨테이너를 늘리지 않는다**: 처리 중 리스트를 작업자끼리 공유해, 늘리면 재시작 때 다른 작업자의 작업까지 되돌려 중복 처리된다. 늘리려면 AI 코드 변경이 먼저다 | 없음 | 256m **[제안]** 실측 |
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
-| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름이라 같은 대시보드를 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.3g |
+| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.5g(cAdvisor 384m) |
 | `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
-AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
+AI 두 컨테이너를 뺀 합계 약 6.6GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
 - 왜 외부 노출을 LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Tunnel로만 들어온다
 - 왜 AI 메모리는 [미정]인가: 에이전트는 면접마다 프로세스가 늘고, 분석 작업자는 라이브러리가 정해지지 않았다. 추측으로 잡으면 강제 종료가 나거나 메모리를 낭비하므로 실측해서 정한다
@@ -185,6 +185,7 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
 | node-exporter | 서버 CPU · 메모리 · 디스크 · 네트워크 |
 | cAdvisor | 컨테이너별 CPU · 메모리(어느 서비스가 무거운지) |
 | LiveKit · Egress 내장 지표 | 면접방 · 참가자 수, 패킷 손실, 녹화 상태. `livekit.yaml`의 `prometheus_port`로 내보낸다 |
+| redis_exporter · postgres_exporter | Redis 메모리(상한 대비) · 연결 · 오류, PostgreSQL 연결 · 트랜잭션 · 크기 · 잠금(10/27 추가) |
 | Grafana | 대시보드. `grafana.hangguet.co.kr`을 Tunnel로 열고 **Grafana 자체 로그인**(아이디 · 비밀번호)으로 막는다 **[결정]** |
 
 - 의도: 서버 한 대에 모든 서비스가 있으므로, 느려졌을 때 "어느 컨테이너 때문인지"를 바로 알아야 한다. 그래야 그 서비스만 떼어 낼지(MSA) 판단할 수 있다(1.1)
@@ -200,6 +201,9 @@ AI 두 컨테이너를 뺀 합계 약 5.2GB다. 나머지를 AI · OS · 러너�
     - 왜: 6명 모두 이 서비스를 만드는 개발자라 운영 문제를 직접 봐야 빨리 고친다. 무료 Grafana(OSS)는 데이터 소스별 권한이 없어 대시보드를 숨겨도 계정이 있으면 Loki를 조회할 수 있으므로, 일부만 보게 하는 설정은 실제로 막히지 않는다. 실제 사용자가 많아지면 운영 Grafana 계정을 인프라만 갖게 좁힌다
   - 운영도 첫 배포에 넣는다(`deploy/prod/compose.yml`의 `a301-prod-loki` · `a301-prod-alloy`, 대시보드 **A301 운영 서버 로그**). 왜: 첫 배포에서 생기는 문제를 보려면 로그가 필요하다
   - 개발 서버에 먼저 넣었다([`deploy/dev/monitoring`](../../deploy/dev/monitoring/README.md)). 로컬 시험에서 Loki 약 65MB · Alloy 약 50MB. 운영은 같은 모양으로 `deploy/prod/compose.yml`에 넣는다
+- 대시보드 구성(10/27): **A301 운영 서버**는 전체 현황 → 서버 → BE · AI → LiveKit · 녹화 → Redis → PostgreSQL → FE → 컨테이너 순서의 줄로 나누고(컨테이너별 상세는 원인을 좁힐 때만 보므로 맨 아래), **A301 운영 서버 로그**는 흐름별 오류 · 전체 로그로 나눈다. 자세한 패널은 [`deploy/prod/README.md`](../../deploy/prod/README.md) 「대시보드」
+  - 왜 Redis · PostgreSQL exporter를 넣었나: Redis는 `noeviction`이라 메모리가 차면 쓰기를 거부해 로그인 · 면접이 막히는데, cAdvisor는 컨테이너 메모리만 보여 Redis 상한(192MB) 대비 사용량을 알 수 없다. DB도 HikariCP 풀만으로는 DB 쪽 연결 · 잠금 · 긴 트랜잭션을 볼 수 없다. 둘 다 64MB 상한이다
+  - 운영 대시보드에서 FE 브라우저 지표 패널은 뺐다. 운영은 FE 지표를 켜지 않아 늘 비어 있기 때문이다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**
 
 ## 4. 미디어 서버 (LiveKit)
@@ -393,7 +397,7 @@ IAM 역할을 못 쓰므로 IAM 사용자 키를 서버에 둔다. 키마다 권
 | 역할 | 운영 사용자 · 정책 | 개발 사용자 · 정책 | 변수 이름(운영 `prod/*`, 개발 `dev/*`) | 쓰는 곳 |
 |---|---|---|---|---|
 | 녹화 | `a301-prod-egress` · `a301-prod-egress-s3` | `livekit-egress-dev` | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | BE가 녹화 요청에 담아 Egress에 넘김(4.3) |
-| 앱 | `a301-prod-app` · `a301-prod-app-s3` | `a301-dev-app` · `a301-dev-app-s3` | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | BE 프로필 사진(Presigned URL). 나중에 AI 녹화 합치기 · 백업 스크립트 |
+| 앱 | `a301-prod-app` · `a301-prod-app-s3` | `a301-dev-app` · `a301-dev-app-s3` | `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | BE 프로필 사진(Presigned URL), AI 분석 작업자 녹화 합치기(`recordings/raw/` 읽기 · 합친 mp4 쓰기), 백업 스크립트 |
 
 | 정책 | 허용 |
 |---|---|
@@ -426,7 +430,7 @@ Docker Hub는 액세스 토큰을 권한별로 나눈다 **[제안]**: push용(R
 
 GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`. 개발 서버와 **다른 값**을 쓴다 **[결정]**. 왜: 개발 서버 값이 새도 운영에는 영향이 없고, Protected라 보호 브랜치(master) 파이프라인에서만 읽힌다.
 
-**예외: 개발과 같은 값(범위 All)** **[결정]**: 관리자 계정(`ADMIN_LOGIN_ID` · `ADMIN_PASSWORD`), `GRAFANA_ADMIN_PASSWORD`, 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `LLM_API_KEY`). 모두 Protected라 보호 브랜치 파이프라인에서만 읽힌다.
+**예외: 개발과 같은 값(범위 All)** **[결정]**: 관리자 계정(`ADMIN_LOGIN_ID` · `ADMIN_PASSWORD`), `GRAFANA_ADMIN_PASSWORD`, 외부 API 키(`SONIOX_API_KEY` · `ELEVENLABS_API_KEY` · `JEV_API_KEY` · `LLM_API_KEY`). 모두 Protected라 보호 브랜치 파이프라인에서만 읽힌다.
 
 - 왜: 관리자 · Grafana는 팀이 한 계정으로 두 환경을 같이 관리한다. 외부 API 키는 서비스마다 키를 하나로 쓴다(GMS처럼 더 받을 수 없는 키도 있다)
 - 대가: 개발 쪽에서 값이 새면 운영도 같이 바꿔야 한다. 외부 API는 개발 사용량과 운영이 한도를 나눠 쓴다
@@ -439,13 +443,14 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` | O(아이디는 기동 로그에 찍혀 Masked 안 함) | BE 관리 페이지 계정. 처음 기동할 때 계정이 없으면 만든다. 범위 All(위 예외) |
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | livekit, BE(입장 토큰 서명), AI 에이전트 |
 | `SONIOX_API_KEY` | O | AI 에이전트. STT 실행 필수이며 브라우저에 전달하지 않는다 |
-| `ELEVENLABS_API_KEY` · `JEV_API_KEY` | O | AI 에이전트 연결 예정. 현재 AI 공통 설정의 변수 이름 |
+| `ELEVENLABS_API_KEY` | O | AI 에이전트(질문 음성). 없으면 질문 글로만 진행한다. 범위 All(위 예외) |
+| `JEV_API_KEY` | O | AI 에이전트(답변 리액션). 없으면 리액션 없이 진행한다. 범위 All(위 예외) |
 | `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`company-pipeline/pipeline/README.md`](../../company-pipeline/pipeline/README.md))과 같게 한다 |
 | `CLOUDFLARE_TUNNEL_TOKEN` | O | cloudflared |
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
 | `GRAFANA_ADMIN_PASSWORD` | O | Grafana(개발 · 운영 같은 이름, 범위 All). Grafana 볼륨을 처음 만들 때만 적용된다 |
 | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | O | BE(녹화 요청에 담아 Egress에 넘김). IAM `a301-prod-egress`(6.2) |
-| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | O | BE(프로필 사진), 나중에 AI 분석 작업자 · 백업 스크립트. IAM `a301-prod-app`(6.2) |
+| `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY` | O | BE(프로필 사진), AI 분석 작업자(녹화 합치기) · 백업 스크립트. IAM `a301-prod-app`(6.2) |
 | `DOCKERHUB_PUSH_TOKEN` | O | 이미지 빌드 작업(미니PC 러너)만. 이 작업에도 `prod/` 환경 이름을 붙여야 읽힌다(8.1) |
 | `DOCKERHUB_PULL_TOKEN` | O | Lightsail 배포 작업만 |
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
@@ -553,7 +558,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
 - [x] 운영 배포 파일 [`deploy/prod/`](../../deploy/prod/README.md): `compose.yml` · `livekit.yaml` · Egress 설정(compose의 `EGRESS_CONFIG_BODY`) · `nginx.conf` · `prometheus.yml` · Grafana 설정 · `backup.sh`. 서버에서 compose · Nginx · Prometheus 설정 검사와 LiveKit · Egress 시험 기동까지 함
 - [x] 서버 준비(10/26): 공개 이미지 미리 받기, 백업 스크립트 · cron, 시험 이미지 정리
-- [ ] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
+- [x] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`(10/27 대시보드에서 확인)
 - [x] CI 작업 작성: `prod-build`(자동) · `prod-deploy`(▶ 버튼, `deploy/prod/deploy.sh`), `workflow`에 master push 허용(8.1). **아직 실행 전**: 첫 Release MR에서 확인한다
 - [x] 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수)
 - [ ] 러너 토큰(`a301-prod`): 10/26 확인 작업 중 출력에 토큰이 남았으나 다시 받지 않기로 함. 노출 범위는 작업 대화 기록이고, 러너가 이상하게 작업을 받거나 놓치면 그때 다시 받는다
@@ -564,12 +569,21 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] GitLab 변수 등록(7장): `prod/*`에 `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN`, S3 키(`LIVEKIT_EGRESS_S3_*` · `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`), `DB_PASSWORD` · `JWT_SECRET`. 범위 All(개발과 같은 값)에 `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `GRAFANA_ADMIN_PASSWORD`, 외부 API 키 3개
   - [x] Protected 정리: `CLOUDFLARE_TUNNEL_TOKEN`, 외부 API 키 3개, `ADMIN_PASSWORD`, `DB_PASSWORD`(운영), 개발 `AWS_SECRET_ACCESS_KEY`
   - [x] Egress S3 키(`LIVEKIT_EGRESS_S3_*`)를 All에서 `dev/*`로 좁힘(운영은 같은 이름의 `prod/*` 값을 씀, 4.3)
-  - [ ] `DEV_GRAFANA_ADMIN_PASSWORD` 지우기. 개발 모니터링은 이미 떠 있어 배포 잡(`monitoring-deploy`)을 꺼 두었으므로 언제 지워도 된다. 잡을 다시 켜면 `GRAFANA_ADMIN_PASSWORD`를 읽는다
+  - [x] `DEV_GRAFANA_ADMIN_PASSWORD` 지우기(10/27 변수 목록에 없음). 개발 모니터링 배포 잡(`monitoring-deploy`)은 `GRAFANA_ADMIN_PASSWORD`를 읽는다
+  - [x] `JEV_API_KEY` 등록(범위 All)과 개발 · 운영 AI 에이전트 compose 연결(S15P31A301-252)
+  - [ ] `INQUIRY_ENCRYPTION_KEY`: 지금은 범위 All 하나라 개발과 같은 값이다. 7장 · compose 주석은 `prod/*` · 다른 값이므로 **첫 배포 전에** 운영 값을 따로 둘지 정한다. 왜: 배포 뒤 바꾸면 이미 저장된 문의를 풀 수 없다
+  - [ ] Protected 꺼진 비밀값(10/27): 운영 `DB_PASSWORD` · `CLOUDFLARE_TUNNEL_TOKEN`, `ADMIN_PASSWORD`, `INQUIRY_ENCRYPTION_KEY`, 외부 API 키 4개, `SONAR_*`, 개발 `LIVEKIT_EGRESS_S3_ACCESS_KEY`. 배포에는 영향이 없지만, 작업 브랜치 잡이 `environment: prod/...`를 붙이면 운영 값을 읽을 수 있다. 운영 값 두 개는 master에서만 쓰므로 켜도 된다
+- [x] 운영 배포 사전 점검(10/27). 첫 Release MR을 막는 문제 없음
+  - 코드: MR 규칙 검사(develop 커밋 메시지 467개 통과), 운영 이미지 빌드(개발과 같은 Dockerfile, 빌드 인자 차이는 FE 지표뿐), `docker compose config`, 앱이 읽는 환경 변수, 헬스체크 경로(BE · FE · AI · admin), Nginx · Prometheus · Alloy · Grafana의 컨테이너 이름
+  - GitLab: `master` protected(병합 · 배포 버튼은 Maintainer), 운영에 필요한 변수 전부 있음, 러너 5개 online(`a301-prod` · `a301-mock-deploy` protected), develop · MR 최근 파이프라인 성공
+  - 서버: `a301-prod` 이름의 컨테이너 · 볼륨 · 네트워크 없음(첫 배포 때 운영 값으로 새로 만든다), 7881 · 7882 · 3478 · 443 비어 있음, `rsync` · `curl` · 러너 실행 중, `/opt/a301` 러너 계정 소유, 백업 cron, TURN 인증서, 디스크 295GB · 메모리 14GB 여유
+  - 알아 둘 것: 설문 주소(`NEXT_PUBLIC_SURVEY_URL`)는 빌드 때 박히는데 개발 · 운영 모두 넣지 않아 설문 버튼이 나오지 않는다
 
 ### 먼저 develop에 들어가야 하는 것
 
 - [x] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다 → 상대 주소(`redirectToPath`)로 고침(`f4b52c0`, S15P31A301-183)
 - [ ] BE LiveKit 입장 토큰 발급 · 녹화 시작/종료, AI 에이전트, AI 녹화 합치기, FE 면접방 접속 · 다시보기(12장)
+- [ ] AI 에이전트 `JEV_API_KEY` 연결(S15P31A301-252)을 develop에 병합. 빠지면 운영에서 리액션이 꺼진 채 뜬다
 
 ### 릴리즈
 
@@ -650,3 +664,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.3 · 11 | 로그 수집을 MVP에 넣음: 개발 서버에 Loki 3.7.8 · Alloy v1.20.1 · Grafana 로그 대시보드 추가(3일 보관, `a301-dev-*`만 수집), 꺼 두었던 `monitoring-deploy` 다시 켬 | 팀원이 SSH 없이 로그를 보게 하고, 재배포해도 로그가 남게 하려고 |
 | 인프라 | 7 | 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수 `prod/*`) | 문의 API가 이 키를 필수로 요구해 없으면 운영 BE가 기동하지 않는다 |
 | 인프라 | 3.2 · 3.3 · 8.1 · 11 | 운영 CI 작성(`prod-build` 자동 · `prod-deploy` 버튼, `deploy/prod/deploy.sh`, `workflow`에 master 추가). 결정: 운영 배포는 ▶ 버튼, 이미지는 yobi 미니PC에서 빌드, 운영 로그 수집을 첫 배포에 넣고 팀원 전원 Viewer · 7일, 러너 토큰은 다시 받지 않음 | 배포 시점을 사람이 골라 진행 중인 면접을 끊지 않고, 첫 배포 문제를 로그로 보려고. 각 결정의 이유는 해당 장 |
+| 인프라 | 7 | 개발 · 운영 compose의 AI 에이전트에 `JEV_API_KEY` 전달 추가(범위 All, 없으면 리액션 없이 진행) | GitLab 변수는 compose `environment:`에 적은 것만 컨테이너로 들어가, 키를 등록해도 리액션이 꺼진 채 떴다 |
+| 인프라 | 11 | 운영 배포 사전 점검 결과 기록(코드 · GitLab · 서버 · Cloudflare), Cloudflare 호스트 이름 확인 · `DEV_GRAFANA_ADMIN_PASSWORD` 삭제 체크. 남은 것으로 문의 암호화 키 범위 결정, Protected 꺼진 비밀값 추가 | 첫 Release MR 전에 막히는 곳이 없는지 확인하고, 첫 배포 뒤에는 바꿀 수 없는 결정(문의 키)을 놓치지 않으려고 |
+| 인프라 | 6.2 · 7 | 녹화 합치기 연결: AI 이미지(`ai/Dockerfile`)에 ffmpeg 설치(앞 레이어, `--no-install-recommends`), CI `ai-test`는 녹화 코드 · 시험 · AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 시험을 돌림, 개발 · 운영 분석 작업자에 BE와 같은 버킷 · 앱 키(`S3_BUCKET` · `AWS_REGION` · `AWS_*`) 전달 | ffmpeg가 없으면 모든 합치기가 `MERGE_ERROR`, S3 설정이 없으면 `STORAGE_ERROR`가 된다. 앱 키 정책에 이미 `recordings/*` 읽기 · 쓰기와 `ListBucket`이 있어 새 IAM 키를 만들지 않는다. CI 설치는 필요한 MR에서만 해 다른 AI MR의 시간을 아낀다 |
+| 인프라 | 3.2 · 3.3 | 운영 대시보드 작성: 지표 대시보드를 전체 현황 · 서버 · 컨테이너 · BE · AI · LiveKit · Redis · PostgreSQL · FE 줄로 다시 구성, 로그 대시보드에 수준 필터 · 흐름별 오류 패널 추가. Redis · PostgreSQL exporter 추가(각 64m), cAdvisor 상한 256m → 384m. 3.2의 메모리 합계를 실제 상한 합으로 고침(5.2GB → 6.6GB) | 개발 대시보드를 복사한 상태라 이미 모으던 서버 · 컨테이너 · LiveKit 지표를 화면에서 볼 수 없었다. Redis가 차면 로그인이 막히는데 그 사용량을 볼 곳이 없었다. cAdvisor는 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써 강제 종료될 수 있었다 |

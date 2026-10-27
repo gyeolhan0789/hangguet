@@ -1,6 +1,7 @@
 package com.ssafy.a301.growth.controller;
 
 import com.ssafy.a301.common.validation.SupportedDate;
+import com.ssafy.a301.common.web.CurrentUserId;
 import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
 import com.ssafy.a301.growth.service.GrowthReviewService;
@@ -13,8 +14,6 @@ import jakarta.validation.constraints.Min;
 import java.time.LocalDate;
 import org.springframework.data.web.PagedModel;
 import org.springframework.format.annotation.DateTimeFormat;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -44,19 +43,19 @@ public class GrowthReviewController {
             description = "GROWTH_REVIEW_NOT_FOUND: 그날 연습 기록이 없거나 결과가 나온 면접이 없음")
     @GetMapping("/{practiceDate}")
     public GrowthReviewResponse byDate(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 시작 날짜(YYYY-MM-DD, 한국 시간)", example = "2026-10-13")
                     @PathVariable
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     @SupportedDate
                     LocalDate practiceDate) {
-        return reviews.review(userId(jwt), practiceDate);
+        return reviews.review(userId, practiceDate);
     }
 
     @Operation(summary = "7.2 최근 성장 리뷰", description = "한국 시간 면접 시작 날짜로 묶은 성장 리뷰 목록을 최근 날짜 순으로 준다.")
     @GetMapping
     public PagedModel<RecentReviewItem> recent(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "페이지(0부터)", example = "0")
                     @RequestParam(defaultValue = "0")
                     @Min(value = 0, message = "0 이상입니다.")
@@ -66,10 +65,6 @@ public class GrowthReviewController {
                     @Min(value = 1, message = "1~20입니다.")
                     @Max(value = 20, message = "1~20입니다.")
                     int size) {
-        return reviews.recent(userId(jwt), page, size);
-    }
-
-    private static long userId(Jwt jwt) {
-        return Long.parseLong(jwt.getSubject());
+        return reviews.recent(userId, page, size);
     }
 }

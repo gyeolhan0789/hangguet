@@ -9,10 +9,12 @@ import { useInterviewRoom, type RoomPresentation } from "@/components/interview/
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
+import { ROUTES } from "@/lib/routes";
 import { PERSONAS } from "@/lib/interview/personas";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
+import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
@@ -20,10 +22,19 @@ import { AnalyzingView } from "./analyzing-view";
 import { AnswerCaption } from "./answer-caption";
 import { ChatPanel } from "./chat-panel";
 import { EndModal } from "./end-modal";
-import { QuestionBubble } from "./question-bubble";
+import { QuestionBubble, ShowUiButton } from "./question-bubble";
 import { TopBar } from "./top-bar";
 import { useInterviewMedia } from "./use-interview-media";
-import { MicToast, SelfCamera, VideoControls } from "./video-panel";
+import {
+  PAUSE_AFTER_MS,
+  PausedModal,
+  ReconnectBanner,
+  StartFailedModal,
+  useReconnectSeconds,
+} from "./room-alerts";
+import { AnswerNotice, MicToast, SelfCamera, VideoControls } from "./video-panel";
+import { ChatWaiting } from "./chat-waiting";
+import { InterviewHistory } from "./interview-history";
 
 // 기준: Figma S06 화상(18:2497) · S06-B 채팅(18:2574): 면접관 장면 위에 Fade Top(위 200 · rgba(11,13,20,.8)→0)
 // · Fade Bottom(아래 480 · 0→rgba(11,13,20,.95)) · Lightning Flash(72% · 12% 지점 rgba(185,212,255,.18) 원형 빛)
@@ -32,9 +43,11 @@ import { MicToast, SelfCamera, VideoControls } from "./video-panel";
 // · 모션 메모 S06(18:2569: 번개 플래시는 질문이 바뀔 때만) · 모션 메모 S06-1(18:4469: 면접 화면에서 그대로 이어짐 — 배경 면접관이
 // 흐려지며(opacity 1→.28, blur 0→8px))
 // · 웹 Swagger 5.2(status · planStatus · mode, planStatus FAILED는 5.3으로 재시도) · 5.5 지금 질문 · 5.4 면접 시작
-// (채팅: 질문 준비가 끝나면 화면이 자동으로 부른다. 채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 5.3 면접 플랜 재생성
+// (채팅: 질문 준비가 끝나면 대기 화면의 [면접 시작]으로 부른다. 채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 5.3 면접 플랜 재생성
 // · 사용자 결정(2026-10-22: 준비 실패 문구는 '면접 준비에 실패했어요' + [다시 시도], S05와 같음)
 // · 웹 Swagger 5.2 · 5.5(서버 작업이 끝났는지는 2초마다(임시 값) 다시 불러 확인 — 다음 질문은 5.5, 질문 준비 · 결과 분석은 5.2)
+// · 웹 Swagger SessionResponse.status START_FAILED(배정 거절로 시작 못 함) · Figma S06-F2(345:1815)
+// · 기획 메모 S06-F2(340:1886: 5.2 START_FAILED면 면접관을 연결하지 못했다고 알리고 [다시 시작] → 5.4)
 
 /** 다음 질문 · 결과 분석을 다시 조회하는 간격(웹 Swagger 5.2 · 5.5 "2초마다(임시 값)") */
 export const SESSION_POLL_MS = 2000;
@@ -55,6 +68,8 @@ export function InterviewRoom({
   const reduce = useReducedMotion();
   const reset = useInterviewStore((state) => state.reset);
   const answeredQuestionId = useInterviewStore((state) => state.answeredQuestionId);
+  // 화면 숨기기(눈 버튼): 면접관 · [면접 종료] · [화면 보이기]만 남긴다. 면접방 연결 · 녹음이 끊기지 않게 화면에서 빼지 않고 숨기기만 한다.
+  const uiHidden = useInterviewStore((state) => state.uiHidden);
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
   const [presentation, setPresentation] = useState<RoomPresentation | null>(null);
@@ -72,12 +87,34 @@ export function InterviewRoom({
     preparing;
   // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
   const planFailed = session.status === "READY" && session.planStatus === "FAILED";
-  // 5.4 자동 시작. 실패하면 2초 뒤 다시 조회해 다시 시도한다(attempt). 서버가 실패로 답했으면 새 키로
+  // 5.4 시작([면접 시작]을 누른 뒤). 실패하면 2초 뒤 다시 조회해 다시 시도한다(attempt). 서버가 실패로 답했으면 새 키로
   // (웹 Swagger: 같은 키·같은 본문이면 처음 결과를 그대로 반환). 실패 문구(detail)는 말풍선 아래에 보여 준다.
   const [start, setStart] = useState(() => ({ key: crypto.randomUUID(), attempt: 0 }));
   const startedAttempt = useRef(-1);
   const [startError, setStartError] = useState<string>();
   const [startRetry, setStartRetry] = useState<{ newKey: boolean } | null>(null);
+  // 채팅 대기 화면(탑 쌓기)에서 [면접 시작]을 눌렀다. 누르기 전에는 5.4를 보내지 않는다(사용자 요청 2026-10-27).
+  const [chatStartRequested, setChatStartRequested] = useState(false);
+  const chatWaiting =
+    session.mode === "CHAT" && session.status === "READY" && !planFailed && !chatStartRequested;
+  // S06-F2: 면접관 배정 거절(START_FAILED) 뒤 [다시 시작](5.4). 시작하면 면접방에 처음부터 다시 들어가도록 몇 번째 시작인지 센다.
+  const startFailed = session.status === "START_FAILED";
+  const [restart, setRestart] = useState(() => ({ key: crypto.randomUUID(), count: 0 }));
+  const [restarting, startRestarting] = useTransition();
+  const [restartError, setRestartError] = useState<string>();
+
+  function restartInterview() {
+    setRestartError(undefined);
+    startRestarting(async () => {
+      const result = await startSession(session.id, restart.key);
+      if (result?.formError) {
+        setRestartError(result.formError);
+        if (result.keySpent) setRestart((prev) => ({ ...prev, key: crypto.randomUUID() }));
+        return;
+      }
+      setRestart((prev) => ({ key: crypto.randomUUID(), count: prev.count + 1 }));
+    });
+  }
 
   // 다른 면접에 들어오면 지난 면접의 모달 · 답한 질문 · 레벨업을 지운다.
   // 떠날 때는 지우지 않는다: 5.8의 레벨업(leveledUp)을 결과 화면(S08)까지 기억해야 한다(웹 Swagger leveledUp: 5.8 응답에만 값).
@@ -86,11 +123,23 @@ export function InterviewRoom({
   useEffect(() => {
     reset({ keepLeveledUp: enteredEnded });
   }, [reset, enteredEnded]);
+  // 면접 중 히스토리는 같은 면접이면 남기고(새로고침), 다른 면접이면 비운다
+  const enterHistory = useInterviewHistoryStore((state) => state.enter);
+  useEffect(() => {
+    void Promise.resolve(useInterviewHistoryStore.persist.rehydrate()).then(() =>
+      enterHistory(session.id),
+    );
+  }, [enterHistory, session.id]);
 
-  // 채팅: 질문 준비가 끝나면(5.2 planStatus READY) 면접을 자동으로 시작한다(5.4). 별도 대기 화면은 없다.
+  // 채팅: 질문 준비가 끝나고(5.2 planStatus READY) 대기 화면의 [면접 시작]을 누르면 면접을 시작한다(5.4).
   // 실패하면(서버 실패 · 연결 오류) 2초 뒤 화면을 다시 그려 5.2로 지금 상태를 받고, 아직 시작 전이면 다시 보낸다.
   useEffect(() => {
-    if (session.mode !== "CHAT" || session.status !== "READY" || session.planStatus !== "READY") {
+    if (
+      session.mode !== "CHAT" ||
+      session.status !== "READY" ||
+      session.planStatus !== "READY" ||
+      !chatStartRequested
+    ) {
       return;
     }
     if (startedAttempt.current === start.attempt) return;
@@ -99,9 +148,9 @@ export function InterviewRoom({
       setStartError(result.formError);
       if (result.formError) setStartRetry({ newKey: Boolean(result.keySpent) });
     });
-  }, [session.id, session.mode, session.status, session.planStatus, start]);
+  }, [session.id, session.mode, session.status, session.planStatus, start, chatStartRequested]);
 
-  // 자동 시작이 실패했으면 2초 뒤 다시 그려 5.2로 지금 상태를 받고, 다음 시도(attempt)를 연다.
+  // 시작이 실패했으면 2초 뒤 다시 그려 5.2로 지금 상태를 받고, 다음 시도(attempt)를 연다.
   useEffect(() => {
     if (!startRetry) return;
     const timer = setTimeout(() => {
@@ -158,9 +207,14 @@ export function InterviewRoom({
               <LightningFlash questionId={question?.id ?? null} />
             )}
 
-            <TopBar session={session} question={question} />
+            <TopBar session={session} question={question} uiHidden={uiHidden} />
             {session.mode === "VIDEO" ? (
               <VideoInterview
+                key={restart.count}
+                uiHidden={uiHidden}
+                startFailed={startFailed}
+                // 답변 5개가 저장돼 끝내는 중(5.8)이면 BE가 방을 닫아도 끊김으로 보지 않는다
+                live={session.status === "IN_PROGRESS" && session.answeredCount < TOTAL_QUESTIONS}
                 sessionId={session.id}
                 interviewer={interviewer}
                 question={question}
@@ -168,7 +222,8 @@ export function InterviewRoom({
                 onPresentation={setPresentation}
               />
             ) : (
-              <Dialog bottom="pb-[5px]">
+              <Dialog bottom="pb-[5px]" hidden={uiHidden}>
+                <InterviewHistory sessionId={session.id} />
                 {planFailed ? (
                   <PlanFailed sessionId={session.id} />
                 ) : session.status !== "IN_PROGRESS" ? (
@@ -181,6 +236,7 @@ export function InterviewRoom({
                 )}
                 {session.status === "IN_PROGRESS" ? (
                   <ChatLive
+                    key={restart.count}
                     sessionId={session.id}
                     question={question}
                     interviewer={interviewer}
@@ -191,7 +247,22 @@ export function InterviewRoom({
                 )}
               </Dialog>
             )}
+            <ShowUiButton />
             <EndModal sessionId={session.id} answeredCount={session.answeredCount} />
+            <ChatWaiting
+              open={chatWaiting}
+              persona={session.persona}
+              planStatus={session.planStatus}
+              planProgress={session.planProgress}
+              onStart={() => setChatStartRequested(true)}
+            />
+            <StartFailedModal
+              open={startFailed}
+              restarting={restarting}
+              error={restartError}
+              onLeave={() => router.push(ROUTES.home)}
+              onRestart={restartInterview}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -245,30 +316,51 @@ function PlanFailed({ sessionId }: { sessionId: number }) {
 }
 
 /** 아래 가운데 대화 영역(Figma Dialog 820) */
-function Dialog({ bottom, children }: { bottom: string; children: React.ReactNode }) {
+function Dialog({
+  bottom,
+  hidden = false,
+  children,
+}: {
+  bottom: string;
+  /** 화면 숨기기(눈 버튼) 중 */
+  hidden?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className={`relative mt-auto flex w-full justify-center px-4 ${bottom}`}>
+    <div
+      className={`relative mt-auto w-full justify-center px-4 ${hidden ? "hidden" : "flex"} ${bottom}`}
+    >
       <div className="flex w-full max-w-[820px] flex-col items-start gap-3">{children}</div>
     </div>
   );
 }
 
 /**
- * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 마이크 · [답변 완료] · 마이크 끊김 토스트.
- * 답변은 에이전트가 듣고 저장한다. [답변 완료]가 받아들여지거나 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리면
+ * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 파형 · 마이크 끊김 토스트. 답변은 에이전트가 낸다(사용자 요청 2026-10-27: [답변 완료] 없음),
+ * 결과 큐에 내지 못하면(submitFailed) 안내의 [다시 시도]로 다시 낸다.
+ * 답변은 에이전트가 듣고 저장한다. 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리거나 [다시 시도]가 받아들여지면
  * 그 질문은 내는 중이 되어 2초마다 5.5로 다음 질문을 확인한다. 제출됨(answer.state submitted)을 받으면 면접관이
  * '생각 중'이 된다. 알림을 놓쳐도 다음 질문이 오면 넘어간다(에이전트는 알림을 한 번만 보낸다).
  * 5.2로 답변 5개가 저장된 것이 보이면 면접을 끝낸다(5.8).
  * (API 명세 면접방 메시지 · 화상 답변 끝 판단, 사용자 결정 2026-10-26: 다음 질문은 5.5로 받는다,
- * [답변 완료]는 내 답변 자막이 있을 때만, 마지막 답변 뒤 자동으로 끝내기)
+ * 마지막 답변 뒤 자동으로 끝내기)
  */
 function VideoInterview({
+  uiHidden,
+  startFailed,
+  live,
   sessionId,
   interviewer,
   question,
   answeredCount,
   onPresentation,
 }: {
+  /** 화면 숨기기(눈 버튼) 중. 내 카메라 · 질문 · 내 답변 · 토스트를 숨긴다(연결 · 녹음은 그대로) */
+  uiHidden: boolean;
+  /** 면접관 배정 거절(START_FAILED)로 S06-F2를 띄우는 중. 이때는 '잠시 멈춤' 카드를 띄우지 않는다 */
+  startFailed: boolean;
+  /** 면접 중(5.2 IN_PROGRESS). 끝낸 뒤에는 BE가 면접방을 닫아 연결이 끊기므로 끊김으로 보지 않는다 */
+  live: boolean;
   sessionId: number;
   interviewer: string;
   question: CurrentQuestion | null;
@@ -281,19 +373,30 @@ function VideoInterview({
   const { stream, level } = useInterviewMedia();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
-  // [답변 완료]를 보내 에이전트의 응답을 기다리는 중
+  const endOpen = useInterviewStore((state) => state.endOpen);
+  const openEnd = useInterviewStore((state) => state.openEnd);
+  const addHistory = useInterviewHistoryStore((state) => state.add);
+  // [다시 시도]를 보내 에이전트의 응답을 기다리는 중
   const [requesting, setRequesting] = useState(false);
   // 에이전트가 답변을 내는 중인 질문(id)
   const [submittingId, setSubmittingId] = useState<number | null>(null);
   // 답변을 낸 자막 캡처. 에이전트가 다음 답변을 들으려 새 캡처를 열 때까지 지난 답변 글을 감춘다.
   // 내기 시작할 때 정해 두어, 제출됨 알림이 늦거나 오지 않아도 다음 질문 아래에 지난 글이 남지 않는다.
   const [doneStream, setDoneStream] = useState<string | null>(null);
-  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
+  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [다시 시도]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
   const [failedId, setFailedId] = useState<number | null>(null);
   const [completedSeq, setCompletedSeq] = useState(0);
   const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
 
   function startSubmitting(questionId: number) {
+    // 낸 답변을 히스토리에 남긴다(질문 글은 면접방 메시지를 우선한다)
+    if (question) {
+      addHistory(sessionId, {
+        seq: question.seq,
+        question: (liveQuestion ?? question).content,
+        answer: (caption.confirmedText + caption.interimText).trim(),
+      });
+    }
     setAnswerNotice(null);
     setSubmittingId(questionId);
     setFailedId(null);
@@ -353,10 +456,56 @@ function VideoInterview({
 
   useFinishAfterLastAnswer(sessionId, answeredCount >= TOTAL_QUESTIONS, setLeveledUp);
 
+  // S06-F: 다시 연결하는 중이면 위 배너로 지난 초를 세고, 5초를 넘기거나 SDK가 다시 잇기를 포기하면 '잠시 멈춤' 카드.
+  // 끊기면 5.2를 다시 불러 면접관 배정 거절(START_FAILED)인지 본다(그러면 S06-F2).
+  const reconnectSeconds = useReconnectSeconds(stt.status === "reconnecting");
+  const disconnected = live && stt.status === "failed";
+  const paused = live && (disconnected || reconnectSeconds * 1000 >= PAUSE_AFTER_MS);
+  useEffect(() => {
+    if (disconnected) router.refresh();
+  }, [disconnected, router]);
+
+  const canSubmit =
+    question !== null &&
+    (!liveQuestion || liveQuestion.seq === question.seq) &&
+    !speechLocked &&
+    (spoke || failedId === question.id) &&
+    !submitting &&
+    !requesting;
+  // S06-A 답변 상태 토스트(answer.state). 음성 인식이 끊긴 것은 자막 스트림이 알려 줄 수도 있다.
+  const noticeMessage = submissionFailed
+    ? "답변을 저장하지 못했어요"
+    : notice?.state === "sttFailed" || stt.status === "sttFailed"
+      ? "음성 인식이 끊겼어요"
+      : notice?.state === "sttReconnecting"
+        ? "음성 인식을 다시 연결하는 중…"
+        : notice?.state === "timedOut" && !spoke
+          ? "답변을 기다리고 있어요. 말씀을 시작해 주세요"
+          : null;
+
   return (
     <>
-      <SelfCamera stream={stream} />
-      <Dialog bottom="pb-[68px]">
+      <div className={uiHidden ? "hidden" : "contents"}>
+        <SelfCamera stream={stream} />
+      </div>
+      <AnimatePresence>
+        {/* 재연결 안내는 화면을 숨긴 동안에도 보인다(사용자 요청 2026-10-27) */}
+        {live && stt.status === "reconnecting" && !paused && (
+          <ReconnectBanner seconds={reconnectSeconds} />
+        )}
+      </AnimatePresence>
+      <Dialog bottom="pb-[68px]" hidden={uiHidden}>
+        <InterviewHistory sessionId={sessionId} />
+        {noticeMessage && (
+          <AnswerNotice
+            message={noticeMessage}
+            action={
+              submissionFailed
+                ? { label: "다시 시도", onClick: () => void submit(), disabled: !canSubmit }
+                : undefined
+            }
+          />
+        )}
         <QuestionBubble interviewer={interviewer} question={liveQuestion ?? question} />
         {stt.reaction?.message.interrupt &&
           stt.reaction.message.questionSeq === (liveQuestion?.seq ?? question?.seq) && (
@@ -365,36 +514,18 @@ function VideoInterview({
             </p>
           )}
         <AnswerCaption
-          {...caption}
-          status={notice?.state === "sttFailed" ? "sttFailed" : caption.status}
-          onRetry={stt.retry}
-        />
-        {submissionFailed && (
-          <p role="alert" className="text-sm text-[#ff8a8a]">
-            답변을 제출하지 못했어요. 다시 시도해 주세요.
-          </p>
-        )}
-        {notice?.state === "timedOut" && !spoke && (
-          <p role="status" className="text-sm text-white/70">
-            답변을 기다리고 있어요. 말씀을 시작해 주세요.
-          </p>
-        )}
-        <VideoControls
-          level={level}
-          submitLabel={submissionFailed ? "다시 시도" : "답변 완료"}
-          canSubmit={
-            question !== null &&
-            (!liveQuestion || liveQuestion.seq === question.seq) &&
-            !speechLocked &&
-            (spoke || failedId === question.id) &&
-            !submitting &&
-            !requesting
-          }
-          submitting={submitting || requesting}
-          onSubmit={() => void submit()}
-        />
+          status={caption.status}
+          confirmedText={caption.confirmedText}
+          interimText={caption.interimText}
+          locked={speechLocked}
+        >
+          <VideoControls level={level} locked={speechLocked} />
+        </AnswerCaption>
       </Dialog>
-      <MicToast level={level} />
+      <div className={uiHidden ? "hidden" : "contents"}>
+        <MicToast level={level} />
+      </div>
+      <PausedModal open={paused && !startFailed && !endOpen} onEnd={openEnd} onRetry={stt.retry} />
     </>
   );
 }

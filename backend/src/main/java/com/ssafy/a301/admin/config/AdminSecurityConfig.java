@@ -4,15 +4,8 @@ import com.ssafy.a301.admin.jwt.AdminTokens;
 import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.repository.AdminTokenStore;
 import com.ssafy.a301.auth.jwt.AuthProperties;
-import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.auth.jwt.JwtSupport;
 import com.ssafy.a301.common.error.FilterExceptionFilter;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.Map;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -21,17 +14,14 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
-import org.springframework.security.oauth2.jwt.JwtValidationException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 관리 API(/api/v1/admin/**)의 인증. 회원 인증(auth.config.SecurityConfig)을 바꾸지 않도록 이 경로만 맡는 필터 체인을 먼저 둔다.
@@ -64,30 +54,18 @@ public class AdminSecurityConfig {
                 .exceptionHandling(
                         errors ->
                                 errors.authenticationEntryPoint(
-                                        (request, response, ex) ->
-                                                writeProblem(
-                                                        request, response, ErrorCode.UNAUTHORIZED)))
+                                        JwtSupport.unauthorizedEntryPoint()))
                 .oauth2ResourceServer(
                         resource ->
                                 resource.jwt(jwt -> jwt.decoder(decoder))
-                                        .authenticationEntryPoint(
-                                                (request, response, ex) ->
-                                                        writeProblem(
-                                                                request,
-                                                                response,
-                                                                isExpired(ex)
-                                                                        ? ErrorCode.TOKEN_EXPIRED
-                                                                        : ErrorCode.UNAUTHORIZED)));
+                                        .authenticationEntryPoint(JwtSupport.tokenEntryPoint()));
         return http.build();
     }
 
     private static NimbusJwtDecoder decoder(
             AuthProperties properties, AdminRepository admins, AdminTokenStore revokedTokens) {
         var decoder =
-                NimbusJwtDecoder.withSecretKey(
-                                new SecretKeySpec(
-                                        properties.jwtSecret().getBytes(StandardCharsets.UTF_8),
-                                        "HmacSHA256"))
+                NimbusJwtDecoder.withSecretKey(JwtSupport.hmacKey(properties))
                         .macAlgorithm(MacAlgorithm.HS256)
                         .build();
         OAuth2TokenValidator<Jwt> activeAdmin =
@@ -100,59 +78,15 @@ public class AdminSecurityConfig {
                             return OAuth2TokenValidatorResult.success();
                         }
                     } catch (NumberFormatException ex) {
-                        return invalid("invalid_token");
+                        return JwtSupport.invalid();
                     }
-                    return invalid("invalid_token");
+                    return JwtSupport.invalid();
                 };
-        OAuth2TokenValidator<Jwt> expiry =
-                jwt ->
-                        jwt.getExpiresAt() != null && !jwt.getExpiresAt().isAfter(Instant.now())
-                                ? invalid("TOKEN_EXPIRED")
-                                : OAuth2TokenValidatorResult.success();
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<>(
                         JwtValidators.createDefaultWithIssuer(AdminTokens.ISSUER),
                         activeAdmin,
-                        expiry));
+                        JwtSupport.notExpired()));
         return decoder;
-    }
-
-    private static boolean isExpired(Throwable ex) {
-        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
-            if (cause instanceof JwtValidationException validation
-                    && validation.getErrors().stream()
-                            .anyMatch(e -> "TOKEN_EXPIRED".equals(e.getErrorCode()))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static OAuth2TokenValidatorResult invalid(String code) {
-        return OAuth2TokenValidatorResult.failure(new OAuth2Error(code));
-    }
-
-    private static void writeProblem(
-            HttpServletRequest request, HttpServletResponse response, ErrorCode code)
-            throws IOException {
-        response.setStatus(code.status().value());
-        response.setCharacterEncoding("UTF-8");
-        response.setContentType("application/problem+json");
-        response.getWriter()
-                .write(
-                        JsonMapper.builder()
-                                .build()
-                                .writeValueAsString(
-                                        Map.of(
-                                                "title",
-                                                "Unauthorized",
-                                                "status",
-                                                401,
-                                                "detail",
-                                                code.message(),
-                                                "instance",
-                                                request.getRequestURI(),
-                                                "code",
-                                                code.name())));
     }
 }

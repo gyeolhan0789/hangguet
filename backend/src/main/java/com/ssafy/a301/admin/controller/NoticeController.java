@@ -2,13 +2,12 @@ package com.ssafy.a301.admin.controller;
 
 import com.ssafy.a301.admin.dto.AdminDtos.NoticesResponse;
 import com.ssafy.a301.admin.service.NoticeService;
+import com.ssafy.a301.common.web.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,8 +29,8 @@ public class NoticeController {
             summary = "8.8 공지 목록",
             description = "게시 중인 공지를 최신순(게시 시작 일시 내림차순)으로 준다. 공지마다 이 회원의 확인(8.9) 여부(read)를 함께 준다.")
     @GetMapping
-    public NoticesResponse notices(@AuthenticationPrincipal Jwt jwt) {
-        return service.notices(Long.parseLong(jwt.getSubject()));
+    public NoticesResponse notices(@CurrentUserId long userId) {
+        return service.notices(userId);
     }
 
     @Operation(
@@ -42,8 +41,8 @@ public class NoticeController {
     @PostMapping("/{noticeId}/read")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void read(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "공지 id", example = "3") @PathVariable long noticeId) {
-        service.read(Long.parseLong(jwt.getSubject()), noticeId);
+        service.read(userId, noticeId);
     }
 }

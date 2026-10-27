@@ -3,6 +3,7 @@ package com.ssafy.a301.admin.controller;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeGrantRequest;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeGrantResponse;
 import com.ssafy.a301.admin.service.StreakFreezeGrantService;
+import com.ssafy.a301.common.web.CurrentAdminId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -12,8 +13,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -59,8 +58,7 @@ public class AdminStreakFreezeController {
     @PostMapping("/streak-freeze-grants")
     @ResponseStatus(HttpStatus.CREATED)
     public StreakFreezeGrantResponse grant(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody StreakFreezeGrantRequest request) {
-        return service.grant(Long.parseLong(jwt.getSubject()), request);
+            @CurrentAdminId long adminId, @Valid @RequestBody StreakFreezeGrantRequest request) {
+        return service.grant(adminId, request);
     }
 }

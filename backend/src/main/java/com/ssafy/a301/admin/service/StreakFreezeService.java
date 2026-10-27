@@ -8,9 +8,9 @@ import com.ssafy.a301.admin.mapper.AdminMapper;
 import com.ssafy.a301.admin.repository.StreakFreezeRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.practice.service.PracticeService;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -21,7 +21,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class StreakFreezeService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final StreakFreezeRepository freezes;
     private final PracticeService practices;
@@ -39,7 +38,7 @@ public class StreakFreezeService {
     /** 지금 쓸 수 있는 유지권(사용 전, 만료 전). 만료가 빠른 순 */
     public MyStreakFreezesResponse mine(long userId) {
         List<StreakFreeze> usable =
-                freezes.findUsable(userId, StreakFreezeStatus.AVAILABLE, OffsetDateTime.now(KST));
+                freezes.findUsable(userId, StreakFreezeStatus.AVAILABLE, KoreaTime.now());
         return new MyStreakFreezesResponse(
                 usable.size(), usable.stream().map(AdminMapper::toFreezeItem).toList());
     }
@@ -51,7 +50,7 @@ public class StreakFreezeService {
     public StreakFreezeUseResponse use(long userId, long freezeId) {
         return transactions.execute(
                 status -> {
-                    OffsetDateTime now = OffsetDateTime.now(KST);
+                    OffsetDateTime now = KoreaTime.now();
                     StreakFreeze freeze =
                             freezes.findForUpdate(freezeId, userId)
                                     .orElseThrow(

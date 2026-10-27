@@ -8,6 +8,7 @@ import com.ssafy.a301.auth.dto.RefreshResponse;
 import com.ssafy.a301.auth.dto.SignupRequest;
 import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.common.web.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,8 +17,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,8 +68,7 @@ public class AuthController {
     @Operation(summary = "1.5 로그아웃")
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void logout(
-            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody LogoutRequest request) {
-        service.logout(Long.parseLong(jwt.getSubject()), request.refreshToken());
+    public void logout(@CurrentUserId long userId, @Valid @RequestBody LogoutRequest request) {
+        service.logout(userId, request.refreshToken());
     }
 }

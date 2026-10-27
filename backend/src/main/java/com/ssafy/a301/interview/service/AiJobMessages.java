@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InterviewPlan;
@@ -11,7 +12,6 @@ import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,7 +24,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class AiJobMessages {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final InterviewSessionRepository sessions;
     private final InterviewPlanRepository plans;
@@ -51,7 +50,7 @@ public class AiJobMessages {
         message.put(
                 "requestedAt",
                 job.getCreatedAt()
-                        .atZoneSameInstant(KST)
+                        .atZoneSameInstant(KoreaTime.ZONE)
                         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         switch (job.getJobType()) {
             case PLAN -> putPlan(message, session.getApplication());

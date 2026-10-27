@@ -152,6 +152,8 @@ services:
       SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
       # 질문 음성(TTS). 없으면 질문 글로만 진행한다
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
+      JEV_API_KEY: ${JEV_API_KEY:-}
       REDIS_HOST: a301-prod-redis
       REDIS_PORT: "6379"
     healthcheck:
@@ -170,7 +172,7 @@ services:
       - internal
     logging: *logging
 
-  # 분석 작업자(질문 생성 · 답변 채점). 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
+  # 분석 작업자(질문 생성 · 답변 채점 · 녹화 합치기). 개발 서버와 같은 모양이다(deploy/dev/compose.yml 설명 참고).
   # 작업을 한 번에 하나씩 처리하므로 컨테이너를 늘리지 않는다.
   a301-prod-ai-analysis:
     image: ${DOCKERHUB_REPO:-hanggeut/a301}:ai-${IMAGE_TAG:?IMAGE_TAG is required}
@@ -187,6 +189,11 @@ services:
       LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
       LLM_MODEL: gpt-4.1-mini
       LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
+      # 녹화 합치기: BE와 같은 버킷 · 앱 키(IAM a301-prod-app, 배포 계획 6.2)로 원본 트랙을 받고 합친 mp4를 올린다
+      S3_BUCKET: hanggeut-a301-prod
+      AWS_REGION: ap-northeast-2
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
     # HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다
     healthcheck:
       test:
@@ -315,7 +322,7 @@ services:
       - internal
     logging: *logging
 
-  # 모니터링(배포 계획 3.3). 개발 서버 모니터링과 같은 수집 설정에 서버 · 컨테이너 · LiveKit 지표를 더한다.
+  # 모니터링(배포 계획 3.3). 개발 서버 모니터링과 같은 수집 설정에 서버 · 컨테이너 · LiveKit · Redis · PostgreSQL 지표를 더한다.
   a301-prod-prometheus:
     image: prom/prometheus:v3.13.3
     container_name: a301-prod-prometheus
@@ -376,7 +383,40 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
-    mem_limit: 256m
+    # 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써서 올렸다(배포 계획 3.2)
+    mem_limit: 384m
+    networks:
+      - internal
+    logging: *logging
+
+  # Redis 메모리 · 연결 · 명령 지표. Redis는 메모리가 차면 쓰기를 거부하므로(noeviction) 상한 대비 사용량을 본다
+  a301-prod-redis-exporter:
+    image: oliver006/redis_exporter:v1.93.0
+    container_name: a301-prod-redis-exporter
+    restart: unless-stopped
+    depends_on:
+      a301-prod-redis:
+        condition: service_healthy
+    environment:
+      REDIS_ADDR: redis://a301-prod-redis:6379
+    mem_limit: 64m
+    networks:
+      - internal
+    logging: *logging
+
+  # PostgreSQL 연결 수 · 트랜잭션 · DB 크기 · 잠금 지표. 앱과 같은 계정(a301)으로 읽기만 한다
+  a301-prod-postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    container_name: a301-prod-postgres-exporter
+    restart: unless-stopped
+    depends_on:
+      a301-prod-postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_URI: a301-prod-postgres:5432/a301?sslmode=disable
+      DATA_SOURCE_USER: a301
+      DATA_SOURCE_PASS: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
+    mem_limit: 64m
     networks:
       - internal
     logging: *logging

@@ -42,13 +42,33 @@ describe("useInterviewStore (면접 화면 상태)", () => {
     expect(JSON.parse(sessionStorage.getItem(KEY) ?? "null").state.leveledUp).toBeNull();
   });
 
+  it("접기(collapsed) · 화면 숨기기(uiHidden)는 누를 때마다 바뀌고, 저장하지 않는다", () => {
+    useInterviewStore.getState().toggleCollapsed();
+    useInterviewStore.getState().toggleUiHidden();
+    expect(useInterviewStore.getState()).toMatchObject({ collapsed: true, uiHidden: true });
+    const saved = JSON.parse(sessionStorage.getItem(KEY) ?? "null").state;
+    expect(saved).not.toHaveProperty("collapsed");
+    expect(saved).not.toHaveProperty("uiHidden");
+    useInterviewStore.getState().toggleCollapsed();
+    useInterviewStore.getState().toggleUiHidden();
+    expect(useInterviewStore.getState()).toMatchObject({ collapsed: false, uiHidden: false });
+  });
+
   it("reset은 모두 지우고, keepLeveledUp이면 레벨업만 남긴다", () => {
-    useInterviewStore.setState({ endOpen: true, answeredQuestionId: 1, leveledUp: true });
+    useInterviewStore.setState({
+      endOpen: true,
+      answeredQuestionId: 1,
+      leveledUp: true,
+      collapsed: true,
+      uiHidden: true,
+    });
     useInterviewStore.getState().reset({ keepLeveledUp: true });
     expect(useInterviewStore.getState()).toMatchObject({
       endOpen: false,
       answeredQuestionId: null,
       leveledUp: true,
+      collapsed: false,
+      uiHidden: false,
     });
 
     useInterviewStore.getState().reset();

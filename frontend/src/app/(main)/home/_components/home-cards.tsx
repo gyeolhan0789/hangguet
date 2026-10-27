@@ -97,7 +97,7 @@ export function LastPracticeCard({ home }: { home: HomeResponse }) {
     <FeatureCard
       icon="/home/icon-history.svg"
       label="지난번 마지막 연습"
-      title={`${shortDate(last.practiceDate)} · ${detail}`}
+      title={detail ? `${shortDate(last.practiceDate)} · ${detail}` : shortDate(last.practiceDate)}
       footer="그때 성장 리뷰 보기 →"
       href={growthReviewPath(last.practiceDate)}
     />
@@ -109,7 +109,7 @@ function ReviewRow({ review }: { review: RecentReviewItem }) {
   return (
     <Link
       href={growthReviewPath(review.practiceDate)}
-      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${improvement} 성장 리뷰 보기`}
+      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${improvement ? `${improvement} ` : ""}성장 리뷰 보기`}
       className="flex items-center justify-between gap-3 py-2.5"
     >
       <span className="flex min-w-0 items-center gap-3 leading-normal font-semibold">
@@ -117,9 +117,11 @@ function ReviewRow({ review }: { review: RecentReviewItem }) {
         <span className="truncate text-base text-text-1">{review.companyName}</span>
       </span>
       <span className="flex shrink-0 items-center gap-2">
-        <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
-          {improvement}
-        </span>
+        {improvement && (
+          <span className="rounded-full bg-brand-soft px-2.5 py-1 text-[13px] leading-normal font-bold text-brand-ink dark:bg-brand-soft/8">
+            {improvement}
+          </span>
+        )}
         <MaskIcon src="/home/icon-chevron-right.svg" size={18} className="bg-text-3" />
       </span>
     </Link>

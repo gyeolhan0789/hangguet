@@ -4,12 +4,16 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useState } from "react";
 
+import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion } from "@/types/api";
 
 // 기준: Figma S06 · S06-B Interviewer Bubble(18:2530: 반투명 rgba(14,16,22,.8) · blur 8 · 테두리 흰색 10% · 둥글기 20
 // · 좌우 22 · 위아래 18 · 간격 8 · Speaker(dot 8 · 면접관 이름 14 Bold brand · volume-2 14) · 질문 20 SemiBold 흰색)
 // · Swagger 5.2 currentQuestion(id · seq · content)
-// · 모션 메모 S06(18:2569: 질문 글자가 타자 치듯 등장(stagger 0.02s) · 스피커 아이콘 펄스, [답변 완료] → 말풍선 위로 사라지고
+// · 사용자 요청(2026-10-27: 질문도 펼치기 · 접기, 접으면 한 줄로 '…' 말줄임, 모바일(sm 미만)은 글자를 줄인다 20 → 17,
+//   접기는 하나로 — 이 말풍선의 꺾쇠가 이전 질문 기록(InterviewHistory)도 함께 접고 편다,
+//   꺾쇠 옆 눈 버튼: 누르면 면접관 · [면접 종료] · [화면 보이기]만 남기고 화면을 모두 숨겨 실제 면접처럼 듣기만으로 연습한다)
+// · 모션 메모 S06(18:2569: 질문 글자가 타자 치듯 등장(stagger 0.02s) · 스피커 아이콘 펄스, 답변을 내면 말풍선 위로 사라지고
 // 다음 질문 말풍선 아래에서 등장) · 모션 메모 S06-B(18:2615: 전송 → 면접관 '생각 중' 점 3개 → 다음 질문 타자 등장)
 
 /** 글자 하나가 나타나는 간격(모션 메모 stagger 0.02s) */
@@ -29,6 +33,8 @@ export function QuestionBubble({
     (Pick<CurrentQuestion, "seq" | "content"> & Partial<Pick<CurrentQuestion, "id">>) | null;
 }) {
   const reduce = useReducedMotion();
+  // 접으면 질문을 한 줄로 줄이고 이전 질문 기록도 숨긴다. 다음 질문에서도 사용자가 고른 대로 둔다.
+  const collapsed = useInterviewStore((state) => state.collapsed);
   return (
     // 화면 읽기 프로그램이 바뀐 질문을 읽도록 알림 영역(aria-live)은 질문이 바뀌어도 그대로 두고, 안의 말풍선만 바꾼다.
     <div aria-live="polite" className="relative w-full">
@@ -47,10 +53,13 @@ export function QuestionBubble({
               key={question.seq}
               interviewer={interviewer}
               content={question.content}
+              collapsed={collapsed}
             />
           ) : (
             <>
-              <Speaker interviewer={interviewer} speaking={false} />
+              <Speaker interviewer={interviewer} speaking={false}>
+                <BubbleActions />
+              </Speaker>
               <ThinkingDots />
             </>
           )}
@@ -60,7 +69,15 @@ export function QuestionBubble({
   );
 }
 
-function Speaker({ interviewer, speaking }: { interviewer: string; speaking: boolean }) {
+function Speaker({
+  interviewer,
+  speaking,
+  children,
+}: {
+  interviewer: string;
+  speaking: boolean;
+  children?: React.ReactNode;
+}) {
   return (
     <div className="flex items-center gap-1.5">
       <Image src="/interview/dot.svg" alt="" width={8} height={8} />
@@ -74,20 +91,33 @@ function Speaker({ interviewer, speaking }: { interviewer: string; speaking: boo
       >
         <Image src="/interview/icon-volume-2.svg" alt="" width={14} height={14} />
       </motion.span>
+      {children}
     </div>
   );
 }
 
 /** 질문 글자를 하나씩 보여 준다. 다 나오면 스피커 펄스를 멈춘다. 동작 줄이기면 한 번에 보여 준다. */
-function TypedQuestion({ interviewer, content }: { interviewer: string; content: string }) {
+function TypedQuestion({
+  interviewer,
+  content,
+  collapsed,
+}: {
+  interviewer: string;
+  content: string;
+  collapsed: boolean;
+}) {
   const reduce = useReducedMotion();
   const letters = Array.from(content);
   const [typing, setTyping] = useState(!reduce);
 
   return (
     <>
-      <Speaker interviewer={interviewer} speaking={typing} />
-      <p className="text-xl leading-normal font-semibold text-white">
+      <Speaker interviewer={interviewer} speaking={typing}>
+        <BubbleActions />
+      </Speaker>
+      <p
+        className={`text-[17px] leading-normal font-semibold text-white sm:text-xl ${collapsed ? "line-clamp-1" : ""}`}
+      >
         {/* 화면 읽기 프로그램은 글자 조각 대신 질문 전체를 읽는다. */}
         <span className="sr-only">{content}</span>
         <motion.span
@@ -130,5 +160,83 @@ function ThinkingDots() {
         />
       ))}
     </span>
+  );
+}
+
+/**
+ * 말풍선 머리 오른쪽의 눈 · 꺾쇠. 질문을 기다리는 중('생각 중')에도 둔다.
+ * 눈: 화면 숨기기 · 꺾쇠: 지금 질문 한 줄 말줄임 + 이전 질문 기록 접기(사용자 요청 2026-10-27)
+ */
+function BubbleActions() {
+  const collapsed = useInterviewStore((state) => state.collapsed);
+  const toggleCollapsed = useInterviewStore((state) => state.toggleCollapsed);
+  const toggleUiHidden = useInterviewStore((state) => state.toggleUiHidden);
+  return (
+    <span className="-my-1.5 -mr-1.5 ml-auto flex shrink-0 gap-1.5">
+      <BubbleButton label="화면 숨기기" onClick={toggleUiHidden}>
+        <Image src="/interview/icon-eye.svg" alt="" width={18} height={18} />
+      </BubbleButton>
+      <BubbleButton
+        label={collapsed ? "질문 펼치기" : "질문 접기"}
+        expanded={!collapsed}
+        onClick={toggleCollapsed}
+      >
+        <Image
+          src="/interview/icon-chevron-down.svg"
+          alt=""
+          width={18}
+          height={18}
+          className={`transition-transform duration-200 ${collapsed ? "" : "rotate-180"}`}
+        />
+      </BubbleButton>
+    </span>
+  );
+}
+
+/** 말풍선 머리의 둥근 아이콘 버튼(눈 · 꺾쇠). 어두운 말풍선 위에서 보이도록 옅은 흰 바탕을 깐다 */
+function BubbleButton({
+  label,
+  pressed,
+  expanded,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  expanded?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      aria-expanded={expanded}
+      onClick={onClick}
+      className="flex size-8 cursor-pointer items-center justify-center rounded-full bg-white/12 transition-colors hover:bg-white/22 aria-pressed:bg-white/25"
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * 화면을 숨긴 동안(눈 버튼) [면접 종료]와 함께 남는 버튼. 누르면 화면을 다시 보인다(사용자 요청 2026-10-27: 눈만 남기고 모두 숨긴다).
+ */
+export function ShowUiButton() {
+  const uiHidden = useInterviewStore((state) => state.uiHidden);
+  const toggleUiHidden = useInterviewStore((state) => state.toggleUiHidden);
+  if (!uiHidden) return null;
+  return (
+    <button
+      type="button"
+      aria-label="화면 보이기"
+      aria-pressed
+      onClick={toggleUiHidden}
+      className="absolute right-4 bottom-6 z-20 flex size-12 cursor-pointer items-center justify-center rounded-full border border-white/15 bg-[rgba(14,16,22,0.8)] backdrop-blur-[8px] transition-colors hover:bg-[rgba(14,16,22,0.95)]"
+    >
+      <Image src="/interview/icon-eye-off.svg" alt="" width={22} height={22} />
+    </button>
   );
 }

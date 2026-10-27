@@ -12,12 +12,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.admin.config.AdminPasswordEncoder;
 import com.ssafy.a301.admin.domain.Admin;
+import com.ssafy.a301.admin.jwt.AdminTokens;
 import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.service.StreakFreezeGrantService;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -32,6 +34,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -53,6 +60,7 @@ class AdminIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired private AdminPasswordEncoder passwords;
     @Autowired private AccessTokens accessTokens;
+    @Autowired private JwtEncoder jwtEncoder;
     @Autowired private StreakFreezeGrantService grantService;
     @Autowired private JdbcTemplate jdbc;
     private final JsonMapper json = JsonMapper.builder().build();
@@ -107,6 +115,30 @@ class AdminIntegrationTest {
                 .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
         mvc.perform(get("/api/v1/users/me").header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void expiredAdminTokenIsTokenExpiredInCommonProblemFormat() throws Exception {
+        Instant past = Instant.now().minusSeconds(3600);
+        String expired =
+                jwtEncoder
+                        .encode(
+                                JwtEncoderParameters.from(
+                                        JwsHeader.with(MacAlgorithm.HS256).build(),
+                                        JwtClaimsSet.builder()
+                                                .issuer(AdminTokens.ISSUER)
+                                                .subject(Long.toString(admin.getId()))
+                                                .issuedAt(past.minusSeconds(60))
+                                                .expiresAt(past)
+                                                .build()))
+                        .getTokenValue();
+
+        // 회원 API와 같은 ProblemDetail + code 형식
+        mvc.perform(get("/api/v1/admin/metrics").header(HttpHeaders.AUTHORIZATION, bearer(expired)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("TOKEN_EXPIRED"))
+                .andExpect(jsonPath("$.title").value("Unauthorized"))
+                .andExpect(jsonPath("$.instance").value("/api/v1/admin/metrics"));
     }
 
     @Test

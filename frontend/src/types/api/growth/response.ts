@@ -13,10 +13,10 @@ export interface RecentReviewItem {
   practiceDate: LocalDate;
   /** 회사명 */
   companyName: string;
-  /** 기준 */
-  criterion: Criterion;
-  /** 그 기준의 변화량. "전달력 +8" */
-  delta: number;
+  /** 그날 가장 많이 오른 기준. 오른 기준이 없으면 DELIVERY. 첫 연습일이면 null */
+  criterion: Criterion | null;
+  /** 그 기준의 변화량(0 이상). "전달력 +8" · 오른 기준이 없으면 0. 첫 연습일이면 null */
+  delta: number | null;
 }
 
 /** 기준 하나의 그날 결과 */

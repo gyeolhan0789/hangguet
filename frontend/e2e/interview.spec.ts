@@ -71,6 +71,37 @@ function interviewIs(
 }
 
 /**
+ * 면접방 입장 정보(5.14)에 답하지 않아 연결 중으로 둔다. 입장이 실패하면 S06-F '면접이 잠시 멈췄어요' 카드가 화면을 가리므로,
+ * 면접방을 보지 않는 화상 테스트에서 쓴다(이 요청이 서버 액션을 붙잡으므로 뒤에 다시 조회 · 서버 액션 단계를 두지 않는다).
+ */
+function holdRoom(msw: MswFixture) {
+  msw.use(
+    http.post(api("/interview-sessions/:sessionId/room-token"), () => new Promise<never>(() => {})),
+  );
+}
+
+/**
+ * 3D 모델 대신 장면이 빈 아주 작은 GLB로 답한다. 모델을 '다 받은' 상태를 받는 시간 · 기기 성능과 무관하게 만든다
+ * (채팅 대기 화면은 모델을 다 받아야 [면접 시작]을 보인다).
+ */
+function tinyModel(page: Page) {
+  const json = Buffer.from(
+    JSON.stringify({ asset: { version: "2.0" }, scenes: [{ nodes: [] }], scene: 0 }),
+  );
+  const padded = Buffer.concat([json, Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)]);
+  const glb = Buffer.alloc(12 + 8 + padded.length);
+  glb.write("glTF", 0, "ascii");
+  glb.writeUInt32LE(2, 4);
+  glb.writeUInt32LE(glb.length, 8);
+  glb.writeUInt32LE(padded.length, 12);
+  glb.writeUInt32LE(0x4e4f534a, 16);
+  padded.copy(glb, 20);
+  return page.route(GLB, (route) =>
+    route.fulfill({ status: 200, contentType: "model/gltf-binary", body: glb }),
+  );
+}
+
+/**
  * 3D 모델(32MB)을 받지 않게 404로 답한다. 404는 다시 받지 않아(retry.ts) 바로 정지 이미지가 나온다
  * (3D를 보는 테스트 밖에서 쓴다).
  */
@@ -171,7 +202,7 @@ test.describe("S06 면접 화면", () => {
     await signIn();
   });
 
-  test("화상: 위 막대(면접관 · 회사 직무 · 질문 3 / 5 · 경과 시간) · 질문(5.5) · 내 카메라 · 마이크를 보여 준다", async ({
+  test("화상: 위 막대(면접관 · 회사 직무 · 질문 3 / 5 · 경과 시간) · 질문(5.5) · 내 카메라 · 음파를 보여 준다", async ({
     page,
     msw,
   }) => {
@@ -203,12 +234,51 @@ test.describe("S06 면접 화면", () => {
     const camera = page.getByLabel("내 카메라 화면");
     await expect(camera).toBeVisible();
     await expect(camera.locator("xpath=..").getByText("나", { exact: true })).toBeVisible();
-    await expect(page.getByRole("img", { name: "마이크 듣는 중" })).toBeVisible();
+    // 내 답변 상자에는 음파만 있다(사용자 요청 2026-10-27: 마이크 · [답변 완료] 없음, 답변은 에이전트가 낸다)
     await expect(page.getByTestId("waveform")).toBeVisible();
-    // 답변 제출은 실시간 음성 인식을 연결할 때 만든다.
-    await expect(page.getByRole("button", { name: "답변 완료" })).toBeDisabled();
+    await expect(page.getByRole("img", { name: "마이크 듣는 중" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "답변 완료" })).toHaveCount(0);
     // 화상에는 채팅 입력창이 없다.
     await expect(answerBox(page)).toHaveCount(0);
+  });
+
+  test("화상: 눈 버튼으로 화면을 숨기면 면접관 · [면접 종료] · [화면 보이기]만 남고, 다시 누르면 돌아온다", async ({
+    page,
+    msw,
+  }) => {
+    await skip3d(page);
+    interviewIs(msw, SESSION_INTERVIEW.IN_PROGRESS);
+    holdRoom(msw);
+    await page.clock.install();
+    await page.goto(S06);
+    await stepUntilVisible(page, question(page));
+
+    // 숨기기 전에는 모두 보인다(없는 요소는 toBeHidden도 통과하므로 먼저 본다)
+    const parts = [
+      question(page),
+      page.getByLabel("내 카메라 화면").locator("xpath=..").getByText("나", { exact: true }),
+      page.getByRole("region", { name: "내 답변 음성 인식" }),
+      page.getByTestId("waveform"),
+      page.getByText("질문 3 / 5"),
+    ];
+    for (const part of parts) await expect(part).toBeVisible();
+
+    // 사용자 요청(2026-10-27: 실제 면접처럼 듣기만으로 연습 — 입력 · 출력 · 질문 · 카메라를 모두 숨기고 눈 버튼과 [면접 종료]만)
+    await page.getByRole("button", { name: "화면 숨기기" }).click();
+    await expect(question(page)).toBeHidden();
+    await expect(page.getByLabel("내 카메라 화면")).toBeHidden();
+    await expect(page.getByRole("region", { name: "내 답변 음성 인식" })).toBeHidden();
+    await expect(page.getByTestId("waveform")).toBeHidden();
+    await expect(page.getByText("질문 3 / 5")).toBeHidden();
+    for (const part of parts) await expect(part).toBeHidden();
+    await expect(stage(page)).toBeVisible();
+    await expect(page.getByRole("button", { name: "면접 종료" })).toBeVisible();
+    const show = page.getByRole("button", { name: "화면 보이기" });
+    await expect(show).toBeVisible();
+
+    await show.click();
+    for (const part of parts) await expect(part).toBeVisible();
+    await expect(show).toHaveCount(0);
   });
 
   test("한 번 열 때 5.2 · 5.5를 한 번씩만 부른다", async ({ page, msw }) => {
@@ -321,6 +391,17 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByText("질문 4 / 5")).toBeVisible();
     await expect(answerBox(page)).toBeEnabled();
     await expect(answerBox(page)).toHaveValue("");
+
+    // 낸 답변은 질문 말풍선 위 '이전 질문'에 남는다. 말풍선의 꺾쇠 하나로 지금 질문(한 줄로)과 기록을 함께 접는다(사용자 요청 2026-10-27).
+    const list = page.getByRole("list", { name: "이전 질문과 내 답변" });
+    await expect(list).toContainText(QUESTION_CURRENT.content);
+    await expect(list).toContainText("캐시 무효화 순서를 바꿨어요");
+    await page.getByRole("button", { name: "질문 접기" }).click();
+    await expect(list).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "질문 펼치기" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 
   test("채팅: 마지막 질문에 답하면 이어서 면접을 끝내고(5.8) S06-1 결과 분석 중으로 바뀐다", async ({
@@ -354,11 +435,12 @@ test.describe("S06 면접 화면", () => {
     expect(ends[0]).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  test("채팅: 질문 준비 중(5.2 READY · GENERATING)이면 생각 중으로 기다리고, 준비가 끝나면 자동으로 시작(5.4)한다", async ({
+  test("채팅: 질문 준비 중(5.2 READY · GENERATING)이면 대기 화면(탑 쌓기)으로 기다리고, 준비가 끝나면 [면접 시작]으로 시작(5.4)한다", async ({
     page,
     msw,
   }) => {
-    await skip3d(page);
+    // 대기 화면은 면접관 모델까지 다 받아야 [면접 시작]을 보인다. 실제 모델(32MB) 대신 빈 장면의 작은 GLB로 답한다.
+    await tinyModel(page);
     // 5.2는 테스트가 바꾸는 상태를 준다: 준비 중 → (테스트가 바꿈) 준비 완료 → (5.4를 받으면) 면접 중.
     // 질문 준비 예시(Swagger 5.2 'S05·S05-E 질문 준비 78%')의 방식만 CHAT으로 바꾼 것
     const state = { plan: "GENERATING" as keyof typeof SESSION_PLAN, started: false };
@@ -391,7 +473,10 @@ test.describe("S06 면접 화면", () => {
     await page.clock.install();
     await page.goto(S06);
 
-    await expect(thinking(page)).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "면접관이 면접을 준비하고 있어요" }),
+    ).toBeVisible();
+    await expect(page.getByText("간단한 게임으로 긴장을 풀어볼까요?")).toBeVisible();
     await expect(answerBox(page)).toBeDisabled();
     // 준비 중이면 다시 조회해도 시작하지 않는다.
     const before = polls;
@@ -401,8 +486,14 @@ test.describe("S06 면접 화면", () => {
     // 시작 전에는 면접방에 들어가지 않는다(5.14는 면접 중에만 된다).
     expect(roomRequests).toHaveLength(0);
 
-    // 준비가 끝나면 다음 조회에서 5.4를 한 번 부르고, 첫 질문을 받는다.
+    // 준비가 끝나도 [면접 시작]을 누르기 전에는 시작하지 않는다. 누르면 5.4를 한 번 부르고, 첫 질문을 받는다.
     state.plan = "READY";
+    await nextPoll(page);
+    const start = page.getByRole("button", { name: "면접 시작" });
+    await expect(page.getByText("면접 준비에 실패했어요")).toHaveCount(0);
+    await stepUntilVisible(page, start);
+    expect(keys).toHaveLength(0);
+    await start.click();
     await nextPoll(page);
     await expect(question(page).filter({ hasText: QUESTION_CURRENT.content })).toBeVisible();
     await expect(question(page)).toHaveCount(1);
@@ -433,6 +524,7 @@ test.describe("S06 면접 화면", () => {
   }) => {
     await skip3d(page);
     interviewIs(msw, SESSION_INTERVIEW.IN_PROGRESS);
+    holdRoom(msw);
     const ends = recordEnds(msw, () => HttpResponse.json(SESSION_ENDED.ANALYZING, { status: 202 }));
     await page.goto(S06);
 

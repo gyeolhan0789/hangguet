@@ -1,5 +1,6 @@
 package com.ssafy.a301.admin.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -23,7 +24,7 @@ public class StreakFreezeGrantScheduler {
         run();
     }
 
-    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 0 * * *", zone = KoreaTime.ZONE_ID)
     public void run() {
         try {
             int granted = grants.grantDue();
