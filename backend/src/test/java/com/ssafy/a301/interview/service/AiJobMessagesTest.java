@@ -139,6 +139,34 @@ class AiJobMessagesTest {
         assertThat(answered.get(1)).containsEntry("evaluation", null);
     }
 
+    // 기준: AI 명세 4장 earlierSummaries(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접의 summary, 시작 순)
+    @Test
+    void evaluateMessageHasEarlierSummariesOfTheSameDay() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT);
+        OffsetDateTime start = OffsetDateTime.parse("2026-10-27T15:00:00+09:00");
+        ReflectionTestUtils.setField(session, "startedAt", start);
+        completedBefore(session, start.minusHours(5), "아침");
+        completedBefore(session, start.minusHours(1), "점심");
+        // 전날, 나중에 시작한 면접은 넣지 않는다
+        completedBefore(session, start.minusHours(16), "전날");
+        completedBefore(session, start.plusHours(1), "나중");
+        answer(session, 1, "답", null);
+
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .containsEntry("earlierSummaries", List.of("아침", "점심"));
+    }
+
+    private void completedBefore(InterviewSession of, OffsetDateTime startedAt, String summary) {
+        InterviewSession other =
+                new InterviewSession(
+                        of.getUser(), of.getApplication(), Persona.DEVIL, InterviewMode.CHAT);
+        em.persist(other);
+        other.start(startedAt);
+        other.end(startedAt.plusMinutes(10), 1);
+        other.complete("한 줄", summary);
+        em.flush();
+    }
+
     @Test
     void mergeRecordingMessageHasTrackAndResultLocations() {
         InterviewSession session = newSession(InterviewMode.VIDEO);

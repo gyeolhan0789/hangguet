@@ -122,7 +122,7 @@ public final class InterviewMapper {
                 session.getStartedAt(),
                 session.getEndedAt(),
                 answeredCount,
-                completed ? session.getSummary() : null,
+                completed ? session.getHeadline() : null,
                 criterionGrades);
     }
 }

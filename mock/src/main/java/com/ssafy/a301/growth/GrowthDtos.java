@@ -68,5 +68,6 @@ public final class GrowthDtos {
             @Schema(description = "한국 시간 그날 시작한 연습 면접의 전체 시간 합(분)", example = "18")
                     int practiceMinutes,
             @Schema(description = "기준 4개") List<CriterionReview> criteria,
-            @Schema(description = "다음에 해볼 것. 최저 점수가 같으면 여러 개") List<String> nextActions) {}
+            @Schema(description = "다음에 해볼 것. 그날 마지막 면접의 한 문장(그날 앞선 면접까지 반영). 없으면 빈 배열")
+                    List<String> nextActions) {}
 }

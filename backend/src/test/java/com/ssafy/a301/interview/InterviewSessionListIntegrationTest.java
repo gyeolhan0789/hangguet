@@ -419,7 +419,7 @@ class InterviewSessionListIntegrationTest {
         }
         session.end(endedAt, 1);
         if (status == SessionStatus.COMPLETED) {
-            session.complete(summary);
+            session.complete(summary, "다음에 해볼 것");
         } else if (status == SessionStatus.FAILED) {
             session.failAnalysis();
         }

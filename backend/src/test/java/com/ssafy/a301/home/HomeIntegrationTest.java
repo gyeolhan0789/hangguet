@@ -91,7 +91,8 @@ class HomeIntegrationTest {
                         new Improvement(Criterion.DELIVERY, 30),
                         new Improvement(Criterion.JOB_FIT, 20),
                         new Improvement(Criterion.LOGIC, 5));
-        assertThat(response.nextActions()).containsExactly("21일 자소서");
+        // 그날 마지막 면접의 summary(AI 명세 4장)
+        assertThat(response.nextActions()).containsExactly("21일 다음에 해볼 것");
         assertThat(response.nextActionsDate()).isEqualTo(OCT_21);
         assertThat(response.recentReviews()).hasSize(2);
         assertThat(response.recentReviews().get(0).practiceDate()).isEqualTo(OCT_21);
@@ -112,7 +113,7 @@ class HomeIntegrationTest {
         assertThat(response.todayImprovements()).isEmpty();
         // 오늘 결과가 아직 없어 가장 최근 리뷰(20일)의 다음에 해볼 것을 준다
         assertThat(response.nextActionsDate()).isEqualTo(OCT_20);
-        assertThat(response.nextActions()).containsExactly("20일", "20일 전달");
+        assertThat(response.nextActions()).containsExactly("20일 다음에 해볼 것");
         assertThat(response.recentReviews()).hasSize(1);
         assertThat(response.recentReviews().get(0).practiceDate()).isEqualTo(OCT_20);
     }
@@ -140,7 +141,7 @@ class HomeIntegrationTest {
     void nextActionsDateIsNullWhenLatestReviewHasNoActionText() {
         User user = user("no-actions");
         Application application = application(user, "○○전자");
-        // 기준 코멘트·고칠 점이 모두 비어 있는 결과
+        // summary가 비어 있는 결과
         InterviewSession session =
                 new InterviewSession(user, application, Persona.DEVIL, InterviewMode.VIDEO);
         em.persist(session);
@@ -151,7 +152,7 @@ class HomeIntegrationTest {
         answer.evaluate(60, "좋아요", null);
         em.persist(answer);
         session.end(at(OCT_21, 9).plusMinutes(10), 1);
-        session.complete("총평");
+        session.complete("총평", " ");
         for (Criterion criterion : Criterion.values()) {
             em.persist(new SessionScore(session, criterion, 70, " "));
         }
@@ -193,7 +194,7 @@ class HomeIntegrationTest {
             String comment) {
         InterviewSession session = session(owner, application, startedAt);
         session.end(startedAt.plusMinutes(minutes), 1);
-        session.complete("총평");
+        session.complete("총평", comment + " 다음에 해볼 것");
         em.persist(new SessionScore(session, Criterion.JOB_FIT, jobFit, comment));
         em.persist(
                 new SessionScore(session, Criterion.COVER_LETTER, coverLetter, comment + " 자소서"));

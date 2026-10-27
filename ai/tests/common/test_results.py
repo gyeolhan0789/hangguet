@@ -235,6 +235,7 @@ def test_result_type_values_match_spec() -> None:
         "evaluation.failed",
         "recording.merged",
         "recording.mergeFailed",
+        "headline.written",
         "question.started",
         "answer.completed",
     }

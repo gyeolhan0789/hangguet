@@ -62,7 +62,7 @@ public final class ResultMapper {
                 session.getMode(),
                 session.getApplication().getCompanyName(),
                 session.getApplication().getJobTitle(),
-                session.getSummary(),
+                session.getHeadline(),
                 session.getStartedAt(),
                 session.getEndedAt(),
                 sessionScores,

@@ -250,7 +250,11 @@
 
 지원서를 저장해 두고 여러 면접에 다시 쓴다(S03에서 저장된 지원서 중 고르거나 새로 작성). 자기소개서는 질문 생성과 "자소서 검증" 평가에 쓴다.
 
+저장하기 전에 AI가 자기소개서로 면접 질문을 만들 수 있는지 판단한다(AI 명세 2.1). 의미 없는 글이거나 질문을 만들 만큼 내용이 없으면 저장하지 않는다. 면접방에 들어간 뒤 질문 생성이 실패하지 않게 하기 위해서다. 판단에 몇 초 걸릴 수 있다.
+
 - **201**: 저장
+- **400 / VALIDATION_FAILED**: `errors`에 `coverLetter`(질문을 만들기 어려운 자기소개서). 화면은 자기소개서 칸 아래에 문구를 보여 주고 다음 화면으로 넘어가지 않는다
+- **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 판단하지 못함(AI·Jev 장애, 시간 초과). 저장하지 않으며 화면은 다시 시도하게 안내한다
 
 #### 4.2 지원서 조회
 
@@ -276,6 +280,7 @@
 - **200**: 수정. 응답은 4.1과 같음
 - **404 / APPLICATION_NOT_FOUND**
 - **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서
+- **400 / VALIDATION_FAILED** · **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 자기소개서를 보냈을 때만 4.1과 같이 판단한다. 보내지 않은 회사명·직무는 저장된 값으로 판단한다
 
 #### 4.5 지원서 삭제
 
@@ -397,7 +402,7 @@ BE는 면접방을 닫아 AI 에이전트를 내보내고, 화상이면 녹화�
 쿼리 `practiceDate`는 필수(`YYYY-MM-DD`). 한국 시간의 면접 **시작일**로 조회한다. `page`는 0부터(기본 0), `size`는 1~20(기본 5)이다. 본인의 답변 1개 이상인 연습 면접(`ANALYZING`·`COMPLETED`·`FAILED`)만 포함하고 `startedAt` 내림차순, 같은 시각이면 `id` 내림차순으로 준다. `READY`·`IN_PROGRESS`·`ABORTED`는 포함하지 않는다. 21일 23:50 시작·22일 00:10 종료 면접은 21일 목록에만 들어간다.
 
 - `content`: 면접별 `id`, 회사·직무, 면접관(`persona`), 방식(`mode`), 상태(`status`), 시작·종료 시각, 답변 수(`answeredCount`), 한 줄 총평(`summary`), 기준별 등급(`criterionGrades[{ criterion, grade }]`). 질문별 답변·상세 피드백·말하기 지표·영상 주소는 넣지 않는다
-- `content[].summary`: 6.3 결과의 한 줄 총평과 같다. `COMPLETED`라도 총평이 없으면 null이고, 화면은 그 문장 영역을 숨긴다
+- `content[].summary`: 6.3 결과의 한 줄 총평(30자 이내)과 같다. `COMPLETED`라도 총평이 없으면 null이고, 화면은 그 문장 영역을 숨긴다
 - `criterionGrades`: `COMPLETED` 면접의 6.3 `sessionScores`에서 기준·등급만 가져온다. 화면은 점수 대신 좋아요·보통·아쉬워요로 표시한다. `ANALYZING`·`FAILED`는 총평 null·등급 빈 배열이며 상태 안내만 표시한다
 - `page.totalElements`: 선택 날짜의 전체 연습 면접 수. 페이지를 바꿔도 같다
 - 최상위 `summary.totalInterviewCount`: 날짜 필터와 무관한 본인의 전체 연습 면접 수. 상단 보관함 건수에 쓴다
@@ -491,7 +496,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 | `attitude`: `interest` · `trust` (0~1) | 리액션을 표시하는 `durationMs` 동안만 약하게 더하고, 지나면 기본 상태로 돌아감. 표정 리액션이면 표정은 리액션 값을 따름 | 무시 |
 | `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
 
-리액션이 없을 때와 `durationMs`(1,200ms)가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다.
+리액션이 없을 때와 `durationMs`(2,400ms)가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다.
 
 `state`를 에이전트가 보낼지 화면이 면접 단계로 정할지는 **[미정]**(B-8).
 
@@ -508,6 +513,8 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 `grade`는 점수로 계산한다: 80 이상 `GOOD`, 60 이상 `NORMAL`, 그 외 `WEAK`. 6.4·7.1도 같다.
 
 화면 표시: 기준 이름(`JOB_FIT` → 직무 적합성, `COVER_LETTER` → 자소서 검증, `LOGIC` → 논리성, `DELIVERY` → 전달력)과 `grade` 문구는 화면이 바꾼다. 질문별 피드백은 첫 번째 `WEAK`·`NORMAL` 질문만 펼친다.
+
+- `summary`: 맨 위 한 줄 총평. 30자 이내이고, 없으면 null(화면은 그 줄을 그리지 않는다)
 
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
@@ -533,7 +540,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 
 ### 7. 성장 리뷰
 
-저장하지 않고 조회 시 계산. 그날 = 면접의 한국 시간 시작 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 기준별 평균. 비교 대상 = 직전 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null). 다음에 해볼 것 = 그날 평가 기준 점수와 질문별 점수 중 가장 낮은 것의 문구(기준은 `comment`, 질문은 `improvePoint`), 동점이면 모두.
+저장하지 않고 조회 시 계산. 그날 = 면접의 한국 시간 시작 날짜. 그날 점수 = 그날 시작한 `COMPLETED` 면접들의 기준별 평균. 비교 대상 = 직전 연습일. `delta` = 그날 − 비교 대상(첫 연습일 null). 다음에 해볼 것(`nextActions`) = 그날 마지막으로 시작한 면접의 다음에 해볼 것 한 문장. 결과를 만들 때 그날 앞선 면접들의 내용까지 반영해 만든다(AI 명세 4장). 비었으면 그 앞 면접 것을 쓰고, 모두 비었으면 빈 배열이다.
 
 #### 7.1 날짜별 성장 리뷰
 
@@ -759,6 +766,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
 | `ROOM_UNAVAILABLE` | 503 | 5.4 |
+| `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 · 4.4 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |

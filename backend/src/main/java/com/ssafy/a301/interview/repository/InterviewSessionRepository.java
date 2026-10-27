@@ -173,6 +173,34 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("status") SessionStatus status,
             @Param("to") OffsetDateTime to);
 
+    /**
+     * EVALUATE 작업의 earlierSummaries(AI 명세 4장). 같은 회원이 [:from, :before)에 시작해 결과가 나온 다른 면접의 summary를
+     * 시작 순으로 준다.
+     */
+    @Query(
+            """
+            select s.summary from InterviewSession s
+            where s.user.id = :userId
+              and s.id <> :sessionId
+              and s.status = :status
+              and s.summary is not null
+              and s.startedAt >= :from
+              and s.startedAt < :before
+            order by s.startedAt, s.id
+            """)
+    List<String> findSummariesStartedBetween(
+            @Param("userId") long userId,
+            @Param("sessionId") long sessionId,
+            @Param("status") SessionStatus status,
+            @Param("from") OffsetDateTime from,
+            @Param("before") OffsetDateTime before);
+
+    /** 임시(HeadlineBackfill): 한 줄 총평 없이 summary만 있는 면접 */
+    @Query(
+            "select s.id from InterviewSession s where s.status = :status"
+                    + " and s.headline is null and s.summary is not null order by s.id")
+    List<Long> findIdsWithoutHeadline(@Param("status") SessionStatus status);
+
     /** 응답에 회사명·직무가 필요한 조회. 지원서를 함께 가져온다(BE 설계 3장). */
     @Query(
             "select s from InterviewSession s join fetch s.application"

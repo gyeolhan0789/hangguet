@@ -221,6 +221,9 @@ services:
     container_name: a301-prod-ai-analysis
     environment:
       <<: [*ai-worker-redis-env, *gms-env, *recording-s3-env]
+      # 자기소개서 검증(AI 명세 2.1): 지원서 저장 전에 Jev로 판단한다. 없으면 검증이 모두 실패해 지원서를 저장할 수 없다.
+      # 검증 큐(ai:checks)는 기본 작업자만 받으므로 이 작업자에만 넘긴다
+      JEV_API_KEY: ${JEV_API_KEY:-}
     # GMS 응답을 기다리는 동안은 거의 쓰지 않는다. 첫 배포 뒤 실측해 조정한다(배포 계획 3.2)
     mem_limit: 256m
 

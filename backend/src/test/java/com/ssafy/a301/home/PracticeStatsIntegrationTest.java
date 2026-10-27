@@ -184,7 +184,7 @@ class PracticeStatsIntegrationTest {
         }
         session.end(endedAt, 1);
         if (status == SessionStatus.COMPLETED) {
-            session.complete("총평");
+            session.complete("총평", "다음에 해볼 것");
         } else if (status == SessionStatus.FAILED) {
             session.failAnalysis();
         }

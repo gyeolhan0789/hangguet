@@ -78,13 +78,14 @@ class PersistenceTest {
                         new BigDecimal("6.20"));
         em.persist(metric);
         metric.recordGazeRatio(new BigDecimal("71.50"));
-        session.complete("총평");
+        session.complete("총평", "다음에 해볼 것");
         em.persist(new PracticeLog(user, LocalDate.of(2026, 10, 15)));
         em.flush();
         em.clear();
 
         InterviewSession found = em.find(InterviewSession.class, session.getId());
-        assertThat(found.getSummary()).isEqualTo("총평");
+        assertThat(found.getHeadline()).isEqualTo("총평");
+        assertThat(found.getSummary()).isEqualTo("다음에 해볼 것");
         assertThat(found.getApplication().getCompanyName()).isEqualTo("○○전자");
         assertThat(em.find(SpeechMetric.class, session.getId()).getGazeRatio())
                 .isEqualByComparingTo("71.5");

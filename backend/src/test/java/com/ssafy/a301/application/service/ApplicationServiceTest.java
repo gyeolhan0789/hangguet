@@ -17,8 +17,11 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationCreateRequest;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationUpdateRequest;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.util.List;
@@ -39,6 +42,7 @@ class ApplicationServiceTest {
 
     private final ApplicationRepository applications = mock(ApplicationRepository.class);
     private final UserRepository users = mock(UserRepository.class);
+    private final CoverLetterCheckQueue coverLetterChecks = mock(CoverLetterCheckQueue.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private final User user = withId(new User("a@test.com", "hash", "회원"), USER_ID);
@@ -47,7 +51,10 @@ class ApplicationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ApplicationService(applications, users, new TransactionTemplate(txManager));
+        service =
+                new ApplicationService(
+                        applications, users, new TransactionTemplate(txManager), coverLetterChecks);
+        when(coverLetterChecks.check(any(), any(), any())).thenReturn(Verdict.USABLE);
         application = withId(new Application(user, "○○전자", "백엔드 개발자", "저는…"), 10);
         when(applications.findByIdAndUserId(10L, USER_ID)).thenReturn(Optional.of(application));
         when(applications.findForUpdate(10L, USER_ID)).thenReturn(Optional.of(application));
@@ -126,6 +133,53 @@ class ApplicationServiceTest {
         assertThat(response.jobTitle()).isEqualTo("서버 개발자");
         assertThat(response.coverLetter()).isEqualTo("저는…");
         verify(txManager).commit(any());
+    }
+
+    // 기준: AI 명세 2.1 자기소개서 검증(질문을 만들 수 없는 글은 400 coverLetter, 판단하지 못하면 503)
+    @Test
+    void unusableCoverLetterIsNotSaved() {
+        when(coverLetterChecks.check("△△소프트", "서버 개발자", "ㅁㄴㅇㄹ")).thenReturn(Verdict.UNUSABLE);
+
+        assertThatThrownBy(
+                        () ->
+                                service.create(
+                                        USER_ID,
+                                        new ApplicationCreateRequest("△△소프트", "서버 개발자", "ㅁㄴㅇㄹ")))
+                .isInstanceOfSatisfying(
+                        FieldValidationException.class,
+                        ex -> {
+                            assertThat(ex.field()).isEqualTo("coverLetter");
+                            assertThat(ex.reason())
+                                    .isEqualTo(ApplicationService.UNUSABLE_COVER_LETTER);
+                        });
+        verify(applications, never()).save(any());
+    }
+
+    @Test
+    void coverLetterCheckFailureIsUnavailable() {
+        when(coverLetterChecks.check(any(), any(), any())).thenReturn(Verdict.UNAVAILABLE);
+
+        assertCode(
+                () ->
+                        service.create(
+                                USER_ID, new ApplicationCreateRequest("△△소프트", "서버 개발자", "지원 동기")),
+                ErrorCode.COVER_LETTER_CHECK_UNAVAILABLE);
+        assertCode(
+                () -> service.update(USER_ID, 10L, new ApplicationUpdateRequest(null, null, "새 글")),
+                ErrorCode.COVER_LETTER_CHECK_UNAVAILABLE);
+        verify(applications, never()).save(any());
+        assertThat(application.getCoverLetter()).isEqualTo("저는…");
+    }
+
+    // 수정은 자기소개서를 보냈을 때만, 보내지 않은 회사명·직무는 저장된 값으로 판단한다
+    @Test
+    void updateChecksOnlyChangedCoverLetterWithStoredFields() {
+        service.update(USER_ID, 10L, new ApplicationUpdateRequest("바꾼 회사", null, null));
+        verify(coverLetterChecks, never()).check(any(), any(), any());
+
+        service.update(USER_ID, 10L, new ApplicationUpdateRequest(null, null, "새 자기소개서"));
+        verify(coverLetterChecks).check("바꾼 회사", "백엔드 개발자", "새 자기소개서");
+        assertThat(application.getCoverLetter()).isEqualTo("새 자기소개서");
     }
 
     @Test

@@ -23,8 +23,13 @@ from app.common.gms import GmsClient
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
+from app.interview.cover_letter import CoverLetterChecker
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.interview.result.feedback import gms_feedback_chat
+from app.interview.result.headline import (
+    WriteHeadlineJobHandler,
+    register_write_headline_handler,
+)
 from app.interview.result.job import EvaluateJobHandler, register_evaluate_handler
 from app.interview.scoring.job import (
     ScoreAnswerJobHandler,
@@ -33,8 +38,9 @@ from app.interview.scoring.job import (
 )
 from app.recording.job import RecordingMerger, register_merge_recording_handler
 from app.recording.storage import create_s3_storage
+from app.worker.checks import CoverLetterCheckWorker
 from app.worker.dispatch import Dispatcher
-from app.worker.queue import ReceiveResult, RedisJobQueue, worker_queue
+from app.worker.queue import ReceiveResult, RedisJobQueue, WorkerQueue, worker_queue
 
 log = logging.getLogger(__name__)
 
@@ -81,6 +87,10 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     register_evaluate_handler(
         dispatcher,
         EvaluateJobHandler(results, gms_score_chat(client), gms_feedback_chat(client)),
+    )
+    # 임시: 한 줄 총평 채우기. 피드백과 같이 확률을 요청하지 않는다
+    register_write_headline_handler(
+        dispatcher, WriteHeadlineJobHandler(results, gms_feedback_chat(client))
     )
     register_merge_recording_handler(
         dispatcher,
@@ -148,12 +158,31 @@ def main(env: Mapping[str, str] = os.environ) -> None:
         # 처리 함수 없이 남지 않게 하기 위함이다(AI 명세 1.3)
         dispatcher = build_dispatcher(settings, results)
         queue = RedisJobQueue(redis, dispatcher, results, queue=queue_kind)
+        # 자기소개서 검증은 BE가 기다리므로 작업 큐와 따로 받는다(AI 명세 2.1).
+        # 큐를 나눠 작업자를 여럿 띄워도 한 곳에서만 받도록 기본 큐 작업자가 맡는다
+        checks: threading.Thread | None = None
+        if queue_kind is WorkerQueue.DEFAULT:
+            checker = (
+                CoverLetterChecker(settings.jev_api_key).check if settings.jev_api_key else None
+            )
+            checks = threading.Thread(
+                target=CoverLetterCheckWorker(redis, checker, stop).run,
+                name="cover-letter-check",
+                daemon=True,
+            )
+            checks.start()
         log.info(
             "분석 작업자를 시작한다 queue=%s redis=%s:%s",
             queue_kind.key,
             settings.redis_host,
             settings.redis_port,
         )
-        Worker(queue, stop).run()
+        try:
+            Worker(queue, stop).run()
+        finally:
+            # 작업자가 예외로 끝나도 검증 스레드가 닫힌 연결로 계속 돌지 않게 함께 멈춘다
+            stop.set()
+            if checks is not None:
+                checks.join()
     finally:
         redis.close()
