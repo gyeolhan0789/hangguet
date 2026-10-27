@@ -10,7 +10,8 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 // 근거: Figma S07-1(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프, 재생 중인 질문 강조
 //   + 자막 동기화, 채팅은 영상 대신 대화 기록) · 모션 메모 S07-1(18:4573) · Swagger 6.4 다시보기 200 예시
 //   · 웹 Swagger 6.4 · 자막은 재생 위치가 속한 질문의 answer
-//   · 사용자 결정(2026-10-22: 질문 카드를 펼치면 맨 위로 올라가고 아래에 답변, 다시 누르면 목록으로, 영상이 없으면 질문 목록만)
+//   · 사용자 결정(2026-10-22: 질문 카드를 펼치면 맨 위로 올라가고 아래에 답변, 다시 누르면 목록으로)
+//   · 사용자 결정(2026-10-27: 채팅도 영상 자리에 '채팅 면접은 녹화 영상이 없어요'를 둔다)
 // 녹화 영상은 Swagger 예시 주소(…s3…)를 받을 수 없어, 같은 길이(18분)의 작은 테스트 영상(fixtures/replay.webm)으로 답한다.
 // 화면 부품의 경계(재생 위치별 질문 · 배속 순서 등)는 컴포넌트 테스트(replay-view.test.tsx)가 맡는다.
 
@@ -115,7 +116,7 @@ test.describe("S07-1 면접 다시보기", () => {
     await expect(page.getByRole("button", { name: "재생 속도 1.5x" })).toHaveText("1.5x");
     await expect(video).toHaveJSProperty("playbackRate", 1.5);
   });
-  test("채팅(영상 없음): 플레이어 없이 질문 목록만 보여 주고, 카드를 누르면 답변을 펼친다", async ({
+  test("채팅(영상 없음): 영상 자리에 녹화 영상이 없다는 문구를 두고, 카드를 누르면 답변을 펼친다", async ({
     page,
     msw,
   }) => {
@@ -129,6 +130,7 @@ test.describe("S07-1 면접 다시보기", () => {
 
     await expect(page.getByLabel("녹화 영상")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "재생", exact: true })).toHaveCount(0);
+    await expect(page.getByText("채팅 면접은 녹화 영상이 없어요")).toBeVisible();
 
     await card(page, "대용량 트래픽 처리").click();
 
@@ -213,7 +215,7 @@ test.describe("S07-1 면접 다시보기", () => {
     // 시계를 깔고 10초를 직접 진행한다(10초 경계는 단위 테스트가 본다)
     await page.clock.install();
     await page.goto(S07_1);
-    await expect(page.getByRole("status")).toHaveText("녹화를 처리하는 중이에요");
+    await expect(page.getByRole("status")).toHaveText("영상을 업로드하는 중이에요");
     await expect(page.getByLabel("녹화 영상")).toHaveCount(0);
     // 질문 목록과 답변은 보여 준다
     await card(page, "가장 큰 기술적 문제는").click();
@@ -289,7 +291,8 @@ test.describe("S07-1 면접 다시보기", () => {
 });
 
 // 모바일(sm 미만) 화상 다시보기(사용자 결정 2026-10-26): 영상 아래 자막은 빼고 질문 목록(펼치면 그 질문의 답변 = 스크립트)으로 보며,
-// 영상 · 재생 막대는 위에 고정한 채 질문 목록만 스크롤한다. sm 이상 · 채팅은 그대로다.
+// 영상 · 재생 막대는 위에 고정한 채 질문 목록만 스크롤한다. sm 이상은 그대로다.
+// 채팅도 같은 배치로 영상 자리에 '채팅 면접은 녹화 영상이 없어요'를 둔다(사용자 결정 2026-10-27).
 test.describe("S07-1 면접 다시보기 · 모바일", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
@@ -363,7 +366,27 @@ test.describe("S07-1 면접 다시보기 · 모바일", () => {
     );
     await page.goto(S07_1);
     const notice = page.getByRole("status");
-    await expect(notice).toHaveText("녹화를 처리하는 중이에요");
+    await expect(notice).toHaveText("영상을 업로드하는 중이에요");
+    const top = (await notice.boundingBox())!.y;
+    const list = page.getByTestId("replay-questions-scroll");
+    await list.evaluate((element) => element.scrollBy(0, 400));
+    await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    expect((await notice.boundingBox())!.y).toBe(top);
+    expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
+  });
+
+  test("채팅: 영상 없음 문구는 위에 고정되고 페이지는 스크롤되지 않으며 질문 목록만 스크롤된다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null }),
+      ),
+    );
+    await page.goto(S07_1);
+    const notice = page.getByText("채팅 면접은 녹화 영상이 없어요");
+    await expect(notice).toBeInViewport({ ratio: 1 });
     const top = (await notice.boundingBox())!.y;
     const list = page.getByTestId("replay-questions-scroll");
     await list.evaluate((element) => element.scrollBy(0, 400));

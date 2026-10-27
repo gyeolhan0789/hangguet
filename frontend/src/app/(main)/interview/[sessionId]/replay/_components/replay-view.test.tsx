@@ -278,8 +278,10 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
   describe("영상이 없을 때(채팅 · videoUrl null)", () => {
     const CHAT = { ...REPLAY, mode: "CHAT" as const, videoStatus: null, videoUrl: null };
 
-    it("플레이어 없이 질문 목록만 보여 준다", () => {
+    it("플레이어 대신 영상 자리에 녹화 영상이 없다는 문구를 두고 질문 목록을 보여 준다", () => {
       render(<ReplayView replay={CHAT} />);
+
+      expect(screen.getByText("채팅 면접은 녹화 영상이 없어요")).toBeTruthy();
 
       expect(screen.queryByLabelText("녹화 영상")).toBeNull();
       expect(screen.queryByRole("button", { name: "재생" })).toBeNull();
@@ -336,7 +338,7 @@ describe("ReplayView · 녹화 상태(videoStatus)", () => {
 
   it("합치는 중(MERGING)이면 플레이어 대신 처리 중임을 알리고, 질문 목록과 답변은 그대로 보여 준다", () => {
     render(<ReplayView replay={merging} />);
-    expect(screen.getByRole("status").textContent).toBe("녹화를 처리하는 중이에요");
+    expect(screen.getByRole("status").textContent).toBe("영상을 업로드하는 중이에요");
     expect(screen.queryByLabelText("녹화 영상")).toBeNull();
     expect(screen.queryByRole("slider", { name: "재생 위치" })).toBeNull();
 
@@ -387,7 +389,7 @@ describe("ReplayView · 녹화 상태(videoStatus)", () => {
     expect(screen.getByText(REPLAY.items[2].answer)).toBeTruthy();
   });
 
-  it("채팅(videoStatus null)은 안내 없이 질문 목록만 보여 준다", () => {
+  it("채팅(videoStatus null)은 상태 알림 없이 영상 없음 문구만 두고 다시 조회하지 않는다", () => {
     render(<ReplayView replay={{ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null }} />);
     expect(screen.queryByRole("status")).toBeNull();
     act(() => vi.advanceTimersByTime(REPLAY_POLL_MS * 3));
