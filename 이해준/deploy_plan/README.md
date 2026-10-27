@@ -554,7 +554,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] 러너 토큰 재발급: 등록 확인 출력(`gitlab-runner list`)에 토큰이 찍혀 공유돼, 러너를 지우고 새로 등록했다
 - [x] 운영 배포 파일 [`deploy/prod/`](../../deploy/prod/README.md): `compose.yml` · `livekit.yaml` · Egress 설정(compose의 `EGRESS_CONFIG_BODY`) · `nginx.conf` · `prometheus.yml` · Grafana 설정 · `backup.sh`. 서버에서 compose · Nginx · Prometheus 설정 검사와 LiveKit · Egress 시험 기동까지 함
 - [x] 서버 준비(10/26): 공개 이미지 미리 받기, 백업 스크립트 · cron, 시험 이미지 정리
-- [ ] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
+- [x] Cloudflare 터널의 호스트 이름이 컨테이너 이름을 가리키는지 확인: `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`(10/27 대시보드에서 확인)
 - [x] CI 작업 작성: `prod-build`(자동) · `prod-deploy`(▶ 버튼, `deploy/prod/deploy.sh`), `workflow`에 master push 허용(8.1). **아직 실행 전**: 첫 Release MR에서 확인한다
 - [x] 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수)
 - [ ] 러너 토큰(`a301-prod`): 10/26 확인 작업 중 출력에 토큰이 남았으나 다시 받지 않기로 함. 노출 범위는 작업 대화 기록이고, 러너가 이상하게 작업을 받거나 놓치면 그때 다시 받는다
@@ -565,12 +565,21 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 - [x] GitLab 변수 등록(7장): `prod/*`에 `CLOUDFLARE_TUNNEL_TOKEN`, `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET`(시험용 키를 버리고 **새로 만든 키**, 시험 토큰이 공유됐기 때문), `DOCKERHUB_PUSH_TOKEN` · `DOCKERHUB_PULL_TOKEN`, S3 키(`LIVEKIT_EGRESS_S3_*` · `AWS_ACCESS_KEY_ID` · `AWS_SECRET_ACCESS_KEY`), `DB_PASSWORD` · `JWT_SECRET`. 범위 All(개발과 같은 값)에 `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `GRAFANA_ADMIN_PASSWORD`, 외부 API 키 3개
   - [x] Protected 정리: `CLOUDFLARE_TUNNEL_TOKEN`, 외부 API 키 3개, `ADMIN_PASSWORD`, `DB_PASSWORD`(운영), 개발 `AWS_SECRET_ACCESS_KEY`
   - [x] Egress S3 키(`LIVEKIT_EGRESS_S3_*`)를 All에서 `dev/*`로 좁힘(운영은 같은 이름의 `prod/*` 값을 씀, 4.3)
-  - [ ] `DEV_GRAFANA_ADMIN_PASSWORD` 지우기. 개발 모니터링은 이미 떠 있어 배포 잡(`monitoring-deploy`)을 꺼 두었으므로 언제 지워도 된다. 잡을 다시 켜면 `GRAFANA_ADMIN_PASSWORD`를 읽는다
+  - [x] `DEV_GRAFANA_ADMIN_PASSWORD` 지우기(10/27 변수 목록에 없음). 개발 모니터링 배포 잡(`monitoring-deploy`)은 `GRAFANA_ADMIN_PASSWORD`를 읽는다
+  - [x] `JEV_API_KEY` 등록(범위 All)과 개발 · 운영 AI 에이전트 compose 연결(S15P31A301-252)
+  - [ ] `INQUIRY_ENCRYPTION_KEY`: 지금은 범위 All 하나라 개발과 같은 값이다. 7장 · compose 주석은 `prod/*` · 다른 값이므로 **첫 배포 전에** 운영 값을 따로 둘지 정한다. 왜: 배포 뒤 바꾸면 이미 저장된 문의를 풀 수 없다
+  - [ ] Protected 꺼진 비밀값(10/27): 운영 `DB_PASSWORD` · `CLOUDFLARE_TUNNEL_TOKEN`, `ADMIN_PASSWORD`, `INQUIRY_ENCRYPTION_KEY`, 외부 API 키 4개, `SONAR_*`, 개발 `LIVEKIT_EGRESS_S3_ACCESS_KEY`. 배포에는 영향이 없지만, 작업 브랜치 잡이 `environment: prod/...`를 붙이면 운영 값을 읽을 수 있다. 운영 값 두 개는 master에서만 쓰므로 켜도 된다
+- [x] 운영 배포 사전 점검(10/27). 첫 Release MR을 막는 문제 없음
+  - 코드: MR 규칙 검사(develop 커밋 메시지 467개 통과), 운영 이미지 빌드(개발과 같은 Dockerfile, 빌드 인자 차이는 FE 지표뿐), `docker compose config`, 앱이 읽는 환경 변수, 헬스체크 경로(BE · FE · AI · admin), Nginx · Prometheus · Alloy · Grafana의 컨테이너 이름
+  - GitLab: `master` protected(병합 · 배포 버튼은 Maintainer), 운영에 필요한 변수 전부 있음, 러너 5개 online(`a301-prod` · `a301-mock-deploy` protected), develop · MR 최근 파이프라인 성공
+  - 서버: `a301-prod` 이름의 컨테이너 · 볼륨 · 네트워크 없음(첫 배포 때 운영 값으로 새로 만든다), 7881 · 7882 · 3478 · 443 비어 있음, `rsync` · `curl` · 러너 실행 중, `/opt/a301` 러너 계정 소유, 백업 cron, TURN 인증서, 디스크 295GB · 메모리 14GB 여유
+  - 알아 둘 것: 설문 주소(`NEXT_PUBLIC_SURVEY_URL`)는 빌드 때 박히는데 개발 · 운영 모두 넣지 않아 설문 버튼이 나오지 않는다
 
 ### 먼저 develop에 들어가야 하는 것
 
 - [x] **FE 리다이렉트 버그 수정**: `/api/auth/signed-out` · `/api/auth/refresh`가 `new URL(path, request.url)`로 절대 주소를 만들어 standalone 컨테이너에서 `https://0.0.0.0:3000`으로 보낸다. 운영도 Tunnel → Nginx → FE 구조라 똑같이 생긴다 → 상대 주소(`redirectToPath`)로 고침(`f4b52c0`, S15P31A301-183)
 - [ ] BE LiveKit 입장 토큰 발급 · 녹화 시작/종료, AI 에이전트, AI 녹화 합치기, FE 면접방 접속 · 다시보기(12장)
+- [ ] AI 에이전트 `JEV_API_KEY` 연결(S15P31A301-252)을 develop에 병합. 빠지면 운영에서 리액션이 꺼진 채 뜬다
 
 ### 릴리즈
 
@@ -652,3 +661,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 7 | 운영 BE에 `INQUIRY_ENCRYPTION_KEY` 추가(compose · GitLab 변수 `prod/*`) | 문의 API가 이 키를 필수로 요구해 없으면 운영 BE가 기동하지 않는다 |
 | 인프라 | 3.2 · 3.3 · 8.1 · 11 | 운영 CI 작성(`prod-build` 자동 · `prod-deploy` 버튼, `deploy/prod/deploy.sh`, `workflow`에 master 추가). 결정: 운영 배포는 ▶ 버튼, 이미지는 yobi 미니PC에서 빌드, 운영 로그 수집을 첫 배포에 넣고 팀원 전원 Viewer · 7일, 러너 토큰은 다시 받지 않음 | 배포 시점을 사람이 골라 진행 중인 면접을 끊지 않고, 첫 배포 문제를 로그로 보려고. 각 결정의 이유는 해당 장 |
 | 인프라 | 7 | 개발 · 운영 compose의 AI 에이전트에 `JEV_API_KEY` 전달 추가(범위 All, 없으면 리액션 없이 진행) | GitLab 변수는 compose `environment:`에 적은 것만 컨테이너로 들어가, 키를 등록해도 리액션이 꺼진 채 떴다 |
+| 인프라 | 11 | 운영 배포 사전 점검 결과 기록(코드 · GitLab · 서버 · Cloudflare), Cloudflare 호스트 이름 확인 · `DEV_GRAFANA_ADMIN_PASSWORD` 삭제 체크. 남은 것으로 문의 암호화 키 범위 결정, Protected 꺼진 비밀값 추가 | 첫 Release MR 전에 막히는 곳이 없는지 확인하고, 첫 배포 뒤에는 바꿀 수 없는 결정(문의 키)을 놓치지 않으려고 |
