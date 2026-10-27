@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 120개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 121개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -49,7 +49,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 120;
+export const SWAGGER_EXAMPLE_COUNT = 121;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -199,6 +199,15 @@ export const swaggerExamples = [
     createdAt: "2026-09-01T10:00:00+09:00",
     currentStreak: 7,
   } satisfies MeResponse,
+  // 2.5 프로필 사진 등록 400 VALIDATION_FAILED
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/users/me/profile-image",
+    code: "VALIDATION_FAILED",
+    errors: [{ field: "objectKey", reason: "본인에게 발급된 키가 아닙니다." }],
+  } satisfies ProblemDetail,
   // 2.5 프로필 사진 등록 404 FILE_NOT_FOUND
   {
     title: "Not Found",
@@ -998,7 +1007,7 @@ export const swaggerExamples = [
       speedDeviationPct: 8.5,
       trailingOffRatio: 12,
       pitchRangeSt: 6.2,
-      gazeRatio: 71.5,
+      gazeRatio: null,
     },
   } satisfies ResultResponse,
   // 6.3 면접 결과 404 SESSION_NOT_FOUND
@@ -1033,6 +1042,7 @@ export const swaggerExamples = [
     companyName: "○○전자",
     jobTitle: "백엔드 개발자",
     startedAt: "2026-10-15T12:00:00+09:00",
+    videoStatus: "READY",
     videoUrl: "https://…s3…/recordings/55.mp4?X-Amz-Signature=…",
     items: [
       {

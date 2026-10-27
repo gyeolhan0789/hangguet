@@ -271,7 +271,7 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
   });
 
   describe("영상이 없을 때(채팅 · videoUrl null)", () => {
-    const CHAT = { ...REPLAY, mode: "CHAT" as const, videoUrl: null };
+    const CHAT = { ...REPLAY, mode: "CHAT" as const, videoStatus: null, videoUrl: null };
 
     it("플레이어 없이 질문 목록만 보여 준다", () => {
       render(<ReplayView replay={CHAT} />);
