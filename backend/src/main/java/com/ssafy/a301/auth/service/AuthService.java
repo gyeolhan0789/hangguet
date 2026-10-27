@@ -108,7 +108,18 @@ public class AuthService {
                                                 request.password(), candidate.getPasswordHash()))
                         .findFirst()
                         .orElseThrow(() -> new ApiException(ErrorCode.LOGIN_FAILED));
-        return tokens(user);
+        TokenResponse response = tokens(user);
+        // 확인한 뒤 토큰을 만들기 전에 비밀번호가 바뀌었으면(2.3·9.10) 이 토큰은 그 변경의 폐기(revokeAll)보다 늦게 생겨 남는다.
+        // 만든 뒤 다시 읽어 바뀌었거나 탈퇴했으면 지우고 실패로 둔다. 다시 읽을 때 아직 그대로였다면 변경 쪽 폐기가 이 토큰을 지운다
+        boolean unchanged =
+                users.findByIdAndDeletedAtIsNull(user.getId())
+                        .map(current -> current.getPasswordHash().equals(user.getPasswordHash()))
+                        .orElse(false);
+        if (!unchanged) {
+            refreshTokens.revoke(response.refreshToken(), user.getId());
+            throw new ApiException(ErrorCode.LOGIN_FAILED);
+        }
+        return response;
     }
 
     /**

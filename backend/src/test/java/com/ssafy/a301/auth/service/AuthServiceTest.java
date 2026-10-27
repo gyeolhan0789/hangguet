@@ -104,6 +104,7 @@ class AuthServiceTest {
         ReflectionTestUtils.setField(user, "id", 7L);
         assertThat(user.getEmail()).isEqualTo("a@test.com");
         when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(user));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
         when(passwords.matches("abcd1234", "hash")).thenReturn(true);
         assertThat(service.login(new LoginRequest("A@TEST.com", "abcd1234")).user()).isNotNull();
     }
@@ -146,6 +147,7 @@ class AuthServiceTest {
         var lower = new User("a@test.com", "hash-lower", "소문자");
         ReflectionTestUtils.setField(lower, "id", 8L);
         when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(upper, lower));
+        when(users.findByIdAndDeletedAtIsNull(8L)).thenReturn(Optional.of(lower));
         when(passwords.matches("pw-lower", "hash-lower")).thenReturn(true);
         when(access.issue(8L, "소문자")).thenReturn("access-lower");
 
@@ -162,6 +164,7 @@ class AuthServiceTest {
         ReflectionTestUtils.setField(user, "id", 7L);
         user.changeProfileImage("profile/7/a.png");
         when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(user));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
         when(passwords.matches("abcd1234", "hash")).thenReturn(true);
         when(storage.presignDownload("profile/7/a.png")).thenReturn("https://s3/get");
 
@@ -202,6 +205,38 @@ class AuthServiceTest {
                 .thenReturn(Optional.of(OffsetDateTime.ofInstant(LOGGED_IN.plusSeconds(60), KST)));
         assertCode(() -> service.refresh("old"), ErrorCode.REFRESH_TOKEN_INVALID);
         verify(refresh, never()).issue(anyLong(), any());
+    }
+
+    @Test
+    void passwordChangedWhileLoggingInRevokesNewTokenAndFails() {
+        var checked = new User("a@test.com", "old-hash", "회원");
+        ReflectionTestUtils.setField(checked, "id", 7L);
+        var current = new User("a@test.com", "new-hash", "회원");
+        when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(checked));
+        when(passwords.matches("old-pass1", "old-hash")).thenReturn(true);
+        // 비밀번호를 확인한 뒤 2.3·9.10이 커밋됐다
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(current));
+        when(refresh.issue(7L)).thenReturn("raced");
+
+        assertCode(
+                () -> service.login(new LoginRequest("a@test.com", "old-pass1")),
+                ErrorCode.LOGIN_FAILED);
+        verify(refresh).revoke("raced", 7L);
+    }
+
+    @Test
+    void withdrawnWhileLoggingInRevokesNewTokenAndFails() {
+        var user = new User("a@test.com", "hash", "회원");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(user));
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.empty());
+        when(refresh.issue(7L)).thenReturn("raced");
+
+        assertCode(
+                () -> service.login(new LoginRequest("a@test.com", "abcd1234")),
+                ErrorCode.LOGIN_FAILED);
+        verify(refresh).revoke("raced", 7L);
     }
 
     @Test
