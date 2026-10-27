@@ -279,7 +279,7 @@ com.ssafy.a301
 - 리뷰가 있는 날 = 그날 시작한 `COMPLETED` 면접이 있는 날. 기준 점수가 4개가 아닌 면접은 경고 로그를 남기고 계산에서 뺀다(과거 면접 하나로 이후 리뷰가 모두 실패하지 않게) **[제안]**. 없으면 7.1은 404 `GROWTH_REVIEW_NOT_FOUND`, 7.2 목록에서 빠진다. `interviewCount`·`practiceMinutes`는 5.13과 같은 연습 면접(분석 중·실패 포함) 기준
 - 다음에 해볼 것 = 그날 `session_scores`(`comment`)와 `answers`(`improve_point`) 중 최저 점수의 문구. 문구가 비면 다음으로 낮은 것. 동점이면 모두
 - `criteria[].comment` = 그날 마지막 면접의 `comment`
-- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 첫 연습일이거나 오른 기준이 없으면 둘 다 null
+- 7.2 / 3.1 `recentReviews`의 `criterion·delta` = 그날 가장 많이 오른 기준(`delta` > 0). 동점이면 기준 순서(JOB_FIT·COVER_LETTER·LOGIC·DELIVERY)로 앞선 것. 오른 기준이 없으면 `DELIVERY`·`0`, 첫 연습일이면 둘 다 null **[결정]**
 - 3.1 `todayImprovements` = 오늘 `delta > 0`인 기준, 큰 순(동점이면 기준 순서). 오늘 결과가 아직 없으면(분석 중) 빈 배열
 - 3.1 `nextActions`·`nextActionsDate` = 오늘까지 가장 최근 리뷰의 다음에 해볼 것과 그 날짜(오늘 결과가 있으면 오늘). 리뷰가 없거나 그 리뷰에 다음에 해볼 것이 없으면 빈 배열·null
 - 3.1은 7.1·7.2와 같은 계산을 쓰며, 리뷰 계산은 한 번만 한다(`GrowthReviewService.homeReviews`)

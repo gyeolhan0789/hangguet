@@ -46,6 +46,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class GrowthReviewService {
+    /** 오른 기준이 없는 날의 최근 성장 리뷰 표시. "전달력 +0"(사용자 결정 2026-10-27) */
+    private static final Improvement NOTHING_IMPROVED = new Improvement(Criterion.DELIVERY, 0);
+
     private static final Logger LOG = LoggerFactory.getLogger(GrowthReviewService.class);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int HOME_RECENT_REVIEWS = 2;
@@ -165,13 +168,19 @@ public class GrowthReviewService {
                 recent.subList(0, Math.min(HOME_RECENT_REVIEWS, recent.size())));
     }
 
-    /** 리뷰가 있는 날을 최근 날짜 순으로. 기준·변화량은 그날 가장 많이 오른 기준이고, 오른 기준이 없으면 null */
+    /**
+     * 리뷰가 있는 날을 최근 날짜 순으로. 기준·변화량은 그날 가장 많이 오른 기준이다. 첫 연습일이면 비교할 날이 없어 null이고, 오른 기준이 없으면 전달력
+     * +0이다(사용자 결정 2026-10-27)
+     */
     private static List<RecentReviewItem> recentItems(List<ReviewDay> days) {
         List<RecentReviewItem> items = new ArrayList<>();
         for (int i = days.size() - 1; i >= 0; i--) {
             ReviewDay day = days.get(i);
-            List<Improvement> improved = i > 0 ? improvements(day, days.get(i - 1)) : List.of();
-            Improvement best = improved.isEmpty() ? null : improved.get(0);
+            Improvement best = null;
+            if (i > 0) {
+                List<Improvement> improved = improvements(day, days.get(i - 1));
+                best = improved.isEmpty() ? NOTHING_IMPROVED : improved.get(0);
+            }
             items.add(GrowthMapper.toRecentReviewItem(day.date(), day.last(), best));
         }
         return items;

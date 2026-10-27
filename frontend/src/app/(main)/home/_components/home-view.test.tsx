@@ -77,6 +77,43 @@ describe("HomeView", () => {
     expect(screen.getAllByText("빠짐", { exact: false }).length).toBe(3);
   });
 
+  // 사용자 결정(2026-10-27): 오른 기준이 없으면 BE가 전달력 0을 주고("전달력 +0"), 첫 연습일(null)이면 배지를 숨긴다
+  it("최근 성장 리뷰: 오른 기준이 없으면 '전달력 +0', 첫 연습일이면 배지 없이 날짜 · 회사만", () => {
+    const [review] = HOME_NOT_DONE.recentReviews;
+    render(
+      <HomeView
+        home={{
+          ...HOME_NOT_DONE,
+          recentReviews: [
+            { ...review, practiceDate: "2026-10-14", criterion: "DELIVERY", delta: 0 },
+            { ...review, practiceDate: "2026-10-13", criterion: null, delta: null },
+          ],
+        }}
+        today={FIXTURE_TODAY}
+      />,
+    );
+
+    expect(
+      screen.getByRole("link", { name: `10.14 ${review.companyName} 전달력 +0 성장 리뷰 보기` }),
+    ).toBeDefined();
+    const first = screen.getByRole("link", { name: `10.13 ${review.companyName} 성장 리뷰 보기` });
+    expect(first.textContent).not.toMatch(/undefined|null|\+/);
+  });
+
+  it("S02-C 끊김: 마지막 연습이 첫 연습일이면 날짜만 보여 준다", () => {
+    const [review] = HOME_BROKEN.recentReviews;
+    render(
+      <HomeView
+        home={{ ...HOME_BROKEN, recentReviews: [{ ...review, criterion: null, delta: null }] }}
+        today={FIXTURE_TODAY}
+      />,
+    );
+    const card = screen.getByText("지난번 마지막 연습").closest("a");
+    expect(card?.textContent).toContain("10.12");
+    expect(card?.textContent).not.toContain("10.12 ·");
+    expect(document.body.textContent).not.toMatch(/undefined|null/);
+  });
+
   it("S02-D 첫 방문: 0일째 · 첫 연습 안내 · 3단계 · 빈 최근 리뷰", () => {
     render(<HomeView home={HOME_FIRST} today={FIXTURE_TODAY} />);
 
