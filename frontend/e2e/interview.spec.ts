@@ -392,12 +392,8 @@ test.describe("S06 면접 화면", () => {
     await expect(answerBox(page)).toBeEnabled();
     await expect(answerBox(page)).toHaveValue("");
 
-    // 낸 답변은 질문 말풍선 위 '이전 질문'에 남는다. 말풍선의 꺾쇠 하나로 지금 질문(한 줄로)과 기록을 함께 접는다(사용자 요청 2026-10-27).
-    const list = page.getByRole("list", { name: "이전 질문과 내 답변" });
-    await expect(list).toContainText(QUESTION_CURRENT.content);
-    await expect(list).toContainText("캐시 무효화 순서를 바꿨어요");
+    // 말풍선의 꺾쇠로 지금 질문을 한 줄로 접는다(사용자 요청 2026-10-27).
     await page.getByRole("button", { name: "질문 접기" }).click();
-    await expect(list).toHaveCount(0);
     await expect(page.getByRole("button", { name: "질문 펼치기" })).toHaveAttribute(
       "aria-expanded",
       "false",

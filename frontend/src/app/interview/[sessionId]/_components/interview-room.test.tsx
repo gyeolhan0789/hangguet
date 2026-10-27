@@ -2,7 +2,6 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type {
@@ -135,7 +134,6 @@ let online = true;
 beforeEach(() => {
   vi.useFakeTimers();
   useInterviewStore.getState().reset();
-  useInterviewHistoryStore.setState({ sessionId: null, items: [] });
   sessionStorage.clear();
   useInterviewerPreloadStore.setState({ persona: "DEVIL", status: "ready", progress: 1 });
   startSession.mockReset().mockResolvedValue({});
@@ -1013,8 +1011,8 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
   });
 });
 
-// 기준: 사용자 요청(2026-10-27: 채팅 대기 화면 · 면접 중 이전 질문 히스토리 · 면접 종료가 안 되는 현상)
-describe("InterviewRoom (채팅 대기 화면 · 이전 질문 · 끝난 뒤)", () => {
+// 기준: 사용자 요청(2026-10-27: 채팅 대기 화면 · 화면 숨기기 · 면접 종료가 안 되는 현상)
+describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)", () => {
   const chatReady = (planStatus: SessionResponse["planStatus"]) => (
     <InterviewRoom
       session={{ ...SESSION, mode: "CHAT", status: "READY", planStatus, currentQuestion: null }}
@@ -1058,61 +1056,6 @@ describe("InterviewRoom (채팅 대기 화면 · 이전 질문 · 끝난 뒤)", 
     render(<InterviewRoom session={{ ...SESSION, status: "FAILED" }} currentQuestion={null} />);
     expect(screen.queryByRole("alertdialog", { name: "면접이 잠시 멈췄어요" })).toBeNull();
     expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it("화상: 에이전트가 낸 답변(자동 제출)은 그 질문과 내 답변 글을 이전 질문에 남긴다", async () => {
-    room.streamId = "capture-1";
-    room.confirmedText = "캐시를 바꿨어요.";
-    room.interimText = " 그래서";
-    render(videoRoom());
-    expect(screen.queryByRole("list", { name: "이전 질문과 내 답변" })).toBeNull();
-
-    answerState({ seq: 3, state: "autoSubmitted" });
-    expect(useInterviewHistoryStore.getState().items).toEqual([
-      { seq: 3, question: QUESTION.content, answer: "캐시를 바꿨어요. 그래서" },
-    ]);
-    expect(screen.getByRole("list", { name: "이전 질문과 내 답변" }).textContent).toContain(
-      "캐시를 바꿨어요. 그래서",
-    );
-  });
-
-  it.each(["rejected", "failed"])(
-    "화상: 저장 실패 뒤 [다시 시도]를 에이전트가 받지 않으면(%s) 이전 질문에 남기지 않고, 받으면 남긴다",
-    async (result) => {
-      room.streamId = "capture-1";
-      room.confirmedText = "답";
-      room.submitAnswer = vi.fn(async () => result);
-      const { rerender } = render(videoRoom());
-      answerState({ seq: 3, state: "submitFailed" });
-      await act(async () => fireEvent.click(retryButton()));
-      expect(useInterviewHistoryStore.getState().items).toEqual([]);
-
-      // 테스트가 바꾼 결과는 다시 그려야 면접방 훅이 돌려준다
-      room.submitAnswer = vi.fn(async () => "accepted");
-      rerender(videoRoom());
-      await act(async () => fireEvent.click(retryButton()));
-      expect(useInterviewHistoryStore.getState().items).toEqual([
-        { seq: 3, question: QUESTION.content, answer: "답" },
-      ]);
-    },
-  );
-
-  it("화상: 질문 글은 면접방 메시지(질문 음성과 함께 온 글)를 우선해 남긴다", async () => {
-    room.streamId = "capture-1";
-    room.confirmedText = "답";
-    room.question = {
-      type: "question",
-      sessionId: 55,
-      seq: 3,
-      content: "면접방이 보낸 질문 글",
-      speech: "ended",
-      alignment: null,
-    };
-    render(videoRoom());
-    answerState({ seq: 3, state: "autoSubmitted" });
-    expect(useInterviewHistoryStore.getState().items).toEqual([
-      { seq: 3, question: "면접방이 보낸 질문 글", answer: "답" },
-    ]);
   });
 
   it("화상: 눈 버튼으로 화면을 숨기면 [면접 종료] · [화면 보이기]만 남기고 상단 바 · 질문 · 내 답변 · 내 카메라를 숨긴다. 면접방에는 그대로 있다", () => {
@@ -1159,26 +1102,5 @@ describe("InterviewRoom (채팅 대기 화면 · 이전 질문 · 끝난 뒤)", 
     expect(hiddenBox(screen.getByRole("region", { name: "악마 면접관 질문" }))).toBeTruthy();
     expect(hiddenBox(screen.getByRole("button", { name: "면접 종료" }))).toBeNull();
     expect(hiddenBox(screen.getByRole("button", { name: "화면 보이기" }))).toBeNull();
-  });
-
-  it("같은 면접에 다시 들어오면(새로고침) 이전 질문을 남기고, 다른 면접이면 비운다", async () => {
-    // 메모리는 비우고 저장값(sessionStorage)만 둔다: 새로고침 뒤처럼 화면이 붙은 뒤 저장값을 되살려야 보인다
-    sessionStorage.setItem(
-      "hankkeut:interview-history",
-      JSON.stringify({
-        state: { sessionId: 55, items: [{ seq: 1, question: "질문", answer: "답" }] },
-        version: 0,
-      }),
-    );
-    const { unmount } = render(videoRoom());
-    await act(async () => {});
-    expect(screen.getByRole("list", { name: "이전 질문과 내 답변" })).toBeTruthy();
-    unmount();
-
-    render(<InterviewRoom session={{ ...SESSION, id: 77 }} currentQuestion={QUESTION} />);
-    await act(async () => {});
-    expect(useInterviewHistoryStore.getState()).toEqual(
-      expect.objectContaining({ sessionId: 77, items: [] }),
-    );
   });
 });

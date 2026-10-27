@@ -14,7 +14,6 @@ import { PERSONAS } from "@/lib/interview/personas";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
-import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
@@ -34,7 +33,6 @@ import {
 } from "./room-alerts";
 import { AnswerNotice, MicToast, SelfCamera, VideoControls } from "./video-panel";
 import { ChatWaiting } from "./chat-waiting";
-import { InterviewHistory } from "./interview-history";
 
 // 기준: Figma S06 화상(18:2497) · S06-B 채팅(18:2574): 면접관 장면 위에 Fade Top(위 200 · rgba(11,13,20,.8)→0)
 // · Fade Bottom(아래 480 · 0→rgba(11,13,20,.95)) · Lightning Flash(72% · 12% 지점 rgba(185,212,255,.18) 원형 빛)
@@ -123,13 +121,6 @@ export function InterviewRoom({
   useEffect(() => {
     reset({ keepLeveledUp: enteredEnded });
   }, [reset, enteredEnded]);
-  // 면접 중 히스토리는 같은 면접이면 남기고(새로고침), 다른 면접이면 비운다
-  const enterHistory = useInterviewHistoryStore((state) => state.enter);
-  useEffect(() => {
-    void Promise.resolve(useInterviewHistoryStore.persist.rehydrate()).then(() =>
-      enterHistory(session.id),
-    );
-  }, [enterHistory, session.id]);
 
   // 채팅: 질문 준비가 끝나고(5.2 planStatus READY) 대기 화면의 [면접 시작]을 누르면 면접을 시작한다(5.4).
   // 실패하면(서버 실패 · 연결 오류) 2초 뒤 화면을 다시 그려 5.2로 지금 상태를 받고, 아직 시작 전이면 다시 보낸다.
@@ -223,7 +214,6 @@ export function InterviewRoom({
               />
             ) : (
               <Dialog bottom="pb-[5px]" hidden={uiHidden}>
-                <InterviewHistory sessionId={session.id} />
                 {planFailed ? (
                   <PlanFailed sessionId={session.id} />
                 ) : session.status !== "IN_PROGRESS" ? (
@@ -375,7 +365,6 @@ function VideoInterview({
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
   const openEnd = useInterviewStore((state) => state.openEnd);
-  const addHistory = useInterviewHistoryStore((state) => state.add);
   // [다시 시도]를 보내 에이전트의 응답을 기다리는 중
   const [requesting, setRequesting] = useState(false);
   // 에이전트가 답변을 내는 중인 질문(id)
@@ -389,14 +378,6 @@ function VideoInterview({
   const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
 
   function startSubmitting(questionId: number) {
-    // 낸 답변을 히스토리에 남긴다(질문 글은 면접방 메시지를 우선한다)
-    if (question) {
-      addHistory(sessionId, {
-        seq: question.seq,
-        question: (liveQuestion ?? question).content,
-        answer: (caption.confirmedText + caption.interimText).trim(),
-      });
-    }
     setAnswerNotice(null);
     setSubmittingId(questionId);
     setFailedId(null);
@@ -495,7 +476,6 @@ function VideoInterview({
         )}
       </AnimatePresence>
       <Dialog bottom="pb-[68px]" hidden={uiHidden}>
-        <InterviewHistory sessionId={sessionId} />
         {noticeMessage && (
           <AnswerNotice
             message={noticeMessage}
