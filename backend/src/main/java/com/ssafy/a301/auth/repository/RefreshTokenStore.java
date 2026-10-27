@@ -5,8 +5,7 @@ import java.time.Instant;
 public interface RefreshTokenStore {
 
     /**
-     * 리프레시 토큰 하나. authenticatedAt은 비밀번호로 로그인(가입)한 시각으로, 재발급해도 이어진다. 이 시각 뒤에 관리자가 비밀번호를 바꿨으면 재발급하지
-     * 않는다.
+     * 리프레시 토큰 하나. authenticatedAt은 비밀번호로 로그인(가입)한 시각으로, 재발급해도 이어진다. 이 시각 뒤에 비밀번호를 바꿨으면 재발급하지 않는다.
      */
     record RefreshSession(long userId, Instant authenticatedAt) {}
 
@@ -23,6 +22,6 @@ public interface RefreshTokenStore {
 
     void revoke(String token, long userId);
 
-    /** 회원의 모든 기기 리프레시 토큰을 폐기한다(탈퇴·관리자 비밀번호 변경). */
+    /** 회원의 모든 기기 리프레시 토큰을 폐기한다(탈퇴·비밀번호 변경). */
     void revokeAll(long userId);
 }

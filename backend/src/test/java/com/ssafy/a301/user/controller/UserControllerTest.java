@@ -21,8 +21,10 @@ import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.user.dto.UserDtos.MeResponse;
 import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
+import com.ssafy.a301.user.dto.UserDtos.PasswordChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.repository.UserRepository;
+import com.ssafy.a301.user.service.PasswordChangeService;
 import com.ssafy.a301.user.service.UserService;
 import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,7 @@ class UserControllerTest {
 
     @Autowired private MockMvc mvc;
     @MockitoBean private UserService service;
+    @MockitoBean private PasswordChangeService passwordChanges;
     @MockitoBean private UserRepository users;
 
     @Test
@@ -114,20 +117,24 @@ class UserControllerTest {
     }
 
     @Test
-    void passwordChangeIsNoContent() throws Exception {
+    void passwordChangeReturnsNewTokens() throws Exception {
+        when(passwordChanges.changeByUser(7L, "abcd1234", "efgh5678"))
+                .thenReturn(new PasswordChangeResponse("new-access", "new-refresh", 3600));
         mvc.perform(
                         json(
                                 patch("/api/v1/users/me/password"),
                                 "{\"currentPassword\":\"abcd1234\",\"newPassword\":\"efgh5678\"}"))
-                .andExpect(status().isNoContent());
-        verify(service).changePassword(7L, "abcd1234", "efgh5678");
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("new-access"))
+                .andExpect(jsonPath("$.refreshToken").value("new-refresh"))
+                .andExpect(jsonPath("$.expiresIn").value(3600));
     }
 
     @Test
     void wrongCurrentPasswordIsPasswordMismatch() throws Exception {
         doThrow(new ApiException(ErrorCode.PASSWORD_MISMATCH))
-                .when(service)
-                .changePassword(7L, "wrong123", "efgh5678");
+                .when(passwordChanges)
+                .changeByUser(7L, "wrong123", "efgh5678");
         mvc.perform(
                         json(
                                 patch("/api/v1/users/me/password"),
@@ -144,7 +151,7 @@ class UserControllerTest {
                                 "{\"currentPassword\":\"abcd1234\",\"newPassword\":\"onlyletters\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("newPassword"));
-        verify(service, never()).changePassword(anyLong(), anyString(), anyString());
+        verify(passwordChanges, never()).changeByUser(anyLong(), anyString(), anyString());
     }
 
     @Test

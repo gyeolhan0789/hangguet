@@ -39,7 +39,7 @@ com.ssafy.a301
 │  └─ config       SecurityConfig
 ├─ user
 │  ├─ controller   UserController
-│  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 모든 기기 로그아웃, 9.10)
+│  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 다른 기기 로그아웃, 2.3 · 9.10)
 │  ├─ dto          UserDtos
 │  ├─ mapper       UserMapper
 │  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository
@@ -153,7 +153,7 @@ com.ssafy.a301
 | `AdminDailyMetric` | `admin_daily_metrics` | - | 관리자 일별 메트릭(8.16). PK `metric_date`. 매일 0시(한국 시간)에 전날 8.15 집계를 한 행으로 남기고, 같은 날을 다시 남기면 덮어쓴다. 날짜로 정해지는 값(가입 · 연습 · 재방문)은 그날 기준, 상태가 바뀌는 값(회원 · 면접 · 문의 · 유지권 수)은 `recorded_at` 기준. 비율 대신 분자 · 분모를 둔다 |
 | `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
 | `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
-| `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 지금은 9.10(ADMIN)만 남기고, 회원 직접 변경(USER)도 남길 예정 |
+| `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 회원 직접 변경(2.3, USER)과 관리자 변경(9.10, ADMIN)을 남긴다 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
 - 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
@@ -312,7 +312,7 @@ com.ssafy.a301
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
 | `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
-| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 9.10 관리자 비밀번호 변경 때 집합의 키를 모두 지운다 |
+| `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 2.3 · 9.10 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs` | List. AI 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 5.1·5.3·답변 저장·5.8·5.9 (5.0) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
@@ -345,7 +345,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
-- 관리자 비밀번호 변경(9.10)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
+- 비밀번호 변경(2.3 회원 · 9.10 관리자)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 2.3은 폐기한 뒤 바꾼 기기에 새 액세스·리프레시 토큰을 준다. 새 리프레시 토큰의 로그인 시각은 변경 기록 시각(밀리초로 맞춤)과 같아 재발급에서 막히지 않는다. 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
@@ -381,4 +381,3 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 2. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
 3. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19), 마지막 답변과 5.8 순서(B-18)
-5. 회원 직접 비밀번호 변경(2.3)을 `PasswordChangeService`로 옮겨 변경 기록(USER)을 남기고 모든 기기를 로그아웃하게 한다(지금 2.3은 다른 기기 로그인을 유지)

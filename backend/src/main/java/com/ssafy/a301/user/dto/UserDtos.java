@@ -53,6 +53,15 @@ public final class UserDtos {
                     @Size(max = 50, message = "1~50자입니다.")
                     String nickname) {}
 
+    public record PasswordChangeResponse(
+            @Schema(description = "새 액세스 토큰. 1.3 응답의 accessToken과 같은 형식", example = "eyJ…")
+                    String accessToken,
+            @Schema(
+                            description = "새 리프레시 토큰. 이 기기를 포함해 바꾸기 전에 받은 리프레시 토큰은 모두 쓸 수 없다",
+                            example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
+                    String refreshToken,
+            @Schema(description = "액세스 토큰 유효 시간(초)", example = "3600") long expiresIn) {}
+
     public record PasswordChangeRequest(
             @Schema(description = "지금 비밀번호", example = "abcd1234", maxLength = 64)
                     @NotBlank(message = "필수 값입니다.")

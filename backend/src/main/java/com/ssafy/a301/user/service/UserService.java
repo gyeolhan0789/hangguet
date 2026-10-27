@@ -97,18 +97,6 @@ public class UserService {
                 authProperties.accessTtl().toSeconds());
     }
 
-    /** 다른 기기의 로그인(리프레시 토큰)은 유지한다. */
-    public void changePassword(long userId, String currentPassword, String newPassword) {
-        transactions.executeWithoutResult(
-                status -> {
-                    User user = lockedUser(userId);
-                    if (!passwords.matches(currentPassword, user.getPasswordHash())) {
-                        throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
-                    }
-                    user.changePasswordHash(passwords.encode(newPassword));
-                });
-    }
-
     public UploadUrlResponse profileImageUploadUrl(long userId, String contentType, long size) {
         activeUser(userId);
         String objectKey =
