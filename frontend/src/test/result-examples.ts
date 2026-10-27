@@ -76,7 +76,8 @@ export const RESULT = {
     speedDeviationPct: 8.5,
     trailingOffRatio: 12,
     pitchRangeSt: 6.2,
-    gazeRatio: 71.5,
+    // 시선 지표는 계산하지 않아 항상 null이다(API 명세 6.3 · 웹 Swagger 6.3 예시 · S15P31A301-260)
+    gazeRatio: null,
   },
 } satisfies ResultResponse;
 
