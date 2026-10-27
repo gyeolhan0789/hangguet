@@ -341,6 +341,35 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(useInterviewStore.getState().answeredQuestionId).toBeNull();
   });
 
+  it("질문 ID 전에 질문 메시지(inputQuestionSeq)만 와도 쓸 수 있고 입력 신호를 그 질문으로 보내지만, ID를 받기 전에는 내지 않는다", async () => {
+    vi.useFakeTimers();
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const onChatInput = vi.fn();
+    const { rerender } = render(
+      <ChatPanel sessionId={55} question={null} inputQuestionSeq={4} onChatInput={onChatInput} />,
+    );
+    expect(input().disabled).toBe(false);
+    type("먼저 쓴 답");
+    act(() => vi.advanceTimersByTime(CHAT_INPUT_PAUSE_MS));
+    expect(onChatInput).toHaveBeenCalledWith(4, 1, "먼저 쓴 답", expect.any(Number));
+    expect(screen.getByRole("button", { name: "답변 보내기" })).toHaveProperty("disabled", true);
+    await enter();
+    await act(async () => fireEvent.submit(input().closest("form")!));
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+
+    rerender(
+      <ChatPanel
+        sessionId={55}
+        question={{ ...QUESTION, id: 304, seq: 4 }}
+        inputQuestionSeq={4}
+        onChatInput={onChatInput}
+      />,
+    );
+    await enter();
+    expect(submitTextAnswer).toHaveBeenCalledOnce();
+    vi.useRealTimers();
+  });
+
   it("다음 질문을 기다리는 동안(질문 없음)은 입력 · 보내기를 막는다", async () => {
     render(<ChatPanel sessionId={55} question={null} />);
 

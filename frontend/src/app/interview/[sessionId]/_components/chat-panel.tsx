@@ -30,7 +30,10 @@ const MIN_PX = LINE_PX + 12 + 44;
 /** 채팅 입력 중지 후 리액션 판단을 요청하는 간격(API 명세 면접방 메시지, 임시 값). */
 export const CHAT_INPUT_PAUSE_MS = 800;
 
-/** S06-B 채팅 답변 입력창. 질문을 기다리는 동안은 입력할 수 없다. */
+/**
+ * S06-B 채팅 답변 입력창. 질문 ID도 질문 메시지(inputQuestionSeq)도 없으면 입력할 수 없다.
+ * 질문 메시지만 와도 쓸 수 있고, 내기는 질문 ID를 받은 뒤에만 한다.
+ */
 export function ChatPanel({
   sessionId,
   question,
@@ -47,7 +50,7 @@ export function ChatPanel({
   /** 질문 음성 재생 중에는 입력을 유지하고 제출만 차단한다. */
   submissionLocked?: boolean;
   onChatInput?: (questionSeq: number, seq: number, text: string, pauseMs: number) => void;
-  /** 질문 메시지가 BE 질문 ID보다 먼저 도착해도 표시 중인 질문의 입력으로 전송한다. */
+  /** 표시 중인 질문의 순서(면접방 메시지). BE 질문 ID보다 먼저 오면 쓰기를 열고, 입력 신호를 이 질문으로 보낸다. */
   inputQuestionSeq?: number;
 }) {
   const reduce = useReducedMotion();
@@ -72,7 +75,8 @@ export function ChatPanel({
     defaultValues: { content: "" },
   });
   const length = useWatch({ control, name: "content" }).length;
-  const disabled = !question || pending;
+  // 면접관 질문 메시지가 오면(inputQuestionSeq) 질문 ID(5.5)를 받기 전이라도 쓰기 시작할 수 있다. 내기는 ID를 받은 뒤에만 한다.
+  const disabled = (!question && inputQuestionSeq === undefined) || pending;
   const { ref, ...field } = register("content");
   const textarea = useRef<HTMLTextAreaElement | null>(null);
   const inputTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -145,7 +149,7 @@ export function ChatPanel({
     // 한글을 조합하는 중의 Enter는 글자를 확정하는 키라 보내지 않는다.
     if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
-    if (!disabled && !submissionLocked) void handleSubmit(submit)();
+    if (!disabled && question && !submissionLocked) void handleSubmit(submit)();
   }
 
   const error = errors.content?.message ?? formError;
@@ -202,7 +206,7 @@ export function ChatPanel({
           <button
             type="submit"
             aria-label="답변 보내기"
-            disabled={disabled || submissionLocked}
+            disabled={disabled || !question || submissionLocked}
             aria-busy={pending || undefined}
             className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed"
           >

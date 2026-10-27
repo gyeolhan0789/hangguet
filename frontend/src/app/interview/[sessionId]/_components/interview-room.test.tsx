@@ -15,6 +15,7 @@ import {
   CHAT_ROOM_RETRIES,
   CHAT_ROOM_RETRY_MS,
   InterviewRoom,
+  QUESTION_RECHECK_MS,
   SESSION_POLL_MS,
 } from "./interview-room";
 import { PAUSE_AFTER_MS } from "./room-alerts";
@@ -292,7 +293,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     },
   );
 
-  it("채팅은 메시지의 질문을 표시하되 같은 순서의 질문 ID를 확인하기 전 제출하지 않는다", () => {
+  it("채팅은 메시지의 질문을 표시해 바로 쓸 수 있게 하고, 같은 순서의 질문 ID(5.5)를 바로 받아 오며 확인하기 전에는 내지 않는다", async () => {
+    // 답한 뒤 다음 질문 ID(5.5)를 아직 받지 못한 상태: BE 질문은 없고 면접방 메시지만 왔다
     room.question = {
       type: "question",
       sessionId: 55,
@@ -301,19 +303,93 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       speech: "ended",
       alignment: null,
     };
-    const { rerender } = render(chatRoom());
-    expect(screen.getByText("새 질문", { selector: ".sr-only" })).toBeTruthy();
-    const button = () => screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement;
-    expect(button().disabled).toBe(true);
-    waitPoll();
-    expect(refresh).toHaveBeenCalledTimes(1);
-    rerender(
-      <InterviewRoom
-        session={{ ...SESSION, mode: "CHAT" }}
-        currentQuestion={{ id: 304, seq: 4, content: "BE 질문" }}
-      />,
+    const chat = (question: CurrentQuestion | null) => (
+      <InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={question} />
     );
+    const { rerender } = render(chat(null));
+    expect(screen.getByText("새 질문", { selector: ".sr-only" })).toBeTruthy();
+    const box = () => screen.getByRole("textbox", { name: "답변" });
+    const button = () => screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement;
+    // 질문 글이 보이면 바로 쓸 수 있지만, 질문 ID를 받기 전에는 Enter · 폼 제출로도 내지 않는다
+    expect(box()).toHaveProperty("disabled", false);
+    expect(button().disabled).toBe(true);
+    fireEvent.input(box(), { target: { value: "먼저 써 둔 답" } });
+    await act(async () => fireEvent.keyDown(box(), { key: "Enter" }));
+    await act(async () => fireEvent.submit(box().closest("form")!));
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+    // 메시지를 받으면 2초 조회를 기다리지 않고 바로 5.5를 다시 받는다
+    act(() => vi.advanceTimersByTime(0));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // 아직 같은 순서가 아니면(BE가 질문 시작을 받기 전) 잠깐 뒤, 그래도 아니면 2초 뒤 다시 확인한다
+    act(() => vi.advanceTimersByTime(QUESTION_RECHECK_MS - 1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS - 1));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(3);
+
+    // 같은 순서의 ID를 받으면 낼 수 있고, 더는 다시 조회하지 않는다
+    rerender(chat({ id: 304, seq: 4, content: "BE 질문" }));
     expect(button().disabled).toBe(false);
+    expect(box()).toHaveProperty("value", "먼저 써 둔 답");
+    refresh.mockClear();
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("채팅: 면접방 메시지를 기다리는 동안(질문 없음)은 한 곳에서만 2초마다 다시 조회한다(요청이 서로를 끊지 않게)", () => {
+    render(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={null} />);
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS - 1));
+    expect(refresh).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("채팅: 인터넷이 끊기면 다시 조회하지 않고, 다시 연결되면 이어서 조회한다", () => {
+    online = false;
+    const { rerender } = render(
+      <InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={null} />,
+    );
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
+
+    online = true;
+    act(() => window.dispatchEvent(new Event("online")));
+    rerender(<InterviewRoom session={{ ...SESSION, mode: "CHAT" }} currentQuestion={null} />);
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("채팅: 답한 직후 지난 질문 메시지가 남아 있어도 바로 조회하지 않고 2초 예비 조회로 가며, 다음 질문 메시지가 오면 바로 조회한다", async () => {
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 3,
+      content: "지금 질문",
+      speech: "ended",
+      alignment: null,
+    };
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const { rerender } = render(chatRoom());
+    const box = () => screen.getByRole("textbox", { name: "답변" });
+    fireEvent.input(box(), { target: { value: "답" } });
+    await act(async () => fireEvent.keyDown(box(), { key: "Enter" }));
+    expect(submitTextAnswer).toHaveBeenCalledOnce();
+    rerender(chatRoom());
+
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS - 1));
+    expect(refresh).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    room.question = { ...room.question, seq: 4, content: "다음 질문" };
+    rerender(chatRoom());
+    act(() => vi.advanceTimersByTime(0));
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it.each(["ended", "failed"] as const)(

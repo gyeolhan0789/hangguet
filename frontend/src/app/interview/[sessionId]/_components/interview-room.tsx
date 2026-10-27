@@ -49,6 +49,8 @@ import { ChatWaiting } from "./chat-waiting";
 
 /** 다음 질문 · 결과 분석을 다시 조회하는 간격(웹 Swagger 5.2 · 5.5 "2초마다(임시 값)") */
 export const SESSION_POLL_MS = 2000;
+/** 면접관 질문 메시지를 받았는데 5.5가 아직 그 질문이 아니면 다시 확인하는 간격(임시 값). BE가 질문 시작을 받는 잠깐만 쓴다 */
+export const QUESTION_RECHECK_MS = 1000;
 /** 채팅 면접방에 다시 들어가기 전 기다리는 시간과 연달아 다시 들어가는 횟수(사용자 결정 2026-10-26) */
 export const CHAT_ROOM_RETRY_MS = 2000;
 export const CHAT_ROOM_RETRIES = 3;
@@ -79,8 +81,9 @@ export function InterviewRoom({
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
   // 채팅은 장치 점검 없이 바로 와서 질문 준비(플랜)를 이 화면에서 기다린다.
   const preparing = session.status === "READY" && session.planStatus === "GENERATING";
+  // 채팅 면접 중에는 면접방 메시지를 받는 ChatLive가 다시 그리기를 맡는다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   const waiting =
-    (session.status === "IN_PROGRESS" && question === null) ||
+    (session.status === "IN_PROGRESS" && question === null && session.mode !== "CHAT") ||
     session.status === "ANALYZING" ||
     preparing;
   // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
@@ -594,12 +597,27 @@ function ChatLive({
     [inputQuestionSeq, sendChatInput],
   );
   const router = useRouter();
-  // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답으로 확인한다.
+  // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답(5.5)으로 확인한다.
+  // 메시지가 오면 2초 조회를 기다리지 않고 바로 다시 그린다(사용자 요청 2026-10-27). 같은 순서가 아직 오지 않았으면
+  // 잠깐 뒤(QUESTION_RECHECK_MS), 그래도 아니면 2초마다 다시 확인한다. 메시지가 오지 않는 동안(질문 없음)은 2초마다 다시 조회한다(면접방이 끊겼을 때 대비).
+  // 다시 그리기는 이 한 곳에서만 하고, 끝난 뒤에 다음 확인을 예약해 요청이 서로를 끊지 않게 한다.
+  const [refreshing, startRefresh] = useTransition();
+  const online = useOnline();
+  // 지금 메시지 질문을 몇 번 확인했는지. 처음은 바로, 두 번째는 잠깐 뒤, 그 뒤로는 2초마다(계속 어긋나면 자주 부르지 않게)
+  const checked = useRef<{ seq: number; count: number } | null>(null);
+  const waitingMessage = !liveQuestion && question === null;
+  const mismatch = liveQuestion !== null && liveQuestion.seq !== question?.seq;
   useEffect(() => {
-    if (!liveQuestion || liveQuestion.seq === question?.seq) return;
-    const timer = setTimeout(() => router.refresh(), SESSION_POLL_MS);
+    if ((!mismatch && !waitingMessage) || refreshing || !online) return;
+    let delay = SESSION_POLL_MS;
+    if (mismatch) {
+      const count = checked.current?.seq === liveQuestion.seq ? checked.current.count : 0;
+      delay = count === 0 ? 0 : count === 1 ? QUESTION_RECHECK_MS : SESSION_POLL_MS;
+      checked.current = { seq: liveQuestion.seq, count: count + 1 };
+    }
+    const timer = setTimeout(() => startRefresh(() => router.refresh()), delay);
     return () => clearTimeout(timer);
-  }, [liveQuestion, question, router]);
+  }, [mismatch, waitingMessage, liveQuestion, refreshing, online, router]);
   const [retries, setRetries] = useState(0);
   if (status === "listening" && retries !== 0) setRetries(0);
 
