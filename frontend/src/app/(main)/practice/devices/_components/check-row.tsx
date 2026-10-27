@@ -4,8 +4,7 @@ import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/re
 import { useEffect, useRef, type ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
-
-import { Spinner } from "./spinner";
+import { Spinner } from "@/components/spinner";
 
 // 기준: Figma S05 Check 카메라 · 마이크 · 스피커 · 네트워크(18:2423 · 18:2434 · 18:2446 · 18:2459: 흰 줄 · 40px 타일
 // · 제목 16 Bold · 설명 14 Medium text-3 · 오른쪽 circle-check 24 또는 [들어보기]) · S05-E 실패 줄(18:4103: danger-soft 배경

@@ -156,7 +156,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
     const { rerender } = render(<ChatPanel sessionId={55} question={QUESTION} submissionLocked />);
     type("답변을 작성합니다.");
-    expect(input().disabled).toBe(false);
+    expect(input().readOnly).toBe(false);
     expect(
       (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -348,7 +348,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     const { rerender } = render(
       <ChatPanel sessionId={55} question={null} inputQuestionSeq={4} onChatInput={onChatInput} />,
     );
-    expect(input().disabled).toBe(false);
+    expect(input().readOnly).toBe(false);
     type("먼저 쓴 답");
     act(() => vi.advanceTimersByTime(CHAT_INPUT_PAUSE_MS));
     expect(onChatInput).toHaveBeenCalledWith(4, 1, "먼저 쓴 답", expect.any(Number));
@@ -373,7 +373,23 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
   it("다음 질문을 기다리는 동안(질문 없음)은 입력 · 보내기를 막는다", async () => {
     render(<ChatPanel sessionId={55} question={null} />);
 
-    expect(input().disabled).toBe(true);
+    expect(input().readOnly).toBe(true);
+    expect(input().getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("button", { name: "답변 보내기" })).toHaveProperty("disabled", true);
+  });
+
+  it("답변을 낸 뒤 다음 질문을 기다리는 동안에도 입력칸 포커스(주황 테두리)를 잃지 않고, 다음 질문이 오면 바로 쓸 수 있다", async () => {
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const { rerender } = render(<ChatPanel sessionId={55} question={QUESTION} />);
+    input().focus();
+    type("캐시를 바꿨어요");
+    await enter();
+    // 다음 질문을 기다리는 중(질문 없음): 막지만 포커스는 그대로다
+    rerender(<ChatPanel sessionId={55} question={null} />);
+    expect(input().readOnly).toBe(true);
+    expect(document.activeElement).toBe(input());
+    rerender(<ChatPanel sessionId={55} question={{ ...QUESTION, id: 304, seq: 4 }} />);
+    expect(input().readOnly).toBe(false);
+    expect(document.activeElement).toBe(input());
   });
 });
