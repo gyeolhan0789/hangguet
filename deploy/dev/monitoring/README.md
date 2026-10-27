@@ -46,7 +46,7 @@ docker compose -f deploy/dev/monitoring/compose.yml up -d
 - 도메인에서 로그인 화면이 열리지 않으면 Tunnel Public Hostname, Nginx의 `server_name`과 `server_public-network` 연결을 차례로 확인한다. Runner의 헬스체크는 도메인 연결까지 검사하지 않는다.
 - BE 지표 수집이 `UP`인지 본다. 요청이 없으면 평균·p95 응답 시간은 비어 있고 요청 건수·5xx는 0이다. p95는 BE의 요청 히스토그램이 켜진 뒤 들어온 요청을 기동 시점부터 누적해 계산한다.
 - FE 첫 화면 검사 응답 시간은 서버 간 HTTP 검사 결과다. 실제 사용자 지표(TTFB·FCP·LCP·INP)와 브라우저 오류는 개발 서버 FE를 사용한 브라우저가 보고한다. Web Vitals p75는 FE 기동 시점부터 누적한 값이며, 방문이나 상호작용이 없으면 해당 패널이 비어 있을 수 있다. 오류 내용·URL·사용자 식별자는 수집하지 않는다.
-- AI 작업 큐는 Redis `ai:jobs`의 대기·처리 중 길이다. AI 실패 패널은 실패한 면접의 현재 누적 수와 BE가 재처리하지 못해 `ai:results:failed`에 둔 메시지 수다. 모든 AI 모델 호출 실패를 뜻하지는 않는다.
+- AI 작업 큐는 Redis 작업 큐(`ai:jobs` · `ai:jobs:plan` · `ai:jobs:recording`, AI 명세 1.3)의 대기·처리 중 길이를 큐별로 보여 준다. BE 지표에 큐 이름(`queue`)이 붙기 전에는 한 줄로 보인다. AI 실패 패널은 실패한 면접의 현재 누적 수와 BE가 재처리하지 못해 `ai:results:failed`에 둔 메시지 수다. 모든 AI 모델 호출 실패를 뜻하지는 않는다.
 - **A301 개발 서버 로그** 대시보드의 서비스 목록에 `a301-dev-*`만 보이고, 고른 서비스의 최근 로그가 나오는지 본다.
 - `docker compose -f deploy/dev/monitoring/compose.yml restart` 후에도 이전 지표와 Grafana 설정이 남는지 본다.
 
