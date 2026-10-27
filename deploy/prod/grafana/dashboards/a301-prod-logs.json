@@ -107,7 +107,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{env=\"prod\", service=\"a301-prod-be\"} |~ `(ERROR|WARN|^s+at |Caused by|Exception)`",
+          "expr": "{env=\"prod\", service=\"a301-prod-be\"} |~ `(ERROR|WARN|^\\s+at |Caused by|Exception)`",
           "queryType": "range",
           "maxLines": 500
         }
