@@ -20,7 +20,7 @@
 
 | 컨테이너 | 이미지 | 바깥 노출 |
 |---|---|---|
-| `a301-prod-be` · `-fe` · `-ai` · `-ai-agent` · `-ai-analysis` · `-admin` | `hanggeut/a301:{be,fe,ai,admin}-<IMAGE_TAG>`(AI 세 컨테이너는 같은 `ai-` 이미지, 명령만 다름) | 없음(헬스체크 포트만 루프백: BE 관리 18084, FE 18082, AI 18083) |
+| `a301-prod-be` · `-fe` · `-ai` · `-ai-agent` · `-ai-analysis` · `-ai-plan` · `-ai-recording` · `-admin` | `hanggeut/a301:{be,fe,ai,admin}-<IMAGE_TAG>`(AI 다섯 컨테이너는 같은 `ai-` 이미지, 명령 · 환경 변수만 다름) | 없음(헬스체크 포트만 루프백: BE 관리 18084, FE 18082, AI 18083) |
 | `a301-prod-postgres` · `-redis` | 공식 이미지(개발 서버와 같은 버전) | 없음 |
 | `a301-prod-nginx` · `-cloudflared` | 공식 이미지 | 없음(Tunnel이 밖으로 나가는 연결만 씀) |
 | `a301-prod-livekit` · `-egress` | `livekit/livekit-server:v1.13.10` · `livekit/egress:v1.15.0` | LiveKit만 7881/tcp · 7882/udp · 3478/udp · 443/tcp |

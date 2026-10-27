@@ -15,7 +15,7 @@
 #   compose는 파일 전체를 읽으므로 어느 앱 서비스를 배포하든 다섯 값이 필요하다.
 # - 외부 API 키(SONIOX_API_KEY·ELEVENLABS_API_KEY)도 CI/CD Variables에서 받아 AI 에이전트에만 넘긴다.
 #   SONIOX_API_KEY는 에이전트 배포에 필요하고(ai-agent-deploy가 검사), ELEVENLABS_API_KEY가 없으면 질문 음성 없이 질문 글로만 진행한다.
-# - GMS 키(LLM_API_KEY)도 CI/CD Variables에서 받아 분석 작업자에만 넘긴다. 분석 작업자 배포에 필요하다(ai-analysis-deploy가 검사).
+# - GMS 키(LLM_API_KEY)도 CI/CD Variables에서 받아 분석 작업자(ai-analysis · ai-plan)에만 넘긴다. 두 작업자 배포에 필요하다(ai-analysis-deploy · ai-plan-deploy가 검사).
 # - 녹화 S3 키(LIVEKIT_EGRESS_S3_ACCESS_KEY·LIVEKIT_EGRESS_S3_SECRET)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 화상 면접 시작(5.4)이 실패한다.
 # - 앱 S3 키(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 프로필 사진 API만 실패한다.
 # - LiveKit: 개발 서버는 LiveKit Cloud를 쓴다(운영은 셀프 호스팅, 이해준/deploy_plan 4.0). 키·시크릿은 CI/CD Variables,
@@ -45,6 +45,50 @@ x-livekit-env: &livekit-env
   LIVEKIT_PUBLIC_URL: wss://a301-dev-gdbmpfm5.livekit.cloud
   LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
   LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+
+# 분석 작업자 3개(ai-analysis · ai-plan · ai-recording)가 같이 쓰는 설정.
+# 에이전트와 같은 이미지를 명령만 바꿔 띄우고, AI_WORKER_QUEUE로 수신할 큐만 다르다(AI 명세 1.3).
+x-ai-worker: &ai-worker
+  build:
+    context: ../../ai
+  restart: unless-stopped
+  command: ["python", "-m", "app.worker"]
+  depends_on:
+    a301-dev-redis:
+      condition: service_healthy
+  # 작업자에는 HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다(프로세스가 죽으면 컨테이너가 멈춘다)
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
+    interval: 30s
+    timeout: 5s
+    start_period: 10s
+    retries: 3
+  networks:
+    - internal
+  logging: *logging
+
+x-ai-worker-redis-env: &ai-worker-redis-env
+  REDIS_HOST: a301-dev-redis
+  REDIS_PORT: "6379"
+
+# GMS 접속 값(PLAN · SCORE_ANSWER · EVALUATE). 이름과 값은 회사 카드 파이프라인(company-pipeline/pipeline/README.md)과 같다.
+# 모델은 AI에 등록된 버전(ai/app/common/versions.py)만 쓸 수 있다
+x-gms-env: &gms-env
+  LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
+  LLM_MODEL: gpt-4.1-mini
+  LLM_API_KEY: ${LLM_API_KEY:-}
+
+# 녹화 합치기(MERGE_RECORDING): BE와 같은 버킷 · 앱 키로 원본 트랙(recordings/raw/)을 받고 합친 mp4를 올린다.
+# 없으면 합치기만 STORAGE_ERROR로 알리고 다른 작업은 처리한다
+x-recording-s3-env: &recording-s3-env
+  S3_BUCKET: a301-livekit-recordings-dev
+  AWS_REGION: ap-northeast-2
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
 
 services:
   a301-dev-postgres:
@@ -190,48 +234,41 @@ services:
       - internal
     logging: *logging
 
-  # 분석 작업자: BE가 Redis 작업 큐(ai:jobs)에 넣은 질문 생성(PLAN)·답변 채점(SCORE_ANSWER)을 GMS로 처리해
-  # 결과 큐(ai:results)로 돌려준다(AI 명세 1장). 에이전트와 같은 이미지를 명령만 바꿔 별도 프로세스로 띄운다.
-  # 작업을 한 번에 하나씩 처리하므로 컨테이너를 늘리지 않는다(처리 중 리스트를 작업자끼리 공유해, 늘리면 재시작 때 중복 처리된다).
+  # 분석 작업자: BE가 Redis 작업 큐에 넣은 작업을 처리해 결과 큐(ai:results)로 돌려준다(AI 명세 1장).
+  # 작업을 한 번에 하나씩 처리하므로, 사용자가 기다리는 질문 생성(PLAN)이 다른 작업에 밀리지 않게 큐마다 작업자를 둔다(AI 명세 1.3).
+  # 같은 큐의 작업자는 늘리지 않는다(처리 중 리스트를 공유해, 늘리면 재시작 때 중복 처리된다).
+  # 기본 작업자(ai:jobs): 답변 채점(SCORE_ANSWER) · 결과 생성(EVALUATE).
+  # 큐를 나누기 전에 ai:jobs에 들어간 PLAN · 녹화 합치기도 처리하도록 GMS · S3 값을 모두 받는다
   a301-dev-ai-analysis:
-    build:
-      context: ../../ai
+    <<: *ai-worker
     image: a301-dev-ai-analysis:${IMAGE_TAG:-local}
     container_name: a301-dev-ai-analysis
-    restart: unless-stopped
-    command: ["python", "-m", "app.worker"]
-    depends_on:
-      a301-dev-redis:
-        condition: service_healthy
     environment:
-      REDIS_HOST: a301-dev-redis
-      REDIS_PORT: "6379"
-      # GMS 접속 값. 이름과 값은 회사 카드 파이프라인(company-pipeline/pipeline/README.md)과 같다.
-      # 모델은 AI에 등록된 버전(ai/app/common/versions.py)만 쓸 수 있다
-      LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
-      LLM_MODEL: gpt-4.1-mini
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      # 녹화 합치기(MERGE_RECORDING): BE와 같은 버킷 · 앱 키로 원본 트랙(recordings/raw/)을 받고 합친 mp4를 올린다.
-      # 없으면 합치기만 STORAGE_ERROR로 알리고 다른 작업은 처리한다
-      S3_BUCKET: a301-livekit-recordings-dev
-      AWS_REGION: ap-northeast-2
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-    # 작업자에는 HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다(프로세스가 죽으면 컨테이너가 멈춘다)
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
+      <<: [*ai-worker-redis-env, *gms-env, *recording-s3-env]
     mem_limit: 256m
-    networks:
-      - internal
-    logging: *logging
+
+  # 질문 생성 작업자(ai:jobs:plan). 사용자가 화면 앞에서 3분 안에 받아야 하는 작업만 처리한다
+  a301-dev-ai-plan:
+    <<: *ai-worker
+    image: a301-dev-ai-plan:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-plan
+    environment:
+      <<: [*ai-worker-redis-env, *gms-env]
+      AI_WORKER_QUEUE: plan
+    # GMS 응답을 기다리는 시간이 대부분이라 기본 작업자와 같게 둔다. 실측해 조정한다
+    mem_limit: 256m
+
+  # 녹화 합치기 작업자(ai:jobs:recording). ffmpeg가 CPU를 쓰므로 실시간 면접과 나눠 쓰도록 1코어 · 256m로 제한한다.
+  # 로컬 PC에서 15분 녹화 합치기에 CPU 약 9초, 메모리 약 90MB를 썼다. 운영 서버의 첫 합치기에서 다시 확인한다
+  a301-dev-ai-recording:
+    <<: *ai-worker
+    image: a301-dev-ai-recording:${IMAGE_TAG:-local}
+    container_name: a301-dev-ai-recording
+    environment:
+      <<: [*ai-worker-redis-env, *recording-s3-env]
+      AI_WORKER_QUEUE: recording
+    mem_limit: 256m
+    cpus: 1
 
   a301-dev-fe:
     build:
