@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.controller;
 import com.ssafy.a301.common.idempotency.Idempotent;
 import com.ssafy.a301.common.validation.SupportedDate;
 import com.ssafy.a301.common.validation.SupportedMonth;
+import com.ssafy.a301.common.web.CurrentUserId;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
@@ -30,8 +31,6 @@ import java.time.YearMonth;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -77,11 +76,11 @@ public class InterviewSessionController {
     @PostMapping("/{sessionId}/questions/{questionId}/answer")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public AnswerResponse submitAnswer(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId,
             @Parameter(description = "질문 id", example = "303") @PathVariable long questionId,
             @Valid @RequestBody AnswerRequest request) {
-        return answers.submit(userId(jwt), sessionId, questionId, request);
+        return answers.submit(userId, sessionId, questionId, request);
     }
 
     @Operation(
@@ -102,9 +101,9 @@ public class InterviewSessionController {
     @Idempotent
     @PostMapping("/{sessionId}/end")
     public ResponseEntity<SessionResponse> end(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        SessionResponse ended = sessions.end(userId(jwt), sessionId);
+        SessionResponse ended = sessions.end(userId, sessionId);
         return ResponseEntity.status(
                         ended.status() == SessionStatus.ANALYZING
                                 ? HttpStatus.ACCEPTED
@@ -119,9 +118,9 @@ public class InterviewSessionController {
     @PostMapping("/{sessionId}/analysis/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public SessionResponse retryAnalysis(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.retryAnalysis(userId(jwt), sessionId);
+        return sessions.retryAnalysis(userId, sessionId);
     }
 
     @Operation(summary = "5.13 연습 면접 목록", description = "선택한 한국 날짜에 시작한 본인 면접 기록을 최근 순으로 준다.")
@@ -130,7 +129,7 @@ public class InterviewSessionController {
             description = "VALIDATION_FAILED: 날짜 누락·형식 오류·0001-01-01~9999-12-31 밖, page·size 범위 오류")
     @GetMapping
     public SessionListResponse list(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "연습 날짜(한국 시간, 0001-01-01~9999-12-31)", example = "2026-10-21")
                     @RequestParam
                     @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
@@ -145,7 +144,7 @@ public class InterviewSessionController {
                     @Min(value = 1, message = "1~20입니다.")
                     @Max(value = 20, message = "1~20입니다.")
                     int size) {
-        return sessionList.list(Long.parseLong(jwt.getSubject()), practiceDate, page, size);
+        return sessionList.list(userId, practiceDate, page, size);
     }
 
     @Operation(
@@ -154,12 +153,12 @@ public class InterviewSessionController {
     @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED: month 누락 또는 YYYY-MM 형식 아님")
     @GetMapping("/calendar")
     public SessionCalendarResponse calendar(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "조회 월(0001-01~9999-12)", example = "2026-10")
                     @RequestParam
                     @SupportedMonth
                     String month) {
-        return sessionList.calendar(userId(jwt), YearMonth.parse(month));
+        return sessionList.calendar(userId, YearMonth.parse(month));
     }
 
     @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
@@ -170,8 +169,8 @@ public class InterviewSessionController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public SessionResponse create(
-            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody SessionCreateRequest request) {
-        return sessions.create(userId(jwt), request);
+            @CurrentUserId long userId, @Valid @RequestBody SessionCreateRequest request) {
+        return sessions.create(userId, request);
     }
 
     @Operation(
@@ -181,9 +180,9 @@ public class InterviewSessionController {
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND: 없거나 남의 면접")
     @GetMapping("/{sessionId}")
     public SessionResponse get(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.get(userId(jwt), sessionId);
+        return sessions.get(userId, sessionId);
     }
 
     @Operation(summary = "5.3 면접 플랜 재생성")
@@ -193,9 +192,9 @@ public class InterviewSessionController {
     @PostMapping("/{sessionId}/plan/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public SessionResponse retryPlan(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.retryPlan(userId(jwt), sessionId);
+        return sessions.retryPlan(userId, sessionId);
     }
 
     @Operation(
@@ -216,9 +215,9 @@ public class InterviewSessionController {
     @Idempotent
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.start(userId(jwt), sessionId);
+        return sessions.start(userId, sessionId);
     }
 
     @Operation(
@@ -238,9 +237,9 @@ public class InterviewSessionController {
             description = "INVALID_SESSION_STATE: IN_PROGRESS가 아니거나 5개 질문에 모두 답함(5.8 호출)")
     @GetMapping("/{sessionId}/questions/current")
     public ResponseEntity<Object> currentQuestion(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.currentQuestion(userId(jwt), sessionId)
+        return sessions.currentQuestion(userId, sessionId)
                 .<ResponseEntity<Object>>map(ResponseEntity::ok)
                 .orElseGet(
                         () ->
@@ -256,12 +255,8 @@ public class InterviewSessionController {
     @ApiResponse(responseCode = "409", description = "INVALID_SESSION_STATE: IN_PROGRESS가 아님")
     @PostMapping("/{sessionId}/room-token")
     public RoomResponse roomToken(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        return sessions.roomAccess(userId(jwt), sessionId);
-    }
-
-    private static long userId(Jwt jwt) {
-        return Long.parseLong(jwt.getSubject());
+        return sessions.roomAccess(userId, sessionId);
     }
 }

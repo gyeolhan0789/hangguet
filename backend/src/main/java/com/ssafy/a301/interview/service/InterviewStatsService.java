@@ -1,11 +1,11 @@
 package com.ssafy.a301.interview.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -17,7 +17,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class InterviewStatsService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final InterviewSessionRepository sessions;
 
@@ -38,8 +37,8 @@ public class InterviewStatsService {
                 sessions.findPracticeDurations(
                         userId,
                         SessionStatus.PRACTICE,
-                        date.atStartOfDay(KST).toOffsetDateTime(),
-                        date.plusDays(1).atStartOfDay(KST).toOffsetDateTime());
+                        KoreaTime.startOfDay(date),
+                        KoreaTime.startOfDay(date.plusDays(1)));
         long seconds = 0;
         for (Object[] duration : durations) {
             seconds +=

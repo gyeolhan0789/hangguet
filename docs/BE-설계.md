@@ -34,7 +34,7 @@ com.ssafy.a301
 │  ├─ controller   AuthController
 │  ├─ service      AuthService
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
-│  ├─ jwt          AccessTokens, AuthProperties
+│  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
 │  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore
 │  └─ config       SecurityConfig
 ├─ user
@@ -115,6 +115,9 @@ com.ssafy.a301
 │                  FilterExceptionFilter·ProblemResponses(보안 필터에서 난 오류도 같은 실패 응답으로)
 ├─ common/validation  SupportedDate·SupportedMonth(조회 날짜·월 범위 0001~9999년, 5.13·5.15·3.3·7.1)
 ├─ common/idempotency  Idempotent, IdempotencyInterceptor·Filter·Config, IdempotencyStore, RedisIdempotencyStore
+├─ common/time     KoreaTime(서비스 시간대 Asia/Seoul. now·today·startOfDay·dateOf)
+├─ common/web      CurrentUserId·CurrentAdminId(컨트롤러 인자로 로그인 id 받기)
+├─ common/crypto   Hashes(SHA-256 hex. 토큰 Redis 키·멱등성 지문)
 └─ config          OpenApiConfig, SchedulingConfig
 ```
 

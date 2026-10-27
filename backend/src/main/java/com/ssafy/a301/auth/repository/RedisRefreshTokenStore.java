@@ -1,14 +1,11 @@
 package com.ssafy.a301.auth.repository;
 
 import com.ssafy.a301.auth.jwt.AuthProperties;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import com.ssafy.a301.common.crypto.Hashes;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -94,14 +91,6 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
 
     // Redis에도 원본 bearer credential을 저장하지 않는다.
     private static String key(String token) {
-        try {
-            return "refresh:"
-                    + HexFormat.of()
-                            .formatHex(
-                                    MessageDigest.getInstance("SHA-256")
-                                            .digest(token.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
-        }
+        return "refresh:" + Hashes.sha256Hex(token);
     }
 }

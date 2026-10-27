@@ -2,6 +2,7 @@ package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewSession;
@@ -20,7 +21,6 @@ import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.YearMonth;
-import java.time.ZoneId;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -36,7 +36,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class InterviewSessionListService {
-    private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
     private static final Sort RECENT_FIRST =
             Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id"));
 
@@ -58,8 +57,8 @@ public class InterviewSessionListService {
 
     @Transactional(readOnly = true)
     public SessionCalendarResponse calendar(long userId, YearMonth month) {
-        OffsetDateTime from = month.atDay(1).atStartOfDay(KOREA).toOffsetDateTime();
-        OffsetDateTime to = month.plusMonths(1).atDay(1).atStartOfDay(KOREA).toOffsetDateTime();
+        OffsetDateTime from = KoreaTime.startOfDay(month.atDay(1));
+        OffsetDateTime to = KoreaTime.startOfDay(month.plusMonths(1).atDay(1));
         Map<LocalDate, Long> counts =
                 sessions
                         .countPracticeByDate(userId, SessionStatus.practiceNames(), from, to)
@@ -83,8 +82,8 @@ public class InterviewSessionListService {
 
     @Transactional(readOnly = true)
     public SessionListResponse list(long userId, LocalDate practiceDate, int page, int size) {
-        OffsetDateTime from = practiceDate.atStartOfDay(KOREA).toOffsetDateTime();
-        OffsetDateTime to = practiceDate.plusDays(1).atStartOfDay(KOREA).toOffsetDateTime();
+        OffsetDateTime from = KoreaTime.startOfDay(practiceDate);
+        OffsetDateTime to = KoreaTime.startOfDay(practiceDate.plusDays(1));
         PageRequest pageable = PageRequest.of(page, size, RECENT_FIRST);
         // 날짜 전체 건수·시간은 3.1·7.1과 같은 계산(InterviewStatsService.daily)을 쓴다
         InterviewStatsService.DailyPractice daily = interviewStats.daily(userId, practiceDate);

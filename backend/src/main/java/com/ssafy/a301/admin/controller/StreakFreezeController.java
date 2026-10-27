@@ -4,12 +4,11 @@ import com.ssafy.a301.admin.dto.AdminDtos.MyStreakFreezesResponse;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeUseRequest;
 import com.ssafy.a301.admin.dto.AdminDtos.StreakFreezeUseResponse;
 import com.ssafy.a301.admin.service.StreakFreezeService;
+import com.ssafy.a301.common.web.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -30,8 +29,8 @@ public class StreakFreezeController {
             summary = "8.13 내 스트릭 유지권",
             description = "지금 쓸 수 있는 유지권(지급받았고 만료 전)의 개수와 유지권별 메울 수 있는 날짜 · 만료 일시를 준다.")
     @GetMapping
-    public MyStreakFreezesResponse mine(@AuthenticationPrincipal Jwt jwt) {
-        return service.mine(userId(jwt));
+    public MyStreakFreezesResponse mine(@CurrentUserId long userId) {
+        return service.mine(userId);
     }
 
     @Operation(
@@ -48,11 +47,7 @@ public class StreakFreezeController {
                             + " 이미 연습한 날")
     @PostMapping("/use")
     public StreakFreezeUseResponse use(
-            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody StreakFreezeUseRequest request) {
-        return service.use(userId(jwt), request.freezeId());
-    }
-
-    private static long userId(Jwt jwt) {
-        return Long.parseLong(jwt.getSubject());
+            @CurrentUserId long userId, @Valid @RequestBody StreakFreezeUseRequest request) {
+        return service.use(userId, request.freezeId());
     }
 }

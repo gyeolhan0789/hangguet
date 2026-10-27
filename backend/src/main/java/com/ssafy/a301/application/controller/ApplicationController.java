@@ -5,6 +5,7 @@ import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationListItem;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationResponse;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationUpdateRequest;
 import com.ssafy.a301.application.service.ApplicationService;
+import com.ssafy.a301.common.web.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -14,8 +15,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -42,9 +41,8 @@ public class ApplicationController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApplicationResponse create(
-            @AuthenticationPrincipal Jwt jwt,
-            @Valid @RequestBody ApplicationCreateRequest request) {
-        return service.create(userId(jwt), request);
+            @CurrentUserId long userId, @Valid @RequestBody ApplicationCreateRequest request) {
+        return service.create(userId, request);
     }
 
     @Operation(summary = "4.2 지원서 조회")
@@ -52,16 +50,16 @@ public class ApplicationController {
     @ApiResponse(responseCode = "404", description = "APPLICATION_NOT_FOUND: 없거나 남의 지원서")
     @GetMapping("/{applicationId}")
     public ApplicationResponse get(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "지원서 id", example = "10") @PathVariable long applicationId) {
-        return service.get(userId(jwt), applicationId);
+        return service.get(userId, applicationId);
     }
 
     @Operation(summary = "4.3 지원서 목록", description = "최근에 작성한 순으로 준다. 자기소개서 본문은 빠져 있다(4.2로 조회).")
     @ApiResponse(responseCode = "200", description = "항상. 없으면 빈 목록")
     @GetMapping
     public PagedModel<ApplicationListItem> list(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "페이지(0부터)", example = "0")
                     @RequestParam(defaultValue = "0")
                     @Min(value = 0, message = "0 이상입니다.")
@@ -71,7 +69,7 @@ public class ApplicationController {
                     @Min(value = 1, message = "1~20입니다.")
                     @Max(value = 20, message = "1~20입니다.")
                     int size) {
-        return service.list(userId(jwt), page, size);
+        return service.list(userId, page, size);
     }
 
     @Operation(summary = "4.4 지원서 수정", description = "보낸 필드만 수정한다. 면접에 쓴 지원서는 수정할 수 없다.")
@@ -80,10 +78,10 @@ public class ApplicationController {
     @ApiResponse(responseCode = "409", description = "APPLICATION_IN_USE: 면접에 쓴 지원서")
     @PatchMapping("/{applicationId}")
     public ApplicationResponse update(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "지원서 id", example = "10") @PathVariable long applicationId,
             @Valid @RequestBody ApplicationUpdateRequest request) {
-        return service.update(userId(jwt), applicationId, request);
+        return service.update(userId, applicationId, request);
     }
 
     @Operation(summary = "4.5 지원서 삭제", description = "지원서를 삭제한다. 면접에 쓴 지원서는 삭제할 수 없다.")
@@ -93,12 +91,8 @@ public class ApplicationController {
     @DeleteMapping("/{applicationId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "지원서 id", example = "12") @PathVariable long applicationId) {
-        service.delete(userId(jwt), applicationId);
-    }
-
-    private static long userId(Jwt jwt) {
-        return Long.parseLong(jwt.getSubject());
+        service.delete(userId, applicationId);
     }
 }

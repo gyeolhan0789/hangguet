@@ -21,6 +21,7 @@ import com.ssafy.a301.admin.repository.AdminMetricsRepository.InterviewCount;
 import com.ssafy.a301.admin.repository.AdminMetricsRepository.RetentionCount;
 import com.ssafy.a301.admin.repository.AdminMetricsRepository.SpeechAverage;
 import com.ssafy.a301.admin.repository.AdminMetricsRepository.UserCounts;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.inquiry.domain.InquiryStatus;
 import com.ssafy.a301.interview.domain.AiJobType;
 import com.ssafy.a301.interview.domain.Criterion;
@@ -30,7 +31,6 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +44,6 @@ import org.springframework.transaction.annotation.Transactional;
 /** 8.15 관리 페이지 홈 집계. 날짜는 한국 시간 오늘 기준이다. */
 @Service
 public class AdminMetricsService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int DAYS = 7;
     private static final List<Integer> RETENTION_DAYS = List.of(1, 3, 7);
 
@@ -60,7 +59,7 @@ public class AdminMetricsService {
 
     @Transactional(readOnly = true)
     public AdminMetricsResponse metrics() {
-        return metrics(LocalDate.now(KST), OffsetDateTime.now(KST));
+        return metrics(KoreaTime.today(), KoreaTime.now());
     }
 
     /**
@@ -87,8 +86,7 @@ public class AdminMetricsService {
     private UserMetrics users(LocalDate today) {
         UserCounts counts =
                 metrics.countUsers(
-                        today.atStartOfDay(KST).toOffsetDateTime(),
-                        today.plusDays(1).atStartOfDay(KST).toOffsetDateTime());
+                        KoreaTime.startOfDay(today), KoreaTime.startOfDay(today.plusDays(1)));
         return new UserMetrics(
                 (int) counts.getTotal(),
                 (int) counts.getJoinedToday(),

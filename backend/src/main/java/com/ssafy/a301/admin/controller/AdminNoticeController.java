@@ -5,6 +5,7 @@ import com.ssafy.a301.admin.dto.AdminDtos.NoticeListItem;
 import com.ssafy.a301.admin.dto.AdminDtos.NoticeResponse;
 import com.ssafy.a301.admin.dto.AdminDtos.NoticeUpdateRequest;
 import com.ssafy.a301.admin.service.AdminNoticeService;
+import com.ssafy.a301.common.web.CurrentAdminId;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -14,8 +15,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -60,8 +59,8 @@ public class AdminNoticeController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public NoticeResponse create(
-            @AuthenticationPrincipal Jwt jwt, @Valid @RequestBody NoticeCreateRequest request) {
-        return service.create(Long.parseLong(jwt.getSubject()), request);
+            @CurrentAdminId long adminId, @Valid @RequestBody NoticeCreateRequest request) {
+        return service.create(adminId, request);
     }
 
     @Operation(summary = "8.5 공지 조회")
