@@ -4,6 +4,7 @@ import com.ssafy.a301.admin.domain.Admin;
 import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.inquiry.domain.Inquiry;
 import com.ssafy.a301.inquiry.domain.InquiryMessage;
 import com.ssafy.a301.inquiry.domain.InquiryStatus;
@@ -16,8 +17,6 @@ import com.ssafy.a301.inquiry.repository.InquiryMessageRepository;
 import com.ssafy.a301.inquiry.repository.InquiryRepository;
 import com.ssafy.a301.user.repository.UserRepository;
 import com.ssafy.a301.user.service.PasswordChangeService;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -28,7 +27,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** 9.6 ~ 9.10 관리 페이지 문의. 없는 문의는 404 INQUIRY_NOT_FOUND. 답변 · 종료는 문의 행을 잠그고 한다. */
 @Service
 public class AdminInquiryService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // 최근 작성 순. 같은 시각이면 id로 순서를 고정한다
     private static final Sort RECENT_FIRST =
             Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
@@ -84,15 +82,13 @@ public class AdminInquiryService {
                         status ->
                                 messages.save(
                                         locked(inquiryId)
-                                                .addAnswer(
-                                                        admin, content, OffsetDateTime.now(KST))));
+                                                .addAnswer(admin, content, KoreaTime.now())));
         return InquiryMapper.toAdminMessage(saved);
     }
 
     /** 9.9. 이미 종료했어도 그대로 성공 */
     public void close(long inquiryId) {
-        transactions.executeWithoutResult(
-                status -> locked(inquiryId).close(OffsetDateTime.now(KST)));
+        transactions.executeWithoutResult(status -> locked(inquiryId).close(KoreaTime.now()));
     }
 
     /** 9.10. 없는 회원이면 404 USER_NOT_FOUND, 보낸 문의가 없으면 404 INQUIRY_NOT_FOUND */

@@ -4,6 +4,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
@@ -25,7 +26,6 @@ import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -42,7 +42,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class InterviewSessionService {
     // 연습한 날은 한국 시간 기준(BE 설계 1장)
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final InterviewSessionRepository sessions;
     private final InterviewQuestionRepository questions;
@@ -262,8 +261,8 @@ public class InterviewSessionService {
                         leveledUp =
                                 practices.recordAndCheckLevelUp(
                                         userId,
-                                        session.getStartedAt().atZoneSameInstant(KST).toLocalDate(),
-                                        now.atZoneSameInstant(KST).toLocalDate());
+                                        KoreaTime.dateOf(session.getStartedAt()),
+                                        KoreaTime.dateOf(now));
                         startAnalysis(sessionId, now);
                         if (session.isVideo()) {
                             // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다

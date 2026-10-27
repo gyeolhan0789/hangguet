@@ -1,7 +1,7 @@
 package com.ssafy.a301.admin.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class AdminDailyMetricScheduler {
     private static final Logger LOG = LoggerFactory.getLogger(AdminDailyMetricScheduler.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final AdminDailyMetricService daily;
 
@@ -24,7 +23,7 @@ public class AdminDailyMetricScheduler {
     @EventListener(ApplicationReadyEvent.class)
     public void onReady() {
         try {
-            if (daily.recordYesterdayIfAbsent(OffsetDateTime.now(KST))) {
+            if (daily.recordYesterdayIfAbsent(KoreaTime.now())) {
                 LOG.info("빠진 전날 관리자 메트릭을 기동 때 남겼다");
             }
         } catch (RuntimeException ex) {
@@ -32,9 +31,9 @@ public class AdminDailyMetricScheduler {
         }
     }
 
-    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 0 * * *", zone = KoreaTime.ZONE_ID)
     public void run() {
-        OffsetDateTime now = OffsetDateTime.now(KST);
+        OffsetDateTime now = KoreaTime.now();
         try {
             daily.record(now.toLocalDate().minusDays(1), now);
         } catch (RuntimeException ex) {

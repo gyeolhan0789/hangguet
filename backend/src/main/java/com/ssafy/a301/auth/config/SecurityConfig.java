@@ -2,16 +2,9 @@ package com.ssafy.a301.auth.config;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.ssafy.a301.auth.jwt.AuthProperties;
-import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.auth.jwt.JwtSupport;
 import com.ssafy.a301.common.error.FilterExceptionFilter;
-import com.ssafy.a301.common.error.ProblemResponses;
 import com.ssafy.a301.user.repository.UserRepository;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import javax.crypto.spec.SecretKeySpec;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,13 +15,11 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.crypto.password.Pbkdf2PasswordEncoder;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
-import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
-import org.springframework.security.oauth2.jwt.JwtValidationException;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
@@ -46,13 +37,13 @@ public class SecurityConfig {
 
     @Bean
     public JwtEncoder jwtEncoder(AuthProperties properties) {
-        return new NimbusJwtEncoder(new ImmutableSecret<>(key(properties)));
+        return new NimbusJwtEncoder(new ImmutableSecret<>(JwtSupport.hmacKey(properties)));
     }
 
     @Bean
     public NimbusJwtDecoder jwtDecoder(AuthProperties properties, UserRepository users) {
         var decoder =
-                NimbusJwtDecoder.withSecretKey(key(properties))
+                NimbusJwtDecoder.withSecretKey(JwtSupport.hmacKey(properties))
                         .macAlgorithm(MacAlgorithm.HS256)
                         .build();
         OAuth2TokenValidator<Jwt> activeUser =
@@ -65,18 +56,15 @@ public class SecurityConfig {
                             return OAuth2TokenValidatorResult.success();
                         }
                     } catch (NumberFormatException ex) {
-                        return invalid("invalid_token");
+                        return JwtSupport.invalid();
                     }
-                    return invalid("invalid_token");
+                    return JwtSupport.invalid();
                 };
-        OAuth2TokenValidator<Jwt> expiry =
-                jwt ->
-                        jwt.getExpiresAt() != null && !jwt.getExpiresAt().isAfter(Instant.now())
-                                ? invalid("TOKEN_EXPIRED")
-                                : OAuth2TokenValidatorResult.success();
         decoder.setJwtValidator(
                 new DelegatingOAuth2TokenValidator<>(
-                        JwtValidators.createDefaultWithIssuer("a301"), activeUser, expiry));
+                        JwtValidators.createDefaultWithIssuer("a301"),
+                        activeUser,
+                        JwtSupport.notExpired()));
         return decoder;
     }
 
@@ -122,49 +110,11 @@ public class SecurityConfig {
                 .exceptionHandling(
                         errors ->
                                 errors.authenticationEntryPoint(
-                                        (request, response, ex) ->
-                                                writeProblem(
-                                                        request, response, ErrorCode.UNAUTHORIZED)))
+                                        JwtSupport.unauthorizedEntryPoint()))
                 .oauth2ResourceServer(
                         resource ->
                                 resource.jwt(jwt -> {})
-                                        .authenticationEntryPoint(
-                                                (request, response, ex) -> {
-                                                    ErrorCode code = ErrorCode.UNAUTHORIZED;
-                                                    for (Throwable cause = ex;
-                                                            cause != null;
-                                                            cause = cause.getCause()) {
-                                                        if (cause
-                                                                        instanceof
-                                                                        JwtValidationException
-                                                                                validation
-                                                                && validation.getErrors().stream()
-                                                                        .anyMatch(
-                                                                                e ->
-                                                                                        "TOKEN_EXPIRED"
-                                                                                                .equals(
-                                                                                                        e
-                                                                                                                .getErrorCode()))) {
-                                                            code = ErrorCode.TOKEN_EXPIRED;
-                                                        }
-                                                    }
-                                                    writeProblem(request, response, code);
-                                                }));
+                                        .authenticationEntryPoint(JwtSupport.tokenEntryPoint()));
         return http.build();
-    }
-
-    private static SecretKeySpec key(AuthProperties properties) {
-        return new SecretKeySpec(
-                properties.jwtSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-    }
-
-    private static OAuth2TokenValidatorResult invalid(String code) {
-        return OAuth2TokenValidatorResult.failure(new OAuth2Error(code));
-    }
-
-    private static void writeProblem(
-            HttpServletRequest request, HttpServletResponse response, ErrorCode code)
-            throws IOException {
-        ProblemResponses.write(request, response, code);
     }
 }

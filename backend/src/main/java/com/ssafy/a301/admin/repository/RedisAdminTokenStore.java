@@ -1,11 +1,8 @@
 package com.ssafy.a301.admin.repository;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import com.ssafy.a301.common.crypto.Hashes;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HexFormat;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -33,13 +30,6 @@ public class RedisAdminTokenStore implements AdminTokenStore {
     }
 
     private static String key(String token) {
-        try {
-            byte[] hash =
-                    MessageDigest.getInstance("SHA-256")
-                            .digest(token.getBytes(StandardCharsets.UTF_8));
-            return "admin-logout:" + HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
-        }
+        return "admin-logout:" + Hashes.sha256Hex(token);
     }
 }

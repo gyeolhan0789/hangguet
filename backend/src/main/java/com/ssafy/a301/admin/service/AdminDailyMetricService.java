@@ -7,16 +7,15 @@ import com.ssafy.a301.admin.dto.AdminDtos.DailyMetricsResponse;
 import com.ssafy.a301.admin.dto.AdminDtos.InterviewMetrics;
 import com.ssafy.a301.admin.dto.AdminDtos.UserMetrics;
 import com.ssafy.a301.admin.repository.AdminDailyMetricRepository;
+import com.ssafy.a301.common.time.KoreaTime;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 8.16 관리자 일별 메트릭. 0시(한국 시간)에 전날 집계(8.15)를 한 행으로 남기고 기간으로 조회한다. */
 @Service
 public class AdminDailyMetricService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final AdminMetricsService metrics;
     private final AdminDailyMetricRepository daily;
@@ -53,7 +52,7 @@ public class AdminDailyMetricService {
     /** 0시에 서버가 꺼져 있었으면 기동할 때 전날 기록을 채운다. 이미 있으면 그대로 둔다(0시에 잰 값을 지키려고) */
     @Transactional
     public boolean recordYesterdayIfAbsent(OffsetDateTime now) {
-        LocalDate yesterday = now.atZoneSameInstant(KST).toLocalDate().minusDays(1);
+        LocalDate yesterday = KoreaTime.dateOf(now).minusDays(1);
         if (daily.existsById(yesterday)) {
             return false;
         }
@@ -64,7 +63,7 @@ public class AdminDailyMetricService {
     /** 어제까지 최근 days일의 기록. 기록이 없는 날은 빠진다 */
     @Transactional(readOnly = true)
     public DailyMetricsResponse recent(int days) {
-        LocalDate to = LocalDate.now(KST).minusDays(1);
+        LocalDate to = KoreaTime.today().minusDays(1);
         LocalDate from = to.minusDays(days - 1L);
         return new DailyMetricsResponse(
                 from,

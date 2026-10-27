@@ -21,10 +21,10 @@ import com.ssafy.a301.admin.repository.StreakFreezeRepository.GrantCount;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.user.domain.User;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +47,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class StreakFreezeGrantService {
     private static final Logger LOG = LoggerFactory.getLogger(StreakFreezeGrantService.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final int VALID_DAYS = 14;
     private static final String NOTICE_TITLE = "스트릭 유지권을 드렸어요";
     private static final String NOTICE_CONTENT =
@@ -134,8 +133,8 @@ public class StreakFreezeGrantService {
                                     targetUsers.stream()
                                             .map(u -> new StreakFreezeGrantTarget(grant, u))
                                             .toList());
-                            if (grant.isDue(LocalDate.now(KST))) {
-                                execute(grant, OffsetDateTime.now(KST));
+                            if (grant.isDue(KoreaTime.today())) {
+                                execute(grant, KoreaTime.now());
                             }
                             return grant;
                         });
@@ -161,16 +160,16 @@ public class StreakFreezeGrantService {
     /** 지급 날짜가 된 배포를 지급한다(매일 0시, 기동할 때). 배포마다 따로 커밋해 하나가 실패해도 나머지는 지급한다. 지급한 배포 수를 준다. */
     public int grantDue() {
         int granted = 0;
-        for (long id : grants.findDueIds(GrantStatus.SCHEDULED, LocalDate.now(KST))) {
+        for (long id : grants.findDueIds(GrantStatus.SCHEDULED, KoreaTime.today())) {
             try {
                 Boolean done =
                         newTransaction.execute(
                                 status ->
                                         grants.findForUpdate(id)
-                                                .filter(g -> g.isDue(LocalDate.now(KST)))
+                                                .filter(g -> g.isDue(KoreaTime.today()))
                                                 .map(
                                                         g -> {
-                                                            execute(g, OffsetDateTime.now(KST));
+                                                            execute(g, KoreaTime.now());
                                                             return true;
                                                         })
                                                 .orElse(false));
@@ -192,13 +191,13 @@ public class StreakFreezeGrantService {
                                 freezes.expire(
                                         StreakFreezeStatus.AVAILABLE,
                                         StreakFreezeStatus.EXPIRED,
-                                        OffsetDateTime.now(KST)));
+                                        KoreaTime.now()));
         return expired == null ? 0 : expired;
     }
 
     // 트랜잭션 안에서 부른다. 배포 행은 이미 저장(flush)돼 있어야 한다
     private void execute(StreakFreezeGrant grant, OffsetDateTime now) {
-        OffsetDateTime start = grant.getGrantDate().atStartOfDay(KST).toOffsetDateTime();
+        OffsetDateTime start = KoreaTime.startOfDay(grant.getGrantDate());
         OffsetDateTime expiresAt = start.plusDays(VALID_DAYS);
         int created =
                 freezes.insertForGrant(
@@ -222,7 +221,7 @@ public class StreakFreezeGrantService {
 
     private static String noticeContent(StreakFreezeGrant grant, OffsetDateTime expiresAt) {
         LocalDate fillable = grant.getFillableDate();
-        LocalDate until = expiresAt.atZoneSameInstant(KST).toLocalDate();
+        LocalDate until = KoreaTime.dateOf(expiresAt);
         return NOTICE_CONTENT.formatted(
                 fillable.getMonthValue(),
                 fillable.getDayOfMonth(),

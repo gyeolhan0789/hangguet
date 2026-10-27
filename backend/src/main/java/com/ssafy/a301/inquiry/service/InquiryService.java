@@ -3,6 +3,7 @@ package com.ssafy.a301.inquiry.service;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.inquiry.domain.Inquiry;
 import com.ssafy.a301.inquiry.domain.InquiryMessage;
 import com.ssafy.a301.inquiry.dto.InquiryDtos;
@@ -15,7 +16,6 @@ import com.ssafy.a301.inquiry.repository.InquiryRepository;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -33,7 +33,6 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @Service
 public class InquiryService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // 최근 작성 순. 같은 시각이면 id로 순서를 고정한다
     private static final Sort RECENT_FIRST =
             Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
@@ -61,7 +60,7 @@ public class InquiryService {
 
     /** 9.1. 회원이면 보낸 email · accessPassword는 쓰지 않는다 */
     public InquiryResponse create(Long userId, InquiryCreateRequest request) {
-        OffsetDateTime now = OffsetDateTime.now(KST);
+        OffsetDateTime now = KoreaTime.now();
         Inquiry inquiry;
         if (userId != null) {
             User user =
@@ -114,16 +113,14 @@ public class InquiryService {
                 transactions.execute(
                         status ->
                                 messages.save(
-                                        locked(inquiryId)
-                                                .addQuestion(content, OffsetDateTime.now(KST))));
+                                        locked(inquiryId).addQuestion(content, KoreaTime.now())));
         return InquiryMapper.toMessage(saved);
     }
 
     /** 9.5. 이미 종료했어도 그대로 성공 */
     public void close(Long userId, long inquiryId, String accessPassword) {
         readable(inquiryId, userId, accessPassword);
-        transactions.executeWithoutResult(
-                status -> locked(inquiryId).close(OffsetDateTime.now(KST)));
+        transactions.executeWithoutResult(status -> locked(inquiryId).close(KoreaTime.now()));
     }
 
     private Inquiry readable(long inquiryId, Long userId, String accessPassword) {

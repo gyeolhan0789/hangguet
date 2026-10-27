@@ -1,5 +1,6 @@
 package com.ssafy.a301.home.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.growth.service.GrowthReviewService;
 import com.ssafy.a301.growth.service.GrowthReviewService.HomeReviews;
 import com.ssafy.a301.home.dto.HomeDtos.HomeResponse;
@@ -10,7 +11,6 @@ import com.ssafy.a301.interview.service.InterviewStatsService.DailyPractice;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.practice.service.PracticeService.Streaks;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class HomeService {
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final PracticeService practices;
     private final InterviewStatsService interviewStats;
@@ -39,7 +38,7 @@ public class HomeService {
     // 아래 home(userId, today)를 같은 객체 안에서 부르면 그쪽 @Transactional이 적용되지 않으므로 여기에도 둔다
     @Transactional(readOnly = true)
     public HomeResponse home(long userId) {
-        return home(userId, LocalDate.now(KST));
+        return home(userId, KoreaTime.today());
     }
 
     @Transactional(readOnly = true)

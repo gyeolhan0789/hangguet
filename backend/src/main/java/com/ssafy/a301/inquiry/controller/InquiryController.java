@@ -1,5 +1,6 @@
 package com.ssafy.a301.inquiry.controller;
 
+import com.ssafy.a301.common.web.CurrentUserId;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryListItem;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryMessage;
@@ -64,7 +65,7 @@ public class InquiryController {
     @ApiResponse(responseCode = "200", description = "항상. 없으면 빈 목록")
     @GetMapping
     public PagedModel<InquiryListItem> list(
-            @AuthenticationPrincipal Jwt jwt,
+            @CurrentUserId long userId,
             @Parameter(description = "페이지(0부터)", example = "0")
                     @RequestParam(defaultValue = "0")
                     @Min(value = 0, message = "0 이상입니다.")
@@ -74,7 +75,7 @@ public class InquiryController {
                     @Min(value = 1, message = "1~20입니다.")
                     @Max(value = 20, message = "1~20입니다.")
                     int size) {
-        return service.list(Long.parseLong(jwt.getSubject()), page, size);
+        return service.list(userId, page, size);
     }
 
     @Operation(summary = "9.3 문의 조회", description = "문의와 주고받은 메시지(오래된 순)를 준다." + NOT_FOUND_RULE)

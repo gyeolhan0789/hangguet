@@ -6,6 +6,7 @@ import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.storage.domain.UploadPurpose;
 import com.ssafy.a301.storage.repository.UploadKeyStore;
@@ -18,8 +19,6 @@ import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.UserRepository;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -38,7 +37,6 @@ import software.amazon.awssdk.core.exception.SdkException;
 @Service
 public class UserService {
     private static final Logger LOG = LoggerFactory.getLogger(UserService.class);
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final Map<String, String> PROFILE_IMAGE_EXTENSIONS =
             Map.of("image/jpeg", "jpg", "image/png", "png");
 
@@ -160,7 +158,7 @@ public class UserService {
                     if (!passwords.matches(password, user.getPasswordHash())) {
                         throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
                     }
-                    user.withdraw(OffsetDateTime.now(KST));
+                    user.withdraw(KoreaTime.now());
                 });
         // 탈퇴는 이미 저장됐다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절되므로 실패해도 기록만 남긴다.
         try {
