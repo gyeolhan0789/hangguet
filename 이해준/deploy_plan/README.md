@@ -201,7 +201,7 @@ AI 두 컨테이너를 뺀 합계 약 6.6GB다. 나머지를 AI · OS · 러너�
     - 왜: 6명 모두 이 서비스를 만드는 개발자라 운영 문제를 직접 봐야 빨리 고친다. 무료 Grafana(OSS)는 데이터 소스별 권한이 없어 대시보드를 숨겨도 계정이 있으면 Loki를 조회할 수 있으므로, 일부만 보게 하는 설정은 실제로 막히지 않는다. 실제 사용자가 많아지면 운영 Grafana 계정을 인프라만 갖게 좁힌다
   - 운영도 첫 배포에 넣는다(`deploy/prod/compose.yml`의 `a301-prod-loki` · `a301-prod-alloy`, 대시보드 **A301 운영 서버 로그**). 왜: 첫 배포에서 생기는 문제를 보려면 로그가 필요하다
   - 개발 서버에 먼저 넣었다([`deploy/dev/monitoring`](../../deploy/dev/monitoring/README.md)). 로컬 시험에서 Loki 약 65MB · Alloy 약 50MB. 운영은 같은 모양으로 `deploy/prod/compose.yml`에 넣는다
-- 대시보드 구성(10/27): **A301 운영 서버**는 전체 현황 → 서버 → BE · AI → LiveKit · 녹화 → Redis → PostgreSQL → FE → 컨테이너 순서의 줄로 나누고(컨테이너별 상세는 원인을 좁힐 때만 보므로 맨 아래), **A301 운영 서버 로그**는 추이 · 흐름별 오류 · 전체 로그로 나눈다. 자세한 패널은 [`deploy/prod/README.md`](../../deploy/prod/README.md) 「대시보드」
+- 대시보드 구성(10/27): **A301 운영 서버**는 전체 현황 → 서버 → BE · AI → LiveKit · 녹화 → Redis → PostgreSQL → FE → 컨테이너 순서의 줄로 나누고(컨테이너별 상세는 원인을 좁힐 때만 보므로 맨 아래), **A301 운영 서버 로그**는 흐름별 오류 · 전체 로그로 나눈다. 자세한 패널은 [`deploy/prod/README.md`](../../deploy/prod/README.md) 「대시보드」
   - 왜 Redis · PostgreSQL exporter를 넣었나: Redis는 `noeviction`이라 메모리가 차면 쓰기를 거부해 로그인 · 면접이 막히는데, cAdvisor는 컨테이너 메모리만 보여 Redis 상한(192MB) 대비 사용량을 알 수 없다. DB도 HikariCP 풀만으로는 DB 쪽 연결 · 잠금 · 긴 트랜잭션을 볼 수 없다. 둘 다 64MB 상한이다
   - 운영 대시보드에서 FE 브라우저 지표 패널은 뺐다. 운영은 FE 지표를 켜지 않아 늘 비어 있기 때문이다
 - 알림(디스크 · 메모리 임계치)은 **[미정]**

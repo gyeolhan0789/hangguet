@@ -1,7 +1,7 @@
 {
   "uid": "a301-prod-logs",
   "title": "A301 운영 서버 로그",
-  "description": "Logs from a301-prod-* containers (Loki, kept 7 days). Top: trends and errors by flow. Bottom: all logs filtered by service, level and search.",
+  "description": "Logs from a301-prod-* containers (Loki, kept 7 days). Top: errors and warnings by flow. Bottom: all logs filtered by service, level and search.",
   "tags": [
     "a301",
     "logs"
@@ -45,15 +45,15 @@
         "name": "level",
         "label": "수준",
         "type": "custom",
-        "query": "전체 : .*, 오류 : (?i)(error|exception|traceback|fatal|critical), 경고 이상 : (?i)(error|exception|traceback|fatal|critical|warn)",
+        "query": "전체 : ^, 오류 : (?i)(error|exception|traceback|fatal|critical), 경고 이상 : (?i)(error|exception|traceback|fatal|critical|warn)",
         "current": {
           "text": "전체",
-          "value": ".*"
+          "value": "^"
         },
         "options": [
           {
             "text": "전체",
-            "value": ".*",
+            "value": "^",
             "selected": true
           },
           {
@@ -86,179 +86,13 @@
     {
       "id": 1,
       "type": "row",
-      "title": "추이",
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 0
-      },
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "오류 · 예외 줄 수 (서비스별)",
-      "description": "Lines containing error, exception or traceback. Drag across a spike to zoom into that time",
-      "datasource": {
-        "type": "loki",
-        "uid": "a301-loki"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (service) (count_over_time({env=\"prod\", service=~\"$service\"} |~ `(?i)(error|exception|traceback|fatal|critical)` [$__interval]))",
-          "legendFormat": "{{service}}",
-          "queryType": "range"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 60,
-            "lineWidth": 1,
-            "stacking": {
-              "mode": "normal"
-            }
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 24,
-        "x": 0,
-        "y": 1
-      },
-      "id": 2
-    },
-    {
-      "type": "timeseries",
-      "title": "서비스별 로그 양",
-      "description": "A sudden jump usually means a repeating error or a restart loop",
-      "datasource": {
-        "type": "loki",
-        "uid": "a301-loki"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (service) (count_over_time({env=\"prod\", service=~\"$service\"} [$__interval]))",
-          "legendFormat": "{{service}}",
-          "queryType": "range"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "right",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3
-    },
-    {
-      "type": "bargauge",
-      "title": "오류 줄 수 (선택한 기간)",
-      "description": "Error and exception lines per service over the whole time range selected at the top right",
-      "datasource": {
-        "type": "loki",
-        "uid": "a301-loki"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum by (service) (count_over_time({env=\"prod\", service=~\"$service\"} |~ `(?i)(error|exception|traceback|fatal|critical)` [$__interval]))",
-          "legendFormat": "{{service}}",
-          "queryType": "range"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green"
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 50
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "sum"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "orientation": "horizontal",
-        "displayMode": "basic",
-        "valueMode": "color",
-        "showUnfilled": true,
-        "namePlacement": "left",
-        "sizing": "auto"
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 4
-    },
-    {
-      "id": 5,
-      "type": "row",
       "title": "흐름별 오류 · 경고",
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 15
+        "y": 0
       },
       "panels": []
     },
@@ -292,9 +126,9 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 1
       },
-      "id": 6
+      "id": 2
     },
     {
       "type": "logs",
@@ -326,9 +160,9 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 1
       },
-      "id": 7
+      "id": 3
     },
     {
       "type": "logs",
@@ -360,9 +194,9 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 25
+        "y": 10
       },
-      "id": 8
+      "id": 4
     },
     {
       "type": "logs",
@@ -394,9 +228,9 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 25
+        "y": 10
       },
-      "id": 9
+      "id": 5
     },
     {
       "type": "logs",
@@ -428,9 +262,9 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 19
       },
-      "id": 10
+      "id": 6
     },
     {
       "type": "logs",
@@ -462,12 +296,12 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 19
       },
-      "id": 11
+      "id": 7
     },
     {
-      "id": 12,
+      "id": 8,
       "type": "row",
       "title": "전체 로그",
       "collapsed": false,
@@ -475,7 +309,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 28
       },
       "panels": []
     },
@@ -509,9 +343,9 @@
         "h": 24,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 29
       },
-      "id": 13
+      "id": 9
     }
   ]
 }
