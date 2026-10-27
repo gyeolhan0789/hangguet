@@ -114,6 +114,7 @@ class InterviewSessionIntegrationTest {
                     "DELETE FROM interview_questions WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM interview_plans WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM ai_job_outbox WHERE session_id IN (" + sessionsOfUser + ")");
+            jdbc.update("DELETE FROM recordings WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
@@ -560,6 +561,7 @@ class InterviewSessionIntegrationTest {
         verify(rooms).close(first);
         // 채팅 면접은 녹화가 없다
         verify(queue, never()).push(argThat(job -> "MERGE_RECORDING".equals(job.get("jobType"))));
+        assertThat(recordingStatuses(first)).isEmpty();
 
         // 같은 날 두 번째 면접은 연습 기록이 늘지 않아 레벨업도 없다
         long second = started(user, "CHAT");
@@ -594,6 +596,26 @@ class InterviewSessionIntegrationTest {
                                                         .equals(job.get("rawPrefix"))
                                                 && ("recordings/" + sessionId + ".mp4")
                                                         .equals(job.get("objectKey"))));
+        // 다시보기가 합치는 중으로 응답하도록 합친 녹화 행을 MERGING으로 만든다
+        assertThat(recordingStatuses(sessionId)).containsExactly("MERGING");
+    }
+
+    @Test
+    void endVideoWithoutAnswersDoesNotMergeRecording() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "VIDEO");
+
+        mvc.perform(as(user, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ABORTED"));
+
+        verify(queue, never()).push(argThat(job -> "MERGE_RECORDING".equals(job.get("jobType"))));
+        assertThat(recordingStatuses(sessionId)).isEmpty();
+    }
+
+    private List<String> recordingStatuses(long sessionId) {
+        return jdbc.queryForList(
+                "SELECT status FROM recordings WHERE session_id = ?", String.class, sessionId);
     }
 
     @Test

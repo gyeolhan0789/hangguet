@@ -18,6 +18,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -195,53 +196,90 @@ class AiEvaluationResultTest {
     }
 
     @Test
-    void mergedRecordingIsSavedOnce() {
+    void mergedRecordingChangesMergingToReadyOnce() {
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(session));
 
-        assertThat(
-                        results.handle(
-                                merged(
-                                        session.getId(),
-                                        Recording.sessionVideoKey(session.getId()))))
-                .isEqualTo(Outcome.SAVED);
-        assertThat(
-                        results.handle(
-                                merged(
-                                        session.getId(),
-                                        Recording.sessionVideoKey(session.getId()))))
-                .isEqualTo(Outcome.DISCARDED);
-        assertThat(
-                        em.createQuery(
-                                        "select r from Recording r where r.session.id = :id",
-                                        Recording.class)
-                                .setParameter("id", session.getId())
-                                .getResultList())
+        assertThat(results.handle(merged(session))).isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(merged(session))).isEqualTo(Outcome.DISCARDED);
+        assertThat(sessionVideos(session))
                 .singleElement()
                 .satisfies(
-                        r ->
-                                assertThat(r.getObjectKey())
-                                        .isEqualTo("recordings/" + session.getId() + ".mp4"));
+                        r -> {
+                            assertThat(r.getStatus()).isEqualTo(RecordingStatus.READY);
+                            assertThat(r.getObjectKey())
+                                    .isEqualTo("recordings/" + session.getId() + ".mp4");
+                        });
 
         // 다른 면접의 위치는 받지 않는다
         assertThatThrownBy(() -> results.handle(merged(session.getId(), "recordings/1.mp4")))
                 .isInstanceOf(InvalidAiResultException.class);
+    }
+
+    @Test
+    void mergedRecordingWithoutMergingRowIsSavedAsReady() {
+        // V10 이전에 끝나 MERGING 행이 없는 면접
+        InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+
+        assertThat(results.handle(merged(session))).isEqualTo(Outcome.SAVED);
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.READY));
+    }
+
+    @Test
+    void mergeFailedChangesMergingToFailed() {
+        InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(session));
+
+        assertThat(results.handle(mergeFailed(session))).isEqualTo(Outcome.SAVED);
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.FAILED));
+    }
+
+    @Test
+    void mergedAfterFailureBecomesReady() {
+        // 파일이 올라왔으면 앞서 받은 실패보다 우선한다
+        InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(session));
+        results.handle(mergeFailed(session));
+
+        assertThat(results.handle(merged(session))).isEqualTo(Outcome.SAVED);
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.READY));
+    }
+
+    @Test
+    void mergeFailedIsDiscardedWhenReadyOrWithoutRow() {
+        InterviewSession ready = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(ready));
+        results.handle(merged(ready));
+        assertThat(results.handle(mergeFailed(ready))).isEqualTo(Outcome.DISCARDED);
+        assertThat(sessionVideos(ready))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.READY));
+
+        InterviewSession withoutRow = analyzing(InterviewMode.VIDEO, 1);
+        assertThat(results.handle(mergeFailed(withoutRow))).isEqualTo(Outcome.DISCARDED);
+        assertThat(sessionVideos(withoutRow)).isEmpty();
+    }
+
+    @Test
+    void recordingResultsOfChatSessionAreDiscarded() {
         InterviewSession chat = analyzing(InterviewMode.CHAT, 1);
-        assertThat(results.handle(merged(chat.getId(), Recording.sessionVideoKey(chat.getId()))))
-                .isEqualTo(Outcome.DISCARDED);
-        // 다시보기 처리는 B-19 결정 전이라 기록만 남긴다
-        assertThat(
-                        results.handle(
-                                json(
-                                        Map.of(
-                                                "type",
-                                                "recording.mergeFailed",
-                                                "sessionId",
-                                                session.getId(),
-                                                "jobId",
-                                                JOB_ID.toString(),
-                                                "reason",
-                                                "TRACK_NOT_FOUND"))))
-                .isEqualTo(Outcome.DISCARDED);
+
+        assertThat(results.handle(merged(chat))).isEqualTo(Outcome.DISCARDED);
+        assertThat(results.handle(mergeFailed(chat))).isEqualTo(Outcome.DISCARDED);
+        assertThat(sessionVideos(chat)).isEmpty();
+    }
+
+    private List<Recording> sessionVideos(InterviewSession session) {
+        em.flush();
+        return em.createQuery("select r from Recording r where r.session.id = :id", Recording.class)
+                .setParameter("id", session.getId())
+                .getResultList();
     }
 
     // 답변 수만큼 질문·답변을 남기고 끝내 결과 생성을 시작한 면접(마지막 EVALUATE는 JOB_ID)
@@ -347,6 +385,23 @@ class AiEvaluationResultTest {
                         jobId.toString(),
                         "reason",
                         "GMS_UNAVAILABLE"));
+    }
+
+    private static String merged(InterviewSession session) {
+        return merged(session.getId(), Recording.sessionVideoKey(session.getId()));
+    }
+
+    private static String mergeFailed(InterviewSession session) {
+        return json(
+                Map.of(
+                        "type",
+                        "recording.mergeFailed",
+                        "sessionId",
+                        session.getId(),
+                        "jobId",
+                        JOB_ID.toString(),
+                        "reason",
+                        "TRACK_NOT_FOUND"));
     }
 
     private static String merged(long sessionId, String objectKey) {

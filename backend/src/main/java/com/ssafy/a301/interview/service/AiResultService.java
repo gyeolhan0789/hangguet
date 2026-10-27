@@ -11,6 +11,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.domain.SpeechMetric;
@@ -373,7 +374,8 @@ public class AiResultService {
         return outcome;
     }
 
-    // 합친 mp4는 면접마다 하나다. 이미 있거나 화상 면접이 아니면 버린다
+    // 합친 mp4는 면접마다 하나다. 화상 면접이 아니거나 이미 READY이면 버린다.
+    // MERGING 행이 없는 면접(V10 이전에 끝남)은 READY 행을 새로 만든다
     private Outcome recordingMerged(long sessionId, AiResultMessage message) {
         String objectKey = required(message.objectKey(), "objectKey");
         if (!objectKey.equals(Recording.sessionVideoKey(sessionId))) {
@@ -383,20 +385,38 @@ public class AiResultService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = sessions.findById(sessionId).orElse(null);
-                    if (session == null
-                            || !session.isVideo()
-                            || recordings.existsByObjectKey(objectKey)) {
+                    if (session == null || !session.isVideo()) {
                         return Outcome.DISCARDED;
                     }
-                    recordings.save(Recording.sessionVideo(session, objectKey));
+                    Recording recording = recordings.findByObjectKey(objectKey).orElse(null);
+                    if (recording == null) {
+                        recordings.save(Recording.mergedSessionVideo(session));
+                        return Outcome.SAVED;
+                    }
+                    if (recording.getStatus() == RecordingStatus.READY) {
+                        return Outcome.DISCARDED;
+                    }
+                    recording.markMerged();
                     return Outcome.SAVED;
                 });
     }
 
-    // 다시보기를 어떻게 보여 줄지는 API 명세 B-19에서 정한다. 그 전에는 로그만 남긴다
+    // 다시보기(API 명세 6.4)가 FAILED로 응답하도록 MERGING 행을 FAILED로 변경한다.
+    // 이미 READY이거나 행이 없으면(V10 이전에 끝남) 버린다. 행이 없는 면접은 6.4가 종료 시각으로 판단한다
     private Outcome recordingMergeFailed(long sessionId, AiResultMessage message) {
         LOG.warn("녹화 합치기 실패: session={} reason={}", sessionId, message.reason());
-        return Outcome.DISCARDED;
+        return transactions.execute(
+                status -> {
+                    InterviewSession session = sessions.findById(sessionId).orElse(null);
+                    if (session == null || !session.isVideo()) {
+                        return Outcome.DISCARDED;
+                    }
+                    return recordings
+                            .findByObjectKey(Recording.sessionVideoKey(sessionId))
+                            .filter(Recording::markMergeFailed)
+                            .map(recording -> Outcome.SAVED)
+                            .orElse(Outcome.DISCARDED);
+                });
     }
 
     // 결과 생성 중인 면접 행을 잠근다. 결과 생성 중이 아니거나 마지막으로 보낸 EVALUATE의 결과가 아니면 null

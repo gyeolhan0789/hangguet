@@ -10,6 +10,7 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
@@ -21,6 +22,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
@@ -55,6 +57,7 @@ public class InterviewSessionService {
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
     private final InterviewRoom rooms;
+    private final RecordingRepository recordings;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -67,7 +70,8 @@ public class InterviewSessionService {
             SessionRuntimeService runtimes,
             AiJobService aiJobs,
             TransactionTemplate transactions,
-            InterviewRoom rooms) {
+            InterviewRoom rooms,
+            RecordingRepository recordings) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -79,6 +83,7 @@ public class InterviewSessionService {
         this.aiJobs = aiJobs;
         this.transactions = transactions;
         this.rooms = rooms;
+        this.recordings = recordings;
     }
 
     /** 5.1. 지원서 행을 잠가 지원서 수정·삭제(4.4·4.5)의 "사용 중" 확인과 겹치지 않게 한다. */
@@ -266,8 +271,10 @@ public class InterviewSessionService {
                                         now.atZoneSameInstant(KST).toLocalDate());
                         startAnalysis(sessionId, now);
                         if (session.isVideo()) {
-                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다
+                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다.
+                            // 다시보기(6.4)가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다
                             aiJobs.enqueue(AiJob.mergeRecording(sessionId));
+                            recordings.save(Recording.mergingSessionVideo(session));
                         }
                     }
                     return InterviewMapper.toSessionResponse(
