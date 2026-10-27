@@ -143,8 +143,9 @@ services:
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
       # 개발 서버와 같은 대시보드를 쓰도록 요청 히스토그램을 켠다(p95 응답 시간).
       SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}}}'
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m"
-      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 유일한 앱 설정이다
+      # 메모리가 모자라 힙 할당이 실패하면 바로 종료해 restart로 다시 띄운다. 반쯤 망가진 채로 요청을 받지 않게 한다
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError"
+      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 앱 설정은 이것과 메모리(JVM 옵션 · mem_limit)뿐이다
       SPRINGDOC_API_DOCS_ENABLED: "false"
       SPRINGDOC_SWAGGER_UI_ENABLED: "false"
       <<: *livekit-env
@@ -156,7 +157,9 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
       S3_BUCKET: hanggeut-a301-prod
       AWS_REGION: ap-northeast-2
-    mem_limit: 768m
+    # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 쓴다(10/27 로컬 실측, 운영과 같은 SerialGC).
+    # 768m에서는 부하만으로 90%에 닿아 강제 종료될 수 있어 여유를 두고 올렸다(배포 계획 3.2)
+    mem_limit: 1280m
     networks:
       - internal
     logging: *logging

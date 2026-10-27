@@ -162,7 +162,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-admin` | 관리 페이지 정적 파일 | 없음 | 64m |
 | `a301-prod-ai` | AI 상태 확인(`/health`)만 하는 HTTP. 개발 서버와 같다 | 없음 | 256m |
 | `a301-prod-fe` | Next standalone. `livekit-client`로 면접방 접속. `API_BASE_URL=http://a301-prod-be:8080/api/v1` | 없음 | 512m |
-| `a301-prod-be` | CRUD + LiveKit 입장 토큰 발급 + 녹화 시작 · 종료 요청 + 큐 작업 등록 + AI 결과 큐 처리(저장). DB를 다루는 유일한 서비스. `-Xmx512m` | 없음 | 768m |
+| `a301-prod-be` | CRUD + LiveKit 입장 토큰 발급 + 녹화 시작 · 종료 요청 + 큐 작업 등록 + AI 결과 큐 처리(저장). DB를 다루는 유일한 서비스. `-Xmx512m` · `-XX:+ExitOnOutOfMemoryError`. 상한은 힙을 다 쓴 최악값(약 1.06GB, 로컬 실측)에 여유를 둔 값이다 | 없음 | 1280m |
 | `a301-prod-livekit` | 미디어 서버 + TURN(4장) | UDP 7882, TCP 7881, UDP 3478, TCP 443 | 512m |
 | `a301-prod-egress` | 서버 녹화(4.3). 트랙 녹화라 인코딩을 하지 않는다 | 없음 | 1g **[제안]** 실측 |
 | `a301-prod-ai-agent` | 면접방 참가자. STT → Jev, 질문 TTS, 리액션 데이터 메시지, 질문 시작 · 답변을 Redis 결과 큐로 전달. 질문 5개 · 채점 기준은 배정 메타데이터로 받는다 | 없음 | **[미정]** 면접 1건마다 처리 프로세스가 생겨 동시 면접 수에 비례. 실측 |
@@ -174,7 +174,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.5g(cAdvisor 384m) |
 | `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
-AI 두 컨테이너를 뺀 합계 약 6.6GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
+AI 두 컨테이너를 뺀 합계 약 7.1GB다. 나머지를 AI · OS · 러너가 나눠 쓴다. 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
 - 왜 외부 노출을 LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Tunnel로만 들어온다
 - 왜 AI 메모리는 [미정]인가: 에이전트는 면접마다 프로세스가 늘고, 분석 작업자는 라이브러리가 정해지지 않았다. 추측으로 잡으면 강제 종료가 나거나 메모리를 낭비하므로 실측해서 정한다
@@ -671,3 +671,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 6.2 · 7 | 녹화 합치기 연결: AI 이미지(`ai/Dockerfile`)에 ffmpeg 설치(앞 레이어, `--no-install-recommends`), CI `ai-test`는 녹화 코드 · 시험 · AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 시험을 돌림, 개발 · 운영 분석 작업자에 BE와 같은 버킷 · 앱 키(`S3_BUCKET` · `AWS_REGION` · `AWS_*`) 전달 | ffmpeg가 없으면 모든 합치기가 `MERGE_ERROR`, S3 설정이 없으면 `STORAGE_ERROR`가 된다. 앱 키 정책에 이미 `recordings/*` 읽기 · 쓰기와 `ListBucket`이 있어 새 IAM 키를 만들지 않는다. CI 설치는 필요한 MR에서만 해 다른 AI MR의 시간을 아낀다 |
 | 인프라 | 3.2 · 3.3 | 운영 대시보드 작성: 지표 대시보드를 전체 현황 · 서버 · 컨테이너 · BE · AI · LiveKit · Redis · PostgreSQL · FE 줄로 다시 구성, 로그 대시보드에 수준 필터 · 흐름별 오류 패널 추가. Redis · PostgreSQL exporter 추가(각 64m), cAdvisor 상한 256m → 384m. 3.2의 메모리 합계를 실제 상한 합으로 고침(5.2GB → 6.6GB) | 개발 대시보드를 복사한 상태라 이미 모으던 서버 · 컨테이너 · LiveKit 지표를 화면에서 볼 수 없었다. Redis가 차면 로그인이 막히는데 그 사용량을 볼 곳이 없었다. cAdvisor는 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써 강제 종료될 수 있었다 |
 | 인프라 | 3.2 · 3.3 · 7 | 분석 작업자를 작업 큐별로 나눔: 질문 생성 `a301-*-ai-plan`(`AI_WORKER_QUEUE=plan`, 256m) · 녹화 합치기 `a301-*-ai-recording`(`AI_WORKER_QUEUE=recording`, 256m · `cpus: 1`) 추가, 기본 작업자 `ai-analysis`는 채점 · 결과 생성. 세 작업자의 공통 설정은 compose `x-ai-worker` 등 앵커 한 곳에 둠. CI `ai-plan-deploy` · `ai-recording-deploy` 추가, 대시보드 AI 작업 큐 패널을 큐별(`sum by (queue)`)로 변경 | 작업자 하나가 모든 작업을 차례로 처리해, 녹화 합치기 · 결과 생성이 몰리면 사용자가 기다리는 질문 생성이 3분 안에 끝나지 않아 실패로 처리되고, 사용자는 면접을 시작하지 못한 채 다시 시도해야 한다(AI 명세 1.3). 녹화 합치기는 ffmpeg가 CPU를 써서 4코어를 실시간 면접과 나눠 쓰도록 제한한다 |
+| 인프라 | 3.2 | 운영 BE 상한 768m → 1280m, JVM 옵션에 `-XX:+ExitOnOutOfMemoryError` 추가. 3.2의 메모리 합계 6.6GB → 7.1GB | 운영 BE 이미지를 같은 JVM 옵션 · SerialGC(상한 1.5GB 이하에서 JVM이 고르는 GC)로 로컬에서 띄워 보니, 가벼운 부하만으로 약 690MiB(768m의 90%)를 썼고 힙 512MB를 모두 쓰면 약 1.06GB였다. 768m로는 힙이 차기 전에 컨테이너가 강제 종료될 수 있다. 1g도 최악값보다 작아 1280m로 여유를 두었다. 힙 할당이 실패하면 반쯤 망가진 채로 요청을 받지 않고 바로 종료해 restart로 다시 뜨게 한다 |
