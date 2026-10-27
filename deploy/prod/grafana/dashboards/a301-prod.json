@@ -1,13 +1,16 @@
 {
   "uid": "a301-prod",
   "title": "A301 운영 서버",
+  "description": "Production server (single Lightsail instance). Read top to bottom: overview → server → apps (BE, AI, LiveKit) → storage (Redis, PostgreSQL) → FE → per-container details.",
   "tags": [
     "a301",
-    "dev"
+    "prod"
   ],
   "timezone": "browser",
-  "schemaVersion": 39,
-  "version": 3,
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 4,
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -15,18 +18,25 @@
   },
   "panels": [
     {
+      "id": 100,
+      "type": "row",
+      "title": "전체 현황",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
       "id": 1,
-      "title": "서비스 상태",
+      "title": "FE · BE · AI 상태",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 3,
-        "w": 18,
-        "x": 0,
-        "y": 0
       },
       "targets": [
         {
@@ -81,55 +91,480 @@
         "textMode": "value_and_name",
         "colorMode": "value",
         "graphMode": "none"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 1
       }
     },
     {
-      "id": 2,
-      "title": "BE 지표 수집",
+      "title": "서버 CPU",
+      "description": "Average over the last 5 minutes, across all 4 cores",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - avg(rate(node_cpu_seconds_total{job=\"a301-node\",mode=\"idle\"}[5m]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 101
+    },
+    {
+      "title": "서버 메모리",
+      "description": "Used (total - available) out of 15GB",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - node_memory_MemAvailable_bytes{job=\"a301-node\"} / node_memory_MemTotal_bytes{job=\"a301-node\"}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 102
+    },
+    {
+      "title": "디스크 (/)",
+      "description": "DB, logs, metrics and temporary recording files all live on this disk",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - node_filesystem_avail_bytes{job=\"a301-node\",mountpoint=\"/\"} / node_filesystem_size_bytes{job=\"a301-node\",mountpoint=\"/\"}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "id": 103
+    },
+    {
+      "title": "Redis 메모리",
+      "description": "Used vs maxmemory. When full, Redis rejects writes and logins and interviews break (noeviction)",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes{job=\"a301-redis\"} / redis_memory_max_bytes{job=\"a301-redis\"}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 104
+    },
+    {
+      "title": "진행 중인 면접방",
+      "description": "Rooms currently open on LiveKit",
       "type": "stat",
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
       },
-      "gridPos": {
-        "h": 3,
-        "w": 6,
-        "x": 18,
-        "y": 0
-      },
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"a301-be\"}"
+          "expr": "sum(livekit_room_total{job=\"a301-livekit\"}) or vector(0)",
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "min": 0,
-          "max": 1,
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "text": "DOWN",
-                  "color": "red"
-                },
-                "1": {
-                  "text": "UP",
-                  "color": "green"
-                }
-              }
-            }
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
           ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 0,
+        "y": 7
+      },
+      "id": 105
+    },
+    {
+      "title": "면접방 참가자",
+      "description": "Counts users, the AI interviewer and recording participants",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(livekit_participant_total{job=\"a301-livekit\"}) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 4,
+        "y": 7
+      },
+      "id": 106
+    },
+    {
+      "title": "녹화 중",
+      "description": "Recordings currently running on Egress",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(livekit_egress_requests{job=\"a301-egress\"}) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 8,
+        "y": 7
+      },
+      "id": 107
+    },
+    {
+      "title": "DB 연결",
+      "description": "Connections vs PostgreSQL max_connections",
+      "type": "gauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pg_stat_activity_count{job=\"a301-postgres\"}) / max(pg_settings_max_connections{job=\"a301-postgres\"})",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "decimals": 1,
+          "max": 1,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red"
+                "color": "green"
               },
               {
-                "color": "green",
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 12,
+        "y": 7
+      },
+      "id": 108
+    },
+    {
+      "title": "메모리 초과 종료 (1시간)",
+      "description": "Containers killed for exceeding their memory limit (mem_limit)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(container_oom_events_total{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}[1h])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
                 "value": 1
               }
             ]
@@ -147,8 +582,392 @@
         },
         "orientation": "auto",
         "textMode": "value",
+        "colorMode": "value",
         "graphMode": "none"
-      }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 16,
+        "y": 7
+      },
+      "id": 109
+    },
+    {
+      "title": "지표 수집 실패",
+      "description": "Scrape targets Prometheus could not read. If not 0, the related panels are empty",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(up == 0) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 4,
+        "x": 20,
+        "y": 7
+      },
+      "id": 110
+    },
+    {
+      "id": 111,
+      "type": "row",
+      "title": "서버 (node-exporter)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "panels": []
+    },
+    {
+      "title": "CPU 사용률",
+      "description": "Stacked by mode. High iowait means the CPU is waiting on disk",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode) (rate(node_cpu_seconds_total{job=\"a301-node\",mode!=\"idle\"}[5m])) / scalar(count(node_cpu_seconds_total{job=\"a301-node\",mode=\"idle\"}))",
+          "legendFormat": "{{mode}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 112
+    },
+    {
+      "title": "Load average",
+      "description": "Above the core count (4), tasks are waiting for CPU",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_load1{job=\"a301-node\"}",
+          "legendFormat": "1분"
+        },
+        {
+          "refId": "B",
+          "expr": "node_load5{job=\"a301-node\"}",
+          "legendFormat": "5분"
+        },
+        {
+          "refId": "C",
+          "expr": "node_load15{job=\"a301-node\"}",
+          "legendFormat": "15분"
+        },
+        {
+          "refId": "D",
+          "expr": "count(node_cpu_seconds_total{job=\"a301-node\",mode=\"idle\"})",
+          "legendFormat": "코어 수"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 113
+    },
+    {
+      "title": "메모리",
+      "description": "Used = total - available (excludes cache)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_memory_MemTotal_bytes{job=\"a301-node\"} - node_memory_MemAvailable_bytes{job=\"a301-node\"}",
+          "legendFormat": "사용 중"
+        },
+        {
+          "refId": "B",
+          "expr": "node_memory_MemAvailable_bytes{job=\"a301-node\"}",
+          "legendFormat": "사용 가능"
+        },
+        {
+          "refId": "C",
+          "expr": "node_memory_SwapTotal_bytes{job=\"a301-node\"} - node_memory_SwapFree_bytes{job=\"a301-node\"}",
+          "legendFormat": "swap 사용"
+        },
+        {
+          "refId": "D",
+          "expr": "node_memory_MemTotal_bytes{job=\"a301-node\"}",
+          "legendFormat": "전체"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 114
+    },
+    {
+      "title": "디스크 (/) 남은 용량",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "node_filesystem_avail_bytes{job=\"a301-node\",mountpoint=\"/\"}",
+          "legendFormat": "남은 용량"
+        },
+        {
+          "refId": "B",
+          "expr": "node_filesystem_size_bytes{job=\"a301-node\",mountpoint=\"/\"}",
+          "legendFormat": "전체"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 115
+    },
+    {
+      "title": "디스크 읽기 · 쓰기",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(node_disk_read_bytes_total{job=\"a301-node\"}[5m]))",
+          "legendFormat": "읽기"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(node_disk_written_bytes_total{job=\"a301-node\"}[5m]))",
+          "legendFormat": "쓰기"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 116
+    },
+    {
+      "title": "서버 네트워크",
+      "description": "Traffic to and from the outside (excludes Docker bridges). Mostly LiveKit media. Check the monthly Lightsail transfer quota in the Lightsail console",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(container_network_receive_bytes_total{job=\"a301-cadvisor\",id=\"/\",interface!~\"lo|br-.*|docker.*|veth.*\"}[5m])) * 8",
+          "legendFormat": "받기"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(container_network_transmit_bytes_total{job=\"a301-cadvisor\",id=\"/\",interface!~\"lo|br-.*|docker.*|veth.*\"}[5m])) * 8",
+          "legendFormat": "보내기"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 117
+    },
+    {
+      "id": 118,
+      "type": "row",
+      "title": "BE",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "panels": []
     },
     {
       "id": 6,
@@ -157,12 +976,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 3
       },
       "targets": [
         {
@@ -186,6 +999,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 36
       }
     },
     {
@@ -195,12 +1014,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 8,
-        "y": 3
       },
       "targets": [
         {
@@ -224,6 +1037,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 8,
+        "y": 36
       }
     },
     {
@@ -233,12 +1052,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 16,
-        "y": 3
       },
       "targets": [
         {
@@ -262,6 +1075,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 16,
+        "y": 36
       }
     },
     {
@@ -271,12 +1090,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 9
       },
       "targets": [
         {
@@ -300,6 +1113,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 42
       }
     },
     {
@@ -309,12 +1128,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 9
       },
       "targets": [
         {
@@ -338,27 +1151,27 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 42
       }
     },
     {
-      "id": 10,
-      "title": "FE·BE·AI 상태 검사 응답 시간",
+      "id": 9,
+      "title": "BE p95 응답 시간 (기동 이후)",
       "type": "timeseries",
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
       },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 15
-      },
       "targets": [
         {
           "refId": "A",
-          "expr": "probe_duration_seconds{job=\"a301-health\"}",
-          "legendFormat": "{{service}}"
+          "expr": "histogram_quantile(0.95, sum by (le) (http_server_requests_seconds_bucket{job=\"a301-be\"}))",
+          "legendFormat": "p95"
         }
       ],
       "fieldConfig": {
@@ -376,6 +1189,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 48
       }
     },
     {
@@ -385,12 +1204,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 15
       },
       "targets": [
         {
@@ -424,6 +1237,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 48
       }
     },
     {
@@ -433,12 +1252,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 21
       },
       "targets": [
         {
@@ -462,44 +1275,12 @@
         "tooltip": {
           "mode": "single"
         }
-      }
-    },
-    {
-      "id": 9,
-      "title": "BE p95 응답 시간 (기동 이후)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
       },
       "gridPos": {
         "h": 6,
         "w": 12,
-        "x": 12,
-        "y": 21
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le) (http_server_requests_seconds_bucket{job=\"a301-be\"}))",
-          "legendFormat": "p95"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
+        "x": 0,
+        "y": 54
       }
     },
     {
@@ -509,12 +1290,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 27
       },
       "targets": [
         {
@@ -538,6 +1313,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 54
       }
     },
     {
@@ -547,12 +1328,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 27
       },
       "targets": [
         {
@@ -576,7 +1351,64 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 60
       }
+    },
+    {
+      "id": 10,
+      "title": "FE·BE·AI 상태 검사 응답 시간",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "probe_duration_seconds{job=\"a301-health\"}",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      }
+    },
+    {
+      "id": 119,
+      "type": "row",
+      "title": "AI",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "panels": []
     },
     {
       "id": 14,
@@ -585,12 +1417,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 33
       },
       "targets": [
         {
@@ -619,6 +1445,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 67
       }
     },
     {
@@ -628,12 +1460,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 33
       },
       "targets": [
         {
@@ -662,7 +1488,767 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 67
       }
+    },
+    {
+      "id": 120,
+      "type": "row",
+      "title": "LiveKit · 녹화",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "panels": []
+    },
+    {
+      "title": "면접방 · 참가자 · 녹화",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(livekit_room_total{job=\"a301-livekit\"})",
+          "legendFormat": "면접방"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(livekit_participant_total{job=\"a301-livekit\"})",
+          "legendFormat": "참가자"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(livekit_egress_requests{job=\"a301-egress\"})",
+          "legendFormat": "녹화"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 74
+      },
+      "id": 121
+    },
+    {
+      "title": "패킷 손실률",
+      "description": "incoming = browser → server, outgoing = server → browser. Even a few percent makes video and audio stutter",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction) (rate(livekit_packet_loss_total{job=\"a301-livekit\"}[5m])) / sum by (direction) (rate(livekit_packet_total{job=\"a301-livekit\"}[5m]))",
+          "legendFormat": "{{direction}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "noValue": "면접 트래픽 없음"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 74
+      },
+      "id": 122
+    },
+    {
+      "title": "왕복 지연 · 지터 (p95)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(livekit_rtt_ms_bucket{job=\"a301-livekit\"}[5m])))",
+          "legendFormat": "RTT p95"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(livekit_jitter_us_bucket{job=\"a301-livekit\"}[5m]))) / 1000",
+          "legendFormat": "지터 p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0,
+          "noValue": "면접 트래픽 없음"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 74
+      },
+      "id": 123
+    },
+    {
+      "title": "입장 실패 · 녹화 결과 (5분)",
+      "description": "Join failures are drops during signaling or media connection. Recording results count finished recordings by result",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (increase(livekit_participant_join_total{job=\"a301-livekit\",state=~\"signal_failed|signal_validation_failed|signal_upgrade_failed|signal_write_initial_response_failed|rtc_canceled\"}[5m])) > 0",
+          "legendFormat": "입장 {{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (increase(livekit_egress_handler_results_total{job=\"a301-egress\"}[5m])) > 0",
+          "legendFormat": "녹화 {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "noValue": "없음"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 74
+      },
+      "id": 124
+    },
+    {
+      "id": 125,
+      "type": "row",
+      "title": "Redis",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 81
+      },
+      "panels": []
+    },
+    {
+      "title": "Redis 메모리",
+      "description": "Redis rejects writes when it reaches the limit (192MB)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes{job=\"a301-redis\"}",
+          "legendFormat": "사용"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_memory_max_bytes{job=\"a301-redis\"}",
+          "legendFormat": "상한"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 82
+      },
+      "id": 126
+    },
+    {
+      "title": "Redis 연결",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_connected_clients{job=\"a301-redis\"}",
+          "legendFormat": "연결된 클라이언트"
+        },
+        {
+          "refId": "B",
+          "expr": "redis_blocked_clients{job=\"a301-redis\"}",
+          "legendFormat": "대기(BLPOP 등)"
+        },
+        {
+          "refId": "C",
+          "expr": "increase(redis_rejected_connections_total{job=\"a301-redis\"}[5m])",
+          "legendFormat": "거부된 연결 (5분)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 82
+      },
+      "id": 127
+    },
+    {
+      "title": "Redis 명령 / 초",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_commands_processed_total{job=\"a301-redis\"}[5m])",
+          "legendFormat": "명령"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 82
+      },
+      "id": 128
+    },
+    {
+      "title": "Redis 키 수",
+      "description": "The app only uses db0. Keys with expiry (sessions, tokens) are removed over time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(redis_db_keys{job=\"a301-redis\",db=\"db0\"}) or vector(0)",
+          "legendFormat": "전체 키"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(redis_db_keys_expiring{job=\"a301-redis\",db=\"db0\"}) or vector(0)",
+          "legendFormat": "만료가 있는 키"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 89
+      },
+      "id": 129
+    },
+    {
+      "title": "Redis 오류 (5분)",
+      "description": "OOM means memory was full and writes were rejected",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (err) (increase(redis_errors_total{job=\"a301-redis\"}[5m]))",
+          "legendFormat": "{{err}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 89
+      },
+      "id": 130
+    },
+    {
+      "title": "Redis 상태",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_up{job=\"a301-redis\"}",
+          "legendFormat": "Redis 응답 (1=정상)"
+        },
+        {
+          "refId": "B",
+          "expr": "up{job=\"a301-redis\"}",
+          "legendFormat": "지표 수집 (1=정상)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 89
+      },
+      "id": 131
+    },
+    {
+      "id": 132,
+      "type": "row",
+      "title": "PostgreSQL",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      },
+      "panels": []
+    },
+    {
+      "title": "DB 연결 수",
+      "description": "Long-lived \"idle in transaction\" means a transaction was left uncommitted",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (pg_stat_activity_count{job=\"a301-postgres\",datname=\"a301\"})",
+          "legendFormat": "{{state}}"
+        },
+        {
+          "refId": "B",
+          "expr": "max(pg_settings_max_connections{job=\"a301-postgres\"})",
+          "legendFormat": "최대"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 97
+      },
+      "id": 133
+    },
+    {
+      "title": "트랜잭션 / 초",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(pg_stat_database_xact_commit{job=\"a301-postgres\",datname=\"a301\"}[5m])",
+          "legendFormat": "커밋"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(pg_stat_database_xact_rollback{job=\"a301-postgres\",datname=\"a301\"}[5m])",
+          "legendFormat": "롤백"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 97
+      },
+      "id": 134
+    },
+    {
+      "title": "DB 크기",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_database_size_bytes{job=\"a301-postgres\",datname=\"a301\"}",
+          "legendFormat": "a301"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 97
+      },
+      "id": 135
+    },
+    {
+      "title": "캐시 적중률",
+      "description": "Share of reads served from memory instead of disk. A drop means memory is short",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(pg_stat_database_blks_hit{job=\"a301-postgres\",datname=\"a301\"}[5m]) / (rate(pg_stat_database_blks_hit{job=\"a301-postgres\",datname=\"a301\"}[5m]) + rate(pg_stat_database_blks_read{job=\"a301-postgres\",datname=\"a301\"}[5m]))",
+          "legendFormat": "적중률"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 104
+      },
+      "id": 136
+    },
+    {
+      "title": "가장 오래 열린 트랜잭션",
+      "description": "Longest transaction by state. Long ones hold locks and connections",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (state) (pg_stat_activity_max_tx_duration{job=\"a301-postgres\",datname=\"a301\"})",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 104
+      },
+      "id": 137
+    },
+    {
+      "title": "잠금 · 교착",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (mode) (pg_locks_count{job=\"a301-postgres\",datname=\"a301\"}) > 0",
+          "legendFormat": "{{mode}}"
+        },
+        {
+          "refId": "B",
+          "expr": "increase(pg_stat_database_deadlocks{job=\"a301-postgres\",datname=\"a301\"}[5m])",
+          "legendFormat": "교착 (5분)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 104
+      },
+      "id": 138
+    },
+    {
+      "id": 139,
+      "type": "row",
+      "title": "FE",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 111
+      },
+      "panels": []
     },
     {
       "id": 16,
@@ -671,12 +2257,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 39
       },
       "targets": [
         {
@@ -700,6 +2280,12 @@
         "tooltip": {
           "mode": "single"
         }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 112
       }
     },
     {
@@ -709,12 +2295,6 @@
       "datasource": {
         "type": "prometheus",
         "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 12,
-        "y": 39
       },
       "targets": [
         {
@@ -738,185 +2318,308 @@
         "tooltip": {
           "mode": "single"
         }
-      }
-    },
-    {
-      "id": 18,
-      "title": "FE 브라우저 오류 (최근 5분)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 0,
-        "y": 45
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "sum(increase(a301_fe_browser_errors_total{job=\"a301-fe\"}[5m])) or vector(0)",
-          "legendFormat": "오류"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      }
-    },
-    {
-      "id": 19,
-      "title": "FE 실제 사용자 LCP p75 (기동 이후)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 8,
-        "y": 45
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.75, sum by (le) (a301_fe_web_vital_seconds_bucket{job=\"a301-fe\",metric=\"LCP\"}))",
-          "legendFormat": "LCP p75"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      }
-    },
-    {
-      "id": 20,
-      "title": "FE 실제 사용자 INP p75 (상호작용 이후)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 8,
-        "x": 16,
-        "y": 45
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.75, sum by (le) (a301_fe_web_vital_seconds_bucket{job=\"a301-fe\",metric=\"INP\"}))",
-          "legendFormat": "INP p75"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      }
-    },
-    {
-      "id": 21,
-      "title": "FE 실제 사용자 TTFB p75 (기동 이후)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 12,
-        "x": 0,
-        "y": 51
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.75, sum by (le) (a301_fe_web_vital_seconds_bucket{job=\"a301-fe\",metric=\"TTFB\"}))",
-          "legendFormat": "TTFB p75"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "min": 0
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single"
-        }
-      }
-    },
-    {
-      "id": 22,
-      "title": "FE 실제 사용자 FCP p75 (기동 이후)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "a301-prometheus"
       },
       "gridPos": {
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 51
+        "y": 112
+      }
+    },
+    {
+      "id": 140,
+      "type": "row",
+      "title": "컨테이너 (cAdvisor)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 118
+      },
+      "panels": []
+    },
+    {
+      "title": "컨테이너별 CPU",
+      "description": "1 = one full core. The server has 4",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.75, sum by (le) (a301_fe_web_vital_seconds_bucket{job=\"a301-fe\",metric=\"FCP\"}))",
-          "legendFormat": "FCP p75"
+          "expr": "label_replace(sum by (name) (rate(container_cpu_usage_seconds_total{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}[5m])), \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 119
+      },
+      "id": 141
+    },
+    {
+      "title": "메모리 상한 대비 (지금)",
+      "description": "Usage vs compose mem_limit. At 100% the container is killed",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(sort_desc(max by (name) (container_memory_working_set_bytes{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}) / max by (name) (container_spec_memory_limit_bytes{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"} > 0)), \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "{{name}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 119
+      },
+      "id": 142
+    },
+    {
+      "title": "컨테이너별 메모리",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(max by (name) (container_memory_working_set_bytes{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}), \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 128
+      },
+      "id": 143
+    },
+    {
+      "title": "컨테이너별 네트워크 (보내기)",
+      "description": "Mostly LiveKit and Egress",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(sum by (name) (rate(container_network_transmit_bytes_total{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}[5m])) * 8, \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "{{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 128
+      },
+      "id": 144
+    },
+    {
+      "title": "가동 시간",
+      "description": "A short uptime means the container was recently deployed or restarted",
+      "type": "bargauge",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(sort(time() - max by (name) (container_start_time_seconds{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"})), \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "{{name}}",
+          "instant": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "min": 0
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow"
+              },
+              {
+                "color": "green",
+                "value": 600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "namePlacement": "left",
+        "sizing": "auto"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 137
+      },
+      "id": 145
+    },
+    {
+      "title": "재시작 · 메모리 초과 종료 (최근 1시간)",
+      "description": "Restarts count the same container starting again (containers recreated by a deploy are not counted)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace(sum by (name) (changes(container_start_time_seconds{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}[1h])) > 0, \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "재시작 {{name}}"
+        },
+        {
+          "refId": "B",
+          "expr": "label_replace(sum by (name) (increase(container_oom_events_total{job=\"a301-cadvisor\",name=~\"a301-prod-.+\"}[1h])) > 0, \"name\", \"$1\", \"name\", \"a301-prod-(.*)\")",
+          "legendFormat": "메모리 초과 {{name}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "noValue": "없음"
         },
         "overrides": []
       },
@@ -926,9 +2629,17 @@
           "placement": "bottom"
         },
         "tooltip": {
-          "mode": "single"
+          "mode": "multi",
+          "sort": "desc"
         }
-      }
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 137
+      },
+      "id": 146
     }
   ]
 }
