@@ -84,7 +84,8 @@ class PersistenceTest {
         em.clear();
 
         InterviewSession found = em.find(InterviewSession.class, session.getId());
-        assertThat(found.getSummary()).isEqualTo("총평");
+        assertThat(found.getHeadline()).isEqualTo("총평");
+        assertThat(found.getSummary()).isEqualTo("다음에 해볼 것");
         assertThat(found.getApplication().getCompanyName()).isEqualTo("○○전자");
         assertThat(em.find(SpeechMetric.class, session.getId()).getGazeRatio())
                 .isEqualByComparingTo("71.5");
