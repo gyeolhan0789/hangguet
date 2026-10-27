@@ -2,7 +2,7 @@
 
 승인된 연습 기록 화면의 달력, 면접 카드, 상세 화면 이동에 필요한 **백엔드 API 계약**을 정리한다. 프론트 연결 현황은 5장에 적는다. 배포 완료 여부를 뜻하지 않는다.
 
-요청·응답의 정식 계약은 [API 명세](API-명세.md)와 [목 서버 Swagger](https://hangguet.yobistory.com/mock/be/docs)를 따른다. 이 문서는 화면에서 어떤 API와 필드를 사용하는지 설명한다.
+요청·응답의 정식 계약은 [API 명세](API-명세.md)와 [백엔드 Swagger](https://hangguet.yobistory.com/be/docs)를 따른다. 이 문서는 화면에서 어떤 API와 필드를 사용하는지 설명한다.
 
 ## 1. 필요한 API
 

@@ -138,7 +138,7 @@ public class InterviewSessionService {
 
     /**
      * 5.4. 면접방을 열고(화상이면 녹화) 에이전트에 질문 5개를 배정한 뒤 입장 정보를 준다. 질문 행은 에이전트가 질문을 말할 때(question.started)
-     * 생긴다(B-16). 면접방을 열지 못하면 READY로 두고 503을 준다(B-17). 커밋하지 못하면 연 방을 지운다.
+     * 생긴다(API 명세 5.4). 면접방을 열지 못하면 READY로 두고 503을 준다. 커밋하지 못하면 연 방을 지운다.
      */
     public SessionResponse start(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();

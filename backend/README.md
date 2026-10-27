@@ -46,6 +46,7 @@ AI 모의면접 서비스 한끗의 REST API와 데이터 관리를 담당합니
 | `ADMIN_LOGIN_ID` · `ADMIN_PASSWORD` · `ADMIN_NAME` | | 셋 다 있으면 기동 때 관리자 계정을 만든다 | 없음 |
 | `S3_BUCKET` · `AWS_REGION` | | 프로필 사진·녹화 저장소. 자격 증명은 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY` | `a301-local` · `ap-northeast-2` |
 | `LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL` · `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | | 면접방(LiveKit) 서버 주소·키 | 없음 |
+| `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | | 녹화(Egress) 원본을 올릴 S3 키. LiveKit Cloud(개발)는 없으면 방 만들기가 거절됨. 셀프 호스팅은 Egress 서버 설정을 씀 | 없음 |
 
 로컬 예시 값은 루트 [`.env.example`](../.env.example)에 있습니다. S3·LiveKit 값이 없어도 기동하며, 그 기능이 필요한 요청만 실패합니다.
 
@@ -80,7 +81,7 @@ backend/
 │  ├─ admin/                       # 8. 관리자: 관리자 인증·공지·유지권·회원 검색·메트릭
 │  ├─ inquiry/                     # 9. 문의 (제목·본문 암호화)
 │  ├─ storage/                     # S3 파일 (Presigned URL)
-│  ├─ common/                      # 오류 응답(error), 멱등성(idempotency), 조회 날짜 검증(validation)
+│  ├─ common/                      # 여러 기능이 함께 쓰는 공통 코드 (오류 응답, 멱등성, 시간 처리 등)
 │  └─ config/                      # Swagger·스케줄링 설정
 ├─ src/main/resources/
 │  ├─ application.yml              # 애플리케이션 설정

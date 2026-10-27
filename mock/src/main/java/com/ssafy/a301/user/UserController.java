@@ -136,6 +136,15 @@ public class UserController {
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = ME_EXAMPLE)))
     @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "VALIDATION_FAILED",
+                                            value = ErrorExamples.PROFILE_IMAGE_KEY_INVALID)))
+    @ApiResponse(
             responseCode = "404",
             content =
                     @Content(
