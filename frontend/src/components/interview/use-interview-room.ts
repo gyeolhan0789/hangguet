@@ -29,6 +29,8 @@ import type { ListeningActivity } from "@/lib/interviewer/reaction";
 // · 원격 트랙 재생 RemoteTrack.attach()(https://docs.livekit.io/transport/media/subscribe/).
 // · 웹 Swagger 5.4(채팅도 면접방에 들어간다(송출 없이 수신·메시지만)) · 사용자 결정(2026-10-26: 채팅도 5.14로 입장한다)
 // · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · RPC(https://docs.livekit.io/transport/data/rpc/)
+// · API 명세 녹화(화면은 카메라 영상을 H.264로 송출한다) · AI 명세 7장(candidate-video H.264 → mp4)
+// · 사용자 결정(2026-10-27: 카메라 송출이 실패해도 면접은 표시 없이 계속)
 export type InterviewRoomStatus =
   "idle" | "connecting" | "listening" | "reconnecting" | "failed" | "sttFailed";
 
@@ -83,6 +85,7 @@ export function useInterviewRoom(
   } = {},
 ) {
   const microphone = listenOnly ? undefined : stream?.getAudioTracks()[0];
+  const camera = listenOnly ? undefined : stream?.getVideoTracks()[0];
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(INITIAL);
   const [question, setQuestion] = useState<QuestionMessage | null>(null);
@@ -333,7 +336,9 @@ export function useInterviewRoom(
         if (disposed) {
           await room.localParticipant.unpublishTrack(track, false);
           await room.disconnect(false);
+          return;
         }
+        if (camera) await publishCamera(room, camera);
       } catch {
         fail();
         await room.disconnect(false);
@@ -355,7 +360,7 @@ export function useInterviewRoom(
       // 마이크 소유자는 기존 useInterviewMedia다. SDK가 원본 트랙을 중지하지 않게 한다.
       void room.disconnect(false);
     };
-  }, [sessionId, microphone, listenOnly, attempt]);
+  }, [sessionId, microphone, camera, listenOnly, attempt]);
 
   // [답변 완료]를 에이전트에 보낸다(answer.submit). 방에 들어가 있지 않거나 에이전트가 없으면 보내지 못한다.
   const submitAnswer = useCallback(
@@ -411,4 +416,21 @@ export function useInterviewRoom(
   );
 
   return { ...state, question, reaction, retry, submitAnswer, sendChatInput };
+}
+
+/**
+ * 녹화할 카메라 영상을 올린다. 서버가 올라온 트랙을 녹화하고, 합치기는 영상을 다시 인코딩하지 않으므로 H.264로 보낸다
+ * (API 명세 녹화 · AI 명세 7장). 실시간으로 보는 사람이 없어 화질 단계(simulcast)는 보내지 않는다.
+ * 실패해도 면접은 표시 없이 이어 간다. 그 면접은 다시보기 영상이 없다(사용자 결정 2026-10-27).
+ */
+async function publishCamera(room: Room, camera: MediaStreamTrack) {
+  try {
+    await room.localParticipant.publishTrack(camera, {
+      source: Track.Source.Camera,
+      videoCodec: "h264",
+      simulcast: false,
+    });
+  } catch {
+    // 카메라 송출 실패는 면접 진행에 영향을 주지 않는다.
+  }
 }
