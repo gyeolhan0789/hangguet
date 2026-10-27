@@ -18,14 +18,14 @@ import type { CriterionReview, Grade } from "@/types/api";
 // 기준: Figma S08 Cards(18:2784: 폭 1120 · 간격 20 · 카드 p28 둥글기 24, 위쪽 정렬 대신 사용자 결정으로 두 카드 같은 높이)
 // · Card 오늘 나아진 점(18:2785: bg-sub · 간격 14 · 라벨 sparkles 16 + 15 Bold text-3 · 줄 py6 양끝 정렬 · 항목명 18 ExtraBold
 //   · 칩 brand-soft · brand-ink px12 py6 간격 6 아이콘 14 · 13 Bold(+N은 trending-up, 자소서 검증은 check '통과') · 설명 15 Medium text-2)
-// · Card 다음에 해볼 것(18:2819: brand-soft · 간격 12 · 라벨 target 16 + 15 Bold brand-ink · 28 ExtraBold 행간 1.3 자간 -0.8
-//   · bell 14 + '내일 홈에서 다시 알려드려요' 14 Medium text-3)
+// · Card 다음에 해볼 것(18:2819: brand-soft · 간격 12 · 라벨 target 16 + 15 Bold brand-ink · 28 ExtraBold 행간 1.3 자간 -0.8)
 // · S08-C Card 오늘의 기준점(18:4777: 라벨 flag 16 · 줄 py4 · 항목명 17 ExtraBold · 값 15 ExtraBold — 좋아요 text-1 · 보통 text-2
 //   · 아쉬워요 danger · calendar-clock 14 + '내일부터 나아진 점을 비교해 드려요' 13 SemiBold text-3)
 // · 모션 메모 S08(18:2843: 나아진 점 줄 stagger 0.1s 등장, +8 · +4 칩 카운트업, '다음에 해볼 것' 카드는 살짝 기울었다 펴지며 등장
 //   (rotate -2 → 0)) · 모션 메모 S08-C(18:4831: '오늘의 기준점' 4줄 stagger 0.08s, 하단 안내 문구 페이드인)
 // · 웹 Swagger 7.1 · GrowthReviewResponse(criteria · nextActions)
 // · 사용자 결정(2026-10-22: '다음에 해볼 것'은 nextActions를 큰 글씨로만 보여 주고 회색 점 목록은 뺀다, 지난 날짜는 '오늘' 대신 '이날')
+// · 사용자 요청(2026-10-27: '다음에 해볼 것'의 '내일 홈에서 다시 알려드려요' 안내를 뺀다)
 
 const BASE_COLOR: Record<Grade, string> = {
   GOOD: "text-text-1",
@@ -173,8 +173,8 @@ export function BaselineCard({ criteria, today }: { criteria: CriterionReview[];
   );
 }
 
-/** '다음에 해볼 것'. 오늘이면 내일 홈에서 다시 알려 준다는 안내를 붙인다 */
-export function NextActionCard({ actions, today }: { actions: string[]; today: boolean }) {
+/** '다음에 해볼 것' */
+export function NextActionCard({ actions }: { actions: string[] }) {
   const reduce = useReducedMotion();
   const labelId = useId();
   return (
@@ -199,12 +199,6 @@ export function NextActionCard({ actions, today }: { actions: string[]; today: b
           {action}
         </p>
       ))}
-      {today && (
-        <p className="flex items-center gap-1.5 text-sm leading-normal font-medium tracking-[-0.2px] text-text-3">
-          <MaskIcon src="/review/icon-bell.svg" size={14} className="bg-current" />
-          내일 홈에서 다시 알려드려요
-        </p>
-      )}
     </motion.section>
   );
 }

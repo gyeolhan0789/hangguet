@@ -89,7 +89,7 @@ test.describe("S08 성장 리뷰", () => {
     await expect(improved.getByRole("listitem").nth(2)).toContainText("자소서 검증통과");
     const next = page.getByRole("region", { name: "다음에 해볼 것" });
     await expect(next).toContainText("직무 적합성 질문 1개 더 연습하기");
-    await expect(next).toContainText("내일 홈에서 다시 알려드려요");
+    await expect(next).not.toContainText("내일 홈에서 다시 알려드려요");
 
     await page.getByRole("link", { name: "오늘은 여기까지" }).click();
     await expect(page).toHaveURL("/home");
@@ -214,7 +214,6 @@ test.describe("S08 성장 리뷰", () => {
 
     await expect(page.getByText("10월 13일 · 면접 1회 · 18분")).toBeVisible();
     await expect(page.getByText("이날 나아진 점")).toBeVisible();
-    await expect(page.getByText("내일 홈에서 다시 알려드려요")).toHaveCount(0);
     await expect(page.getByText("오늘도 연습해 볼까요?")).toBeVisible();
     await expect(
       page.getByRole("list", { name: "최근 7일 연습" }).getByRole("listitem").last(),

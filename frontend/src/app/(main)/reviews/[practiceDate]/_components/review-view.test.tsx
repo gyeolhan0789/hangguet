@@ -127,7 +127,8 @@ describe("ReviewView · S08 (N일째)", () => {
     // 회색 점 목록 없이 nextActions 글만 둔다.
     expect(within(next).queryByRole("list")).toBeNull();
     expect(within(next).queryByText("직무 적합성 질문 1개 더 연습하기")).not.toBeNull();
-    expect(within(next).queryByText("내일 홈에서 다시 알려드려요")).not.toBeNull();
+    // '내일 홈에서 다시 알려드려요' 안내는 두지 않는다(사용자 요청 2026-10-27)
+    expect(within(next).queryByText("내일 홈에서 다시 알려드려요")).toBeNull();
   });
 
   it("[오늘은 여기까지]는 홈(S02-B)으로, [한 번 더 면접]은 S03 지원서 입력으로 간다", () => {
@@ -237,12 +238,11 @@ describe("ReviewView · S08-C (첫 면접)", () => {
 });
 
 describe("ReviewView · 지난 날짜", () => {
-  it("S08: '오늘' 문구를 그날 문구로 바꾸고, 벨 안내를 숨기고, 버튼을 [홈으로] · [면접 연습하기]로 바꾼다", () => {
+  it("S08: '오늘' 문구를 그날 문구로 바꾸고, 버튼을 [홈으로] · [면접 연습하기]로 바꾼다", () => {
     view(S08, { today: false });
 
     expect(screen.queryByText("10월 13일 · 면접 1회 · 18분")).not.toBeNull();
     expect(screen.queryByText("이날 나아진 점")).not.toBeNull();
-    expect(screen.queryByText("내일 홈에서 다시 알려드려요")).toBeNull();
     expect(screen.queryByText("오늘도 연습해 볼까요?")).not.toBeNull();
     expect(screen.getByRole("link", { name: "홈으로" }).getAttribute("href")).toBe("/home");
     expect(screen.getByRole("link", { name: "면접 연습하기" }).getAttribute("href")).toBe(
