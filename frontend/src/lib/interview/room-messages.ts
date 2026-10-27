@@ -8,7 +8,9 @@ export const ANSWER_SUBMIT_METHOD = "interview.answerSubmit";
 export const QUESTION_METHOD = "interview.question";
 export const CHAT_INPUT_METHOD = "interview.chatInput";
 export const REACTION_METHOD = "interview.reaction";
-export const REACTION_DURATION_MS = 1200;
+// 기준: AI 명세 6.3 reaction.durationMs(2,400ms).
+// 표시 시간은 수신한 값을 사용하고, 명세 값보다 긴 리액션은 폐기한다.
+export const REACTION_MAX_DURATION_MS = 2400;
 
 export const reactionMessageSchema = z.object({
   type: z.literal("reaction"),
@@ -22,14 +24,14 @@ export const reactionMessageSchema = z.object({
         expression: z.enum(["smile", "frown", "smirk"]),
         gesture: z.null(),
         intensity: z.number().min(0).max(1),
-        durationMs: z.literal(REACTION_DURATION_MS),
+        durationMs: z.number().int().positive().max(REACTION_MAX_DURATION_MS),
       }),
       z.object({
         type: z.literal("gesture"),
         expression: z.null(),
         gesture: z.enum(["small_nod", "nod", "tilt"]),
         intensity: z.null(),
-        durationMs: z.literal(REACTION_DURATION_MS),
+        durationMs: z.number().int().positive().max(REACTION_MAX_DURATION_MS),
       }),
     ])
     .nullable(),
