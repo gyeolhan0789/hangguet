@@ -411,9 +411,19 @@ test.describe("S05-E 권한 거부", () => {
     const requests = recordSessions(msw, (body) =>
       HttpResponse.json({ ...SESSION, id: 56, mode: body.mode }, { status: 201 }),
     );
+    // 면접 화면은 5.2로 새 면접을 다시 조회한다. 기본 응답(55번 · 시작 전 화상)이면 S05로 돌려보내므로 새 채팅 면접으로 답한다.
+    msw.use(
+      http.get(api("/interview-sessions/56"), () =>
+        HttpResponse.json({ ...SESSION_PLAN.GENERATING, id: 56, mode: "CHAT" }),
+      ),
+    );
     await page.goto(S05);
     await dialog(page).getByRole("button", { name: "채팅으로 면접 보기" }).click();
 
+    // 주소만 보면 S05로 되돌아가기 전 잠깐도 통과하므로, 면접 화면(채팅 대기 화면)이 그려진 것까지 본다.
+    await expect(
+      page.getByRole("region", { name: "면접관이 면접을 준비하고 있어요" }),
+    ).toBeVisible();
     await expect(page).toHaveURL("/interview/56");
     expect(requests).toHaveLength(1);
     expect(requests[0].body).toEqual({
