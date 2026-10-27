@@ -16,13 +16,13 @@ from redis import Redis
 
 from app.common.gms import GmsClient, HttpResponse
 from app.common.results import ResultPublisher
-from app.common.settings import load_settings
+from app.common.settings import SettingsError, load_settings
 from app.interview.scoring.judge import TOP_LOGPROBS
 from app.worker import main as main_module
 from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
 from app.worker.messages import MergeRecordingJob, PlanJob
-from app.worker.queue import ReceiveResult
+from app.worker.queue import ReceiveResult, RedisJobQueue, WorkerQueue
 from tests.interview.result.test_job import JOB as EVALUATE_JOB
 from tests.interview.scoring.test_job import JOB as SCORE_JOB
 from tests.interview.scoring.test_job import good
@@ -316,6 +316,58 @@ def test_main_closes_redis_even_when_worker_fails(monkeypatch: pytest.MonkeyPatc
         main_module.main({})
 
     assert redis.closed == 1
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [({}, WorkerQueue.DEFAULT), ({"AI_WORKER_QUEUE": "plan"}, WorkerQueue.PLAN)],
+)
+def test_main_receives_from_configured_queue(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], expected: WorkerQueue
+) -> None:
+    started: list[RedisJobQueue] = []
+
+    class CapturingWorker:
+        def __init__(self, queue: RedisJobQueue, stop: threading.Event) -> None:
+            started.append(queue)
+
+        def run(self) -> None:
+            pass
+
+    monkeypatch.setattr(main_module, "create_redis", lambda settings: ClosableRedis())
+    monkeypatch.setattr(main_module, "install_signal_handlers", lambda stop: None)
+    monkeypatch.setattr(main_module, "Worker", CapturingWorker)
+
+    main_module.main(env)
+
+    [queue] = started
+    assert queue.queue is expected
+
+
+def test_main_rejects_unknown_queue_before_connecting(monkeypatch: pytest.MonkeyPatch) -> None:
+    """잘못된 큐 이름은 Redis에 연결하기 전에 실패해 잘못된 배포가 작업을 수신하지 않는다."""
+    connected: list[object] = []
+
+    class IdleWorker:
+        def __init__(self, *args: object) -> None:
+            pass
+
+        def run(self) -> None:
+            pass
+
+    def connect(settings: object) -> ClosableRedis:
+        connected.append(settings)
+        return ClosableRedis()
+
+    # 검사가 빠져도 작업자가 실제로 대기하지 않게 해, 테스트가 멈추지 않고 실패하게 한다
+    monkeypatch.setattr(main_module, "create_redis", connect)
+    monkeypatch.setattr(main_module, "install_signal_handlers", lambda stop: None)
+    monkeypatch.setattr(main_module, "Worker", IdleWorker)
+
+    with pytest.raises(SettingsError, match="AI_WORKER_QUEUE"):
+        main_module.main({"AI_WORKER_QUEUE": "plans"})
+
+    assert connected == []
 
 
 def start_worker(redis_port: int) -> subprocess.Popen[bytes]:

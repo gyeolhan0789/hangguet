@@ -34,7 +34,7 @@ from app.interview.scoring.job import (
 from app.recording.job import RecordingMerger, register_merge_recording_handler
 from app.recording.storage import create_s3_storage
 from app.worker.dispatch import Dispatcher
-from app.worker.queue import ReceiveResult, RedisJobQueue
+from app.worker.queue import ReceiveResult, RedisJobQueue, worker_queue
 
 log = logging.getLogger(__name__)
 
@@ -135,15 +135,25 @@ def install_signal_handlers(stop: threading.Event) -> None:
 def main(env: Mapping[str, str] = os.environ) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     settings = load_settings(env)
+    # 모르는 큐 이름은 Redis에 연결하기 전에 실패시켜 잘못된 배포를 바로 드러낸다
+    queue_kind = worker_queue(settings.worker_queue)
     stop = threading.Event()
     install_signal_handlers(stop)
     redis = create_redis(settings)
     try:
         # 작업 큐와 결과 큐는 같은 Redis에 있으므로 클라이언트 하나를 공유한다
         results = ResultPublisher(redis)
+        # 큐와 관계없이 처리 함수를 모두 등록한다.
+        # 큐를 나누기 전에 ai:jobs에 들어간 작업이
+        # 처리 함수 없이 남지 않게 하기 위함이다(AI 명세 1.3)
         dispatcher = build_dispatcher(settings, results)
-        queue = RedisJobQueue(redis, dispatcher, results)
-        log.info("분석 작업자를 시작한다 redis=%s:%s", settings.redis_host, settings.redis_port)
+        queue = RedisJobQueue(redis, dispatcher, results, queue=queue_kind)
+        log.info(
+            "분석 작업자를 시작한다 queue=%s redis=%s:%s",
+            queue_kind.key,
+            settings.redis_host,
+            settings.redis_port,
+        )
         Worker(queue, stop).run()
     finally:
         redis.close()
