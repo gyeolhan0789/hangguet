@@ -112,6 +112,7 @@ https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(�
 
 - Swagger를 공개하지 않는다: BE `SPRINGDOC_API_DOCS_ENABLED=false` · `SPRINGDOC_SWAGGER_UI_ENABLED=false`, Nginx에서 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs` 404(배포 계획 3.2)
 - FE 지표(`A301_DEV_MONITORING`)를 켜지 않는다(아래)
+- BE 메모리 상한 1280m(개발 768m), JVM 옵션에 `-XX:+ExitOnOutOfMemoryError`를 더한다. 힙을 다 쓰면 약 1.06GB를 써 768m로는 강제 종료될 수 있어서다(배포 계획 3.2)
 
 ## 아직 없는 것
 
