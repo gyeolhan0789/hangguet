@@ -56,8 +56,9 @@ inquiry:
 
 # 면접방(LiveKit, BE 설계 5.6). 주소·키는 환경 변수로만 받는다. 이름은 배포 계획 7장(LiveKit SDK 기본 이름)과 같다
 livekit:
-  # 브라우저에 알려 줄 주소(입장 정보 url). 없으면 서버 주소
-  url: ${LIVEKIT_PUBLIC_URL:${LIVEKIT_URL:}}
+  # 브라우저에 알려 줄 주소(입장 정보 url). 없으면 서버 주소.
+  # 이름을 url로 두지 않는다. Spring이 환경 변수 LIVEKIT_URL을 livekit.url로 읽어 이 값을 덮어쓰기 때문이다
+  public-url: ${LIVEKIT_PUBLIC_URL:${LIVEKIT_URL:}}
   # BE가 서버 API를 부르는 주소. 운영은 내부 주소(ws://a301-prod-livekit:7880)
   api-url: ${LIVEKIT_URL:}
   api-key: ${LIVEKIT_API_KEY:}

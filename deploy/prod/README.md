@@ -113,7 +113,6 @@ https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(�
 - Swagger를 공개하지 않는다: BE `SPRINGDOC_API_DOCS_ENABLED=false` · `SPRINGDOC_SWAGGER_UI_ENABLED=false`, Nginx에서 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs` 404(배포 계획 3.2)
 - FE 지표(`A301_DEV_MONITORING`)를 켜지 않는다(아래)
 - BE 메모리 상한 1280m(개발 768m), JVM 옵션에 `-XX:+ExitOnOutOfMemoryError`를 더한다. 힙을 다 쓰면 약 1.06GB를 써 768m로는 강제 종료될 수 있어서다(배포 계획 3.2)
-- BE `SPRING_APPLICATION_JSON`에 면접방 공개 주소(`livekit.url`)를 넣는다. 운영만 내부 주소(`LIVEKIT_URL`)와 공개 주소(`LIVEKIT_PUBLIC_URL`)가 달라, Spring이 `LIVEKIT_URL`을 `livekit.url`로 읽어 브라우저에 내부 주소를 주는 것을 막는 임시 우회다(S15P31A301-285). BE가 설정 이름을 바꿔 배포되면 지운다
 
 ## 아직 없는 것
 

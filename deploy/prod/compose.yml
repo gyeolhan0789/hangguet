@@ -142,13 +142,10 @@ services:
       MANAGEMENT_SERVER_PORT: "8081"
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
       # 개발 서버와 같은 대시보드를 쓰도록 요청 히스토그램을 켠다(p95 응답 시간).
-      # livekit.url: 브라우저에 알려 줄 면접방 주소. Spring이 환경 변수 LIVEKIT_URL(내부 주소)을 같은 이름의 설정 livekit.url로 읽어
-      #   application.yml의 LIVEKIT_PUBLIC_URL 값을 덮어쓰므로, 환경 변수보다 우선하는 이 값으로 공개 주소를 다시 넣는다(S15P31A301-285).
-      #   임시 우회다. BE가 설정 이름을 환경 변수와 겹치지 않게 바꿔(livekit.public-url) 운영에 배포되면 이 항목을 지운다
-      SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}},"livekit":{"url":"wss://rtc.hangguet.co.kr"}}'
+      SPRING_APPLICATION_JSON: '{"management":{"metrics":{"distribution":{"percentiles-histogram":{"http.server.requests":true}}}}}'
       # 메모리가 모자라 힙 할당이 실패하면 바로 종료해 restart로 다시 띄운다. 반쯤 망가진 채로 요청을 받지 않게 한다
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError"
-      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 앱 설정은 이것과 메모리(JVM 옵션 · mem_limit), 면접방 주소(위 livekit.url)뿐이다
+      # 운영은 Swagger(API 문서)를 공개하지 않는다(배포 계획 3.2). 개발 서버와 다른 앱 설정은 이것과 메모리(JVM 옵션 · mem_limit)뿐이다
       SPRINGDOC_API_DOCS_ENABLED: "false"
       SPRINGDOC_SWAGGER_UI_ENABLED: "false"
       <<: *livekit-env
