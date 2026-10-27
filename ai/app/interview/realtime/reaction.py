@@ -23,8 +23,9 @@ from app.interview.realtime.interrupt import OFF_TOPIC_QUESTION, off_topic_quest
 # 질문 문구(_INSTRUCTIONS·선택지·단계)의 버전.
 # 문구를 변경하면 버전을 올리고 app.common.versions에 등록한다(CONTRIBUTING 7장)
 REACTION_PROMPT_VERSION = "reaction-v1"
-# AI 명세 6.3: 순간 표정 유지 시간(밀리초)
-REACTION_DURATION_MS = 1_200
+# AI 명세 6.3: 순간 표정 유지 시간(밀리초).
+# 화면은 이 값보다 긴 리액션을 폐기하므로, 증가시킬 때는 화면의 상한도 함께 변경한다
+REACTION_DURATION_MS = 2_400
 # AI 명세 6.3: 첫 판단 전의 태도
 NEUTRAL_ATTITUDE_VALUE = 0.5
 # AI 명세 6.4 기준값(임시 값): 반응할 내용이 있다고 판단한 확률이 이 값 이상이면 리액션을 전송한다
