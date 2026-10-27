@@ -990,8 +990,22 @@ fe-sonar:
 
 # 파이썬은 컴파일이 없어 build 잡 없이 test 잡에서 검사와 테스트를 함께 돌립니다.
 # uv 버전은 로컬에서 uv.lock을 만든 버전과 맞춥니다.
+# 녹화 합치기 코드 · 시험이나 AI 이미지가 바뀐 MR에서만 ffmpeg를 설치해 실제 ffmpeg 시험(tests/recording)을 돌립니다.
+# 다른 AI MR은 설치 시간을 쓰지 않고, 그 시험은 건너뜁니다(skipif). Release MR은 모든 파일이 바뀌어 항상 설치합니다.
+# 운영 이미지(ai/Dockerfile)와 같은 Debian apt의 ffmpeg라 시험한 버전과 운영 버전이 같습니다.
 ai-test:
-  extends: .ai-rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
+      when: never
+    - changes:
+        - ai/app/recording/**/*
+        - ai/tests/recording/**/*
+        - ai/Dockerfile
+        - .gitlab-ci.yml
+      variables:
+        INSTALL_FFMPEG: "1"
+    - changes:
+        - ai/**/*
   stage: test
   image: python:3.13-slim
   needs: []
@@ -1007,6 +1021,7 @@ ai-test:
     paths:
       - .uv-cache/
   before_script:
+    - '[ "$INSTALL_FFMPEG" != "1" ] || { apt-get update -qq && apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null; }'
     - pip install --no-cache-dir "uv==${UV_VERSION}"
     - cd ai
     - uv sync --locked
