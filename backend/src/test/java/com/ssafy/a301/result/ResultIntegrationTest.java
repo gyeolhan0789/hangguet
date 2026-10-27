@@ -220,7 +220,7 @@ class ResultIntegrationTest {
     void completedResultWithMissingCriterionIsInternalError() throws Exception {
         User user = user("broken");
         InterviewSession session = ended(user, 1);
-        session.complete("총평");
+        session.complete("총평", "다음에 해볼 것");
         em.persist(new SessionScore(session, Criterion.JOB_FIT, 80, "직무"));
         em.flush();
         em.clear();
@@ -249,7 +249,7 @@ class ResultIntegrationTest {
             }
         }
         session.end(endedAt, 2);
-        session.complete("총평");
+        session.complete("총평", "다음에 해볼 것");
         em.persist(new SessionScore(session, Criterion.DELIVERY, 50, "전달"));
         em.persist(new SessionScore(session, Criterion.LOGIC, 70, "논리"));
         em.persist(new SessionScore(session, Criterion.COVER_LETTER, 60, "자소서"));

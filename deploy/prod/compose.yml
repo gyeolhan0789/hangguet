@@ -194,6 +194,8 @@ services:
       AWS_REGION: ap-northeast-2
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID CI/CD variable is required}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
+      # 자기소개서 검증(AI 명세 2.1): 지원서 저장 전에 Jev로 판단한다. 없으면 검증이 모두 실패해 지원서를 저장할 수 없다
+      JEV_API_KEY: ${JEV_API_KEY:-}
     # HTTP가 없어 컨테이너 안에서 Redis에 연결되는지로 확인한다
     healthcheck:
       test:

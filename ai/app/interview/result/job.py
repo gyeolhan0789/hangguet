@@ -224,6 +224,7 @@ def build_result(
             for a, e in zip(job.answers, evaluations, strict=True)
         ],
         scores=scores,
+        earlier_summaries=job.earlier_summaries,
     )
     written = write_feedback(session, feedback_chat)
     models.add(written.model)
@@ -245,6 +246,7 @@ def build_result(
         # 화상 면접만 speech_metrics 행을 저장한다(AI 명세 4장).
         # 채팅은 null이다
         "speechMetrics": speech,
+        "headline": written.headline,
         "summary": written.summary,
     }
 

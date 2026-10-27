@@ -8,12 +8,10 @@ import com.ssafy.a301.growth.dto.GrowthDtos.GrowthReviewResponse;
 import com.ssafy.a301.growth.dto.GrowthDtos.Improvement;
 import com.ssafy.a301.growth.dto.GrowthDtos.RecentReviewItem;
 import com.ssafy.a301.growth.mapper.GrowthMapper;
-import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
-import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.service.InterviewStatsService;
@@ -24,11 +22,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +35,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 7.1·7.2 성장 리뷰(BE 설계 6.2). 저장하지 않고 session_scores·answers로 계산한다. 리뷰가 있는 날 = 한국 시간으로 그날 시작한 결과 완료
- * 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것은 homeReviews로 한 번에 만든다. 그날 면접 수·시간은
+ * 7.1·7.2 성장 리뷰(BE 설계 6.2). 저장하지 않고 session_scores·interview_sessions.summary로 계산한다. 리뷰가 있는 날 = 한국
+ * 시간으로 그날 시작한 결과 완료 면접이 있는 날. 3.1 홈의 최근 리뷰·오늘 나아진 점·다음에 해볼 것은 homeReviews로 한 번에 만든다. 그날 면접 수·시간은
  * InterviewStatsService, 최근 7일 연습일·스트릭은 PracticeService 계산을 쓴다.
  */
 @Service
@@ -53,19 +49,16 @@ public class GrowthReviewService {
 
     private final InterviewSessionRepository sessions;
     private final SessionScoreRepository scores;
-    private final AnswerRepository answers;
     private final PracticeService practices;
     private final InterviewStatsService interviewStats;
 
     public GrowthReviewService(
             InterviewSessionRepository sessions,
             SessionScoreRepository scores,
-            AnswerRepository answers,
             PracticeService practices,
             InterviewStatsService interviewStats) {
         this.sessions = sessions;
         this.scores = scores;
-        this.answers = answers;
         this.practices = practices;
         this.interviewStats = interviewStats;
     }
@@ -256,34 +249,17 @@ public class GrowthReviewService {
     }
 
     /**
-     * 그날 기준 코멘트·질문별 고칠 점 중 가장 낮은 점수의 문구. 문구가 빈 것은 건너뛰고, 동점이면 모두. 순서는 면접 시작 순으로 기준 코멘트(기준 순) 다음에 고칠
-     * 점(질문 순)이다.
+     * 그날 마지막으로 시작한 면접의 summary. 결과 생성 때 그날 앞선 면접들의 summary까지 반영해 만든다(AI 명세 4장). 비었으면 그 앞 면접 것을 쓰고,
+     * 모두 비었으면 빈 목록이다.
      */
-    private List<String> nextActions(ReviewDay day) {
-        Map<Integer, Set<String>> byScore = new TreeMap<>();
-        for (SessionScore score : day.scores()) {
-            addAction(byScore, score.getScore(), score.getComment());
-        }
-        Map<Long, List<Answer>> answersBySession = new HashMap<>();
-        for (Answer answer :
-                answers.findWithQuestionBySessionIds(
-                        day.sessions().stream().map(InterviewSession::getId).toList())) {
-            answersBySession
-                    .computeIfAbsent(
-                            answer.getQuestion().getSession().getId(), ignored -> new ArrayList<>())
-                    .add(answer);
-        }
-        for (InterviewSession session : day.sessions()) {
-            for (Answer answer : answersBySession.getOrDefault(session.getId(), List.of())) {
-                addAction(byScore, answer.getScore(), answer.getImprovePoint());
+    private static List<String> nextActions(ReviewDay day) {
+        List<InterviewSession> daySessions = day.sessions();
+        for (int i = daySessions.size() - 1; i >= 0; i--) {
+            String summary = daySessions.get(i).getSummary();
+            if (summary != null && !summary.isBlank()) {
+                return List.of(summary.strip());
             }
         }
-        return byScore.isEmpty() ? List.of() : List.copyOf(byScore.values().iterator().next());
-    }
-
-    private static void addAction(Map<Integer, Set<String>> byScore, Integer score, String text) {
-        if (score != null && text != null && !text.isBlank()) {
-            byScore.computeIfAbsent(score, ignored -> new LinkedHashSet<>()).add(text.strip());
-        }
+        return List.of();
     }
 }

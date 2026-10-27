@@ -128,7 +128,7 @@ class MapperTest {
         var a1 = withId(new Answer(q1, InputType.TEXT, "안녕하세요"), 901);
         a1.evaluate(85, "좋음", "아쉬움");
         s.end(T0.plusMinutes(5), 1);
-        s.complete("총평");
+        s.complete("총평", "다음에 해볼 것");
         List<QuestionAndAnswer> items =
                 List.of(new QuestionAndAnswer(q2, null), new QuestionAndAnswer(q1, a1));
 
@@ -154,7 +154,7 @@ class MapperTest {
         InterviewSession s = session(InterviewMode.VIDEO);
         s.start(T0);
         s.end(T0.plusMinutes(5), 1);
-        s.complete("총평");
+        s.complete("총평", "다음에 해볼 것");
         SpeechMetric metric = new SpeechMetric(s, new BigDecimal("2.10"), 3, null, null, null);
 
         ResultResponse result = ResultMapper.toResult(s, List.of(), List.of(), metric);
@@ -175,7 +175,7 @@ class MapperTest {
         assertThat(analyzing.summary()).isNull();
         assertThat(analyzing.criterionGrades()).isEmpty();
 
-        s.complete("총평");
+        s.complete("총평", "다음에 해볼 것");
         Map<Criterion, Grade> grades = new EnumMap<>(Criterion.class);
         for (Criterion criterion : Criterion.values()) {
             grades.put(criterion, Grade.GOOD);

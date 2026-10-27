@@ -567,3 +567,13 @@ def test_requested_at_keeps_given_instant() -> None:
     job = parse_job(plan(requestedAt="2026-10-22T05:03:13Z"))
 
     assert job.requested_at == REQUESTED_AT
+
+
+# 기준: AI 명세 4장 earlierSummaries(같은 날 앞서 끝난 면접의 summary, 없으면 빈 목록)
+def test_evaluate_reads_earlier_summaries_of_the_day() -> None:
+    job = parse_job(evaluate(earlierSummaries=["결론부터 말하기", " "]))
+    assert isinstance(job, EvaluateJob) and job.earlier_summaries == ("결론부터 말하기",)
+    old = parse_job(evaluate())
+    assert isinstance(old, EvaluateJob) and old.earlier_summaries == ()
+    with pytest.raises(InvalidJobError):
+        parse_job(evaluate(earlierSummaries=[1]))

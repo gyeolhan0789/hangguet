@@ -39,6 +39,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
+| 자기소개서 검증 | 4.1·4.4(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
 | PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
@@ -60,17 +61,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   |---|---|---|---|
   | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN | `plan` |
   | `ai:jobs:recording` | `ai:jobs:recording:processing` | MERGE_RECORDING | `recording` |
-  | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE | `default`(기본값) |
+  | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE · WRITE_HEADLINE(임시, 4.1) | `default`(기본값) |
 
 - 작업자는 작업을 하나씩 처리하므로, 큐가 하나이면 녹화 합치기·결과 생성이 몰릴 때 사용자가 기다리는 PLAN이 최대 대기 시간(5장)을 넘긴다. 그래서 PLAN과 MERGE_RECORDING을 별도 큐로 나눈다
 - 큐마다 작업자를 1대 둔다. 작업자는 시작할 때 자기 처리 중 리스트에 남은 작업만 자기 큐로 되돌리므로, 큐마다 처리 중 리스트가 달라야 다른 작업자가 처리 중인 작업을 되돌리지 않는다
-- `default` 작업자는 네 작업의 처리 함수를 모두 등록한다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
-- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+- `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
+- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING` · `WRITE_HEADLINE`(임시, 4.1)), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
   - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
-  - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
+  - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점). WRITE_HEADLINE도 실패 결과 없이 끝낸다
   - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
 
@@ -95,9 +96,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
-| `evaluation.completed` | 분석 작업자 | 4장 | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
+| `evaluation.completed` | 분석 작업자 | 4장(`headline`·`summary` 포함) | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
+| `headline.written` | 분석 작업자 | `headline`(4.1, 임시) | `interview_sessions.headline`이 비었을 때만 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
@@ -160,6 +162,26 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) BE가 만든다. 질문 수는 5개 고정이다
 
+### 2.1 자기소개서 검증
+
+지원서를 저장하기 전(API 명세 4.1·4.4)에 자기소개서로 면접 질문을 만들 수 있는지 Jev로 판단한다. 의미 없는 글이거나 내용이 부족한 자기소개서로 면접을 시작해 면접방에서 질문 생성이 실패하지 않게 하기 위해서다.
+
+- **큐** BE가 지원서 저장 요청 안에서 결과를 기다리므로 작업 큐(`ai:jobs`)·Outbox·결과 큐(`ai:results`)를 쓰지 않는다. 분석 작업자가 전용 큐를 별도 스레드로 받아, 질문 생성·녹화 합치기 작업 뒤에 줄 서지 않는다
+  - BE가 `ai:checks`에 `LPUSH`하고, 작업자는 꺼내 판단한 뒤 결과를 `ai:checks:result:{jobId}`에 `LPUSH`한다(60초 뒤 만료). BE는 그 키를 `BRPOP`으로 최대 8초(임시 값) 기다린다
+  - 작업자는 `requestedAt`부터 8초가 지난 작업은 판단하지 않고 버린다. BE가 이미 기다리기를 그만뒀기 때문이다
+  - 처리 중에 작업자가 멈추면 그 검증은 버려진다. BE는 시간 초과로 응답하고 화면이 다시 시도하게 한다
+
+```json
+{ "jobId": "c0f1…", "requestedAt": "2026-10-27T14:03:13+09:00",
+  "companyName": "○○전자", "jobTitle": "백엔드 개발자", "coverLetter": "저는…" }
+```
+
+- **판단(Jev)** 회사명·직무·자기소개서를 `state`로 보내고 `noul` 질문 하나를 묻는다: 의미 있는 문장이고, 지원 동기나 경험을 묻는 질문을 여러 개 만들 만큼 구체적인 내용이 있는가. 글자 수 기준은 따로 두지 않고 이 질문으로 함께 판단한다. 0.5 이상(임시 값)이면 통과. 모델은 6.4와 같은 `jev-1.14.0`, 프롬프트 버전은 `cover-letter-check-v1`(9장)
+  - 제한 시간 5초(임시 값), 재시도하지 않는다. BE가 기다리는 시간 안에 결과를 돌려줘야 하기 때문이다
+  - 요청에 자기소개서가 담기므로 본문을 로그에 남기지 않는다
+- **결과** `{ "usable": true }` 또는 `{ "usable": false }`. 판단하지 못하면(Jev 장애·시간 초과·응답 형식 오류, `JEV_API_KEY` 없음, 메시지 형식 오류) `{ "error": "CHECK_FAILED" }`
+- **BE 응답** `usable: false`는 400 `VALIDATION_FAILED`(`coverLetter`), `CHECK_FAILED`·시간 초과·Redis 장애는 503 `COVER_LETTER_CHECK_UNAVAILABLE`. 둘 다 저장하지 않는다
+
 ## 3. SCORE_ANSWER: 답변 채점
 
 면접 중 답변마다 말하기 분석과 평가 STEP 01(기준별 판정)을 미리 한다. 다음 질문을 막지 않고, 실패해도 면접은 계속된다(EVALUATE가 마저 채점).
@@ -214,7 +236,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -228,10 +250,22 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `evaluation.completed`에 다음을 담는다 **[제안]**
   - `answers[]`: `answerId`, `score`, `goodPoint`, `improvePoint`, `evaluation`(`COVER_LETTER` 확정본)
   - `sessionScores[]`: `criterion`, `score`, `comment`
-  - `speechMetrics`(화상만, 채팅은 null, 아래 집계), `summary`
-- 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 `summary`와 해당 답변의 `improvePoint`에 기록한다. 결과 화면에 표시되는 글이 총평과 질문별 잘한 점·아쉬운 점이기 때문이다
+  - `speechMetrics`(화상만, 채팅은 null, 아래 집계)
+  - `headline`: 결과 화면 맨 위의 한 줄 총평. 30자 이내. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다(BE도 30자를 넘으면 자른다). BE가 `interview_sessions.headline`에 저장하고 6.3·5.13의 `summary`로 준다
+  - `summary`: 성장 리뷰의 "다음에 해볼 것". 다음 면접에서 해 볼 것을 한두 문장으로 쓰고, `earlierSummaries`가 있으면 그 내용과 이번 면접을 모두 반영해 그날 전체에서 가장 중요한 것을 쓴다. BE는 그날 마지막 면접의 `summary`를 7.1에 보여 준다
+- 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 해당 답변의 `improvePoint`에 기록한다
+- 프롬프트 버전은 `evaluate-feedback-v2`(9장)
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
+
+### 4.1 한 줄 총평 채우기 (임시)
+
+`headline`(BE 마이그레이션 V11)이 생기기 전에 끝난 면접을 채운다. 개발·운영 서버에서 모두 채운 뒤 지운다.
+
+- **시작** BE가 기동할 때 `headline`이 없고 `summary`가 있는 `COMPLETED` 면접마다 `WRITE_HEADLINE` 작업을 한 번 보낸다(이미 보낸 면접은 다시 보내지 않는다)
+- **입력** `summary`(그 면접의 총평)
+- **처리(GMS)** 뜻을 바꾸지 않고 30자 이내 한 줄로 줄인다. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다. 프롬프트 버전 `write-headline-v1`
+- **결과** `headline.written`(`headline`). BE는 `COMPLETED`이고 `headline`이 없을 때만 저장한다. 실패하면 결과를 보내지 않는다(그 면접은 결과 화면에서 한 줄 총평 없이 보인다)
 
 **`speech_metrics` 집계**
 

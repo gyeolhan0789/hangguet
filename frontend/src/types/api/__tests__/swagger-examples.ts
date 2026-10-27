@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 121개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 125개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -49,7 +49,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 121;
+export const SWAGGER_EXAMPLE_COUNT = 125;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -259,7 +259,7 @@ export const swaggerExamples = [
       { criterion: "DELIVERY", delta: 8 },
       { criterion: "LOGIC", delta: 4 },
     ],
-    nextActions: ["꼬리 질문엔 근거부터 짧게", "직무 적합성 질문 1개 더 연습하기"],
+    nextActions: ["꼬리 질문엔 근거부터 짧게"],
     nextActionsDate: "2026-10-15",
     recentReviews: [
       { practiceDate: "2026-10-15", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
@@ -345,6 +345,29 @@ export const swaggerExamples = [
     createdAt: "2026-10-15T11:55:00+09:00",
     inUse: false,
   } satisfies ApplicationResponse,
+  // 4.1 지원서 작성 400 COVER_LETTER_UNUSABLE
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/applications",
+    code: "VALIDATION_FAILED",
+    errors: [
+      {
+        field: "coverLetter",
+        reason:
+          "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
+      },
+    ],
+  } satisfies ProblemDetail,
+  // 4.1 지원서 작성 503 COVER_LETTER_CHECK_UNAVAILABLE
+  {
+    title: "Service Unavailable",
+    status: 503,
+    detail: "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/applications",
+    code: "COVER_LETTER_CHECK_UNAVAILABLE",
+  } satisfies ProblemDetail,
   // 4.2 지원서 조회 200
   {
     id: 10,
@@ -393,6 +416,21 @@ export const swaggerExamples = [
     createdAt: "2026-10-15T11:55:00+09:00",
     inUse: false,
   } satisfies ApplicationResponse,
+  // 4.4 지원서 수정 400 COVER_LETTER_UNUSABLE
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/applications",
+    code: "VALIDATION_FAILED",
+    errors: [
+      {
+        field: "coverLetter",
+        reason:
+          "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
+      },
+    ],
+  } satisfies ProblemDetail,
   // 4.4 지원서 수정 404 APPLICATION_NOT_FOUND
   {
     title: "Not Found",
@@ -408,6 +446,14 @@ export const swaggerExamples = [
     detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
     instance: "/api/v1/applications/9",
     code: "APPLICATION_IN_USE",
+  } satisfies ProblemDetail,
+  // 4.4 지원서 수정 503 COVER_LETTER_CHECK_UNAVAILABLE
+  {
+    title: "Service Unavailable",
+    status: 503,
+    detail: "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/applications",
+    code: "COVER_LETTER_CHECK_UNAVAILABLE",
   } satisfies ProblemDetail,
   // 5.13 연습 면접 목록 200 완료·분석 중
   {

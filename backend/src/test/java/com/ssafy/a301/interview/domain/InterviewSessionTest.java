@@ -34,9 +34,10 @@ class InterviewSessionTest {
         s.failAnalysis();
         assertThat(s.getStatus()).isEqualTo(SessionStatus.FAILED);
         s.retryAnalysis();
-        s.complete("총평");
+        s.complete("총평", "다음에 해볼 것");
         assertThat(s.getStatus()).isEqualTo(SessionStatus.COMPLETED);
-        assertThat(s.getSummary()).isEqualTo("총평");
+        assertThat(s.getHeadline()).isEqualTo("총평");
+        assertThat(s.getSummary()).isEqualTo("다음에 해볼 것");
     }
 
     @Test

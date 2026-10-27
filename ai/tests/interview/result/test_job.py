@@ -107,6 +107,7 @@ def feedback_reply(job: EvaluateJob = JOB) -> dict[str, Any]:
             for a in job.answers
         ],
         "criteria": {c.value: f"{c.value} 코멘트" for c in Criterion},
+        "headline": "근거는 분명하나 결론이 늦어요",
         "summary": "근거가 분명한 면접이었습니다.",
     }
 
@@ -167,6 +168,7 @@ def test_publishes_each_step_then_completed_result() -> None:
         "answers",
         "sessionScores",
         "speechMetrics",
+        "headline",
         "summary",
     }
     assert [set(a) for a in completed["answers"]] == [
@@ -333,7 +335,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v1" in caplog.text
+    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v2" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 

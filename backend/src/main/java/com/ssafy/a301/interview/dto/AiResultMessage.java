@@ -34,7 +34,8 @@ import java.util.Map;
  * @param answers evaluation.completed 답변별 점수·피드백(AI 명세 4장)
  * @param sessionScores evaluation.completed 기준별 점수·코멘트
  * @param speechMetrics evaluation.completed 말하기 지표(화상만)
- * @param summary evaluation.completed 면접 총평
+ * @param headline evaluation.completed 결과 화면 맨 위의 한 줄 총평(30자 이내)
+ * @param summary evaluation.completed 그날 이 면접까지를 반영한 다음에 해볼 것
  * @param objectKey recording.merged 합친 mp4 위치
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -62,6 +63,7 @@ public record AiResultMessage(
         List<EvaluatedAnswer> answers,
         List<CriterionScore> sessionScores,
         SpeechMetrics speechMetrics,
+        String headline,
         String summary,
         String objectKey) {
 
