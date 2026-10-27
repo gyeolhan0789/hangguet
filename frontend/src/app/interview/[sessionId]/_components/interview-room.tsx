@@ -190,6 +190,7 @@ export function InterviewRoom({
           feedback={analyzing ? null : presentation?.reaction}
           speaking={presentation?.question?.speech === "started"}
           listening={analyzing ? null : presentation?.listening}
+          question={analyzing ? null : presentation?.question}
         />
       </motion.div>
 

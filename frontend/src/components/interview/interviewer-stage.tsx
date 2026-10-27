@@ -6,7 +6,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { interviewerLook } from "@/lib/interviewer/models";
 import type { InterviewerScene } from "@/lib/interviewer/scene";
 import type { Persona } from "@/types/api";
-import type { ReactionSnapshot } from "@/lib/interview/room-messages";
+import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
+import { LIP_SYNC_DELAY_MS, mouthAt, mouthCues, mouthEndMs } from "@/lib/interviewer/lip-sync";
+import { NEUTRAL_FACE } from "@/lib/interviewer/face-rules";
 import {
   reactionFrame,
   listeningNodPitch,
@@ -26,6 +28,8 @@ import { ThinkingAvatar } from "./thinking-avatar";
 // · 모션 메모 S06-F(18:4432: 면접관 3D 아이들 모션에 눈 깜빡임)
 // · 면접 데모(interview_prototype env/storm.js: 악마 = 먹구름 번개 영상 배경 · 3D 번개 · 지옥불 · 블룸)
 // · 사용자 요청(2026-10-21: 면접관 로딩 화면 — Figma에 없어 S06-1 Thinking Avatar를 면접관 얼굴 자리에 둔다)
+// · AI 명세 6.3 interview.question(started의 alignment.chars) · 사용자 결정(2026-10-27: 발음 시각으로 입 모양을 바꾸고 150ms 늦춘다.
+//   동작 줄이기를 켰으면 입을 움직이지 않는다. 질문 도중에 들어오면 다음 started부터 움직인다)
 
 /** 눈 깜빡임 간격(ms). 이 범위에서 매번 다르게 고른다. */
 const BLINK_GAP_MS = [2500, 5500] as const;
@@ -40,11 +44,14 @@ export function InterviewerStage({
   feedback = null,
   speaking = false,
   listening = null,
+  question = null,
 }: {
   persona: Persona;
   feedback?: ReactionSnapshot | null;
   speaking?: boolean;
   listening?: ListeningActivity | null;
+  /** 지금 질문 메시지. 음성이 시작되면(started) 발음 시각대로 입을 움직인다 */
+  question?: QuestionMessage | null;
 }) {
   const look = interviewerLook(persona);
   const container = useRef<HTMLDivElement>(null);
@@ -165,6 +172,28 @@ export function InterviewerStage({
       reset();
     };
   }, [state, feedback, speaking, listening, reduce]);
+
+  // 립싱크. 질문 음성이 시작되면 받은 때부터 LIP_SYNC_DELAY_MS 뒤를 0으로 글자별 입 모양을 바꾸고, 끝나면 입을 닫는다.
+  // 음성이 끝나거나(ended · failed) 다른 질문이 오면 효과를 다시 실행해 입을 닫는다.
+  const alignment = question?.speech === "started" ? question.alignment : null;
+  useEffect(() => {
+    if (state !== "ready" || !scene.current || reduce || !alignment) return;
+    const current = scene.current;
+    const cues = mouthCues(alignment.chars);
+    const end = mouthEndMs(cues);
+    const start = performance.now() + LIP_SYNC_DELAY_MS;
+    let frame = 0;
+    const draw = () => {
+      const at = performance.now() - start;
+      current.setFace({ mouth: mouthAt(cues, at) });
+      if (at < end) frame = requestAnimationFrame(draw);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(frame);
+      current.setFace({ mouth: NEUTRAL_FACE.mouth });
+    };
+  }, [state, alignment, reduce]);
 
   // 눈 깜빡임. 동작 줄이기를 켰으면 깜빡이지 않는다.
   useEffect(() => {
