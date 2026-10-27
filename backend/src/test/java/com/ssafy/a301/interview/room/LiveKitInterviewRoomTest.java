@@ -22,6 +22,11 @@ import livekit.LivekitRoom.DeleteRoomRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.MutablePropertySources;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.env.SystemEnvironmentPropertySource;
+import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -166,6 +171,28 @@ class LiveKitInterviewRoomTest {
         assertThatThrownBy(() -> unset.issueAccess(55L, true)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> unset.open(55L, true, Map.of())).isInstanceOf(ApiException.class);
         unset.close(55L);
+    }
+
+    @Test
+    void browserGetsPublicUrlWhenServerUrlDiffers() throws IOException {
+        // 운영처럼 서버 주소(내부)와 브라우저 주소(공개)가 다를 때. 개발 서버는 두 값이 같아 드러나지 않는다
+        StandardEnvironment env = new StandardEnvironment();
+        MutablePropertySources sources = env.getPropertySources();
+        sources.replace(
+                StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                new SystemEnvironmentPropertySource(
+                        StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME,
+                        Map.of(
+                                "LIVEKIT_URL", "ws://a301-prod-livekit:7880",
+                                "LIVEKIT_PUBLIC_URL", "wss://rtc.hangguet.co.kr")));
+        new YamlPropertySourceLoader()
+                .load("application.yml", new ClassPathResource("application.yml"))
+                .forEach(sources::addLast);
+
+        assertThat(env.resolveRequiredPlaceholders(LiveKitInterviewRoom.URL_PROPERTY))
+                .isEqualTo("wss://rtc.hangguet.co.kr");
+        assertThat(env.resolveRequiredPlaceholders(LiveKitInterviewRoom.API_URL_PROPERTY))
+                .isEqualTo("ws://a301-prod-livekit:7880");
     }
 
     @Test
