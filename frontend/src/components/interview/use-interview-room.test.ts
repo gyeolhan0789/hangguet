@@ -329,6 +329,25 @@ describe("리액션 메시지 수신", () => {
     await receive("not json");
     expect(result.current.reaction).toBeNull();
   });
+  it("명세 값(2,400ms) 이하의 표시 시간만 수신한다", async () => {
+    const { result, receive } = await joined();
+    const reaction = (durationMs: unknown) => ({
+      reaction: {
+        type: "expression",
+        expression: "smile",
+        gesture: null,
+        intensity: 0.4,
+        durationMs,
+      },
+    });
+    await receive(message({ seq: 1, ...reaction(2401) }));
+    await receive(message({ seq: 2, ...reaction(0) }));
+    await receive(message({ seq: 3, ...reaction(1.5) }));
+    await receive(message({ seq: 4, ...reaction("1200") }));
+    expect(result.current.reaction).toBeNull();
+    await receive(message({ seq: 5, ...reaction(2400) }));
+    expect(result.current.reaction?.message.reaction?.durationMs).toBe(2400);
+  });
   it("제출 이후 도착한 반응을 폐기하고 연결 정리 시 수신을 해제한다", async () => {
     const { result, room, receive, unmount } = await joined();
     await receive();

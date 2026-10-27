@@ -77,7 +77,7 @@ def test_expression_uses_fixed_intensity() -> None:
         "expression": "frown",
         "gesture": None,
         "intensity": 0.4,
-        "durationMs": 1200,
+        "durationMs": 2400,
     }
 
 
@@ -89,7 +89,7 @@ def test_gesture_has_no_intensity() -> None:
         "expression": None,
         "gesture": "tilt",
         "intensity": None,
-        "durationMs": 1200,
+        "durationMs": 2400,
     }
 
 

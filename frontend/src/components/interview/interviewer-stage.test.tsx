@@ -240,6 +240,20 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
     unmount();
     expect(dispose).toHaveBeenCalledTimes(1);
   });
+  it("수신한 durationMs(2,400ms) 동안 표정을 유지한다", async () => {
+    vi.useFakeTimers();
+    const setFace = vi.fn(),
+      setHead = vi.fn();
+    createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
+    const current = feedback();
+    current.message.reaction = { ...current.message.reaction!, durationMs: 2400 };
+    render(<InterviewerStage persona="DEVIL" feedback={current} />);
+    await act(async () => {});
+    act(() => vi.advanceTimersByTime(2399));
+    expect(setFace).toHaveBeenLastCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
+    act(() => vi.advanceTimersByTime(1));
+    expect(setFace).toHaveBeenLastCalledWith({ emotion: "neutral", emotionWeight: 0 });
+  });
   it("질문 음성이 반응보다 우선하며 재생 종료 뒤에는 남은 시간만 표현한다", async () => {
     vi.useFakeTimers();
     const setFace = vi.fn(),

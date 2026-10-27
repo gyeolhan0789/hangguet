@@ -1,4 +1,4 @@
-import { REACTION_DURATION_MS, type ReactionSnapshot } from "@/lib/interview/room-messages";
+import type { ReactionSnapshot } from "@/lib/interview/room-messages";
 import type { Emotion } from "./face-rules";
 
 /** 작은 고개 움직임을 위한 최대 회전량이며 단위는 라디안이다. */
@@ -29,8 +29,9 @@ export function reactionFrame(snapshot: ReactionSnapshot | null, now: number) {
   const neutral = { emotion: "neutral" as Emotion, emotionWeight: 0, pitch: 0, roll: 0 };
   if (!snapshot || !snapshot.message.reaction) return neutral;
   const elapsed = now - snapshot.receivedAt;
-  if (elapsed < 0 || elapsed >= REACTION_DURATION_MS) return neutral;
-  const progress = elapsed / REACTION_DURATION_MS;
+  const duration = snapshot.message.reaction.durationMs;
+  if (elapsed < 0 || elapsed >= duration) return neutral;
+  const progress = elapsed / duration;
   const envelope = Math.sin(Math.PI * progress);
   const { reaction, attitude } = snapshot.message;
   let emotion: Emotion = "neutral";

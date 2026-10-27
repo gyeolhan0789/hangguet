@@ -16,7 +16,6 @@ import {
   LISTENING_NOD_DURATION_MS,
   type ListeningActivity,
 } from "@/lib/interviewer/reaction";
-import { REACTION_DURATION_MS } from "@/lib/interview/room-messages";
 
 import { ThinkingAvatar } from "./thinking-avatar";
 
@@ -126,14 +125,14 @@ export function InterviewerStage({
       current.setHead(0, 0);
     };
     reset();
+    const duration = feedback?.message.reaction?.durationMs ?? 0;
     const reacting =
-      !!feedback?.message.reaction &&
-      feedback.receivedAt + REACTION_DURATION_MS > performance.now();
+      !!feedback?.message.reaction && feedback.receivedAt + duration > performance.now();
     if (!speaking && feedback?.message.reaction) {
-      const remaining = feedback.receivedAt + REACTION_DURATION_MS - performance.now();
+      const remaining = feedback.receivedAt + duration - performance.now();
       if (remaining > 0) {
         if (reduce) {
-          const target = reactionFrame(feedback, feedback.receivedAt + REACTION_DURATION_MS / 2);
+          const target = reactionFrame(feedback, feedback.receivedAt + duration / 2);
           current.setFace({ emotion: target.emotion, emotionWeight: target.emotionWeight });
           timer = setTimeout(reset, remaining);
         } else {
@@ -142,8 +141,7 @@ export function InterviewerStage({
             const next = reactionFrame(feedback, now);
             current.setFace({ emotion: next.emotion, emotionWeight: next.emotionWeight });
             current.setHead(next.pitch, next.roll);
-            if (now < feedback.receivedAt + REACTION_DURATION_MS)
-              frame = requestAnimationFrame(draw);
+            if (now < feedback.receivedAt + duration) frame = requestAnimationFrame(draw);
           };
           frame = requestAnimationFrame(draw);
         }
