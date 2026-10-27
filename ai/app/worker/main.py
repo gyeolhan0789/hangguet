@@ -23,6 +23,7 @@ from app.common.gms import GmsClient
 from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
+from app.interview.cover_letter import CoverLetterChecker
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.interview.result.feedback import gms_feedback_chat
 from app.interview.result.job import EvaluateJobHandler, register_evaluate_handler
@@ -33,6 +34,7 @@ from app.interview.scoring.job import (
 )
 from app.recording.job import RecordingMerger, register_merge_recording_handler
 from app.recording.storage import create_s3_storage
+from app.worker.checks import CoverLetterCheckWorker
 from app.worker.dispatch import Dispatcher
 from app.worker.queue import ReceiveResult, RedisJobQueue
 
@@ -143,7 +145,20 @@ def main(env: Mapping[str, str] = os.environ) -> None:
         results = ResultPublisher(redis)
         dispatcher = build_dispatcher(settings, results)
         queue = RedisJobQueue(redis, dispatcher, results)
+        # 자기소개서 검증은 BE가 기다리므로 작업 큐와 따로 받는다(AI 명세 2.1)
+        checker = CoverLetterChecker(settings.jev_api_key).check if settings.jev_api_key else None
+        checks = threading.Thread(
+            target=CoverLetterCheckWorker(redis, checker, stop).run,
+            name="cover-letter-check",
+            daemon=True,
+        )
+        checks.start()
         log.info("분석 작업자를 시작한다 redis=%s:%s", settings.redis_host, settings.redis_port)
-        Worker(queue, stop).run()
+        try:
+            Worker(queue, stop).run()
+        finally:
+            # 작업자가 예외로 끝나도 검증 스레드가 닫힌 연결로 계속 돌지 않게 함께 멈춘다
+            stop.set()
+            checks.join()
     finally:
         redis.close()

@@ -1,6 +1,8 @@
 package com.ssafy.a301.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -11,6 +13,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
@@ -25,12 +29,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -47,8 +53,15 @@ class ApplicationIntegrationTest {
     @Autowired private InterviewSessionRepository sessions;
     @Autowired private TransactionTemplate transactions;
     @Autowired private JdbcTemplate jdbc;
+    // 자기소개서 검증은 AI 작업자가 하므로 통과로 둔다(검증 결과별 응답은 ApplicationServiceTest)
+    @MockitoBean private CoverLetterCheckQueue coverLetterChecks;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
+
+    @BeforeEach
+    void passCoverLetterCheck() {
+        when(coverLetterChecks.check(any(), any(), any())).thenReturn(Verdict.USABLE);
+    }
 
     @AfterEach
     void cleanup() {

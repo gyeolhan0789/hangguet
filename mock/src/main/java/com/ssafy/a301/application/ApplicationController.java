@@ -63,10 +63,32 @@ public class ApplicationController {
         this.stub = stub;
     }
 
-    @Operation(summary = "4.1 지원서 작성", description = "지원서를 저장한다. 저장한 지원서는 여러 면접에 쓸 수 있다.")
+    @Operation(
+            summary = "4.1 지원서 작성",
+            description =
+                    "지원서를 저장한다. 저장한 지원서는 여러 면접에 쓸 수 있다. 저장 전에 자기소개서로 면접 질문을 만들 수 있는지 판단해,"
+                            + " 만들 수 없으면 400(coverLetter), 판단하지 못하면 503이다.")
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "COVER_LETTER_UNUSABLE",
+                                            value = ErrorExamples.COVER_LETTER_UNUSABLE)))
+    @ApiResponse(
+            responseCode = "503",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "COVER_LETTER_CHECK_UNAVAILABLE",
+                                            value = ErrorExamples.COVER_LETTER_CHECK_UNAVAILABLE)))
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApplicationResponse create(@Valid @RequestBody ApplicationCreateRequest request) {
@@ -110,10 +132,30 @@ public class ApplicationController {
         return new PagedModel<>(new PageImpl<>(items, PageRequest.of(page, size), items.size()));
     }
 
-    @Operation(summary = "4.4 지원서 수정", description = "보낸 필드만 수정한다. 면접에 쓴 지원서는 수정할 수 없다.")
+    @Operation(
+            summary = "4.4 지원서 수정",
+            description = "보낸 필드만 수정한다. 면접에 쓴 지원서는 수정할 수 없다. 자기소개서를 보내면 4.1과 같이 판단한다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = APPLICATION)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "COVER_LETTER_UNUSABLE",
+                                            value = ErrorExamples.COVER_LETTER_UNUSABLE)))
+    @ApiResponse(
+            responseCode = "503",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "COVER_LETTER_CHECK_UNAVAILABLE",
+                                            value = ErrorExamples.COVER_LETTER_CHECK_UNAVAILABLE)))
     @ApiResponse(
             responseCode = "404",
             content =

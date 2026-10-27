@@ -59,6 +59,17 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
               "instance": "/api/v1/applications/9", "code": "APPLICATION_IN_USE" }\
             """;
+    public static final String COVER_LETTER_UNUSABLE =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
+              "instance": "/api/v1/applications", "code": "VALIDATION_FAILED",
+              "errors": [ { "field": "coverLetter", "reason": "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요." } ] }\
+            """;
+    public static final String COVER_LETTER_CHECK_UNAVAILABLE =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/applications", "code": "COVER_LETTER_CHECK_UNAVAILABLE" }\
+            """;
     public static final String SESSION_NOT_FOUND =
             """
             { "title": "Not Found", "status": 404, "detail": "면접을 찾을 수 없어요.",

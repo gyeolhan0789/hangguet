@@ -250,7 +250,11 @@
 
 지원서를 저장해 두고 여러 면접에 다시 쓴다(S03에서 저장된 지원서 중 고르거나 새로 작성). 자기소개서는 질문 생성과 "자소서 검증" 평가에 쓴다.
 
+저장하기 전에 AI가 자기소개서로 면접 질문을 만들 수 있는지 판단한다(AI 명세 2.1). 의미 없는 글이거나 질문을 만들 만큼 내용이 없으면 저장하지 않는다. 면접방에 들어간 뒤 질문 생성이 실패하지 않게 하기 위해서다. 판단에 몇 초 걸릴 수 있다.
+
 - **201**: 저장
+- **400 / VALIDATION_FAILED**: `errors`에 `coverLetter`(질문을 만들기 어려운 자기소개서). 화면은 자기소개서 칸 아래에 문구를 보여 주고 다음 화면으로 넘어가지 않는다
+- **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 판단하지 못함(AI·Jev 장애, 시간 초과). 저장하지 않으며 화면은 다시 시도하게 안내한다
 
 #### 4.2 지원서 조회
 
@@ -276,6 +280,7 @@
 - **200**: 수정. 응답은 4.1과 같음
 - **404 / APPLICATION_NOT_FOUND**
 - **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서
+- **400 / VALIDATION_FAILED** · **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 자기소개서를 보냈을 때만 4.1과 같이 판단한다. 보내지 않은 회사명·직무는 저장된 값으로 판단한다
 
 #### 4.5 지원서 삭제
 
@@ -759,6 +764,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
 | `ROOM_UNAVAILABLE` | 503 | 5.4 |
+| `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 · 4.4 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |

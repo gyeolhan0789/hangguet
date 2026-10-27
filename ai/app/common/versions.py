@@ -67,6 +67,7 @@ REGISTRY = VersionRegistry(
             "evaluate-feedback-v1",
             "evaluate-cover-letter-v1",
             "reaction-v1",
+            "cover-letter-check-v1",
         }
     ),
     models=frozenset({"gpt-4.1-mini", "jev-1.14.0"}),

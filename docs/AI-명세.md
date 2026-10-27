@@ -39,6 +39,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
+| 자기소개서 검증 | 4.1·4.4(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
 | PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
@@ -149,6 +150,26 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) BE가 만든다. 질문 수는 5개 고정이다
+
+### 2.1 자기소개서 검증
+
+지원서를 저장하기 전(API 명세 4.1·4.4)에 자기소개서로 면접 질문을 만들 수 있는지 Jev로 판단한다. 의미 없는 글이거나 내용이 부족한 자기소개서로 면접을 시작해 면접방에서 질문 생성이 실패하지 않게 하기 위해서다.
+
+- **큐** BE가 지원서 저장 요청 안에서 결과를 기다리므로 작업 큐(`ai:jobs`)·Outbox·결과 큐(`ai:results`)를 쓰지 않는다. 분석 작업자가 전용 큐를 별도 스레드로 받아, 질문 생성·녹화 합치기 작업 뒤에 줄 서지 않는다
+  - BE가 `ai:checks`에 `LPUSH`하고, 작업자는 꺼내 판단한 뒤 결과를 `ai:checks:result:{jobId}`에 `LPUSH`한다(60초 뒤 만료). BE는 그 키를 `BRPOP`으로 최대 8초(임시 값) 기다린다
+  - 작업자는 `requestedAt`부터 8초가 지난 작업은 판단하지 않고 버린다. BE가 이미 기다리기를 그만뒀기 때문이다
+  - 처리 중에 작업자가 멈추면 그 검증은 버려진다. BE는 시간 초과로 응답하고 화면이 다시 시도하게 한다
+
+```json
+{ "jobId": "c0f1…", "requestedAt": "2026-10-27T14:03:13+09:00",
+  "companyName": "○○전자", "jobTitle": "백엔드 개발자", "coverLetter": "저는…" }
+```
+
+- **판단(Jev)** 회사명·직무·자기소개서를 `state`로 보내고 `noul` 질문 하나를 묻는다: 의미 있는 문장이고, 지원 동기나 경험을 묻는 질문을 여러 개 만들 만큼 구체적인 내용이 있는가. 글자 수 기준은 따로 두지 않고 이 질문으로 함께 판단한다. 0.5 이상(임시 값)이면 통과. 모델은 6.4와 같은 `jev-1.14.0`, 프롬프트 버전은 `cover-letter-check-v1`(9장)
+  - 제한 시간 5초(임시 값), 재시도하지 않는다. BE가 기다리는 시간 안에 결과를 돌려줘야 하기 때문이다
+  - 요청에 자기소개서가 담기므로 본문을 로그에 남기지 않는다
+- **결과** `{ "usable": true }` 또는 `{ "usable": false }`. 판단하지 못하면(Jev 장애·시간 초과·응답 형식 오류, `JEV_API_KEY` 없음, 메시지 형식 오류) `{ "error": "CHECK_FAILED" }`
+- **BE 응답** `usable: false`는 400 `VALIDATION_FAILED`(`coverLetter`), `CHECK_FAILED`·시간 초과·Redis 장애는 503 `COVER_LETTER_CHECK_UNAVAILABLE`. 둘 다 저장하지 않는다
 
 ## 3. SCORE_ANSWER: 답변 채점
 
