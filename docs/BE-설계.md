@@ -244,7 +244,7 @@ com.ssafy.a301
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
-11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 다시보기 처리(B-19)가 정해질 때까지 경고 로그만 남긴다
+11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이고 같은 위치 행이 없을 때만 `SESSION_VIDEO`로 저장(면접 상태와 무관). `recording.mergeFailed`는 그 면접의 합치기 실패를 저장한다(저장 위치 **[제안]**, API 명세 6.4 `videoStatus: FAILED`)
 
 ### 5.6 면접방 (LiveKit)
 - 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`
@@ -289,7 +289,7 @@ com.ssafy.a301
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
-- 6.4 `videoUrl`은 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있을 때만 Presigned GET. 합치기 전이거나 실패(`recording.mergeFailed`)했으면 null이고 질문 목록은 그대로 준다 **[임시: B-19 결정 전]**
+- 6.4 `videoStatus`(화상만): 합친 녹화(`SESSION_VIDEO` 행, `recordings/{sessionId}.mp4`)가 있으면 `READY`이고 `videoUrl`은 Presigned GET이다. 합치기 실패를 저장했거나 면접 종료(`ended_at`) 후 15분(임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
@@ -377,6 +377,5 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ## 12. 남은 일
 1. 면접방: 에이전트 배정 거절(`assignment.rejected`) 처리와 `START_FAILED` 상태(4장), 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
-2. `recording.mergeFailed` 뒤 다시보기 처리(B-19 결정 후). 지금은 6.4 `videoUrl` null(6.3 기타)
-3. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
-4. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19)
+2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
+3. 시선 분석 실행 주체와 방식(B-14), 답변별 음성(B-19)
