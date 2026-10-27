@@ -1,7 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion } from "@/types/api";
 
@@ -32,7 +31,6 @@ const QUESTION: CurrentQuestion = {
 
 beforeEach(() => {
   useInterviewStore.getState().reset();
-  useInterviewHistoryStore.setState({ sessionId: null, items: [] });
   // 앞 테스트의 응답 구현과 남은 once 값까지 비운다.
   submitTextAnswer.mockReset();
   endSession.mockReset();
@@ -202,11 +200,6 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(input().value).toBe("");
     expect(useInterviewStore.getState().answeredQuestionId).toBe(303);
     expect(endSession).not.toHaveBeenCalled();
-    // 낸 답변은 면접 중 히스토리에 남는다
-    expect(useInterviewHistoryStore.getState()).toMatchObject({
-      sessionId: 55,
-      items: [{ seq: 3, question: QUESTION.content, answer: "캐시를 바꿨어요" }],
-    });
   });
 
   it("[보내기] 버튼으로도 낸다", async () => {
@@ -250,7 +243,6 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
 
     expect(screen.getByRole("alert").textContent).toBe("채팅 답변은 1~1,000자입니다.");
     expect(input().value).toBe("답");
-    expect(useInterviewHistoryStore.getState().items).toEqual([]);
   });
 
   it("응답을 못 받은 답변을 다시 보내면 같은 키를, 서버가 실패로 답했으면(keySpent) 새 키를 쓴다", async () => {
@@ -312,10 +304,6 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(screen.queryByText("새로고침 뒤 다시 낸 답")).toBeNull();
     expect(input().value).toBe("");
     expect(useInterviewStore.getState().answeredQuestionId).toBe(303);
-    // 이미 낸 답변도 이전 질문 기록에 남긴다(새로고침 뒤 기록이 비었을 수 있다)
-    expect(useInterviewHistoryStore.getState().items).toEqual([
-      { seq: 3, question: QUESTION.content, answer: "새로고침 뒤 다시 낸 답" },
-    ]);
     // 마지막 질문이 아니면 끝내지 않는다
     expect(endSession).not.toHaveBeenCalled();
   });
@@ -351,7 +339,35 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(onAnswered).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
     expect(useInterviewStore.getState().answeredQuestionId).toBeNull();
-    expect(useInterviewHistoryStore.getState().items).toEqual([]);
+  });
+
+  it("질문 ID 전에 질문 메시지(inputQuestionSeq)만 와도 쓸 수 있고 입력 신호를 그 질문으로 보내지만, ID를 받기 전에는 내지 않는다", async () => {
+    vi.useFakeTimers();
+    submitTextAnswer.mockResolvedValue({ isLastQuestion: false });
+    const onChatInput = vi.fn();
+    const { rerender } = render(
+      <ChatPanel sessionId={55} question={null} inputQuestionSeq={4} onChatInput={onChatInput} />,
+    );
+    expect(input().disabled).toBe(false);
+    type("먼저 쓴 답");
+    act(() => vi.advanceTimersByTime(CHAT_INPUT_PAUSE_MS));
+    expect(onChatInput).toHaveBeenCalledWith(4, 1, "먼저 쓴 답", expect.any(Number));
+    expect(screen.getByRole("button", { name: "답변 보내기" })).toHaveProperty("disabled", true);
+    await enter();
+    await act(async () => fireEvent.submit(input().closest("form")!));
+    expect(submitTextAnswer).not.toHaveBeenCalled();
+
+    rerender(
+      <ChatPanel
+        sessionId={55}
+        question={{ ...QUESTION, id: 304, seq: 4 }}
+        inputQuestionSeq={4}
+        onChatInput={onChatInput}
+      />,
+    );
+    await enter();
+    expect(submitTextAnswer).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 
   it("다음 질문을 기다리는 동안(질문 없음)은 입력 · 보내기를 막는다", async () => {

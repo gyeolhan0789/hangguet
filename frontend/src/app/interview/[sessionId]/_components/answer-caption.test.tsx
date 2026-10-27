@@ -40,6 +40,6 @@ it("질문을 말하는 중(locked)이면 답을 받지 않는다고 알리고 �
   expect(caption().textContent).toContain("질문이 끝나면 말씀해 주세요");
   expect(caption().textContent).not.toContain("이전 글");
   expect(caption().textContent).not.toContain("듣는 중");
-  // 맨 아래 줄(파형)은 상자 안에 들어간다
+  // 맨 아래 줄(파형 · [답변 완료])은 상자 안에 들어간다
   expect(caption().querySelector('[data-testid="bottom-row"]')).toBeTruthy();
 });

@@ -14,7 +14,6 @@ import { PERSONAS } from "@/lib/interview/personas";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
-import { useInterviewHistoryStore } from "@/stores/interview-history-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
@@ -34,7 +33,6 @@ import {
 } from "./room-alerts";
 import { AnswerNotice, MicToast, SelfCamera, VideoControls } from "./video-panel";
 import { ChatWaiting } from "./chat-waiting";
-import { InterviewHistory } from "./interview-history";
 
 // 기준: Figma S06 화상(18:2497) · S06-B 채팅(18:2574): 면접관 장면 위에 Fade Top(위 200 · rgba(11,13,20,.8)→0)
 // · Fade Bottom(아래 480 · 0→rgba(11,13,20,.95)) · Lightning Flash(72% · 12% 지점 rgba(185,212,255,.18) 원형 빛)
@@ -51,6 +49,8 @@ import { InterviewHistory } from "./interview-history";
 
 /** 다음 질문 · 결과 분석을 다시 조회하는 간격(웹 Swagger 5.2 · 5.5 "2초마다(임시 값)") */
 export const SESSION_POLL_MS = 2000;
+/** 면접관 질문 메시지를 받았는데 5.5가 아직 그 질문이 아니면 다시 확인하는 간격(임시 값). BE가 질문 시작을 받는 잠깐만 쓴다 */
+export const QUESTION_RECHECK_MS = 1000;
 /** 채팅 면접방에 다시 들어가기 전 기다리는 시간과 연달아 다시 들어가는 횟수(사용자 결정 2026-10-26) */
 export const CHAT_ROOM_RETRY_MS = 2000;
 export const CHAT_ROOM_RETRIES = 3;
@@ -81,8 +81,9 @@ export function InterviewRoom({
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
   // 채팅은 장치 점검 없이 바로 와서 질문 준비(플랜)를 이 화면에서 기다린다.
   const preparing = session.status === "READY" && session.planStatus === "GENERATING";
+  // 채팅 면접 중에는 면접방 메시지를 받는 ChatLive가 다시 그리기를 맡는다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   const waiting =
-    (session.status === "IN_PROGRESS" && question === null) ||
+    (session.status === "IN_PROGRESS" && question === null && session.mode !== "CHAT") ||
     session.status === "ANALYZING" ||
     preparing;
   // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
@@ -123,13 +124,6 @@ export function InterviewRoom({
   useEffect(() => {
     reset({ keepLeveledUp: enteredEnded });
   }, [reset, enteredEnded]);
-  // 면접 중 히스토리는 같은 면접이면 남기고(새로고침), 다른 면접이면 비운다
-  const enterHistory = useInterviewHistoryStore((state) => state.enter);
-  useEffect(() => {
-    void Promise.resolve(useInterviewHistoryStore.persist.rehydrate()).then(() =>
-      enterHistory(session.id),
-    );
-  }, [enterHistory, session.id]);
 
   // 채팅: 질문 준비가 끝나고(5.2 planStatus READY) 대기 화면의 [면접 시작]을 누르면 면접을 시작한다(5.4).
   // 실패하면(서버 실패 · 연결 오류) 2초 뒤 화면을 다시 그려 5.2로 지금 상태를 받고, 아직 시작 전이면 다시 보낸다.
@@ -223,7 +217,6 @@ export function InterviewRoom({
               />
             ) : (
               <Dialog bottom="pb-[5px]" hidden={uiHidden}>
-                <InterviewHistory sessionId={session.id} />
                 {planFailed ? (
                   <PlanFailed sessionId={session.id} />
                 ) : session.status !== "IN_PROGRESS" ? (
@@ -336,14 +329,14 @@ function Dialog({
 }
 
 /**
- * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 파형 · 마이크 끊김 토스트. 답변은 에이전트가 낸다(사용자 요청 2026-10-27: [답변 완료] 없음),
- * 결과 큐에 내지 못하면(submitFailed) 안내의 [다시 시도]로 다시 낸다.
- * 답변은 에이전트가 듣고 저장한다. 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리거나 [다시 시도]가 받아들여지면
+ * S06 화상: 내 카메라 · 질문 말풍선 · 내 답변 자막 · 파형 · [답변 완료] · 마이크 끊김 토스트.
+ * 결과 큐에 내지 못하면(submitFailed) 안내의 [다시 시도] 또는 [답변 완료]로 다시 낸다.
+ * 답변은 에이전트가 듣고 저장한다. [답변 완료] · [다시 시도]가 받아들여지거나 에이전트가 자동 제출(마지막 말 뒤 7초)을 알리면
  * 그 질문은 내는 중이 되어 2초마다 5.5로 다음 질문을 확인한다. 제출됨(answer.state submitted)을 받으면 면접관이
  * '생각 중'이 된다. 알림을 놓쳐도 다음 질문이 오면 넘어간다(에이전트는 알림을 한 번만 보낸다).
  * 5.2로 답변 5개가 저장된 것이 보이면 면접을 끝낸다(5.8).
  * (API 명세 면접방 메시지 · 화상 답변 끝 판단, 사용자 결정 2026-10-26: 다음 질문은 5.5로 받는다,
- * 마지막 답변 뒤 자동으로 끝내기)
+ * [답변 완료]는 내 답변 자막이 있을 때만, 마지막 답변 뒤 자동으로 끝내기)
  */
 function VideoInterview({
   uiHidden,
@@ -375,28 +368,19 @@ function VideoInterview({
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
   const openEnd = useInterviewStore((state) => state.openEnd);
-  const addHistory = useInterviewHistoryStore((state) => state.add);
-  // [다시 시도]를 보내 에이전트의 응답을 기다리는 중
+  // [답변 완료] · [다시 시도]를 보내 에이전트의 응답을 기다리는 중
   const [requesting, setRequesting] = useState(false);
   // 에이전트가 답변을 내는 중인 질문(id)
   const [submittingId, setSubmittingId] = useState<number | null>(null);
   // 답변을 낸 자막 캡처. 에이전트가 다음 답변을 들으려 새 캡처를 열 때까지 지난 답변 글을 감춘다.
   // 내기 시작할 때 정해 두어, 제출됨 알림이 늦거나 오지 않아도 다음 질문 아래에 지난 글이 남지 않는다.
   const [doneStream, setDoneStream] = useState<string | null>(null);
-  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [다시 시도]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
+  // 결과 큐에 내지 못한 질문(id). 자막이 없어도(새로고침 뒤) [답변 완료] · [다시 시도]로 같은 답변을 다시 낼 수 있다(AI 명세 6.5)
   const [failedId, setFailedId] = useState<number | null>(null);
   const [completedSeq, setCompletedSeq] = useState(0);
   const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
 
   function startSubmitting(questionId: number) {
-    // 낸 답변을 히스토리에 남긴다(질문 글은 면접방 메시지를 우선한다)
-    if (question) {
-      addHistory(sessionId, {
-        seq: question.seq,
-        question: (liveQuestion ?? question).content,
-        answer: (caption.confirmedText + caption.interimText).trim(),
-      });
-    }
     setAnswerNotice(null);
     setSubmittingId(questionId);
     setFailedId(null);
@@ -495,7 +479,6 @@ function VideoInterview({
         )}
       </AnimatePresence>
       <Dialog bottom="pb-[68px]" hidden={uiHidden}>
-        <InterviewHistory sessionId={sessionId} />
         {noticeMessage && (
           <AnswerNotice
             message={noticeMessage}
@@ -519,7 +502,13 @@ function VideoInterview({
           interimText={caption.interimText}
           locked={speechLocked}
         >
-          <VideoControls level={level} locked={speechLocked} />
+          <VideoControls
+            level={level}
+            canSubmit={canSubmit}
+            submitting={submitting || requesting}
+            locked={speechLocked}
+            onSubmit={() => void submit()}
+          />
         </AnswerCaption>
       </Dialog>
       <div className={uiHidden ? "hidden" : "contents"}>
@@ -608,12 +597,27 @@ function ChatLive({
     [inputQuestionSeq, sendChatInput],
   );
   const router = useRouter();
-  // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답으로 확인한다.
+  // 질문 글은 메시지로 표시하되 저장에 필요한 질문 ID는 같은 순서의 BE 응답(5.5)으로 확인한다.
+  // 메시지가 오면 2초 조회를 기다리지 않고 바로 다시 그린다(사용자 요청 2026-10-27). 같은 순서가 아직 오지 않았으면
+  // 잠깐 뒤(QUESTION_RECHECK_MS), 그래도 아니면 2초마다 다시 확인한다. 메시지가 오지 않는 동안(질문 없음)은 2초마다 다시 조회한다(면접방이 끊겼을 때 대비).
+  // 다시 그리기는 이 한 곳에서만 하고, 끝난 뒤에 다음 확인을 예약해 요청이 서로를 끊지 않게 한다.
+  const [refreshing, startRefresh] = useTransition();
+  const online = useOnline();
+  // 지금 메시지 질문을 몇 번 확인했는지. 처음은 바로, 두 번째는 잠깐 뒤, 그 뒤로는 2초마다(계속 어긋나면 자주 부르지 않게)
+  const checked = useRef<{ seq: number; count: number } | null>(null);
+  const waitingMessage = !liveQuestion && question === null;
+  const mismatch = liveQuestion !== null && liveQuestion.seq !== question?.seq;
   useEffect(() => {
-    if (!liveQuestion || liveQuestion.seq === question?.seq) return;
-    const timer = setTimeout(() => router.refresh(), SESSION_POLL_MS);
+    if ((!mismatch && !waitingMessage) || refreshing || !online) return;
+    let delay = SESSION_POLL_MS;
+    if (mismatch) {
+      const count = checked.current?.seq === liveQuestion.seq ? checked.current.count : 0;
+      delay = count === 0 ? 0 : count === 1 ? QUESTION_RECHECK_MS : SESSION_POLL_MS;
+      checked.current = { seq: liveQuestion.seq, count: count + 1 };
+    }
+    const timer = setTimeout(() => startRefresh(() => router.refresh()), delay);
     return () => clearTimeout(timer);
-  }, [liveQuestion, question, router]);
+  }, [mismatch, waitingMessage, liveQuestion, refreshing, online, router]);
   const [retries, setRetries] = useState(0);
   if (status === "listening" && retries !== 0) setRetries(0);
 

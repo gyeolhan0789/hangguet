@@ -41,7 +41,6 @@ describe("QuestionBubble (면접관 질문 말풍선)", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "질문 접기" }));
     expect(text().className).toContain("line-clamp-1");
-    // 이전 질문 기록도 함께 접힌다(같은 상태를 본다)
     expect(useInterviewStore.getState().collapsed).toBe(true);
     expect(screen.getByRole("button", { name: "질문 펼치기" }).getAttribute("aria-expanded")).toBe(
       "false",
