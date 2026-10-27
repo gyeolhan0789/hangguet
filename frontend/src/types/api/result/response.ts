@@ -52,7 +52,8 @@ export interface SpeechMetrics {
   speedDeviationPct: number;
   trailingOffRatio: number;
   pitchRangeSt: number;
-  gazeRatio: number;
+  /** 말하는 동안 면접관을 바라본 시간 비율(%). 계산하지 않아 항상 null */
+  gazeRatio: number | null;
 }
 
 /** 6.3 면접 결과 (200) */
@@ -97,6 +98,9 @@ export interface ReplayItem {
   grade: Grade;
 }
 
+/** 6.4 녹화 영상 상태 */
+export type VideoStatus = "READY" | "MERGING" | "FAILED";
+
 /** 6.4 다시보기 (200) */
 export interface ReplayResponse {
   /** 면접 id */
@@ -110,7 +114,9 @@ export interface ReplayResponse {
   jobTitle: string;
   /** 녹화 기준 시각(면접 시작 일시). 상단 날짜도 이 값 */
   startedAt: OffsetDateTime;
-  /** 녹화 영상 주소. 채팅이면 null(웹 Swagger 6.4) */
+  /** 녹화 영상 상태. READY 재생 가능, MERGING 녹화 합치기 중(10초마다 다시 조회), FAILED 합치기 실패. 채팅이면 null */
+  videoStatus: VideoStatus | null;
+  /** 녹화 영상 주소. videoStatus가 READY일 때만 값이 있다(웹 Swagger 6.4) */
   videoUrl: string | null;
   /** 질문 순 */
   items: ReplayItem[];

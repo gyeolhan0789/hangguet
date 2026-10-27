@@ -121,7 +121,7 @@ test.describe("S07-1 면접 다시보기", () => {
   }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>
-        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoUrl: null }),
+        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null }),
       ),
     );
     await page.goto(S07_1);
@@ -143,7 +143,7 @@ test.describe("S07-1 면접 다시보기", () => {
   }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>
-        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoUrl: null }),
+        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null }),
       ),
     );
     await page.goto(S07_1);
@@ -194,7 +194,7 @@ test.describe("S07-1 면접 다시보기", () => {
   test("'‹ 결과로'를 누르면 S07 피드백 결과로 돌아간다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>
-        HttpResponse.json({ ...REPLAY, videoUrl: null }),
+        HttpResponse.json({ ...REPLAY, videoStatus: "MERGING", videoUrl: null }),
       ),
       http.get(api("/interview-sessions/:sessionId/result"), () => HttpResponse.json(RESULT)),
     );
