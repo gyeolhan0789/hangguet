@@ -79,11 +79,23 @@ public class InterviewSession {
         this.status = SessionStatus.READY;
     }
 
-    // 5.4. 면접 플랜 준비 여부(Redis)는 서비스가 먼저 확인한다
+    // 5.4. 면접 플랜 준비 여부(Redis)는 서비스가 먼저 확인한다. 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다
     public void start(OffsetDateTime now) {
-        requireStatus(SessionStatus.READY);
+        if (!canStart()) {
+            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
         this.status = SessionStatus.IN_PROGRESS;
         this.startedAt = now;
+    }
+
+    public boolean canStart() {
+        return status == SessionStatus.READY || status == SessionStatus.START_FAILED;
+    }
+
+    // 에이전트가 배정을 거절함(AI 명세 1.4). 질문을 내기 전인지는 결과 처리가 확인한다
+    public void failStart() {
+        requireStatus(SessionStatus.IN_PROGRESS);
+        this.status = SessionStatus.START_FAILED;
     }
 
     // 5.8. 답변이 있으면 결과 생성(ANALYZING), 없으면 결과 없이 종료(ABORTED). 연습으로 인정되면 true

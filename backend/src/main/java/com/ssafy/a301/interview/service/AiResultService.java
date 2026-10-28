@@ -27,6 +27,7 @@ import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.repository.SpeechMetricRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -60,6 +61,9 @@ public class AiResultService {
     private static final int MAX_HEADLINE_LENGTH = 30;
     // 말하기 지표 컬럼 NUMERIC(5, 2)
     private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
+    // 배정 거절 이유(AI 명세 1.4). 이유로 처리를 나누지는 않지만 모르는 값은 실패 목록으로 보낸다
+    private static final Set<String> REJECT_REASONS =
+            Set.of("INVALID_ASSIGNMENT", "CAPACITY_EXCEEDED");
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {
@@ -76,6 +80,7 @@ public class AiResultService {
     private final RecordingRepository recordings;
     private final SessionRuntimeStore runtimes;
     private final AiJobService aiJobs;
+    private final InterviewRoom rooms;
     private final TransactionTemplate transactions;
 
     public AiResultService(
@@ -88,6 +93,7 @@ public class AiResultService {
             RecordingRepository recordings,
             SessionRuntimeStore runtimes,
             AiJobService aiJobs,
+            InterviewRoom rooms,
             TransactionTemplate transactions) {
         this.sessions = sessions;
         this.questions = questions;
@@ -98,6 +104,7 @@ public class AiResultService {
         this.recordings = recordings;
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
+        this.rooms = rooms;
         this.transactions = transactions;
     }
 
@@ -121,6 +128,7 @@ public class AiResultService {
                     case "evaluation.failed" -> evaluationFailed(sessionId, message);
                     case "recording.merged" -> recordingMerged(sessionId, message);
                     case "recording.mergeFailed" -> recordingMergeFailed(sessionId, message);
+                    case "assignment.rejected" -> assignmentRejected(sessionId, message);
                     default ->
                             throw new InvalidAiResultException("처리하지 않는 결과 종류: " + message.type());
                 };
@@ -419,6 +427,32 @@ public class AiResultService {
                             .filter(Recording::markMergeFailed)
                             .map(recording -> Outcome.SAVED)
                             .orElse(Outcome.DISCARDED);
+                });
+    }
+
+    // 에이전트가 배정을 거절했다(AI 명세 1.4). 질문을 내기 전인 면접만 방을 닫고 START_FAILED로 바꾼다.
+    // 다시 시작(5.4)하기 전에 보낸 거절이 늦게 오면 새 시도를 실패시키지 않게 버린다.
+    // 방은 행을 잠근 채 닫는다. 커밋 뒤에 닫으면 그 사이 다시 시작해 연 방을 지울 수 있다
+    private Outcome assignmentRejected(long sessionId, AiResultMessage message) {
+        String reason = required(message.reason(), "reason");
+        if (!REJECT_REASONS.contains(reason)) {
+            throw new InvalidAiResultException("배정 거절 이유가 아니다: " + reason);
+        }
+        OffsetDateTime occurredAt = required(message.occurredAt(), "occurredAt");
+        LOG.warn("면접방 배정 거절: session={} reason={}", sessionId, reason);
+        return transactions.execute(
+                status -> {
+                    InterviewSession session = lockInProgress(sessionId);
+                    if (session == null
+                            || occurredAt.isBefore(session.getStartedAt())
+                            || questions
+                                    .findFirstBySessionIdOrderBySeqDesc(sessionId)
+                                    .isPresent()) {
+                        return Outcome.DISCARDED;
+                    }
+                    session.failStart();
+                    rooms.close(sessionId);
+                    return Outcome.SAVED;
                 });
     }
 

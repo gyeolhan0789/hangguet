@@ -15,8 +15,10 @@ import java.util.Map;
 /**
  * AI 결과 메시지(AI 명세 1.4). 종류(type)마다 쓰는 필드가 달라 쓰지 않는 필드는 null이다. AI가 필드를 더해도 읽을 수 있게 모르는 필드는 무시한다.
  *
- * @param type plan.*·question.started·answer.*·evaluation.*·recording.*(AI 명세 1.4)
+ * @param type plan.*·question.started·answer.*·evaluation.*·recording.*·assignment.rejected(AI 명세
+ *     1.4)
  * @param jobId 작업에서 나온 결과만. 받은 작업의 jobId
+ * @param occurredAt 결과가 생긴 시각. assignment.rejected는 이 시각으로 다시 시작하기 전의 거절인지 가린다
  * @param progress plan.progress 진행률
  * @param claims plan.completed 자소서 주장
  * @param questions plan.completed 질문 5개
@@ -29,7 +31,7 @@ import java.util.Map;
  * @param endReason answer.completed AUTO_SUBMIT · MANUAL_SUBMIT
  * @param answerId answer.scored 채점한 답변
  * @param evaluation answer.scored 채점 결과(AI 명세 3장)
- * @param reason plan.failed 등 실패 이유
+ * @param reason plan.failed 등 실패 이유. assignment.rejected는 INVALID_ASSIGNMENT · CAPACITY_EXCEEDED
  * @param analysisStep evaluation.progress 결과 생성 단계
  * @param answers evaluation.completed 답변별 점수·피드백(AI 명세 4장)
  * @param sessionScores evaluation.completed 기준별 점수·코멘트

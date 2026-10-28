@@ -2,6 +2,9 @@ package com.ssafy.a301.interview.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
@@ -17,11 +20,13 @@ import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AiJobRepository;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
@@ -53,6 +58,7 @@ class AiResultServiceTest {
     @Autowired private AiJobRepository jobs;
     @Autowired private EntityManager em;
     @MockitoBean private AiJobQueue queue;
+    @MockitoBean private InterviewRoom rooms;
 
     @BeforeEach
     void setUp() {
@@ -226,6 +232,69 @@ class AiResultServiceTest {
     }
 
     @Test
+    void assignmentRejectedBeforeFirstQuestionFailsStartOnce() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+
+        assertThat(
+                        results.handle(
+                                assignmentRejected(
+                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.START_FAILED);
+        verify(rooms).close(session.getId());
+
+        // 같은 메시지가 다시 오면 버린다
+        assertThat(
+                        results.handle(
+                                assignmentRejected(
+                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                .isEqualTo(Outcome.DISCARDED);
+    }
+
+    @Test
+    void assignmentRejectedAfterQuestionOrBeforeRestartIsDiscarded() {
+        // 질문을 낸 뒤에는 배정이 이미 된 것이다
+        InterviewSession asked = startedSession(InterviewMode.CHAT);
+        results.handle(questionStarted(asked, 1));
+        assertThat(
+                        results.handle(
+                                assignmentRejected(asked, "INVALID_ASSIGNMENT", afterStart(asked))))
+                .isEqualTo(Outcome.DISCARDED);
+        assertThat(asked.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+
+        // 다시 시작하기 전에 보낸 거절이 늦게 왔다
+        InterviewSession restarted = startedSession(InterviewMode.CHAT);
+        String late =
+                assignmentRejected(
+                        restarted, "CAPACITY_EXCEEDED", restarted.getStartedAt().minusSeconds(1));
+        assertThat(results.handle(late)).isEqualTo(Outcome.DISCARDED);
+        assertThat(restarted.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+
+        // 시작 전이면 버린다
+        InterviewSession ready = newSession(InterviewMode.CHAT);
+        assertThat(results.handle(assignmentRejected(ready, "CAPACITY_EXCEEDED", STARTED_AT)))
+                .isEqualTo(Outcome.DISCARDED);
+        verify(rooms, never()).close(anyLong());
+    }
+
+    @Test
+    void assignmentRejectedWithoutReasonOrTimeIsInvalid() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+        String valid = assignmentRejected(session, "CAPACITY_EXCEEDED", afterStart(session));
+
+        for (String raw :
+                List.of(
+                        valid.replace("CAPACITY_EXCEEDED", "BUSY"),
+                        valid.replace("\"reason\":\"CAPACITY_EXCEEDED\",", ""),
+                        valid.replaceAll(",\"occurredAt\":\"[^\"]+\"", ""))) {
+            assertThatThrownBy(() -> results.handle(raw))
+                    .as(raw)
+                    .isInstanceOf(InvalidAiResultException.class);
+        }
+        assertThat(session.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+    }
+
+    @Test
     void unreadableMessagesAreInvalid() {
         for (String raw :
                 List.of(
@@ -332,5 +401,17 @@ class AiResultServiceTest {
          "evaluation":{"scoreMethod":"%s","criteria":{}}}
         """
                 .formatted(sessionId, answerId, scoreMethod);
+    }
+
+    private static OffsetDateTime afterStart(InterviewSession session) {
+        return session.getStartedAt().plusSeconds(1);
+    }
+
+    private static String assignmentRejected(
+            InterviewSession session, String reason, OffsetDateTime occurredAt) {
+        return """
+        {"type":"assignment.rejected","sessionId":%d,"reason":"%s","occurredAt":"%s"}
+        """
+                .formatted(session.getId(), reason, occurredAt);
     }
 }

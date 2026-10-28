@@ -268,6 +268,38 @@ class InterviewSessionIntegrationTest {
     }
 
     @Test
+    void startFailedCanOnlyBeStartedAgain() throws Exception {
+        long user = newUser();
+        long sessionId = create(user, newApplication(user));
+        planReady(sessionId);
+        String base = "/api/v1/interview-sessions/" + sessionId;
+        mvc.perform(as(user, idempotent(post(base + "/start")))).andExpect(status().isOk());
+        // 에이전트가 배정을 거절했다(assignment.rejected, AiResultServiceTest)
+        jdbc.update(
+                "UPDATE interview_sessions SET status = 'START_FAILED' WHERE id = ?", sessionId);
+
+        mvc.perform(as(user, get(base)))
+                .andExpect(jsonPath("$.status").value("START_FAILED"))
+                .andExpect(jsonPath("$.planStatus").value("READY"));
+        for (MockHttpServletRequestBuilder request :
+                new MockHttpServletRequestBuilder[] {
+                    get(base + "/questions/current"),
+                    post(base + "/room-token"),
+                    idempotent(post(base + "/end"))
+                }) {
+            mvc.perform(as(user, request))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+        }
+
+        mvc.perform(as(user, idempotent(post(base + "/start"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.room.token").value("token-" + sessionId));
+        verify(rooms, times(2)).open(eq(sessionId), eq(true), any());
+    }
+
+    @Test
     void othersCannotAnswerEndOrRetryAnalysis() throws Exception {
         long owner = newUser();
         long other = newUser();
