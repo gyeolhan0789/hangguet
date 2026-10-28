@@ -511,11 +511,15 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # Go는 컨테이너 상한을 모르고 힙을 키운다. 상한 전에 GC를 돌게 하고 남는 만큼은 실행 파일(약 195MB)이 메모리에 남게 한다
+      GOMEMLIMIT: 512MiB
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    mem_limit: 384m
+    # 384m에서는 프로세스 메모리만 약 380MB까지 올라 10/28에 두 번 강제 종료됐다(dmesg Memory cgroup out of memory).
+    # 실행 파일 페이지까지 밀려나 디스크를 계속 다시 읽었으므로 둘을 합친 약 580MB에 여유를 두었다(배포 계획 3.2)
+    mem_limit: 768m
     networks:
       - internal
     logging: *logging
