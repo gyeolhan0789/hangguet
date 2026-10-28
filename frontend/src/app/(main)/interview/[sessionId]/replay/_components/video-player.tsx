@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, type RefObject } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { formatElapsed } from "@/lib/interview/questions";
+import { NO_ANSWER } from "@/lib/result/format";
 import type { ReplayItem } from "@/types/api";
 
 // 기준: Figma S07-1 Video(18:4508: 둥글기 20 · 아래 Fade 152(rgba(11,13,20) 0→.8)
@@ -200,8 +201,12 @@ export function PlayerControls({
           <p className="text-xs leading-normal font-bold text-text-3">
             자막 · {formatElapsed(offsets[current])}
           </p>
-          <p className="text-[15px] leading-normal font-medium break-keep text-text-1">
-            {item.answer}
+          <p
+            className={`text-[15px] leading-normal font-medium break-keep ${
+              item.answer ? "text-text-1" : "text-text-3"
+            }`}
+          >
+            {item.answer ?? NO_ANSWER}
           </p>
         </section>
       )}

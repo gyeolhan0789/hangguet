@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { NO_ANSWER } from "@/lib/result/format";
 import { REPLAY } from "@/test/result-examples";
 
 import { REPLAY_POLL_MS, ReplayView } from "./replay-view";
@@ -178,6 +179,22 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       expect(highlighted()).toEqual(["Q2"]);
     });
 
+    it("답하지 않은 질문 구간의 자막은 안내 문구다", () => {
+      const replay = {
+        ...REPLAY,
+        items: REPLAY.items.map((item, i) => (i === 1 ? { ...item, answer: null } : item)),
+      };
+      render(<ReplayView replay={replay} />);
+      const { video, state } = fakeVideo();
+
+      state.currentTime = 190;
+      fireEvent.timeUpdate(video);
+
+      expect(screen.getByRole("region", { name: "자막" }).textContent).toBe(
+        `자막 · 03:10${NO_ANSWER}`,
+      );
+    });
+
     it("영상 길이를 알면 타임라인에 질문 마커를 위치 비율대로 놓고, 지난 · 지금 · 앞 질문을 나눠 그린다", () => {
       render(<ReplayView replay={REPLAY} />);
       const { video, state } = fakeVideo();
@@ -323,6 +340,45 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       await act(async () => finish());
 
       expect(card("1분 자기소개").getAttribute("aria-expanded")).toBe("false");
+    });
+
+    // 기준: 사용자 결정(2026-10-28: 답하지 않은 질문(answer null)도 펼쳐 '답변하지 않은 질문이에요'를 보여 준다)
+    const UNANSWERED = {
+      ...CHAT,
+      items: CHAT.items.map((item, i) =>
+        i === 4 ? { ...item, answer: null, answerCreatedAt: null, grade: null } : item,
+      ),
+    };
+
+    it("답하지 않은 질문을 펼치면 답변 칸에 안내를 보여 주고, 등급은 비워 둔다", () => {
+      render(<ReplayView replay={UNANSWERED} />);
+
+      expect(card("트래픽 처리").textContent).not.toMatch(/좋아요|보통|아쉬워요/);
+      fireEvent.click(card("트래픽 처리"));
+
+      const answerId = card("트래픽 처리").getAttribute("aria-controls")!;
+      expect(document.getElementById(answerId)?.textContent).toBe(NO_ANSWER);
+    });
+
+    it("답하지 않은 질문도 다시 누르면 카드를 흔든 뒤 목록으로 접힌다", async () => {
+      motion.reduced = false;
+      render(<ReplayView replay={UNANSWERED} />);
+      fireEvent.click(card("트래픽 처리"));
+      let finish!: () => void;
+      motion.animate.mockImplementationOnce(() => new Promise<void>((done) => (finish = done)));
+
+      fireEvent.click(card("트래픽 처리"));
+      await act(async () => {});
+      expect(motion.animate).toHaveBeenCalledWith(
+        expect.anything(),
+        [0, 6, -2, 0],
+        expect.objectContaining({ duration: 0.2 }),
+      );
+
+      await act(async () => finish());
+
+      expect(card("트래픽 처리").getAttribute("aria-expanded")).toBe("false");
+      expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(5);
     });
   });
 });

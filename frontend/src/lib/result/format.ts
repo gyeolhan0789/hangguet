@@ -13,6 +13,9 @@ export const CRITERION_LABEL: Record<Criterion, string> = {
   DELIVERY: "전달력",
 };
 
+/** 답하지 않은 질문의 답변 자리 안내. S07-1 펼친 답변 칸 · 자막(사용자 결정 2026-10-28) */
+export const NO_ANSWER = "답변하지 않은 질문이에요";
+
 export const GRADE_LABEL: Record<Grade, string> = {
   GOOD: "좋아요",
   NORMAL: "보통",

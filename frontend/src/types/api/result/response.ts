@@ -90,12 +90,12 @@ export interface ReplayItem {
   question: string;
   /** 질문을 낸 일시. startedAt과의 차이(초)가 영상 속 질문 위치(마커) */
   questionCreatedAt: OffsetDateTime;
-  /** 답변 글. 재생 중 자막(답변 단위) */
-  answer: string;
-  /** 답변 제출 일시 */
-  answerCreatedAt: OffsetDateTime;
-  /** 질문별 3단계 */
-  grade: Grade;
+  /** 답변 글. 재생 중 자막(답변 단위). 답하지 않은 질문이면 null */
+  answer: string | null;
+  /** 답변 제출 일시. 답하지 않은 질문이면 null */
+  answerCreatedAt: OffsetDateTime | null;
+  /** 질문별 3단계. 답하지 않은 질문이면 null */
+  grade: Grade | null;
 }
 
 /** 6.4 녹화 영상 상태 */
