@@ -12,7 +12,7 @@ import { useState } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { formatElapsed } from "@/lib/interview/questions";
-import { GRADE_LABEL } from "@/lib/result/format";
+import { GRADE_LABEL, NO_ANSWER } from "@/lib/result/format";
 import type { ReplayItem } from "@/types/api";
 
 // 기준: Figma S07-1 Question List(18:4533: '질문' 18 ExtraBold · 'N개' 13 SemiBold text-3 · 간격 10
@@ -73,6 +73,7 @@ export function ReplayQuestions({
     ? { duration: 0 }
     : { duration: moveSeconds, ease: "easeInOut" as const };
   const visible = opened >= 0 ? [opened] : items.map((_, i) => i);
+  // 답하지 않은 질문(answer null)도 펼쳐 답변 칸에 안내를 둔다. 칸이 없으면 접을 때 칸이 사라지기(onExitComplete)를 기다리다 멈춘다.
   const answer = opened >= 0 ? items[opened].answer : null;
   // 접는 중(답변 칸 접기 → 카드 흔들기 → 제자리). 이 동안은 다시 누르지 않는다.
   const [closing, setClosing] = useState(false);
@@ -153,7 +154,7 @@ export function ReplayQuestions({
           if (closing) void shakeThenClose();
         }}
       >
-        {answer && !closing && (
+        {opened >= 0 && !closing && (
           // 카드가 맨 위로 다 올라간 뒤, 카드 아래로 위에서부터 펼쳐진다.
           <motion.div
             key={items[opened].questionId}
@@ -176,8 +177,12 @@ export function ReplayQuestions({
               if (!reduce && !closing) void animate(answerY, WOBBLE, WOBBLE_TRANSITION);
             }}
           >
-            <p className="text-[15px] leading-normal font-medium tracking-[-0.2px] break-keep text-text-1">
-              {answer}
+            <p
+              className={`text-[15px] leading-normal font-medium tracking-[-0.2px] break-keep ${
+                answer ? "text-text-1" : "text-text-3"
+              }`}
+            >
+              {answer ?? NO_ANSWER}
             </p>
           </motion.div>
         )}
@@ -245,7 +250,7 @@ function QuestionCard({
             item.grade === "WEAK" ? "text-danger" : "text-text-3"
           }`}
         >
-          {GRADE_LABEL[item.grade]}
+          {item.grade && GRADE_LABEL[item.grade]}
         </span>
         <motion.span
           className="flex shrink-0"

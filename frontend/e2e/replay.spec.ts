@@ -139,6 +139,30 @@ test.describe("S07-1 면접 다시보기", () => {
       page.getByRole("region", { name: "질문" }).getByText("읽기 부하는 캐시로…"),
     ).toBeVisible();
   });
+  // 사용자 결정(2026-10-28): 답하지 않은 질문(answer null)도 펼쳐 안내를 보여 주고, 다시 누르면 목록으로 접는다
+  test("답하지 않은 질문: 펼치면 '답변하지 않은 질문이에요'를 보여 주고, 다시 누르면 목록으로 접는다", async ({
+    page,
+    msw,
+  }) => {
+    const items = REPLAY.items.map((item, i) =>
+      i === 4 ? { ...item, answer: null, answerCreatedAt: null, grade: null } : item,
+    );
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, mode: "CHAT", videoStatus: null, videoUrl: null, items }),
+      ),
+    );
+    await page.goto(S07_1);
+    const questions = page.getByRole("region", { name: "질문" });
+
+    await card(page, "대용량 트래픽 처리").click();
+    await expect(questions.getByText("답변하지 않은 질문이에요")).toBeVisible();
+
+    await card(page, "대용량 트래픽 처리").click();
+    await expect(card(page, "대용량 트래픽 처리")).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("heading", { name: "질문" })).toBeVisible();
+    await expect(questions.getByRole("button", { expanded: false })).toHaveCount(5);
+  });
   test("접으면 답변 칸이 먼저 접히고, 카드가 흔들린 뒤, 목록('질문' 머리)이 돌아온다", async ({
     page,
     msw,
