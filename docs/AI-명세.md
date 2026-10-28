@@ -125,7 +125,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 |---|---|---|
 | 중복 수신 | 같은 `answer.completed`가 두 번 | 「질문 하나에 답변 하나」(`answers.question_id` UNIQUE)로 두 번째는 버림 |
 | 중복 수신 | 같은 `answer.scored`가 두 번 | `evaluation`이 이미 있어 버림 |
-| 중복 · 순서 역전 | 같은 `assignment.rejected`가 두 번, 또는 질문을 시작한 뒤 도착 | 면접이 이미 `START_FAILED`이거나 질문 행이 있으면 폐기 |
+| 중복 · 순서 역전 | 같은 `assignment.rejected`가 두 번, 질문을 시작한 뒤 도착, 또는 다시 시작(5.4)한 뒤 이전 시도의 거절이 도착 | 면접이 이미 `START_FAILED`이거나 질문 행이 있거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 버림 |
 | 순서 역전 | 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 도착 | `status`가 `ANALYZING`이 아니면 버림. 같은 `ANALYZING` 안에서 이전 시도와 구분하려면 BE가 마지막으로 보낸 `jobId`와 비교한다 **[제안]** |
 

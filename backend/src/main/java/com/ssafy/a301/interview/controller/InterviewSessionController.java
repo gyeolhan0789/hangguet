@@ -199,7 +199,9 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.4 면접 시작",
-            description = "면접을 시작하고 면접방을 연다. 에이전트를 배정하고 화상이면 녹화를 시작한다. 질문은 에이전트가 면접방에서 낸다.")
+            description =
+                    "면접을 시작하고 면접방을 연다. 에이전트를 배정하고 화상이면 녹화를 시작한다. 질문은 에이전트가 면접방에서 낸다."
+                            + " 에이전트가 배정을 거절해 START_FAILED가 되면 같은 질문으로 다시 시작한다.")
     @ApiResponse(
             responseCode = "200",
             description = "시작(status IN_PROGRESS, room = 입장 정보, currentQuestion = null)")
@@ -207,11 +209,9 @@ public class InterviewSessionController {
     @ApiResponse(
             responseCode = "409",
             description =
-                    "PLAN_NOT_READY: 플랜 생성 중이거나 실패 · INVALID_SESSION_STATE: READY가 아님 ·"
-                            + " IDEMPOTENCY_KEY_REUSED")
-    @ApiResponse(
-            responseCode = "503",
-            description = "ROOM_UNAVAILABLE: 면접방을 열지 못함(READY 그대로, 다시 시도)")
+                    "PLAN_NOT_READY: 플랜 생성 중이거나 실패 · INVALID_SESSION_STATE: READY·START_FAILED가 아님"
+                            + " · IDEMPOTENCY_KEY_REUSED")
+    @ApiResponse(responseCode = "503", description = "ROOM_UNAVAILABLE: 면접방을 열지 못함(상태 그대로, 다시 시도)")
     @Idempotent
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(

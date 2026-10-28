@@ -51,6 +51,23 @@ class InterviewSessionTest {
     }
 
     @Test
+    void startFailedIsStartedAgainOnly() {
+        InterviewSession s = session(InterviewMode.VIDEO);
+        assertThatThrownBy(s::failStart).isInstanceOf(ApiException.class);
+
+        s.start(T0);
+        s.failStart();
+        assertThat(s.getStatus()).isEqualTo(SessionStatus.START_FAILED);
+        assertThat(s.canStart()).isTrue();
+        assertThatThrownBy(() -> s.end(T0.plusMinutes(1), 0)).isInstanceOf(ApiException.class);
+
+        s.start(T0.plusMinutes(1));
+        assertThat(s.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(s.getStartedAt()).isEqualTo(T0.plusMinutes(1));
+        assertThat(s.canStart()).isFalse();
+    }
+
+    @Test
     void endingWithoutAnswerIsAbortedAndNotPractice() {
         InterviewSession s = session(InterviewMode.CHAT);
         s.start(T0);
