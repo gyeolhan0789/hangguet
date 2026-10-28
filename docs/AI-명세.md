@@ -289,7 +289,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ## 6. 면접 에이전트
 
-면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `z6Gc8SPkVwBOo9WpiD45`, COFFEE_CHAT `YS3jk8Ky5hJfXQYGLkLa`, 모델은 `eleven_multilingual_v2`다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
+면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `FXxhHa2cRkhRQpD1I1Ut`, COFFEE_CHAT `kv35JHV8eknIPqadZFol`, 모델은 `eleven_multilingual_v2`다. 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
 
 ### 6.1 배정
 
