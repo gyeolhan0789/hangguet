@@ -19,7 +19,6 @@ public enum ErrorCode {
 
     // 지원서
     APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "지원서를 찾을 수 없어요."),
-    APPLICATION_IN_USE(HttpStatus.CONFLICT, "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요."),
     COVER_LETTER_CHECK_UNAVAILABLE(
             HttpStatus.SERVICE_UNAVAILABLE, "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요."),
 

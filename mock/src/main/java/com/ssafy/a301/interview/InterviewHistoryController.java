@@ -39,37 +39,6 @@ import tools.jackson.core.type.TypeReference;
 public class InterviewHistoryController {
 
     private static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-    private static final String ITEMS =
-            """
-            [
-              { "id": 55, "companyName": "○○전자", "jobTitle": "백엔드 개발자",
-                "persona": "DEVIL", "mode": "VIDEO", "status": "COMPLETED",
-                "startedAt": "2026-10-21T23:50:00+09:00", "endedAt": "2026-10-22T00:10:00+09:00",
-                "answeredCount": 5, "summary": "논리는 탄탄했지만, 근거가 조금 아쉬웠어요",
-                "criterionGrades": [
-                  { "criterion": "JOB_FIT", "grade": "GOOD" },
-                  { "criterion": "COVER_LETTER", "grade": "WEAK" },
-                  { "criterion": "LOGIC", "grade": "GOOD" },
-                  { "criterion": "DELIVERY", "grade": "NORMAL" } ] },
-              { "id": 54, "companyName": "△△소프트", "jobTitle": "서버 개발자",
-                "persona": "COFFEE_CHAT", "mode": "CHAT", "status": "ANALYZING",
-                "startedAt": "2026-10-21T19:30:00+09:00", "endedAt": "2026-10-21T19:42:00+09:00",
-                "answeredCount": 3, "summary": null, "criterionGrades": [] },
-              { "id": 53, "companyName": "△△소프트", "jobTitle": "서버 개발자",
-                "persona": "COFFEE_CHAT", "mode": "VIDEO", "status": "FAILED",
-                "startedAt": "2026-10-20T21:00:00+09:00", "endedAt": "2026-10-20T21:22:00+09:00",
-                "answeredCount": 5, "summary": null, "criterionGrades": [] },
-              { "id": 52, "companyName": "○○전자", "jobTitle": "백엔드 개발자",
-                "persona": "DEVIL", "mode": "CHAT", "status": "COMPLETED",
-                "startedAt": "2026-10-20T20:00:00+09:00", "endedAt": "2026-10-20T20:10:00+09:00",
-                "answeredCount": 2, "summary": null,
-                "criterionGrades": [
-                  { "criterion": "JOB_FIT", "grade": "NORMAL" },
-                  { "criterion": "COVER_LETTER", "grade": "NORMAL" },
-                  { "criterion": "LOGIC", "grade": "GOOD" },
-                  { "criterion": "DELIVERY", "grade": "NORMAL" } ] }
-            ]
-            """;
     private static final String DAILY =
             """
             { "content": [
@@ -98,7 +67,7 @@ public class InterviewHistoryController {
     private final List<SessionListItem> examples;
 
     public InterviewHistoryController(Stub stub) {
-        examples = stub.read(ITEMS, new TypeReference<>() {});
+        examples = stub.read(SessionExamples.ITEMS, new TypeReference<>() {});
     }
 
     @Operation(
