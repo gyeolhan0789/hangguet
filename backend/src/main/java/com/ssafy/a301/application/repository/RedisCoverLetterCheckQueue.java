@@ -4,6 +4,7 @@ import com.ssafy.a301.common.time.KoreaTime;
 import java.time.Duration;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -34,14 +35,18 @@ public class RedisCoverLetterCheckQueue implements CoverLetterCheckQueue {
     }
 
     @Override
-    public Verdict check(String companyName, String jobTitle, String coverLetter) {
+    public Verdict check(String companyName, String jobTitle, List<Item> coverLetterItems) {
         String jobId = UUID.randomUUID().toString();
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("jobId", jobId);
         message.put("requestedAt", KoreaTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         message.put("companyName", companyName);
         message.put("jobTitle", jobTitle);
-        message.put("coverLetter", coverLetter);
+        message.put(
+                "coverLetterItems",
+                coverLetterItems.stream()
+                        .map(item -> Map.of("question", item.question(), "answer", item.answer()))
+                        .toList());
         try {
             redis.opsForList().leftPush(QUEUE_KEY, JSON.writeValueAsString(message));
             String result = redis.opsForList().rightPop(RESULT_KEY_PREFIX + jobId, WAIT);
