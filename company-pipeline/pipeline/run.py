@@ -21,7 +21,8 @@ log = logging.getLogger("pipeline")
 
 def _log_dropped(name: str, dropped: list[dict[str, Any]]) -> None:
     for item in dropped:
-        log.warning("%s: 검증 실패로 버림 [%s] %s", name, item["field"], item.get("quote"))
+        text = item.get("quote") or item.get("title")  # 인재상은 title
+        log.warning("%s: 검증 실패로 버림 [%s] %s", name, item["field"], text)
 
 
 def recent_issues(name: str, code: str) -> list[dict[str, Any]]:
@@ -59,13 +60,19 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     if talent:  # 언제 무슨 문장이었는지 남긴다
         collected = company.get("talent_collected_at") or date.today().isoformat()
         storage.put(f"raw/talent/{corp_code}/{collected}.txt", talent.encode("utf-8"))
+    # 항목마다 따로 부르고, 응답에서 그 항목 키만 쓴다(다른 키가 섞여 와도 덮어쓰지 않게)
     llm: dict[str, Any] = {}
     if talent:
-        llm |= card.call_llm(card.build_talent_messages(name, talent))
+        reply = card.call_llm(card.build_talent_messages(name, talent), model=card.talent_model())
+        llm["talent"] = reply.get("items", [])
+        if reply.get("needs_review"):
+            log.warning("%s: 인재상 구조 확인 필요 %s", name, reply.get("review_notes"))
     if business:
-        llm |= card.call_llm(card.build_direction_messages(name, business))
+        llm["direction"] = card.call_llm(card.build_direction_messages(name, business)).get(
+            "direction", []
+        )
     if market:
-        llm |= card.call_llm(card.build_market_messages(name, market))
+        llm["market"] = card.call_llm(card.build_market_messages(name, market)).get("market", [])
     result = card.to_card(
         llm,
         corp_code=corp_code,

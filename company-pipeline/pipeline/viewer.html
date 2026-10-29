@@ -40,6 +40,7 @@ main { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minma
 section h2 { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px }
 .item { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px }
 .item h3 { margin: 0 0 6px; font-size: 15px }
+.item .parent { font-size: 12px; color: var(--muted); margin-bottom: 2px }
 .item blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); font-size: 14px;
   white-space: pre-line }
 .item .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted) }
@@ -103,6 +104,9 @@ let current = null; // 지금 보고 있는 회사 행
 const FIELDS = [["talent", "인재상"], ["direction", "사업 방향"], ["market", "경쟁·시장"], ["recent", "최근 이슈"]];
 const SOURCES = { talent: "talent_text", direction: "business_text", market: "market_text", recent: "news_text" };
 const count = (r, f) => (r.card[f] ?? []).length;
+// 인재상은 card-v9부터 title·parent·details(설명 구절 배열), 그 전 카드는 keyword·quote
+const headOf = (it) => it.title ?? it.keyword ?? it.summary;
+const bodyOf = (it, sep) => (it.details ? it.details.join(sep) : it.quote ?? "");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
@@ -175,8 +179,8 @@ function show(i) {
   const items = (field, title) => {
     const list = c[field] ?? [];
     const body = list.length ? list.map((it, k) => `
-      <div class="item"><h3>${esc(it.keyword ?? it.summary)}</h3>
-        ${it.quote ? `<blockquote>${esc(it.quote)}</blockquote>` : ""}
+      <div class="item">${it.parent ? `<div class="parent">${esc(it.parent)}</div>` : ""}<h3>${esc(headOf(it))}</h3>
+        ${bodyOf(it, "\n") ? `<blockquote>${esc(bodyOf(it, "\n"))}</blockquote>` : ""}
         <div class="foot"><span>${it.published ? esc(it.published) + " · " : ""}${it.articles ? `기사 ${it.articles}건 · ` : ""}${it.source?.startsWith("http")
           ? `<a href="${esc(it.source)}" target="_blank" rel="noopener">출처 페이지</a>` : esc(it.source)}</span>
         <button data-field="${field}" data-k="${k}">원문에서 보기</button></div></div>`).join("")
@@ -187,6 +191,7 @@ function show(i) {
   $("view").innerHTML = `
     <div class="meta"><b>${esc(c.name)}</b><span>고유번호 ${esc(c.corp_code)}</span>
       <span>생성 ${esc(c.generated_at)}</span><span>모델 ${esc(c.model)}</span>
+      ${c.talent_model && c.talent_model !== c.model ? `<span>인재상 모델 ${esc(c.talent_model)}</span>` : ""}
       <span>프롬프트 ${esc(c.prompt_version)}</span><span>인재상 수집 ${esc(r.talent_collected_at || "-")}</span></div>
     ${FIELDS.map(([f, t]) => items(f, t)).join("")}
     <div class="source"><div class="tabs" role="tablist">
@@ -199,10 +204,10 @@ function show(i) {
 function tab(field) {
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === field));
   const text = current[SOURCES[field]];
-  // 인재상(card-v8~)은 keyword가 원문 제목, quote가 그 아래 설명이라 둘을 이어서 찾는다.
-  // 안 되면 quote만(card-v7 이전 카드), 그다음 제목만 찾는다
+  // 인재상(card-v8~)은 제목과 그 아래 설명을 이어서 찾는다. 안 되면(사이에 영문명 등이 끼면)
+  // 설명만(card-v7 이전 카드도 여기서 찾힌다), 그다음 제목만 찾는다
   const marks = (current.card[field] ?? []).map((it) =>
-    field === "talent" ? [`${it.keyword}${it.quote ?? ""}`, it.quote, it.keyword] : it.quote);
+    field === "talent" ? [`${headOf(it)}${bodyOf(it, "")}`, bodyOf(it, ""), headOf(it)] : it.quote);
   $("src").innerHTML = text ? highlight(text, marks) : "원문 없음";
 }
 $("view").addEventListener("click", (e) => {

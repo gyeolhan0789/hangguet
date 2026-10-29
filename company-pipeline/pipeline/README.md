@@ -10,20 +10,23 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 ```
 
 ③은 항목마다 LLM을 따로 부른다(인재상, 사업 방향, 경쟁·시장, 최근 이슈 → 회사당 최대 4번). 원문이 없는 항목은 부르지 않는다.
+인재상은 요약하지 않고 원문 구조(항목명·상위 범주·설명 구절)를 그대로 옮기는 추출이라 프롬프트를 `talent_prompt.txt`에 두고, `TALENT_LLM_MODEL`로 다른 모델을 쓸 수 있다.
 
 ## 카드 형식
 
-`data/cards/{DART 고유번호}.json` 하나가 회사 하나다. 예시(삼성SDI, 항목마다 첫 번째만):
+`data/cards/{DART 고유번호}.json` 하나가 회사 하나다. 예시(삼성SDI, 항목마다 첫 번째만. 인재상은 card-v9 형식):
 
 ```json
 {
   "corp_code": "00126362",
   "name": "삼성SDI",
   "generated_at": "2026-10-23",
-  "prompt_version": "card-v4",
+  "prompt_version": "card-v9",
   "model": "gpt-4.1-mini",
+  "talent_model": "gpt-5.6-terra",
   "talent": [
-    {"keyword": "열정과 도전", "quote": "끊임없는 열정으로 미래에 도전하는 인재",
+    {"title": "Passion and Challenge", "parent": null,
+     "details": ["열정과 도전", "끊임없는 열정으로 미래에 도전하는 인재"],
      "source": "https://www.samsungsdi.co.kr/career/index.html"}
   ],
   "direction": [
@@ -48,13 +51,14 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 | 필드 | 뜻 |
 |---|---|
 | `corp_code`, `name` | DART 고유번호, DART 등록 회사명 |
-| `generated_at`, `prompt_version`, `model` | 카드를 만든 날, 프롬프트 버전, LLM 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
-| `talent[]` | 인재상 1~7개(원문에 나열된 것마다 하나씩). `keyword` 인재상 제목(없으면 그 문장) 원문 그대로, `quote` 제목 아래 설명 원문 그대로(설명이 없으면 빈 문자열), `source` 채용 페이지 주소 |
+| `generated_at`, `prompt_version`, `model`, `talent_model` | 카드를 만든 날, 프롬프트 버전, LLM 모델, 인재상에 쓴 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
+| `talent[]` | 원문에 나열된 인재상·행동 원칙마다 하나(개수 제한 없음). `title` 항목명 또는 원칙 문장, `parent` 상위 범주(없으면 `null`), `details` 설명 구절 배열(없으면 `[]`)로 셋 다 원문 그대로. `source` 채용 페이지 주소. 상위 범주 아래 세부 항목이 있으면 세부 항목이 하나씩 들어간다 |
 | `direction[]` | 앞으로 집중·강화하려는 사업 방향 1~3개. `summary` 요약, `quote` 사업보고서 원문 그대로, `source` 출처 이름 |
 | `market[]` | 경쟁 위치(점유율·주요 고객·경쟁사 등) 1~3개. 필드는 `direction`과 같다 |
 | `recent[]` | 최근 30일 이슈 1~3개. `summary` 요약, `quote` 기사 제목·요약 원문, `source` 기사 링크, `published` 기사 날짜, `articles` 같은 사건 기사 수 |
 
-- 모든 `quote`는 원문에 글자 그대로 있는지 검사를 통과한 것만 남는다(④). 인재상은 `keyword`(제목)도 원문에 그대로 있어야 한다. 그래서 항목이 0개일 수 있다
+- 모든 `quote`는 원문에 글자 그대로 있는지 검사를 통과한 것만 남는다(④). 인재상은 `title`·`parent`·`details`가 모두 원문에 그대로 있어야 한다. 그래서 항목이 0개일 수 있다
+- card-v8 이전 카드의 인재상은 `keyword`·`quote` 형식이다. 확인 화면은 두 형식을 모두 보여 준다
 - 사업보고서가 없는 회사(비상장 등)는 `direction`·`market`이 빈 배열인 **부분 카드**다
 - 인재상 원문이 없는 회사는 `talent`가 빈 배열이다
 
@@ -118,6 +122,7 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 | `LLM_MODEL` | 모델 이름 |
 | `LLM_API_KEY` | API 키 (로컬 모델은 비움) |
 | `LLM_REASONING_EFFORT` | 생각 모드가 있는 로컬 모델에서 끌 때 `none` (gpt-4 계열은 비움) |
+| `TALENT_LLM_MODEL` | 인재상 추출에만 쓰는 모델 (비우면 `LLM_MODEL`). gpt-4.1-mini는 계층형 인재상(분류 > 세부 항목)의 구분을 지키지 못해 더 강한 모델을 쓴다 |
 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | developers.naver.com 애플리케이션의 검색 API 키 |
 | `EMBED_URL`, `EMBED_MODEL`, `EMBED_API_KEY` | 기사 묶기용 embeddings 주소·모델·키 (비우면 로컬 Ollama `bge-m3`) |
 | `SAME_EVENT` | 같은 사건 묶기 기준값. 기본 0.58(text-embedding-3-large), bge-m3면 0.65 |
@@ -127,6 +132,7 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 ```
 LLM_CHAT_URL=https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
 LLM_MODEL=gpt-4.1-mini
+TALENT_LLM_MODEL=gpt-5.6-terra
 LLM_API_KEY=GMS 키
 EMBED_URL=https://gms.ssafy.io/gmsapi/api.openai.com/v1/embeddings
 EMBED_MODEL=text-embedding-3-large

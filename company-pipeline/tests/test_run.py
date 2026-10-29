@@ -18,7 +18,7 @@ def fake_sources(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _fake_llm(reply: dict[str, Any]) -> Any:
-    return lambda messages: reply
+    return lambda messages, model=None: reply
 
 
 def test_build_one_writes_card_and_drops_made_up_quotes(
@@ -45,21 +45,25 @@ def test_build_one_writes_card_and_drops_made_up_quotes(
 def test_build_one_asks_talent_and_direction_separately(
     fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    systems: list[str] = []
+    calls: list[tuple[str, str | None]] = []
 
-    def fake(messages: list[dict[str, str]]) -> dict[str, Any]:
-        systems.append(messages[0]["content"])
+    def fake(messages: list[dict[str, str]], model: str | None = None) -> dict[str, Any]:
+        calls.append((messages[0]["content"], model))
         if messages[0]["content"] == card.TALENT_SYSTEM:
-            return {"talent": [{"keyword": "협업", "quote": "우리는 협업합니다."}]}
+            return {"items": [{"title": "협업", "parent": None, "details": ["우리는 협업합니다."]}]}
         return {"direction": [{"summary": "AI 인프라", "quote": "AI 인프라 사업에 더욱 집중할"}]}
 
     monkeypatch.setattr(card, "call_llm", fake)
-    company = {"name": "테스트", "talent_url": "url", "talent_text": "우리는 협업합니다."}
+    monkeypatch.setenv("TALENT_LLM_MODEL", "strong-model")
+    company = {"name": "테스트", "talent_url": "url", "talent_text": "협업\n우리는 협업합니다."}
 
     saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
 
-    assert systems == [card.TALENT_SYSTEM, card.DIRECTION_SYSTEM]
-    assert [t["keyword"] for t in saved["talent"]] == ["협업"]
+    # 인재상만 TALENT_LLM_MODEL로, 사업 방향은 기본 모델(LLM_MODEL)로 부른다
+    assert calls == [(card.TALENT_SYSTEM, "strong-model"), (card.DIRECTION_SYSTEM, None)]
+    assert saved["talent_model"] == "strong-model"
+    talent = [(t["title"], t["details"]) for t in saved["talent"]]
+    assert talent == [("협업", ["우리는 협업합니다."])]
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
 
 
@@ -68,7 +72,9 @@ def test_build_one_keeps_every_listed_talent(
 ) -> None:
     # 삼성증권처럼 원칙 7개를 나열한 인재상은 3개로 자르지 않고 모두 남긴다
     principles = [f"우리는 원칙 {n}을 지킵니다." for n in range(1, 8)]
-    reply = {"talent": [{"keyword": f"원칙 {n}", "quote": p} for n, p in enumerate(principles, 1)]}
+    reply: dict[str, Any] = {
+        "items": [{"title": p, "parent": None, "details": []} for p in principles]
+    }
     monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
     company = {"name": "테스트", "talent_url": "url", "talent_text": "\n".join(principles)}
 
@@ -157,10 +163,12 @@ def test_build_one_partial_card_without_annual_report(
 
     monkeypatch.setattr(dart, "fetch_report", no_report)
     monkeypatch.setattr(dart, "corp_code", lambda name: "00000002")
-    reply = {"talent": [{"keyword": "도전", "quote": "우리는 도전합니다."}]}
+    reply: dict[str, Any] = {
+        "items": [{"title": "우리는 도전합니다.", "parent": None, "details": []}]
+    }
     monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
     company = {"name": "비상장", "talent_url": "url", "talent_text": "우리는 도전합니다."}
 
     saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
-    assert [t["keyword"] for t in saved["talent"]] == ["도전"]
+    assert [t["title"] for t in saved["talent"]] == ["우리는 도전합니다."]
     assert saved["direction"] == [] and saved["market"] == []

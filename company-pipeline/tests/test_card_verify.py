@@ -96,19 +96,29 @@ def test_normalize_empty_quote_is_dropped() -> None:
     assert normalize(" a\tb\n") == "ab"
 
 
-def test_verify_talent_needs_title_in_source_and_allows_empty_description() -> None:
-    source = "모두존중\n자유롭게 의견을 낸다.\n서로의 다양성을 인정한다.\n하모니"
+def test_verify_talent_checks_title_parent_and_details_in_source() -> None:
+    source = "고객 최우선\n01\n집요함\n'적당히'로는 고객을\n만족시킬 수 없습니다.\n하모니"
+    ok_detail = "'적당히'로는 고객을 만족시킬 수 없습니다."  # 줄바꿈은 공백으로 정리해도 같다
     card = {
         "talent": [
-            {"keyword": "모두존중", "quote": "자유롭게 의견을 낸다.\n서로의 다양성을 인정한다."},
-            {"keyword": "하모니", "quote": ""},  # 설명 없는 제목만
-            {"keyword": "모두를 존중", "quote": "자유롭게 의견을 낸다."},  # 제목을 바꿔 씀
-            {"keyword": "하모니", "quote": "일을 즐긴다."},  # 원문에 없는 설명
+            {"title": "집요함", "parent": "고객 최우선", "details": [ok_detail]},
+            {"title": "하모니", "parent": None, "details": []},  # 설명 없는 제목만
+            {"title": "끈기", "parent": None, "details": [ok_detail]},  # 제목을 바꿔 씀
+            {"title": "집요함", "parent": "고객 중심", "details": []},  # 원문에 없는 상위 범주
+            {"title": "하모니", "parent": None, "details": ["일을 즐긴다."]},  # 원문에 없는 설명
         ]
     }
     kept, dropped = verify_card(card, {"talent": source})
-    assert [t["keyword"] for t in kept["talent"]] == ["모두존중", "하모니"]
-    assert [t["keyword"] for t in dropped] == ["모두를 존중", "하모니"]
+    assert [t["title"] for t in kept["talent"]] == ["집요함", "하모니"]
+    assert [t["title"] for t in dropped] == ["끈기", "집요함", "하모니"]
+
+
+def test_talent_model_falls_back_to_llm_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_MODEL", "base")
+    monkeypatch.delenv("TALENT_LLM_MODEL", raising=False)
+    assert card.talent_model() == "base"
+    monkeypatch.setenv("TALENT_LLM_MODEL", "strong")
+    assert card.talent_model() == "strong"
 
 
 def test_market_input_keeps_company_position_sentences() -> None:

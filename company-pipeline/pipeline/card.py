@@ -6,11 +6,12 @@ import re
 import urllib.request
 from collections import Counter
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from pipeline.verify import normalize
 
-PROMPT_VERSION = "card-v8"
+PROMPT_VERSION = "card-v9"
 INPUT_LIMIT = 6000
 NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
 MAX_OUTPUT_TOKENS = 1500
@@ -28,28 +29,24 @@ _SKIP = re.compile(
     r"|인증|정보보호|리스크|위험|환율|통화|금리|차입|이자|대손|보안"
 )
 
-# 인재상과 사업 방향은 card-v4까지 한 번에 불렀다. 인재상(수백 자)이 사업보고서 문장(최대 6000자)에
-# 묻히고, 규칙(quote·keyword)을 같이 써서 인재상만의 규칙을 넣기 어려워 card-v5부터 따로 부른다.
-# 1~3개로 제한하면 삼성증권 원칙 7개 중 3개만 실행마다 다르게 골라지고, 칸을 맞추려 원칙 여럿을
-# 한 항목으로 합쳤다. card-v6부터 나열된 것을 모두 고르되,
-# 출력 제한(MAX_OUTPUT_TOKENS) 안에 들게 7개까지.
-# card-v6은 제목만 인용해서 하나금융지주의 직원·리더 설명이 카드에 빠지고, 롯데는 설명 문장으로 만든
-# 키워드가 인용 밖 내용이 됐다. card-v7부터 제목과 그 설명을 함께 인용하고 키워드는 제목을 쓴다.
-# card-v7은 카드에 제목이 두 번(keyword, quote 첫 줄) 보이고, 제목 없는 삼성증권은 문장이 그대로
-# 두 번 보였다. card-v8부터 keyword는 원문 제목 그대로, quote는 그 아래 설명만(없으면 빈 문자열)
-TALENT_SYSTEM = (
-    "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
-    "- talent: 인재상 원문에서 회사가 바라는 인재의 특징 1~7개. "
-    "원문이 여러 인재상·원칙·가치를 나열하면 나열된 것마다 하나씩 모두 고른다\n"
-    "- 항목 하나 = 원문에 나열된 인재상·원칙 하나(번호나 제목이 붙은 단위). "
-    "여러 개를 한 항목으로 합치지 않고, 하나를 설명 문장별로 여러 항목으로 쪼개지도 않는다\n"
-    "- keyword: 그 인재상·원칙의 제목을 원문에서 한 글자도 바꾸지 말고 그대로 옮긴다. "
-    "01 같은 번호는 빼고, 따로 제목이 없으면 그 인재상 문장을 그대로 옮긴다\n"
-    "- quote: 제목 바로 아래 설명 문장을 원문에서 한 글자도 바꾸지 말고 이어서 옮긴다. "
-    "제목은 quote에 다시 넣지 않는다. 설명이 없으면 빈 문자열로 둔다\n"
-    "- 고를 것이 없으면 빈 배열로 둔다\n"
-    'JSON으로만 답한다: {"talent": [{"keyword": str, "quote": str}]}'
-)
+# 인재상은 card-v5부터 사업 방향과 따로 부른다(사업보고서 문장 6000자에 묻혀서).
+# card-v4~v8은 개수 제한(1~3개, 7개), 원칙 합치기·쪼개기, 제목 중복,
+# 계층형 원문(현대자동차 분류 5개 > 세부 10개)에서 분류와 세부를 섞는 문제가 이어졌다.
+# card-v9부터 원문 구조를 그대로 옮기는 추출기로
+# 바꿨다: title(항목명 원문 그대로)·parent(상위 범주)·details(설명 원문 구절)를 받아 셋 다 원문과
+# 대조한다. 63곳 시험(2026-10-29, gpt-5.6-terra)에서 원문에 없는 값 0개, 같은 원문은 같은 구조였다.
+# 프롬프트가 길어 파일로 둔다
+TALENT_SYSTEM = (Path(__file__).parent / "talent_prompt.txt").read_text(encoding="utf-8")
+
+
+def talent_model() -> str:
+    """인재상만 다른 모델로 부른다(TALENT_LLM_MODEL, 비우면 LLM_MODEL).
+
+    계층형 원문의 상위·하위 구분을 gpt-4.1-mini는 지키지 못했다(현대자동차 15개, 한화시스템 분류
+    중복). 인재상은 카드 전체를 만들 때만 회사당 한 번 불러서 강한 모델을 써도 부담이 작다.
+    """
+    return os.environ.get("TALENT_LLM_MODEL") or os.environ.get("LLM_MODEL", "")
+
 
 DIRECTION_SYSTEM = (
     "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
@@ -96,7 +93,8 @@ def market_input(business: str) -> str:
 
 
 def build_talent_messages(name: str, talent_text: str) -> list[dict[str, str]]:
-    user = f"회사: {name}\n\n[인재상 원문]\n{talent_text}"
+    data = json.dumps({"name": name, "talent_text": talent_text}, ensure_ascii=False, indent=2)
+    user = f"[입력 데이터]\n{data}"
     return [{"role": "system", "content": TALENT_SYSTEM}, {"role": "user", "content": user}]
 
 
@@ -170,10 +168,13 @@ def parse_reply(content: str) -> dict[str, Any]:
     return result
 
 
-def call_llm(messages: list[dict[str, str]]) -> dict[str, Any]:
-    """OpenAI 호환 chat completions 호출. 로컬(Ollama)과 GMS 모두 환경변수만 바꿔 쓴다."""
+def call_llm(messages: list[dict[str, str]], model: str | None = None) -> dict[str, Any]:
+    """OpenAI 호환 chat completions 호출. 로컬(Ollama)과 GMS 모두 환경변수만 바꿔 쓴다.
+
+    model을 주면 LLM_MODEL 대신 그 모델을 부른다(인재상, talent_model()).
+    """
     payload: dict[str, Any] = {
-        "model": os.environ["LLM_MODEL"],
+        "model": model or os.environ["LLM_MODEL"],
         "messages": messages,
         "response_format": {"type": "json_object"},
         "temperature": 0,
@@ -207,7 +208,16 @@ def to_card(
         "generated_at": date.today().isoformat(),
         "prompt_version": PROMPT_VERSION,
         "model": os.environ.get("LLM_MODEL", ""),
-        "talent": [{**t, "source": talent_source} for t in llm.get("talent", [])],
+        "talent_model": talent_model(),
+        "talent": [
+            {
+                "title": t.get("title", ""),
+                "parent": t.get("parent"),
+                "details": t.get("details") or [],
+                "source": talent_source,
+            }
+            for t in llm.get("talent", [])
+        ],
         "direction": [{**d, "source": report_source} for d in llm.get("direction", [])],
         "market": [{**m, "source": report_source} for m in llm.get("market", [])],
         "recent": llm.get("recent", []),  # 출처(기사 링크)는 link_articles가 붙인다
