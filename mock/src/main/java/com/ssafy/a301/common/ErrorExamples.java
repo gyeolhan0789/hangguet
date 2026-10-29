@@ -57,6 +57,36 @@ public final class ErrorExamples {
             { "title": "Bad Request", "status": 400, "detail": "비밀번호가 맞지 않아요.",
               "instance": "/api/v1/users/me/password", "code": "PASSWORD_MISMATCH" }\
             """;
+    public static final String PASSWORD_NOT_SET =
+            """
+            { "title": "Conflict", "status": 409, "detail": "소셜 로그인 회원은 비밀번호가 없어요.",
+              "instance": "/api/v1/users/me/password", "code": "PASSWORD_NOT_SET" }\
+            """;
+    public static final String SOCIAL_LOGIN_FAILED =
+            """
+            { "title": "Unauthorized", "status": 401, "detail": "소셜 로그인에 실패했어요. 다시 시도해 주세요.",
+              "instance": "/api/v1/auth/oauth/kakao", "code": "SOCIAL_LOGIN_FAILED" }\
+            """;
+    public static final String SOCIAL_LOGIN_UNAVAILABLE =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/auth/oauth/kakao", "code": "SOCIAL_LOGIN_UNAVAILABLE" }\
+            """;
+    public static final String SOCIAL_EMAIL_REQUIRED =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "이메일 제공에 동의해야 가입할 수 있어요.",
+              "instance": "/api/v1/auth/oauth/kakao", "code": "SOCIAL_EMAIL_REQUIRED" }\
+            """;
+    public static final String SOCIAL_EMAIL_DUPLICATED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요.",
+              "instance": "/api/v1/auth/oauth/kakao", "code": "SOCIAL_EMAIL_DUPLICATED" }\
+            """;
+    public static final String SIGNUP_TOKEN_INVALID =
+            """
+            { "title": "Unauthorized", "status": 401, "detail": "가입 시간이 지났어요. 다시 로그인해 주세요.",
+              "instance": "/api/v1/auth/oauth/signup", "code": "SIGNUP_TOKEN_INVALID" }\
+            """;
     public static final String FILE_NOT_FOUND =
             """
             { "title": "Not Found", "status": 404, "detail": "업로드한 파일을 찾을 수 없어요.",

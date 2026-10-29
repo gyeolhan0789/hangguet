@@ -15,7 +15,9 @@ import re
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 from xml.etree import ElementTree
 
 from pipeline import card, dart
@@ -137,21 +139,134 @@ def companies_file() -> Path:
     return target
 
 
-def add(corp: Corp, extra: dict[str, str], companies: Path | None = None) -> None:
-    """회사 목록 끝에 한 줄 추가. 이미 있으면 ValueError."""
-    companies = companies or companies_file()
-    rows = json.loads(companies.read_text(encoding="utf-8"))
-    if any(r["name"] == corp.name for r in rows):
-        raise ValueError(f"이미 있는 회사: {corp.name}")
-    row = {"name": corp.name}
-    if (query := extra.get("news_query", "").strip()) and query != corp.name:
+# 화면에서 넣고 고칠 수 있는 칸. 회사명(name)은 DART 정식명이라 고치지 않는다
+EDITABLE = ("news_query", "talent_url", "talent_text", "talent_collected_at")
+
+
+def _row(name: str, extra: dict[str, str]) -> dict[str, str]:
+    """companies.json 한 줄. 기사 검색어는 회사명과 다를 때만, 원문이 없으면 수집일도 비운다."""
+    row = {"name": name}
+    if (query := extra.get("news_query", "").strip()) and query != name:
         row["news_query"] = query
     for field in ("talent_url", "talent_text", "talent_collected_at"):
         row[field] = extra.get(field, "").strip()
-    if not row["talent_text"]:  # 원문이 없으면 수집일도 비운다
+    if not row["talent_text"]:
         row["talent_collected_at"] = ""
-    text = json.dumps([*rows, row], ensure_ascii=False, indent=2) + "\n"
-    companies.write_text(text, encoding="utf-8", newline="\n")
+    return row
+
+
+def _load(companies: Path) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = json.loads(companies.read_text(encoding="utf-8"))
+    return rows
+
+
+def _save(rows: list[dict[str, str]], companies: Path) -> None:
+    """임시 파일에 다 쓴 뒤 바꿔 끼운다. 쓰는 도중 Airflow가 읽어도 반쯤 쓴 JSON을 보지 않게."""
+    tmp = companies.with_name(companies.name + ".tmp")
+    tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", "utf-8", newline="\n")
+    os.replace(tmp, companies)
+
+
+def add(corp: Corp, extra: dict[str, str], companies: Path | None = None) -> None:
+    """회사 목록 끝에 한 줄 추가. 이미 있으면 ValueError."""
+    companies = companies or companies_file()
+    rows = _load(companies)
+    if any(r["name"] == corp.name for r in rows):
+        raise ValueError(f"이미 있는 회사: {corp.name}")
+    _save([*rows, _row(corp.name, extra)], companies)
+
+
+def find(name: str, companies: Path | None = None) -> dict[str, str] | None:
+    """회사 목록에서 이름이 같은 한 줄. 없으면 None."""
+    return next((r for r in _load(companies or companies_file()) if r["name"] == name), None)
+
+
+def update(name: str, extra: dict[str, str], companies: Path | None = None) -> dict[str, str]:
+    """이미 있는 회사의 기사 검색어·인재상 칸을 고친다. extra에 없는 칸은 그대로 둔다.
+
+    회사명은 바꾸지 않는다(DART 고유번호를 찾는 기준). 없는 회사면 LookupError.
+    """
+    companies = companies or companies_file()
+    rows = _load(companies)
+    at = next((i for i, r in enumerate(rows) if r["name"] == name), None)
+    if at is None:
+        raise LookupError(f"회사 목록에 없는 회사: {name}")
+    old = rows[at]
+    merged = {f: old.get(f, "") for f in EDITABLE} | {f: extra[f] for f in EDITABLE if f in extra}
+    rows[at] = _row(name, merged)
+    _save(rows, companies)
+    return rows[at]
+
+
+class InvalidListError(ValueError):
+    """통째로 바꿀 회사 목록의 문제들. 하나라도 있으면 저장하지 않는다."""
+
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("; ".join(errors))
+        self.errors = errors
+
+
+def validate(rows: Any, known: set[str] | None = None) -> list[dict[str, str]]:
+    """통째로 바꿀 목록을 검사하고 add·update와 같은 형식으로 정리해 돌려준다.
+
+    목록이 깨지면 다음 Airflow 실행 전체가 실패하고, DART에 없는 회사명은 그 회사 작업이 실패해서
+    문제가 하나라도 있으면 InvalidListError.
+    known은 DART 회사명 집합(None이면 회사명 검사를 건너뜀).
+    """
+    if not isinstance(rows, list):
+        raise InvalidListError(["JSON 배열([...])이어야 한다"])
+    errors: list[str] = []
+    seen: set[str] = set()
+    cleaned: list[dict[str, str]] = []
+    for n, row in enumerate(rows, 1):
+        name = row.get("name") if isinstance(row, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"{n}번째: name(회사명)이 없다")
+            continue
+        name = name.strip()
+        if unknown := sorted(set(row) - {"name", *EDITABLE}):
+            errors.append(f"{name}: 모르는 칸 {', '.join(unknown)}")
+        if not_text := [f for f in EDITABLE if f in row and not isinstance(row[f], str)]:
+            errors.append(f"{name}: 문자열이 아닌 칸 {', '.join(not_text)}")
+        if name in seen:
+            errors.append(f"{name}: 두 번 들어 있다")
+        if known is not None and name not in known:
+            errors.append(f"{name}: DART 목록에 없는 회사명")
+        seen.add(name)
+        cleaned.append(_row(name, {f: row[f] for f in EDITABLE if isinstance(row.get(f), str)}))
+    if errors:
+        raise InvalidListError(errors)
+    return cleaned
+
+
+def diff(old: list[dict[str, str]], new: list[dict[str, str]]) -> dict[str, list[str]]:
+    """회사명 기준으로 추가·삭제·내용이 바뀐 회사."""
+    before, after = {r["name"]: r for r in old}, {r["name"]: r for r in new}
+    return {
+        "added": [n for n in after if n not in before],
+        "removed": [n for n in before if n not in after],
+        "changed": [n for n in after if n in before and after[n] != before[n]],
+    }
+
+
+def replace(
+    rows: Any, known: set[str] | None, companies: Path | None = None, *, dry_run: bool = False
+) -> dict[str, Any]:
+    """회사 목록을 통째로 바꾼다. 바꾸기 전 목록은 companies-{시각}.json.bak으로 남긴다.
+
+    dry_run이면 검사와 비교만 하고 저장하지 않는다(화면의 '확인').
+    """
+    companies = companies or companies_file()
+    new = validate(rows, known)
+    result: dict[str, Any] = {"count": len(new), **diff(_load(companies), new)}
+    if not dry_run:
+        # 1초 안에 두 번 바꿔도 앞 백업을 덮어쓰지 않게 마이크로초까지 붙인다
+        stamp = f"{datetime.now():%Y%m%d-%H%M%S-%f}"
+        backup = companies.with_name(f"{companies.stem}-{stamp}.json.bak")
+        shutil.copyfile(companies, backup)
+        _save(new, companies)
+        result["backup"] = backup.name
+    return result
 
 
 def entry(corp: Corp, query: str) -> dict[str, str]:

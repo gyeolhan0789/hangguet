@@ -2,9 +2,9 @@
 -- 지운 지원서로 본 면접 기록(interview_sessions.application_id)과 그 결과·다시보기가 그대로 남게 하기 위해서다.
 -- 문항은 지원서당 1~5개, 질문 1~255자, 답변 1~20,000자(API 명세 4.1). 순서는 item_order(1부터)로 둔다.
 -- 이미 있는 지원서는 자기소개서 글 전체를 1번 문항('자기소개서')의 답변으로 옮긴다.
--- 되돌리기(Rollback): 아래를 실행한 뒤 flyway_schema_history에서 version '12' 행을 지운다.
+-- 되돌리기(Rollback): 아래를 실행한 뒤 flyway_schema_history에서 version '13' 행을 지운다.
 --   ALTER TABLE applications ADD COLUMN cover_letter TEXT;
---   -- V12가 옮긴 지원서('자기소개서' 문항 하나뿐)는 원래 글 그대로, 나머지는 문항을 순서대로 이어 붙인다.
+--   -- V13이 옮긴 지원서('자기소개서' 문항 하나뿐)는 원래 글 그대로, 나머지는 문항을 순서대로 이어 붙인다.
 --   UPDATE applications a SET cover_letter = (
 --       SELECT CASE WHEN count(*) = 1 AND min(i.question) = '자기소개서' THEN min(i.answer)
 --                   ELSE string_agg(i.question || E'\n' || i.answer, E'\n\n' ORDER BY i.item_order) END

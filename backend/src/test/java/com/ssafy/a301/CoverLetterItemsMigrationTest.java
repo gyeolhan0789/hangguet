@@ -13,7 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 /**
- * V12 Migration이 이미 있는 지원서의 자기소개서 글을 1번 문항으로 옮기는지 확인한다. 테스트 DB에 임시 스키마를 만들어 V11까지 올린 뒤 데이터를 넣고 V12를
+ * V13 Migration이 이미 있는 지원서의 자기소개서 글을 1번 문항으로 옮기는지 확인한다. 테스트 DB에 임시 스키마를 만들어 V12까지 올린 뒤 데이터를 넣고 V13을
  * 적용한다. 애플리케이션 스키마와 커넥션 풀은 건드리지 않고, 끝나면 임시 스키마를 지운다.
  */
 @SpringBootTest
@@ -36,7 +36,7 @@ class CoverLetterItemsMigrationTest {
 
     @Test
     void existingCoverLetterBecomesFirstItem() {
-        migrate("11");
+        migrate("12");
         JdbcTemplate jdbc = jdbc();
         long userId =
                 jdbc.queryForObject(
@@ -57,7 +57,7 @@ class CoverLetterItemsMigrationTest {
                         userId,
                         "A\nB");
 
-        migrate("12");
+        migrate("13");
 
         assertThat(
                         jdbc.queryForList(

@@ -25,8 +25,10 @@ import com.ssafy.a301.storage.repository.UploadKeyStore;
 import com.ssafy.a301.storage.s3.PresignedUrl;
 import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.storage.s3.S3Properties;
+import com.ssafy.a301.user.domain.SocialProvider;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import com.ssafy.a301.user.repository.UserSocialAccountRepository;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -53,6 +55,8 @@ class UserServiceTest {
     private final S3FileStorage storage = mock(S3FileStorage.class);
     private final UploadKeyStore uploadKeys = mock(UploadKeyStore.class);
     private final RefreshTokenStore refreshTokens = mock(RefreshTokenStore.class);
+    private final UserSocialAccountRepository socialAccounts =
+            mock(UserSocialAccountRepository.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private UserService service;
@@ -75,6 +79,7 @@ class UserServiceTest {
                                 "bucket", "ap-northeast-2", UPLOAD_TTL, Duration.ofHours(1)),
                         uploadKeys,
                         refreshTokens,
+                        socialAccounts,
                         new TransactionTemplate(txManager));
         user = new User("a@test.com", "hash", "이전닉네임");
         ReflectionTestUtils.setField(user, "id", USER_ID);
@@ -235,6 +240,47 @@ class UserServiceTest {
         verify(txManager, never()).commit(any());
         verify(txManager).rollback(any());
         verify(refreshTokens, never()).revokeAll(USER_ID);
+    }
+
+    @Test
+    void emailUserMustSendPasswordToWithdraw() {
+        assertThatThrownBy(() -> service.withdraw(USER_ID, null))
+                .isInstanceOf(FieldValidationException.class);
+        assertThatThrownBy(() -> service.withdraw(USER_ID, " "))
+                .isInstanceOf(FieldValidationException.class);
+        assertThat(user.isWithdrawn()).isFalse();
+        verify(refreshTokens, never()).revokeAll(USER_ID);
+    }
+
+    @Test
+    void socialUserWithdrawsWithoutPasswordAndUnlinksAccount() {
+        User social = socialUser();
+
+        service.withdraw(USER_ID, null);
+
+        assertThat(social.isWithdrawn()).isTrue();
+        verify(passwords, never()).matches(any(), any());
+        verify(socialAccounts).withdrawAll(eq(USER_ID), any());
+        verify(refreshTokens).revokeAll(USER_ID);
+    }
+
+    @Test
+    void meHasSocialProviderOnlyForSocialUser() {
+        assertThat(service.me(USER_ID).socialProvider()).isNull();
+        verify(socialAccounts, never()).findActiveProvider(USER_ID);
+
+        socialUser();
+        when(socialAccounts.findActiveProvider(USER_ID))
+                .thenReturn(Optional.of(SocialProvider.KAKAO));
+        assertThat(service.me(USER_ID).socialProvider()).isEqualTo(SocialProvider.KAKAO);
+    }
+
+    private User socialUser() {
+        User social = User.social("k@kakao.com", "카카오");
+        ReflectionTestUtils.setField(social, "id", USER_ID);
+        when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(social));
+        when(users.findActiveForUpdate(USER_ID)).thenReturn(Optional.of(social));
+        return social;
     }
 
     @Test

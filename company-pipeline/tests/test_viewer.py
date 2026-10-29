@@ -5,10 +5,12 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from pipeline import viewer
+from pipeline.candidates import Corp
 
 
 @pytest.fixture
@@ -37,11 +39,68 @@ def test_readonly_blocks_api_but_serves_page(
     assert json.loads(_get(f"{base_url}/api/mode")[1])["readonly"] is True
     assert _get(f"{base_url}/api/search?q=kakao")[0] == 403
     assert _get(f"{base_url}/api/ask?q=toss")[0] == 403
-    add = urllib.request.Request(f"{base_url}/api/add", data=b'{"code": "00258801"}')
-    with pytest.raises(urllib.error.HTTPError) as e:
-        urllib.request.urlopen(add, timeout=5)
-    assert e.value.code == 403
+    assert _get(f"{base_url}/api/company?name=NAVER")[0] == 403
+    assert _get(f"{base_url}/api/companies.json")[0] == 403
+    for path, body in (
+        ("/api/add", b'{"code": "00258801"}'),
+        ("/api/update", b'{"name": "x"}'),
+        ("/api/replace", b'{"rows": []}'),
+    ):
+        with pytest.raises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(urllib.request.Request(base_url + path, data=body), timeout=5)
+        assert e.value.code == 403
     assert _get(f"{base_url}/viewer.html")[0] == 200
+
+
+def _post(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    req = urllib.request.Request(url, data=json.dumps(body).encode())
+    try:
+        with urllib.request.urlopen(req, timeout=5) as res:
+            return res.status, json.loads(res.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def test_update_api_edits_existing_company(
+    base_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 화면의 '정보 수정': 이미 있는 회사의 인재상 칸만 고치고, 없는 회사는 404
+    companies = tmp_path / "companies.json"
+    companies.write_text(json.dumps([{"name": "NAVER", "talent_text": ""}]), encoding="utf-8")
+    monkeypatch.setenv("COMPANIES_PATH", str(companies))
+    monkeypatch.delenv("VIEWER_READONLY", raising=False)
+
+    status, body = _post(f"{base_url}/api/update", {"name": "NAVER", "talent_url": "https://n"})
+    assert status == 200 and body["updated"] == "NAVER"
+    current = json.loads(_get(f"{base_url}/api/company?name=NAVER")[1])
+    assert current["talent_url"] == "https://n"
+
+    assert _post(f"{base_url}/api/update", {"name": "없는회사"})[0] == 404
+    assert _get(f"{base_url}/api/company?name=x")[0] == 404
+
+
+def test_replace_api_checks_then_replaces(
+    base_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text(json.dumps([{"name": "NAVER"}]), encoding="utf-8")
+    monkeypatch.setenv("COMPANIES_PATH", str(companies))
+    monkeypatch.delenv("VIEWER_READONLY", raising=False)
+    dart_names = [Corp("NAVER", "", "00266961", True), Corp("카카오", "", "00258801", True)]
+    monkeypatch.setattr(viewer, "_corps", lambda: dart_names)
+    rows = [{"name": "NAVER"}, {"name": "카카오"}]
+
+    assert _get(f"{base_url}/api/companies.json")[1] == companies.read_bytes()  # 내려받기
+    status, body = _post(f"{base_url}/api/replace", {"rows": rows, "dry_run": True})
+    assert status == 200 and body["added"] == ["카카오"]
+    assert len(json.loads(companies.read_text("utf-8"))) == 1  # 확인은 저장하지 않는다
+
+    status, body = _post(f"{base_url}/api/replace", {"rows": [*rows, {"name": "없는회사"}]})
+    assert status == 400 and body["errors"] == ["없는회사: DART 목록에 없는 회사명"]
+
+    status, body = _post(f"{base_url}/api/replace", {"rows": rows})
+    assert status == 200 and (tmp_path / str(body["backup"])).exists()
+    assert [r["name"] for r in json.loads(companies.read_text("utf-8"))] == ["NAVER", "카카오"]
 
 
 def test_responses_are_not_cached(base_url: str) -> None:

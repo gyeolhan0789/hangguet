@@ -1,5 +1,6 @@
 package com.ssafy.a301.auth.controller;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
@@ -13,9 +14,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.auth.config.SecurityConfig;
+import com.ssafy.a301.auth.dto.SocialLoginResponse;
+import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.auth.service.SocialAuthService;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
@@ -48,6 +52,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 class AuthControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private AuthService service;
+    @MockitoBean private SocialAuthService social;
     @MockitoBean private UserRepository users;
     @Autowired private JwtEncoder encoder;
     @Autowired private AuthProperties properties;
@@ -75,6 +80,44 @@ class AuthControllerTest {
                                 .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void socialLoginAndSignupArePublic() throws Exception {
+        var tokens = new TokenResponse("access", "refresh", 3600, null);
+        when(social.login("kakao", "code", "https://a301/callback"))
+                .thenReturn(SocialLoginResponse.loggedIn(tokens));
+        mvc.perform(
+                        post("/api/v1/auth/oauth/kakao")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"code\":\"code\",\"redirectUri\":\"https://a301/callback\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.signupRequired").value(false))
+                .andExpect(jsonPath("$.token.accessToken").value("access"));
+
+        when(social.signup(any())).thenReturn(tokens);
+        mvc.perform(
+                        post("/api/v1/auth/oauth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{\"signupToken\":\"t\",\"agreements\":["
+                                            + "{\"termsType\":\"TERMS\",\"termsVersion\":\"1.0\"},"
+                                            + "{\"termsType\":\"PRIVACY\",\"termsVersion\":\"1.0\"},"
+                                            + "{\"termsType\":\"RECORDING\",\"termsVersion\":\"1.0\"}]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.refreshToken").value("refresh"));
+    }
+
+    @Test
+    void socialLoginWithoutCodeIsValidationError() throws Exception {
+        mvc.perform(
+                        post("/api/v1/auth/oauth/kakao")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"redirectUri\":\"https://a301/callback\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("code"));
+        verify(social, never()).login(anyString(), anyString(), anyString());
     }
 
     @Test

@@ -11,7 +11,7 @@ from app.common.answer import is_java_blank
 
 # API 명세 4.1: 지원서 하나의 문항 수
 MAX_ITEMS = 5
-# 이전 BE 메시지의 coverLetter(글 하나)를 옮길 문항 질문. BE V12 마이그레이션과 같은 값이다
+# 이전 BE 메시지의 coverLetter(글 하나)를 옮길 문항 질문. BE V13 마이그레이션과 같은 값이다
 LEGACY_QUESTION = "자기소개서"
 
 

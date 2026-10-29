@@ -108,6 +108,7 @@ public class AdminInquiryController {
     @ApiResponse(
             responseCode = "404",
             description = "USER_NOT_FOUND: 없거나 탈퇴한 회원 · INQUIRY_NOT_FOUND: 보낸 문의가 없음")
+    @ApiResponse(responseCode = "409", description = "PASSWORD_NOT_SET: 비밀번호가 없는 소셜 회원")
     @PatchMapping("/users/{userId}/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(

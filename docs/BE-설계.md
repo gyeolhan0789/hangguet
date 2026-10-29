@@ -32,18 +32,19 @@
 com.ssafy.a301
 ├─ auth
 │  ├─ controller   AuthController
-│  ├─ service      AuthService
+│  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7)
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
 │  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
-│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore
-│  └─ config       SecurityConfig
+│  ├─ oauth        SocialLoginClient · KakaoLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
+│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore
+│  └─ config       SecurityConfig, OAuthConfig
 ├─ user
 │  ├─ controller   UserController
 │  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 다른 기기 로그아웃, 2.3 · 9.10)
 │  ├─ dto          UserDtos
 │  ├─ mapper       UserMapper
-│  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository
-│  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy
+│  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository, UserSocialAccountRepository
+│  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy, UserSocialAccount · SocialProvider
 ├─ home
 │  ├─ controller   HomeController(3.1~3.3)
 │  ├─ service      HomeService(3.1, 스트릭·면접 집계·성장 리뷰 계산을 조합), PracticeStatsService(3.2 통계·3.3 연습 달력)
@@ -137,14 +138,15 @@ com.ssafy.a301
 
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
-| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]** |
+| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]**. 소셜 회원은 `password_hash`가 null(V12) |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
-| `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V12) **[결정]** |
-| `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V12). V12 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
+| `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V13) **[결정]** |
+| `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V13). V13 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
+| `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 제공자 토큰은 저장하지 않는다 **[결정]** |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장). `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
-| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V12 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
+| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
@@ -169,7 +171,7 @@ com.ssafy.a301
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고 문항은 넣지 않는다. 지원서의 연습 면접 목록(4.6)은 5.13과 같은 기준 · 항목(`InterviewSessionListService`)을 지원서로 거른다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
-- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(4.6 지원서의 연습 면접 목록), `uk_interview_questions_session_seq`(질문 순서 중복 방지), `ck_cover_letter_items_item_order`(V12. 문항 순서 1~5)
+- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(4.6 지원서의 연습 면접 목록), `uk_interview_questions_session_seq`(질문 순서 중복 방지), `ck_cover_letter_items_item_order`(V13. 문항 순서 1~5)
 
 ## 4. 면접 상태 전이
 
@@ -316,7 +318,7 @@ com.ssafy.a301
 
 | 키 | 값 | TTL | 쓰는 곳 |
 |---|---|---|---|
-| `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.5. 재발급 시 삭제 후 새로 저장(회전) |
+| `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.7. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 2.3 · 9.10 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
 | `ai:jobs:plan` | List. PLAN 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:plan:processing`에 옮겨 처리 | 없음 | 5.1·5.3 (5.0) |
@@ -325,6 +327,7 @@ com.ssafy.a301
 | `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 큐별 길이만 지표로 본다(`AiQueueMetrics`, 대기 · 처리 중 지표에 `queue` 태그로 큐 이름) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
+| `social-signup:{SHA-256(token)}` | `SocialProfile` JSON(제공자 · 제공자 회원 번호 · 이메일 · 닉네임) | `oauth.signup-token-ttl`(10분) | 1.6에서 처음 온 사람에게 가입 토큰을 줄 때 넣고, 1.7에서 읽은 뒤 가입에 성공하면 지운다(실패하면 남겨 다시 보낼 수 있게) |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
 | `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
@@ -351,13 +354,23 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 여러 기기 동시 로그인을 허용한다. 로그인마다 별도 리프레시 토큰을 발급하며 다른 기기의 토큰은 유지한다.
 - 로그아웃은 인증한 회원이 요청에 제출한 리프레시 토큰만 폐기한다. 다른 기기의 토큰과 액세스 토큰은 유지한다. 이미 폐기된 토큰도 204로 응답한다.
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
-- 탈퇴(2.7)는 비밀번호를 확인하고 `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
+- 탈퇴(2.7)는 비밀번호를 확인하고(소셜 회원은 확인하지 않고 소셜 연결도 탈퇴 처리) `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
 - 비밀번호 변경(2.3 회원 · 9.10 관리자)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 2.3은 폐기한 뒤 바꾼 기기에 새 액세스·리프레시 토큰을 준다. 새 리프레시 토큰의 로그인 시각은 변경 기록 시각(밀리초로 맞춤)과 같아 재발급에서 막히지 않는다. 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
 - 로그인(1.3)이 옛 비밀번호를 확인한 직후 비밀번호가 바뀌면, 그 로그인 토큰은 변경 쪽 폐기보다 늦게 생겨 남을 수 있다. 그래서 로그인은 토큰을 만든 뒤 회원을 다시 읽어, 비밀번호가 바뀌었거나 탈퇴했으면 그 토큰을 지우고 401 `LOGIN_FAILED`로 응답한다. 다시 읽을 때 아직 그대로였다면 토큰이 먼저 생긴 것이라 변경 쪽 폐기가 지운다
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
+
+### 소셜 로그인 (1.6 · 1.7) **[결정]**
+
+- 화면이 제공자 인가 코드를 받아 BE에 넘기고, BE가 제공자 서버에서 토큰을 받아 회원 정보를 읽는다(`KakaoLoginClient`, `RestClient`). 제공자 토큰은 회원 정보를 읽는 데만 쓰고 저장하지 않는다. 로그인에 성공하면 1.3과 같은 우리 토큰을 주므로 재발급·로그아웃·JWT 검증은 그대로다
+- `redirectUri`는 설정에 등록한 주소만 받는다(다른 주소로 받은 코드를 끼워 넣지 못하게). `state`(CSRF)는 화면이 만들고 확인한다
+- 처음 온 사람은 회원을 바로 만들지 않고 가입 토큰(`social-signup:`)으로 제공자 회원 정보를 맡아 둔다. 약관 동의(1.7) 뒤 회원 · 약관 동의 · 소셜 연결을 한 트랜잭션으로 만들고, 커밋한 뒤 가입 토큰을 지우고 우리 토큰을 만든다. 이미 연결된 소셜 계정이면 새로 만들지 않고 그 회원으로 로그인한다(같은 가입 토큰을 겹쳐 보내도 회원은 하나). 가입이 겹쳐 유일 제약(이메일 · 소셜 계정)에 걸리면, 연결이 생겼으면 그 회원으로 로그인하고 같은 이메일 회원이 생겼으면 409로 답한다
+- 이메일은 제공자가 확인한 것만 쓴다(카카오 `is_email_valid` · `is_email_verified`). 회원 문의 · 관리자 검색 등이 이메일을 쓰므로 없으면 가입하지 않는다(400 `SOCIAL_EMAIL_REQUIRED`). 카카오 앱 동의 항목에서 이메일을 필수로 둔다
+- 같은 이메일의 회원이 있어도 계정을 합치지 않는다(409 `SOCIAL_EMAIL_DUPLICATED`). 확인하지 않은 연결로 남의 계정에 들어가지 않게 하기 위해서다. 계정 연결은 나중에 로그인한 회원이 직접 하도록 따로 만든다
+- 소셜 회원은 비밀번호가 없다. 1.3은 비밀번호 없는 회원을 고르지 않고, 2.3 · 9.10은 409 `PASSWORD_NOT_SET`, 2.7은 비밀번호를 묻지 않는다. 비밀번호 변경 기록이 없으므로 재발급(1.4)의 비밀번호 변경 확인에도 걸리지 않는다
+- 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분)로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
 
 ## 10. 파일 (S3) **[제안]**
 
@@ -390,4 +403,5 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변별 음성(B-19)
-4. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다
+4. 구글 로그인: `SocialLoginClient` 구현과 `SocialProvider.GOOGLE`만 더한다. 카카오톡 알림을 보내려면 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
+5. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다

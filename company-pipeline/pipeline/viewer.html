@@ -83,7 +83,18 @@ dialog textarea { min-height: 90px; resize: vertical }
 .row .primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600 }
 .row .primary:disabled { opacity: .4; cursor: default }
 #ask { margin-top: 8px; font-size: 13px; color: var(--accent) }
-#msg { font-size: 13px; margin-top: 10px } #msg.ok { color: var(--accent) } #msg.err { color: var(--warn) }
+#msg, #edit-msg { font-size: 13px; margin-top: 10px }
+#msg.ok, #edit-msg.ok { color: var(--accent) } #msg.err, #edit-msg.err { color: var(--warn) }
+[data-edit] { border: 1px solid var(--line); background: none; color: var(--accent); font: 12px var(--font);
+  border-radius: 4px; padding: 2px 8px; cursor: pointer }
+.notice [data-edit] { margin-top: 12px }
+body[data-readonly] [data-edit], body[data-readonly] #open-replace { display: none }
+header .add + .add { margin-left: 0 }
+#replace_text { min-height: 260px; font: 12px/1.5 var(--mono) }
+#replace-result { font-size: 13px; margin-top: 10px; max-height: 180px; overflow: auto }
+#replace-result ul { margin: 4px 0; padding-left: 18px }
+#replace-result .err { color: var(--warn) }
+.row a { margin-right: auto; align-self: center; font-size: 13px; color: var(--accent) }
 @media (max-width: 760px) {
   .layout { grid-template-columns: 1fr } nav { border-right: 0; border-bottom: 1px solid var(--line);
   display: flex; overflow-x: auto; gap: 4px; position: static; max-height: none } nav button { width: auto; white-space: nowrap; gap: 8px }
@@ -92,7 +103,7 @@ dialog textarea { min-height: 90px; resize: vertical }
 </style>
 </head>
 <body>
-<header><h1>회사 카드 확인</h1><span class="stat" id="stat"></span><button class="add" id="open-add">+ 회사 추가</button></header>
+<header><h1>회사 카드 확인</h1><span class="stat" id="stat"></span><button class="add" id="open-add">+ 회사 추가</button><button class="add" id="open-replace">목록 전체 바꾸기</button></header>
 <div class="layout"><nav id="list" aria-label="회사 목록"></nav><main id="view"></main></div>
 <!-- 매일 갱신되는 데이터라 주소에 시각을 붙여 Cloudflare·브라우저가 저장해 둔 옛 파일을 쓰지 않게 한다.
      아래 화면 코드가 바로 읽으므로 document.write로 순서대로(동기) 불러온다 -->
@@ -169,7 +180,8 @@ async function loadPending() {
 function showPending(name) {
   document.querySelectorAll("nav button").forEach((b) => b.setAttribute("aria-current", b.dataset.pending === name));
   $("view").innerHTML = `<div class="notice"><b>${esc(name)}</b>: 카드 생성 대기 중입니다.<br>
-    다음 매일 작업(13:00)이나 Airflow에서 <code>company_news_daily</code>를 실행하면 카드가 만들어집니다.</div>`;
+    다음 매일 작업(13:00)이나 Airflow에서 <code>company_news_daily</code>를 실행하면 카드가 만들어집니다.<br>
+    <button data-edit="${esc(name)}">정보 수정</button></div>`;
 }
 loadPending();
 
@@ -192,7 +204,8 @@ function show(i) {
     <div class="meta"><b>${esc(c.name)}</b><span>고유번호 ${esc(c.corp_code)}</span>
       <span>생성 ${esc(c.generated_at)}</span><span>모델 ${esc(c.model)}</span>
       ${c.talent_model && c.talent_model !== c.model ? `<span>인재상 모델 ${esc(c.talent_model)}</span>` : ""}
-      <span>프롬프트 ${esc(c.prompt_version)}</span><span>인재상 수집 ${esc(r.talent_collected_at || "-")}</span></div>
+      <span>프롬프트 ${esc(c.prompt_version)}</span><span>인재상 수집 ${esc(r.talent_collected_at || "-")}</span>
+      <button data-edit="${esc(c.name)}">정보 수정</button></div>
     ${FIELDS.map(([f, t]) => items(f, t)).join("")}
     <div class="source"><div class="tabs" role="tablist">
       ${FIELDS.map(([f, t]) => `<button role="tab" data-tab="${f}">${t} 원문</button>`).join("")}</div>
@@ -307,11 +320,132 @@ $("view").addEventListener("click", (e) => {
     $("add").showModal(); $("q").focus();
   });
   $("close-add").addEventListener("click", () => $("add").close());
-  // 서버(읽기 전용)에서는 회사 추가를 숨긴다. 회사 목록은 git(companies.json)으로 관리한다
+  // 읽기 전용(VIEWER_READONLY=1)에서는 회사 추가·정보 수정을 숨긴다
   fetch("/api/mode").then((r) => r.json()).then((m) => {
-    if (m.readonly) $("open-add").hidden = true;
+    if (m.readonly) { $("open-add").hidden = true; document.body.dataset.readonly = "1"; }
     serverMode = !!m.server;
   }).catch(() => {});
+})();
+</script>
+
+<dialog id="edit">
+  <h2>회사 정보 수정 · <span id="edit-name"></span></h2>
+  <p class="hint">회사명(DART 정식명)은 바꿀 수 없다. 인재상을 고치면 다음 Airflow ▶(카드 전체 생성)에서 카드에 반영된다.
+    매일 작업(13:00)은 최근 이슈만 갱신한다.</p>
+  <label for="edit_news_query">기사 검색어 (기사에서 부르는 이름이 다를 때만, 비우면 회사명)</label>
+  <input id="edit_news_query">
+  <label for="edit_talent_url">인재상 페이지 주소 (공식 채용 페이지)</label>
+  <input id="edit_talent_url" placeholder="https://">
+  <label for="edit_talent_text">인재상 원문 (페이지 문장 그대로, 비워도 됨)</label>
+  <textarea id="edit_talent_text" rows="10"></textarea>
+  <label for="edit_talent_collected_at">인재상 복사한 날짜 (원문을 고치면 오늘로 바뀐다)</label>
+  <input id="edit_talent_collected_at" type="date">
+  <p id="edit-msg" role="status"></p>
+  <div class="row"><button id="close-edit">닫기</button><button class="primary" id="do-edit">저장</button></div>
+</dialog>
+<script>
+// 정보 수정: /api/company로 지금 값을 채우고 /api/update로 저장한다. 회사명은 그대로 둔다
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const FIELDS = ["news_query", "talent_url", "talent_text", "talent_collected_at"];
+  let name = null, serverMode = false;
+  const say = (text, cls = "") => { $("edit-msg").textContent = text; $("edit-msg").className = cls; };
+  const api = async (path, init) => {
+    const res = await fetch(path, init);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `오류 ${res.status}`);
+    return body;
+  };
+  document.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-edit]");
+    if (!b) return;
+    name = b.dataset.edit; $("edit-name").textContent = name; say("불러오는 중…");
+    for (const f of FIELDS) $(`edit_${f}`).value = "";
+    $("do-edit").disabled = true; $("edit").showModal();
+    try {
+      const row = await api(`/api/company?name=${encodeURIComponent(name)}`);
+      for (const f of FIELDS) $(`edit_${f}`).value = row[f] ?? "";
+      $("do-edit").disabled = false; say("");
+    } catch (err) { say(err.message, "err"); }
+  });
+  $("edit_talent_text").addEventListener("input", () => {
+    $("edit_talent_collected_at").value = new Date().toISOString().slice(0, 10);
+  });
+  $("do-edit").addEventListener("click", async () => {
+    const body = { name };
+    for (const f of FIELDS) body[f] = $(`edit_${f}`).value;
+    try {
+      await api("/api/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      say("저장됨. 인재상은 다음 Airflow ▶(카드 전체 생성)에서 카드에 반영된다" +
+        (serverMode ? "" : ". companies.json 변경은 커밋해야 팀에 반영된다"), "ok");
+    } catch (err) { say(err.message, "err"); }
+  });
+  $("close-edit").addEventListener("click", () => $("edit").close());
+  fetch("/api/mode").then((r) => r.json()).then((m) => { serverMode = !!m.server; }).catch(() => {});
+})();
+</script>
+
+<dialog id="replace">
+  <h2>회사 목록 전체 바꾸기</h2>
+  <p class="hint">companies.json을 통째로 바꾼다. 지금 목록을 내려받아 고친 뒤 붙여 넣거나 파일을 고르고, 확인으로 바뀌는 회사를 본 다음 바꾼다.
+    형식·중복·DART 회사명에 문제가 하나라도 있으면 바꾸지 않고, 바꾸기 전 목록은 백업한다.</p>
+  <label for="replace_file">JSON 파일 고르기 (또는 아래에 붙여 넣기)</label>
+  <input id="replace_file" type="file" accept=".json,application/json">
+  <label for="replace_text">새 회사 목록 (JSON 배열)</label>
+  <textarea id="replace_text" spellcheck="false" placeholder='[{"name": "삼성전자", "talent_url": "", "talent_text": "", "talent_collected_at": ""}]'></textarea>
+  <div id="replace-result" role="status"></div>
+  <div class="row"><a href="/api/companies.json" download="companies.json">지금 목록 내려받기</a>
+    <button id="close-replace">닫기</button><button id="check-replace">확인</button>
+    <button class="primary" id="do-replace" disabled>바꾸기</button></div>
+</dialog>
+<script>
+// 목록 전체 바꾸기: /api/replace를 dry_run으로 먼저 불러 바뀌는 회사를 보여 주고, 같은 내용일 때만 바꾼다
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  let checked = null; // 확인을 통과한 글 그대로. 그 뒤 고치면 다시 확인해야 바꿀 수 있다
+  const show = (html) => { $("replace-result").innerHTML = html; };
+  const list = (title, names) => names.length
+    ? `<div>${title} ${names.length}곳<ul>${names.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : "";
+  const send = async (dryRun) => {
+    let rows;
+    try { rows = JSON.parse($("replace_text").value); }
+    catch (err) { show(`<p class="err">JSON 형식 오류: ${esc(err.message)}</p>`); return null; }
+    const res = await fetch("/api/replace", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rows, dry_run: dryRun }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      show(`<p class="err">${esc(body.error || `오류 ${res.status}`)}</p>` +
+        (body.errors ? `<ul class="err">${body.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : ""));
+      return null;
+    }
+    return body;
+  };
+  const reset = () => { checked = null; $("do-replace").disabled = true; };
+  $("replace_text").addEventListener("input", reset);
+  $("replace_file").addEventListener("change", async () => {
+    const file = $("replace_file").files[0];
+    if (file) { $("replace_text").value = await file.text(); reset(); show(""); }
+  });
+  $("check-replace").addEventListener("click", async () => {
+    reset(); show("확인 중…");
+    const r = await send(true);
+    if (!r) return;
+    const same = !r.added.length && !r.removed.length && !r.changed.length;
+    show(`<p>문제 없음 · 바꾸면 ${r.count}곳</p>` + (same ? "<p>지금 목록과 같다</p>"
+      : list("추가", r.added) + list('<span class="err">삭제</span>', r.removed) + list("변경", r.changed)));
+    if (!same) { checked = $("replace_text").value; $("do-replace").disabled = false; }
+  });
+  $("do-replace").addEventListener("click", async () => {
+    if ($("replace_text").value !== checked) return reset();
+    const r = await send(false);
+    if (!r) return;
+    reset();
+    show(`<p>바꿈 · ${r.count}곳. 이전 목록은 ${esc(r.backup)}로 백업했다. 추가된 회사는 다음 매일 작업이나 ▶에서 카드가 만들어진다</p>`);
+    loadPending();
+  });
+  $("open-replace").addEventListener("click", () => { reset(); show(""); $("replace").showModal(); });
+  $("close-replace").addEventListener("click", () => $("replace").close());
 })();
 </script>
 </body>

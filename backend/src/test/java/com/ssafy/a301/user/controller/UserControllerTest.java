@@ -81,6 +81,7 @@ class UserControllerTest {
                                 "a@test.com",
                                 "면접왕",
                                 null,
+                                null,
                                 OffsetDateTime.parse("2026-09-01T01:00:00Z"),
                                 0));
         mvc.perform(get("/api/v1/users/me").with(USER_7))
@@ -89,7 +90,8 @@ class UserControllerTest {
 
     @Test
     void meUsesAuthenticatedUser() throws Exception {
-        when(service.me(7L)).thenReturn(new MeResponse(7L, "a@test.com", "면접왕", null, null, 3));
+        when(service.me(7L))
+                .thenReturn(new MeResponse(7L, "a@test.com", "면접왕", null, null, null, 3));
         mvc.perform(get("/api/v1/users/me").with(USER_7))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(7))
@@ -101,7 +103,7 @@ class UserControllerTest {
         when(service.changeNickname(7L, "새닉네임"))
                 .thenReturn(
                         new NicknameChangeResponse(
-                                7L, "a@test.com", "새닉네임", null, null, 0, "new-access", 3600));
+                                7L, "a@test.com", "새닉네임", null, null, null, 0, "new-access", 3600));
         mvc.perform(json(patch("/api/v1/users/me"), "{\"nickname\":\"새닉네임\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nickname").value("새닉네임"))
@@ -227,11 +229,10 @@ class UserControllerTest {
     }
 
     @Test
-    void withdrawalWithoutPasswordIsValidationError() throws Exception {
-        mvc.perform(json(post("/api/v1/users/me"), "{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("password"));
-        verify(service, never()).withdraw(anyLong(), anyString());
+    void withdrawalWithoutPasswordIsCheckedByService() throws Exception {
+        // 소셜 회원은 비밀번호를 보내지 않는다. 이메일 회원인지는 서비스가 확인한다
+        mvc.perform(json(post("/api/v1/users/me"), "{}")).andExpect(status().isNoContent());
+        verify(service).withdraw(7L, null);
     }
 
     @Test

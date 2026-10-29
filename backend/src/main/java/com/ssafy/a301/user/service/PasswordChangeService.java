@@ -53,7 +53,9 @@ public class PasswordChangeService {
         this.transactions = transactions;
     }
 
-    /** 2.3. 지금 비밀번호가 틀리면 400 PASSWORD_MISMATCH. 바꾼 기기가 이어 쓸 새 토큰을 준다 */
+    /**
+     * 2.3. 지금 비밀번호가 틀리면 400 PASSWORD_MISMATCH, 소셜 회원은 409 PASSWORD_NOT_SET. 바꾼 기기가 이어 쓸 새 토큰을 준다
+     */
     public PasswordChangeResponse changeByUser(
             long userId, String currentPassword, String newPassword) {
         UserChange change =
@@ -63,6 +65,7 @@ public class PasswordChangeService {
                                     users.findActiveForUpdate(userId)
                                             .orElseThrow(
                                                     () -> new ApiException(ErrorCode.UNAUTHORIZED));
+                            requirePassword(user);
                             if (!passwords.matches(currentPassword, user.getPasswordHash())) {
                                 throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
                             }
@@ -84,7 +87,10 @@ public class PasswordChangeService {
 
     private record UserChange(String nickname, OffsetDateTime changedAt) {}
 
-    /** 9.10. 관리자가 회원 비밀번호를 바꾼다. 없거나 탈퇴한 회원은 404 USER_NOT_FOUND */
+    /**
+     * 9.10. 관리자가 회원 비밀번호를 바꾼다. 없거나 탈퇴한 회원은 404 USER_NOT_FOUND. 소셜 회원은 비밀번호로 로그인하는 방법이 생기지 않게 409
+     * PASSWORD_NOT_SET
+     */
     public void changeByAdmin(long userId, long adminId, String newPassword, Long inquiryId) {
         transactions.executeWithoutResult(
                 status -> {
@@ -92,11 +98,18 @@ public class PasswordChangeService {
                     User user =
                             users.findActiveForUpdate(userId)
                                     .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+                    requirePassword(user);
                     user.changePasswordHash(passwords.encode(newPassword));
                     changes.save(
                             PasswordChange.byAdmin(userId, adminId, inquiryId, KoreaTime.now()));
                 });
         revokeAll(userId);
+    }
+
+    private static void requirePassword(User user) {
+        if (!user.hasPassword()) {
+            throw new ApiException(ErrorCode.PASSWORD_NOT_SET);
+        }
     }
 
     // 비밀번호는 이미 바뀌었다. 폐기에 실패해도 재발급(1.4)이 변경 기록 시각과 로그인 시각을 비교해 막으므로 기록만 남긴다
