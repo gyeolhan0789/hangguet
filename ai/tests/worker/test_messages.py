@@ -7,7 +7,7 @@ import pytest
 
 from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
 from app.common.cover_letter import CoverLetterItem
-from app.common.session import InterviewMode
+from app.common.session import InterviewMode, Persona
 from app.worker.messages import (
     Claim,
     ClaimType,
@@ -57,6 +57,7 @@ def score(**overrides: Any) -> dict[str, Any]:
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "answerId": 903,
         "mode": "VIDEO",
+        "persona": "DEVIL",
         "seq": 3,
         "question": "응답 시간을 40% 줄인 과정은?",
         "criteria": "원인 분석 · 수치 근거",
@@ -137,6 +138,7 @@ def test_parses_score_answer_job_from_spec_example() -> None:
         requested_at=REQUESTED_AT,
         answer_id=903,
         mode=InterviewMode.VIDEO,
+        persona=Persona.DEVIL,
         seq=3,
         question="응답 시간을 40% 줄인 과정은?",
         criteria="원인 분석 · 수치 근거",
@@ -414,6 +416,34 @@ def test_text_blank_only_outside_java_whitespace_is_kept(value: str) -> None:
 def test_unknown_mode_is_invalid(mode: Any) -> None:
     with pytest.raises(InvalidJobError, match="mode"):
         parse_job(score(mode=mode))
+
+
+# 기준: AI 명세 1.3 persona(없으면 COFFEE_CHAT, 두 값이 아니면 형식이 틀린 작업)
+@pytest.mark.parametrize("factory", [plan, score, evaluate])
+@pytest.mark.parametrize("persona", ["DEVIL", "COFFEE_CHAT"])
+def test_reads_persona(factory: Any, persona: str) -> None:
+    job = parse_job(factory(persona=persona))
+
+    assert isinstance(job, PlanJob | ScoreAnswerJob | EvaluateJob)
+    assert job.persona is Persona(persona)
+
+
+@pytest.mark.parametrize("factory", [plan, score, evaluate])
+@pytest.mark.parametrize("persona", [..., None])
+def test_missing_persona_is_coffee_chat(factory: Any, persona: Any) -> None:
+    job = parse_job(factory(persona=persona))
+
+    assert isinstance(job, PlanJob | ScoreAnswerJob | EvaluateJob)
+    assert job.persona is Persona.COFFEE_CHAT
+
+
+@pytest.mark.parametrize("factory", [plan, score, evaluate])
+@pytest.mark.parametrize("persona", ["devil", "INTERVIEWER", "", 1, True])
+def test_unknown_persona_is_invalid(factory: Any, persona: Any) -> None:
+    message = factory(persona=persona)
+
+    with pytest.raises(InvalidJobError, match="persona"):
+        parse_job(message)
 
 
 @pytest.mark.parametrize("seq", [0, 6, "3", True])

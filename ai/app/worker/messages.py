@@ -26,7 +26,7 @@ from app.common.cover_letter import (
     InvalidCoverLetterError,
     parse_cover_letter_items,
 )
-from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode
+from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode, Persona
 
 
 class JobType(StrEnum):
@@ -88,6 +88,7 @@ class PlanJob(Job):
     job_title: str
     # 자기소개서 문항(1~5개). 문항 순서대로다
     cover_letter_items: tuple[CoverLetterItem, ...]
+    persona: Persona = Persona.COFFEE_CHAT
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -95,6 +96,7 @@ class ScoreAnswerJob(Job):
     job_type: ClassVar[JobType] = JobType.SCORE_ANSWER
     answer_id: int
     mode: InterviewMode
+    persona: Persona = Persona.COFFEE_CHAT
     seq: int
     question: str
     criteria: str
@@ -109,6 +111,7 @@ class ScoreAnswerJob(Job):
 class EvaluateJob(Job):
     job_type: ClassVar[JobType] = JobType.EVALUATE
     mode: InterviewMode
+    persona: Persona = Persona.COFFEE_CHAT
     cover_letter_items: tuple[CoverLetterItem, ...]
     claims: tuple[Claim, ...]
     answers: tuple[EvaluateAnswer, ...]
@@ -169,6 +172,18 @@ def _mode(data: Mapping[str, Any]) -> InterviewMode:
         return InterviewMode(str(data.get("mode")))
     except ValueError as e:
         raise InvalidJobError("mode는 VIDEO 또는 CHAT이어야 한다") from e
+
+
+def _persona(data: Mapping[str, Any]) -> Persona:
+    # 필드를 추가하기 전에 BE가 전송한 작업은 persona가 없으므로,
+    # 개발자 면접관으로 처리한다(AI 명세 1.3)
+    value = data.get("persona")
+    if value is None:
+        return Persona.COFFEE_CHAT
+    try:
+        return Persona(str(value))
+    except ValueError as e:
+        raise InvalidJobError("persona는 DEVIL 또는 COFFEE_CHAT이어야 한다") from e
 
 
 def _object(value: Any, path: str) -> Mapping[str, Any]:
@@ -389,6 +404,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 company_name=_text(data, "companyName"),
                 job_title=_text(data, "jobTitle"),
                 cover_letter_items=_cover_letter_items(data),
+                persona=_persona(data),
             )
         case JobType.SCORE_ANSWER:
             return ScoreAnswerJob(
@@ -397,6 +413,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 requested_at=requested_at,
                 answer_id=_positive_id(data, "answerId"),
                 mode=_mode(data),
+                persona=_persona(data),
                 seq=_seq(data),
                 question=_text(data, "question"),
                 criteria=_text(data, "criteria"),
@@ -410,6 +427,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 session_id=session_id,
                 requested_at=requested_at,
                 mode=_mode(data),
+                persona=_persona(data),
                 cover_letter_items=_cover_letter_items(data),
                 claims=_claims(data),
                 answers=_evaluate_answers(data),
