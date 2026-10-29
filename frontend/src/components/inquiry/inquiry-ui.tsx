@@ -134,11 +134,14 @@ export function TextArea({
 export function InquiryModal({
   open,
   labelledBy,
+  describedBy,
   width,
   children,
 }: {
   open: boolean;
   labelledBy: string;
+  /** 모달 설명 글의 id(있으면 화면 낭독기가 제목과 함께 읽는다) */
+  describedBy?: string;
   width: "w-[440px]" | "w-[480px]";
   children: ReactNode;
 }) {
@@ -158,6 +161,7 @@ export function InquiryModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby={labelledBy}
+            aria-describedby={describedBy}
             className={`flex max-w-full flex-col gap-2 rounded-3xl bg-bg-sub p-8 shadow-[0_20px_48px_rgba(0,0,0,0.25)] dark:border dark:border-line dark:shadow-[0_20px_48px_rgba(0,0,0,0.45)] ${width}`}
             initial={{ opacity: 0, y: 24, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}

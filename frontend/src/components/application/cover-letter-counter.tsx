@@ -10,18 +10,19 @@ import {
 } from "motion/react";
 import { useEffect, useRef } from "react";
 
-// 기준: Figma S03 Label Row 자기소개서(18:2096: 13px SemiBold text-3, "1,248 / 3,000")
-// · 모션 메모 S03 "숫자가 바뀔 때 살짝 튀는 카운트업, 2,800자 넘으면 주황 → 3,000자 도달 시 빨강 + 흔들림(x [-4,4,-2,2,0])"
+// 기준: Figma S03 Label Row 자기소개서(18:2096: 13px SemiBold text-3, "1,248 / 3,000") · 지원서 쓰기 문항 상자
+// · 모션 메모 S03 · 모션 메모 지원서 쓰기(S03과 같음) "숫자가 바뀔 때 살짝 튀는 카운트업, 2,800자 넘으면 주황 → 3,000자 도달 시 빨강 + 흔들림(x [-4,4,-2,2,0])"
+// · 사용자 결정(2026-10-29: 답변은 문항마다 20,000자) — 최대치가 바뀌어도 S03처럼 최대 200자 전부터 주황으로 알린다
 
-/** 이 글자 수를 넘으면 주황으로 바꿔 끝이 가까움을 알린다 */
-export const COVER_LETTER_WARN = 2800;
+/** 최대 글자 수보다 이만큼 적은 수를 넘으면 주황으로 바꿔 끝이 가까움을 알린다(S03: 3,000자 중 2,800자) */
+export const COUNTER_WARN_GAP = 200;
 
-/** 글자 수 상태: 기본 · 끝이 가까움(2,800자 초과) · 최대 */
+/** 글자 수 상태: 기본 · 끝이 가까움(최대 - 200자 초과) · 최대 */
 export type CounterTone = "normal" | "near" | "max";
 
 export function counterTone(length: number, max: number): CounterTone {
   if (length >= max) return "max";
-  if (length > COVER_LETTER_WARN) return "near";
+  if (length > max - COUNTER_WARN_GAP) return "near";
   return "normal";
 }
 

@@ -7,7 +7,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { MaskIcon } from "@/components/mask-icon";
 
 // 기준: Figma S03 Action Bar(18:2106: 높이 88 · 위 테두리 · 왼쪽 [← 홈으로] · 오른쪽 [다음 →] 280px)
-// · S04 같은 자리([← 지원서 수정] · [다음: 면접 방식]) · 모션 메모 S03([다음] 회색 → 주황 채움 + scale 0.96→1 팝)
+// · S04 같은 자리([← 지원서 선택] · [다음: 면접 방식]) · 지원서 쓰기([← 뒤로] · [저장하기], 화살표 없음) · 모션 메모 S03([다음] 회색 → 주황 채움 + scale 0.96→1 팝)
 // · 모션 메모 S05(18:2492: [면접 시작]이 주황으로 채워지며 한 번 통통 scale [1,1.06,1])
 
 /** 연습 시작 단계 화면 아래에 붙는 버튼 막대. 왼쪽은 이전으로 가는 링크, 오른쪽(children)은 다음 버튼 */
@@ -43,11 +43,14 @@ export function PracticeNextButton({
   disabled = false,
   pending = false,
   pop = "settle",
+  arrow = true,
 }: {
   children: ReactNode;
   disabled?: boolean;
   pending?: boolean;
   pop?: "settle" | "bounce";
+  /** 글자 뒤 오른쪽 화살표. 지원서 쓰기 [저장하기]는 다음 단계가 아니라 화살표가 없다(Figma 지원서 쓰기) */
+  arrow?: boolean;
 }) {
   const [scope, animate] = useAnimate<HTMLButtonElement>();
   const reduce = useReducedMotion();
@@ -89,7 +92,7 @@ export function PracticeNextButton({
       />
       <span className="relative flex items-center gap-2">
         {children}
-        <MaskIcon src="/home/icon-arrow-right.svg" size={20} />
+        {arrow && <MaskIcon src="/home/icon-arrow-right.svg" size={20} />}
       </span>
     </button>
   );
