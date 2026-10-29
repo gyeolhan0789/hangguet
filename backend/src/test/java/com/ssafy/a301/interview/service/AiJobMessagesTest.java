@@ -54,7 +54,8 @@ class AiJobMessagesTest {
                         Map.entry("requestedAt", "2026-10-22T14:03:13+09:00"),
                         Map.entry("companyName", "○○전자"),
                         Map.entry("jobTitle", "백엔드 개발자"),
-                        Map.entry("coverLetter", "저는…"));
+                        Map.entry("coverLetter", "저는…"),
+                        Map.entry("persona", "DEVIL"));
     }
 
     @Test
@@ -70,6 +71,7 @@ class AiJobMessagesTest {
                 .containsEntry("jobType", "SCORE_ANSWER")
                 .containsEntry("answerId", answer.getId())
                 .containsEntry("mode", "VIDEO")
+                .containsEntry("persona", "DEVIL")
                 .containsEntry("seq", 2)
                 .containsEntry("question", "질문2")
                 .containsEntry("criteria", "기준2")
@@ -125,6 +127,7 @@ class AiJobMessagesTest {
 
         assertThat(message)
                 .containsEntry("mode", "CHAT")
+                .containsEntry("persona", "DEVIL")
                 .containsEntry("coverLetter", "저는…")
                 .containsEntry("claims", List.of(new PlanClaim("c1", "주장", "NUMBER", 1)));
         @SuppressWarnings("unchecked")
@@ -174,11 +177,26 @@ class AiJobMessagesTest {
         assertThat(messages.of(withId(AiJob.mergeRecording(session.getId()))))
                 .containsEntry("jobType", "MERGE_RECORDING")
                 .containsEntry("rawPrefix", "recordings/raw/" + session.getId() + "/")
-                .containsEntry("objectKey", "recordings/" + session.getId() + ".mp4");
+                .containsEntry("objectKey", "recordings/" + session.getId() + ".mp4")
+                .doesNotContainKey("persona");
 
         InterviewSession chat = newSession(InterviewMode.CHAT);
         assertThatThrownBy(() -> messages.of(withId(AiJob.mergeRecording(chat.getId()))))
                 .isInstanceOf(IllegalStateException.class);
+    }
+
+    // 기준: AI 명세 1.3 persona(면접을 만들 때 고른 면접관)
+    @Test
+    void coffeeChatSessionSendsItsPersona() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT, Persona.COFFEE_CHAT);
+        Answer answer = answer(session, 1, "답", null);
+
+        assertThat(messages.of(withId(AiJob.plan(session.getId()))))
+                .containsEntry("persona", "COFFEE_CHAT");
+        assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
+                .containsEntry("persona", "COFFEE_CHAT");
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .containsEntry("persona", "COFFEE_CHAT");
     }
 
     @Test
@@ -192,18 +210,26 @@ class AiJobMessagesTest {
     }
 
     private InterviewSession newSession(InterviewMode mode) {
+        return newSession(mode, Persona.DEVIL);
+    }
+
+    private InterviewSession newSession(InterviewMode mode, Persona persona) {
         User user = new User("job-msg-" + UUID.randomUUID() + "@example.com", "hash", "메시지");
         em.persist(user);
         Application application = new Application(user, "○○전자", "백엔드 개발자", "저는…");
         em.persist(application);
-        InterviewSession session = new InterviewSession(user, application, Persona.DEVIL, mode);
+        InterviewSession session = new InterviewSession(user, application, persona, mode);
         em.persist(session);
         em.flush();
         return session;
     }
 
     private InterviewSession plannedSession(InterviewMode mode) {
-        InterviewSession session = newSession(mode);
+        return plannedSession(mode, Persona.DEVIL);
+    }
+
+    private InterviewSession plannedSession(InterviewMode mode, Persona persona) {
+        InterviewSession session = newSession(mode, persona);
         plans.save(
                 new InterviewPlan(
                         session.getId(),
