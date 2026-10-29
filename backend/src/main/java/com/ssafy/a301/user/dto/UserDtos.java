@@ -1,5 +1,6 @@
 package com.ssafy.a301.user.dto;
 
+import com.ssafy.a301.user.domain.SocialProvider;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -10,6 +11,9 @@ import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 
 public final class UserDtos {
+
+    private static final String SOCIAL_PROVIDER =
+            "소셜 회원이면 가입한 제공자, 이메일 회원이면 null. 소셜 회원은 비밀번호가 없어 2.3을 쓸 수 없고 2.7에 비밀번호를 보내지 않는다";
 
     private UserDtos() {}
 
@@ -25,6 +29,7 @@ public final class UserDtos {
             @Schema(description = "회원 id", example = "1") long id,
             @Schema(description = "로그인 아이디", example = "example@ssafy.com") String email,
             @Schema(description = "닉네임", example = "면접왕") String nickname,
+            @Schema(description = SOCIAL_PROVIDER, nullable = true) SocialProvider socialProvider,
             @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
                     String profileImageUrl,
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
@@ -39,6 +44,7 @@ public final class UserDtos {
             @Schema(description = "회원 id", example = "1") long id,
             @Schema(description = "로그인 아이디", example = "example@ssafy.com") String email,
             @Schema(description = "닉네임", example = "면접왕") String nickname,
+            @Schema(description = SOCIAL_PROVIDER, nullable = true) SocialProvider socialProvider,
             @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
                     String profileImageUrl,
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
@@ -105,8 +111,12 @@ public final class UserDtos {
                     String objectKey) {}
 
     public record WithdrawRequest(
-            @Schema(description = "본인 확인용 비밀번호", example = "abcd1234", maxLength = 64)
-                    @NotBlank(message = "필수 값입니다.")
+            @Schema(
+                            description =
+                                    "본인 확인용 비밀번호. 이메일 회원은 필수, 소셜 회원은 보내지 않는다(2.1 socialProvider)",
+                            example = "abcd1234",
+                            maxLength = 64,
+                            nullable = true)
                     @Size(max = 64, message = "최대 64자입니다.")
                     String password) {}
 }

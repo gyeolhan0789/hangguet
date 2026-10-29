@@ -20,10 +20,13 @@ import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.practice.domain.PracticeLog;
+import com.ssafy.a301.user.domain.SocialProvider;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.domain.UserAgreement;
+import com.ssafy.a301.user.domain.UserSocialAccount;
 import com.ssafy.a301.user.repository.UserRepository;
+import com.ssafy.a301.user.repository.UserSocialAccountRepository;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -47,6 +50,7 @@ class PersistenceTest {
     @Autowired private EntityManager em;
     @Autowired private InterviewPlanRepository plans;
     @Autowired private UserRepository users;
+    @Autowired private UserSocialAccountRepository socialAccounts;
 
     @Test
     void savesAndReadsAllEntities() {
@@ -104,6 +108,38 @@ class PersistenceTest {
 
         assertThatThrownBy(() -> em.persist(new User("same@ssafy.com", "hash", "c")))
                 .hasMessageContaining("uk_users_email_active");
+    }
+
+    @Test
+    void socialAccountIsUniqueOnlyWhileNotWithdrawn() {
+        User left = User.social("social@ssafy.com", "a");
+        em.persist(left);
+        em.persist(new UserSocialAccount(left, SocialProvider.KAKAO, "12345"));
+        left.withdraw(OffsetDateTime.now());
+        assertThat(socialAccounts.withdrawAll(left.getId(), OffsetDateTime.now())).isEqualTo(1);
+        em.flush();
+        em.clear();
+        assertThat(socialAccounts.findActive(SocialProvider.KAKAO, "12345")).isEmpty();
+
+        User again = User.social("social@ssafy.com", "b");
+        em.persist(again);
+        em.persist(new UserSocialAccount(again, SocialProvider.KAKAO, "12345"));
+        em.flush();
+        assertThat(socialAccounts.findActive(SocialProvider.KAKAO, "12345"))
+                .get()
+                .extracting(account -> account.getUser().getId())
+                .isEqualTo(again.getId());
+        assertThat(socialAccounts.findActiveProvider(again.getId())).contains(SocialProvider.KAKAO);
+        assertThat(users.findById(again.getId()).orElseThrow().hasPassword()).isFalse();
+
+        User other = User.social("other@ssafy.com", "c");
+        em.persist(other);
+        assertThatThrownBy(
+                        () ->
+                                em.persist(
+                                        new UserSocialAccount(
+                                                other, SocialProvider.KAKAO, "12345")))
+                .hasMessageContaining("uk_user_social_accounts_active");
     }
 
     @Test

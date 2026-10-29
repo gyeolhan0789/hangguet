@@ -6,10 +6,15 @@ import com.ssafy.a301.auth.AuthDtos.LogoutRequest;
 import com.ssafy.a301.auth.AuthDtos.RefreshRequest;
 import com.ssafy.a301.auth.AuthDtos.RefreshResponse;
 import com.ssafy.a301.auth.AuthDtos.SignupRequest;
+import com.ssafy.a301.auth.AuthDtos.SocialLoginRequest;
+import com.ssafy.a301.auth.AuthDtos.SocialLoginResponse;
+import com.ssafy.a301.auth.AuthDtos.SocialSignup;
+import com.ssafy.a301.auth.AuthDtos.SocialSignupRequest;
 import com.ssafy.a301.auth.AuthDtos.TokenResponse;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.user.UserDtos.UserSummary;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -22,9 +27,11 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +56,18 @@ public class AuthController {
             { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600,
               "user": { "id": 1, "email": "a@ssafy.com", "nickname": "면접왕", "profileImageUrl": null } }\
             """;
+    private static final String SOCIAL_LOGGED_IN_EXAMPLE =
+            """
+            { "signupRequired": false, "signup": null,
+              "token": { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10",
+                         "expiresIn": 3600,
+                         "user": { "id": 1, "email": "a@kakao.com", "nickname": "면접왕", "profileImageUrl": null } } }\
+            """;
+    private static final String SOCIAL_SIGNUP_EXAMPLE =
+            """
+            { "signupRequired": true, "token": null,
+              "signup": { "signupToken": "Zm9v…", "email": "a@kakao.com", "nickname": "면접왕", "expiresIn": 600 } }\
+            """;
     private static final String REFRESH_EXAMPLE =
             """
             { "accessToken": "eyJ…", "refreshToken": "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10", "expiresIn": 3600 }\
@@ -57,6 +76,8 @@ public class AuthController {
     // 목 서버는 회원을 저장하지 않아 로그인·재발급은 이 예시 회원으로 토큰을 만든다
     private static final long EXAMPLE_USER_ID = 1L;
     private static final String EXAMPLE_NICKNAME = "면접왕";
+    private static final String SOCIAL_EMAIL = "a@kakao.com";
+    private static final long SIGNUP_TOKEN_TTL_SECONDS = 600;
 
     private final JwtIssuer jwtIssuer;
 
@@ -113,11 +134,7 @@ public class AuthController {
     @PostMapping("/signup")
     @ResponseStatus(HttpStatus.CREATED)
     public TokenResponse signup(@Valid @RequestBody SignupRequest request) {
-        var types = EnumSet.noneOf(AuthDtos.TermsType.class);
-        request.agreements().forEach(a -> types.add(a.termsType()));
-        if (types.size() != AuthDtos.TermsType.values().length) {
-            throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
-        }
+        requireAllTerms(request.agreements());
         return tokens(
                 new UserSummary(
                         EXAMPLE_USER_ID, request.email(), request.nickname().strip(), null));
@@ -169,6 +186,146 @@ public class AuthController {
     @PostMapping("/logout")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void logout(@Valid @RequestBody LogoutRequest request) {}
+
+    @Operation(
+            summary = "1.6 소셜 로그인",
+            description =
+                    "제공자 인가 코드로 로그인한다. 연결된 회원이면 token, 처음 온 사람이면 signup(1.7로 가입)을 준다. 목 서버는 code로"
+                            + " 결과를 고른다: `signup` 가입 필요 · `no-email` 400 SOCIAL_EMAIL_REQUIRED ·"
+                            + " `duplicated` 409 · `invalid` 401 · 그 밖은 가입한 회원으로 로그인(뼈대 서버)")
+    @SecurityRequirements
+    @ApiResponse(
+            responseCode = "200",
+            content =
+                    @Content(
+                            examples = {
+                                @ExampleObject(name = "가입한 회원", value = SOCIAL_LOGGED_IN_EXAMPLE),
+                                @ExampleObject(name = "처음 온 사람", value = SOCIAL_SIGNUP_EXAMPLE)
+                            }))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "SOCIAL_EMAIL_REQUIRED",
+                                        value = ErrorExamples.SOCIAL_EMAIL_REQUIRED),
+                                @ExampleObject(
+                                        name = "VALIDATION_FAILED",
+                                        value = ErrorExamples.VALIDATION_FAILED)
+                            }))
+    @ApiResponse(
+            responseCode = "401",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SOCIAL_LOGIN_FAILED",
+                                            value = ErrorExamples.SOCIAL_LOGIN_FAILED)))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SOCIAL_EMAIL_DUPLICATED",
+                                            value = ErrorExamples.SOCIAL_EMAIL_DUPLICATED)))
+    @ApiResponse(
+            responseCode = "503",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SOCIAL_LOGIN_UNAVAILABLE",
+                                            value = ErrorExamples.SOCIAL_LOGIN_UNAVAILABLE)))
+    @PostMapping("/oauth/{provider}")
+    public SocialLoginResponse socialLogin(
+            @Parameter(description = "제공자. 지금은 `kakao`만", example = "kakao") @PathVariable
+                    String provider,
+            @Valid @RequestBody SocialLoginRequest request) {
+        if (!"kakao".equalsIgnoreCase(provider)) {
+            throw new FieldValidationException("provider", "지원하지 않는 로그인 방법입니다.");
+        }
+        return switch (request.code()) {
+            case "signup" ->
+                    new SocialLoginResponse(
+                            true,
+                            null,
+                            new SocialSignup(
+                                    UUID.randomUUID().toString(),
+                                    SOCIAL_EMAIL,
+                                    EXAMPLE_NICKNAME,
+                                    SIGNUP_TOKEN_TTL_SECONDS));
+            case "no-email" -> throw new ApiException(ErrorCode.SOCIAL_EMAIL_REQUIRED);
+            case "duplicated" -> throw new ApiException(ErrorCode.SOCIAL_EMAIL_DUPLICATED);
+            case "invalid" -> throw new ApiException(ErrorCode.SOCIAL_LOGIN_FAILED);
+            default ->
+                    new SocialLoginResponse(
+                            false,
+                            tokens(
+                                    new UserSummary(
+                                            EXAMPLE_USER_ID, SOCIAL_EMAIL, EXAMPLE_NICKNAME, null)),
+                            null);
+        };
+    }
+
+    @Operation(
+            summary = "1.7 소셜 회원가입",
+            description =
+                    "1.6에서 받은 가입 토큰과 필수 약관 3개 동의로 비밀번호 없는 회원을 만들고 로그인 토큰을 준다."
+                            + " 목 서버는 signupToken이 `expired`면 401 SIGNUP_TOKEN_INVALID(뼈대 서버)")
+    @SecurityRequirements
+    @ApiResponse(
+            responseCode = "201",
+            content = @Content(examples = @ExampleObject(value = TOKEN_EXAMPLE)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "AGREEMENT_REQUIRED",
+                                            value = ErrorExamples.AGREEMENT_REQUIRED)))
+    @ApiResponse(
+            responseCode = "401",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SIGNUP_TOKEN_INVALID",
+                                            value = ErrorExamples.SIGNUP_TOKEN_INVALID)))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SOCIAL_EMAIL_DUPLICATED",
+                                            value = ErrorExamples.SOCIAL_EMAIL_DUPLICATED)))
+    @PostMapping("/oauth/signup")
+    @ResponseStatus(HttpStatus.CREATED)
+    public TokenResponse socialSignup(@Valid @RequestBody SocialSignupRequest request) {
+        requireAllTerms(request.agreements());
+        if ("expired".equals(request.signupToken())) {
+            throw new ApiException(ErrorCode.SIGNUP_TOKEN_INVALID);
+        }
+        return tokens(new UserSummary(EXAMPLE_USER_ID, SOCIAL_EMAIL, EXAMPLE_NICKNAME, null));
+    }
+
+    private static void requireAllTerms(List<AuthDtos.AgreementRequest> agreements) {
+        var types = EnumSet.noneOf(AuthDtos.TermsType.class);
+        agreements.forEach(a -> types.add(a.termsType()));
+        if (types.size() != AuthDtos.TermsType.values().length) {
+            throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
+        }
+    }
 
     private TokenResponse tokens(UserSummary user) {
         return new TokenResponse(

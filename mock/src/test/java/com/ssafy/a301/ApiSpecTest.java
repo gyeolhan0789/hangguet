@@ -9,6 +9,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.assertj.MockMvcTester;
+import org.springframework.test.web.servlet.assertj.MvcTestResult;
 
 /** API 명세의 문서 구성, 응답 형식, 오류 케이스가 명세대로 나오는지 확인한다. */
 @SpringBootTest
@@ -79,6 +80,67 @@ class ApiSpecTest {
                 .bodyJson()
                 .extractingPath("$.code")
                 .isEqualTo("VALIDATION_FAILED");
+    }
+
+    @Test
+    void socialLoginCodeChoosesResult() {
+        assertThat(socialLogin("kakao", "signup"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.signup.expiresIn")
+                .isEqualTo(600);
+        assertThat(socialLogin("kakao", "anything"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.token.user.email")
+                .isEqualTo("a@kakao.com");
+        assertThat(socialLogin("kakao", "no-email"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("SOCIAL_EMAIL_REQUIRED");
+        assertThat(socialLogin("kakao", "duplicated")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(socialLogin("naver", "signup"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.errors[0].field")
+                .isEqualTo("provider");
+    }
+
+    @Test
+    void socialSignupNeedsValidTokenAndAllAgreements() {
+        String body =
+                """
+                { "signupToken": "%s",
+                  "agreements": [ { "termsType": "TERMS", "termsVersion": "1.0" },
+                                  { "termsType": "PRIVACY", "termsVersion": "1.0" },
+                                  { "termsType": "RECORDING", "termsVersion": "1.0" } ] }\
+                """;
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/oauth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body.formatted("token")))
+                .hasStatus(HttpStatus.CREATED);
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/oauth/signup")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(body.formatted("expired")))
+                .hasStatus(HttpStatus.UNAUTHORIZED)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("SIGNUP_TOKEN_INVALID");
+    }
+
+    private MvcTestResult socialLogin(String provider, String code) {
+        return mockMvc.post()
+                .uri("/api/v1/auth/oauth/" + provider)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                        "{ \"code\": \"%s\", \"redirectUri\": \"http://localhost:3000/cb\" }"
+                                .formatted(code))
+                .exchange();
     }
 
     @Test

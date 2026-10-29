@@ -1,4 +1,4 @@
-// 1. 인증 요청. 기준: 웹 Swagger 1.1 ~ 1.5.
+// 1. 인증 요청. 기준: 웹 Swagger 1.1 ~ 1.7.
 
 /** 약관 종류. TERMS 이용약관 · PRIVACY 개인정보 수집·이용 · RECORDING 면접 녹화·음성 이용 */
 export type TermsType = "TERMS" | "PRIVACY" | "RECORDING";
@@ -49,4 +49,20 @@ export interface RefreshRequest {
 export interface LogoutRequest {
   /** 폐기할 리프레시 토큰. 필수 */
   refreshToken: string;
+}
+
+/** 1.6 POST /auth/oauth/{provider} 본문 */
+export interface SocialLoginRequest {
+  /** 제공자가 redirectUri로 넘겨 준 인가 코드. 필수, 최대 2048자. 한 번만 쓸 수 있다 */
+  code: string;
+  /** 인가 코드를 받을 때 쓴 주소. 필수, 최대 2048자. 서버에 등록한 주소만 받는다 */
+  redirectUri: string;
+}
+
+/** 1.7 POST /auth/oauth/signup 본문 */
+export interface SocialSignupRequest {
+  /** 1.6에서 받은 가입 토큰. 필수, 최대 100자 */
+  signupToken: string;
+  /** 필수 약관 3개 모두 동의(1.2와 같음) */
+  agreements: AgreementRequest[];
 }

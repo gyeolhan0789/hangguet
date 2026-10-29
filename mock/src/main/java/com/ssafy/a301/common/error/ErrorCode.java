@@ -15,6 +15,13 @@ public enum ErrorCode {
     AGREEMENT_REQUIRED(HttpStatus.BAD_REQUEST, "필수 약관에 모두 동의해 주세요."),
     EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일이에요."),
     PASSWORD_MISMATCH(HttpStatus.BAD_REQUEST, "비밀번호가 맞지 않아요."),
+    PASSWORD_NOT_SET(HttpStatus.CONFLICT, "소셜 로그인 회원은 비밀번호가 없어요."),
+    SOCIAL_LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "소셜 로그인에 실패했어요. 다시 시도해 주세요."),
+    SOCIAL_LOGIN_UNAVAILABLE(
+            HttpStatus.SERVICE_UNAVAILABLE, "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."),
+    SOCIAL_EMAIL_REQUIRED(HttpStatus.BAD_REQUEST, "이메일 제공에 동의해야 가입할 수 있어요."),
+    SOCIAL_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요."),
+    SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 시간이 지났어요. 다시 로그인해 주세요."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요."),
 
     // 지원서

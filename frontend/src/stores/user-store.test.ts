@@ -8,6 +8,7 @@ const user: MeResponse = {
   id: 1,
   email: "example@ssafy.com",
   nickname: "면접왕",
+  socialProvider: null,
   profileImageUrl: null,
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
