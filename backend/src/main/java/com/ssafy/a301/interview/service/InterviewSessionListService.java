@@ -1,5 +1,6 @@
 package com.ssafy.a301.interview.service;
 
+import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.time.KoreaTime;
@@ -31,6 +32,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PagedModel;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,16 +45,19 @@ public class InterviewSessionListService {
     private final AnswerRepository answers;
     private final SessionScoreRepository scores;
     private final InterviewStatsService interviewStats;
+    private final ApplicationRepository applications;
 
     public InterviewSessionListService(
             InterviewSessionRepository sessions,
             AnswerRepository answers,
             SessionScoreRepository scores,
-            InterviewStatsService interviewStats) {
+            InterviewStatsService interviewStats,
+            ApplicationRepository applications) {
         this.sessions = sessions;
         this.answers = answers;
         this.scores = scores;
         this.interviewStats = interviewStats;
+        this.applications = applications;
     }
 
     @Transactional(readOnly = true)
@@ -94,16 +99,7 @@ public class InterviewSessionListService {
                         : sessions.findPracticeSessions(
                                 userId, SessionStatus.PRACTICE, from, to, pageable);
 
-        List<Long> sessionIds = found.stream().map(InterviewSession::getId).toList();
-        List<Long> completedSessionIds =
-                found.stream()
-                        .filter(session -> session.getStatus() == SessionStatus.COMPLETED)
-                        .map(InterviewSession::getId)
-                        .toList();
-        Map<Long, Long> answerCounts = answerCounts(sessionIds);
-        Map<Long, Map<Criterion, Grade>> grades = grades(completedSessionIds);
-        List<SessionListItem> content =
-                found.stream().map(session -> toListItem(session, answerCounts, grades)).toList();
+        List<SessionListItem> content = toListItems(found).getContent();
 
         long totalInterviewCount = sessions.countPracticeSessions(userId, SessionStatus.PRACTICE);
         return new SessionListResponse(
@@ -114,6 +110,43 @@ public class InterviewSessionListService {
                         found.getTotalElements(),
                         found.getTotalPages()),
                 new SessionListSummary(totalInterviewCount, daily.practiceMinutes()));
+    }
+
+    /** 4.6. 없거나 남의 지원서 · 지운 지원서는 404. 항목은 5.13과 같다. */
+    @Transactional(readOnly = true)
+    public PagedModel<SessionListItem> listByApplication(
+            long userId, long applicationId, int page, int size) {
+        if (!applications.existsByIdAndUserIdAndDeletedAtIsNull(applicationId, userId)) {
+            throw new ApiException(ErrorCode.APPLICATION_NOT_FOUND);
+        }
+        PageRequest pageable = PageRequest.of(page, size, RECENT_FIRST);
+        // JPA는 int 범위의 offset만 지원한다. 그 밖의 페이지는 빈 목록과 전체 건수를 준다.
+        Page<InterviewSession> found =
+                pageable.getOffset() > Integer.MAX_VALUE
+                        ? new PageImpl<>(
+                                List.of(),
+                                pageable,
+                                sessions.findApplicationSessions(
+                                                userId,
+                                                applicationId,
+                                                SessionStatus.PRACTICE,
+                                                PageRequest.of(0, 1))
+                                        .getTotalElements())
+                        : sessions.findApplicationSessions(
+                                userId, applicationId, SessionStatus.PRACTICE, pageable);
+        return new PagedModel<>(toListItems(found));
+    }
+
+    private Page<SessionListItem> toListItems(Page<InterviewSession> found) {
+        List<Long> sessionIds = found.stream().map(InterviewSession::getId).toList();
+        List<Long> completedSessionIds =
+                found.stream()
+                        .filter(session -> session.getStatus() == SessionStatus.COMPLETED)
+                        .map(InterviewSession::getId)
+                        .toList();
+        Map<Long, Long> answerCounts = answerCounts(sessionIds);
+        Map<Long, Map<Criterion, Grade>> grades = grades(completedSessionIds);
+        return found.map(session -> toListItem(session, answerCounts, grades));
     }
 
     private Map<Long, Long> answerCounts(List<Long> sessionIds) {

@@ -85,6 +85,35 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("to") OffsetDateTime to,
             Pageable pageable);
 
+    /** 4.6. 한 지원서로 본 연습 면접(5.13과 같은 기준) */
+    @EntityGraph(attributePaths = "application")
+    @Query(
+            value =
+                    """
+                    select s from InterviewSession s
+                    where s.user.id = :userId
+                      and s.application.id = :applicationId
+                      and s.status in :statuses
+                      and exists (
+                          select a.id from Answer a where a.question.session = s
+                      )
+                    """,
+            countQuery =
+                    """
+                    select count(s) from InterviewSession s
+                    where s.user.id = :userId
+                      and s.application.id = :applicationId
+                      and s.status in :statuses
+                      and exists (
+                          select a.id from Answer a where a.question.session = s
+                      )
+                    """)
+    Page<InterviewSession> findApplicationSessions(
+            @Param("userId") long userId,
+            @Param("applicationId") long applicationId,
+            @Param("statuses") Collection<SessionStatus> statuses,
+            Pageable pageable);
+
     @Query(
             """
             select count(s) from InterviewSession s
