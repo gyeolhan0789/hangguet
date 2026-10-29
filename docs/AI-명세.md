@@ -68,6 +68,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
+- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(3·4장)을 면접관에 따라 다르게 만들기 위함이다
+  - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
+  - 두 값이 아니면 형식이 틀린 작업이다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
   - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
@@ -77,7 +80,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ```json
 { "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "requestedAt": "2026-10-22T14:03:13+09:00", "answerId": 903,
-  "mode": "VIDEO", "seq": 3,
+  "mode": "VIDEO", "persona": "DEVIL", "seq": 3,
   "question": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거",
   "content": "조회 쿼리 실행 계획을 보고…", "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
   "speech": { "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 } }
@@ -134,7 +137,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 전에 자소서에서 주장을 뽑고, 그 주장을 파고드는 질문 5개와 질문마다 채점 기준 1개를 만든다.
 
 - **시작** 5.1·5.3
-- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetter` **[제안]**. 고도화에서는 회사 공시 요약(8장)을 더한다
+- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetter`, `persona` **[제안]**. 고도화에서는 회사 공시 요약(8장)을 더한다
 - **STEP 01 주장 추출(GMS)** 자소서에서 경험·수치를 뽑는다. `sentenceNo`는 자소서 원문의 문장 순번(1부터)이다
   - 문장은 비어 있지 않은 줄마다 나누고, 줄 안에서는 한글·영문·닫는 괄호·%·따옴표 바로 뒤의 마침표·물음표·느낌표(그 뒤에 닫는 따옴표·괄호가 붙을 수 있음) 다음 공백에서 나눈다
   - 숫자 뒤 마침표(「1. 지원 동기」 같은 문항 번호)에서는 나누지 않는다. 문항 제목 줄도 한 문장이다
@@ -186,7 +189,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 중 답변마다 말하기 분석과 평가 STEP 01(기준별 판정)을 미리 한다. 다음 질문을 막지 않고, 실패해도 면접은 계속된다(EVALUATE가 마저 채점).
 
 - **시작** BE가 답변을 저장한 직후(화상은 `answer.completed`, 채팅은 5.7). `answers.evaluation`이 비어 있을 때만 작업을 넣는다
-- **입력(작업 메시지)** `answerId`, `mode`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** `answerId`, `mode`, `persona`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
 - **말하기 분석(화상만)** 입력은 `tokens`와 작업 메시지의 `speech`
   - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 계산하지 않는다(API 명세 6.3)
   - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
@@ -235,7 +238,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `persona`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
