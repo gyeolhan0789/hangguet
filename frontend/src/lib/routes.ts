@@ -10,7 +10,7 @@ export const ROUTES = {
   signup: "/signup",
   /** S02 홈. 오늘 완료(S02-B) · 끊김(S02-C) · 첫 방문(S02-D)도 같은 주소에서 상태로 나눈다. */
   home: "/home",
-  /** S03 지원서 입력 — 연습 시작(진행 1단계) */
+  /** S03 지원서 선택 — 연습 시작(진행 1단계). 고른 지원서(applicationId)는 주소에 붙일 수 있다. */
   practice: "/practice",
   /** S04 면접관 선택(진행 2단계). 주소에 applicationId(필수) · persona(돌아왔을 때 고른 면접관)를 붙인다. */
   practiceInterviewer: "/practice/interviewer",
@@ -24,6 +24,10 @@ export const ROUTES = {
   mypage: "/mypage",
   /** S09-1 설정 (S09 [설정]으로 들어오고 '‹ 마이페이지'로 돌아간다) */
   settings: "/mypage/settings",
+  /** 지원 관리 목록(4.3). S09 '지원 관리' 카드 · 헤더 프로필 메뉴(C01) · 모바일 메뉴 [지원 관리]로 들어온다. 페이지(page, 0부터)는 주소에 붙인다. */
+  applications: "/applications",
+  /** 지원서 쓰기(4.1). 지원 관리 [+ 지원서 쓰기] · S03 [+ 추가하기]로 들어온다. */
+  applicationNew: "/applications/new",
   /** I02 내 문의 목록(회원). 헤더 프로필 메뉴(C01) [문의하기]로 들어온다. 페이지(page, 0부터)는 주소에 붙인다. */
   inquiries: "/inquiries",
   /** I01 문의하기(회원). I02 [+ 문의하기]로 들어온다. */
@@ -39,7 +43,7 @@ export const ROUTES = {
 } as const;
 
 /**
- * S04 면접관 선택. S03에서 만든 지원서(4.1)의 id를 들고 간다. S05-1 [← 면접관 선택]으로 돌아갈 때는 고른 면접관도 넘긴다.
+ * S04 면접관 선택. S03에서 고른 지원서의 id를 들고 간다. S05-1 [← 면접관 선택]으로 돌아갈 때는 고른 면접관도 넘긴다.
  * 면접 만들기(5.1)는 면접관 · 면접 방식까지 고른 뒤라, 그때까지 고른 값은 주소로 넘긴다.
  */
 export const interviewerPath = (applicationId: number, persona?: Persona) =>
@@ -62,9 +66,30 @@ export const resultPath = (sessionId: number) => `/interview/${sessionId}/result
 /** S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. */
 export const replayPath = (sessionId: number) => `/interview/${sessionId}/replay`;
 
-/** S03 지원서 입력을 S04 [← 지원서 수정]에서 다시 열 때. 그 지원서(4.2)로 칸을 채우고 4.4로 고친다. */
-export const applicationEditPath = (applicationId: number) =>
-  `${ROUTES.practice}?applicationId=${applicationId}`;
+/**
+ * S03 지원서 선택을 그 지원서를 골라 둔 채로 연다. S04 [← 지원서 선택] · 지원서 쓰기(S03에서 온 경우) 저장 뒤에 쓴다.
+ * added는 지원서 쓰기에서 막 저장하고 돌아온 경우다: 그 줄만 새로 나타나는 연출을 한다(모션 메모 S03 지원서 선택).
+ */
+export const practiceSelectPath = (applicationId: number, added = false) =>
+  `${ROUTES.practice}?applicationId=${applicationId}${added ? "&added=1" : ""}`;
+
+/** 지원 관리 목록을 page(0부터) 페이지로 연다. 첫 페이지는 page를 붙이지 않는다. */
+export const applicationsPath = (page = 0) =>
+  page > 0 ? `${ROUTES.applications}?page=${page}` : ROUTES.applications;
+
+/**
+ * 지원서 상세(4.2). 지원 관리 목록 줄 · 지원서 쓰기 저장 뒤(지원 관리에서 온 경우)로 들어온다.
+ * page(0부터)는 면접 기록(4.6)의 쪽이다. 첫 쪽은 page를 붙이지 않는다.
+ */
+export const applicationPath = (applicationId: number, page = 0) =>
+  `${ROUTES.applications}/${applicationId}${page > 0 ? `?page=${page}` : ""}`;
+
+/** 지원서 쓰기를 어디서 열었는지. 저장 뒤 · [← 뒤로]가 이곳으로 돌아간다(사용자 결정 2026-10-29) */
+export type ApplicationWriteFrom = "applications" | "practice";
+
+/** 지원서 쓰기. S03 [+ 추가하기]로 열 때는 from=practice를 붙인다. */
+export const applicationNewPath = (from: ApplicationWriteFrom = "applications") =>
+  from === "practice" ? `${ROUTES.applicationNew}?from=practice` : ROUTES.applicationNew;
 
 /** S09 마이페이지의 스트릭 달력을 month(YYYY-MM) 달로 연다. */
 export const mypagePath = (month: string) => `${ROUTES.mypage}?month=${month}`;
