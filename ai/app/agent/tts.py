@@ -7,14 +7,20 @@
 - 시각은 원문 기준 alignment를 사용한다.
   normalized_alignment는 숫자·기호를 읽는 글로 바꾼 글자라 화면의 질문 글과 글자가 맞지 않는다.
 - 면접관별 음성 id·모델은 BE에서 5.12로 발급하던 값과 같다.
+- 429(동시 요청 상한 초과 too_many_concurrent_requests, ElevenLabs 혼잡 system_busy)는
+  잠시 뒤 다시 요청하면 대개 성공하므로(ElevenLabs 도움말 API Error Code 429)
+  RETRY_DELAYS만큼 기다리며 다시 요청한다.
+  다른 실패는 다시 요청해도 결과가 같으므로 바로 실패로 처리한다.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import logging
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeGuard
 
@@ -35,10 +41,22 @@ VOICE_IDS: Mapping[Persona, str] = {
     Persona.COFFEE_CHAT: "kv35JHV8eknIPqadZFol",
 }
 REQUEST_TIMEOUT = 15
+# 429를 받은 뒤 다시 요청하기 전에 기다리는 시간(초). 길이가 다시 요청하는 횟수다
+RETRY_DELAYS: tuple[float, ...] = (1.0, 2.0, 4.0)
+# 429 본문의 detail.status로 받은 이유는 이 형식일 때만 로그에 남긴다
+RATE_LIMIT_REASON = re.compile(r"[a-z_]{1,64}")
 
 
 class TtsError(RuntimeError):
     """질문 음성을 만들지 못했다. 메시지에는 질문 글·키를 포함하지 않는다."""
+
+
+class RateLimitedError(TtsError):
+    """ElevenLabs가 429로 거절했다. reason은 detail.status(모르면 unknown)다."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"ElevenLabs 합성 실패 (status=429, {reason})")
+        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -95,9 +113,16 @@ def _is_number(value: object) -> TypeGuard[int | float]:
 
 
 class ElevenLabsTTS:
-    def __init__(self, api_key: str | None, *, model: str = MODEL_ID) -> None:
+    def __init__(
+        self,
+        api_key: str | None,
+        *,
+        model: str = MODEL_ID,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
         self._api_key = api_key
         self._model = model
+        self._sleep = sleep
 
     @property
     def configured(self) -> bool:
@@ -106,6 +131,21 @@ class ElevenLabsTTS:
     async def synthesize(self, text: str, persona: Persona) -> SpeechAudio:
         if self._api_key is None:
             raise TtsError("ELEVENLABS_API_KEY가 없다")
+        for attempt, delay in enumerate(RETRY_DELAYS, start=1):
+            try:
+                return await self._request(self._api_key, text, persona)
+            except RateLimitedError as e:
+                log.warning(
+                    "ElevenLabs 429(%s), %.0f초 뒤 다시 요청한다 (%d/%d)",
+                    e.reason,
+                    delay,
+                    attempt,
+                    len(RETRY_DELAYS),
+                )
+            await self._sleep(delay)
+        return await self._request(self._api_key, text, persona)
+
+    async def _request(self, api_key: str, text: str, persona: Persona) -> SpeechAudio:
         try:
             async with (
                 aiohttp.ClientSession(
@@ -114,10 +154,12 @@ class ElevenLabsTTS:
                 session.post(
                     ELEVENLABS_URL.format(voice_id=VOICE_IDS[persona]),
                     params={"output_format": OUTPUT_FORMAT},
-                    headers={"xi-api-key": self._api_key},
+                    headers={"xi-api-key": api_key},
                     json={"text": text, "model_id": self._model},
                 ) as response,
             ):
+                if response.status == 429:
+                    raise RateLimitedError(await _rate_limit_reason(response))
                 if response.status != 200:
                     # 응답 본문에 요청 글이 포함될 수 있어 상태 코드만 남긴다
                     raise TtsError(f"ElevenLabs 합성 실패 (status={response.status})")
@@ -127,6 +169,19 @@ class ElevenLabsTTS:
         # ElevenLabs는 합성에 성공한 글자 수로 과금하므로 200 응답을 받은 뒤에 기록한다
         ELEVENLABS_CHARACTERS.inc(len(text))
         return speech_audio(body)
+
+
+async def _rate_limit_reason(response: aiohttp.ClientResponse) -> str:
+    """429 본문의 detail.status만 꺼낸다. 다른 값에는 요청 글이 섞일 수 있어 쓰지 않는다."""
+    try:
+        body = await response.json()
+    except (aiohttp.ClientError, TimeoutError, ValueError):
+        return "unknown"
+    detail = body.get("detail") if isinstance(body, Mapping) else None
+    reason = detail.get("status") if isinstance(detail, Mapping) else None
+    if isinstance(reason, str) and RATE_LIMIT_REASON.fullmatch(reason):
+        return reason
+    return "unknown"
 
 
 def speech_audio(body: object) -> SpeechAudio:

@@ -18,6 +18,7 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   BE에 전송하는 question.started는 다시 전송하지 않는다.
 - 면접방이 닫히면 진행 중인 답변은 전달하지 않는다(AI 명세 6.1).
 - 다음 질문 음성은 답변을 듣는 동안 미리 합성한다(AI 명세 6장 머리말).
+  ElevenLabs 동시 요청 상한(요금제)을 넘지 않도록 질문은 앞 질문 합성이 끝난 뒤 하나씩 합성한다.
 - 답변 결과 전달은 on_answer가 담당한다.
   결과 큐 전송이 재시도 후에도 실패하면 submitFailed를 알리고 다음 질문으로 진행하지 않는다.
   [답변 완료]를 수신하면 보관한 같은 답변을 다시 전달한다(AI 명세 6.5).
@@ -28,6 +29,8 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   질문 음성 재생 중의 입력도 현재 질문의 입력이므로 질문을 말하기 시작할 때부터 수신한다.
   재입장한 화면은 이전 입력 seq를 모르므로 수신한 seq 기록을 초기화한다(AI 명세 6.5).
 - 화상 발화 중단 안내는 면접 시작 때 미리 합성해 두고, 판단되면 답변 중에 재생한다.
+  지금은 안내 음성 합성이 1번 질문과 동시 요청 자리를 다퉈 SPEAK_NOTICES로 끄고,
+  화면은 리액션 메시지의 안내 글로만 진행한다.
   재생 중에는 7초를 중지하고(AI 명세 6.2 4번), 답변이 끝나거나 지원자가 퇴장하면 재생을 멈춘다.
   [답변 완료]는 재생 중에도 수락하며, 답변이 끝나므로 재생을 멈추고 제출한다(AI 명세 6.3).
 """
@@ -75,6 +78,9 @@ from app.interview.realtime.progress import EndReason
 from app.interview.realtime.sentence import Sentence, last_sentence
 
 log = logging.getLogger(__name__)
+# 발화 중단 안내를 음성으로도 말할지. 면접 시작 때 안내 2개를 합성하면 ElevenLabs 동시 요청 상한에
+# 1번 질문 합성이 밀려(429) 끈다. 요금제를 정한 뒤 다시 켠다
+SPEAK_NOTICES = False
 
 
 class QuestionAsker(Protocol):
@@ -257,7 +263,16 @@ class InterviewRunner:
 
     def _prepare(self, seq: int) -> None:
         if seq <= MAX_SEQ and seq not in self._prepared:
-            self._prepared[seq] = asyncio.create_task(self._asker.prepare(seq))
+            previous = self._prepared.get(seq - 1)
+            self._prepared[seq] = asyncio.create_task(self._prepare_after(previous, seq))
+
+    async def _prepare_after(
+        self, previous: asyncio.Task[SpeechAudio | None] | None, seq: int
+    ) -> SpeechAudio | None:
+        # 앞 질문 합성이 끝난 뒤 합성해 동시 요청을 하나로 둔다. 앞 질문의 성공 여부와는 상관없다
+        if previous is not None:
+            await asyncio.wait((previous,))
+        return await self._asker.prepare(seq)
 
     async def _wait_candidate(self) -> str:
         await self._present.wait()
@@ -385,7 +400,7 @@ class InterviewRunner:
 
     def _prepare_notices(self) -> None:
         # 발화 중단은 화상만 판단하므로 화상 면접에서만 합성한다
-        if self._chat or self._reactions is None:
+        if not SPEAK_NOTICES or self._chat or self._reactions is None:
             return
         for reason in InterruptReason:
             text = INTERRUPT_PHRASES[(self._assignment.persona, reason)]

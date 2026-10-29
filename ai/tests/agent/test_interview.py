@@ -54,6 +54,8 @@ def assignment(current_seq: int = 1, mode: str = "VIDEO") -> Any:
 class FakeAsker:
     def __init__(self) -> None:
         self.prepared: list[int] = []
+        # 1번 질문 합성을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
+        self.first_prepare_hold: asyncio.Event | None = None
         self.asked: list[tuple[int, str, Any, bool]] = []
         self.hold: asyncio.Event | None = None
         self.speaking = asyncio.Event()
@@ -65,6 +67,8 @@ class FakeAsker:
 
     async def prepare(self, seq: int) -> Any:
         self.prepared.append(seq)
+        if seq == 1 and self.first_prepare_hold is not None:
+            await self.first_prepare_hold.wait()
         return f"audio-{seq}"
 
     async def prepare_notice(self, text: str) -> Any:
@@ -300,6 +304,19 @@ def test_next_question_audio_is_prepared_while_answering() -> None:
     async def scenario(h: Harness) -> None:
         await h.next_session()
         assert h.asker.prepared == [1, 2]
+
+    run_async(scenario)
+
+
+# ElevenLabs 동시 요청 상한을 넘지 않도록 앞 질문 합성이 끝난 뒤 다음 질문을 합성한다
+def test_next_question_is_synthesized_after_previous_one() -> None:
+    async def scenario(h: Harness) -> None:
+        hold = h.asker.first_prepare_hold = asyncio.Event()
+        await until(lambda: h.asker.prepared == [1])
+        await asyncio.sleep(0.02)
+        assert h.asker.prepared == [1]
+        hold.set()
+        await until(lambda: h.asker.prepared == [1, 2])
 
     run_async(scenario)
 
@@ -719,6 +736,28 @@ def test_speech_updates_pass_answer_tokens_for_long_answer_check() -> None:
 TOO_LONG = Interrupt(InterruptReason.TOO_LONG, "핵심만 짧게 말씀해 주세요.")
 
 
+@pytest.fixture
+def speak_notices(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(interview_module, "SPEAK_NOTICES", True)
+
+
+# 안내 음성을 끄면 합성하지 않고, 발화 중단을 판단해도 말하지 않는다
+# (화면은 리액션 메시지의 안내 글로 진행)
+def test_notices_are_not_synthesized_while_turned_off() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        assert h.reactions.on_interrupt is not None
+        h.reactions.on_interrupt(TOO_LONG)
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.asker.notices == []
+    assert h.asker.said == []
+    assert h.answers[0].end_reason is EndReason.AUTO_SUBMIT
+
+
+@pytest.mark.usefixtures("speak_notices")
 def test_notices_are_prepared_for_persona_only_in_video() -> None:
     async def scenario(h: Harness) -> None:
         await h.next_session()
@@ -732,6 +771,7 @@ def test_notices_are_prepared_for_persona_only_in_video() -> None:
     assert run_async(chat, mode="CHAT").asker.notices == []
 
 
+@pytest.mark.usefixtures("speak_notices")
 def test_notice_pauses_auto_submit_until_it_ends() -> None:
     async def scenario(h: Harness) -> None:
         session = await h.next_session()
@@ -750,6 +790,7 @@ def test_notice_pauses_auto_submit_until_it_ends() -> None:
     assert h.answers[0].end_reason is EndReason.AUTO_SUBMIT
 
 
+@pytest.mark.usefixtures("speak_notices")
 def test_submit_during_notice_stops_it_and_submits() -> None:
     async def scenario(h: Harness) -> None:
         session = await h.next_session()
@@ -765,6 +806,7 @@ def test_submit_during_notice_stops_it_and_submits() -> None:
     assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
 
 
+@pytest.mark.usefixtures("speak_notices")
 def test_leaving_stops_notice() -> None:
     async def scenario(h: Harness) -> None:
         session = await h.next_session()
@@ -779,6 +821,7 @@ def test_leaving_stops_notice() -> None:
     run_async(scenario)
 
 
+@pytest.mark.usefixtures("speak_notices")
 def test_notice_is_not_played_outside_answer() -> None:
     async def scenario(h: Harness) -> None:
         h.asker.hold = asyncio.Event()
