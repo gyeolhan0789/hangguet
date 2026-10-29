@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
 from typing import Any
 
+from app.common.cover_letter import cover_letter_text
 from app.common.gms import (
     Chat,
     GmsBadOutputError,
@@ -179,7 +180,7 @@ def _confirm_cover_letters(
     for answer, evaluation in zip(job.answers, evaluations, strict=True):
         source = CoverLetterInput(
             answer_id=answer.answer_id,
-            cover_letter=job.cover_letter,
+            cover_letter=cover_letter_text(job.cover_letter_items),
             claims=job.claims,
             question=answer.question,
             content=answer.content,

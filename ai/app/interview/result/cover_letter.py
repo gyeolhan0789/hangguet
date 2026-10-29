@@ -42,6 +42,7 @@ _SYSTEM = (
 class CoverLetterInput:
     # 로그에서 답변을 구분하기 위한 식별자다.
     answer_id: int
+    # 문항마다 질문 줄 다음에 답변을 두고 빈 줄로 이은 자기소개서 글이다(cover_letter_text).
     cover_letter: str
     claims: Sequence[Claim]
     question: str
