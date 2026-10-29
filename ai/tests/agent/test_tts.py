@@ -10,9 +10,11 @@ from app.agent.tts import (
     ELEVENLABS_URL,
     MODEL_ID,
     OUTPUT_FORMAT,
+    RETRY_DELAYS,
     VOICE_IDS,
     AlignedChar,
     ElevenLabsTTS,
+    RateLimitedError,
     TtsError,
     aligned_chars,
     speech_audio,
@@ -107,16 +109,35 @@ def test_malformed_audio_is_rejected(response: object) -> None:
         speech_audio(response)
 
 
-def http_session(status: int, payload: object) -> tuple[MagicMock, MagicMock]:
+def http_response(status: int, payload: object) -> MagicMock:
     response = MagicMock(status=status)
     response.json = AsyncMock(return_value=payload)
     response.__aenter__ = AsyncMock(return_value=response)
     response.__aexit__ = AsyncMock(return_value=False)
+    return response
+
+
+def http_session(status: int, payload: object) -> tuple[MagicMock, MagicMock]:
+    response = http_response(status, payload)
     session = MagicMock()
     session.post = MagicMock(return_value=response)
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=False)
     return session, response
+
+
+def rate_limited(reason: str = "too_many_concurrent_requests") -> MagicMock:
+    return http_response(429, {"detail": {"status": reason, "message": "limit"}})
+
+
+class FakeSleep:
+    """다시 요청하기 전 대기를 실제로 기다리지 않고 기록한다."""
+
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    async def __call__(self, delay: float) -> None:
+        self.delays.append(delay)
 
 
 def test_synthesize_requests_pcm_with_timestamps_for_persona_voice() -> None:
@@ -141,6 +162,64 @@ def test_error_status_does_not_expose_body() -> None:
         asyncio.run(ElevenLabsTTS("secret").synthesize("질문 원문", Persona.DEVIL))
     assert "질문 원문" not in str(raised.value)
     response.json.assert_not_awaited()
+
+
+# 기준: ElevenLabs 도움말 API Error Code 429(잠시 뒤 다시 요청하면 대개 성공)
+def test_rate_limited_request_is_retried_after_waiting() -> None:
+    session, _ = http_session(200, body())
+    session.post.side_effect = [
+        rate_limited(),
+        rate_limited("system_busy"),
+        http_response(200, body()),
+    ]
+    sleep = FakeSleep()
+    with patch("app.agent.tts.aiohttp.ClientSession", return_value=session):
+        audio = asyncio.run(ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL))
+    assert audio.pcm == PCM
+    assert session.post.call_count == 3
+    assert sleep.delays == list(RETRY_DELAYS[:2])
+
+
+def test_rate_limit_that_persists_fails_after_every_retry() -> None:
+    session, _ = http_session(200, body())
+    session.post.side_effect = [rate_limited() for _ in range(len(RETRY_DELAYS) + 1)]
+    sleep = FakeSleep()
+    with (
+        patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
+        pytest.raises(RateLimitedError, match="status=429, too_many_concurrent_requests"),
+    ):
+        asyncio.run(ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL))
+    assert session.post.call_count == len(RETRY_DELAYS) + 1
+    assert sleep.delays == list(RETRY_DELAYS)
+
+
+def test_other_errors_are_not_retried() -> None:
+    session, _ = http_session(401, {"detail": "invalid key"})
+    sleep = FakeSleep()
+    with (
+        patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
+        pytest.raises(TtsError, match="status=401"),
+    ):
+        asyncio.run(ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL))
+    session.post.assert_called_once()
+    assert sleep.delays == []
+
+
+# 429 본문에서는 detail.status 형식의 값만 쓰고, 그 밖의 값은 요청 글이 섞일 수 있어 버린다
+@pytest.mark.parametrize(
+    "payload", [{"detail": "질문 원문"}, {"detail": {"status": "질문 원문"}}, None, ["x"]]
+)
+def test_rate_limit_reason_never_exposes_body(payload: object) -> None:
+    session, _ = http_session(429, payload)
+    with (
+        patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
+        pytest.raises(RateLimitedError) as raised,
+    ):
+        asyncio.run(
+            ElevenLabsTTS("secret", sleep=FakeSleep()).synthesize("질문 원문", Persona.DEVIL)
+        )
+    assert raised.value.reason == "unknown"
+    assert "질문 원문" not in str(raised.value)
 
 
 @pytest.mark.parametrize(
