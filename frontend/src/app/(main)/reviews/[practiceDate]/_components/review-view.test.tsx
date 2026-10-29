@@ -131,7 +131,7 @@ describe("ReviewView · S08 (N일째)", () => {
     expect(within(next).queryByText("내일 홈에서 다시 알려드려요")).toBeNull();
   });
 
-  it("[오늘은 여기까지]는 홈(S02-B)으로, [한 번 더 면접]은 S03 지원서 입력으로 간다", () => {
+  it("[오늘은 여기까지]는 홈(S02-B)으로, [한 번 더 면접]은 S03 지원서 선택으로 간다", () => {
     view(S08);
 
     expect(screen.queryByText("한 번 더 할까요?")).not.toBeNull();

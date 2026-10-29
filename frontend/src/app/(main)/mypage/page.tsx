@@ -10,7 +10,7 @@ import { getPracticeLogs, getStats, getStreakFreezes } from "@/lib/user/queries"
 
 import { Toast } from "@/components/toast";
 
-import { ApplicationCard } from "./_components/coming-soon";
+import { ApplicationCard } from "./_components/application-card";
 import { MypageSkeleton } from "./_components/mypage-skeleton";
 import { ProfileSection } from "./_components/profile-section";
 import { StatTiles } from "./_components/stat-tiles";

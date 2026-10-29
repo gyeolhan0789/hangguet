@@ -66,7 +66,7 @@ export function AppNav({ user, notices }: { user: MeResponse; notices?: NoticeIt
 }
 
 /**
- * 모바일(sm 미만) 햄버거 메뉴: 데스크톱 헤더 메뉴(홈 · 연습 기록 · 스트릭 · 공지 · 다크 모드)와 C01 프로필 메뉴(마이페이지 · 문의하기 · 로그아웃)를
+ * 모바일(sm 미만) 햄버거 메뉴: 데스크톱 헤더 메뉴(홈 · 연습 기록 · 스트릭 · 공지 · 다크 모드)와 C01 프로필 메뉴(마이페이지 · 지원 관리 · 문의하기 · 로그아웃)를
  * 한곳에 모은다. 맨 위는 C01 드롭다운 머리(아바타 40 · 닉네임 15 ExtraBold · 이메일 13 Medium text-3)에 스트릭 알약을 붙인다.
  * 랜딩(S00)처럼 공지를 넘기지 않으면 공지 줄이 없다.
  */
@@ -93,6 +93,10 @@ export function AppMobileMenu({ user, notices }: { user: MeResponse; notices?: N
       <MobileMenuDivider />
       <MobileMenuLink href={ROUTES.mypage} icon="/icons/user-round.svg" chevron>
         마이페이지
+      </MobileMenuLink>
+      {/* 사용자 결정(2026-10-29): 프로필 메뉴(C01)와 같은 자리 · 모양으로 지원 관리 줄 */}
+      <MobileMenuLink href={ROUTES.applications} icon="/mypage/icon-briefcase.svg">
+        지원 관리
       </MobileMenuLink>
       <MobileMenuLink href={ROUTES.inquiries} icon="/icons/message-circle.svg">
         문의하기
