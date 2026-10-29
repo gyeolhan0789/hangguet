@@ -39,7 +39,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
-| 자기소개서 검증 | 4.1·4.4(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
+| 자기소개서 검증 | 4.1(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
 | PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
@@ -74,6 +74,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
   - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
+- PLAN·EVALUATE 작업과 자기소개서 검증(2.1) 메시지에 `coverLetterItems`가 없고 이전 BE의 `coverLetter`(글 하나)가 있으면 질문 '자기소개서'인 1번 문항으로 읽는다. 배포 중 큐에 남은 이전 메시지를 처리하기 위한 것으로, 다음 배포에서 지운다
 
 ```json
 { "jobType": "SCORE_ANSWER", "jobId": "8f0c…", "sessionId": 55, "requestedAt": "2026-10-22T14:03:13+09:00", "answerId": 903,
@@ -134,10 +135,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 전에 자소서에서 주장을 뽑고, 그 주장을 파고드는 질문 5개와 질문마다 채점 기준 1개를 만든다.
 
 - **시작** 5.1·5.3
-- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetter` **[제안]**. 고도화에서는 회사 공시 요약(8장)을 더한다
-- **STEP 01 주장 추출(GMS)** 자소서에서 경험·수치를 뽑는다. `sentenceNo`는 자소서 원문의 문장 순번(1부터)이다
+- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetterItems`(자기소개서 문항 1~5개를 문항 순서대로, 문항마다 `question`·`answer`. API 명세 4.1) **[제안]**. 고도화에서는 회사 공시 요약(8장)을 더한다
+- **STEP 01 주장 추출(GMS)** 자소서에서 경험·수치를 뽑는다. `sentenceNo`는 자소서의 문장 순번(1부터)이다. 문항 순서대로 문항 질문과 답변을 같은 규칙으로 나눠 이어서 센다(질문은 보통 한 문장). V12 전에 만든 플랜은 문항으로 옮기기 전 자기소개서 글 하나로 셌다. 옮기며 1번 문항에 붙은 질문 줄('자기소개서')이 없으므로 지금 문항 기준 번호와 그 줄만큼 어긋난다
   - 문장은 비어 있지 않은 줄마다 나누고, 줄 안에서는 한글·영문·닫는 괄호·%·따옴표 바로 뒤의 마침표·물음표·느낌표(그 뒤에 닫는 따옴표·괄호가 붙을 수 있음) 다음 공백에서 나눈다
-  - 숫자 뒤 마침표(「1. 지원 동기」 같은 문항 번호)에서는 나누지 않는다. 문항 제목 줄도 한 문장이다
+  - 숫자 뒤 마침표(「1. 지원 동기」 같은 번호)에서는 나누지 않는다
 - **STEP 02 질문·기준 생성(GMS)** 주장마다 파고드는 질문과 채점 기준을 JSON으로 생성한다. 질문 수 5개가 우선이다. 주장이 5개보다 적으면 같은 주장을 다른 관점으로 질문하고, 많으면 검증 가치가 큰 주장을 선택한다
 
 ```json
@@ -163,7 +164,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ### 2.1 자기소개서 검증
 
-지원서를 저장하기 전(API 명세 4.1·4.4)에 자기소개서로 면접 질문을 만들 수 있는지 Jev로 판단한다. 의미 없는 글이거나 내용이 부족한 자기소개서로 면접을 시작해 면접방에서 질문 생성이 실패하지 않게 하기 위해서다.
+지원서를 저장하기 전(API 명세 4.1)에 자기소개서로 면접 질문을 만들 수 있는지 Jev로 판단한다. 의미 없는 글이거나 내용이 부족한 자기소개서로 면접을 시작해 면접방에서 질문 생성이 실패하지 않게 하기 위해서다.
 
 - **큐** BE가 지원서 저장 요청 안에서 결과를 기다리므로 작업 큐(`ai:jobs`)·Outbox·결과 큐(`ai:results`)를 쓰지 않는다. 분석 작업자가 전용 큐를 별도 스레드로 받아, 질문 생성·녹화 합치기 작업 뒤에 줄 서지 않는다
   - BE가 `ai:checks`에 `LPUSH`하고, 작업자는 꺼내 판단한 뒤 결과를 `ai:checks:result:{jobId}`에 `LPUSH`한다(60초 뒤 만료). BE는 그 키를 `BRPOP`으로 최대 8초(임시 값) 기다린다
@@ -172,14 +173,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ```json
 { "jobId": "c0f1…", "requestedAt": "2026-10-27T14:03:13+09:00",
-  "companyName": "○○전자", "jobTitle": "백엔드 개발자", "coverLetter": "저는…" }
+  "companyName": "○○전자", "jobTitle": "백엔드 개발자",
+  "coverLetterItems": [ { "question": "지원 동기", "answer": "저는…" } ] }
 ```
 
-- **판단(Jev)** 회사명·직무·자기소개서를 `state`로 보내고 `noul` 질문 하나를 묻는다: 의미 있는 문장이고, 지원 동기나 경험을 묻는 질문을 여러 개 만들 만큼 구체적인 내용이 있는가. 글자 수 기준은 따로 두지 않고 이 질문으로 함께 판단한다. 0.5 이상(임시 값)이면 통과. 모델은 6.4와 같은 `jev-1.14.0`, 프롬프트 버전은 `cover-letter-check-v1`(9장)
+- **판단(Jev)** 회사명·직무·자기소개서 문항(`coverLetterItems`, 받은 모양 그대로)을 `state`로 보내고 `noul` 질문 하나를 묻는다: 의미 있는 문장이고, 지원 동기나 경험을 묻는 질문을 여러 개 만들 만큼 구체적인 내용이 있는가. 글자 수 기준은 따로 두지 않고 이 질문으로 함께 판단한다. 0.5 이상(임시 값)이면 통과. 모델은 6.4와 같은 `jev-1.14.0`, 프롬프트 버전은 `cover-letter-check-v2`(9장. v1은 자기소개서를 글 하나 `coverLetter`로 받던 버전)
   - 제한 시간 5초(임시 값), 재시도하지 않는다. BE가 기다리는 시간 안에 결과를 돌려줘야 하기 때문이다
   - 요청에 자기소개서가 담기므로 본문을 로그에 남기지 않는다
-- **결과** `{ "usable": true }` 또는 `{ "usable": false }`. 판단하지 못하면(Jev 장애·시간 초과·응답 형식 오류, `JEV_API_KEY` 없음, 메시지 형식 오류) `{ "error": "CHECK_FAILED" }`
-- **BE 응답** `usable: false`는 400 `VALIDATION_FAILED`(`coverLetter`), `CHECK_FAILED`·시간 초과·Redis 장애는 503 `COVER_LETTER_CHECK_UNAVAILABLE`. 둘 다 저장하지 않는다
+- **결과** `{ "usable": true }` 또는 `{ "usable": false }`. 판단하지 못하면(Jev 장애·시간 초과·응답 형식 오류, `JEV_API_KEY` 없음, 메시지 형식 오류(문항이 1~5개가 아니거나 빈 질문·답변 포함)) `{ "error": "CHECK_FAILED" }`
+- **BE 응답** `usable: false`는 400 `VALIDATION_FAILED`(`coverLetterItems`), `CHECK_FAILED`·시간 초과·Redis 장애는 503 `COVER_LETTER_CHECK_UNAVAILABLE`. 둘 다 저장하지 않는다
 
 ## 3. SCORE_ANSWER: 답변 채점
 
@@ -235,13 +237,13 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `coverLetter`, `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
 |---|---|
 | `ORGANIZING_ANSWERS` 답변 정리 | `evaluation`이 null인 답변을 3장과 같은 방식으로 채점한다(이미 있는 값은 유지). 화상이면 답변별 지표를 합쳐 `speech_metrics`를 만든다 |
-| `SCORING` 기준별 분석 | STEP 02 자소서 대조: 자소서 원문·`claims`와 답변을 대조해 근거가 맞는지 확인하고 `COVER_LETTER` 판정을 확정한다. 그다음 답변 점수 = 4항목 평균, 항목 점수 = 답한 질문들의 항목별 평균(정수) |
+| `SCORING` 기준별 분석 | STEP 02 자소서 대조: 자소서 원문(문항마다 질문 줄 다음 답변, 빈 줄로 이음)·`claims`와 답변을 대조해 근거가 맞는지 확인하고 `COVER_LETTER` 판정을 확정한다. 그다음 답변 점수 = 4항목 평균, 항목 점수 = 답한 질문들의 항목별 평균(정수) |
 | `WRITING_FEEDBACK` 피드백 작성 | 답변마다 잘한 점·고칠 점, 항목마다 코멘트(255자 이하), 면접 총평(255자 이하). 고도화에서는 회사 공시 요약을 더한다 |
 
 - `evaluation`을 새로 생성하거나 `COVER_LETTER` 판정을 확정할 때도 항목별 `scoreMethod`는 3장 규칙을 따른다. `COVER_LETTER` 점수를 다시 계산하면 해당 항목의 `scoreMethod`도 실제 계산 방식으로 갱신하고, 나머지 항목은 유지한다
