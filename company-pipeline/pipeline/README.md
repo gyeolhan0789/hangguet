@@ -49,7 +49,7 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 |---|---|
 | `corp_code`, `name` | DART 고유번호, DART 등록 회사명 |
 | `generated_at`, `prompt_version`, `model` | 카드를 만든 날, 프롬프트 버전, LLM 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
-| `talent[]` | 인재상 1~3개. `keyword` 짧은 이름, `quote` 인재상 원문 그대로, `source` 채용 페이지 주소 |
+| `talent[]` | 인재상 1~7개(원문에 나열된 것마다 하나씩). `keyword` 짧은 이름, `quote` 인재상 원문 그대로, `source` 채용 페이지 주소 |
 | `direction[]` | 앞으로 집중·강화하려는 사업 방향 1~3개. `summary` 요약, `quote` 사업보고서 원문 그대로, `source` 출처 이름 |
 | `market[]` | 경쟁 위치(점유율·주요 고객·경쟁사 등) 1~3개. 필드는 `direction`과 같다 |
 | `recent[]` | 최근 30일 이슈 1~3개. `summary` 요약, `quote` 기사 제목·요약 원문, `source` 기사 링크, `published` 기사 날짜, `articles` 같은 사건 기사 수 |

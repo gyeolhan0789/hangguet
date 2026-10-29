@@ -63,6 +63,20 @@ def test_build_one_asks_talent_and_direction_separately(
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
 
 
+def test_build_one_keeps_every_listed_talent(
+    fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # 삼성증권처럼 원칙 7개를 나열한 인재상은 3개로 자르지 않고 모두 남긴다
+    principles = [f"우리는 원칙 {n}을 지킵니다." for n in range(1, 8)]
+    reply = {"talent": [{"keyword": f"원칙 {n}", "quote": p} for n, p in enumerate(principles, 1)]}
+    monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
+    company = {"name": "테스트", "talent_url": "url", "talent_text": "\n".join(principles)}
+
+    saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
+
+    assert len(saved["talent"]) == 7
+
+
 def test_build_one_fails_when_nothing_passes(
     fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
