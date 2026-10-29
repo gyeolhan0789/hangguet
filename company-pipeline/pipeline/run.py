@@ -60,8 +60,10 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         collected = company.get("talent_collected_at") or date.today().isoformat()
         storage.put(f"raw/talent/{corp_code}/{collected}.txt", talent.encode("utf-8"))
     llm: dict[str, Any] = {}
-    if talent or business:
-        llm |= card.call_llm(card.build_messages(name, talent, business))
+    if talent:
+        llm |= card.call_llm(card.build_talent_messages(name, talent))
+    if business:
+        llm |= card.call_llm(card.build_direction_messages(name, business))
     if market:
         llm |= card.call_llm(card.build_market_messages(name, market))
     result = card.to_card(

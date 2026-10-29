@@ -42,6 +42,27 @@ def test_build_one_writes_card_and_drops_made_up_quotes(
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
 
 
+def test_build_one_asks_talent_and_direction_separately(
+    fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    systems: list[str] = []
+
+    def fake(messages: list[dict[str, str]]) -> dict[str, Any]:
+        systems.append(messages[0]["content"])
+        if messages[0]["content"] == card.TALENT_SYSTEM:
+            return {"talent": [{"keyword": "협업", "quote": "우리는 협업합니다."}]}
+        return {"direction": [{"summary": "AI 인프라", "quote": "AI 인프라 사업에 더욱 집중할"}]}
+
+    monkeypatch.setattr(card, "call_llm", fake)
+    company = {"name": "테스트", "talent_url": "url", "talent_text": "우리는 협업합니다."}
+
+    saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
+
+    assert systems == [card.TALENT_SYSTEM, card.DIRECTION_SYSTEM]
+    assert [t["keyword"] for t in saved["talent"]] == ["협업"]
+    assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
+
+
 def test_build_one_fails_when_nothing_passes(
     fake_sources: None, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

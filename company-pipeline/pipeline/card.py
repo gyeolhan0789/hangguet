@@ -10,7 +10,7 @@ from typing import Any
 
 from pipeline.verify import normalize
 
-PROMPT_VERSION = "card-v4"
+PROMPT_VERSION = "card-v5"
 INPUT_LIMIT = 6000
 NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
 MAX_OUTPUT_TOKENS = 1500
@@ -28,17 +28,27 @@ _SKIP = re.compile(
     r"|인증|정보보호|리스크|위험|환율|통화|금리|차입|이자|대손|보안"
 )
 
-SYSTEM = (
+# 인재상과 사업 방향은 card-v4까지 한 번에 불렀다. 인재상(수백 자)이 사업보고서 문장(최대 6000자)에
+# 묻히고, 규칙(quote·keyword)을 같이 써서 인재상만의 규칙을 넣기 어려워 card-v5부터 따로 부른다
+TALENT_SYSTEM = (
     "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
     "- talent: 인재상 원문에서 회사가 바라는 인재의 특징 1~3개\n"
+    "- quote: 근거가 된 인재상 원문을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
+    "- keyword: quote에 적힌 내용만 짧게 다시 쓴다. "
+    "quote에 없는 목적·원인·효과를 덧붙이지 않는다\n"
+    "- 고를 것이 없으면 빈 배열로 둔다\n"
+    'JSON으로만 답한다: {"talent": [{"keyword": str, "quote": str}]}'
+)
+
+DIRECTION_SYSTEM = (
+    "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
     "- direction: 사업보고서 후보 문장 중 회사가 앞으로 집중·강화하려는 방향 1~3개. "
     "회사의 핵심 사업과 관련된 것을 고르고, 시장 전망이나 지난 실적만 있는 문장은 고르지 않는다\n"
     "- quote: 근거가 된 후보 문장을 한 글자도 바꾸지 말고 그대로 옮긴다\n"
-    "- keyword·summary: quote에 적힌 내용만 짧게 다시 쓴다. "
+    "- summary: quote에 적힌 내용만 짧게 다시 쓴다. "
     "quote에 없는 목적·원인·효과를 덧붙이지 않는다\n"
-    "- 원문이 비어 있으면 그 항목은 빈 배열로 둔다\n"
-    'JSON으로만 답한다: {"talent": [{"keyword": str, "quote": str}], '
-    '"direction": [{"summary": str, "quote": str}]}'
+    "- 고를 문장이 없으면 빈 배열로 둔다\n"
+    'JSON으로만 답한다: {"direction": [{"summary": str, "quote": str}]}'
 )
 
 
@@ -74,9 +84,14 @@ def market_input(business: str) -> str:
     return _pick(business, _MARKET)
 
 
-def build_messages(name: str, talent_text: str, business_text: str) -> list[dict[str, str]]:
-    user = f"회사: {name}\n\n[인재상 원문]\n{talent_text}\n\n[사업보고서 문장]\n{business_text}"
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+def build_talent_messages(name: str, talent_text: str) -> list[dict[str, str]]:
+    user = f"회사: {name}\n\n[인재상 원문]\n{talent_text}"
+    return [{"role": "system", "content": TALENT_SYSTEM}, {"role": "user", "content": user}]
+
+
+def build_direction_messages(name: str, business_text: str) -> list[dict[str, str]]:
+    user = f"회사: {name}\n\n[사업보고서 문장]\n{business_text}"
+    return [{"role": "system", "content": DIRECTION_SYSTEM}, {"role": "user", "content": user}]
 
 
 def build_market_messages(name: str, market_text: str) -> list[dict[str, str]]:

@@ -6,7 +6,8 @@ import pytest
 from pipeline import card
 from pipeline.card import (
     PROMPT_VERSION,
-    build_messages,
+    build_direction_messages,
+    build_talent_messages,
     business_input,
     link_articles,
     market_input,
@@ -39,10 +40,11 @@ def test_business_input_keeps_only_company_plan_sentences() -> None:
     ]  # 소개 문장, 탄소중립(ESG), 환율(재무 위험) 문장은 뺀다
 
 
-def test_build_messages_includes_both_sources() -> None:
-    user = build_messages("테스트은행", "고객 중심", "비대면 금융")[1]["content"]
-    assert "고객 중심" in user
-    assert "비대면 금융" in user
+def test_talent_and_direction_messages_carry_only_their_source() -> None:
+    talent = build_talent_messages("테스트은행", "고객 중심")[1]["content"]
+    direction = build_direction_messages("테스트은행", "비대면 금융")[1]["content"]
+    assert "고객 중심" in talent and "비대면 금융" not in talent
+    assert "비대면 금융" in direction and "고객 중심" not in direction
 
 
 def test_parse_reply_strips_think_block() -> None:
