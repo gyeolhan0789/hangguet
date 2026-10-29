@@ -1,18 +1,16 @@
 import type { Page } from "@playwright/test";
 
-import type { ApplicationCreateRequest, ApplicationUpdateRequest } from "../src/types/api";
-
 import { APPLICATION, PROBLEM } from "./mocks/data";
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // S04 면접관 선택
 // 근거: Figma S04 면접관 선택(18:2122) · 기획 메모 S04(마지막 줄 '또 다른 면접관'은 선택 불가)
-//   · 모션 메모 S04('준비 중' 줄 클릭 → 토스트 '곧 만나요!') · Swagger 4.2 지원서 조회 · 4.4 지원서 수정 · 5.1 persona
+//   · 모션 메모 S04('준비 중' 줄 클릭 → 토스트 '곧 만나요!') · Swagger 4.2 지원서 조회 · 4.3 지원서 목록 · 5.1 persona
 // 주소 값(applicationId · persona) 경계값은 단위 테스트(queries · personas)가, 토스트가 사라지는 시간은
-// 컴포넌트 테스트(persona-list.test.tsx)가 맡는다. 여기서는 사용자 흐름(고르기 · 이동 · 지원서 수정)을 본다.
+// 컴포넌트 테스트(persona-list.test.tsx)가 맡는다. 여기서는 사용자 흐름(고르기 · 이동 · 지원서 선택으로 돌아가기)을 본다.
 
 const S04 = `/practice/interviewer?applicationId=${APPLICATION.id}`;
-const S03_EDIT = `/practice?applicationId=${APPLICATION.id}`;
+const S03_SELECTED = `/practice?applicationId=${APPLICATION.id}`;
 
 const nextButton = (page: Page) => page.getByRole("button", { name: "다음: 면접 방식" });
 const personaGroup = (page: Page) => page.getByRole("main").getByRole("group", { name: "면접관" });
@@ -45,7 +43,7 @@ test.describe("S04 면접관 선택 · 화면", () => {
     await expect(personaGroup(page).getByRole("radio")).toHaveCount(2);
     await expect(personaGroup(page).getByRole("radio", { checked: true })).toHaveCount(0);
     await expect(comingSoon(page)).toBeVisible();
-    await expect(main.getByRole("link", { name: "지원서 수정" })).toBeVisible();
+    await expect(main.getByRole("link", { name: "지원서 선택" })).toBeVisible();
     await expect(nextButton(page)).toBeDisabled();
   });
 });
@@ -125,7 +123,7 @@ test.describe("S04 면접관 선택 · 준비 중 줄", () => {
 });
 
 test.describe("S04 면접관 선택 · 지원서", () => {
-  test("지원서를 찾을 수 없으면(404) 처음 단계인 S03 지원서 입력으로 돌려보낸다", async ({
+  test("지원서를 찾을 수 없으면(404) 처음 단계인 S03 지원서 선택으로 돌려보낸다", async ({
     page,
     msw,
   }) => {
@@ -143,7 +141,7 @@ test.describe("S04 면접관 선택 · 지원서", () => {
     ["없으면", "/practice/interviewer"],
     ["형식이 틀리면", "/practice/interviewer?applicationId=abc"],
   ]) {
-    test(`주소에 지원서가 ${name} S03 지원서 입력으로 돌려보낸다`, async ({ page }) => {
+    test(`주소에 지원서가 ${name} S03 지원서 선택으로 돌려보낸다`, async ({ page }) => {
       await page.goto(path);
 
       await expect(page).toHaveURL("/practice");
@@ -151,96 +149,31 @@ test.describe("S04 면접관 선택 · 지원서", () => {
   }
 });
 
-test.describe("S04 면접관 선택 · [← 지원서 수정] (4.2 · 4.4)", () => {
-  test("누르면 S03에 그 지원서가 채워지고, 고쳐서 [다음]을 누르면 4.4로 저장하고 S04로 돌아온다", async ({
-    page,
-    msw,
-  }) => {
-    let patched: { id: string; body: ApplicationUpdateRequest } | undefined;
+// 사용자 결정(2026-10-29): 지원서 수정 기능이 없어져 [← 지원서 수정]을 [← 지원서 선택]으로 바꾸고, 그 지원서를 골라 둔 S03로 간다.
+test.describe("S04 면접관 선택 · [← 지원서 선택]", () => {
+  test("누르면 그 지원서를 골라 둔 S03 지원서 선택으로 돌아간다", async ({ page, msw }) => {
     msw.use(
-      http.patch(api("/applications/:applicationId"), async ({ params, request }) => {
-        patched = {
-          id: String(params.applicationId),
-          body: (await request.json()) as ApplicationUpdateRequest,
-        };
-        return HttpResponse.json(APPLICATION);
-      }),
+      http.get(api("/applications"), () =>
+        HttpResponse.json({
+          content: [
+            {
+              id: APPLICATION.id,
+              companyName: APPLICATION.companyName,
+              jobTitle: APPLICATION.jobTitle,
+              createdAt: APPLICATION.createdAt,
+            },
+          ],
+          page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+        }),
+      ),
     );
     await page.goto(S04);
 
-    await page.getByRole("link", { name: "지원서 수정" }).click();
+    await page.getByRole("link", { name: "지원서 선택" }).click();
 
-    await expect(page).toHaveURL(S03_EDIT);
-    await expect(page.getByLabel("회사명")).toHaveValue(APPLICATION.companyName);
-    await expect(page.getByLabel("직무")).toHaveValue(APPLICATION.jobTitle);
-    await expect(page.getByLabel("자기소개서")).toHaveValue(APPLICATION.coverLetter);
-
-    await page.getByLabel("직무").fill("서버 개발자");
-    await page.getByRole("button", { name: "다음: 면접관 선택" }).click();
-
-    await expect(page).toHaveURL(S04);
-    expect(patched).toEqual({
-      id: String(APPLICATION.id),
-      body: {
-        companyName: APPLICATION.companyName,
-        jobTitle: "서버 개발자",
-        coverLetter: APPLICATION.coverLetter,
-      } satisfies ApplicationUpdateRequest,
-    });
-  });
-
-  test("면접에 쓴 지원서라 고칠 수 없으면(409) 안내하고, 입력한 값은 그대로 둔다", async ({
-    page,
-    msw,
-  }) => {
-    msw.use(
-      http.patch(api("/applications/:applicationId"), () =>
-        problemResponse(PROBLEM.APPLICATION_IN_USE),
-      ),
-    );
-    await page.goto(S03_EDIT);
-
-    await page.getByLabel("직무").fill("서버 개발자");
-    await page.getByRole("button", { name: "다음: 면접관 선택" }).click();
-
-    await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-      PROBLEM.APPLICATION_IN_USE.detail,
-    );
-    await expect(page).toHaveURL(S03_EDIT);
-    await expect(page.getByLabel("직무")).toHaveValue("서버 개발자");
-  });
-
-  test("고칠 지원서를 찾을 수 없으면(404) 빈 칸으로 열고, [다음]은 새 지원서(4.1)를 만든다", async ({
-    page,
-    msw,
-  }) => {
-    let created: ApplicationCreateRequest | undefined;
-    msw.use(
-      // 고칠 지원서 조회(S03)만 404다. 새로 만든 뒤 S04가 하는 조회는 기본 핸들러(지원서 있음)가 받는다.
-      http.get(
-        api("/applications/:applicationId"),
-        () => problemResponse(PROBLEM.APPLICATION_NOT_FOUND),
-        { once: true },
-      ),
-      http.post(api("/applications"), async ({ request }) => {
-        created = (await request.json()) as ApplicationCreateRequest;
-        return HttpResponse.json(APPLICATION, { status: 201 });
-      }),
-    );
-    await page.goto(S03_EDIT);
-
-    await expect(page.getByLabel("회사명")).toBeEmpty();
-    await page.getByLabel("회사명").fill("△△소프트");
-    await page.getByLabel("직무").fill("백엔드 개발자");
-    await page.getByLabel("자기소개서").fill("1. 지원 동기");
-    await page.getByRole("button", { name: "다음: 면접관 선택" }).click();
-
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("오늘은 누구와 면접할까요?");
-    await expect(page).toHaveURL(S04);
-    expect(created).toEqual({
-      companyName: "△△소프트",
-      jobTitle: "백엔드 개발자",
-      coverLetter: "1. 지원 동기",
-    } satisfies ApplicationCreateRequest);
+    await expect(page).toHaveURL(S03_SELECTED);
+    await expect(
+      page.getByRole("radio", { name: new RegExp(APPLICATION.companyName) }),
+    ).toBeChecked();
   });
 });

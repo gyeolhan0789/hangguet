@@ -226,7 +226,7 @@ test.describe("S05-1 면접 방식 선택 · 이동", () => {
     await expect(page).toHaveURL(`/practice/interviewer?applicationId=${APPLICATION.id}`);
   });
 
-  test("지원서를 찾을 수 없으면(404) S03 지원서 입력으로 돌려보낸다", async ({ page, msw }) => {
+  test("지원서를 찾을 수 없으면(404) S03 지원서 선택으로 돌려보낸다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/applications/:applicationId"), () =>
         problemResponse(PROBLEM.APPLICATION_NOT_FOUND),

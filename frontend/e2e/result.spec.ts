@@ -82,7 +82,7 @@ test.describe("S07 피드백 결과", () => {
     ).toBeVisible();
   });
 
-  test("주소의 면접 번호가 잘못됐으면 S03 지원서 입력으로 보낸다", async ({ page }) => {
+  test("주소의 면접 번호가 잘못됐으면 S03 지원서 선택으로 보낸다", async ({ page }) => {
     await page.goto("/interview/abc/result");
 
     await expect(page).toHaveURL("/practice");
@@ -92,7 +92,7 @@ test.describe("S07 피드백 결과", () => {
     ["면접이 없으면(404 SESSION_NOT_FOUND)", PROBLEM.SESSION_NOT_FOUND],
     ["결과가 없는 면접이면(409 NO_RESULT)", PROBLEM.NO_RESULT],
   ] as const) {
-    test(`${label} S03 지원서 입력으로 보낸다`, async ({ page, msw }) => {
+    test(`${label} S03 지원서 선택으로 보낸다`, async ({ page, msw }) => {
       msw.use(
         http.get(api("/interview-sessions/:sessionId/result"), () => problemResponse(problem)),
       );

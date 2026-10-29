@@ -7,6 +7,8 @@ import { API_BASE_URL } from "../../src/lib/api/config";
 import {
   ANSWER,
   APPLICATION,
+  APPLICATION_LIST,
+  APPLICATION_NO_SESSIONS,
   AUTH_TOKENS,
   GROWTH_REVIEW,
   HOME,
@@ -69,8 +71,12 @@ export const defaultHandlers = [
   http.get(api("/users/me/streak-freezes"), () => HttpResponse.json(STREAK_FREEZES)),
   http.post(api("/users/me/streak-freezes/use"), () => HttpResponse.json(STREAK_FREEZE_USED)),
   http.post(api("/applications"), () => HttpResponse.json(APPLICATION, { status: 201 })),
+  http.get(api("/applications"), () => HttpResponse.json(APPLICATION_LIST)),
   http.get(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
-  http.patch(api("/applications/:applicationId"), () => HttpResponse.json(APPLICATION)),
+  http.get(api("/applications/:applicationId/interview-sessions"), () =>
+    HttpResponse.json(APPLICATION_NO_SESSIONS),
+  ),
+  http.delete(api("/applications/:applicationId"), () => new HttpResponse(null, { status: 204 })),
   // 5.1은 Idempotency-Key(UUID)가 필수다. 없으면 mock 서버처럼 400으로 거절해, 모든 E2E가 헤더를 지키게 한다.
   http.post(api("/interview-sessions"), ({ request }) =>
     request.headers.get("Idempotency-Key")

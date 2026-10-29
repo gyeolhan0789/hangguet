@@ -709,7 +709,7 @@ test.describe("S06 면접 화면", () => {
     await expect(page).toHaveURL(`/practice/devices?sessionId=${SESSION_PLAN.READY.id}`);
   });
 
-  test("없는 면접(404 SESSION_NOT_FOUND)이면 S03 지원서 입력으로 보낸다", async ({ page, msw }) => {
+  test("없는 면접(404 SESSION_NOT_FOUND)이면 S03 지원서 선택으로 보낸다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId"), () =>
         problemResponse(PROBLEM.SESSION_NOT_FOUND),

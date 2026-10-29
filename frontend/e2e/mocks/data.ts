@@ -3,7 +3,9 @@
 // 단, 액세스 토큰 예시 "eyJ…"는 생략 표기(…)라 HTTP 헤더에 넣을 수 없어서, 같은 모양의 ASCII 값으로 바꿨다.
 import type {
   AnswerResponse,
+  ApplicationListResponse,
   ApplicationResponse,
+  ApplicationSessionListResponse,
   PendingResponse,
   QuestionResponse,
   MeResponse,
@@ -170,15 +172,99 @@ export const HOME = {
   },
 } as const;
 
-/** 4.1 지원서 작성 201 · 4.2 조회 · 4.4 수정 200 — Swagger 예시(셋 다 같은 값) */
+/**
+ * 4.1 지원서 작성 201 · 4.2 조회 200 — Swagger 예시(지원서 12의 문항 2개). 다른 E2E가 applicationId=10을 주소에 쓰므로 id만 10이다.
+ */
 export const APPLICATION = {
   id: 10,
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
-  coverLetter: "1. 지원 동기\n저는…",
+  coverLetterItems: [
+    {
+      itemOrder: 1,
+      question: "지원 동기",
+      answer:
+        "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어 ○○전자 백엔드 직무에 지원했습니다.",
+    },
+    {
+      itemOrder: 2,
+      question: "협업 경험",
+      answer: "4명이 함께한 프로젝트에서 API 설계를 맡아 조회 응답 시간을 40% 줄였습니다.",
+    },
+  ],
   createdAt: "2026-10-15T11:55:00+09:00",
-  inUse: false,
 } as const satisfies ApplicationResponse;
+
+/** 4.3 지원서 목록 200 — Swagger 예시(웹 목 실제 응답과 같음, 최근 작성순) */
+export const APPLICATION_LIST = {
+  content: [
+    {
+      id: 12,
+      companyName: "○○전자",
+      jobTitle: "백엔드 개발자",
+      createdAt: "2026-10-15T11:55:00+09:00",
+    },
+    {
+      id: 9,
+      companyName: "△△소프트",
+      jobTitle: "서버 개발자",
+      createdAt: "2026-10-11T20:10:00+09:00",
+    },
+  ],
+  page: { size: 10, number: 0, totalElements: 2, totalPages: 1 },
+} satisfies ApplicationListResponse;
+
+/**
+ * 4.6 지원서의 연습 면접 목록 200 — Swagger 예시가 아니라, 로컬 mock이 지원서 12에 실제로 돌려주는 응답이다
+ * (면접 55 · 52, 시작 시각 내림차순. mock/src/main/java/com/ssafy/a301/interview/SessionExamples.java).
+ */
+export const APPLICATION_SESSIONS = {
+  content: [
+    {
+      id: 55,
+      companyName: "○○전자",
+      jobTitle: "백엔드 개발자",
+      persona: "DEVIL",
+      mode: "VIDEO",
+      status: "COMPLETED",
+      startedAt: "2026-10-21T23:50:00+09:00",
+      endedAt: "2026-10-22T00:10:00+09:00",
+      answeredCount: 5,
+      summary: "논리는 탄탄했지만, 근거가 조금 아쉬웠어요",
+      criterionGrades: [
+        { criterion: "JOB_FIT", grade: "GOOD" },
+        { criterion: "COVER_LETTER", grade: "WEAK" },
+        { criterion: "LOGIC", grade: "GOOD" },
+        { criterion: "DELIVERY", grade: "NORMAL" },
+      ],
+    },
+    {
+      id: 52,
+      companyName: "○○전자",
+      jobTitle: "백엔드 개발자",
+      persona: "DEVIL",
+      mode: "CHAT",
+      status: "COMPLETED",
+      startedAt: "2026-10-20T20:00:00+09:00",
+      endedAt: "2026-10-20T20:10:00+09:00",
+      answeredCount: 2,
+      summary: null,
+      criterionGrades: [
+        { criterion: "JOB_FIT", grade: "NORMAL" },
+        { criterion: "COVER_LETTER", grade: "NORMAL" },
+        { criterion: "LOGIC", grade: "GOOD" },
+        { criterion: "DELIVERY", grade: "NORMAL" },
+      ],
+    },
+  ],
+  page: { size: 10, number: 0, totalElements: 2, totalPages: 1 },
+} satisfies ApplicationSessionListResponse;
+
+/** 4.6 지원서의 연습 면접 목록 200 — Swagger 예시(면접이 없는 지원서) */
+export const APPLICATION_NO_SESSIONS = {
+  content: [],
+  page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
+} satisfies ApplicationSessionListResponse;
 
 /** 5.1 면접 만들기 201 — Swagger 예시 */
 export const SESSION = {
@@ -350,16 +436,19 @@ export const PROBLEM = {
     code: "VALIDATION_FAILED",
     errors: [{ field: "agreements", reason: "약관 3개가 필요합니다." }],
   },
-  // 실제 mock 서버 응답(4.1에 회사명 101자 · 자기소개서 3,001자를 보냈을 때). Swagger 4.1에는 400 예시가 없다.
-  VALIDATION_FAILED_APPLICATION: {
+  // Swagger 4.1 400 예시(질문을 만들기 어려운 자기소개서)
+  COVER_LETTER_UNUSABLE: {
     title: "Bad Request",
     status: 400,
     detail: "입력값을 확인해 주세요.",
     instance: "/api/v1/applications",
     code: "VALIDATION_FAILED",
     errors: [
-      { field: "companyName", reason: "1~100자입니다." },
-      { field: "coverLetter", reason: "1~3,000자입니다." },
+      {
+        field: "coverLetterItems",
+        reason:
+          "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
+      },
     ],
   },
   // 실제 mock 서버 응답(5.1에 Idempotency-Key 헤더 없이 보냈을 때). Swagger 5.1에는 400 예시가 없다.
@@ -371,21 +460,13 @@ export const PROBLEM = {
     code: "VALIDATION_FAILED",
     errors: [{ field: "Idempotency-Key", reason: "필수 헤더입니다." }],
   },
-  // Swagger 4.2 · 4.4 404 예시
+  // Swagger 4.2 · 4.5 · 4.6 404 예시
   APPLICATION_NOT_FOUND: {
     title: "Not Found",
     status: 404,
     detail: "지원서를 찾을 수 없어요.",
     instance: "/api/v1/applications/0",
     code: "APPLICATION_NOT_FOUND",
-  },
-  // Swagger 4.4 409 예시
-  APPLICATION_IN_USE: {
-    title: "Conflict",
-    status: 409,
-    detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
-    instance: "/api/v1/applications/9",
-    code: "APPLICATION_IN_USE",
   },
   // Swagger 5.2 · 5.3 · 5.4 404 예시
   SESSION_NOT_FOUND: {

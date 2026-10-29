@@ -659,7 +659,9 @@ test.describe("C01 공통 헤더 · 프로필 메뉴", () => {
     await expect(nav.getByRole("link", { name: "마이" })).toHaveCount(0);
   });
 
-  test("프로필을 누르면 닉네임 · 이메일 · [마이페이지] · [로그아웃]이 열린다", async ({ page }) => {
+  test("프로필을 누르면 닉네임 · 이메일 · [마이페이지] · [지원 관리] · [로그아웃]이 열린다", async ({
+    page,
+  }) => {
     const button = page.getByRole("button", { name: "프로필 메뉴" });
 
     await button.click();
@@ -671,6 +673,10 @@ test.describe("C01 공통 헤더 · 프로필 메뉴", () => {
     await expect(menu.getByRole("menuitem", { name: "마이페이지" })).toHaveAttribute(
       "href",
       "/mypage",
+    );
+    await expect(menu.getByRole("menuitem", { name: "지원 관리" })).toHaveAttribute(
+      "href",
+      "/applications",
     );
     await expect(menu.getByRole("menuitem", { name: "로그아웃" })).toBeVisible();
   });
