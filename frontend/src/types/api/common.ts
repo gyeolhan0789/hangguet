@@ -25,7 +25,7 @@ export type ErrorCode =
   | "FILE_NOT_FOUND"
   // 지원서
   | "APPLICATION_NOT_FOUND"
-  | "APPLICATION_IN_USE"
+  | "COVER_LETTER_CHECK_UNAVAILABLE"
   // 면접 진행
   | "SESSION_NOT_FOUND"
   | "QUESTION_NOT_FOUND"
@@ -72,7 +72,7 @@ export interface ProblemDetail {
   errors?: FieldError[];
 }
 
-/** 페이지 목록 응답(웹 Swagger 4.3 · 5.13 · 7.2). `number`는 0부터 */
+/** 페이지 목록 응답(웹 Swagger 4.3 · 4.6 · 5.13 · 7.2 · 9.2). `number`는 0부터 */
 export interface Page<T> {
   content: T[];
   page: {
@@ -83,7 +83,7 @@ export interface Page<T> {
   };
 }
 
-/** 페이지 목록 요청 쿼리(4.3 · 7.2). 기본값은 API마다 다르다 */
+/** 페이지 목록 요청 쿼리(4.3 · 4.6 · 7.2). 기본값은 API마다 다르다 */
 export interface PageQuery {
   /** 0 이상, 기본 0 */
   page?: number;

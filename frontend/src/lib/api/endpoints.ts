@@ -43,8 +43,10 @@ export const homeEndpoints = {
 export const applicationEndpoints = {
   /** 4.1 POST 지원서 작성 · 4.3 GET 지원서 목록 */
   root: "/applications",
-  /** 4.2 GET 조회 · 4.4 PATCH 수정 · 4.5 DELETE 삭제 */
+  /** 4.2 GET 조회 · 4.5 DELETE 삭제 */
   detail: (applicationId: Id) => `/applications/${applicationId}`,
+  /** 4.6 GET 지원서의 연습 면접 목록(page · size) */
+  sessions: (applicationId: Id) => `/applications/${applicationId}/interview-sessions`,
 } as const;
 
 /** 5. 면접 진행 */

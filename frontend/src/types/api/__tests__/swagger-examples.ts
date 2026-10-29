@@ -1,12 +1,12 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 125개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 124개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
   ApplicationCreateRequest,
   ApplicationListResponse,
   ApplicationResponse,
-  ApplicationUpdateRequest,
+  ApplicationSessionListResponse,
   EmailAvailabilityResponse,
   GrowthReviewResponse,
   HomeResponse,
@@ -49,7 +49,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 125;
+export const SWAGGER_EXAMPLE_COUNT = 124;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -318,14 +318,12 @@ export const swaggerExamples = [
         companyName: "○○전자",
         jobTitle: "백엔드 개발자",
         createdAt: "2026-10-15T11:55:00+09:00",
-        inUse: false,
       },
       {
         id: 9,
         companyName: "△△소프트",
         jobTitle: "서버 개발자",
         createdAt: "2026-10-11T20:10:00+09:00",
-        inUse: true,
       },
     ],
     page: { size: 10, number: 0, totalElements: 2, totalPages: 1 },
@@ -334,16 +332,27 @@ export const swaggerExamples = [
   {
     companyName: "○○전자",
     jobTitle: "백엔드 개발자",
-    coverLetter: "1. 지원 동기\n저는…",
+    coverLetterItems: [
+      {
+        question: "지원 동기",
+        answer: "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어…",
+      },
+    ],
   } satisfies ApplicationCreateRequest,
   // 4.1 지원서 작성 201
   {
-    id: 10,
+    id: 13,
     companyName: "○○전자",
     jobTitle: "백엔드 개발자",
-    coverLetter: "1. 지원 동기\n저는…",
-    createdAt: "2026-10-15T11:55:00+09:00",
-    inUse: false,
+    coverLetterItems: [
+      {
+        itemOrder: 1,
+        question: "지원 동기",
+        answer:
+          "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어 ○○전자 백엔드 직무에 지원했습니다.",
+      },
+    ],
+    createdAt: "2026-10-29T10:00:00+09:00",
   } satisfies ApplicationResponse,
   // 4.1 지원서 작성 400 COVER_LETTER_UNUSABLE
   {
@@ -354,7 +363,7 @@ export const swaggerExamples = [
     code: "VALIDATION_FAILED",
     errors: [
       {
-        field: "coverLetter",
+        field: "coverLetterItems",
         reason:
           "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
       },
@@ -368,14 +377,45 @@ export const swaggerExamples = [
     instance: "/api/v1/applications",
     code: "COVER_LETTER_CHECK_UNAVAILABLE",
   } satisfies ProblemDetail,
-  // 4.2 지원서 조회 200
+  // 4.2 지원서 조회 200 ○○전자
   {
-    id: 10,
+    id: 12,
     companyName: "○○전자",
     jobTitle: "백엔드 개발자",
-    coverLetter: "1. 지원 동기\n저는…",
+    coverLetterItems: [
+      {
+        itemOrder: 1,
+        question: "지원 동기",
+        answer:
+          "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어 ○○전자 백엔드 직무에 지원했습니다.",
+      },
+      {
+        itemOrder: 2,
+        question: "협업 경험",
+        answer: "4명이 함께한 프로젝트에서 API 설계를 맡아 조회 응답 시간을 40% 줄였습니다.",
+      },
+    ],
     createdAt: "2026-10-15T11:55:00+09:00",
-    inUse: false,
+  } satisfies ApplicationResponse,
+  // 4.2 지원서 조회 200 △△소프트
+  {
+    id: 9,
+    companyName: "△△소프트",
+    jobTitle: "서버 개발자",
+    coverLetterItems: [
+      {
+        itemOrder: 1,
+        question: "지원 동기",
+        answer:
+          "사용자가 많은 서비스를 안정적으로 운영하고 싶어 △△소프트 서버 직무에 지원했습니다.",
+      },
+      {
+        itemOrder: 2,
+        question: "성장 경험",
+        answer: "장애 대응을 맡으며 모니터링 지표를 직접 설계했습니다.",
+      },
+    ],
+    createdAt: "2026-10-11T20:10:00+09:00",
   } satisfies ApplicationResponse,
   // 4.2 지원서 조회 404 APPLICATION_NOT_FOUND
   {
@@ -393,45 +433,53 @@ export const swaggerExamples = [
     instance: "/api/v1/applications/0",
     code: "APPLICATION_NOT_FOUND",
   } satisfies ProblemDetail,
-  // 4.5 지원서 삭제 409 APPLICATION_IN_USE
+  // 4.6 지원서의 연습 면접 목록 200 분석 중·실패
   {
-    title: "Conflict",
-    status: 409,
-    detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
-    instance: "/api/v1/applications/9",
-    code: "APPLICATION_IN_USE",
-  } satisfies ProblemDetail,
-  // 4.4 지원서 수정 요청 스키마 example
+    content: [
+      {
+        id: 54,
+        companyName: "△△소프트",
+        jobTitle: "서버 개발자",
+        persona: "COFFEE_CHAT",
+        mode: "CHAT",
+        status: "ANALYZING",
+        startedAt: "2026-10-21T19:30:00+09:00",
+        endedAt: "2026-10-21T19:42:00+09:00",
+        answeredCount: 3,
+        summary: null,
+        criterionGrades: [],
+      },
+      {
+        id: 53,
+        companyName: "△△소프트",
+        jobTitle: "서버 개발자",
+        persona: "COFFEE_CHAT",
+        mode: "VIDEO",
+        status: "FAILED",
+        startedAt: "2026-10-20T21:00:00+09:00",
+        endedAt: "2026-10-20T21:22:00+09:00",
+        answeredCount: 5,
+        summary: null,
+        criterionGrades: [],
+      },
+    ],
+    page: { size: 10, number: 0, totalElements: 2, totalPages: 1 },
+  } satisfies ApplicationSessionListResponse,
+  // 4.6 지원서의 연습 면접 목록 200 면접 없음
   {
-    companyName: "○○전자",
-    jobTitle: "백엔드 개발자",
-    coverLetter: "1. 지원 동기(수정)\n저는…",
-  } satisfies ApplicationUpdateRequest,
-  // 4.4 지원서 수정 200
-  {
-    id: 10,
-    companyName: "○○전자",
-    jobTitle: "백엔드 개발자",
-    coverLetter: "1. 지원 동기\n저는…",
-    createdAt: "2026-10-15T11:55:00+09:00",
-    inUse: false,
-  } satisfies ApplicationResponse,
-  // 4.4 지원서 수정 400 COVER_LETTER_UNUSABLE
+    content: [],
+    page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
+  } satisfies ApplicationSessionListResponse,
+  // 4.6 지원서의 연습 면접 목록 400 VALIDATION_FAILED
   {
     title: "Bad Request",
     status: 400,
     detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/applications",
+    instance: "/api/v1/applications/12/interview-sessions",
     code: "VALIDATION_FAILED",
-    errors: [
-      {
-        field: "coverLetter",
-        reason:
-          "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
-      },
-    ],
+    errors: [{ field: "size", reason: "1~20입니다." }],
   } satisfies ProblemDetail,
-  // 4.4 지원서 수정 404 APPLICATION_NOT_FOUND
+  // 4.6 지원서의 연습 면접 목록 404 APPLICATION_NOT_FOUND
   {
     title: "Not Found",
     status: 404,
@@ -439,21 +487,13 @@ export const swaggerExamples = [
     instance: "/api/v1/applications/0",
     code: "APPLICATION_NOT_FOUND",
   } satisfies ProblemDetail,
-  // 4.4 지원서 수정 409 APPLICATION_IN_USE
+  // 4.6 지원서의 연습 면접 목록 500 INTERNAL_ERROR
   {
-    title: "Conflict",
-    status: 409,
-    detail: "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
-    instance: "/api/v1/applications/9",
-    code: "APPLICATION_IN_USE",
-  } satisfies ProblemDetail,
-  // 4.4 지원서 수정 503 COVER_LETTER_CHECK_UNAVAILABLE
-  {
-    title: "Service Unavailable",
-    status: 503,
-    detail: "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
-    instance: "/api/v1/applications",
-    code: "COVER_LETTER_CHECK_UNAVAILABLE",
+    title: "Internal Server Error",
+    status: 500,
+    detail: "잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/applications/12/interview-sessions",
+    code: "INTERNAL_ERROR",
   } satisfies ProblemDetail,
   // 5.13 연습 면접 목록 200 완료·분석 중
   {
