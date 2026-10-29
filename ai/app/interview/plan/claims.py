@@ -2,6 +2,7 @@
 
 자소서를 미리 문장 단위로 나누고 번호를 붙여 전달하므로,
 GMS가 문장 번호를 계산하지 않고 근거 문장의 번호만 반환한다.
+문장 번호는 문항 순서대로 문항 질문의 문장, 답변의 문장을 이어서 매긴다.
 이 모듈은 응답 형식만 검사하고, 주장이 근거 문장에 실제로 있는지는 grounding.py가 검사한다.
 """
 
@@ -10,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.gms import Chat
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.rules import MAX_CLAIMS, MIN_CLAIMS, SENTENCE_BREAK
@@ -36,15 +38,20 @@ class ClaimSet:
     model: str
 
 
-def split_sentences(cover_letter: str) -> list[str]:
-    """자소서를 sentenceNo 규칙(rules.SENTENCE_BREAK)으로 나눈다.
-
-    목록의 i번째가 i+1번 문장이다.
-    """
+def _sentences(text: str) -> list[str]:
     sentences: list[str] = []
-    for line in cover_letter.splitlines():
+    for line in text.splitlines():
         sentences.extend(s.strip() for s in SENTENCE_BREAK.split(line) if s.strip())
     return sentences
+
+
+def split_sentences(items: Sequence[CoverLetterItem]) -> list[str]:
+    """자소서를 sentenceNo 규칙(rules.SENTENCE_BREAK)으로 나눈다.
+
+    문항마다 질문과 답변을 같은 규칙으로 나눠 잇는다(질문은 보통 한 문장이다).
+    목록의 i번째가 i+1번 문장이다.
+    """
+    return [s for item in items for text in (item.question, item.answer) for s in _sentences(text)]
 
 
 def build_claim_messages(job: PlanJob, sentences: Sequence[str]) -> list[dict[str, str]]:
@@ -93,6 +100,6 @@ def request_claims(chat: Chat, job: PlanJob) -> ClaimSet:
 
     출력 구조가 틀렸을 때의 재시도는 호출 측이 담당한다.
     """
-    sentences = split_sentences(job.cover_letter)
+    sentences = split_sentences(job.cover_letter_items)
     result = chat(build_claim_messages(job, sentences))
     return ClaimSet(parse_claims(result.content, sentences), result.model)
