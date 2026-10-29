@@ -6,14 +6,19 @@ import pytest
 from pipeline import candidates, card
 from pipeline.candidates import (
     Corp,
+    InvalidListError,
     add,
     ask_official,
     companies_file,
     corps,
     entry,
+    find,
     key,
     match,
+    replace,
     search,
+    update,
+    validate,
 )
 
 # 실제 DART 고유번호 목록 일부: 카카오(비상장·상장 동명), 삼성전자, 미래에셋자산운용(비상장)
@@ -108,6 +113,101 @@ def test_add_appends_once(tmp_path: Path) -> None:
     }
     with pytest.raises(ValueError):
         add(MORE[0], {}, companies)  # 이미 있는 회사
+
+
+def test_update_changes_only_given_fields(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    old = {
+        "name": "하이브",
+        "news_query": "HYBE",
+        "talent_url": "https://old",
+        "talent_text": "하이브 DNA",
+        "talent_collected_at": "2026-10-20",
+    }
+    companies.write_text(json.dumps([{"name": "카카오"}, old], ensure_ascii=False), "utf-8")
+
+    row = update(
+        "하이브", {"talent_text": " 새 원문 ", "talent_collected_at": "2026-10-29"}, companies
+    )
+
+    # 준 칸만 바뀌고 나머지(검색어·주소)는 그대로, 회사명도 그대로
+    assert row == old | {"talent_text": "새 원문", "talent_collected_at": "2026-10-29"}
+    assert find("하이브", companies) == row
+    assert find("카카오", companies) == {"name": "카카오"}  # 다른 회사는 건드리지 않는다
+    assert not (tmp_path / "companies.json.tmp").exists()  # 임시 파일은 바꿔 끼우고 남지 않는다
+
+
+def test_update_clears_query_same_as_name_and_date_without_text(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text(json.dumps([{"name": "하이브", "news_query": "HYBE"}]), "utf-8")
+
+    row = update("하이브", {"news_query": "하이브", "talent_collected_at": "2026-10-29"}, companies)
+
+    assert "news_query" not in row  # 회사명과 같은 검색어는 넣지 않는다
+    assert row["talent_collected_at"] == ""  # 인재상 원문이 없으면 수집일도 비운다
+
+
+def test_update_unknown_company(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text("[]", "utf-8")
+    with pytest.raises(LookupError):
+        update("없는회사", {"talent_text": "x"}, companies)
+    assert find("없는회사", companies) is None
+
+
+def test_validate_reports_every_problem() -> None:
+    rows = [
+        {"name": "카카오", "talent_txt": "오타 칸"},
+        {"name": "카카오"},
+        {"name": " "},
+        "문자열 한 줄",
+        {"name": "NAVER", "talent_text": 3},
+        {"name": "없는회사"},
+    ]
+    with pytest.raises(InvalidListError) as e:
+        validate(rows, known={"카카오", "NAVER"})
+    assert e.value.errors == [
+        "카카오: 모르는 칸 talent_txt",
+        "카카오: 두 번 들어 있다",
+        "3번째: name(회사명)이 없다",
+        "4번째: name(회사명)이 없다",
+        "NAVER: 문자열이 아닌 칸 talent_text",
+        "없는회사: DART 목록에 없는 회사명",
+    ]
+    with pytest.raises(InvalidListError):
+        validate({"name": "카카오"})  # 배열이 아님
+
+
+def test_validate_cleans_rows_like_add() -> None:
+    rows = [{"name": " NAVER ", "news_query": "NAVER", "talent_collected_at": "2026-10-29"}]
+    assert validate(rows, known=None) == [
+        {"name": "NAVER", "talent_url": "", "talent_text": "", "talent_collected_at": ""}
+    ]
+
+
+def test_replace_dry_run_then_replace_with_backup(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text(json.dumps([{"name": "카카오"}, {"name": "NAVER"}]), "utf-8")
+    new = [{"name": "NAVER", "talent_text": "새 원문"}, {"name": "하이브"}]
+    known = {"카카오", "NAVER", "하이브"}
+
+    preview = replace(new, known, companies, dry_run=True)
+    assert preview == {"count": 2, "added": ["하이브"], "removed": ["카카오"], "changed": ["NAVER"]}
+    assert find("카카오", companies) is not None  # 확인만 하고 저장하지 않는다
+
+    result = replace(new, known, companies)
+    assert [r["name"] for r in json.loads(companies.read_text("utf-8"))] == ["NAVER", "하이브"]
+    backup = tmp_path / result["backup"]
+    assert json.loads(backup.read_text("utf-8")) == [{"name": "카카오"}, {"name": "NAVER"}]
+
+
+def test_replace_keeps_file_when_invalid(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text('[{"name": "카카오"}]', "utf-8")
+    with pytest.raises(InvalidListError):
+        replace([{"name": "카카오"}, {"name": "카카오"}], None, companies)
+    assert companies.read_text("utf-8") == '[{"name": "카카오"}]'
+    assert list(tmp_path.glob("*.bak")) == []
 
 
 def test_search_prefers_exact_and_listed() -> None:

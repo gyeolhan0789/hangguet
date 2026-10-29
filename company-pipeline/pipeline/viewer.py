@@ -4,6 +4,9 @@
 
 cd company-pipeline && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
 화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
+'정보 수정'은 이미 있는 회사의 기사 검색어·인재상 칸만 고친다(회사명은 그대로)
+'목록 전체 바꾸기'는 검사(형식·중복·DART 회사명)를 통과한 목록으로 통째로 바꾸고
+이전 목록을 백업한다
 
 서버(compose의 viewer 컨테이너)는 회사 목록을 COMPANIES_PATH(배포 때 덮어쓰지 않는 data/ 아래)에
 둬서 화면에서 추가한 회사가 남는다. 바깥 공개는 Cloudflare Access(허용 이메일만) 뒤에서만 한다.
@@ -148,6 +151,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self._send(404, {"error": "DART 목록에 없는 고유번호"})
             else:
                 self._send(200, _corp_json(corp) | {"report": _has_report(corp.code)})
+        elif url.path == "/api/companies.json":  # 목록 전체 바꾸기 전에 지금 목록 내려받기
+            data = candidates.companies_file().read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="companies.json"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif url.path == "/api/company":  # 정보 수정 창에 채울 지금 값
+            row = candidates.find(q.get("name", [""])[0])
+            if row is None:
+                self._send(404, {"error": "회사 목록에 없는 회사"})
+            else:
+                self._send(200, row)
         else:
             super().do_GET()
 
@@ -155,10 +172,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if _readonly():
             self._send(403, {"error": "읽기 전용 화면"})
             return
-        if urllib.parse.urlparse(self.path).path != "/api/add":
+        path = urllib.parse.urlparse(self.path).path
+        if path not in ("/api/add", "/api/update", "/api/replace"):
             self._send(404, {"error": "없는 주소"})
             return
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        if path == "/api/update":
+            self._update(body)
+            return
+        if path == "/api/replace":
+            self._replace(body)
+            return
         corp = self._by_code(str(body.get("code", "")))
         if corp is None:
             self._send(400, {"error": "DART 목록에 있는 회사만 추가할 수 있다"})
@@ -169,6 +193,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._send(409, {"error": str(e)})
             return
         self._send(200, {"added": corp.name, "report": _has_report(corp.code)})
+
+    def _update(self, body: dict[str, Any]) -> None:
+        """이미 있는 회사의 기사 검색어·인재상 칸만 고친다(회사명은 그대로)."""
+        extra = {f: str(body[f]) for f in candidates.EDITABLE if f in body}
+        try:
+            row = candidates.update(str(body.get("name", "")), extra)
+        except LookupError as e:
+            self._send(404, {"error": str(e)})
+            return
+        self._send(200, {"updated": row["name"], "row": row})
+
+    def _replace(self, body: dict[str, Any]) -> None:
+        """회사 목록 통째로 바꾸기. dry_run이면 검사·비교만 한다. 문제가 있으면 400과 문제 목록."""
+        known = {c.name for c in _corps()}
+        try:
+            result = candidates.replace(body.get("rows"), known, dry_run=bool(body.get("dry_run")))
+        except candidates.InvalidListError as e:
+            self._send(400, {"error": "목록에 문제가 있어 바꾸지 않았다", "errors": e.errors})
+            return
+        self._send(200, result)
 
 
 def serve(port: int = 8765) -> None:
