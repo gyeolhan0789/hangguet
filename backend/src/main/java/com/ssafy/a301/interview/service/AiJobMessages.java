@@ -67,7 +67,20 @@ public class AiJobMessages {
     private static void putPlan(Map<String, Object> message, Application application) {
         message.put("companyName", application.getCompanyName());
         message.put("jobTitle", application.getJobTitle());
-        message.put("coverLetter", application.getCoverLetter());
+        message.put("coverLetterItems", coverLetterItems(application));
+    }
+
+    // 자기소개서 문항을 순서대로(AI 명세 2장 · 4장)
+    private static List<Map<String, Object>> coverLetterItems(Application application) {
+        return application.getCoverLetterItems().stream()
+                .map(
+                        item -> {
+                            Map<String, Object> entry = new LinkedHashMap<>();
+                            entry.put("question", item.getQuestion());
+                            entry.put("answer", item.getAnswer());
+                            return entry;
+                        })
+                .toList();
     }
 
     // AI 명세 3장
@@ -83,7 +96,7 @@ public class AiJobMessages {
     private void putEvaluate(Map<String, Object> message, AiJob job, InterviewSession session) {
         InterviewPlan plan = plan(job);
         message.put("mode", session.getMode().name());
-        message.put("coverLetter", session.getApplication().getCoverLetter());
+        message.put("coverLetterItems", coverLetterItems(session.getApplication()));
         message.put("claims", plan.getClaims());
         List<Map<String, Object>> answered =
                 answers.findWithQuestionBySessionId(session.getId()).stream()
