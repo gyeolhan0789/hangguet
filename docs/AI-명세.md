@@ -68,7 +68,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
-- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(3·4장)을 면접관에 따라 다르게 만들기 위함이다
+- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
   - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
   - 두 값이 아니면 형식이 틀린 작업이다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
@@ -229,7 +229,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - 평가 항목·3단계·점수 계산은 면접관과 관계없이 같다. 성장 리뷰(API 명세 7.1)에서 면접관이 다른 면접끼리도 같은 기준으로 비교하기 위함이다
-  - `persona`가 `DEVIL`이면 판정 단계는 같은 기준으로 정하고, 판정 이유(`reason`)에 임원면접에서 보는 점(조직 적합·가치관, 압박 질문에 대한 태도)을 덧붙인다
+  - 판정 지침도 면접관과 관계없이 같고, `persona`는 판정에 사용하지 않는다. 판정 지침에 면접 종류를 넣으면 판정 이유뿐 아니라 판정 단계도 함께 달라지기 때문이다. 임원면접 관점은 결과 생성의 피드백 작성(4장 `WRITING_FEEDBACK`)에만 반영한다
   - `COVER_LETTER`는 여기서 임시 판정하고 EVALUATE에서 확정한다
   - `DELIVERY`는 화상이면 답변 글과 말하기 지표로, 채팅이면 답변 글로 판정한다. 비어 있는 지표는 빼고 판정하고, 지표가 모두 비어 있으면 답변 글로만 판정한다
 - **결과** `answer.scored`에 `answerId`와 아래 `evaluation`을 담는다. BE는 `answers.evaluation`이 비어 있을 때만 저장한다
