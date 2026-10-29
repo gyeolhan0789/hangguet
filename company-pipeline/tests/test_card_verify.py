@@ -91,9 +91,24 @@ def test_verify_ignores_spacing_and_dot_variants_but_not_wording() -> None:
 
 
 def test_normalize_empty_quote_is_dropped() -> None:
-    kept, _ = verify_card({"talent": [{"keyword": "x", "quote": " "}]}, {"talent": "x"})
-    assert kept["talent"] == []
+    kept, _ = verify_card({"direction": [{"summary": "x", "quote": " "}]}, {"direction": "x"})
+    assert kept["direction"] == []
     assert normalize(" a\tb\n") == "ab"
+
+
+def test_verify_talent_needs_title_in_source_and_allows_empty_description() -> None:
+    source = "모두존중\n자유롭게 의견을 낸다.\n서로의 다양성을 인정한다.\n하모니"
+    card = {
+        "talent": [
+            {"keyword": "모두존중", "quote": "자유롭게 의견을 낸다.\n서로의 다양성을 인정한다."},
+            {"keyword": "하모니", "quote": ""},  # 설명 없는 제목만
+            {"keyword": "모두를 존중", "quote": "자유롭게 의견을 낸다."},  # 제목을 바꿔 씀
+            {"keyword": "하모니", "quote": "일을 즐긴다."},  # 원문에 없는 설명
+        ]
+    }
+    kept, dropped = verify_card(card, {"talent": source})
+    assert [t["keyword"] for t in kept["talent"]] == ["모두존중", "하모니"]
+    assert [t["keyword"] for t in dropped] == ["모두를 존중", "하모니"]
 
 
 def test_market_input_keeps_company_position_sentences() -> None:

@@ -40,7 +40,8 @@ main { padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) minma
 section h2 { font-size: 13px; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px }
 .item { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px }
 .item h3 { margin: 0 0 6px; font-size: 15px }
-.item blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); font-size: 14px }
+.item blockquote { margin: 0; padding-left: 10px; border-left: 3px solid var(--accent); color: var(--muted); font-size: 14px;
+  white-space: pre-line }
 .item .foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--muted) }
 .item .foot a { color: var(--accent) }
 .item button { border: 1px solid var(--line); background: none; color: var(--accent); font: 12px var(--font);
@@ -112,10 +113,11 @@ function quotePattern(quote) {
     DOTS.includes(c) ? `[${DOTS}]` : c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   return chars.length ? new RegExp(chars.join("\\s*")) : null;
 }
+// quotes의 각 칸은 문자열이거나, 앞에서부터 차례로 찾아볼 후보 배열이다
 function highlight(text, quotes) {
   const ranges = [];
   quotes.forEach((q, i) => {
-    const m = quotePattern(q)?.exec(text);
+    const m = [].concat(q).map((p) => quotePattern(p)?.exec(text)).find(Boolean);
     if (m) ranges.push([m.index, m.index + m[0].length, i]);
   });
   ranges.sort((a, b) => a[0] - b[0]);
@@ -174,7 +176,7 @@ function show(i) {
     const list = c[field] ?? [];
     const body = list.length ? list.map((it, k) => `
       <div class="item"><h3>${esc(it.keyword ?? it.summary)}</h3>
-        <blockquote>${esc(it.quote)}</blockquote>
+        ${it.quote ? `<blockquote>${esc(it.quote)}</blockquote>` : ""}
         <div class="foot"><span>${it.published ? esc(it.published) + " · " : ""}${it.articles ? `기사 ${it.articles}건 · ` : ""}${it.source?.startsWith("http")
           ? `<a href="${esc(it.source)}" target="_blank" rel="noopener">출처 페이지</a>` : esc(it.source)}</span>
         <button data-field="${field}" data-k="${k}">원문에서 보기</button></div></div>`).join("")
@@ -197,7 +199,11 @@ function show(i) {
 function tab(field) {
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === field));
   const text = current[SOURCES[field]];
-  $("src").innerHTML = text ? highlight(text, (current.card[field] ?? []).map((it) => it.quote)) : "원문 없음";
+  // 인재상(card-v8~)은 keyword가 원문 제목, quote가 그 아래 설명이라 둘을 이어서 찾는다.
+  // 안 되면 quote만(card-v7 이전 카드), 그다음 제목만 찾는다
+  const marks = (current.card[field] ?? []).map((it) =>
+    field === "talent" ? [`${it.keyword}${it.quote ?? ""}`, it.quote, it.keyword] : it.quote);
+  $("src").innerHTML = text ? highlight(text, marks) : "원문 없음";
 }
 $("view").addEventListener("click", (e) => {
   if (e.target.dataset.tab) return tab(e.target.dataset.tab);
