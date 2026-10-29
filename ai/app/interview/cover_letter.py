@@ -14,15 +14,16 @@ import http.client
 import json
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
+from app.common.cover_letter import CoverLetterItem, as_json
 from app.common.versions import REGISTRY, VersionKind
 
 JEV_URL = "https://api.typesafe.ai/v1/systemone"
 # AI 명세 6.4와 같은 모델 버전을 쓴다
 JEV_MODEL = "jev-1.14.0"
-COVER_LETTER_CHECK_PROMPT_VERSION = "cover-letter-check-v1"
+COVER_LETTER_CHECK_PROMPT_VERSION = "cover-letter-check-v2"
 # AI 명세 2.1(임시 값): 응답을 기다리는 상한(초). BE 대기(8초)보다 짧아야 결과를 돌려줄 수 있다
 JEV_TIMEOUT_SECONDS = 5.0
 # AI 명세 2.1(임시 값): 이 값 이상이면 통과
@@ -30,10 +31,11 @@ USABLE_THRESHOLD = 0.5
 
 USABLE_QUESTION = "usable"
 _INSTRUCTIONS = (
-    "지원자가 회사 `companyName`의 직무 `jobTitle`에 지원하며 쓴 자기소개서 `coverLetter`가 "
-    "의미 있는 문장으로 쓰였고, 면접관이 이 글만 보고 지원 동기나 경험을 묻는 면접 질문을 "
+    "지원자가 회사 `companyName`의 직무 `jobTitle`에 지원하며 쓴 자기소개서 `coverLetterItems`"
+    "(문항마다 기업이 낸 질문 `question`과 지원자의 답변 `answer`)가 "
+    "의미 있는 문장으로 쓰였고, 면접관이 이 답변들만 보고 지원 동기나 경험을 묻는 면접 질문을 "
     "여러 개 만들 만큼 구체적인 내용이 있는가? "
-    "무작위 문자, 같은 말 반복, 한두 문장뿐인 글은 아니다."
+    "무작위 문자, 같은 말 반복, 답변 전체가 한두 문장뿐인 글은 아니다."
 )
 
 # 요청 본문(JSON 바이트)과 제한 시간(초)을 받아 응답 본문을 반환한다. 테스트가 바꿔 끼운다
@@ -74,14 +76,16 @@ class CoverLetterChecker:
         self._timeout_seconds = timeout_seconds
         self._post = post or self._send
 
-    def check(self, company_name: str, job_title: str, cover_letter: str) -> bool:
+    def check(
+        self, company_name: str, job_title: str, cover_letter_items: Sequence[CoverLetterItem]
+    ) -> bool:
         """질문을 만들 수 있는 자기소개서면 True다. 판단하지 못하면 CoverLetterCheckError다."""
         body = {
             "model": self._model,
             "state": {
                 "companyName": company_name,
                 "jobTitle": job_title,
-                "coverLetter": cover_letter,
+                "coverLetterItems": as_json(cover_letter_items),
             },
             "questions": check_questions(),
         }
