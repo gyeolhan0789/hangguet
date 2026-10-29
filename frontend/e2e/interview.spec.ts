@@ -574,7 +574,6 @@ test.describe("S06 면접 화면", () => {
     await endDialog(page).getByRole("button", { name: "끝내기" }).click();
 
     await expect(analyzingTitle(page)).toBeVisible();
-    await expect(page.getByText("보통 10초 안에 끝나요")).toBeVisible();
     expect(ends).toHaveLength(1);
     expect(ends[0]).toMatch(/^[0-9a-f-]{36}$/);
     await expect(currentStep(page)).toHaveText("답변을 정리했어요");

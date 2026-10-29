@@ -45,11 +45,12 @@ const current = () =>
 const filled = () => screen.getByRole("progressbar").getAttribute("aria-valuenow");
 
 describe("AnalyzingView (S06-1 결과 분석 중)", () => {
-  it("Figma 제목 · 안내 · 단계 문구 · 팁과 면접관 썸네일을 보여 준다", () => {
+  it("Figma 제목 · 단계 문구 · 팁과 면접관 썸네일을 보여 주고, '보통 10초 안에 끝나요'는 두지 않는다", () => {
     render(<AnalyzingView session={SESSION} />);
 
     expect(screen.getByRole("heading", { name: "면접관이 답변을 검토하고 있어요" })).toBeTruthy();
-    expect(screen.getByText("보통 10초 안에 끝나요")).toBeTruthy();
+    // 사용자 요청(2026-10-27)으로 뺀 안내
+    expect(screen.queryByText("보통 10초 안에 끝나요")).toBeNull();
     expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
       "답변을 정리했어요",
       "평가 기준별로 분석하는 중…",
@@ -79,15 +80,14 @@ describe("AnalyzingView (S06-1 결과 분석 중)", () => {
     expect(analysisProgress(1)).toBeCloseTo(210 / 372);
   });
 
-  it("30초가 지나도 끝나지 않으면 '조금만 더 기다려 주세요'로 바꾼다", () => {
+  it("30초가 지나도 끝나지 않으면 '조금만 더 기다려 주세요'를 보인다", () => {
     vi.useFakeTimers();
     render(<AnalyzingView session={SESSION} />);
 
     act(() => vi.advanceTimersByTime(LONG_WAIT_MS - 1));
-    expect(screen.getByText("보통 10초 안에 끝나요")).toBeTruthy();
+    expect(screen.queryByText("조금만 더 기다려 주세요")).toBeNull();
 
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByText("조금만 더 기다려 주세요")).toBeTruthy();
-    expect(screen.queryByText("보통 10초 안에 끝나요")).toBeNull();
   });
 });
