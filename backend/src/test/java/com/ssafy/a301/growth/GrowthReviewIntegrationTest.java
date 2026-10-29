@@ -280,7 +280,7 @@ class GrowthReviewIntegrationTest {
     }
 
     private Application application(User owner, String companyName) {
-        Application application = new Application(owner, companyName, "백엔드 개발자", "자소서");
+        Application application = new Application(owner, companyName, "백엔드 개발자");
         em.persist(application);
         return application;
     }

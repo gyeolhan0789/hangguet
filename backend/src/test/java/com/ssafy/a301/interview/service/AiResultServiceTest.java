@@ -313,7 +313,7 @@ class AiResultServiceTest {
     private InterviewSession newSession(InterviewMode mode) {
         User user = new User("ai-result-" + UUID.randomUUID() + "@example.com", "hash", "결과");
         em.persist(user);
-        Application application = new Application(user, "○○전자", "백엔드 개발자", "저는…");
+        Application application = new Application(user, "○○전자", "백엔드 개발자");
         em.persist(application);
         InterviewSession session = new InterviewSession(user, application, Persona.DEVIL, mode);
         em.persist(session);

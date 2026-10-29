@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerSpeech;
@@ -38,6 +39,12 @@ class AiJobMessagesTest {
     // DB에서 읽은 시각은 UTC로 나오지만 메시지에는 한국 시간으로 쓴다
     private static final OffsetDateTime CREATED_AT = OffsetDateTime.parse("2026-10-22T05:03:13Z");
 
+    // 자기소개서 문항은 적은 순서(item_order)대로 질문 · 답변만 보낸다(AI 명세 2장 · 4장). 넣은 순서는 반대다(newSession)
+    private static final List<Map<String, Object>> COVER_LETTER_ITEMS =
+            List.of(
+                    Map.of("question", "지원 동기", "answer", "저는…"),
+                    Map.of("question", "협업 경험", "answer", "함께했습니다."));
+
     @Autowired private AiJobMessages messages;
     @Autowired private InterviewPlanRepository plans;
     @Autowired private EntityManager em;
@@ -54,7 +61,7 @@ class AiJobMessagesTest {
                         Map.entry("requestedAt", "2026-10-22T14:03:13+09:00"),
                         Map.entry("companyName", "○○전자"),
                         Map.entry("jobTitle", "백엔드 개발자"),
-                        Map.entry("coverLetter", "저는…"));
+                        Map.entry("coverLetterItems", COVER_LETTER_ITEMS));
     }
 
     @Test
@@ -125,7 +132,7 @@ class AiJobMessagesTest {
 
         assertThat(message)
                 .containsEntry("mode", "CHAT")
-                .containsEntry("coverLetter", "저는…")
+                .containsEntry("coverLetterItems", COVER_LETTER_ITEMS)
                 .containsEntry("claims", List.of(new PlanClaim("c1", "주장", "NUMBER", 1)));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> answered = (List<Map<String, Object>>) message.get("answers");
@@ -137,6 +144,23 @@ class AiJobMessagesTest {
                 .containsEntry("evaluation", Map.of("scoreMethod", "FIXED"));
         // 채점 전이면 evaluation은 null로 보낸다
         assertThat(answered.get(1)).containsEntry("evaluation", null);
+    }
+
+    // 기준: ERD applications(지운 지원서로 본 면접도 남는다). 지원서를 지운 뒤에도 PLAN · EVALUATE에 지원서 내용이 들어간다
+    @Test
+    void deletedApplicationIsStillSentWithPlanAndEvaluate() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT);
+        answer(session, 1, "답", null);
+        session.getApplication().delete(KoreaTime.now());
+        em.flush();
+        em.clear();
+
+        assertThat(messages.of(withId(AiJob.plan(session.getId()))))
+                .containsEntry("companyName", "○○전자")
+                .containsEntry("jobTitle", "백엔드 개발자")
+                .containsEntry("coverLetterItems", COVER_LETTER_ITEMS);
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .containsEntry("coverLetterItems", COVER_LETTER_ITEMS);
     }
 
     // 기준: AI 명세 4장 earlierSummaries(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접의 summary, 시작 순)
@@ -191,15 +215,32 @@ class AiJobMessagesTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    // 문항 순서가 영속성 컨텍스트가 아니라 DB(item_order)에서 오는지 보려고, 문항은 순서를 거꾸로 직접 넣고
+    // 컨텍스트를 비운 뒤 면접을 다시 읽어 돌려준다
     private InterviewSession newSession(InterviewMode mode) {
         User user = new User("job-msg-" + UUID.randomUUID() + "@example.com", "hash", "메시지");
         em.persist(user);
-        Application application = new Application(user, "○○전자", "백엔드 개발자", "저는…");
+        Application application = new Application(user, "○○전자", "백엔드 개발자");
         em.persist(application);
         InterviewSession session = new InterviewSession(user, application, Persona.DEVIL, mode);
         em.persist(session);
         em.flush();
-        return session;
+        insertCoverLetterItem(application.getId(), 2, "협업 경험", "함께했습니다.");
+        insertCoverLetterItem(application.getId(), 1, "지원 동기", "저는…");
+        em.clear();
+        return em.find(InterviewSession.class, session.getId());
+    }
+
+    private void insertCoverLetterItem(
+            long applicationId, int itemOrder, String question, String answer) {
+        em.createNativeQuery(
+                        "INSERT INTO cover_letter_items (application_id, item_order, question,"
+                                + " answer) VALUES (?1, ?2, ?3, ?4)")
+                .setParameter(1, applicationId)
+                .setParameter(2, itemOrder)
+                .setParameter(3, question)
+                .setParameter(4, answer)
+                .executeUpdate();
     }
 
     private InterviewSession plannedSession(InterviewMode mode) {

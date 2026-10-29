@@ -53,7 +53,7 @@ class ReplayVideoStatusTest {
 
     private static InterviewSession endedSession() {
         User user = new User("replay-status@example.com", "hash", "녹화");
-        Application application = new Application(user, "○○전자", "백엔드 개발자", "저는…");
+        Application application = new Application(user, "○○전자", "백엔드 개발자");
         InterviewSession session =
                 new InterviewSession(user, application, Persona.DEVIL, InterviewMode.VIDEO);
         session.start(ENDED.minusMinutes(10));

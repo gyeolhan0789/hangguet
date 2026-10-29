@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.interview.domain.Criterion;
@@ -37,12 +38,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 @ExtendWith(MockitoExtension.class)
 class InterviewSessionListServiceTest {
     @Mock private InterviewSessionRepository sessions;
     @Mock private AnswerRepository answers;
     @Mock private SessionScoreRepository scores;
+    @Mock private ApplicationRepository applications;
 
     @Test
     void calendarFillsZerosAndUsesOneMonthlyQueryWithKoreaBoundaries() {
@@ -206,10 +209,99 @@ class InterviewSessionListServiceTest {
                         error -> assertThat(error.errorCode()).isEqualTo(ErrorCode.INTERNAL_ERROR));
     }
 
+    // 기준: API 명세 4.6(없거나 남의 지원서 · 지운 지원서는 404)
+    @Test
+    void sessionsOfMissingApplicationIsNotFoundWithoutSessionQuery() {
+        when(applications.existsByIdAndUserIdAndDeletedAtIsNull(3L, 7L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service().listByApplication(7, 3, 0, 10))
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        error ->
+                                assertThat(error.errorCode())
+                                        .isEqualTo(ErrorCode.APPLICATION_NOT_FOUND));
+        verifyNoInteractions(sessions, answers, scores);
+    }
+
+    // 4.6: JPA가 다루지 못하는 offset의 페이지도 빈 목록과 전체 건수를 준다. 건수는 첫 페이지(1건) 조회의 전체 건수로 센다
+    @Test
+    void sessionsPageBeyondJpaOffsetLimitReturnsEmptyPageWithTotal() {
+        OffsetDateTime start = OffsetDateTime.parse("2026-10-21T20:00:00+09:00");
+        when(applications.existsByIdAndUserIdAndDeletedAtIsNull(3L, 7L)).thenReturn(true);
+        PageRequest firstOne = PageRequest.of(0, 1);
+        when(sessions.findApplicationSessions(7L, 3L, SessionStatus.PRACTICE, firstOne))
+                .thenReturn(
+                        new PageImpl<>(
+                                List.of(
+                                        session(
+                                                11,
+                                                SessionStatus.FAILED,
+                                                start,
+                                                start.plusMinutes(10))),
+                                firstOne,
+                                5));
+
+        var result = service().listByApplication(7, 3, Integer.MAX_VALUE, 20);
+
+        assertThat(result.getContent()).isEmpty();
+        assertThat(result.getMetadata().number()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(result.getMetadata().size()).isEqualTo(20);
+        assertThat(result.getMetadata().totalElements()).isEqualTo(5);
+        verify(sessions).findApplicationSessions(7L, 3L, SessionStatus.PRACTICE, firstOne);
+        verifyNoMoreInteractions(sessions);
+        verifyNoInteractions(answers, scores);
+    }
+
+    // 4.6: 시작 시각 · id 내림차순 페이지로 찾고, 항목은 5.13과 같이 답변 수 · 기준별 등급을 붙인다
+    @Test
+    void sessionsOfApplicationAreRecentFirstAndMappedLikeDailyList() {
+        OffsetDateTime start = OffsetDateTime.parse("2026-10-21T00:00:00+09:00");
+        InterviewSession completed =
+                session(11, SessionStatus.COMPLETED, start, start.plusSeconds(119));
+        InterviewSession analyzing =
+                session(
+                        12,
+                        SessionStatus.ANALYZING,
+                        start.plusHours(1),
+                        start.plusHours(1).plusSeconds(2));
+        PageRequest pageable =
+                PageRequest.of(1, 2, Sort.by(Sort.Order.desc("startedAt"), Sort.Order.desc("id")));
+        when(applications.existsByIdAndUserIdAndDeletedAtIsNull(3L, 7L)).thenReturn(true);
+        when(sessions.findApplicationSessions(7L, 3L, SessionStatus.PRACTICE, pageable))
+                .thenReturn(new PageImpl<>(List.of(analyzing, completed), pageable, 5));
+        when(answers.countBySessionIds(List.of(12L, 11L)))
+                .thenReturn(List.of(answerCount(12, 2), answerCount(11, 3)));
+        when(scores.findBySessionIds(List.of(11L)))
+                .thenReturn(
+                        List.of(
+                                new SessionScore(completed, Criterion.JOB_FIT, 80, null),
+                                new SessionScore(completed, Criterion.COVER_LETTER, 65, null),
+                                new SessionScore(completed, Criterion.LOGIC, 59, null),
+                                new SessionScore(completed, Criterion.DELIVERY, 75, null)));
+
+        var result = service().listByApplication(7, 3, 1, 2);
+
+        assertThat(result.getContent()).extracting(item -> item.id()).containsExactly(12L, 11L);
+        assertThat(result.getContent())
+                .allSatisfy(item -> assertThat(item.companyName()).isEqualTo("회사"));
+        assertThat(result.getContent().get(0).answeredCount()).isEqualTo(2);
+        assertThat(result.getContent().get(0).summary()).isNull();
+        assertThat(result.getContent().get(0).criterionGrades()).isEmpty();
+        assertThat(result.getContent().get(1).answeredCount()).isEqualTo(3);
+        assertThat(result.getContent().get(1).summary()).isEqualTo("총평");
+        assertThat(result.getContent().get(1).criterionGrades())
+                .extracting(grade -> grade.criterion() + ":" + grade.grade())
+                .containsExactly(
+                        "JOB_FIT:GOOD", "COVER_LETTER:NORMAL", "LOGIC:WEAK", "DELIVERY:NORMAL");
+        assertThat(result.getMetadata().number()).isEqualTo(1);
+        assertThat(result.getMetadata().totalElements()).isEqualTo(5);
+        verify(sessions).findApplicationSessions(7L, 3L, SessionStatus.PRACTICE, pageable);
+    }
+
     private static InterviewSession session(
             long id, SessionStatus status, OffsetDateTime startedAt, OffsetDateTime endedAt) {
         User user = withId(new User("test@example.com", "hash", "사용자"), 7);
-        Application application = withId(new Application(user, "회사", "직무", "자소서"), 3);
+        Application application = withId(new Application(user, "회사", "직무"), 3);
         InterviewSession session =
                 withId(
                         new InterviewSession(user, application, Persona.DEVIL, InterviewMode.VIDEO),
@@ -241,6 +333,6 @@ class InterviewSessionListServiceTest {
     /** 날짜 전체 건수·시간은 실제 InterviewStatsService가 같은 저장소 대역으로 계산한다 */
     private InterviewSessionListService service() {
         return new InterviewSessionListService(
-                sessions, answers, scores, new InterviewStatsService(sessions));
+                sessions, answers, scores, new InterviewStatsService(sessions), applications);
     }
 }

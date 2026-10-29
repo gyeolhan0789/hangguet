@@ -15,8 +15,7 @@ import org.junit.jupiter.api.Test;
 class InterviewSessionTest {
 
     private final User user = withId(new User("a@ssafy.com", "hash", "면접왕"), 1);
-    private final Application application =
-            withId(new Application(user, "○○전자", "백엔드 개발자", "저는…"), 10);
+    private final Application application = withId(new Application(user, "○○전자", "백엔드 개발자"), 10);
 
     private InterviewSession session(InterviewMode mode) {
         return withId(new InterviewSession(user, application, Persona.DEVIL, mode), 55);

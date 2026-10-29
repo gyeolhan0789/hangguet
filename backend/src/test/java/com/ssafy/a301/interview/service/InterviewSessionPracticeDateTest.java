@@ -144,7 +144,7 @@ class InterviewSessionPracticeDateTest {
 
     private void session(OffsetDateTime start, int answerCount) {
         User user = withId(new User("practice@example.com", "hash", "면접자"), 1);
-        Application application = withId(new Application(user, "회사", "직무", "자소서"), 10);
+        Application application = withId(new Application(user, "회사", "직무"), 10);
         InterviewSession session =
                 withId(
                         new InterviewSession(user, application, Persona.DEVIL, InterviewMode.CHAT),

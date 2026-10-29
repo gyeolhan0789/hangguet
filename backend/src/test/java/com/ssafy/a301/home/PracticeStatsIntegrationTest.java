@@ -161,7 +161,7 @@ class PracticeStatsIntegrationTest {
     }
 
     private Application application(User user, String jobTitle) {
-        Application application = new Application(user, "○○전자", jobTitle, "자소서");
+        Application application = new Application(user, "○○전자", jobTitle);
         em.persist(application);
         return application;
     }

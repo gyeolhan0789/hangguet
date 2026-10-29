@@ -4,32 +4,34 @@ import static com.ssafy.a301.TestEntities.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationCreateRequest;
-import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationUpdateRequest;
+import com.ssafy.a301.application.dto.ApplicationDtos.CoverLetterItem;
+import com.ssafy.a301.application.dto.ApplicationDtos.CoverLetterItemRequest;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Item;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.data.domain.Page;
+import org.mockito.InOrder;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -37,8 +39,16 @@ import org.springframework.data.domain.Sort;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+// 기준: API 명세 4.1 · 4.2 · 4.3 · 4.5(문항 단위 자기소개서, 수정 없음, 지워도 행은 남김) · AI 명세 2.1 자기소개서 검증
 class ApplicationServiceTest {
     private static final long USER_ID = 7L;
+    private static final List<CoverLetterItemRequest> ITEMS =
+            List.of(
+                    new CoverLetterItemRequest("지원 동기", "저는…"),
+                    new CoverLetterItemRequest("협업 경험", "함께했습니다."));
+    // 검증에는 요청 문항을 같은 순서의 질문 · 답변으로 바꿔 넘긴다
+    private static final List<Item> CHECK_ITEMS =
+            List.of(new Item("지원 동기", "저는…"), new Item("협업 경험", "함께했습니다."));
 
     private final ApplicationRepository applications = mock(ApplicationRepository.class);
     private final UserRepository users = mock(UserRepository.class);
@@ -55,59 +65,67 @@ class ApplicationServiceTest {
                 new ApplicationService(
                         applications, users, new TransactionTemplate(txManager), coverLetterChecks);
         when(coverLetterChecks.check(any(), any(), any())).thenReturn(Verdict.USABLE);
-        application = withId(new Application(user, "○○전자", "백엔드 개발자", "저는…"), 10);
-        when(applications.findByIdAndUserId(10L, USER_ID)).thenReturn(Optional.of(application));
+        application = withId(new Application(user, "○○전자", "백엔드 개발자"), 10);
+        application.addCoverLetterItem("지원 동기", "저는…");
+        application.addCoverLetterItem("협업 경험", "함께했습니다.");
+        when(applications.findByIdAndUserIdAndDeletedAtIsNull(10L, USER_ID))
+                .thenReturn(Optional.of(application));
         when(applications.findForUpdate(10L, USER_ID)).thenReturn(Optional.of(application));
     }
 
     @Test
-    void createdApplicationIsNotInUse() {
+    void createSavesItemsInOrderAfterCheck() {
         when(users.getReferenceById(USER_ID)).thenReturn(user);
-        when(applications.save(any())).thenAnswer(inv -> withId(inv.getArgument(0), 11));
+        when(applications.saveAndFlush(any())).thenAnswer(inv -> withId(inv.getArgument(0), 11));
 
         var response =
-                service.create(USER_ID, new ApplicationCreateRequest("△△소프트", "서버 개발자", "지원 동기"));
+                service.create(USER_ID, new ApplicationCreateRequest("△△소프트", "서버 개발자", ITEMS));
 
         assertThat(response.id()).isEqualTo(11);
         assertThat(response.companyName()).isEqualTo("△△소프트");
-        assertThat(response.inUse()).isFalse();
+        assertThat(response.coverLetterItems())
+                .containsExactly(
+                        new CoverLetterItem(1, "지원 동기", "저는…"),
+                        new CoverLetterItem(2, "협업 경험", "함께했습니다."));
+        // AI 검증은 트랜잭션을 열기 전에 끝낸다(검증을 기다리는 동안 DB 연결을 잡지 않음)
+        InOrder order = inOrder(coverLetterChecks, txManager);
+        order.verify(coverLetterChecks).check("△△소프트", "서버 개발자", CHECK_ITEMS);
+        order.verify(txManager).getTransaction(any());
+        order.verify(txManager).commit(any());
     }
 
     @Test
-    void getShowsWhetherApplicationIsInUse() {
-        when(applications.isInUse(10L)).thenReturn(true);
-
+    void getReturnsItemsInOrder() {
         var response = service.get(USER_ID, 10L);
 
-        assertThat(response.coverLetter()).isEqualTo("저는…");
-        assertThat(response.inUse()).isTrue();
+        assertThat(response.coverLetterItems())
+                .extracting(CoverLetterItem::itemOrder, CoverLetterItem::question)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1, "지원 동기"),
+                        org.assertj.core.groups.Tuple.tuple(2, "협업 경험"));
     }
 
+    // 없는 지원서 · 남의 지원서 · 지운 지원서는 저장소에서 같은 조회 결과(빈 값)라 모두 404다
     @Test
-    void missingOrOthersApplicationIsNotFound() {
+    void applicationNotFoundByRepositoryIsNotFound() {
         assertCode(() -> service.get(USER_ID, 99L), ErrorCode.APPLICATION_NOT_FOUND);
-        assertCode(
-                () -> service.update(USER_ID, 99L, new ApplicationUpdateRequest("x", null, null)),
-                ErrorCode.APPLICATION_NOT_FOUND);
         assertCode(() -> service.delete(USER_ID, 99L), ErrorCode.APPLICATION_NOT_FOUND);
     }
 
+    // 지운 지원서를 빼는 조건은 저장소 메서드(DeletedAtIsNull)에 있다. 여기서는 그 메서드에 최근 작성 순 페이지를 넘기는지 본다
     @Test
-    void listIsRecentFirstAndChecksInUseOnce() {
-        var older = withId(new Application(user, "△△소프트", "서버 개발자", "…"), 9);
-        when(applications.findByUserId(eq(USER_ID), any(Pageable.class)))
+    void listQueriesUndeletedApplicationsRecentFirst() {
+        var older = withId(new Application(user, "△△소프트", "서버 개발자"), 9);
+        when(applications.findByUserIdAndDeletedAtIsNull(eq(USER_ID), any(Pageable.class)))
                 .thenAnswer(
                         inv -> new PageImpl<>(List.of(application, older), inv.getArgument(1), 2));
-        when(applications.findIdsInUse(List.of(10L, 9L))).thenReturn(List.of(9L));
 
         var page = service.list(USER_ID, 0, 10);
 
         assertThat(page.getContent()).extracting("id").containsExactly(10L, 9L);
-        assertThat(page.getContent()).extracting("inUse").containsExactly(false, true);
         assertThat(page.getMetadata().totalElements()).isEqualTo(2);
-        verify(applications, times(1)).findIdsInUse(anyCollection());
         verify(applications)
-                .findByUserId(
+                .findByUserIdAndDeletedAtIsNull(
                         USER_ID,
                         PageRequest.of(
                                 0,
@@ -115,44 +133,41 @@ class ApplicationServiceTest {
                                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))));
     }
 
+    // 4.3: JPA가 다루지 못하는 offset의 페이지도 빈 목록과 전체 건수를 준다. 건수는 첫 페이지(1건) 조회의 전체 건수로 센다(4.6과 같음)
     @Test
-    void emptyListSkipsInUseQuery() {
-        when(applications.findByUserId(eq(USER_ID), any(Pageable.class)))
-                .thenReturn(Page.empty(PageRequest.of(0, 10)));
+    void listPageBeyondJpaOffsetLimitReturnsEmptyPageWithTotal() {
+        PageRequest firstOne = PageRequest.of(0, 1);
+        when(applications.findByUserIdAndDeletedAtIsNull(USER_ID, firstOne))
+                .thenReturn(new PageImpl<>(List.of(application), firstOne, 5));
 
-        assertThat(service.list(USER_ID, 0, 10).getContent()).isEmpty();
-        verify(applications, never()).findIdsInUse(anyCollection());
+        var page = service.list(USER_ID, Integer.MAX_VALUE, 20);
+
+        assertThat(page.getContent()).isEmpty();
+        assertThat(page.getMetadata().number()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(page.getMetadata().size()).isEqualTo(20);
+        assertThat(page.getMetadata().totalElements()).isEqualTo(5);
+        verify(applications).findByUserIdAndDeletedAtIsNull(USER_ID, firstOne);
+        verifyNoMoreInteractions(applications);
     }
 
-    @Test
-    void updateChangesOnlySentFields() {
-        var response =
-                service.update(USER_ID, 10L, new ApplicationUpdateRequest(null, "서버 개발자", null));
-
-        assertThat(response.companyName()).isEqualTo("○○전자");
-        assertThat(response.jobTitle()).isEqualTo("서버 개발자");
-        assertThat(response.coverLetter()).isEqualTo("저는…");
-        verify(txManager).commit(any());
-    }
-
-    // 기준: AI 명세 2.1 자기소개서 검증(질문을 만들 수 없는 글은 400 coverLetter, 판단하지 못하면 503)
+    // 기준: AI 명세 2.1 자기소개서 검증(질문을 만들 수 없는 글은 400 coverLetterItems, 판단하지 못하면 503)
     @Test
     void unusableCoverLetterIsNotSaved() {
-        when(coverLetterChecks.check("△△소프트", "서버 개발자", "ㅁㄴㅇㄹ")).thenReturn(Verdict.UNUSABLE);
+        when(coverLetterChecks.check("△△소프트", "서버 개발자", CHECK_ITEMS)).thenReturn(Verdict.UNUSABLE);
 
         assertThatThrownBy(
                         () ->
                                 service.create(
                                         USER_ID,
-                                        new ApplicationCreateRequest("△△소프트", "서버 개발자", "ㅁㄴㅇㄹ")))
+                                        new ApplicationCreateRequest("△△소프트", "서버 개발자", ITEMS)))
                 .isInstanceOfSatisfying(
                         FieldValidationException.class,
                         ex -> {
-                            assertThat(ex.field()).isEqualTo("coverLetter");
+                            assertThat(ex.field()).isEqualTo("coverLetterItems");
                             assertThat(ex.reason())
                                     .isEqualTo(ApplicationService.UNUSABLE_COVER_LETTER);
                         });
-        verify(applications, never()).save(any());
+        verify(applications, never()).saveAndFlush(any());
     }
 
     @Test
@@ -162,54 +177,23 @@ class ApplicationServiceTest {
         assertCode(
                 () ->
                         service.create(
-                                USER_ID, new ApplicationCreateRequest("△△소프트", "서버 개발자", "지원 동기")),
+                                USER_ID, new ApplicationCreateRequest("△△소프트", "서버 개발자", ITEMS)),
                 ErrorCode.COVER_LETTER_CHECK_UNAVAILABLE);
-        assertCode(
-                () -> service.update(USER_ID, 10L, new ApplicationUpdateRequest(null, null, "새 글")),
-                ErrorCode.COVER_LETTER_CHECK_UNAVAILABLE);
-        verify(applications, never()).save(any());
-        assertThat(application.getCoverLetter()).isEqualTo("저는…");
-    }
-
-    // 수정은 자기소개서를 보냈을 때만, 보내지 않은 회사명·직무는 저장된 값으로 판단한다
-    @Test
-    void updateChecksOnlyChangedCoverLetterWithStoredFields() {
-        service.update(USER_ID, 10L, new ApplicationUpdateRequest("바꾼 회사", null, null));
-        verify(coverLetterChecks, never()).check(any(), any(), any());
-
-        service.update(USER_ID, 10L, new ApplicationUpdateRequest(null, null, "새 자기소개서"));
-        verify(coverLetterChecks).check("바꾼 회사", "백엔드 개발자", "새 자기소개서");
-        assertThat(application.getCoverLetter()).isEqualTo("새 자기소개서");
+        verify(applications, never()).saveAndFlush(any());
     }
 
     @Test
-    void applicationInUseCannotBeUpdatedOrDeleted() {
-        when(applications.isInUse(10L)).thenReturn(true);
+    void deleteOnlyMarksDeletedAtAndKeepsRow() {
+        OffsetDateTime before = OffsetDateTime.now();
 
-        assertCode(
-                () -> service.update(USER_ID, 10L, new ApplicationUpdateRequest("x", null, null)),
-                ErrorCode.APPLICATION_IN_USE);
-        assertCode(() -> service.delete(USER_ID, 10L), ErrorCode.APPLICATION_IN_USE);
-        assertThat(application.getCompanyName()).isEqualTo("○○전자");
-        verify(applications, never()).delete(any());
-        verify(txManager, never()).commit(any());
-    }
-
-    @Test
-    void deleteRemovesApplication() {
         service.delete(USER_ID, 10L);
 
-        verify(applications).delete(application);
+        assertThat(application.getDeletedAt()).isNotNull().isAfterOrEqualTo(before);
+        // 면접 만들기(5.1)와 같은 행 잠금(findForUpdate)으로 찾는다
+        verify(applications).findForUpdate(10L, USER_ID);
+        verify(applications, never()).findByIdAndUserIdAndDeletedAtIsNull(anyLong(), anyLong());
+        verify(applications, never()).delete(any());
         verify(txManager).commit(any());
-    }
-
-    @Test
-    void interviewCreatedDuringDeleteIsInUse() {
-        doThrow(new DataIntegrityViolationException("fk_interview_sessions_application"))
-                .when(applications)
-                .flush();
-
-        assertCode(() -> service.delete(USER_ID, 10L), ErrorCode.APPLICATION_IN_USE);
     }
 
     private static void assertCode(Runnable operation, ErrorCode expected) {

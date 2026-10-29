@@ -356,8 +356,8 @@ class AdminDailyMetricIntegrationTest {
 
     private long application(long userId) {
         return jdbc.queryForObject(
-                "INSERT INTO applications (user_id, company_name, job_title, cover_letter,"
-                        + " created_at) VALUES (?, '검증 회사', '검증 직무', '자소서', now()) RETURNING id",
+                "INSERT INTO applications (user_id, company_name, job_title, created_at)"
+                        + " VALUES (?, '검증 회사', '검증 직무', now()) RETURNING id",
                 Long.class,
                 userId);
     }
