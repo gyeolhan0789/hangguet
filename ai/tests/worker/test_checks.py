@@ -3,8 +3,10 @@ import threading
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from redis import Redis
 
+from app.common.cover_letter import CoverLetterItem
 from app.interview.cover_letter import CoverLetterCheckError
 from app.worker.checks import (
     CHECK_QUEUE_KEY,
@@ -48,7 +50,10 @@ def message(**overrides: Any) -> str:
         "requestedAt": "2026-10-28T00:00:00+09:00",
         "companyName": "○○전자",
         "jobTitle": "백엔드",
-        "coverLetter": "저는 …",
+        "coverLetterItems": [
+            {"question": "지원 동기", "answer": "저는 …"},
+            {"question": "협업 경험", "answer": "함께 …"},
+        ],
     }
     body.update(overrides)
     return json.dumps(body)
@@ -63,31 +68,82 @@ def run(redis: FakeRedis, check: Any) -> list[Any]:
 
 
 def test_result_goes_to_the_job_result_key_and_expires() -> None:
-    seen: list[tuple[str, str, str]] = []
+    seen: list[tuple[str, str, tuple[CoverLetterItem, ...]]] = []
 
-    def check(company: str, job: str, cover_letter: str) -> bool:
-        seen.append((company, job, cover_letter))
+    def check(company: str, job: str, items: tuple[CoverLetterItem, ...]) -> bool:
+        seen.append((company, job, items))
         return False
 
     redis = FakeRedis(message())
     assert run(redis, check) == [{"usable": False}]
-    assert seen == [("○○전자", "백엔드", "저는 …")]
+    # 문항은 받은 순서 그대로 판단에 넘긴다
+    assert seen == [
+        (
+            "○○전자",
+            "백엔드",
+            (CoverLetterItem("지원 동기", "저는 …"), CoverLetterItem("협업 경험", "함께 …")),
+        )
+    ]
     assert redis.ttl[result_key("c1")] == RESULT_TTL_SECONDS
 
 
+def test_legacy_cover_letter_is_checked_as_first_item() -> None:
+    """AI 명세 1.3: 이전 BE 메시지의 coverLetter(글 하나)는 질문 '자기소개서'인 1번 문항이다."""
+    seen: list[tuple[CoverLetterItem, ...]] = []
+
+    def check(company: str, job: str, items: tuple[CoverLetterItem, ...]) -> bool:
+        seen.append(items)
+        return True
+
+    body = json.loads(message(coverLetter="저는 …"))
+    del body["coverLetterItems"]
+
+    assert run(FakeRedis(json.dumps(body)), check) == [{"usable": True}]
+    assert seen == [(CoverLetterItem("자기소개서", "저는 …"),)]
+
+
 def test_jev_failure_or_missing_key_is_check_failed() -> None:
-    def fail(company: str, job: str, cover_letter: str) -> bool:
+    def fail(company: str, job: str, items: tuple[CoverLetterItem, ...]) -> bool:
         raise CoverLetterCheckError("timeout")
 
     assert run(FakeRedis(message()), fail) == [{"error": "CHECK_FAILED"}]
     assert run(FakeRedis(message()), None) == [{"error": "CHECK_FAILED"}]
-    assert run(FakeRedis(message(coverLetter=None)), lambda *a: True) == [{"error": "CHECK_FAILED"}]
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"companyName": None},
+        {"jobTitle": 7},
+        {"coverLetterItems": None},
+        {"coverLetterItems": []},
+        {"coverLetterItems": [{"question": "지원 동기", "answer": " "}]},
+        {"coverLetterItems": "저는 …"},
+    ],
+    ids=[
+        "companyName-None",
+        "jobTitle-number",
+        "items-None",
+        "items-empty",
+        "items-blank-answer",
+        "items-string",
+    ],
+)
+def test_malformed_message_is_check_failed(overrides: dict[str, Any]) -> None:
+    called: list[bool] = []
+
+    def check(*args: object) -> bool:
+        called.append(True)
+        return True
+
+    assert run(FakeRedis(message(**overrides)), check) == [{"error": "CHECK_FAILED"}]
+    assert called == []
 
 
 def test_jobs_the_be_gave_up_on_or_without_id_are_dropped() -> None:
     called: list[bool] = []
 
-    def check(*args: str) -> bool:
+    def check(*args: object) -> bool:
         called.append(True)
         return True
 

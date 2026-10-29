@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.common.cover_letter import CoverLetterItem
 from app.interview.plan.claims import (
     build_claim_messages,
     parse_claims,
@@ -14,7 +15,7 @@ from app.interview.plan.rules import MAX_CLAIMS
 from app.worker.messages import Claim, ClaimType
 from tests.interview.plan.fakes import JOB, FakeChat
 
-SENTENCES = split_sentences(JOB.cover_letter)
+SENTENCES = split_sentences(JOB.cover_letter_items)
 
 
 def claim(text: Any, claim_type: Any, sentence_no: Any) -> dict[str, Any]:
@@ -22,11 +23,11 @@ def claim(text: Any, claim_type: Any, sentence_no: Any) -> dict[str, Any]:
 
 
 def test_splits_cover_letter_by_lines_and_sentence_endings() -> None:
-    """문항 제목 줄도 한 문장으로 포함하고, 빈 줄은 포함하지 않는다."""
+    """문항마다 질문 다음에 답변 문장을 잇는다. 빈 줄은 포함하지 않는다."""
     assert SENTENCES == [
-        "1. 지원 동기",
+        "지원 동기",
         "저는 대용량 트래픽을 다루는 서비스를 만들고 싶습니다.",
-        "2. 직무 경험",
+        "직무 경험",
         "주문 조회 API의 응답 시간을 40% 줄였습니다.",
         "캐시 계층을 직접 설계했습니다.",
         "팀원 4명과 장애 대응 절차를 정리했습니다.",
@@ -48,7 +49,18 @@ def test_splits_cover_letter_by_lines_and_sentence_endings() -> None:
     ],
 )
 def test_sentence_break_rule(text: str, expected: list[str]) -> None:
-    assert split_sentences(text) == expected
+    assert split_sentences([CoverLetterItem("문항", text)]) == ["문항", *expected]
+
+
+def test_question_is_split_by_the_same_rule_before_its_answer() -> None:
+    """AI 명세 2장: 문항 질문도 답변과 같은 규칙으로 나누고 순번을 이어서 센다."""
+    items = [CoverLetterItem("지원 동기를 쓰세요. 500자 이내로.", "답변입니다.")]
+
+    sentences = split_sentences(items)
+
+    assert sentences == ["지원 동기를 쓰세요.", "500자 이내로.", "답변입니다."]
+    user = build_claim_messages(JOB, sentences)[1]["content"]
+    assert user.endswith("[1] 지원 동기를 쓰세요.\n[2] 500자 이내로.\n[3] 답변입니다.")
 
 
 def test_messages_number_sentences_with_company_and_job() -> None:
@@ -57,7 +69,7 @@ def test_messages_number_sentences_with_company_and_job() -> None:
     assert [m["role"] for m in messages] == ["system", "user"]
     user = messages[1]["content"]
     assert user.startswith("회사: ○○전자\n직무: 백엔드 개발자\n\n[자기소개서 문장]\n")
-    assert "[1] 1. 지원 동기\n" in user
+    assert "[1] 지원 동기\n[2] 저는 대용량" in user
     assert user.endswith("[6] 팀원 4명과 장애 대응 절차를 정리했습니다.")
 
 

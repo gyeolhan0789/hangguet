@@ -78,14 +78,19 @@ def answer(answer_id: int, seq: int, stored: Mapping[str, Any] | None) -> dict[s
     }
 
 
-def job(*answers: dict[str, Any], mode: str = "VIDEO") -> EvaluateJob:
+def job(
+    *answers: dict[str, Any],
+    mode: str = "VIDEO",
+    items: list[dict[str, str]] | None = None,
+) -> EvaluateJob:
     raw: dict[str, Any] = {
         "jobType": "EVALUATE",
         "jobId": "8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
         "sessionId": 55,
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "mode": mode,
-        "coverLetter": "저는 조회 응답 시간을 40% 줄였습니다.",
+        "coverLetterItems": items
+        or [{"question": "지원 동기", "answer": "저는 조회 응답 시간을 40% 줄였습니다."}],
         "claims": [{"id": "c1", "text": "응답 시간 40% 단축", "type": "NUMBER", "sentenceNo": 1}],
         "answers": list(answers)
         or [answer(903, 1, evaluation()), answer(904, 2, evaluation(speech=SPEECH_2))],
@@ -204,6 +209,23 @@ def test_scored_answer_is_not_scored_again() -> None:
     # 답변마다 자소서 대조 한 번씩만 호출한다
     assert len(score.calls) == 2
     assert all("자기소개서" in call[1]["content"] for call in score.calls)
+
+
+def test_cover_letter_judge_gets_every_item_in_order() -> None:
+    """AI 명세 4장: 자소서 원문은 문항마다 질문 줄 다음 답변을 두고 빈 줄로 잇는다."""
+    target = job(
+        items=[
+            {"question": "지원 동기", "answer": "저는 조회 응답 시간을 40% 줄였습니다."},
+            {"question": "협업 경험", "answer": "팀원 4명과 장애 대응 절차를 정리했습니다."},
+        ]
+    )
+    _, score, _ = run(target)
+
+    prompt = score.calls[0][1]["content"]
+    assert (
+        "[자기소개서]\n지원 동기\n저는 조회 응답 시간을 40% 줄였습니다.\n\n"
+        "협업 경험\n팀원 4명과 장애 대응 절차를 정리했습니다.\n"
+    ) in prompt
 
 
 def test_unscored_answer_is_scored_before_cover_letter() -> None:

@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.gms import GmsResult
 from app.worker.messages import PlanJob
 
@@ -16,13 +17,13 @@ JOB = PlanJob(
     requested_at=REQUESTED_AT,
     company_name="○○전자",
     job_title="백엔드 개발자",
-    cover_letter=(
-        "1. 지원 동기\n"
-        "저는 대용량 트래픽을 다루는 서비스를 만들고 싶습니다.\n"
-        "\n"
-        "2. 직무 경험\n"
-        "주문 조회 API의 응답 시간을 40% 줄였습니다. 캐시 계층을 직접 설계했습니다.\n"
-        "팀원 4명과 장애 대응 절차를 정리했습니다."
+    cover_letter_items=(
+        CoverLetterItem("지원 동기", "저는 대용량 트래픽을 다루는 서비스를 만들고 싶습니다."),
+        CoverLetterItem(
+            "직무 경험",
+            "주문 조회 API의 응답 시간을 40% 줄였습니다. 캐시 계층을 직접 설계했습니다.\n"
+            "팀원 4명과 장애 대응 절차를 정리했습니다.",
+        ),
     ),
 )
 

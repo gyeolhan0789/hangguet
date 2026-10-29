@@ -6,6 +6,7 @@ import pytest
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.redis import SOCKET_TIMEOUT_SECONDS
 from app.common.results import RESULT_QUEUE_KEY, ResultPublisher
 from app.common.settings import SettingsError
@@ -32,11 +33,15 @@ ANSWER = {
     "content": "조회 쿼리 실행 계획을 보고…",
 }
 CONTENT: dict[str, dict[str, Any]] = {
-    "PLAN": {"companyName": "한끗전자", "jobTitle": "백엔드 개발", "coverLetter": "자소서 원문"},
+    "PLAN": {
+        "companyName": "한끗전자",
+        "jobTitle": "백엔드 개발",
+        "coverLetterItems": [{"question": "지원 동기", "answer": "자소서 원문"}],
+    },
     "SCORE_ANSWER": {"answerId": 903, "mode": "CHAT", **ANSWER},
     "EVALUATE": {
         "mode": "CHAT",
-        "coverLetter": "자소서 원문",
+        "coverLetterItems": [{"question": "지원 동기", "answer": "자소서 원문"}],
         "claims": [],
         "answers": [{"answerId": 903, **ANSWER, "evaluation": None}],
     },
@@ -174,7 +179,7 @@ def test_passes_job_content_to_handler() -> None:
 
     [job] = received
     assert isinstance(job, EvaluateJob)
-    assert job.cover_letter == "자소서 원문"
+    assert job.cover_letter_items == (CoverLetterItem("지원 동기", "자소서 원문"),)
     assert [a.answer_id for a in job.answers] == [903]
 
 
@@ -199,7 +204,7 @@ def test_invalid_job_log_excludes_job_content(caplog: pytest.LogCaptureFixture) 
             "jobId": JOB_1,
             "sessionId": 55,
             "requestedAt": "2026-10-22T14:03:13+09:00",
-            "coverLetter": "비밀 자소서",
+            "coverLetterItems": [{"question": "지원 동기", "answer": "비밀 자소서"}],
         },
         ensure_ascii=False,
     )
@@ -214,6 +219,42 @@ def test_invalid_job_log_excludes_job_content(caplog: pytest.LogCaptureFixture) 
     assert "비밀 자소서" not in message
     assert JOB_1 in message
     assert "companyName" in message
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        [{"question": "비밀 문항", "answer": " "}],
+        [["비밀 자소서"]],
+    ],
+)
+def test_invalid_cover_letter_items_log_excludes_job_content(
+    items: list[Any], caplog: pytest.LogCaptureFixture
+) -> None:
+    """회사·직무가 맞고 문항만 틀려도 로그에는 문항 위치만 남기고 문항 글은 남기지 않는다."""
+    raw = json.dumps(
+        {
+            "jobType": "PLAN",
+            "jobId": JOB_1,
+            "sessionId": 55,
+            "requestedAt": "2026-10-22T14:03:13+09:00",
+            "companyName": "한끗전자",
+            "jobTitle": "백엔드 개발",
+            "coverLetterItems": items,
+        },
+        ensure_ascii=False,
+    )
+    redis = FakeListRedis()
+    redis.lpush(QUEUE_KEY, raw)
+
+    with caplog.at_level(logging.ERROR, logger="app.worker.queue"):
+        result = make_queue(redis).receive_once()
+
+    assert result is ReceiveResult.INVALID
+    message = caplog.records[0].getMessage()
+    assert "비밀" not in message
+    assert JOB_1 in message
+    assert "coverLetterItems[0]" in message
 
 
 @pytest.mark.parametrize("raw", ["{", "[1]", '{"jobId": 7}'])

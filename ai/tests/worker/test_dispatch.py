@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode
 from app.worker.dispatch import Dispatcher, DispatchResult, DuplicateHandlerError
 from app.worker.messages import EvaluateJob, Job, PlanJob, ScoreAnswerJob
@@ -27,7 +28,7 @@ EVALUATE = EvaluateJob(
     session_id=55,
     requested_at=REQUESTED_AT,
     mode=InterviewMode.CHAT,
-    cover_letter="자소서",
+    cover_letter_items=(CoverLetterItem("지원 동기", "자소서"),),
     claims=(),
     answers=(),
 )
@@ -37,7 +38,7 @@ PLAN = PlanJob(
     requested_at=REQUESTED_AT,
     company_name="회사",
     job_title="직무",
-    cover_letter="자소서",
+    cover_letter_items=(CoverLetterItem("지원 동기", "자소서"),),
 )
 
 

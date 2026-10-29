@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode
 from app.worker.messages import (
     Claim,
@@ -40,7 +41,9 @@ def plan(**overrides: Any) -> dict[str, Any]:
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "companyName": "한끗전자",
         "jobTitle": "백엔드 개발",
-        "coverLetter": "조회 응답 시간을 40% 줄였습니다.",
+        "coverLetterItems": [
+            {"question": "지원 동기", "answer": "조회 응답 시간을 40% 줄였습니다."}
+        ],
     }
     return _apply(data, overrides)
 
@@ -89,7 +92,9 @@ def evaluate(**overrides: Any) -> dict[str, Any]:
         "sessionId": 55,
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "mode": "CHAT",
-        "coverLetter": "조회 응답 시간을 40% 줄였습니다.",
+        "coverLetterItems": [
+            {"question": "지원 동기", "answer": "조회 응답 시간을 40% 줄였습니다."}
+        ],
         "claims": [claim()],
         "answers": [answer()],
     }
@@ -121,7 +126,7 @@ def test_parses_plan_job() -> None:
         requested_at=REQUESTED_AT,
         company_name="한끗전자",
         job_title="백엔드 개발",
-        cover_letter="조회 응답 시간을 40% 줄였습니다.",
+        cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
     )
 
 
@@ -161,7 +166,7 @@ def test_parses_evaluate_job() -> None:
         session_id=55,
         requested_at=REQUESTED_AT,
         mode=InterviewMode.CHAT,
-        cover_letter="조회 응답 시간을 40% 줄였습니다.",
+        cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
         claims=(Claim("c1", "조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4),),
         answers=(
             EvaluateAnswer(
@@ -266,7 +271,7 @@ def test_session_id_one_is_valid() -> None:
     [
         (plan, "companyName"),
         (plan, "jobTitle"),
-        (plan, "coverLetter"),
+        (plan, "coverLetterItems"),
         (score, "answerId"),
         (score, "mode"),
         (score, "seq"),
@@ -274,7 +279,7 @@ def test_session_id_one_is_valid() -> None:
         (score, "criteria"),
         (score, "content"),
         (evaluate, "mode"),
-        (evaluate, "coverLetter"),
+        (evaluate, "coverLetterItems"),
         (evaluate, "claims"),
         (evaluate, "answers"),
         (merge, "rawPrefix"),
@@ -290,12 +295,78 @@ def test_missing_required_field_is_invalid(factory: Any, key: str) -> None:
 @pytest.mark.parametrize("value", ["", "   ", " \t\r\n", "\u3000\u3000", "\u2028", 7, None])
 @pytest.mark.parametrize(
     ("factory", "key"),
-    [(plan, "coverLetter"), (score, "question"), (score, "criteria"), (score, "content")],
+    [(score, "question"), (score, "criteria"), (score, "content")],
 )
 def test_blank_or_non_string_text_is_invalid(factory: Any, key: str, value: Any) -> None:
     """BE @NotBlank(Java String.isBlank)가 거부하는 공백은 AI도 빈 값으로 처리한다."""
     with pytest.raises(InvalidJobError, match=key):
         parse_job(factory(**{key: value}))
+
+
+@pytest.mark.parametrize("value", ["", "   ", " \t\r\n", "\u3000\u3000", "\u2028", 7, None])
+@pytest.mark.parametrize("field", ["question", "answer"])
+@pytest.mark.parametrize("factory", [plan, evaluate])
+def test_blank_cover_letter_item_text_is_invalid(factory: Any, field: str, value: Any) -> None:
+    """문항 질문 · 답변도 BE @NotBlank와 같은 공백 기준으로 빈 값을 거부한다."""
+    item = {"question": "지원 동기", "answer": "저는…", field: value}
+    with pytest.raises(InvalidJobError, match=rf"coverLetterItems\[1\]\.{field}"):
+        parse_job(factory(coverLetterItems=[{"question": "문항", "answer": "답변"}, item]))
+
+
+@pytest.mark.parametrize(
+    "value",
+    [[], [{"question": "문항", "answer": "답변"}] * 6, "자소서", [["문항", "답변"]], None],
+)
+@pytest.mark.parametrize("factory", [plan, evaluate])
+def test_cover_letter_items_must_be_one_to_five_objects(factory: Any, value: Any) -> None:
+    """API 명세 4.1: 문항은 1~5개 객체다."""
+    with pytest.raises(InvalidJobError, match="coverLetterItems"):
+        parse_job(factory(coverLetterItems=value))
+
+
+def test_cover_letter_items_keep_order() -> None:
+    job = parse_job(
+        plan(
+            coverLetterItems=[
+                {"question": "지원 동기", "answer": "첫째"},
+                {"question": "협업 경험", "answer": "둘째"},
+            ]
+        )
+    )
+
+    assert isinstance(job, PlanJob)
+    assert job.cover_letter_items == (
+        CoverLetterItem("지원 동기", "첫째"),
+        CoverLetterItem("협업 경험", "둘째"),
+    )
+
+
+@pytest.mark.parametrize("factory", [plan, evaluate])
+def test_legacy_cover_letter_becomes_first_item(factory: Any) -> None:
+    """AI 명세 1.3: 이전 BE의 coverLetter(글 하나)는 질문 '자기소개서'인 1번 문항으로 읽는다."""
+    job = parse_job(factory(coverLetterItems=..., coverLetter="저는 조회 응답 시간을 줄였습니다."))
+
+    assert isinstance(job, (PlanJob, EvaluateJob))
+    assert job.cover_letter_items == (
+        CoverLetterItem("자기소개서", "저는 조회 응답 시간을 줄였습니다."),
+    )
+
+
+@pytest.mark.parametrize("legacy", ["  ", 7])
+@pytest.mark.parametrize("factory", [plan, evaluate])
+def test_blank_or_non_string_legacy_cover_letter_is_invalid(factory: Any, legacy: Any) -> None:
+    with pytest.raises(InvalidJobError, match="coverLetterItems"):
+        parse_job(factory(coverLetterItems=..., coverLetter=legacy))
+
+
+@pytest.mark.parametrize("factory", [plan, evaluate])
+def test_cover_letter_items_win_over_legacy_cover_letter(factory: Any) -> None:
+    job = parse_job(factory(coverLetter="이전 글"))
+
+    assert isinstance(job, (PlanJob, EvaluateJob))
+    assert job.cover_letter_items == (
+        CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),
+    )
 
 
 # OpenJDK 21에서 Character.isWhitespace가 참인 코드 포인트 전체(25자)다.
