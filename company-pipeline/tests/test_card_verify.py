@@ -6,7 +6,8 @@ import pytest
 from pipeline import card
 from pipeline.card import (
     PROMPT_VERSION,
-    build_messages,
+    build_direction_messages,
+    build_talent_messages,
     business_input,
     link_articles,
     market_input,
@@ -39,10 +40,11 @@ def test_business_input_keeps_only_company_plan_sentences() -> None:
     ]  # 소개 문장, 탄소중립(ESG), 환율(재무 위험) 문장은 뺀다
 
 
-def test_build_messages_includes_both_sources() -> None:
-    user = build_messages("테스트은행", "고객 중심", "비대면 금융")[1]["content"]
-    assert "고객 중심" in user
-    assert "비대면 금융" in user
+def test_talent_and_direction_messages_carry_only_their_source() -> None:
+    talent = build_talent_messages("테스트은행", "고객 중심")[1]["content"]
+    direction = build_direction_messages("테스트은행", "비대면 금융")[1]["content"]
+    assert "고객 중심" in talent and "비대면 금융" not in talent
+    assert "비대면 금융" in direction and "고객 중심" not in direction
 
 
 def test_parse_reply_strips_think_block() -> None:
@@ -89,9 +91,34 @@ def test_verify_ignores_spacing_and_dot_variants_but_not_wording() -> None:
 
 
 def test_normalize_empty_quote_is_dropped() -> None:
-    kept, _ = verify_card({"talent": [{"keyword": "x", "quote": " "}]}, {"talent": "x"})
-    assert kept["talent"] == []
+    kept, _ = verify_card({"direction": [{"summary": "x", "quote": " "}]}, {"direction": "x"})
+    assert kept["direction"] == []
     assert normalize(" a\tb\n") == "ab"
+
+
+def test_verify_talent_checks_title_parent_and_details_in_source() -> None:
+    source = "고객 최우선\n01\n집요함\n'적당히'로는 고객을\n만족시킬 수 없습니다.\n하모니"
+    ok_detail = "'적당히'로는 고객을 만족시킬 수 없습니다."  # 줄바꿈은 공백으로 정리해도 같다
+    card = {
+        "talent": [
+            {"title": "집요함", "parent": "고객 최우선", "details": [ok_detail]},
+            {"title": "하모니", "parent": None, "details": []},  # 설명 없는 제목만
+            {"title": "끈기", "parent": None, "details": [ok_detail]},  # 제목을 바꿔 씀
+            {"title": "집요함", "parent": "고객 중심", "details": []},  # 원문에 없는 상위 범주
+            {"title": "하모니", "parent": None, "details": ["일을 즐긴다."]},  # 원문에 없는 설명
+        ]
+    }
+    kept, dropped = verify_card(card, {"talent": source})
+    assert [t["title"] for t in kept["talent"]] == ["집요함", "하모니"]
+    assert [t["title"] for t in dropped] == ["끈기", "집요함", "하모니"]
+
+
+def test_talent_model_falls_back_to_llm_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_MODEL", "base")
+    monkeypatch.delenv("TALENT_LLM_MODEL", raising=False)
+    assert card.talent_model() == "base"
+    monkeypatch.setenv("TALENT_LLM_MODEL", "strong")
+    assert card.talent_model() == "strong"
 
 
 def test_market_input_keeps_company_position_sentences() -> None:
