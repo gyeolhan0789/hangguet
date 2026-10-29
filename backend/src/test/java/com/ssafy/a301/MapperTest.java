@@ -58,7 +58,7 @@ class MapperTest {
 
     @Test
     void userResponseHasStreakAndImageUrl() {
-        var me = UserMapper.toMe(user, "https://img", 7);
+        var me = UserMapper.toMe(user, null, "https://img", 7);
         assertThat(me.id()).isEqualTo(1);
         assertThat(me.currentStreak()).isEqualTo(7);
         assertThat(me.profileImageUrl()).isEqualTo("https://img");

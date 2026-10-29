@@ -104,6 +104,27 @@ class PasswordChangeServiceTest {
     }
 
     @Test
+    void socialUserHasNoPasswordToChange() {
+        User social = User.social("k@kakao.com", "카카오");
+        ReflectionTestUtils.setField(social, "id", USER_ID);
+        when(users.findActiveForUpdate(USER_ID)).thenReturn(Optional.of(social));
+
+        for (Runnable change :
+                new Runnable[] {
+                    () -> service.changeByUser(USER_ID, "current1", "newpass1"),
+                    () -> service.changeByAdmin(USER_ID, 1L, "newpass1", null)
+                }) {
+            assertThatThrownBy(change::run)
+                    .isInstanceOfSatisfying(
+                            ApiException.class,
+                            ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.PASSWORD_NOT_SET));
+        }
+        assertThat(social.hasPassword()).isFalse();
+        verify(changes, never()).save(any());
+        verify(refreshTokens, never()).revokeAll(anyLong());
+    }
+
+    @Test
     void revokeFailureStillIssuesTokensForThisDevice() {
         when(passwords.matches("current1", "hash")).thenReturn(true);
         doThrow(new RedisConnectionFailureException("down")).when(refreshTokens).revokeAll(USER_ID);

@@ -13,12 +13,15 @@ import com.ssafy.a301.storage.repository.UploadKeyStore;
 import com.ssafy.a301.storage.s3.PresignedUrl;
 import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.storage.s3.S3Properties;
+import com.ssafy.a301.user.domain.SocialProvider;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.dto.UserDtos.MeResponse;
 import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
 import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.UserRepository;
+import com.ssafy.a301.user.repository.UserSocialAccountRepository;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -49,6 +52,7 @@ public class UserService {
     private final S3Properties storageProperties;
     private final UploadKeyStore uploadKeys;
     private final RefreshTokenStore refreshTokens;
+    private final UserSocialAccountRepository socialAccounts;
     private final TransactionTemplate transactions;
 
     public UserService(
@@ -61,6 +65,7 @@ public class UserService {
             S3Properties storageProperties,
             UploadKeyStore uploadKeys,
             RefreshTokenStore refreshTokens,
+            UserSocialAccountRepository socialAccounts,
             TransactionTemplate transactions) {
         this.users = users;
         this.practices = practices;
@@ -71,6 +76,7 @@ public class UserService {
         this.storageProperties = storageProperties;
         this.uploadKeys = uploadKeys;
         this.refreshTokens = refreshTokens;
+        this.socialAccounts = socialAccounts;
         this.transactions = transactions;
     }
 
@@ -89,6 +95,7 @@ public class UserService {
                         });
         return UserMapper.toNicknameChange(
                 user,
+                socialProvider(user),
                 storage.presignDownload(user.getProfileImageKey()),
                 currentStreak(userId),
                 accessTokens.issue(userId, user.getNickname()),
@@ -149,16 +156,24 @@ public class UserService {
 
     /**
      * 탈퇴(2.7). 행은 남기고 deleted_at만 기록한 뒤 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·API 호출은 탈퇴 회원을 조회하지 않아
-     * 막힌다. soft delete라 개인정보·프로필 사진은 지우지 않는다(최종 파기 시점은 B-6).
+     * 막힌다. soft delete라 개인정보·프로필 사진은 지우지 않는다(최종 파기 시점은 B-6). 소셜 회원은 비밀번호 없이 탈퇴하고, 소셜 연결도 탈퇴 처리해 같은
+     * 소셜 계정으로 다시 가입할 수 있다.
      */
     public void withdraw(long userId, String password) {
         transactions.executeWithoutResult(
                 status -> {
                     User user = lockedUser(userId);
-                    if (!passwords.matches(password, user.getPasswordHash())) {
-                        throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
+                    if (user.hasPassword()) {
+                        if (password == null || password.isBlank()) {
+                            throw new FieldValidationException("password", "필수 값입니다.");
+                        }
+                        if (!passwords.matches(password, user.getPasswordHash())) {
+                            throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
+                        }
                     }
-                    user.withdraw(KoreaTime.now());
+                    OffsetDateTime now = KoreaTime.now();
+                    user.withdraw(now);
+                    socialAccounts.withdrawAll(userId, now);
                 });
         // 탈퇴는 이미 저장됐다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절되므로 실패해도 기록만 남긴다.
         try {
@@ -185,8 +200,16 @@ public class UserService {
     private MeResponse toMe(User user) {
         return UserMapper.toMe(
                 user,
+                socialProvider(user),
                 storage.presignDownload(user.getProfileImageKey()),
                 currentStreak(user.getId()));
+    }
+
+    // 이메일 회원은 소셜 연결이 없어 조회하지 않는다
+    private SocialProvider socialProvider(User user) {
+        return user.hasPassword()
+                ? null
+                : socialAccounts.findActiveProvider(user.getId()).orElse(null);
     }
 
     private int currentStreak(long userId) {

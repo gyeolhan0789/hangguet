@@ -1,5 +1,6 @@
 package com.ssafy.a301.user.mapper;
 
+import com.ssafy.a301.user.domain.SocialProvider;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.dto.UserDtos.MeResponse;
 import com.ssafy.a301.user.dto.UserDtos.NicknameChangeResponse;
@@ -14,11 +15,13 @@ public final class UserMapper {
         return new UserSummary(user.getId(), user.getEmail(), user.getNickname(), profileImageUrl);
     }
 
-    public static MeResponse toMe(User user, String profileImageUrl, int currentStreak) {
+    public static MeResponse toMe(
+            User user, SocialProvider socialProvider, String profileImageUrl, int currentStreak) {
         return new MeResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getNickname(),
+                socialProvider,
                 profileImageUrl,
                 user.getCreatedAt(),
                 currentStreak);
@@ -26,6 +29,7 @@ public final class UserMapper {
 
     public static NicknameChangeResponse toNicknameChange(
             User user,
+            SocialProvider socialProvider,
             String profileImageUrl,
             int currentStreak,
             String accessToken,
@@ -34,6 +38,7 @@ public final class UserMapper {
                 user.getId(),
                 user.getEmail(),
                 user.getNickname(),
+                socialProvider,
                 profileImageUrl,
                 user.getCreatedAt(),
                 currentStreak,

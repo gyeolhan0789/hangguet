@@ -43,6 +43,19 @@ auth:
   access-ttl: 9h
   refresh-ttl: 30d
 
+# 소셜 로그인(API 명세 1.6 · 1.7). 키는 환경 변수로만 받는다. 클라이언트 id가 없으면 그 로그인은 503 SOCIAL_LOGIN_UNAVAILABLE
+oauth:
+  # 처음 로그인한 사람이 약관에 동의(1.7)할 때까지 가입 정보를 맡아 두는 시간
+  signup-token-ttl: 10m
+  # 제공자 서버 연결·응답 최대 시간. 넘으면 503 SOCIAL_LOGIN_UNAVAILABLE
+  timeout: 5s
+  kakao:
+    # 카카오 앱 REST API 키와 클라이언트 시크릿(카카오 로그인 > 보안에서 켰을 때만)
+    client-id: ${KAKAO_CLIENT_ID:}
+    client-secret: ${KAKAO_CLIENT_SECRET:}
+    # 받을 수 있는 redirectUri(쉼표로 구분). FE 콜백 주소이며 카카오 앱 Redirect URI에도 등록해야 한다
+    redirect-uris: ${KAKAO_REDIRECT_URIS:}
+
 # 관리 페이지 관리자 계정. 셋 다 있고 같은 아이디가 없으면 기동할 때 만든다(가입 API 없음)
 admin:
   bootstrap:

@@ -194,6 +194,15 @@ public class AdminInquiryController {
                                         name = "INQUIRY_NOT_FOUND",
                                         value = ErrorExamples.INQUIRY_NOT_FOUND)
                             }))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "PASSWORD_NOT_SET",
+                                            value = ErrorExamples.PASSWORD_NOT_SET)))
     @PatchMapping("/users/{userId}/password")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void changePassword(

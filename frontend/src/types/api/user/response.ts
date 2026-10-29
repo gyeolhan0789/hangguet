@@ -1,12 +1,20 @@
 // 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.5.
 import type { OffsetDateTime } from "../common";
 
+/** 소셜 로그인 제공자. KAKAO 카카오 */
+export type SocialProvider = "KAKAO";
+
 /** 2.1 내 정보 · 2.5 프로필 사진 등록 (200) */
 export interface MeResponse {
   id: number;
   /** 로그인 아이디 */
   email: string;
   nickname: string;
+  /**
+   * 소셜 회원이면 가입한 제공자, 이메일 회원이면 null.
+   * 소셜 회원은 비밀번호가 없어 2.3을 쓸 수 없고 2.7에 비밀번호를 보내지 않는다
+   */
+  socialProvider: SocialProvider | null;
   /** 프로필 사진 주소. 없으면 null(같은 회원의 웹 Swagger 1.2 · 1.3 예시 user.profileImageUrl) */
   profileImageUrl: string | null;
   /** 가입 일시. S09 "2026년 9월 시작" */

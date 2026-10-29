@@ -92,7 +92,8 @@ public class SecurityConfig {
                                                 HttpMethod.POST,
                                                 "/api/v1/auth/signup",
                                                 "/api/v1/auth/login",
-                                                "/api/v1/auth/token/refresh")
+                                                "/api/v1/auth/token/refresh",
+                                                "/api/v1/auth/oauth/*")
                                         .permitAll()
                                         // 9. 문의: 비회원도 작성 · 조회 · 이어서 쓰기 · 종료한다(토큰을 보내면 회원 문의). 9.2
                                         // 목록은 회원만

@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 125개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 139개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -41,6 +41,9 @@ import type {
   SessionListResponse,
   SessionResponse,
   SignupRequest,
+  SocialLoginRequest,
+  SocialLoginResponse,
+  SocialSignupRequest,
   StatsResponse,
   StreakFreezeUseRequest,
   StreakFreezeUseResponse,
@@ -49,7 +52,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 125;
+export const SWAGGER_EXAMPLE_COUNT = 139;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -132,11 +135,111 @@ export const swaggerExamples = [
   } satisfies ProblemDetail,
   // 1.5 로그아웃 요청 스키마 example
   { refreshToken: "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10" } satisfies LogoutRequest,
+  // 1.6 소셜 로그인 요청 스키마 example
+  {
+    code: "abc123…",
+    redirectUri: "https://a301.example.com/oauth/kakao/callback",
+  } satisfies SocialLoginRequest,
+  // 1.6 소셜 로그인 200 가입한 회원
+  {
+    signupRequired: false,
+    signup: null,
+    token: {
+      accessToken: "eyJ…",
+      refreshToken: "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10",
+      expiresIn: 3600,
+      user: { id: 1, email: "a@kakao.com", nickname: "면접왕", profileImageUrl: null },
+    },
+  } satisfies SocialLoginResponse,
+  // 1.6 소셜 로그인 200 처음 온 사람
+  {
+    signupRequired: true,
+    token: null,
+    signup: { signupToken: "Zm9v…", email: "a@kakao.com", nickname: "면접왕", expiresIn: 600 },
+  } satisfies SocialLoginResponse,
+  // 1.6 소셜 로그인 400 SOCIAL_EMAIL_REQUIRED
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "이메일 제공에 동의해야 가입할 수 있어요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_EMAIL_REQUIRED",
+  } satisfies ProblemDetail,
+  // 1.6 소셜 로그인 400 VALIDATION_FAILED
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/auth/signup",
+    code: "VALIDATION_FAILED",
+    errors: [{ field: "password", reason: "8~64자, 영문과 숫자를 모두 포함해야 합니다." }],
+  } satisfies ProblemDetail,
+  // 1.6 소셜 로그인 401 SOCIAL_LOGIN_FAILED
+  {
+    title: "Unauthorized",
+    status: 401,
+    detail: "소셜 로그인에 실패했어요. 다시 시도해 주세요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_LOGIN_FAILED",
+  } satisfies ProblemDetail,
+  // 1.6 소셜 로그인 409 SOCIAL_EMAIL_DUPLICATED
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_EMAIL_DUPLICATED",
+  } satisfies ProblemDetail,
+  // 1.6 소셜 로그인 503 SOCIAL_LOGIN_UNAVAILABLE
+  {
+    title: "Service Unavailable",
+    status: 503,
+    detail: "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_LOGIN_UNAVAILABLE",
+  } satisfies ProblemDetail,
+  // 1.7 소셜 회원가입 요청 스키마 example
+  {
+    signupToken: "Zm9v…",
+    agreements: [{ termsType: "TERMS", termsVersion: "1.0" }],
+  } satisfies SocialSignupRequest,
+  // 1.7 소셜 회원가입 201
+  {
+    accessToken: "eyJ…",
+    refreshToken: "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10",
+    expiresIn: 3600,
+    user: { id: 1, email: "a@ssafy.com", nickname: "면접왕", profileImageUrl: null },
+  } satisfies TokenResponse,
+  // 1.7 소셜 회원가입 400 AGREEMENT_REQUIRED
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "필수 약관에 모두 동의해 주세요.",
+    instance: "/api/v1/auth/signup",
+    code: "AGREEMENT_REQUIRED",
+  } satisfies ProblemDetail,
+  // 1.7 소셜 회원가입 401 SIGNUP_TOKEN_INVALID
+  {
+    title: "Unauthorized",
+    status: 401,
+    detail: "가입 시간이 지났어요. 다시 로그인해 주세요.",
+    instance: "/api/v1/auth/oauth/signup",
+    code: "SIGNUP_TOKEN_INVALID",
+  } satisfies ProblemDetail,
+  // 1.7 소셜 회원가입 409 SOCIAL_EMAIL_DUPLICATED
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_EMAIL_DUPLICATED",
+  } satisfies ProblemDetail,
   // 2.1 내 정보 200
   {
     id: 1,
     email: "example@ssafy.com",
     nickname: "면접왕",
+    socialProvider: null,
     profileImageUrl: "https://…",
     createdAt: "2026-09-01T10:00:00+09:00",
     currentStreak: 7,
@@ -158,6 +261,7 @@ export const swaggerExamples = [
     id: 1,
     email: "example@ssafy.com",
     nickname: "면접왕",
+    socialProvider: null,
     profileImageUrl: "https://…",
     createdAt: "2026-09-01T10:00:00+09:00",
     currentStreak: 7,
@@ -180,6 +284,14 @@ export const swaggerExamples = [
     instance: "/api/v1/users/me/password",
     code: "PASSWORD_MISMATCH",
   } satisfies ProblemDetail,
+  // 2.3 비밀번호 변경 409 PASSWORD_NOT_SET
+  {
+    title: "Conflict",
+    status: 409,
+    detail: "소셜 로그인 회원은 비밀번호가 없어요.",
+    instance: "/api/v1/users/me/password",
+    code: "PASSWORD_NOT_SET",
+  } satisfies ProblemDetail,
   // 2.4 프로필 사진 업로드 주소 요청 스키마 example
   { contentType: "image/png", size: 204800 } satisfies ProfileImageUploadUrlRequest,
   // 2.4 프로필 사진 업로드 주소 200
@@ -195,6 +307,7 @@ export const swaggerExamples = [
     id: 1,
     email: "example@ssafy.com",
     nickname: "면접왕",
+    socialProvider: null,
     profileImageUrl: "https://…",
     createdAt: "2026-09-01T10:00:00+09:00",
     currentStreak: 7,

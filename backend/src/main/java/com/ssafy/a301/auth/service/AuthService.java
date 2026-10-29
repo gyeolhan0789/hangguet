@@ -1,5 +1,6 @@
 package com.ssafy.a301.auth.service;
 
+import com.ssafy.a301.auth.dto.AgreementRequest;
 import com.ssafy.a301.auth.dto.LoginRequest;
 import com.ssafy.a301.auth.dto.RefreshResponse;
 import com.ssafy.a301.auth.dto.SignupRequest;
@@ -19,6 +20,8 @@ import com.ssafy.a301.user.repository.PasswordChangeRepository;
 import com.ssafy.a301.user.repository.UserAgreementRepository;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.util.EnumSet;
+import java.util.List;
+import java.util.Objects;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -62,11 +65,7 @@ public class AuthService {
     }
 
     public TokenResponse signup(SignupRequest request) {
-        var types = EnumSet.noneOf(TermsType.class);
-        request.agreements().forEach(a -> types.add(a.termsType()));
-        if (types.size() != TermsType.values().length) {
-            throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
-        }
+        requireAllTerms(request.agreements());
         if (!isEmailAvailable(request.email())) {
             throw new ApiException(ErrorCode.EMAIL_DUPLICATED);
         }
@@ -79,15 +78,7 @@ public class AuthService {
                                                 request.email(),
                                                 passwords.encode(request.password()),
                                                 request.nickname().strip()));
-                        agreements.saveAll(
-                                request.agreements().stream()
-                                        .map(
-                                                a ->
-                                                        new UserAgreement(
-                                                                saved,
-                                                                a.termsType(),
-                                                                a.termsVersion()))
-                                        .toList());
+                        saveAgreements(saved, request.agreements());
                         return tokens(saved);
                     });
         } catch (DataIntegrityViolationException ex) {
@@ -99,13 +90,15 @@ public class AuthService {
     }
 
     public TokenResponse login(LoginRequest request) {
-        // 대소문자만 다른 예전 계정이 둘 이상이면 비밀번호가 맞는 계정으로 로그인한다
+        // 대소문자만 다른 예전 계정이 둘 이상이면 비밀번호가 맞는 계정으로 로그인한다. 소셜 회원은 비밀번호가 없어 고르지 않는다
         User user =
                 users.findActiveByEmail(User.normalizeEmail(request.email())).stream()
                         .filter(
                                 candidate ->
-                                        passwords.matches(
-                                                request.password(), candidate.getPasswordHash()))
+                                        candidate.hasPassword()
+                                                && passwords.matches(
+                                                        request.password(),
+                                                        candidate.getPasswordHash()))
                         .findFirst()
                         .orElseThrow(() -> new ApiException(ErrorCode.LOGIN_FAILED));
         TokenResponse response = tokens(user);
@@ -113,7 +106,10 @@ public class AuthService {
         // 만든 뒤 다시 읽어 바뀌었거나 탈퇴했으면 지우고 실패로 둔다. 다시 읽을 때 아직 그대로였다면 변경 쪽 폐기가 이 토큰을 지운다
         boolean unchanged =
                 users.findByIdAndDeletedAtIsNull(user.getId())
-                        .map(current -> current.getPasswordHash().equals(user.getPasswordHash()))
+                        .map(
+                                current ->
+                                        Objects.equals(
+                                                current.getPasswordHash(), user.getPasswordHash()))
                         .orElse(false);
         if (!unchanged) {
             refreshTokens.revoke(response.refreshToken(), user.getId());
@@ -153,7 +149,25 @@ public class AuthService {
         refreshTokens.revoke(token, userId);
     }
 
-    private TokenResponse tokens(User user) {
+    /** 1.2·1.7. 필수 약관 3개가 모두 있어야 한다 */
+    static void requireAllTerms(List<AgreementRequest> requested) {
+        var types = EnumSet.noneOf(TermsType.class);
+        requested.forEach(a -> types.add(a.termsType()));
+        if (types.size() != TermsType.values().length) {
+            throw new ApiException(ErrorCode.AGREEMENT_REQUIRED);
+        }
+    }
+
+    /** 가입 트랜잭션 안에서 부른다 */
+    void saveAgreements(User user, List<AgreementRequest> requested) {
+        agreements.saveAll(
+                requested.stream()
+                        .map(a -> new UserAgreement(user, a.termsType(), a.termsVersion()))
+                        .toList());
+    }
+
+    /** 로그인·가입 응답(1.2·1.3·1.6·1.7) */
+    TokenResponse tokens(User user) {
         return new TokenResponse(
                 accessTokens.issue(user.getId(), user.getNickname()),
                 refreshTokens.issue(user.getId()),

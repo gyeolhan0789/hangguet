@@ -110,6 +110,17 @@ class AuthServiceTest {
     }
 
     @Test
+    void socialUserCannotLogInWithPassword() {
+        // 같은 이메일 목록에 비밀번호 없는 소셜 회원이 있어도 비밀번호를 비교하지 않는다
+        when(users.findActiveByEmail("k@kakao.com"))
+                .thenReturn(List.of(User.social("k@kakao.com", "카카오")));
+        assertCode(
+                () -> service.login(new LoginRequest("k@kakao.com", "abcd1234")),
+                ErrorCode.LOGIN_FAILED);
+        verify(passwords, never()).matches(any(), any());
+    }
+
+    @Test
     void missingAgreementIsRejected() {
         assertCode(
                 () ->
