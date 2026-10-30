@@ -76,7 +76,7 @@
 | id | BIGINT IDENTITY | NOT NULL | PK |
 | company_id | BIGINT | NOT NULL | 회사 FK |
 | card | JSONB | NOT NULL | 카드 JSON 그대로 |
-| content_hash | CHAR(64) | NOT NULL | 카드 파일의 sha256(manifest 값). 같으면 새로 넣지 않는다 |
+| content_hash | VARCHAR(64) | NOT NULL | 카드 파일의 sha256(manifest 값). 같으면 새로 넣지 않는다 |
 | generated_at | DATE | NOT NULL | 파이프라인이 카드를 만든 날 |
 | is_current | BOOLEAN | NOT NULL | 회사당 하나만 참(부분 유니크 인덱스) |
 | created_at | TIMESTAMPTZ | NOT NULL | 적재한 시각. 보관 기간 기준 |
@@ -126,14 +126,13 @@
 
 | 항목 | 내용 |
 |---|---|
-| 버킷 | 회사 카드 전용 1개(이름 예: `hanggeut-a301-company`). 퍼블릭 차단, SSE-S3, IP 조건 없음(개발 서버·파이프라인 EC2도 읽고 씀) |
+| 버킷 | `hanggeut-a301-company`(2026-10-30 생성, 회사 카드 전용). 퍼블릭 차단, SSE-S3, IP 조건 없음(개발 서버·파이프라인 EC2도 읽고 씀) |
 | 수명 주기 | `cards/` 30일 지나면 삭제. 파이프라인이 지금 카드를 매일 다시 올려 지금 카드는 남는다 |
 | 쓰기 | IAM `a301-company-pipeline`: 이 버킷 `PutObject`·`GetObject`·`ListBucket`. 파이프라인 EC2 `.env`의 `CARD_AWS_*` |
 | 읽기 | 기존 `a301-prod-app`·`a301-dev-app`에 이 버킷 `GetObject`·`ListBucket` 추가 |
-| BE 설정 | `COMPANY_S3_BUCKET`(개발·운영 같은 값) |
+| BE 설정 | `company-card.bucket` ← `COMPANY_S3_BUCKET`. 비밀값이 아니라 개발·운영 compose에 같은 값을 적는다. 비어 있으면 적재하지 않는다 |
 
 ## 정할 것
 
 1. AI 명세에 `companyCard` 반영(필드 이름, 기존 `companySummary` 정리) **[합의 필요]**
-2. 버킷 이름
-3. 매칭 결과를 화면·관리자에서 볼 필요가 있는지(지금은 로그만)
+2. 매칭 결과를 화면·관리자에서 볼 필요가 있는지(지금은 로그만)

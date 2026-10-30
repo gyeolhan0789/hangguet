@@ -157,6 +157,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
       S3_BUCKET: hanggeut-a301-prod
       AWS_REGION: ap-northeast-2
+      # 회사 카드 공용 버킷(docs/ERD-회사카드.md). 개발과 같은 버킷을 읽어 운영 DB에 넣는다. 앱 키(a301-prod-app)에 읽기 권한 필요
+      COMPANY_S3_BUCKET: hanggeut-a301-company
       # 소셜 로그인(API 명세 1.6). 키는 개발과 같고, 없으면 그 제공자 로그인만 503. 콜백 주소는 운영 FE 주소만 받는다
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
