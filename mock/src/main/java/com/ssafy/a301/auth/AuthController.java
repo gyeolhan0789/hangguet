@@ -244,10 +244,10 @@ public class AuthController {
                                             value = ErrorExamples.SOCIAL_LOGIN_UNAVAILABLE)))
     @PostMapping("/oauth/{provider}")
     public SocialLoginResponse socialLogin(
-            @Parameter(description = "제공자. 지금은 `kakao`만", example = "kakao") @PathVariable
+            @Parameter(description = "제공자. `kakao` · `google`", example = "kakao") @PathVariable
                     String provider,
             @Valid @RequestBody SocialLoginRequest request) {
-        if (!"kakao".equalsIgnoreCase(provider)) {
+        if (!"kakao".equalsIgnoreCase(provider) && !"google".equalsIgnoreCase(provider)) {
             throw new FieldValidationException("provider", "지원하지 않는 로그인 방법입니다.");
         }
         return switch (request.code()) {
