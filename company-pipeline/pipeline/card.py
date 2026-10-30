@@ -202,6 +202,19 @@ def call_llm(messages: list[dict[str, str]], model: str | None = None) -> dict[s
 def to_card(
     llm: dict[str, Any], *, corp_code: str, name: str, talent_source: str, report_source: str
 ) -> dict[str, Any]:
+    talent = []
+    for item in llm.get("talent", []):
+        if isinstance(item, str):
+            talent.append({"title": item, "parent": None, "details": [], "source": talent_source})
+        elif isinstance(item, dict):
+            talent.append(
+                {
+                    "title": item.get("title", ""),
+                    "parent": item.get("parent"),
+                    "details": item.get("details") or [],
+                    "source": talent_source,
+                }
+            )
     return {
         "corp_code": corp_code,
         "name": name,
@@ -209,15 +222,7 @@ def to_card(
         "prompt_version": PROMPT_VERSION,
         "model": os.environ.get("LLM_MODEL", ""),
         "talent_model": talent_model(),
-        "talent": [
-            {
-                "title": t.get("title", ""),
-                "parent": t.get("parent"),
-                "details": t.get("details") or [],
-                "source": talent_source,
-            }
-            for t in llm.get("talent", [])
-        ],
+        "talent": talent,
         "direction": [{**d, "source": report_source} for d in llm.get("direction", [])],
         "market": [{**m, "source": report_source} for m in llm.get("market", [])],
         "recent": llm.get("recent", []),  # 출처(기사 링크)는 link_articles가 붙인다

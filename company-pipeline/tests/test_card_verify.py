@@ -64,6 +64,22 @@ def test_to_card_adds_meta_and_sources() -> None:
     assert all(d["source"] == "보고서" for d in result["direction"])
 
 
+def test_to_card_accepts_talent_sentence_from_model() -> None:
+    sentence = "오늘의 작은 문제들을 넘겨보지 않고, 주도적으로 문제를 해결해나갑니다."
+    result = to_card(
+        {"talent": [sentence]},
+        corp_code="1",
+        name="컬리",
+        talent_source="url",
+        report_source="보고서",
+    )
+    kept, dropped = verify_card(result, {"talent": sentence})
+    assert dropped == []
+    assert kept["talent"] == [
+        {"title": sentence, "parent": None, "details": [], "source": "url"}
+    ]
+
+
 def test_verify_drops_talent_made_up_without_talent_source() -> None:
     # 실제 응답에서 모델은 인재상 원문이 없는데도 사업보고서 문장으로 인재상을 만들어 냈다
     llm = json.loads(REPLY)
