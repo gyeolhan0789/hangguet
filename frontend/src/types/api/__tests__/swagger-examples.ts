@@ -1,5 +1,5 @@
 // 자동 생성 파일(scripts/swagger-type-examples.mjs). 직접 고치지 않는다.
-// 웹 Swagger의 요청 · 응답 예시 139개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
+// 웹 Swagger의 요청 · 응답 예시 141개를 src/types/api 타입으로 적는다. tsc가 하나라도 맞지 않으면 실패한다.
 import type {
   AnswerRequest,
   AnswerResponse,
@@ -38,6 +38,7 @@ import type {
   RoomResponse,
   SessionCalendarResponse,
   SessionCreateRequest,
+  SessionEndRequest,
   SessionListResponse,
   SessionResponse,
   SignupRequest,
@@ -52,7 +53,7 @@ import type {
   WithdrawRequest,
 } from "..";
 
-export const SWAGGER_EXAMPLE_COUNT = 139;
+export const SWAGGER_EXAMPLE_COUNT = 141;
 
 export const swaggerExamples = [
   // 1.1 이메일 사용 가능 여부 200
@@ -962,6 +963,8 @@ export const swaggerExamples = [
     instance: "/api/v1/interview-sessions",
     code: "IDEMPOTENCY_KEY_REUSED",
   } satisfies ProblemDetail,
+  // 5.8 면접 끝내기 요청 스키마 example
+  { gazeRatio: 72.5 } satisfies SessionEndRequest,
   // 5.8 면접 끝내기 200 답변 0개 → 홈
   {
     id: 55,
@@ -1004,6 +1007,15 @@ export const swaggerExamples = [
     leveledUp: true,
     room: null,
   } satisfies SessionResponse,
+  // 5.8 면접 끝내기 400 VALIDATION_FAILED: gazeRatio가 0~100이 아님
+  {
+    title: "Bad Request",
+    status: 400,
+    detail: "입력값을 확인해 주세요.",
+    instance: "/api/v1/interview-sessions/55/end",
+    code: "VALIDATION_FAILED",
+    errors: [{ field: "gazeRatio", reason: "0~100입니다." }],
+  } satisfies ProblemDetail,
   // 5.8 면접 끝내기 404 SESSION_NOT_FOUND
   {
     title: "Not Found",
@@ -1166,7 +1178,7 @@ export const swaggerExamples = [
       speedDeviationPct: 8.5,
       trailingOffRatio: 12,
       pitchRangeSt: 6.2,
-      gazeRatio: null,
+      gazeRatio: 72.5,
     },
   } satisfies ResultResponse,
   // 6.3 면접 결과 404 SESSION_NOT_FOUND
