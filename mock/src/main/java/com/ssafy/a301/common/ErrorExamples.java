@@ -19,6 +19,13 @@ public final class ErrorExamples {
               "errors": [ { "field": "objectKey", "reason": "본인에게 발급된 키가 아닙니다." } ] }\
             """;
 
+    public static final String GAZE_RATIO_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
+              "instance": "/api/v1/interview-sessions/55/end", "code": "VALIDATION_FAILED",
+              "errors": [ { "field": "gazeRatio", "reason": "0~100입니다." } ] }\
+            """;
+
     public static final String LOGIN_FAILED =
             """
             { "title": "Unauthorized", "status": 401, "detail": "이메일 또는 비밀번호를 확인해 주세요.",
