@@ -149,6 +149,45 @@ class ApiSpecTest {
     }
 
     @Test
+    void practiceAlarmCodeChoosesResultAndTimeIsValidated() {
+        assertThat(enablePracticeAlarm("anything"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.enabled")
+                .isEqualTo(true);
+        assertThat(enablePracticeAlarm("mismatch"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("KAKAO_ACCOUNT_MISMATCH");
+        assertThat(enablePracticeAlarm("not-kakao")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(practiceAlarmTime("22:30"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.time")
+                .isEqualTo("22:30");
+        assertThat(practiceAlarmTime("24:00")).hasStatus(HttpStatus.BAD_REQUEST);
+    }
+
+    private MvcTestResult enablePracticeAlarm(String code) {
+        return mockMvc.put()
+                .uri("/api/v1/users/me/practice-alarm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                        "{ \"code\": \"%s\", \"redirectUri\": \"http://localhost:3000/cb\" }"
+                                .formatted(code))
+                .exchange();
+    }
+
+    private MvcTestResult practiceAlarmTime(String time) {
+        return mockMvc.patch()
+                .uri("/api/v1/users/me/practice-alarm")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{ \"time\": \"%s\" }".formatted(time))
+                .exchange();
+    }
+
+    @Test
     void signupWithNullAgreementIsInvalid() {
         String body =
                 """

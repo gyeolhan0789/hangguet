@@ -24,6 +24,13 @@ public enum ErrorCode {
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 시간이 지났어요. 다시 로그인해 주세요."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요."),
 
+    // 연습 알림
+    PRACTICE_ALARM_UNAVAILABLE(HttpStatus.CONFLICT, "카카오로 가입한 회원만 연습 알림을 받을 수 있어요."),
+    KAKAO_CONSENT_FAILED(HttpStatus.BAD_REQUEST, "카카오 동의를 확인하지 못했어요. 다시 시도해 주세요."),
+    KAKAO_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "가입할 때 쓴 카카오 계정으로 동의해 주세요."),
+    KAKAO_MESSAGE_CONSENT_REQUIRED(HttpStatus.BAD_REQUEST, "카카오톡 메시지 전송에 동의해야 알림을 받을 수 있어요."),
+    KAKAO_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "카카오 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."),
+
     // 지원서
     APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "지원서를 찾을 수 없어요."),
     COVER_LETTER_CHECK_UNAVAILABLE(

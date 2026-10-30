@@ -45,6 +45,13 @@ com.ssafy.a301
 │  ├─ mapper       UserMapper
 │  ├─ repository   UserRepository, UserAgreementRepository, PasswordChangeRepository, UserSocialAccountRepository
 │  └─ domain       User, UserAgreement, TermsType, PasswordChange · PasswordChangedBy, UserSocialAccount · SocialProvider
+├─ alarm           카카오톡 연습 알림(2.8 ~ 2.11). 카카오 회원만. 토큰은 문의와 같은 방식으로 암호화해 저장한다
+│  ├─ controller   PracticeAlarmController
+│  ├─ service      PracticeAlarmService(켜기 · 끄기 · 시각 변경), PracticeAlarmSender(보내기 · 토큰 갱신), PracticeAlarmScheduler(매분 보내기, 매일 4시 30분 토큰 갱신)
+│  ├─ dto          PracticeAlarmDtos
+│  ├─ kakao        KakaoMessageClient(인가 코드 → 토큰, 동의 확인, 토큰 갱신, 나에게 보내기), KakaoApiException
+│  ├─ repository   PracticeAlarmRepository
+│  └─ domain       PracticeAlarm
 ├─ home
 │  ├─ controller   HomeController(3.1~3.3)
 │  ├─ service      HomeService(3.1, 스트릭·면접 집계·성장 리뷰 계산을 조합), PracticeStatsService(3.2 통계·3.3 연습 달력)
@@ -107,7 +114,7 @@ com.ssafy.a301
 │  ├─ dto          InquiryDtos
 │  ├─ mapper       InquiryMapper
 │  ├─ repository   InquiryRepository, InquiryMessageRepository
-│  ├─ crypto       InquiryCipher(AES-256-GCM, 키는 INQUIRY_ENCRYPTION_KEY), EncryptedTextConverter(JPA 변환기)
+│  ├─ crypto       InquiryCipher(AES-256-GCM, 키는 INQUIRY_ENCRYPTION_KEY), EncryptedTextConverter(JPA 변환기. 연습 알림의 카카오 토큰도)
 │  └─ domain       Inquiry, InquiryMessage, InquiryStatus · AuthorType
 ├─ storage
 │  ├─ s3           S3FileStorage, S3Config, S3Properties, PresignedUrl
@@ -142,7 +149,8 @@ com.ssafy.a301
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V13) **[결정]** |
 | `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V13). V13 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
-| `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 제공자 토큰은 저장하지 않는다 **[결정]** |
+| `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 로그인에 쓴 제공자 토큰은 저장하지 않는다 **[결정]** |
+| `PracticeAlarm` | `practice_alarms` | 1:1 User(PK `user_id`) | 카카오톡 연습 알림(V14). 알림 시각(`alarm_time`, 분 단위, 기본 21:00)은 끈 뒤에도 남고, 켜져 있을 때만 카카오 토큰(액세스 · 리프레시, 암호화)과 만료 시각이 있다(넷이 함께 있거나 함께 없음, CHECK). `last_sent_on`(한국 날짜)으로 하루 한 번만 보낸다. 회원이 탈퇴하면 행을 지운다 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장). `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
@@ -372,6 +380,20 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 소셜 회원은 비밀번호가 없다. 1.3은 비밀번호 없는 회원을 고르지 않고, 2.3 · 9.10은 409 `PASSWORD_NOT_SET`, 2.7은 비밀번호를 묻지 않는다. 비밀번호 변경 기록이 없으므로 재발급(1.4)의 비밀번호 변경 확인에도 걸리지 않는다
 - 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분), `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(둘 다 필수) · `GOOGLE_REDIRECT_URIS`로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
 
+### 카카오톡 연습 알림 (2.8 ~ 2.11) **[결정]**
+
+- 설정 화면의 "연습 알림 메일"을 카카오톡 "나에게 보내기"로 대신한다. 카카오로 가입한 회원만 받을 수 있다(구글 · 이메일 회원은 409 `PRACTICE_ALARM_UNAVAILABLE`)
+- 동의는 알림을 켤 때 받는다. 로그인(1.6)은 바꾸지 않고, 알림을 원하는 회원의 토큰만 저장하기 위해서다. 화면이 카카오 인가 요청에 `scope=talk_message`를 붙이고 로그인과 같은 콜백 주소로 받은 인가 코드를 2.9로 보낸다
+- 2.9: 인가 코드를 토큰으로 바꾸고 동의 항목 API(`/v2/user/scopes`)로 카카오 회원 번호와 `talk_message` 동의를 확인한다. 가입한 카카오 계정(`user_social_accounts.provider_user_id`)과 다르면 400 `KAKAO_ACCOUNT_MISMATCH`, 동의하지 않았으면 400 `KAKAO_MESSAGE_CONSENT_REQUIRED`. 카카오 호출은 트랜잭션 밖에서 하고, 저장은 회원 행 → 알림 행 순서로 잠그고 한다(탈퇴 · 토큰 갱신과 겹쳐도 덮어쓰지 않게)
+- 보내기(`PracticeAlarmSender`): 매분(한국 시간) 그 시각을 고른 회원 중 켜져 있고 · 탈퇴하지 않았고 · 오늘 연습 기록(`practice_logs`)이 없고 · 오늘 보내지 않은 회원을 찾는다. 지난 10분 안의 시각도 함께 찾아, 앞 작업이 길어졌거나 서버가 잠깐 멈춰 건너뛴 분을 늦게라도 보낸다(그보다 오래된 알림은 보내지 않고, 자정 전으로 거슬러 가지 않는다). 회원마다 오늘 보낼 차례를 먼저 가져가고(`last_sent_on`) 보낸다. 실패해도 그날은 다시 보내지 않는다(최대 하루 한 번). 배포 중 서버 두 대가 겹쳐도 한 번만 보낸다
+- 주기 작업 스레드는 4개다(`spring.task.scheduling.pool.size`, 기본 1개). 카카오 호출(최대 5초)이 길어져도 AI 작업 재발행(5초마다) 같은 다른 주기 작업이 밀리지 않는다
+- 문구는 스트릭으로 정한다. 어제까지 이어졌으면 "오늘 연습하면 N일 연속이에요!", 아니면 연습을 권한다. 버튼 링크는 `KAKAO_REDIRECT_URIS` 첫 주소의 도메인(개발 · 운영 주소가 각자 첫 번째)이며, 카카오 앱 플랫폼(Web) 사이트 도메인에 등록해야 열린다
+- 토큰: 액세스 토큰이 1분 안에 만료되면 리프레시 토큰으로 새로 받아 저장하고 보낸다. 만료 전인데 401이면 한 번만 새로 받아 다시 보낸다. 카카오는 리프레시 토큰이 1개월 미만으로 남았을 때 갱신해야 새로 주므로, 매일 4시 30분에 28일 안에 만료될 토큰을 갱신한다(매일 연습해 알림을 받지 않는 회원도 끊기지 않게)
+- 리프레시 토큰이 거절되거나(`invalid_grant`) 회원이 동의를 철회했거나(-402) 앱 연결을 끊었으면(-101) 알림을 끈다. 그 사이 회원이 다시 켜 토큰이 바뀌었으면 끄지 않는다. 그 밖의 카카오 오류(앱 키 · 앱 권한 -3 · 링크 도메인 등 우리 설정 문제, 서버 오류 · 시간 초과)는 회원 알림을 끄지 않고 기록만 한다(설정 문제는 ERROR). 콘솔 설정 실수로 모든 회원의 알림이 꺼지지 않게 하기 위해서다. 한 회원이 실패해도 다른 회원에게는 계속 보낸다
+- 끄기(2.11)는 토큰만 지우고 시각은 남긴다. 카카오 쪽 동의 철회는 하지 않는다. 탈퇴(2.7)는 알림 행을 지운다
+- 앱 키 · 콜백 주소는 카카오 로그인과 같은 `oauth.kakao`를 쓴다(새 환경 변수 없음). 토큰 암호화 키는 문의와 같은 `INQUIRY_ENCRYPTION_KEY`다. 키가 없으면 2.9가 503 `KAKAO_UNAVAILABLE`
+- 카카오 앱 설정: 동의 항목 "카카오톡 메시지 전송"(선택 동의), 플랫폼 Web 사이트 도메인(개발 · 운영 · localhost)
+
 ## 10. 파일 (S3) **[제안]**
 
 `storage.s3`(버킷·리전·주소 유효 시간)로 설정한다. 자격 증명은 AWS 기본 공급자(환경 변수 등)에서 읽어, 없으면 파일 주소가 필요한 요청만 실패한다. 업로드 주소 10분, 조회 주소 1시간.
@@ -403,5 +425,4 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변별 음성(B-19)
-4. 카카오톡 알림: 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
-5. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다
+4. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다

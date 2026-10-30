@@ -12,6 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.a301.alarm.repository.PracticeAlarmRepository;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
@@ -57,6 +58,7 @@ class UserServiceTest {
     private final RefreshTokenStore refreshTokens = mock(RefreshTokenStore.class);
     private final UserSocialAccountRepository socialAccounts =
             mock(UserSocialAccountRepository.class);
+    private final PracticeAlarmRepository practiceAlarms = mock(PracticeAlarmRepository.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private UserService service;
@@ -80,6 +82,7 @@ class UserServiceTest {
                         uploadKeys,
                         refreshTokens,
                         socialAccounts,
+                        practiceAlarms,
                         new TransactionTemplate(txManager));
         user = new User("a@test.com", "hash", "이전닉네임");
         ReflectionTestUtils.setField(user, "id", USER_ID);
@@ -261,6 +264,7 @@ class UserServiceTest {
         assertThat(social.isWithdrawn()).isTrue();
         verify(passwords, never()).matches(any(), any());
         verify(socialAccounts).withdrawAll(eq(USER_ID), any());
+        verify(practiceAlarms).deleteByUserId(USER_ID);
         verify(refreshTokens).revokeAll(USER_ID);
     }
 

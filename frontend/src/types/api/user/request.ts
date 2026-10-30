@@ -1,4 +1,4 @@
-// 2. 회원 요청. 기준: 웹 Swagger 2.2 ~ 2.7.
+// 2. 회원 요청. 기준: 웹 Swagger 2.2 ~ 2.10.
 
 /** 2.2 PATCH /users/me 본문 */
 export interface NicknameRequest {
@@ -35,4 +35,21 @@ export interface ProfileImageRequest {
 export interface WithdrawRequest {
   /** 본인 확인용 비밀번호. 필수 */
   password: string;
+}
+
+/**
+ * 2.9 PUT /users/me/practice-alarm 본문(연습 알림 켜기).
+ * 카카오 인가 요청에 scope=talk_message를 붙여 동의를 받고, 콜백에서 받은 code를 보낸다
+ */
+export interface PracticeAlarmEnableRequest {
+  /** 카카오가 콜백 주소로 넘겨 준 인가 코드. 필수 */
+  code: string;
+  /** 인가 코드를 받은 콜백 주소. 카카오 로그인(1.6)과 같은 주소. 필수 */
+  redirectUri: string;
+}
+
+/** 2.10 PATCH /users/me/practice-alarm 본문(연습 알림 시각 변경) */
+export interface PracticeAlarmTimeRequest {
+  /** 알림 시각(한국 시간, HH:mm). 00:00~23:59, 분 단위 */
+  time: string;
 }
