@@ -1,149 +1,139 @@
 # 회사 카드 ERD
 
-회사 카드 파이프라인 결과를 메인 DB에 저장할 테이블 설계다. API 명세 B-9의 "회사 요약 Table"에 해당한다.
-ERDCloud 가져오기용 SQL은 [ERD-회사카드.sql](ERD-회사카드.sql)이다(ERDCloud가 잘 읽는 MySQL 문법).
+회사 카드 파이프라인이 만든 카드를 메인 DB에 넣고 AI 작업 메시지에 담는 설계다. API 명세 B-9의 "회사 요약 Table"에 해당한다.
+마이그레이션 초안은 [ERD-회사카드.sql](ERD-회사카드.sql)이다(레포 Flyway 규칙: `BIGINT IDENTITY`·`TIMESTAMPTZ`·공통코드 없음).
+
+## 정한 것 (2026-10-30)
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 쓰는 곳 | AI 작업 메시지(PLAN·SCORE_ANSWER·EVALUATE)만. 사용자 화면에는 보여 주지 않는다 | |
+| DB | 각 환경의 메인 DB(`a301`)에 테이블을 더한다. database를 따로 만들지 않는다 | 면접과 FK로 잇고, Flyway·백업(`pg_dump`)을 하나로 유지한다 |
+| 적재 | **BE**가 S3의 카드를 읽어 넣는다 | DB에는 BE만 접속한다는 규칙을 지킨다(AI·파이프라인은 DB에 접속하지 않음) |
+| 변경 감지 | BE 스케줄러가 1시간마다 `manifest.json`을 본다. SQS를 쓰지 않는다 | 카드는 하루 한 번 바뀐다. 큐·이벤트 설정 없이 S3 요청 몇 번으로 끝난다 |
+| 저장 형태 | 카드 JSON을 `company_cards.card`(JSONB)에 그대로 둔다. 항목·출처 테이블로 나누지 않는다 | 항목별로 조회할 곳이 없다. BE가 카드 형식을 몰라도 되어 형식이 바뀌어도 BE를 고치지 않는다 |
+| AI 전달 | 카드 JSON을 그대로 `companyCard`에 담는다 | 항목마다 원문 인용·출처가 붙어 있어 AI가 근거로 쓰기 좋다 |
+| 회사 매칭 | 면접을 만들 때 지원서 회사명을 별칭에서 한 번 찾고, 그때의 최신 카드를 면접에 저장한다 | 지원서를 바꾸지 않는다. 지원서를 쓴 뒤 카드가 생긴 회사도 다음 면접부터 붙는다 |
+| 면접 안 일관성 | SCORE_ANSWER·EVALUATE는 면접에 저장된 카드를 쓴다 | 면접 도중 매일 갱신(13:00)이 끼어도 한 면접은 같은 카드를 본다 |
+| 보관 | 내용(해시)이 바뀔 때만 새 카드. 최신이 아니고, 어느 면접도 쓰지 않고, 30일 지난 카드는 지운다 | 카드는 파이프라인이 다시 만들 수 있어 소프트 삭제를 쓰지 않는다 |
+| S3 | 회사 카드 전용 버킷 하나를 개발·운영이 같이 읽는다. 원문·기사는 파이프라인 MinIO에 그대로 둔다 | 운영 버킷에 두면 개발 키에 운영 권한을 줘야 하고, 운영 버킷 IP 조건에 개발 서버가 막힌다 |
 
 ## 흐름
 
-파이프라인(교보재 EC2: Airflow·MinIO, [company-pipeline](../company-pipeline/pipeline/README.md))이 원문·기사·카드를 만들어 S3에 올리면, Python worker가 메인 DB(PostgreSQL)에 넣는다(적재는 고도화 때).
-BE는 회사·회사별칭·회사카드·회사카드항목을 읽고, 카드항목의 출처는 원문기록·뉴스기사를 FK로 따라가 얻는다.
+```
+[파이프라인 EC2, Airflow]
+  매일 13:00 최근 이슈 갱신 / ▶ 카드 전체 생성
+  → 원문·기사: MinIO (지금 그대로)
+  → publish_cards: 공용 버킷에 cards/{고유번호}/{sha256}.json → 마지막에 manifest.json
 
-```mermaid
-erDiagram
-    companies ||--o{ company_aliases : "별칭"
-    companies ||--o{ company_cards : "카드(버전별)"
-    companies ||--o{ source_documents : "원문"
-    companies ||--o{ news_articles : "기사"
-    company_cards ||--o{ company_card_items : "항목"
-    source_documents |o--o{ company_card_items : "출처(인재상·사업방향·경쟁시장)"
-    news_articles |o--o{ company_card_items : "출처(최근이슈)"
+[개발 BE · 운영 BE, 각자] 1시간마다
+  manifest.json → 처음 보는 run_id면 회사·별칭 맞추기, 해시가 바뀐 카드만 넣기 → 지난 카드 정리 → run_id 기록
+
+[면접]
+  면접 생성: 지원서 회사명 → 별칭 → 최신 카드 id를 interview_sessions.company_card_id에 저장(못 찾으면 NULL)
+  PLAN · SCORE_ANSWER · EVALUATE 메시지: company_card_id의 카드를 companyCard에 그대로 담음(NULL이면 뺌)
 ```
 
-| 테이블 | 한국어 이름 | 하는 일 |
-|---|---|---|
-| companies | 회사 | 카드를 만드는 회사. DART 고유번호, 회사명, 상장 여부 |
-| company_aliases | 회사별칭 | 지원서 회사명 검색·매칭용 이름 (네이버 → NAVER) |
-| company_cards | 회사카드 | 카드 한 장. 프롬프트·모델 버전, 최신 여부. 만들 때마다 쌓인다 |
-| company_card_items | 회사카드항목 | 카드 내용 한 줄: 인재상·사업방향·경쟁·시장·최근이슈, 원문 인용, 출처 |
-| source_documents | 원문기록 | 받아 온 사업보고서·인재상 페이지 기록. 파일은 MinIO/S3 |
-| news_articles | 뉴스기사 | 날마다 모으는 기사 제목·요약·링크(본문 없음), 같은 사건 묶음 번호 |
+## 파이프라인이 올리는 것
 
-FK는 표에서 🔑로 표시했다. 상태 같은 종류 값은 팀 ERD 규칙대로 코드값 + 그룹코드 두 칸으로 공통코드를 참조한다.
-`common_codes`는 팀 공통코드 테이블 자리표시라 실제 이름으로 바꾼다.
+[company-pipeline README의 카드 올리기](../company-pipeline/pipeline/README.md#카드-올리기-) 참고. BE가 기대는 약속만 적는다.
 
-## 모든 테이블 공통 컬럼
+- `manifest.json`: `format`(지금 1), `run_id`(실행 시각, 실행마다 다름), `companies[]`
+  - `companies[]`: `corp_code`, `name`, `is_listed`, `aliases[]`(정규화한 이름), `generated_at`, `card_key`, `sha256`
+  - 카드를 모두 올린 뒤 마지막에 쓴다. `card_key`가 가리키는 파일은 내용이 바뀌면 키도 바뀌어 덮어쓰이지 않는다
+- 카드 JSON: [카드 형식](../company-pipeline/pipeline/README.md#카드-형식). BE는 내용을 해석하지 않는다
+  - 출처는 항목마다 붙어 있고, 사업보고서·인재상 페이지 정보는 `report`·`talent_page`에 있다. 2026-10-30 이전 카드에는 이 두 칸이 없을 수 있다
+- `format`이 BE가 아는 값이 아니면 BE는 적재하지 않고 오류 로그를 남긴다
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 생성일시 | created_at | DATETIME | NOT NULL | 생성 일시. 회사카드는 카드를 만든 시각, 원문기록·뉴스기사는 받아 온 시각이다 |
-| 수정일시 | updated_at | DATETIME | NOT NULL | 수정 일시 (ON UPDATE CURRENT_TIMESTAMP) |
-| 삭제일시 | deleted_at | DATETIME | NULL | 데이터가 삭제 처리된 시각이다. 삭제되지 않은 데이터는 비어 있다. |
-| 삭제여부 | is_deleted | BOOLEAN | NOT NULL | 데이터가 삭제 처리되었는지 나타낸다. 삭제 처리 시 참으로 변경하고 삭제일시에 처리 시각을 기록한다. |
+## 테이블
 
-아래 표에는 공통 컬럼을 빼고 테이블마다 다른 컬럼만 적는다.
+### 회사 `companies`
 
-## 회사 `companies`
+| 컬럼 | 타입 | NULL | 설명 |
+|---|---|---|---|
+| id | BIGINT IDENTITY | NOT NULL | PK |
+| corp_code | VARCHAR(8) | NOT NULL | DART 고유번호. 중복 불가. manifest의 회사를 찾는 기준 |
+| name | VARCHAR(100) | NOT NULL | DART 등록 회사명 |
+| is_listed | BOOLEAN | NOT NULL | 상장 여부 |
+| created_at · updated_at | TIMESTAMPTZ | NOT NULL | |
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 회사ID | id | INT | NOT NULL | 회사 ID |
-| DART고유번호 | corp_code | VARCHAR(8) | NOT NULL | DART 공시 회사 고유번호 8자리. 중복 불가 |
-| 회사명 | name | VARCHAR(100) | NOT NULL | DART에 등록된 회사명 (예: 삼성에스디에스). AI 명세 §7 companyName |
-| 상장여부 | is_listed | BOOLEAN | NOT NULL | 종목코드가 있으면 참. 비상장사도 사업보고서를 내면 카드를 만든다 |
-| 기사검색어 | news_query | VARCHAR(100) | NULL | 기사에서 부르는 이름이 회사명과 다를 때만 쓴다 (예: 삼성SDS, 네이버, 현대차) |
+### 회사별칭 `company_aliases`
 
-## 회사별칭 `company_aliases`
+| 컬럼 | 타입 | NULL | 설명 |
+|---|---|---|---|
+| id | BIGINT IDENTITY | NOT NULL | PK |
+| company_id | BIGINT | NOT NULL | 회사 FK |
+| alias | VARCHAR(100) | NOT NULL | 정규화한 이름(아래 규칙). 중복 불가 |
+| created_at | TIMESTAMPTZ | NOT NULL | |
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 별칭ID | id | INT | NOT NULL | 별칭 ID |
-| 🔑 회사 | company_id | INT | NOT NULL | 회사 FK |
-| 별칭 | alias | VARCHAR(100) | NOT NULL | 사용자가 지원서에 쓸 수 있는 회사 이름. 띄어쓰기를 지우고 소문자로 맞춰 저장한다 (예: 네이버, naver, 삼성sds). 지원서 회사명(applications.company_name)을 회사에 잇는 데 쓴다. 중복 불가 |
+- 적재 때마다 manifest의 `aliases`에 맞춘다(없어진 별칭은 지우고 새 별칭은 넣는다)
+- 다른 회사가 이미 쓰는 별칭이면 넣지 않고 경고 로그만 남긴다(먼저 들어온 회사가 가진다)
 
-## 회사카드 `company_cards`
+### 회사카드 `company_cards`
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 카드ID | id | INT | NOT NULL | 카드 ID |
-| 🔑 회사 | company_id | INT | NOT NULL | 회사 FK |
-| 프롬프트버전 | prompt_version | VARCHAR(20) | NOT NULL | 카드를 만든 프롬프트 버전 (예: card-v4) |
-| 모델 | model | VARCHAR(50) | NOT NULL | 카드를 만든 LLM (예: qwen3-8b-ctx) |
-| 최신여부 | is_current | BOOLEAN | NOT NULL | BE가 읽을 최신 카드인지 나타낸다. 회사당 하나만 참이다 |
+| 컬럼 | 타입 | NULL | 설명 |
+|---|---|---|---|
+| id | BIGINT IDENTITY | NOT NULL | PK |
+| company_id | BIGINT | NOT NULL | 회사 FK |
+| card | JSONB | NOT NULL | 카드 JSON 그대로 |
+| content_hash | CHAR(64) | NOT NULL | 카드 파일의 sha256(manifest 값). 같으면 새로 넣지 않는다 |
+| generated_at | DATE | NOT NULL | 파이프라인이 카드를 만든 날 |
+| is_current | BOOLEAN | NOT NULL | 회사당 하나만 참(부분 유니크 인덱스) |
+| created_at | TIMESTAMPTZ | NOT NULL | 적재한 시각. 보관 기간 기준 |
 
-## 회사카드항목 `company_card_items`
+### 카드적재기록 `company_card_imports`
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 카드항목ID | id | INT | NOT NULL | 카드 항목 ID |
-| 🔑 카드 | card_id | INT | NOT NULL | 회사카드 FK |
-| 순서 | seq | INT | NOT NULL | 같은 항목유형 안의 순서 (1부터). 카드·항목유형·순서 조합은 중복 불가 |
-| 요약 | summary | VARCHAR(255) | NOT NULL | 항목 요약. 인재상은 키워드 |
-| 원문인용 | quote | TEXT | NOT NULL | 근거 원문 문장 그대로. 원문에 있는지 검증을 통과한 것만 저장한다 |
-| 🔑 출처원문 | source_document_id | INT | NULL | 원문기록 FK. 인재상(채용 페이지), 사업방향·경쟁시장(사업보고서) 항목에 채운다. 출처 제목·링크·날짜는 원문기록에서 가져온다 (AI 명세 §7 sources) |
-| 🔑 출처기사 | news_article_id | INT | NULL | 뉴스기사 FK. 최근이슈 항목에 채운다. 출처원문·출처기사 중 하나만 채운다 |
-| 같은사건기사수 | article_count | INT | NULL | 최근이슈만 쓴다. 카드를 만든 시점에 같은 사건을 다룬 기사 수이며 클수록 크게 다뤄진 이슈다. 사건묶음번호는 날마다 다시 계산되므로 이 값은 카드에 따로 남긴다 |
-| 🔑 항목유형 | item_type | VARCHAR(50) | NOT NULL | 카드 항목 종류. CARD_ITEM_TYPE - TALENT(인재상) / DIRECTION(사업방향) / MARKET(경쟁·시장) / RECENT(최근이슈) |
-| 🔑 항목유형그룹 | item_type_group | VARCHAR(50) | NOT NULL | 그룹코드 고정 'CARD_ITEM_TYPE' |
+| 컬럼 | 타입 | NULL | 설명 |
+|---|---|---|---|
+| run_id | VARCHAR(50) | NOT NULL | PK. manifest의 `run_id` |
+| imported_at | TIMESTAMPTZ | NOT NULL | 적재를 마친 시각 |
 
-## 원문기록 `source_documents`
+### 면접 `interview_sessions`에 더하는 컬럼
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 원문ID | id | INT | NOT NULL | 원문 ID |
-| 🔑 회사 | company_id | INT | NOT NULL | 회사 FK |
-| 원문제목 | title | VARCHAR(255) | NOT NULL | 예: 사업보고서 (2025.12), 미래에셋그룹 경영 철학. 카드항목 출처 제목으로 보인다 |
-| 외부식별자 | external_id | VARCHAR(100) | NULL | DART 접수번호 등. 인재상 페이지는 비어 있을 수 있다 |
-| 원문링크 | url | VARCHAR(500) | NULL | 원문 페이지 주소 |
-| 저장위치 | storage_key | VARCHAR(500) | NULL | 원문 파일의 S3/MinIO 위치. 파일 자체는 DB에 넣지 않는다 |
-| 공개일자 | published_at | DATE | NULL | 공시일 |
-| 🔑 원문유형 | document_type | VARCHAR(50) | NOT NULL | 원문 종류. SOURCE_DOCUMENT_TYPE - ANNUAL_REPORT(사업보고서) / TALENT_PAGE(인재상 페이지) |
-| 🔑 원문유형그룹 | document_type_group | VARCHAR(50) | NOT NULL | 그룹코드 고정 'SOURCE_DOCUMENT_TYPE' |
+| 컬럼 | 타입 | NULL | 설명 |
+|---|---|---|---|
+| company_card_id | BIGINT | NULL | 회사카드 FK. 면접을 만들 때 정한다. 회사를 못 찾았거나 카드가 없으면 NULL |
 
-## 뉴스기사 `news_articles`
+## BE 적재 규칙
 
-| 논리명 | 물리명 | 타입 | NULL | 설명 |
-|---|---|---|---|---|
-| 🔑 기사ID | id | INT | NOT NULL | 기사 ID |
-| 🔑 회사 | company_id | INT | NOT NULL | 회사 FK |
-| 기사제목 | title | VARCHAR(300) | NOT NULL | 기사 제목 |
-| 기사요약 | summary | TEXT | NULL | 네이버 검색 API가 주는 1~2문장 요약. 저작권 때문에 본문은 저장하지 않는다 |
-| 기사링크 | url | VARCHAR(500) | NOT NULL | 언론사 원문 링크. 없으면 네이버 뉴스 링크. 회사·링크 조합은 중복 불가 |
-| 기사일자 | published_at | DATE | NOT NULL | 기사 날짜. 기사는 지우지 않고 쌓으며, 카드에는 최근 30일 기사만 쓴다(이 칸으로 거름) |
-| 사건묶음번호 | event_group | INT | NULL | 같은 사건 기사끼리 같은 번호 (제목 임베딩 유사도 0.65 기준). 최근 30일 기사끼리 날마다 다시 계산한다. 그보다 오래된 기사는 마지막 번호가 그대로 남는다 |
+1. `manifest.json`을 읽는다. `run_id`가 `company_card_imports`에 있으면 끝
+2. 회사마다(회사 하나씩 트랜잭션)
+   - `companies`를 `corp_code`로 넣거나 고친다(`name`, `is_listed`)
+   - `company_aliases`를 `aliases`에 맞춘다
+   - 지금 카드의 `content_hash`가 `sha256`과 같으면 넘어간다. 다르면 `card_key`를 읽어 내용의 sha256이 manifest 값과 같은지 확인하고, 이전 카드를 `is_current = false`로 바꾼 뒤 새 카드를 넣는다
+3. 지난 카드 정리: `is_current = false`이고, `interview_sessions.company_card_id`가 가리키지 않고, `created_at`이 30일 지난 카드를 지운다
+4. 모든 회사가 성공했을 때만 `run_id`를 기록한다. 실패한 회사가 있으면 기록하지 않아 다음 주기에 다시 한다(이미 넣은 회사는 해시가 같아 넘어간다)
 
-## 공통코드에 추가할 값
+- manifest에서 빠진 회사(파이프라인 목록에서 뺀 회사)는 건드리지 않는다
+- 개발·운영은 같은 manifest를 각자 적재한다. `run_id` 기록도 각자 DB에 있다
+- 스케줄: `@Scheduled(cron = "0 0 * * * *", zone = KoreaTime.ZONE_ID)` 정도. BE 인스턴스가 하나라 중복 실행을 막지 않는다(겹쳐도 해시·`run_id` 때문에 결과는 같다)
 
-| 그룹코드 | 코드 | 코드명 |
-|---|---|---|
-| CARD_ITEM_TYPE | TALENT | 인재상 |
-| CARD_ITEM_TYPE | DIRECTION | 사업방향 |
-| CARD_ITEM_TYPE | MARKET | 경쟁·시장 |
-| CARD_ITEM_TYPE | RECENT | 최근이슈 |
-| SOURCE_DOCUMENT_TYPE | ANNUAL_REPORT | 사업보고서 |
-| SOURCE_DOCUMENT_TYPE | TALENT_PAGE | 인재상 페이지 |
+## 회사 매칭 규칙
 
-## 팀과 정할 것
+지원서 회사명(`applications.company_name`)을 아래처럼 맞춘 뒤 `company_aliases.alias`와 같은 행을 찾는다. 파이프라인 `candidates.key`와 같은 규칙이다.
 
-1. 지원서와 회사 연결: `applications`에 `company_id`(NULL 허용) 추가 vs 매번 `company_aliases`로 찾기
-2. AI 명세 §7(요약 한 덩어리 + 출처 목록) 대신 항목별 출처 형식을 써도 되는지
-3. 지난 카드 보관 기간
-4. 중복 불가 조건과 소프트 삭제: 삭제 처리된 행이 남아 있으면 같은 별칭·고유번호를 다시 못 넣는다. 팀에서 이 경우를 어떻게 처리하는지 (삭제되지 않은 행만 중복 검사 등)
-5. 레포 규칙과 차이: `V1__init.sql`은 `BIGINT IDENTITY`·`TIMESTAMPTZ`·소프트 삭제 없음이고 공통코드 테이블이 없다. 이 문서는 팀 ERD 규칙(INT·DATETIME·`is_deleted`·공통코드)을 따랐다. 마이그레이션 때 어느 쪽으로 맞출지
+- 지울 것(대소문자 무시): `(주)`, `㈜`, `주식회사`, `Co., Ltd`류(`co\.?,?\.?\s*ltd\.?`), `Corp`·`Corporation`, `Inc`, 공백, `.` `,` `·` `-`
+- 남은 글자를 소문자로(`Locale.ROOT`)
+- 예: `삼성 SDS` → `삼성sds`, `(주)카카오` → `카카오`, `Samsung SDS Co., Ltd.` → `samsungsds`
 
-## 마이그레이션 때 추가할 제약 (PostgreSQL)
+## AI 작업 메시지
 
-ERDCloud용 SQL(MySQL 문법)에는 넣지 못한 규칙이다. 실제 마이그레이션에는 넣는다.
+- PLAN·SCORE_ANSWER·EVALUATE에 `companyCard`(카드 JSON 그대로)를 더한다. 면접의 `company_card_id`가 NULL이면 필드를 넣지 않는다
+- 크기: 2026-10-30 카드 110개 평균 약 4KB, 가장 큰 것 9KB
+- AI 명세 8장(요약 한 덩어리 + 출처 목록)과 2·3·4장 입력을 이 형식으로 고친다. AI 담당과 맞춘 뒤 고친다 **[합의 필요]**
 
-```sql
--- 카드항목 출처는 원문기록·뉴스기사 중 하나만
-ALTER TABLE company_card_items ADD CONSTRAINT ck_company_card_items_one_source
-    CHECK ((source_document_id IS NULL) <> (news_article_id IS NULL));
+## 인프라
 
--- 회사당 최신 카드는 하나만
-CREATE UNIQUE INDEX uk_company_cards_current ON company_cards (company_id)
-    WHERE is_current AND NOT is_deleted;
+| 항목 | 내용 |
+|---|---|
+| 버킷 | 회사 카드 전용 1개(이름 예: `hanggeut-a301-company`). 퍼블릭 차단, SSE-S3, IP 조건 없음(개발 서버·파이프라인 EC2도 읽고 씀) |
+| 수명 주기 | `cards/` 30일 지나면 삭제. 파이프라인이 지금 카드를 매일 다시 올려 지금 카드는 남는다 |
+| 쓰기 | IAM `a301-company-pipeline`: 이 버킷 `PutObject`·`GetObject`·`ListBucket`. 파이프라인 EC2 `.env`의 `CARD_AWS_*` |
+| 읽기 | 기존 `a301-prod-app`·`a301-dev-app`에 이 버킷 `GetObject`·`ListBucket` 추가 |
+| BE 설정 | `COMPANY_S3_BUCKET`(개발·운영 같은 값) |
 
--- 카드항목 출처로 찾을 때 (PostgreSQL은 FK에 인덱스를 자동으로 만들지 않음)
-CREATE INDEX ix_company_card_items_source_document ON company_card_items (source_document_id);
-CREATE INDEX ix_company_card_items_news_article ON company_card_items (news_article_id);
-```
+## 정할 것
+
+1. AI 명세에 `companyCard` 반영(필드 이름, 기존 `companySummary` 정리) **[합의 필요]**
+2. 버킷 이름
+3. 매칭 결과를 화면·관리자에서 볼 필요가 있는지(지금은 로그만)

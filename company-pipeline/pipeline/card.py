@@ -200,8 +200,16 @@ def call_llm(messages: list[dict[str, str]], model: str | None = None) -> dict[s
 
 
 def to_card(
-    llm: dict[str, Any], *, corp_code: str, name: str, talent_source: str, report_source: str
+    llm: dict[str, Any],
+    *,
+    corp_code: str,
+    name: str,
+    talent_source: str,
+    report_source: str,
+    report: dict[str, str] | None = None,
+    talent_page: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """report·talent_page는 읽은 원문 정보(없으면 None). BE가 출처 링크로 쓴다."""
     talent: list[dict[str, Any]] = []
     for item in llm.get("talent", []):
         if isinstance(item, str):
@@ -222,6 +230,8 @@ def to_card(
         "prompt_version": PROMPT_VERSION,
         "model": os.environ.get("LLM_MODEL", ""),
         "talent_model": talent_model(),
+        "report": report,
+        "talent_page": talent_page,
         "talent": talent,
         "direction": [{**d, "source": report_source} for d in llm.get("direction", [])],
         "market": [{**m, "source": report_source} for m in llm.get("market", [])],

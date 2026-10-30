@@ -47,8 +47,9 @@ def _save(result: dict[str, Any], data: Path) -> Path:
 def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     """회사 하나의 카드를 만들어 data/cards/{고유번호}.json에 저장한다."""
     name = company["name"]
+    report_info: dict[str, str] | None = None
     try:
-        corp_code, report = dart.fetch_report(name)
+        corp_code, report, report_info = dart.fetch_report(name)
         section = extract.business_section(report)
         business, market = card.business_input(section), card.market_input(section)
     except LookupError:
@@ -57,9 +58,11 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         corp_code, business, market = dart.corp_code(name), "", ""
         log.info("%s: 최근 1년 사업보고서 없음, 인재상·최근 이슈만 만든다", name)
     talent = company.get("talent_text", "")
+    talent_page: dict[str, str] | None = None
     if talent:  # 언제 무슨 문장이었는지 남긴다
         collected = company.get("talent_collected_at") or date.today().isoformat()
         storage.put(f"raw/talent/{corp_code}/{collected}.txt", talent.encode("utf-8"))
+        talent_page = {"url": company.get("talent_url", ""), "collected_at": collected}
     # 항목마다 따로 부르고, 응답에서 그 항목 키만 쓴다(다른 키가 섞여 와도 덮어쓰지 않게)
     llm: dict[str, Any] = {}
     if talent:
@@ -79,6 +82,8 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         name=name,
         talent_source=company.get("talent_url", ""),
         report_source=REPORT_SOURCE,
+        report=report_info,
+        talent_page=talent_page,
     )
     result, dropped = verify.verify_card(
         result, {"talent": talent, "direction": business, "market": market}

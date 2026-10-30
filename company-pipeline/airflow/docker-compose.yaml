@@ -11,7 +11,7 @@ x-airflow-common: &airflow-common
   image: apache/airflow:3.3.2-python3.13
   logging: *logging
   env_file:
-    - ../.env # DART_API_KEY, NAVER_CLIENT_ID/SECRET, LLM_* (git 제외)
+    - ../.env # DART_API_KEY, NAVER_CLIENT_ID/SECRET, LLM_*, CARD_S3_BUCKET·CARD_AWS_* (git 제외)
   environment: &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     # 실행 프로세스를 동시 실행 수만큼 미리 띄운다(하나에 약 150MB). 기본 32개면 약 1GB라 4GB 서버에서

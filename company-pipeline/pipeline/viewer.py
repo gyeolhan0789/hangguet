@@ -4,7 +4,7 @@
 
 cd company-pipeline && uv run --env-file .env python -m pipeline.viewer   # 데이터 만들고 화면 띄움
 화면의 '회사 추가'는 DART 목록에서 고른 회사만 companies.json에 넣는다(DART·GMS 키 필요)
-'정보 수정'은 이미 있는 회사의 기사 검색어·인재상 칸만 고친다(회사명은 그대로)
+'정보 수정'은 이미 있는 회사의 기사 검색어·별칭·인재상 칸만 고친다(회사명은 그대로)
 '목록 전체 바꾸기'는 검사(형식·중복·DART 회사명)를 통과한 목록으로 통째로 바꾸고
 이전 목록을 백업한다
 
@@ -195,7 +195,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self._send(200, {"added": corp.name, "report": _has_report(corp.code)})
 
     def _update(self, body: dict[str, Any]) -> None:
-        """이미 있는 회사의 기사 검색어·인재상 칸만 고친다(회사명은 그대로)."""
+        """이미 있는 회사의 기사 검색어·별칭·인재상 칸만 고친다(회사명은 그대로)."""
         extra = {f: str(body[f]) for f in candidates.EDITABLE if f in body}
         try:
             row = candidates.update(str(body.get("name", "")), extra)

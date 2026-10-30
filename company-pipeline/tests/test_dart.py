@@ -69,7 +69,7 @@ def test_fetch_report_downloads_again_only_when_new_report(
 
     monkeypatch.setattr(dart, "_get", fake_get)
 
-    assert dart.fetch_report("카카오") == ("00258801", "보고서 20260314000001")
+    assert dart.fetch_report("카카오")[:2] == ("00258801", "보고서 20260314000001")
     dart.fetch_report("카카오")  # 같은 사업보고서면 원문을 다시 받지 않는다
     latest["rcept_no"] = "20270313000002"  # 이듬해 새 사업보고서
     assert dart.fetch_report("카카오")[1] == "보고서 20270313000002"
@@ -97,8 +97,16 @@ def test_fetch_report_skips_correction_without_document(monkeypatch: pytest.Monk
             return _zip({"CORPCODE.xml": CORP_XML})
         if path == "list.json":
             items = [
-                {"report_nm": "[첨부정정]사업보고서 (2025.12)", "rcept_no": "20260319000633"},
-                {"report_nm": "사업보고서 (2025.12)", "rcept_no": "20260316001112"},
+                {
+                    "report_nm": "[첨부정정]사업보고서 (2025.12)",
+                    "rcept_no": "20260319000633",
+                    "rcept_dt": "20260319",
+                },
+                {
+                    "report_nm": "사업보고서 (2025.12)",
+                    "rcept_no": "20260316001112",
+                    "rcept_dt": "20260316",
+                },
             ]
             return json.dumps({"status": "000", "list": items}).encode()
         if params["rcept_no"] == "20260319000633":
@@ -107,7 +115,17 @@ def test_fetch_report_skips_correction_without_document(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(dart, "_get", fake_get)
 
-    assert dart.fetch_report("카카오") == ("00258801", "본문")
+    # 보고서 정보도 실제로 읽은(본문이 있는) 보고서의 것이다
+    assert dart.fetch_report("카카오") == (
+        "00258801",
+        "본문",
+        {
+            "rcept_no": "20260316001112",
+            "title": "사업보고서 (2025.12)",
+            "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260316001112",
+            "published": "2026-03-16",
+        },
+    )
 
 
 def _zip(files: dict[str, bytes]) -> bytes:
