@@ -69,6 +69,31 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "소셜 로그인 회원은 비밀번호가 없어요.",
               "instance": "/api/v1/users/me/password", "code": "PASSWORD_NOT_SET" }\
             """;
+    public static final String PRACTICE_ALARM_UNAVAILABLE =
+            """
+            { "title": "Conflict", "status": 409, "detail": "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+              "instance": "/api/v1/users/me/practice-alarm", "code": "PRACTICE_ALARM_UNAVAILABLE" }\
+            """;
+    public static final String KAKAO_CONSENT_FAILED =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "카카오 동의를 확인하지 못했어요. 다시 시도해 주세요.",
+              "instance": "/api/v1/users/me/practice-alarm", "code": "KAKAO_CONSENT_FAILED" }\
+            """;
+    public static final String KAKAO_ACCOUNT_MISMATCH =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "가입할 때 쓴 카카오 계정으로 동의해 주세요.",
+              "instance": "/api/v1/users/me/practice-alarm", "code": "KAKAO_ACCOUNT_MISMATCH" }\
+            """;
+    public static final String KAKAO_MESSAGE_CONSENT_REQUIRED =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "카카오톡 메시지 전송에 동의해야 알림을 받을 수 있어요.",
+              "instance": "/api/v1/users/me/practice-alarm", "code": "KAKAO_MESSAGE_CONSENT_REQUIRED" }\
+            """;
+    public static final String KAKAO_UNAVAILABLE =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "카카오 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/users/me/practice-alarm", "code": "KAKAO_UNAVAILABLE" }\
+            """;
     public static final String SOCIAL_LOGIN_FAILED =
             """
             { "title": "Unauthorized", "status": 401, "detail": "소셜 로그인에 실패했어요. 다시 시도해 주세요.",

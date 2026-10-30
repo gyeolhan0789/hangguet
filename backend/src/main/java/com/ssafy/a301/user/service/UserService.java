@@ -1,5 +1,6 @@
 package com.ssafy.a301.user.service;
 
+import com.ssafy.a301.alarm.repository.PracticeAlarmRepository;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
@@ -53,6 +54,7 @@ public class UserService {
     private final UploadKeyStore uploadKeys;
     private final RefreshTokenStore refreshTokens;
     private final UserSocialAccountRepository socialAccounts;
+    private final PracticeAlarmRepository practiceAlarms;
     private final TransactionTemplate transactions;
 
     public UserService(
@@ -66,6 +68,7 @@ public class UserService {
             UploadKeyStore uploadKeys,
             RefreshTokenStore refreshTokens,
             UserSocialAccountRepository socialAccounts,
+            PracticeAlarmRepository practiceAlarms,
             TransactionTemplate transactions) {
         this.users = users;
         this.practices = practices;
@@ -77,6 +80,7 @@ public class UserService {
         this.uploadKeys = uploadKeys;
         this.refreshTokens = refreshTokens;
         this.socialAccounts = socialAccounts;
+        this.practiceAlarms = practiceAlarms;
         this.transactions = transactions;
     }
 
@@ -157,7 +161,7 @@ public class UserService {
     /**
      * 탈퇴(2.7). 행은 남기고 deleted_at만 기록한 뒤 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·API 호출은 탈퇴 회원을 조회하지 않아
      * 막힌다. soft delete라 개인정보·프로필 사진은 지우지 않는다(최종 파기 시점은 B-6). 소셜 회원은 비밀번호 없이 탈퇴하고, 소셜 연결도 탈퇴 처리해 같은
-     * 소셜 계정으로 다시 가입할 수 있다.
+     * 소셜 계정으로 다시 가입할 수 있다. 연습 알림은 저장한 카카오 토큰과 함께 지운다.
      */
     public void withdraw(long userId, String password) {
         transactions.executeWithoutResult(
@@ -174,6 +178,7 @@ public class UserService {
                     OffsetDateTime now = KoreaTime.now();
                     user.withdraw(now);
                     socialAccounts.withdrawAll(userId, now);
+                    practiceAlarms.deleteByUserId(userId);
                 });
         // 탈퇴는 이미 저장됐다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절되므로 실패해도 기록만 남긴다.
         try {

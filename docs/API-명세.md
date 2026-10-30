@@ -33,7 +33,7 @@
   - 결과 분석(S06-1): 5.2. `status`가 `COMPLETED` 또는 `FAILED`가 되면 멈춘다
   - 면접 중 다음 질문은 AI 에이전트가 면접방 메시지(`question`)로 알리므로 다시 불러 확인하지 않는다
 - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
-- **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일, 개발자 콘솔
+- **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일(카카오톡 알림 2.8~2.11로 대신함), 개발자 콘솔
 
 목 서버는 실제 로직 없이 예시 응답을 돌려준다. 인증·DB는 없고, 경로의 id가 `0`이면 해당 404를 돌려준다(화면 오류 처리 확인용). 회원가입(1.2)은 요청한 닉네임으로, 로그인(1.3)·재발급(1.4)은 예시 회원(id 1, 닉네임 "면접왕")으로 액세스 토큰을 만든다. 토큰을 검사하지는 않는다. 소셜 로그인(1.6)은 `code`로 결과를 고른다(`signup` 가입 필요 · `no-email` 400 · `duplicated` 409 · `invalid` 401 · 그 밖은 로그인). 소셜 회원가입(1.7)은 `signupToken`이 `expired`면 401이다.
 
@@ -55,6 +55,10 @@
 | 2.5 | 프로필 사진 등록 | `PUT /users/me/profile-image` | S09-1 |
 | 2.6 | 프로필 사진 삭제 | `DELETE /users/me/profile-image` | S09-1 |
 | 2.7 | 회원 탈퇴 | `POST /users/me` | S09-1 |
+| 2.8 | 연습 알림 설정 | `GET /users/me/practice-alarm` | S09-1 |
+| 2.9 | 연습 알림 켜기 | `PUT /users/me/practice-alarm` | S09-1, 카카오 콜백 |
+| 2.10 | 연습 알림 시각 변경 | `PATCH /users/me/practice-alarm` | S09-1 |
+| 2.11 | 연습 알림 끄기 | `DELETE /users/me/practice-alarm` | S09-1 |
 | 3.1 | 홈 | `GET /home` | S02 · S02-B · S02-C · S02-D, S02-1 |
 | 3.2 | 통계 | `GET /users/me/stats` | S09 |
 | 3.3 | 연습 달력 | `GET /practice-logs` | S09, 연습 기록(`/records`) |
@@ -242,11 +246,50 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 
 **화면 — S09-1 설정 › 회원 탈퇴 › 확인 모달**
 
-탈퇴 처리하고 모든 토큰을 폐기한다. 되돌릴 수 없고, 이메일·소셜 계정은 재가입에 쓸 수 있다. 이메일 회원은 `password`가 필수이고, 소셜 회원은 보내지 않는다(2.1 `socialProvider`). 탈퇴는 soft delete로, 회원 정보와 지원서·면접 기록·파일은 지우지 않고 남기되 조회되지 않는다. 최종 파기 시점은 B-6.
+탈퇴 처리하고 모든 토큰을 폐기한다. 되돌릴 수 없고, 이메일·소셜 계정은 재가입에 쓸 수 있다. 이메일 회원은 `password`가 필수이고, 소셜 회원은 보내지 않는다(2.1 `socialProvider`). 탈퇴는 soft delete로, 회원 정보와 지원서·면접 기록·파일은 지우지 않고 남기되 조회되지 않는다. 연습 알림(2.8)은 저장한 카카오 토큰과 함께 바로 지운다. 최종 파기 시점은 B-6.
 
 - **204**: 탈퇴
 - **400 / PASSWORD_MISMATCH**: 비밀번호 틀림
 - **400 / VALIDATION_FAILED**: 이메일 회원이 `password`를 보내지 않음
+
+#### 2.8 연습 알림 설정
+
+**화면 — S09-1 설정 › 알림**
+
+카카오톡 연습 알림. 켜 두면 고른 시각(한국 시간, 분 단위)에 그날 연습하지 않았을 때 카카오톡 "나와의 채팅"으로 알린다. 카카오로 가입한 회원만 받을 수 있다(`available`). 이메일 · 구글 회원은 `available: false`이며 화면은 안내만 보여 준다.
+
+- **200**: `{ available, enabled, time }`. `time`은 `HH:mm`이고 고르지 않았으면 `21:00`
+
+#### 2.9 연습 알림 켜기
+
+**화면 — S09-1 설정 › 알림 켜기** → 카카오 동의 화면 → 카카오 콜백 주소
+
+화면이 카카오 인가 요청에 `scope=talk_message`를 붙여 "카카오톡 메시지 전송" 동의를 받고, 콜백 주소(1.6과 같은 `/oauth/kakao/callback`)로 받은 인가 코드(`code`)를 이 API로 보낸다. 로그인 콜백과 구분하는 값은 화면이 `state`에 담는다(BE는 받지 않음). BE는 가입한 카카오 계정과 같은지, 메시지 전송에 동의했는지 확인한 뒤 카카오 토큰을 암호화해 저장한다. 이미 켜져 있으면 새 토큰으로 바꾼다.
+
+- **200**: 켜짐. 응답은 2.8과 같음
+- **400 / KAKAO_CONSENT_FAILED**: 쓸 수 없는 인가 코드(이미 썼거나 만료, `redirectUri` 불일치)
+- **400 / KAKAO_ACCOUNT_MISMATCH**: 가입한 카카오 계정과 다른 계정으로 동의함
+- **400 / KAKAO_MESSAGE_CONSENT_REQUIRED**: 메시지 전송에 동의하지 않음
+- **400 / VALIDATION_FAILED**: 등록되지 않은 `redirectUri`
+- **409 / PRACTICE_ALARM_UNAVAILABLE**: 카카오 회원이 아님
+- **503 / KAKAO_UNAVAILABLE**: 카카오 키가 없거나 카카오 서버 오류 · 시간 초과
+
+#### 2.10 연습 알림 시각 변경
+
+**화면 — S09-1 설정 › 알림 시간**
+
+`time`은 `HH:mm`(00:00~23:59). 꺼져 있어도 저장해 두고 켤 때 쓴다. 다시 동의하지 않아도 된다. 오늘 알림을 아직 받지 않았으면 오늘부터 바꾼 시각에 보낸다. 방금 지난 시각(10분 안)으로 바꾸면 곧 보낸다.
+
+- **200**: 변경. 응답은 2.8과 같음
+- **409 / PRACTICE_ALARM_UNAVAILABLE**: 카카오 회원이 아님
+
+#### 2.11 연습 알림 끄기
+
+**화면 — S09-1 설정 › 알림 끄기**
+
+저장한 카카오 토큰을 지운다. 알림 시각은 남는다. 카카오 쪽 동의는 그대로이며 회원이 카카오 계정 설정에서 철회할 수 있다.
+
+- **204**: 꺼짐(이미 꺼져 있어도 204)
 
 ### 3. 홈 · 스트릭
 
@@ -817,6 +860,9 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
 | `PASSWORD_NOT_SET` | 409 | 2.3, 9.10 |
 | `FILE_NOT_FOUND` | 404 | 2.5 |
+| `KAKAO_CONSENT_FAILED` · `KAKAO_ACCOUNT_MISMATCH` · `KAKAO_MESSAGE_CONSENT_REQUIRED` | 400 | 2.9 |
+| `PRACTICE_ALARM_UNAVAILABLE` | 409 | 2.9, 2.10 |
+| `KAKAO_UNAVAILABLE` | 503 | 2.9 |
 | `APPLICATION_NOT_FOUND` | 404 | 4.2·4.5·4.6·5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x·6.x (`QUESTION_NOT_FOUND`는 5.7) |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
