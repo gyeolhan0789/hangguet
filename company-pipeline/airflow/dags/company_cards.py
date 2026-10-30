@@ -1,7 +1,9 @@
 """회사 카드 파이프라인 DAG. 작업 내용은 company-pipeline/pipeline 코드를 그대로 부른다.
 
-- company_news_daily: 매일 13:00(KST) 회사별 기사 수집 → 최근 이슈 갱신 → 확인 화면 데이터 갱신
+- company_news_daily: 매일 13:00(KST) 회사별 기사 수집 → 최근 이슈 갱신
+  → 확인 화면 데이터 갱신·카드 올리기
 - company_cards_full: 수동 실행. 회사별 기사 수집 → 카드 전체 생성 (프롬프트·보고서 변경, 회사 추가)
+  → 확인 화면 데이터 갱신·카드 올리기
 """
 
 import json
@@ -10,7 +12,7 @@ from datetime import timedelta
 import pendulum
 from airflow.sdk import dag, get_current_context, task
 
-from pipeline import candidates, news, run, viewer
+from pipeline import candidates, news, publish, run, viewer
 
 RETRY = {"retries": 2, "retry_delay": timedelta(minutes=5)}
 # 회사별 작업 이름을 map 번호 대신 회사명으로 보이게 한다
@@ -55,6 +57,12 @@ def write_viewer() -> str:
     return str(viewer.write(run.DATA))
 
 
+# 일부 회사가 실패해도 성공한 카드는 BE가 읽는 공용 버킷에 올린다(카드 → manifest 순서)
+@task(trigger_rule="all_done", **RETRY)
+def publish_cards() -> str:
+    return publish.publish(run.DATA)
+
+
 # 회사별 작업이 하나라도 실패하면 실행 전체를 실패로 표시한다. 마지막 작업(write_viewer)이
 # all_done이라 이게 없으면 카카오가 3번 다 실패해도 실행이 성공으로 보였다(2026-10-21)
 @task
@@ -70,7 +78,7 @@ def all_companies_ok() -> None:
 )
 def company_news_daily() -> None:
     refreshed = refresh_recent.expand(company=collect_news.expand(company=companies()))
-    refreshed >> [write_viewer(), all_companies_ok()]
+    refreshed >> [write_viewer(), publish_cards(), all_companies_ok()]
 
 
 @dag(
@@ -81,7 +89,7 @@ def company_news_daily() -> None:
 def company_cards_full() -> None:
     # 새 회사도 최근 이슈가 채워지게 기사를 먼저 모은다
     built = build_card.expand(company=collect_news.expand(company=companies()))
-    built >> [write_viewer(), all_companies_ok()]
+    built >> [write_viewer(), publish_cards(), all_companies_ok()]
 
 
 company_news_daily()

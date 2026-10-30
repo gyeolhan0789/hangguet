@@ -6,8 +6,8 @@
 
 | DAG | 언제 | 하는 일 |
 |---|---|---|
-| `company_news_daily` | 매일 13:00 (KST) | 회사 목록 → [회사별] 기사 수집 → [회사별] 최근 이슈만 갱신 → 확인 화면 데이터 갱신 |
-| `company_cards_full` | 화면에서 ▶ 버튼 | 회사 목록 → [회사별] 기사 수집 → [회사별] 카드 전체 생성 → 확인 화면 데이터 갱신 |
+| `company_news_daily` | 매일 13:00 (KST) | 회사 목록 → [회사별] 기사 수집 → [회사별] 최근 이슈만 갱신 → 확인 화면 데이터 갱신·카드 올리기 |
+| `company_cards_full` | 화면에서 ▶ 버튼 | 회사 목록 → [회사별] 기사 수집 → [회사별] 카드 전체 생성 → 확인 화면 데이터 갱신·카드 올리기 |
 
 - 회사 목록은 실행할 때마다 `pipeline/companies.json`을 읽는다. 회사를 추가해도 DAG를 고치지 않는다
 - 카드가 없는 회사는 `company_news_daily`에서도 카드 전체를 만든다
@@ -15,7 +15,8 @@
 - 실패하면 5분 뒤 2번까지 다시 시도한다. 한 회사가 실패해도 다른 회사는 계속 진행한다
 - LLM·임베딩을 부르는 작업은 `llm` 풀(크기 1)로 한 번에 하나씩 돈다. 11곳이 동시에 몰리면 임베딩 400, 네이버 검색 API 429가 났다
 - 노트북이 꺼져 있던 날은 몰아서 돌리지 않는다(catchup 끔)
-- 회사별 작업이 하나라도 실패하면 실행 전체가 실패로 표시된다(`all_companies_ok`). 확인 화면 갱신은 실패해도 돈다
+- 회사별 작업이 하나라도 실패하면 실행 전체가 실패로 표시된다(`all_companies_ok`). 확인 화면 갱신과 카드 올리기(`publish_cards`)는 실패해도 돈다
+- `publish_cards`는 카드와 manifest를 AWS 공용 버킷에 올린다. BE가 1시간마다 manifest를 보고 DB에 넣는다([카드 올리기](../pipeline/README.md#카드-올리기-))
 
 ## 준비
 
@@ -58,7 +59,7 @@ develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
 |---|---|
 | 서버 | 교보재 EC2 t3.medium(2코어·4GB) + 스왑 2GB, 서울, `13.209.132.209`. 보안 그룹은 SSH(22)만 |
 | 배포 폴더 | `/opt/a301-pipeline` (러너 계정 `gitlab-runner` 소유) |
-| API 키 | `/opt/a301-pipeline/.env`에 처음 한 번 직접 둔다(소유자 `gitlab-runner`, 권한 600). git·CI 변수에 두지 않는다 |
+| API 키 | `/opt/a301-pipeline/.env`에 처음 한 번 직접 둔다(소유자 `gitlab-runner`, 권한 600). git·CI 변수에 두지 않는다. 카드 올리기용 `CARD_S3_BUCKET`·`CARD_AWS_*`도 여기에 더한다 |
 | 메모리 | `AIRFLOW__CORE__PARALLELISM=4`. 기본 32면 실행 프로세스가 약 1GB를 잡아 4GB에서 작업이 메모리 부족으로 죽었다 |
 | 폴더 권한 | 컨테이너 안 Airflow는 uid 50000. 배포 잡이 `pipeline/data`·`airflow/logs` 소유자를 맞춘다 |
 | 카드 확인 화면 | `viewer` 컨테이너(127.0.0.1:8765). 매일 작업이 갱신한 `data/viewer_data.js`를 보여 주고 회사 추가도 된다(DART·GMS 키 사용) |
@@ -90,7 +91,7 @@ develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
 | `processed/news/{고유번호}.json` | 최근 30일 기사, 같은 사건 묶음 번호 | 매일 덮어씀 (raw에서 다시 만들 수 있음) |
 
 - `raw/`는 덮어쓰지 않는다. 규칙·프롬프트를 바꿔도 다시 받지 않고 다시 가공할 수 있다
-- 카드는 아직 `pipeline/data/cards/`(git 제외)에 둔다. 카드 형식은 [pipeline/README.md](../pipeline/README.md#카드-형식). S3 업로드·메인 DB 적재는 다음 작업이다
+- 카드는 `pipeline/data/cards/`(git 제외)에 만들고, `publish_cards`가 MinIO가 아닌 AWS 공용 버킷(`CARD_S3_BUCKET`)에 올린다. 카드 형식은 [pipeline/README.md](../pipeline/README.md#카드-형식)
 - 서버 배포는 MVP 서버(Lightsail)가 아니라 교보재 EC2에 한다. 계획: [박다빈/deploy_plan](../../박다빈/deploy_plan/README.md)
 - Docker 없이 직접 실행할 때 `S3_ENDPOINT`가 없으면 MinIO 대신 `pipeline/data/` 폴더에 같은 경로로 저장한다. 직접 실행하면서 MinIO를 쓰려면 `company-pipeline/.env`에 추가한다(컨테이너는 compose 설정이 우선이라 영향 없음):
 

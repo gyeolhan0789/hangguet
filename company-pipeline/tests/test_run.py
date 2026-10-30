@@ -10,11 +10,17 @@ REPORT = """<TITLE AASSOCNOTE="D-0-2-0-0">II. 사업의 내용</TITLE>
 <P>1. 사업의 개요</P><P>당사는 AI 인프라 사업에 더욱 집중할 계획입니다.</P>
 <P>2. 주요 제품 및 서비스</P><P>서버</P>
 <TITLE AASSOCNOTE="D-0-3-0-0">III. 재무에 관한 사항</TITLE>"""
+REPORT_INFO = {
+    "rcept_no": "20260311000123",
+    "title": "사업보고서 (2025.12)",
+    "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260311000123",
+    "published": "2026-03-11",
+}
 
 
 @pytest.fixture
 def fake_sources(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(dart, "fetch_report", lambda name: ("00000001", REPORT))
+    monkeypatch.setattr(dart, "fetch_report", lambda name: ("00000001", REPORT, REPORT_INFO))
 
 
 def _fake_llm(reply: dict[str, Any]) -> Any:
@@ -40,6 +46,8 @@ def test_build_one_writes_card_and_drops_made_up_quotes(
     assert out == tmp_path / "cards" / "00000001.json"
     assert saved["talent"] == []  # 인재상 원문이 없으니 버림
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
+    assert saved["report"] == REPORT_INFO  # 읽은 사업보고서 정보(BE 출처 링크)
+    assert saved["talent_page"] is None  # 인재상 원문이 없으면 비운다
 
 
 def test_build_one_asks_talent_and_direction_separately(
@@ -167,8 +175,15 @@ def test_build_one_partial_card_without_annual_report(
         "items": [{"title": "우리는 도전합니다.", "parent": None, "details": []}]
     }
     monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
-    company = {"name": "비상장", "talent_url": "url", "talent_text": "우리는 도전합니다."}
+    company = {
+        "name": "비상장",
+        "talent_url": "url",
+        "talent_text": "우리는 도전합니다.",
+        "talent_collected_at": "2026-10-20",
+    }
 
     saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
     assert [t["title"] for t in saved["talent"]] == ["우리는 도전합니다."]
     assert saved["direction"] == [] and saved["market"] == []
+    assert saved["report"] is None
+    assert saved["talent_page"] == {"url": "url", "collected_at": "2026-10-20"}

@@ -16,6 +16,7 @@ API = "https://opendart.fss.or.kr/api"
 CORPCODE_DAYS = 30
 CORPCODE_KEY = "reference/corpcode.xml"
 REPORTS = "raw/dart/reports/"
+VIEWER = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo="
 
 
 def _get(path: str, **params: str) -> bytes:
@@ -93,8 +94,13 @@ def annual_report_no(code: str) -> str:
 
 def annual_report_nos(code: str) -> list[str]:
     """최근 1년 안의 사업보고서(정정 포함) 접수번호들, 최신순. 없으면 LookupError."""
+    return annual_reports(_listing(code))
+
+
+def _listing(code: str) -> dict[str, Any]:
+    """최근 1년 정기공시 목록(공시 검색 응답)."""
     begin = (date.today() - timedelta(days=365)).strftime("%Y%m%d")
-    listing = json.loads(
+    listing: dict[str, Any] = json.loads(
         _get(
             "list.json",
             corp_code=code,
@@ -104,17 +110,31 @@ def annual_report_nos(code: str) -> list[str]:
             page_count="100",
         )
     )
-    return annual_reports(listing)
+    return listing
 
 
-def fetch_report(name: str) -> tuple[str, str]:
-    """회사의 최신 사업보고서 원문을 저장소에 두고 (고유번호, 원문)을 돌려준다.
+def report_source(item: dict[str, Any]) -> dict[str, str]:
+    """공시 목록 한 줄 → 카드의 report 칸(접수번호, 보고서명, DART 공시 화면 주소, 접수일)."""
+    rcept_no, day = str(item["rcept_no"]), str(item.get("rcept_dt", ""))
+    return {
+        "rcept_no": rcept_no,
+        "title": str(item.get("report_nm", "")).strip(),
+        "url": VIEWER + rcept_no,
+        "published": f"{day[:4]}-{day[4:6]}-{day[6:]}" if len(day) == 8 else "",
+    }
+
+
+def fetch_report(name: str) -> tuple[str, str, dict[str, str]]:
+    """회사의 최신 사업보고서 원문을 저장소에 두고 (고유번호, 원문, 보고서 정보)를 돌려준다.
 
     공시 목록은 매번 조회하고, 그 접수번호의 원문이 저장소에 없을 때(새 사업보고서)만 받는다.
     [첨부정정]·일부 [기재정정]은 본문 파일이 없어(DART 014, zip 대신 XML 오류) 그다음 보고서를 쓴다.
+    보고서 정보는 실제로 읽은 보고서의 것이다(report_source).
     """
     code = corp_code(name)
-    for rcept_no in annual_report_nos(code):
+    listing = _listing(code)
+    items = {str(i["rcept_no"]): i for i in listing.get("list", [])}
+    for rcept_no in annual_reports(listing):
         key = f"{REPORTS}{code}/{rcept_no}.xml"
         report = storage.get(key)
         if report is None:
@@ -123,7 +143,7 @@ def fetch_report(name: str) -> tuple[str, str]:
                 continue
             report = _unzip(data, f"{rcept_no}.xml")
             storage.put(key, report)
-        return code, report.decode("utf-8", errors="replace")
+        return code, report.decode("utf-8", errors="replace"), report_source(items[rcept_no])
     raise LookupError("최근 1년 사업보고서 본문 파일이 없다")
 
 

@@ -140,14 +140,23 @@ def companies_file() -> Path:
 
 
 # 화면에서 넣고 고칠 수 있는 칸. 회사명(name)은 DART 정식명이라 고치지 않는다
-EDITABLE = ("news_query", "talent_url", "talent_text", "talent_collected_at")
+EDITABLE = ("news_query", "aliases", "talent_url", "talent_text", "talent_collected_at")
+
+
+def _aliases(text: str) -> str:
+    """별칭 칸: 쉼표로 나눈 이름들. 앞뒤 공백과 중복을 빼고 "a, b"로 맞춘다."""
+    names = (n.strip() for n in text.split(","))
+    return ", ".join(dict.fromkeys(n for n in names if n))
 
 
 def _row(name: str, extra: dict[str, str]) -> dict[str, str]:
-    """companies.json 한 줄. 기사 검색어는 회사명과 다를 때만, 원문이 없으면 수집일도 비운다."""
+    """companies.json 한 줄. 기사 검색어는 회사명과 다를 때만, 별칭은 있을 때만 넣고,
+    원문이 없으면 수집일도 비운다."""
     row = {"name": name}
     if (query := extra.get("news_query", "").strip()) and query != name:
         row["news_query"] = query
+    if aliases := _aliases(extra.get("aliases", "")):
+        row["aliases"] = aliases
     for field in ("talent_url", "talent_text", "talent_collected_at"):
         row[field] = extra.get(field, "").strip()
     if not row["talent_text"]:
@@ -182,7 +191,7 @@ def find(name: str, companies: Path | None = None) -> dict[str, str] | None:
 
 
 def update(name: str, extra: dict[str, str], companies: Path | None = None) -> dict[str, str]:
-    """이미 있는 회사의 기사 검색어·인재상 칸을 고친다. extra에 없는 칸은 그대로 둔다.
+    """이미 있는 회사의 기사 검색어·별칭·인재상 칸을 고친다. extra에 없는 칸은 그대로 둔다.
 
     회사명은 바꾸지 않는다(DART 고유번호를 찾는 기준). 없는 회사면 LookupError.
     """
