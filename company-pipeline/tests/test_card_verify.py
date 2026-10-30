@@ -75,9 +75,7 @@ def test_to_card_accepts_talent_sentence_from_model() -> None:
     )
     kept, dropped = verify_card(result, {"talent": sentence})
     assert dropped == []
-    assert kept["talent"] == [
-        {"title": sentence, "parent": None, "details": [], "source": "url"}
-    ]
+    assert kept["talent"] == [{"title": sentence, "parent": None, "details": [], "source": "url"}]
 
 
 def test_verify_drops_talent_made_up_without_talent_source() -> None:

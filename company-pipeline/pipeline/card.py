@@ -202,7 +202,7 @@ def call_llm(messages: list[dict[str, str]], model: str | None = None) -> dict[s
 def to_card(
     llm: dict[str, Any], *, corp_code: str, name: str, talent_source: str, report_source: str
 ) -> dict[str, Any]:
-    talent = []
+    talent: list[dict[str, Any]] = []
     for item in llm.get("talent", []):
         if isinstance(item, str):
             talent.append({"title": item, "parent": None, "details": [], "source": talent_source})
