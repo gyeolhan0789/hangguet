@@ -140,6 +140,14 @@ describe("proxy 접근 제어", () => {
     expect(response.headers.get("location")).toBeNull();
   });
 
+  it.each(["/terms", "/privacy"])(
+    "약관 화면 %s는 로그인하지 않아도, 로그인해도 그대로 보여 준다",
+    async (path) => {
+      expect((await proxy(requestWith("", path))).headers.get("location")).toBeNull();
+      expect((await proxy(requestWith("hk_access=a", path))).headers.get("location")).toBeNull();
+    },
+  );
+
   it.each(["/login", "/signup"])("로그인했으면 %s에서 홈으로 보낸다", async (path) => {
     const response = await proxy(requestWith("hk_access=a", path));
 

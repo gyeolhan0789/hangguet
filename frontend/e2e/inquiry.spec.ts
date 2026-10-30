@@ -133,6 +133,7 @@ async function fillAndSend(page: Page, title: string, content: string) {
 async function writeGuestInquiry(page: Page) {
   await page.getByLabel("이메일").fill("a@ssafy.com");
   await page.getByLabel("조회 비밀번호").fill("1234");
+  await page.getByText("[필수] 개인정보 수집 · 이용 동의").click();
   await fillAndSend(page, "비밀번호를 잊어버렸어요", "바꿔 주세요");
 }
 
@@ -248,14 +249,14 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "비밀번호를 잊어버렸어요" }),
     ).toBeVisible();
-    expect(server.seen.find((s) => s.method === "POST" && s.path === "/inquiries")).toMatchObject({
-      body: {
-        email: "a@ssafy.com",
-        accessPassword: "1234",
-        title: "비밀번호를 잊어버렸어요",
-        content: "바꿔 주세요",
-      },
-      authorized: false,
+    const created = server.seen.find((s) => s.method === "POST" && s.path === "/inquiries");
+    expect(created?.authorized).toBe(false);
+    // 개인정보 수집 · 이용 동의는 9.1이 받지 않아 보내지 않는다
+    expect(created?.body).toEqual({
+      email: "a@ssafy.com",
+      accessPassword: "1234",
+      title: "비밀번호를 잊어버렸어요",
+      content: "바꿔 주세요",
     });
     expect(server.seen.find((s) => s.method === "GET" && s.path === "/inquiries/7")?.password).toBe(
       "1234",
@@ -265,6 +266,29 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
     await page.reload();
     await expect(page.getByRole("heading", { level: 1, name: "문의 확인" })).toBeVisible();
     await expect(page.getByLabel("문의번호")).toBeVisible();
+  });
+
+  test("I01-B: 개인정보 수집 · 이용에 동의하지 않으면 보내지 않고, [보기]는 동의 본문을 모달로 보여 준다", async ({
+    page,
+    msw,
+  }) => {
+    const server = inquiryServer("1234");
+    msw.use(...server.handlers);
+    await page.goto("/inquiries/guest/new");
+    await page.getByLabel("이메일").fill("a@ssafy.com");
+    await page.getByLabel("조회 비밀번호").fill("1234");
+    await fillAndSend(page, "비밀번호를 잊어버렸어요", "바꿔 주세요");
+
+    await expect(page.getByRole("main").getByRole("alert")).toHaveText(
+      "개인정보 수집 · 이용에 동의해 주세요.",
+    );
+    expect(server.seen.some((s) => s.method === "POST")).toBe(false);
+
+    await page.getByRole("button", { name: "비회원 문의 개인정보 수집 · 이용 동의 보기" }).click();
+    const dialog = page.getByRole("dialog", { name: "비회원 문의 개인정보 수집 · 이용 동의" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "확인" }).click();
+    await expect(dialog).toBeHidden();
   });
 
   test("I04: 틀린 조회 비밀번호(404)는 서버 문구, 맞으면 열고 이어서 쓰고 종료한 뒤 9.3을 다시 불러 보여 준다", async ({

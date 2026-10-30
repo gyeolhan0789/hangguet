@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { guestInquirySchema, guestLookupSchema, inquirySchema } from "./schemas";
+import {
+  guestInquiryFormSchema,
+  guestInquirySchema,
+  guestLookupSchema,
+  inquirySchema,
+} from "./schemas";
 
 // 기준: Swagger 9.1 InquiryCreateRequest 검증 문구(서버 400 errors[].reason과 같은 문구)
 // 칸마다 첫 문구만 본다(zodResolver도 칸마다 첫 오류를 보인다)
@@ -55,6 +60,17 @@ describe("guestInquirySchema (I01-B 비회원)", () => {
       true,
     );
     expect(guestInquirySchema.safeParse(base).success).toBe(true);
+  });
+});
+
+describe("guestInquiryFormSchema (I01-B 폼: 개인정보 수집 · 이용 동의)", () => {
+  const base = { email: "a@ssafy.com", accessPassword: "1234", title: "제목", content: "내용" };
+
+  it("동의하지 않으면 막고, 동의하면 통과한다", () => {
+    expect(issues(guestInquiryFormSchema.safeParse({ ...base, agreed: false }))).toEqual({
+      agreed: "개인정보 수집 · 이용에 동의해 주세요.",
+    });
+    expect(guestInquiryFormSchema.safeParse({ ...base, agreed: true }).success).toBe(true);
   });
 });
 

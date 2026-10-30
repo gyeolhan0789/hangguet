@@ -36,6 +36,10 @@ export const ROUTES = {
   guestInquiry: "/inquiries/guest",
   /** I01-B 문의하기(비회원). I04 [+ 문의하기]로 들어온다. */
   guestInquiryNew: "/inquiries/guest/new",
+  /** 서비스 이용약관. 랜딩 푸터에서 들어온다(Figma S00 푸터 '이용약관') */
+  terms: "/terms",
+  /** 개인정보 처리방침. 랜딩 푸터에서 들어온다(Figma S00 푸터 '개인정보처리방침', 「개인정보 보호법」 제30조 공개) */
+  privacy: "/privacy",
   /** 화면을 그리는 도중 액세스 토큰이 만료됐을 때(TOKEN_EXPIRED) 재발급하고 돌아오는 Route Handler */
   tokenRefresh: "/api/auth/refresh",
   /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
@@ -125,6 +129,8 @@ export const PUBLIC_PATHS: readonly string[] = [
   ROUTES.signup,
   ROUTES.guestInquiry,
   ROUTES.guestInquiryNew,
+  ROUTES.terms,
+  ROUTES.privacy,
 ];
 
 /**
