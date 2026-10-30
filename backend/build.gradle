@@ -56,6 +56,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-flyway-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    // FE가 만든 Pact 계약을 실제 BE로 검증한다(contractTest)
+    testImplementation 'au.com.dius.pact.provider:junit5:4.7.6'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -72,7 +74,6 @@ tasks.withType(Test).configureEach {
     systemProperty 'ai-job.republish-interval', '1h'
     // 테스트 중 결과 큐 처리기가 실제 Redis의 ai:results를 꺼내 가지 않게 끈다
     systemProperty 'ai-result.consumer-enabled', 'false'
-    finalizedBy tasks.named('jacocoTestReport')
 }
 
 // Format: google-java-format AOSP 스타일 (들여쓰기 4칸)
@@ -114,11 +115,26 @@ tasks.named('jacocoTestReport') {
     }
 }
 
-// 실제 PostgreSQL·Redis가 필요한 인증 통합 검사는 명시적으로 실행한다.
+// 실제 PostgreSQL·Redis가 필요한 인증 통합 검사와 Pact 계약 검증은 명시적으로 실행한다.
+// 커버리지 리포트는 단위 테스트에만 건다. 모든 Test 태스크에 걸면 다른 Test 태스크만 돌려도 test 전체가 같이 돈다.
 tasks.named('test') {
     useJUnitPlatform {
-        excludeTags 'redis-integration'
+        excludeTags 'redis-integration', 'contract'
     }
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+// FE가 만든 계약 파일(frontend/pacts)을 실제 BE로 검증한다. 계약 파일을 입력으로 선언해,
+// 계약이 바뀌면 Gradle 빌드 캐시의 이전 결과를 쓰지 않고 다시 검증한다.
+tasks.register('contractTest', Test) {
+    description = 'FE Pact 계약을 실행 중인 PostgreSQL·Redis로 띄운 BE에 검증한다.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'contract'
+    }
+    inputs.dir(file('../frontend/pacts')).withPropertyName('pacts').withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 tasks.register('redisIntegrationTest', Test) {
