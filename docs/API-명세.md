@@ -162,7 +162,7 @@
 
 **화면 — S01 로그인 · S01-1 회원가입 › [카카오로 시작하기] · [구글로 시작하기]** → 제공자 로그인 → 화면의 콜백 주소
 
-화면이 제공자 로그인 화면으로 보내고, 제공자가 콜백 주소(`redirectUri`)로 넘겨 준 인가 코드(`code`)를 이 API로 보낸다. `provider`는 `kakao` · `google`이다. 구글은 `openid email profile` 범위(scope)를 요청한다. 로그인 위조(CSRF)를 막는 `state` 값은 화면이 만들고 콜백에서 확인한다(BE는 받지 않음).
+화면이 제공자 로그인 화면으로 보내고, 제공자가 콜백 주소(`redirectUri`)로 넘겨 준 인가 코드(`code`)를 이 API로 보낸다. `provider`는 `kakao` · `google`이다. 구글은 `openid email profile` 범위(scope)를 요청한다. 콜백 주소는 `/oauth/{provider}/callback`(예: `https://hangguet.co.kr/oauth/google/callback`)이고, 제공자 앱과 BE 설정(`*_REDIRECT_URIS`)에 등록한 주소와 글자까지 같아야 한다. 로그인 전에 여는 화면이다. 로그인 위조(CSRF)를 막는 `state` 값은 화면이 만들고 콜백에서 확인한다(BE는 받지 않음).
 
 BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네임)를 읽고, 제공자 회원 번호로 연결된 회원을 찾는다.
 
