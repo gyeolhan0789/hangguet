@@ -46,8 +46,14 @@ export interface AnswerRequest {
   content: string;
 }
 
+/** 5.8 POST …/end 본문. 선택이며 없으면 본문 없이 보낸다 */
+export interface SessionEndRequest {
+  /** 화상 면접 동안 면접관을 바라본 시간 비율(%, 0~100). 화면이 브라우저에서 잰 값. 재지 못했거나 채팅이면 보내지 않는다 */
+  gazeRatio?: number;
+}
+
 // 면접 조회·질문 조회·결과 재생성에는 요청 본문을 사용하지 않는다.
-// 면접 시작·종료는 본문 없이 IdempotencyHeaders만 전송한다.
+// 면접 시작은 본문 없이 IdempotencyHeaders만 전송한다.
 
 /** 5.13 GET /interview-sessions 쿼리(연습 면접 목록) */
 export interface SessionListQuery {

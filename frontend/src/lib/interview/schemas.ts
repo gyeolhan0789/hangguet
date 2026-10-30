@@ -19,6 +19,9 @@ export const sessionCreateSchema = z.object({
 
 export const idempotencyKeySchema = z.uuid();
 
+/** 5.8 시선 비율(%, 0~100). API 명세 5.8 gazeRatio */
+export const gazeRatioSchema = z.number().min(0).max(100);
+
 export type SessionCreateValues = z.infer<typeof sessionCreateSchema>;
 
 // 기준: Swagger 5.7 AnswerRequest(TEXT: content 1~1,000자 필수) · 넘으면 공통 400 VALIDATION_FAILED

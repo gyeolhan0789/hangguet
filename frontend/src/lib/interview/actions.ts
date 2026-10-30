@@ -17,11 +17,13 @@ import type {
   AnswerResponse,
   RoomResponse,
   SessionCreateRequest,
+  SessionEndRequest,
   SessionResponse,
 } from "@/types/api";
 
 import {
   answerTextSchema,
+  gazeRatioSchema,
   idempotencyKeySchema,
   idSchema,
   sessionCreateSchema,
@@ -218,14 +220,18 @@ export async function submitTextAnswer(
 // 기준: Swagger 5.8 면접 끝내기(POST …/end + Idempotency-Key → 202 SessionResponse(ANALYZING) · 200 SessionResponse(ABORTED)
 // · 404 SESSION_NOT_FOUND · 409 INVALID_SESSION_STATE · IDEMPOTENCY_KEY_REUSED)
 // · 웹 Swagger 5.8(답변 0개면 200 ABORTED '답변 0개 → 홈') · 기획 메모 S06-E(18:3508: 끝내기 → S06-1)
+// · API 명세 5.8 · 레포 mock 5.8 SessionEndRequest(선택 본문 gazeRatio: 화상 면접의 시선 비율, 같은 멱등 키로는 같은 값.
+//   웹 Swagger에는 mock 배포 뒤 반영된다)
 
 /**
  * 5.8 면접을 끝낸다. 답변이 있으면(ANALYZING) 화면을 다시 그려 S06-1 결과 분석 중으로 바꾸고,
- * 답변 없이 끝났으면(ABORTED) 홈으로 간다. 다시 보낼 때는 같은 idempotencyKey를 넘긴다.
+ * 답변 없이 끝났으면(ABORTED) 홈으로 간다. 다시 보낼 때는 같은 idempotencyKey와 같은 gazeRatio를 넘긴다.
+ * gazeRatio는 화상 면접에서 잰 시선 비율이고, 없거나 0~100이 아니면 본문 없이 보낸다.
  */
 export async function endSession(
   sessionId: number,
   idempotencyKey: string,
+  gazeRatio?: number | null,
 ): Promise<SessionActionResult> {
   if (
     !idSchema.safeParse(sessionId).success ||
@@ -233,9 +239,11 @@ export async function endSession(
   ) {
     return { formError: RETRY_LATER };
   }
+  const gaze = gazeRatioSchema.safeParse(gazeRatio);
+  const body: SessionEndRequest | undefined = gaze.success ? { gazeRatio: gaze.data } : undefined;
   let data: SessionResponse;
   try {
-    ({ data } = await api.post<SessionResponse>(endpoints.interviews.end(sessionId), undefined, {
+    ({ data } = await api.post<SessionResponse>(endpoints.interviews.end(sessionId), body, {
       headers: idempotencyHeaders(idempotencyKey),
     }));
   } catch (error) {

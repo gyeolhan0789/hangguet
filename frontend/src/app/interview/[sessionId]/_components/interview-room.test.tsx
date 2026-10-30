@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MIN_GAZE_SAMPLES, type GazeSample } from "@/lib/interview/gaze";
+import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type {
@@ -20,6 +22,8 @@ import {
 } from "./interview-room";
 import { PAUSE_AFTER_MS } from "./room-alerts";
 import { SAVE_WAIT_MS } from "./use-save-confirmed";
+
+const FRONT: GazeSample = { headYaw: 0, headPitch: 0, eyeYaw: 0, eyePitch: 0, blinking: false };
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
@@ -51,6 +55,8 @@ vi.mock("@/components/interview/interviewer-stage", () => ({
 }));
 // 면접관 3D 모델 받기도 경계다. 채팅 대기 화면이 보는 받기 상태는 테스트가 store에 둔다.
 vi.mock("@/lib/interviewer/preload", () => ({ preloadInterviewer: () => {} }));
+// 시선 측정(MediaPipe)은 use-gaze-tracker.test.ts에서 본다. 여기서는 쌓인 값을 끝내기(5.8)로 보내는지만 본다
+vi.mock("@/components/interview/use-gaze-tracker", () => ({ useGazeTracker: () => {} }));
 vi.mock("./use-interview-media", () => ({
   useInterviewMedia: () => ({ stream: null, level: motionValue(0.5) }),
 }));
@@ -136,6 +142,7 @@ let online = true;
 beforeEach(() => {
   vi.useFakeTimers();
   useInterviewStore.getState().reset();
+  useGazeStore.getState().reset();
   sessionStorage.clear();
   useInterviewerPreloadStore.setState({ persona: "DEVIL", status: "ready", progress: 1 });
   startSession.mockReset().mockResolvedValue({});
@@ -902,6 +909,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     const { rerender } = render(videoRoom(last, 4));
     await act(async () => {});
     expect(endSession).not.toHaveBeenCalled();
+    // 면접 동안 잰 시선(모두 정면이면 100%)을 5.8로 함께 보낸다(API 명세 5.8)
+    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
 
     // 제출됨 알림 없이도(놓쳤어도) 저장된 답변 수로 끝낸다
     rerender(videoRoom(null, 5));
@@ -909,6 +918,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(endSession).toHaveBeenCalledExactlyOnceWith(
       55,
       expect.stringMatching(/^[0-9a-f-]{36}$/),
+      100,
     );
     expect(useInterviewStore.getState().leveledUp).toBe(true);
 
@@ -1023,9 +1033,14 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       .mockResolvedValueOnce({ formError: "잠시 후 다시 시도해 주세요." })
       .mockResolvedValueOnce({ formError: "지금은 할 수 없는 요청이에요.", keySpent: true })
       .mockResolvedValueOnce({});
+    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
     render(videoRoom(null, 5));
     await act(async () => {});
     expect(endSession).toHaveBeenCalledTimes(1);
+    // 기다리는 사이 얼굴이 잡히지 않은 프레임이 같은 수만큼 쌓였다(새 키로 보낼 때만 반영된다)
+    useGazeStore.setState({
+      frames: [...Array(MIN_GAZE_SAMPLES).fill(FRONT), ...Array(MIN_GAZE_SAMPLES).fill(null)],
+    });
 
     await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
     expect(endSession).toHaveBeenCalledTimes(2);
@@ -1034,9 +1049,10 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS * 5));
     expect(endSession).toHaveBeenCalledTimes(3);
     const keys = endSession.mock.calls.map((call) => call[1]);
-    // 응답을 못 받은 끝내기는 같은 키로, 서버가 실패로 답한 뒤에는 새 키로 보낸다
+    // 응답을 못 받은 끝내기는 같은 키 · 같은 시선 비율로, 서버가 실패로 답한 뒤에는 새 키와 그때의 비율로 보낸다
     expect(keys[1]).toBe(keys[0]);
     expect(keys[2]).not.toBe(keys[1]);
+    expect(endSession.mock.calls.map((call) => call[2])).toEqual([100, 100, 50]);
   });
 
   it("화상: 끝내기에 실패한 뒤 화면을 떠나면 다시 보내지 않는다", async () => {
