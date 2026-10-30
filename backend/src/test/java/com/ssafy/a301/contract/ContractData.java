@@ -61,6 +61,10 @@ final class ContractData {
         }
         jdbc.update("DELETE FROM password_changes WHERE user_id = ?", id);
         jdbc.update("DELETE FROM inquiry_messages WHERE inquiry_id IN (" + inquiries + ")");
+        jdbc.update(
+                "DELETE FROM cover_letter_items WHERE application_id IN (SELECT id FROM"
+                        + " applications WHERE user_id = ?)",
+                id);
         for (String table :
                 List.of(
                         "inquiries",
