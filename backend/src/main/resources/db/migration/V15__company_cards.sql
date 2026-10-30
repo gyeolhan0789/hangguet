@@ -1,6 +1,6 @@
 -- 회사 카드(docs/ERD-회사카드.md). 파이프라인이 공용 버킷에 올린 카드를 BE가 manifest로 확인해 적재하고(CompanyCardImporter),
 -- AI 작업 메시지에 그대로 담는다. 카드 내용은 해석하지 않고 JSONB로 둔다.
--- 되돌리기(Rollback): 아래를 실행한 뒤 flyway_schema_history에서 version '14' 행을 지운다.
+-- 되돌리기(Rollback): 아래를 실행한 뒤 flyway_schema_history에서 version '15' 행을 지운다.
 --   ALTER TABLE interview_sessions DROP COLUMN company_card_id;
 --   DROP TABLE company_card_imports, company_cards, company_aliases, companies;
 
