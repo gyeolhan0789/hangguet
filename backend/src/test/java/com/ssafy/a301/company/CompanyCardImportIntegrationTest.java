@@ -4,15 +4,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.a301.company.config.CompanyCardProperties;
+import com.ssafy.a301.company.repository.CompanyCardImportRepository;
 import com.ssafy.a301.company.service.CompanyCardImporter;
 import com.ssafy.a301.company.service.CompanyCardImporter.ImportResult;
 import com.ssafy.a301.company.service.CompanyCardSource;
+import com.ssafy.a301.company.service.CompanyCardWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -21,30 +26,46 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 실제 PostgreSQL로 회사 카드 적재(docs/ERD-회사카드.md)를 확인한다. 공용 버킷은 CompanyCardSource를 바꿔 넣은 가짜 파일로 대신한다.
- * 고유번호는 실제 DART 고유번호와 겹치지 않게 9로 시작하고, 끝나면 이 테스트가 만든 행만 지운다.
+ * 실제 PostgreSQL로 회사 카드 적재(docs/ERD-회사카드.md)를 확인한다. 공용 버킷은 가짜 CompanyCardSource로 대신한다. 고유번호는 실제 DART
+ * 고유번호와 겹치지 않게 9로 시작하고, 끝나면 이 테스트가 만든 행만 지운다.
+ *
+ * <p>버킷 설정·가짜 버킷을 빈으로 바꿔 넣지 않고 적재기를 직접 만든다. 설정이 다른 테스트 컨텍스트가 늘면 컨텍스트마다 DB 연결 풀(10개)이 남아 CI
+ * PostgreSQL 연결 수 한도(100)를 넘는다.
  */
-@SpringBootTest(properties = "company-card.bucket=test-company-bucket")
+@SpringBootTest
 class CompanyCardImportIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String SDS = "99000001";
     private static final String KAKAO = "99000002";
 
-    @Autowired private CompanyCardImporter importer;
+    @Autowired private CompanyCardWriter writer;
+    @Autowired private CompanyCardImportRepository imports;
     @Autowired private JdbcTemplate jdbc;
-    @MockitoBean private CompanyCardSource source;
+
+    private final CompanyCardSource source = mock(CompanyCardSource.class);
+    private CompanyCardImporter importer;
 
     private final Map<String, byte[]> files = new LinkedHashMap<>();
     private final List<String> runIds = new ArrayList<>();
     private final List<Long> userIds = new ArrayList<>();
+
+    @BeforeEach
+    void setUp() {
+        importer =
+                new CompanyCardImporter(
+                        source,
+                        writer,
+                        imports,
+                        new CompanyCardProperties("test-company-bucket", Duration.ofDays(30)));
+    }
 
     @AfterEach
     void cleanup() {
