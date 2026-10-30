@@ -13,13 +13,13 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
-/** 제공자 서버 호출에 함께 쓰는 연결 설정과 오류 변환 */
-final class OAuthHttp {
+/** 제공자 서버 호출에 함께 쓰는 연결 설정과 오류 변환. 연결 설정은 카카오톡 연습 알림(KakaoMessageClient)도 쓴다 */
+public final class OAuthHttp {
     private static final Logger LOG = LoggerFactory.getLogger(OAuthHttp.class);
 
     private OAuthHttp() {}
 
-    static RestClient restClient(OAuthProperties properties) {
+    public static RestClient restClient(OAuthProperties properties) {
         var factory =
                 new JdkClientHttpRequestFactory(
                         HttpClient.newBuilder().connectTimeout(properties.timeout()).build());

@@ -24,6 +24,10 @@ public interface UserSocialAccountRepository extends JpaRepository<UserSocialAcc
                     + " is null")
     Optional<SocialProvider> findActiveProvider(@Param("userId") long userId);
 
+    /** 소셜 회원의 연결(연습 알림 2.9에서 같은 카카오 계정인지 확인). 소셜 회원은 연결이 하나뿐이다 */
+    @Query("select a from UserSocialAccount a where a.user.id = :userId and a.withdrawnAt is null")
+    Optional<UserSocialAccount> findActiveByUserId(@Param("userId") long userId);
+
     /** 탈퇴(2.7). 회원 행을 잠근 트랜잭션 안에서 부른다 */
     @Modifying
     @Query(
