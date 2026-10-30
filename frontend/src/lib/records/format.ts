@@ -8,7 +8,8 @@ import type { Mode, SessionListItem } from "@/types/api";
 // · Figma S05-1(면접 방식 화상 · 채팅)
 // · 사용자 결정(2026-10-23: 달을 넘기면 같은 '일'(그 달에 없으면 말일, 미래면 오늘), 실패는 '분석 실패')
 
-const MODE_LABEL: Record<Mode, string> = { VIDEO: "화상", CHAT: "채팅" };
+/** 면접 방식 이름(S05-1) */
+export const MODE_LABEL: Record<Mode, string> = { VIDEO: "화상", CHAT: "채팅" };
 
 /** '악마 면접관 · 화상 · 20분' */
 export function sessionMeta(item: SessionListItem): string {

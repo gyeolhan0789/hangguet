@@ -395,7 +395,7 @@ class InterviewSessionListIntegrationTest {
     }
 
     private Application application(User user) {
-        Application application = new Application(user, "○○전자", "백엔드 개발자", "자소서");
+        Application application = new Application(user, "○○전자", "백엔드 개발자");
         em.persist(application);
         return application;
     }

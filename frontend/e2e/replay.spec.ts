@@ -286,11 +286,11 @@ test.describe("S07-1 면접 다시보기", () => {
 
   for (const [label, problem, to] of [
     [
-      "면접이 없으면(6.4 404 SESSION_NOT_FOUND) S03 지원서 입력으로",
+      "면접이 없으면(6.4 404 SESSION_NOT_FOUND) S03 지원서 선택으로",
       PROBLEM.SESSION_NOT_FOUND,
       "/practice",
     ],
-    ["결과가 없는 면접이면(6.4 409 NO_RESULT) S03 지원서 입력으로", PROBLEM.NO_RESULT, "/practice"],
+    ["결과가 없는 면접이면(6.4 409 NO_RESULT) S03 지원서 선택으로", PROBLEM.NO_RESULT, "/practice"],
     [
       "아직 분석 중이면(6.4 409 RESULT_NOT_READY) S06-1 결과 분석 중으로",
       PROBLEM.RESULT_NOT_READY,

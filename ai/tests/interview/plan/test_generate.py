@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.gms import GmsBadOutputError, GmsUnavailableError
 from app.interview.plan.claims import build_claim_messages, split_sentences
 from app.interview.plan.generate import extract_claims, generate_questions
@@ -63,7 +64,7 @@ def test_extract_retries_once_after_broken_output(broken: Any) -> None:
     chat = FakeChat([broken, GOOD_CLAIMS])
 
     assert len(extract_claims(chat, JOB).claims) == 1
-    sentences = split_sentences(JOB.cover_letter)
+    sentences = split_sentences(JOB.cover_letter_items)
     assert chat.calls == [build_claim_messages(JOB, sentences)] * 2
 
 
@@ -109,15 +110,18 @@ def test_extract_keeps_half_claim_from_live_cover_letter(text: str) -> None:
         requested_at=REQUESTED_AT,
         company_name="○○전자",
         job_title="백엔드 개발자",
-        cover_letter=(
-            "[지원 동기]\n"
-            "대용량 트래픽을 안정적으로 처리하는 백엔드 개발자가 되고 싶어 지원했습니다.\n"
-            "[프로젝트 경험]\n"
-            "교내 수강신청 서비스에서 조회 API 응답이 3초 걸리는 문제가 있었습니다. "
-            "실행 계획을 분석해 복합 인덱스를 추가했고 응답 시간을 40% 줄였습니다. "
-            "또한 Redis 캐시를 도입해 피크 시간 DB 부하를 절반으로 낮췄습니다.\n"
-            "[협업]\n"
-            "4명 팀에서 코드 리뷰 규칙을 만들어 배포 오류를 줄였습니다."
+        cover_letter_items=(
+            CoverLetterItem(
+                "지원 동기",
+                "대용량 트래픽을 안정적으로 처리하는 백엔드 개발자가 되고 싶어 지원했습니다.",
+            ),
+            CoverLetterItem(
+                "프로젝트 경험",
+                "교내 수강신청 서비스에서 조회 API 응답이 3초 걸리는 문제가 있었습니다. "
+                "실행 계획을 분석해 복합 인덱스를 추가했고 응답 시간을 40% 줄였습니다. "
+                "또한 Redis 캐시를 도입해 피크 시간 DB 부하를 절반으로 낮췄습니다.",
+            ),
+            CoverLetterItem("협업", "4명 팀에서 코드 리뷰 규칙을 만들어 배포 오류를 줄였습니다."),
         ),
     )
     content = {

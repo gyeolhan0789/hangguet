@@ -442,13 +442,13 @@ test.describe("S05 장치 점검 · 주소", () => {
     ["sessionId가 없으면", "/practice/devices"],
     ["sessionId 형식이 틀리면", "/practice/devices?sessionId=abc"],
   ] as const) {
-    test(`${label} S03 지원서 입력으로 보낸다`, async ({ page }) => {
+    test(`${label} S03 지원서 선택으로 보낸다`, async ({ page }) => {
       await page.goto(path);
       await expect(page).toHaveURL("/practice");
     });
   }
 
-  test("면접이 없으면(404 SESSION_NOT_FOUND) S03 지원서 입력으로 보낸다", async ({ page, msw }) => {
+  test("면접이 없으면(404 SESSION_NOT_FOUND) S03 지원서 선택으로 보낸다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId"), () =>
         problemResponse(PROBLEM.SESSION_NOT_FOUND),

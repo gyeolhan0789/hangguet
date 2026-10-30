@@ -272,16 +272,19 @@ class ApiSpecTest {
     }
 
     @Test
-    void whitespaceOnlyApplicationUpdateIsRejected() {
+    void whitespaceOnlyCoverLetterQuestionIsRejected() {
         assertThat(
-                        mockMvc.patch()
-                                .uri("/api/v1/applications/10")
+                        mockMvc.post()
+                                .uri("/api/v1/applications")
                                 .contentType(MediaType.APPLICATION_JSON)
-                                .content("{ \"companyName\": \"   \" }"))
+                                .content(
+                                        "{ \"companyName\": \"○○전자\", \"jobTitle\": \"백엔드 개발자\","
+                                            + " \"coverLetterItems\": [ { \"question\": \"   \","
+                                            + " \"answer\": \"답변\" } ] }"))
                 .hasStatus(HttpStatus.BAD_REQUEST)
                 .bodyJson()
                 .extractingPath("$.errors[0].field")
-                .isEqualTo("companyName");
+                .isEqualTo("coverLetterItems[0].question");
     }
 
     @Test

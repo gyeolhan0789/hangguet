@@ -143,7 +143,7 @@ class InterviewIdempotencyIntegrationTest {
     private long answeredSession(long userId) {
         User user = users.getReferenceById(userId);
         Application application =
-                applications.saveAndFlush(new Application(user, "○○전자", "백엔드 개발자", "저는…"));
+                applications.saveAndFlush(new Application(user, "○○전자", "백엔드 개발자"));
         InterviewSession session =
                 new InterviewSession(user, application, Persona.DEVIL, InterviewMode.CHAT);
         session.start(OffsetDateTime.now().minusMinutes(5));

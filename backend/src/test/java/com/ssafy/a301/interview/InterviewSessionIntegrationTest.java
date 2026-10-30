@@ -148,10 +148,12 @@ class InterviewSessionIntegrationTest {
                 .andExpect(jsonPath("$.planProgress").value(0))
                 .andExpect(jsonPath("$.currentQuestion").doesNotExist())
                 .andExpect(jsonPath("$.leveledUp").doesNotExist());
-        // 면접에 쓴 지원서는 지울 수 없다
+        // 면접에 쓴 지원서도 지울 수 있고, 지워도(소프트 삭제) 그 지원서로 만든 면접은 그대로 조회된다
         mvc.perform(as(user, delete("/api/v1/applications/" + application)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("APPLICATION_IN_USE"));
+                .andExpect(status().isNoContent());
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companyName").value("○○전자"));
     }
 
     @Test
@@ -953,8 +955,7 @@ class InterviewSessionIntegrationTest {
 
     private long newApplication(long userId) {
         return applications
-                .saveAndFlush(
-                        new Application(users.getReferenceById(userId), "○○전자", "백엔드 개발자", "저는…"))
+                .saveAndFlush(new Application(users.getReferenceById(userId), "○○전자", "백엔드 개발자"))
                 .getId();
     }
 

@@ -8,7 +8,7 @@ from app.interview.plan.llm import PlanOutputError
 from app.worker.messages import Claim, ClaimType
 from tests.interview.plan.fakes import JOB
 
-SENTENCES = split_sentences(JOB.cover_letter)
+SENTENCES = split_sentences(JOB.cover_letter_items)
 NUMBER = ClaimType.NUMBER
 EXPERIENCE = ClaimType.EXPERIENCE
 # 실제 GMS 시험에서 근거가 있는데도 폐기된 자소서 문장이다

@@ -92,7 +92,7 @@ public class InterviewSessionService {
         this.speechMetrics = speechMetrics;
     }
 
-    /** 5.1. 지원서 행을 잠가 지원서 수정·삭제(4.4·4.5)의 "사용 중" 확인과 겹치지 않게 한다. */
+    /** 5.1. 지원서 행을 잠가 지원서 삭제(4.5)와 겹치지 않게 한다. 지운 지원서로는 만들지 않는다(404). */
     public SessionResponse create(long userId, SessionCreateRequest request) {
         OffsetDateTime now = OffsetDateTime.now();
         return transactions.execute(

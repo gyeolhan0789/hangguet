@@ -19,6 +19,7 @@ vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new RedirectSignal(`REDIRECT ${url}`);
   },
+  RedirectType: { push: "push", replace: "replace" },
   unstable_rethrow: (error: unknown) => {
     if (error instanceof RedirectSignal) throw error;
   },

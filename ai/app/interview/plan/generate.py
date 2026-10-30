@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 
 def extract_claims(chat: Chat, job: PlanJob) -> ClaimSet:
-    sentences = split_sentences(job.cover_letter)
+    sentences = split_sentences(job.cover_letter_items)
     for attempt in range(STRUCTURE_RETRIES + 1):
         try:
             result = request_claims(chat, job)

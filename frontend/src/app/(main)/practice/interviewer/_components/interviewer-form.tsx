@@ -5,12 +5,13 @@ import { useState } from "react";
 
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
-import { applicationEditPath, ROUTES } from "@/lib/routes";
+import { practiceSelectPath, ROUTES } from "@/lib/routes";
 import type { ApplicationResponse, Persona } from "@/types/api";
 
 import { PersonaList } from "./persona-list";
 
 // 기준: Figma S04 면접관 선택(18:2122: 제목 · 지원서 줄 · 면접관 목록 · [← 지원서 수정] · [다음: 면접 방식])
+// · 사용자 결정(2026-10-29: 지원서 수정 기능이 없어져 [← 지원서 수정]을 [← 지원서 선택]으로 바꾸고 고른 지원서를 골라 둔 S03로 간다)
 // · Swagger 4.2(지원서 회사명 · 직무) · 5.1 SessionCreateRequest.persona
 // 면접은 면접 방식(S05-1)까지 고른 뒤 만들므로(5.1), 여기서는 고른 면접관을 주소로 넘긴다(GET 폼).
 
@@ -45,7 +46,7 @@ export function InterviewerForm({
         </div>
       </div>
 
-      <PracticeActionBar backHref={applicationEditPath(application.id)} backLabel="지원서 수정">
+      <PracticeActionBar backHref={practiceSelectPath(application.id)} backLabel="지원서 선택">
         <PracticeNextButton disabled={persona === null}>다음: 면접 방식</PracticeNextButton>
       </PracticeActionBar>
     </Form>

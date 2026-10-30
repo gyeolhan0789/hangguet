@@ -11,7 +11,7 @@ import { ReplayView } from "./_components/replay-view";
 export const metadata: Metadata = { title: "면접 다시보기 · 한끗" };
 
 // S07-1 면접 다시보기. 기준: Figma S07-1(18:4478) · 웹 Swagger 6.4 다시보기(409 RESULT_NOT_READY · NO_RESULT)
-// · 사용자 결정(2026-10-22: 면접이 없거나(404) 결과가 없으면(NO_RESULT) 다른 면접 화면과 같이 S03 지원서 입력으로 보낸다)
+// · 사용자 결정(2026-10-22: 면접이 없거나(404) 결과가 없으면(NO_RESULT) 다른 면접 화면과 같이 S03 지원서 선택으로 보낸다)
 async function Replay({ params }: Pick<PageProps<"/interview/[sessionId]/replay">, "params">) {
   const { sessionId: raw } = await params;
   const sessionId = parseSessionId(raw);

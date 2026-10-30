@@ -58,11 +58,11 @@
 | 3.1 | 홈 | `GET /home` | S02 · S02-B · S02-C · S02-D, S02-1 |
 | 3.2 | 통계 | `GET /users/me/stats` | S09 |
 | 3.3 | 연습 달력 | `GET /practice-logs` | S09, 연습 기록(`/records`) |
-| 4.1 | 지원서 작성 | `POST /applications` | S03 |
-| 4.2 | 지원서 조회 | `GET /applications/{applicationId}` | S03, S04, S05-1 |
-| 4.3 | 지원서 목록 | `GET /applications` | S03 |
-| 4.4 | 지원서 수정 | `PATCH /applications/{applicationId}` | S03, S04 |
-| 4.5 | 지원서 삭제 | `DELETE /applications/{applicationId}` | S03 |
+| 4.1 | 지원서 작성 | `POST /applications` | 지원서 쓰기(`/applications/new`) |
+| 4.2 | 지원서 조회 | `GET /applications/{applicationId}` | 지원 관리 상세(`/applications/{id}`), S04, S05-1 |
+| 4.3 | 지원서 목록 | `GET /applications` | 지원 관리 목록(`/applications`), S03 |
+| 4.5 | 지원서 삭제 | `DELETE /applications/{applicationId}` | 지원 관리 상세(`/applications/{id}`) |
+| 4.6 | 지원서의 연습 면접 목록 | `GET /applications/{applicationId}/interview-sessions` | 지원 관리 상세(`/applications/{id}`) |
 | 5.1 | 면접 만들기 | `POST /interview-sessions` | S05-1 |
 | 5.2 | 면접 조회 | `GET /interview-sessions/{sessionId}` | S05, S06 · S06-B, S06-F, S06-1 |
 | 5.3 | 면접 플랜 재생성 | `POST /interview-sessions/{sessionId}/plan/retry` | S05 |
@@ -107,7 +107,7 @@
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
 
-5.6·5.10~5.12·6.1·6.2는 쓰지 않는 번호다(다시 쓰지 않음).
+4.4·5.6·5.10~5.12·6.1·6.2는 쓰지 않는 번호다(다시 쓰지 않음).
 
 ### 1. 인증
 
@@ -281,53 +281,61 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 
 ### 4. 지원서
 
+지원서 수정 API는 없다. 고칠 내용이 있으면 새 지원서를 쓴다.
+
 #### 4.1 지원서 작성
 
-**화면 — S03 지원서 › [새 지원서 작성] 후 [다음: 면접관 선택]**
+**화면 — 지원서 쓰기 › [저장하기](지원 관리 [+ 지원서 쓰기] · S03 [+ 추가하기]로 들어온다)**
 
-지원서를 저장해 두고 여러 면접에 다시 쓴다(S03에서 저장된 지원서 중 고르거나 새로 작성). 자기소개서는 질문 생성과 "자소서 검증" 평가에 쓴다.
+지원서를 저장해 두고 여러 면접에 다시 쓴다(S03에서 저장된 지원서 중 고른다). 자기소개서는 문항 단위(`coverLetterItems`)로 받으며 질문 생성과 "자소서 검증" 평가에 쓴다.
 
-저장하기 전에 AI가 자기소개서로 면접 질문을 만들 수 있는지 판단한다(AI 명세 2.1). 의미 없는 글이거나 질문을 만들 만큼 내용이 없으면 저장하지 않는다. 면접방에 들어간 뒤 질문 생성이 실패하지 않게 하기 위해서다. 판단에 몇 초 걸릴 수 있다.
+- 문항은 1~5개, 문항 질문 1~255자, 답변 1~20,000자다. 보낸 순서가 문항 순서(`itemOrder`, 1부터)다
+- 저장하기 전에 AI가 자기소개서로 면접 질문을 만들 수 있는지 판단한다(AI 명세 2.1). 의미 없는 글이거나 질문을 만들 만큼 내용이 없으면 저장하지 않는다. 면접방에 들어간 뒤 질문 생성이 실패하지 않게 하기 위해서다. 판단에 몇 초 걸릴 수 있다
 
 - **201**: 저장
-- **400 / VALIDATION_FAILED**: `errors`에 `coverLetter`(질문을 만들기 어려운 자기소개서). 화면은 자기소개서 칸 아래에 문구를 보여 주고 다음 화면으로 넘어가지 않는다
+- **400 / VALIDATION_FAILED**: 종류별 `errors[].field`는 아래와 같다
+  - 문항 수: `coverLetterItems`("1~5개입니다.". 빠졌거나 `null`이면 "필수 값입니다.")
+  - 문항 원소가 `null`: `coverLetterItems[i]`(i는 0부터)
+  - 문항 칸(빠짐 · 빈 값 · 길이): `coverLetterItems[i].question` · `coverLetterItems[i].answer`
+  - 질문을 만들기 어려운 자기소개서: `coverLetterItems`(판단 문구). 화면은 자기소개서 아래에 문구를 보여 주고 저장하지 않는다
 - **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 판단하지 못함(AI·Jev 장애, 시간 초과). 저장하지 않으며 화면은 다시 시도하게 안내한다
 
 #### 4.2 지원서 조회
 
-**화면 — S03 저장된 지원서 선택 시 내용 보기, S04·S05-1 상단 "○○전자 · 백엔드 개발자", S04 [← 지원서 수정] 시 S03 채우기**
+**화면 — 지원 관리 상세, S04·S05-1 상단 "○○전자 · 백엔드 개발자"**
+
+자기소개서 문항을 `itemOrder` 순으로 준다.
 
 - **200**: 본인 지원서
-- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
+- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
 
 #### 4.3 지원서 목록
 
-**화면 — S03 지원서 › 저장된 지원서 목록**
+**화면 — 지원 관리 목록, S03 저장된 지원서 고르기**
 
-최근 작성 순. 목록에는 자기소개서 본문을 넣지 않는다(선택하면 4.2).
+최근 작성 순. 목록에는 자기소개서 문항을 넣지 않는다(상세는 4.2). 쿼리는 `page`(0부터, 기본 0) · `size`(1~20, 기본 10)이다.
 
-- **200**: 항상. 없으면 빈 배열 → S03은 바로 새로 작성 화면
-
-#### 4.4 지원서 수정
-
-**화면 — S03 저장된 지원서 › 수정, S04 [← 지원서 수정]**
-
-보낸 필드만 바꾼다. 이미 면접에 쓴 지원서는 고칠 수 없다(지난 결과가 바뀌지 않도록). 화면은 내용을 채운 새 작성(4.1)으로 안내한다.
-
-- **200**: 수정. 응답은 4.1과 같음
-- **404 / APPLICATION_NOT_FOUND**
-- **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서
-- **400 / VALIDATION_FAILED** · **503 / COVER_LETTER_CHECK_UNAVAILABLE**: 자기소개서를 보냈을 때만 4.1과 같이 판단한다. 보내지 않은 회사명·직무는 저장된 값으로 판단한다
+- **200**: 항상. 없으면 빈 `content`. 범위를 넘는 페이지도 빈 `content`와 실제 전체 건수
 
 #### 4.5 지원서 삭제
 
-**화면 — S03 저장된 지원서 › 삭제**
+**화면 — 지원 관리 상세 › [삭제] › 삭제 확인**
 
-지원서를 지운다. 이미 면접에 쓴 지원서는 지울 수 없다(지난 결과·다시보기가 이 지원서를 보여 준다).
+지원서를 지운다. 행과 문항 원문은 남긴다(soft delete, 파기 시점 B-6). 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 기록 · 결과 · 다시보기(5.13 · 6.3 · 6.4)는 남는다. 지운 지원서는 4.2 · 4.3 · 4.6 · 5.1에서 없는 지원서로 다룬다.
 
 - **204**: 삭제
-- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
-- **409 / APPLICATION_IN_USE**: 면접에 쓴 지원서
+- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 이미 지운 지원서
+
+#### 4.6 지원서의 연습 면접 목록
+
+**화면 — 지원 관리 상세 › 면접 기록**
+
+이 지원서로 본 연습 면접을 시작 시각·id 내림차순으로 준다. 5.13과 같이 본인의 답변 1개 이상인 `ANALYZING`·`COMPLETED`·`FAILED`만 포함하고, 항목 모양도 5.13과 같다. 쿼리는 `page`(0부터, 기본 0) · `size`(1~20, 기본 10)이고 응답은 4.3과 같은 페이지 형식이다.
+
+- **200**: 항상. 면접이 없으면 빈 `content`. 범위를 넘는 페이지도 빈 `content`와 실제 전체 건수
+- **400 / VALIDATION_FAILED**: 음수 페이지·`size` 범위 오류
+- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
+- **500 / INTERNAL_ERROR**: 5.13과 같다. 완료 상태인데 기준별 평가 4개가 모두 저장되지 않은 경우. 불완전한 결과를 정상 평가로 표시하지 않는다
 
 ### 5. 면접 진행
 
@@ -342,7 +350,7 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 면접을 만들고 면접 플랜(질문·평가 기준) 생성을 시작한다(사용자에게 비노출). 완료는 5.2를 2초마다(임시 값) 불러 `planStatus`로 확인한다(1장 상태 확인).
 
 - **201**: 생성(`status: READY`, `planStatus: GENERATING`)
-- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서
+- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
 - **409 / IDEMPOTENCY_KEY_REUSED**: 같은 키로 다른 본문
 
 #### 5.2 면접 조회
@@ -809,13 +817,13 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
 | `PASSWORD_NOT_SET` | 409 | 2.3, 9.10 |
 | `FILE_NOT_FOUND` | 404 | 2.5 |
-| `APPLICATION_NOT_FOUND` · `APPLICATION_IN_USE` | 404 · 409 | 4.2·4.4·4.5·5.1 (`APPLICATION_IN_USE`는 4.4·4.5) |
+| `APPLICATION_NOT_FOUND` | 404 | 4.2·4.5·4.6·5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x·6.x (`QUESTION_NOT_FOUND`는 5.7) |
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
 | `ROOM_UNAVAILABLE` | 503 | 5.4 |
-| `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 · 4.4 |
+| `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
@@ -832,7 +840,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | # | 내용 | 영향 | 담당 |
 |---|---|---|---|
 | B-5 | 오늘 완료 기준(현재: 답변 1개 이상인 면접 종료). 성장 리뷰까지 봐야 완료인지 | 3.1, 5.8 | 화면 |
-| B-6 | 탈퇴 회원 보관 데이터(soft delete)의 최종 파기 시점, 녹화 보관 기간 | 2.7, 6.x | 약관 |
+| B-6 | 탈퇴 회원 보관 데이터(soft delete)·지운 지원서(4.5)의 자기소개서 원문의 최종 파기 시점, 녹화 보관 기간 | 2.7, 4.5, 6.x | 약관 |
 | B-7 | 설문 노출·참여 저장. 재방문 지표(D1·D3·D7)는 8.15가 연습 기록으로 계산한다 | 7.1 | 이벤트 로깅 |
 | B-8 | 면접관별 리액션 방식(코드로 변형 / 표정별 이미지), 표정 이미지 목록, `state`를 누가 정하는지 | 면접방 메시지 `reaction` | 면접관 표현 모듈 |
 | B-9 | ERD 반영 대기: 회사 요약 Table(`interview_plans`·`answers.tokens`·`answers.evaluation`은 V2에 반영됨). 형식은 [AI 명세](AI-명세.md) | 6.3 | ERD |

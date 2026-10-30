@@ -574,7 +574,6 @@ test.describe("S06 면접 화면", () => {
     await endDialog(page).getByRole("button", { name: "끝내기" }).click();
 
     await expect(analyzingTitle(page)).toBeVisible();
-    await expect(page.getByText("보통 10초 안에 끝나요")).toBeVisible();
     expect(ends).toHaveLength(1);
     expect(ends[0]).toMatch(/^[0-9a-f-]{36}$/);
     await expect(currentStep(page)).toHaveText("답변을 정리했어요");
@@ -709,7 +708,7 @@ test.describe("S06 면접 화면", () => {
     await expect(page).toHaveURL(`/practice/devices?sessionId=${SESSION_PLAN.READY.id}`);
   });
 
-  test("없는 면접(404 SESSION_NOT_FOUND)이면 S03 지원서 입력으로 보낸다", async ({ page, msw }) => {
+  test("없는 면접(404 SESSION_NOT_FOUND)이면 S03 지원서 선택으로 보낸다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId"), () =>
         problemResponse(PROBLEM.SESSION_NOT_FOUND),

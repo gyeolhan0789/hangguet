@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InputType;
@@ -184,6 +185,25 @@ class ResultIntegrationTest {
         verify(storage, never()).presignDownload(anyString());
     }
 
+    // 기준: API 명세 4.5 · ERD applications(지원서를 지워도 그 지원서로 본 면접 결과 · 다시보기는 남는다)
+    @Test
+    void resultAndReplayRemainAfterApplicationIsDeleted() throws Exception {
+        User user = user("deleted-application");
+        InterviewSession session = completed(user, InterviewMode.CHAT);
+        session.getApplication().delete(KoreaTime.now());
+        em.flush();
+        em.clear();
+
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/result")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.companyName").value("○○전자"))
+                .andExpect(jsonPath("$.jobTitle").value("백엔드 개발자"))
+                .andExpect(jsonPath("$.sessionScores.length()").value(4));
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + session.getId() + "/replay")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(3));
+    }
+
     @Test
     void otherUsersSessionIsNotFoundAndUnfinishedSessionsHaveNoResult() throws Exception {
         User owner = user("owner");
@@ -264,7 +284,7 @@ class ResultIntegrationTest {
     }
 
     private InterviewSession session(User owner, InterviewMode mode) {
-        Application application = new Application(owner, "○○전자", "백엔드 개발자", "자소서");
+        Application application = new Application(owner, "○○전자", "백엔드 개발자");
         em.persist(application);
         InterviewSession session = new InterviewSession(owner, application, Persona.DEVIL, mode);
         em.persist(session);

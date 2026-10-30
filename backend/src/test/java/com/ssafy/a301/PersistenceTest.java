@@ -34,6 +34,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,7 +59,7 @@ class PersistenceTest {
         User user = new User("db@ssafy.com", "hash", "면접왕");
         em.persist(user);
         em.persist(new UserAgreement(user, TermsType.RECORDING, "1.0"));
-        Application application = new Application(user, "○○전자", "백엔드 개발자", "저는…");
+        Application application = new Application(user, "○○전자", "백엔드 개발자");
         em.persist(application);
 
         InterviewSession session =
@@ -169,7 +171,7 @@ class PersistenceTest {
     void questionHasOneAnswer() {
         User user = new User("ans@ssafy.com", "hash", "a");
         em.persist(user);
-        Application application = new Application(user, "회사", "직무", "자소서");
+        Application application = new Application(user, "회사", "직무");
         em.persist(application);
         InterviewSession session =
                 new InterviewSession(user, application, Persona.COFFEE_CHAT, InterviewMode.CHAT);
@@ -181,6 +183,26 @@ class PersistenceTest {
 
         assertThatThrownBy(() -> em.persist(new Answer(question, InputType.TEXT, "답2")))
                 .hasMessageContaining("uk_answers_question");
+    }
+
+    // 기준: API 명세 4.1(문항 1~5개). 문항 순서는 1~5만, 한 지원서 안에서 겹치지 않는다
+    // 제약 위반 뒤에는 트랜잭션이 끝나므로 0과 6을 각각의 테스트로 확인한다
+    @ParameterizedTest
+    @ValueSource(ints = {0, 6})
+    void coverLetterItemOrderIsOneToFive(int itemOrder) {
+        Application application = newApplication("item-order-" + itemOrder + "@ssafy.com");
+
+        assertThatThrownBy(() -> insertCoverLetterItem(application.getId(), itemOrder))
+                .hasMessageContaining("ck_cover_letter_items_item_order");
+    }
+
+    @Test
+    void coverLetterItemOrderIsUniquePerApplication() {
+        Application application = newApplication("item-unique@ssafy.com");
+        insertCoverLetterItem(application.getId(), 1);
+
+        assertThatThrownBy(() -> insertCoverLetterItem(application.getId(), 1))
+                .hasMessageContaining("uk_cover_letter_items_application_order");
     }
 
     @Test
@@ -257,10 +279,28 @@ class PersistenceTest {
         assertThat(em.find(Answer.class, answer.getId()).getTokens()).isNull();
     }
 
+    private Application newApplication(String email) {
+        User user = new User(email, "hash", "a");
+        em.persist(user);
+        Application application = new Application(user, "회사", "직무");
+        em.persist(application);
+        em.flush();
+        return application;
+    }
+
+    private void insertCoverLetterItem(long applicationId, int itemOrder) {
+        em.createNativeQuery(
+                        "INSERT INTO cover_letter_items (application_id, item_order, question,"
+                                + " answer) VALUES (?1, ?2, '문항', '답변')")
+                .setParameter(1, applicationId)
+                .setParameter(2, itemOrder)
+                .executeUpdate();
+    }
+
     private InterviewSession newSession(String email, InterviewMode mode) {
         User user = new User(email, "hash", "a");
         em.persist(user);
-        Application application = new Application(user, "회사", "직무", "자소서");
+        Application application = new Application(user, "회사", "직무");
         em.persist(application);
         InterviewSession session = new InterviewSession(user, application, Persona.DEVIL, mode);
         em.persist(session);

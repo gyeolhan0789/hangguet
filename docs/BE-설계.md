@@ -60,11 +60,11 @@ com.ssafy.a301
 │  ├─ dto          ApplicationDtos
 │  ├─ mapper       ApplicationMapper
 │  ├─ repository   ApplicationRepository
-│  └─ domain       Application
+│  └─ domain       Application, CoverLetterItem
 ├─ interview
 │  ├─ controller   InterviewSessionController
 │  ├─ service      InterviewSessionService(5.1~5.5·5.8·5.9·5.14), AnswerService(5.7 채팅),
-│  │               InterviewSessionListService(5.13·5.15), InterviewStatsService(연습 면접 수·시간 집계, 3.x·5.13·7.1에서 같이 씀),
+│  │               InterviewSessionListService(4.6·5.13·5.15), InterviewStatsService(연습 면접 수·시간 집계, 3.x·5.13·7.1에서 같이 씀),
 │  │               AiJobService·AiJobPublisher(Outbox), SessionRuntimeService,
 │  │               AiJobMessages(작업 메시지), AiJobEnqueued(커밋 뒤 큐 전송 이벤트),
 │  │               AiResultConsumer·AiResultService(결과 큐 처리), InvalidAiResultException(저장할 수 없는 결과 메시지)
@@ -129,7 +129,7 @@ com.ssafy.a301
 - API 명세의 1.x~9.x API는 모두 구현되어 있다. 아직 없는 동작은 해당 장에 **예정**으로 표시한다.
 - 의존 방향: `practice`는 다른 기능을 부르지 않는다. 연습 기록·스트릭이 필요한 기능(home·growth·interview·user·admin)이 `PracticeService`를 부르고, 연습 면접 수·시간은 `InterviewStatsService` 하나로 구한다(같은 계산을 기능마다 따로 두지 않음)
 
-- 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, `inUse`, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
+- 변환 규칙: **엔티티 → 응답 DTO는 `*Mapper`의 정적 메서드**로만 한다. 계산값(스트릭, 임시 주소 등)은 서비스가 구해서 Mapper 인자로 넘긴다. 엔티티를 응답으로 그대로 내보내지 않는다 **[제안]**
 - enum: DB에 저장하는 값과 API 값이 같은 enum은 `domain`에 하나만 두고 DTO도 그것을 쓴다
 
 ## 3. 도메인 모델 (엔티티 ↔ ERD)
@@ -140,12 +140,13 @@ com.ssafy.a301
 |---|---|---|---|
 | `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]**. 소셜 회원은 `password_hash`가 null(V12) |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
+| `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V13) **[결정]** |
+| `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V13). V13 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
 | `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 제공자 토큰은 저장하지 않는다 **[결정]** |
-| `Application` | `applications` | N:1 User | 저장해 두고 재사용. 면접에 쓴 지원서는 수정·삭제 불가(409 `APPLICATION_IN_USE`) **[결정]**. 삭제는 실제 삭제 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application | 상태 전이는 엔티티 메서드로만(4장). `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
-| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`) |
+| `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
@@ -163,14 +164,14 @@ com.ssafy.a301
 | `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 회원 직접 변경(2.3, USER)과 관리자 변경(9.10, ADMIN)을 남긴다 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
-- 지원서 수정·삭제(4.4·4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) 사용 여부(`inUse`)를 확인한다. 면접 만들기(5.1)도 같은 행을 잠그면 "사용 중" 확인과 겹치지 않는다. 그래도 삭제가 외래키(`interview_sessions.application_id`)에 걸리면 409 `APPLICATION_IN_USE`로 응답한다
+- 지원서 삭제(4.5)는 지원서 행을 잠그고(`SELECT … FOR UPDATE`) `deleted_at`을 채운다. 면접 만들기(5.1)도 같은 행을 잠그고 지운 지원서는 404 `APPLICATION_NOT_FOUND`로 막아, 지우는 중인 지원서로 면접이 만들어지지 않는다
 - 공지 수정 · 삭제(8.6 · 8.7)는 공지 행을 잠그고(`SELECT … FOR UPDATE`) 한다. 이미 삭제한 공지는 404 `NOTICE_NOT_FOUND`
 - 문의 쓰기 · 종료(9.4 · 9.5 · 9.8 · 9.9)는 문의 행을 잠그고 한다. 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(`X-Inquiry-Password`)가 맞을 때만 볼 수 있고, 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다
 - 문의 제목 · 본문은 AES-256-GCM으로 암호화해 저장한다(`EncryptedTextConverter`). 키는 환경 변수 `INQUIRY_ENCRYPTION_KEY`(Base64, 32바이트)로만 받고 없으면 기동하지 않는다. 키를 잃거나 바꾸면 저장한 문의를 풀 수 없다
-- 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고, 항목별 `inUse`는 한 번의 조회로 구한다
+- 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고 문항은 넣지 않는다. 지원서의 연습 면접 목록(4.6)은 5.13과 같은 기준 · 항목(`InterviewSessionListService`)을 지원서로 거른다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
-- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(지원서 사용 여부), `uk_interview_questions_session_seq`(질문 순서 중복 방지)
+- ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(4.6 지원서의 연습 면접 목록), `uk_interview_questions_session_seq`(질문 순서 중복 방지), `ck_cover_letter_items_item_order`(V13. 문항 순서 1~5)
 
 ## 4. 면접 상태 전이
 
@@ -292,7 +293,6 @@ com.ssafy.a301
 - 3.1은 7.1·7.2와 같은 계산을 쓰며, 리뷰 계산은 한 번만 한다(`GrowthReviewService.homeReviews`)
 
 ### 6.3 기타
-- `inUse` = 그 지원서를 쓴 `interview_sessions`가 있는지
 - `latestJobTitle` = 가장 최근 면접에 쓴 지원서의 직무
 - `grade` = `Grade.of(score)`. 경계는 API 명세 6.3 **[결정]**
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
@@ -389,6 +389,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 등록 API(2.5)는 S3에 실제 파일이 있는지 확인한다. 없으면 404 `FILE_NOT_FOUND`. 버킷 목록 권한(`s3:ListBucket`)이 없으면 S3가 없는 파일에도 403을 주므로 BE 권한에 포함한다
 - 프로필 사진을 바꾸거나(2.5) 지우면(2.6) 회원 정보를 저장한 뒤 이전 파일을 지운다. 파일 삭제가 실패해도 요청은 성공으로 두고 경고 로그만 남긴다
 - 탈퇴는 soft delete **[결정]**: 회원 행의 개인정보(이메일·닉네임·비밀번호 해시)와 프로필 사진·녹화·답변 음성 파일을 지우지 않는다
+- 지원서 삭제(4.5)도 soft delete **[결정]**: 지원서 행과 자기소개서 문항(`cover_letter_items`) 원문을 지우지 않는다. 지운 지원서 원문의 파기 시점은 **[미정] B-6**
 - 녹화 보관 기간, 탈퇴 회원 보관 데이터의 최종 파기 시점·방법 **[미정] B-6**
 
 ## 11. 오류 처리 **[결정]**

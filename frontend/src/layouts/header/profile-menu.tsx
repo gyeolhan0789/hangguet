@@ -92,6 +92,17 @@ export function ProfileMenu({ user }: { user: MeResponse }) {
                 <MaskIcon src="/icons/chevron-right.svg" size={16} className="bg-text-3" />
               </span>
             </Link>
+            {/* 사용자 결정(2026-10-29): 마이페이지 아래에 지원 관리 목록으로 가는 줄. Figma C01에는 없어 문의하기 줄과 같은 모양
+                (아이콘 18 text-2 · 글자 text-1 · 화살표 없음), 아이콘은 S09 지원 관리 카드의 briefcase */}
+            <Link
+              role="menuitem"
+              href={ROUTES.applications}
+              onClick={() => setOpen(false)}
+              className={`${menuItem} text-text-1`}
+            >
+              <MaskIcon src="/mypage/icon-briefcase.svg" size={18} className="bg-text-2" />
+              지원 관리
+            </Link>
             {/* Figma C01(18:3110 Menu 문의하기 · I02): 마이페이지 아래, message-circle 18 text-2 · 글자 text-1 · 화살표 없음 */}
             <Link
               role="menuitem"

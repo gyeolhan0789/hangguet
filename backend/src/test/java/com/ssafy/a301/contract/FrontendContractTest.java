@@ -21,6 +21,7 @@ import com.ssafy.a301.admin.service.AdminNoticeService;
 import com.ssafy.a301.admin.service.StreakFreezeGrantService;
 import com.ssafy.a301.admin.service.StreakFreezeService;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationCreateRequest;
+import com.ssafy.a301.application.dto.ApplicationDtos.CoverLetterItemRequest;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.application.service.ApplicationService;
@@ -196,7 +197,14 @@ class FrontendContractTest {
                 applications
                         .create(
                                 userId(),
-                                new ApplicationCreateRequest("○○전자", "백엔드 개발자", "1. 지원 동기\n저는…"))
+                                new ApplicationCreateRequest(
+                                        "○○전자",
+                                        "백엔드 개발자",
+                                        List.of(
+                                                new CoverLetterItemRequest(
+                                                        "지원 동기",
+                                                        "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어 ○○전자 백엔드"
+                                                                + " 직무에 지원했습니다."))))
                         .id();
         values.put("applicationId", id);
         return values;
@@ -205,6 +213,11 @@ class FrontendContractTest {
     @State("자기소개서를 쓸 수 없다고 판단한다")
     void coverLetterUnusable() {
         when(coverLetterCheck.check(any(), any(), any())).thenReturn(Verdict.UNUSABLE);
+    }
+
+    @State("자기소개서를 판단하지 못한다")
+    void coverLetterUnavailable() {
+        when(coverLetterCheck.check(any(), any(), any())).thenReturn(Verdict.UNAVAILABLE);
     }
 
     /**

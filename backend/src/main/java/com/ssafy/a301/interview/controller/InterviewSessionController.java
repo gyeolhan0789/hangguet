@@ -169,7 +169,7 @@ public class InterviewSessionController {
 
     @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
     @ApiResponse(responseCode = "201", description = "생성(status READY, planStatus GENERATING)")
-    @ApiResponse(responseCode = "404", description = "APPLICATION_NOT_FOUND: 없거나 남의 지원서")
+    @ApiResponse(responseCode = "404", description = "APPLICATION_NOT_FOUND: 없거나 남의 지원서 · 지운 지원서")
     @ApiResponse(responseCode = "409", description = "IDEMPOTENCY_KEY_REUSED: 같은 키로 다른 요청")
     @Idempotent
     @PostMapping

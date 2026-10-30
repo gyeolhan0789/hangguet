@@ -14,6 +14,7 @@ import pytest
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
+from app.common.cover_letter import CoverLetterItem
 from app.common.gms import GmsClient, HttpResponse
 from app.common.results import ResultPublisher
 from app.common.settings import SettingsError, load_settings
@@ -197,7 +198,7 @@ PLAN = PlanJob(
     requested_at=REQUESTED_AT,
     company_name="회사",
     job_title="직무",
-    cover_letter="자소서",
+    cover_letter_items=(CoverLetterItem("지원 동기", "자소서"),),
 )
 
 

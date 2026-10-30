@@ -19,6 +19,19 @@ public final class ErrorExamples {
               "errors": [ { "field": "objectKey", "reason": "본인에게 발급된 키가 아닙니다." } ] }\
             """;
 
+    public static final String PAGE_SIZE_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
+              "instance": "/api/v1/applications/12/interview-sessions", "code": "VALIDATION_FAILED",
+              "errors": [ { "field": "size", "reason": "1~20입니다." } ] }\
+            """;
+
+    public static final String INTERNAL_ERROR =
+            """
+            { "title": "Internal Server Error", "status": 500, "detail": "잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/applications/12/interview-sessions", "code": "INTERNAL_ERROR" }\
+            """;
+
     public static final String GAZE_RATIO_INVALID =
             """
             { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
@@ -91,16 +104,11 @@ public final class ErrorExamples {
             { "title": "Not Found", "status": 404, "detail": "지원서를 찾을 수 없어요.",
               "instance": "/api/v1/applications/0", "code": "APPLICATION_NOT_FOUND" }\
             """;
-    public static final String APPLICATION_IN_USE =
-            """
-            { "title": "Conflict", "status": 409, "detail": "면접에 사용한 지원서는 수정하거나 삭제할 수 없어요.",
-              "instance": "/api/v1/applications/9", "code": "APPLICATION_IN_USE" }\
-            """;
     public static final String COVER_LETTER_UNUSABLE =
             """
             { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
               "instance": "/api/v1/applications", "code": "VALIDATION_FAILED",
-              "errors": [ { "field": "coverLetter", "reason": "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요." } ] }\
+              "errors": [ { "field": "coverLetterItems", "reason": "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요." } ] }\
             """;
     public static final String COVER_LETTER_CHECK_UNAVAILABLE =
             """

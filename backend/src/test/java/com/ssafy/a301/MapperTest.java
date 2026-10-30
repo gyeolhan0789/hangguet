@@ -49,8 +49,7 @@ import org.junit.jupiter.api.Test;
 class MapperTest {
 
     private final User user = withId(new User("a@ssafy.com", "hash", "면접왕"), 1);
-    private final Application application =
-            withId(new Application(user, "○○전자", "백엔드 개발자", "저는…"), 10);
+    private final Application application = withId(new Application(user, "○○전자", "백엔드 개발자"), 10);
 
     private InterviewSession session(InterviewMode mode) {
         return withId(new InterviewSession(user, application, Persona.DEVIL, mode), 55);
@@ -66,10 +65,16 @@ class MapperTest {
     }
 
     @Test
-    void applicationResponseHasInUse() {
-        assertThat(ApplicationMapper.toResponse(application, true).inUse()).isTrue();
-        assertThat(ApplicationMapper.toListItem(application, false).companyName())
-                .isEqualTo("○○전자");
+    void applicationResponseHasItemsInOrderAndListItemHasNone() {
+        application.addCoverLetterItem("지원 동기", "저는…");
+        application.addCoverLetterItem("협업 경험", "함께했습니다.");
+
+        assertThat(ApplicationMapper.toResponse(application).coverLetterItems())
+                .extracting("itemOrder", "question")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1, "지원 동기"),
+                        org.assertj.core.groups.Tuple.tuple(2, "협업 경험"));
+        assertThat(ApplicationMapper.toListItem(application).companyName()).isEqualTo("○○전자");
     }
 
     @Test

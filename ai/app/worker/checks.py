@@ -18,6 +18,11 @@ from typing import Any
 
 from redis import Redis, RedisError
 
+from app.common.cover_letter import (
+    CoverLetterItem,
+    InvalidCoverLetterError,
+    parse_cover_letter_items,
+)
 from app.interview.cover_letter import CoverLetterCheckError
 
 log = logging.getLogger(__name__)
@@ -37,8 +42,8 @@ ERROR = "error"
 # 판단하지 못했다(Jev 장애·키 없음·메시지 형식 오류). BE는 다시 시도하도록 안내한다
 CHECK_FAILED = "CHECK_FAILED"
 
-# 회사명, 직무, 자기소개서를 받아 통과 여부를 반환한다
-Check = Callable[[str, str, str], bool]
+# 회사명, 직무, 자기소개서 문항을 받아 통과 여부를 반환한다
+Check = Callable[[str, str, tuple[CoverLetterItem, ...]], bool]
 
 
 def result_key(job_id: str) -> str:
@@ -108,17 +113,23 @@ class CoverLetterCheckWorker:
         return self._now() - requested.timestamp() > BE_WAIT_SECONDS
 
     def _judge(self, job_id: str, message: dict[str, Any]) -> dict[str, Any]:
-        fields = [message.get(name) for name in ("companyName", "jobTitle", "coverLetter")]
-        if not all(isinstance(value, str) for value in fields):
+        company_name, job_title = message.get("companyName"), message.get("jobTitle")
+        try:
+            items = parse_cover_letter_items(
+                message.get("coverLetterItems"), message.get("coverLetter")
+            )
+        except InvalidCoverLetterError:
+            log.warning("자기소개서 검증 작업의 형식이 맞지 않다 jobId=%s", job_id)
+            return {ERROR: CHECK_FAILED}
+        if not isinstance(company_name, str) or not isinstance(job_title, str):
             log.warning("자기소개서 검증 작업의 형식이 맞지 않다 jobId=%s", job_id)
             return {ERROR: CHECK_FAILED}
         if self._check is None:
             log.warning("JEV_API_KEY가 없어 자기소개서를 검증하지 못했다 jobId=%s", job_id)
             return {ERROR: CHECK_FAILED}
-        company_name, job_title, cover_letter = fields
         started = time.monotonic()
         try:
-            usable = self._check(str(company_name), str(job_title), str(cover_letter))
+            usable = self._check(company_name, job_title, items)
         except CoverLetterCheckError as e:
             log.warning("자기소개서 검증 실패 jobId=%s: %s", job_id, e)
             return {ERROR: CHECK_FAILED}

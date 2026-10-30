@@ -21,6 +21,11 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.cover_letter import (
+    CoverLetterItem,
+    InvalidCoverLetterError,
+    parse_cover_letter_items,
+)
 from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode, Persona
 
 
@@ -81,7 +86,8 @@ class PlanJob(Job):
     job_type: ClassVar[JobType] = JobType.PLAN
     company_name: str
     job_title: str
-    cover_letter: str
+    # 자기소개서 문항(1~5개). 문항 순서대로다
+    cover_letter_items: tuple[CoverLetterItem, ...]
     persona: Persona = Persona.COFFEE_CHAT
 
 
@@ -106,7 +112,7 @@ class EvaluateJob(Job):
     job_type: ClassVar[JobType] = JobType.EVALUATE
     mode: InterviewMode
     persona: Persona = Persona.COFFEE_CHAT
-    cover_letter: str
+    cover_letter_items: tuple[CoverLetterItem, ...]
     claims: tuple[Claim, ...]
     answers: tuple[EvaluateAnswer, ...]
     # 같은 날 앞서 끝난 면접들의 summary(AI 명세 4장). 이전 BE 메시지에는 없다
@@ -152,6 +158,13 @@ def _text(data: Mapping[str, Any], key: str, path: str = "") -> str:
     if not isinstance(value, str) or is_java_blank(value):
         raise InvalidJobError(f"{path}{key}는 비어 있지 않은 문자열이어야 한다")
     return value
+
+
+def _cover_letter_items(data: Mapping[str, Any]) -> tuple[CoverLetterItem, ...]:
+    try:
+        return parse_cover_letter_items(data.get("coverLetterItems"), data.get("coverLetter"))
+    except InvalidCoverLetterError as e:
+        raise InvalidJobError(str(e)) from e
 
 
 def _mode(data: Mapping[str, Any]) -> InterviewMode:
@@ -390,7 +403,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 requested_at=requested_at,
                 company_name=_text(data, "companyName"),
                 job_title=_text(data, "jobTitle"),
-                cover_letter=_text(data, "coverLetter"),
+                cover_letter_items=_cover_letter_items(data),
                 persona=_persona(data),
             )
         case JobType.SCORE_ANSWER:
@@ -415,7 +428,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 requested_at=requested_at,
                 mode=_mode(data),
                 persona=_persona(data),
-                cover_letter=_text(data, "coverLetter"),
+                cover_letter_items=_cover_letter_items(data),
                 claims=_claims(data),
                 answers=_evaluate_answers(data),
                 earlier_summaries=_earlier_summaries(data),

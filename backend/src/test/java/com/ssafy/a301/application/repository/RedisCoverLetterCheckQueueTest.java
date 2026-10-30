@@ -7,7 +7,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Item;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,6 +21,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 // 기준: AI 명세 2.1 자기소개서 검증(ai:checks에 넣고 ai:checks:result:{jobId}를 8초 기다린다)
 class RedisCoverLetterCheckQueueTest {
+    private static final List<Item> ITEMS =
+            List.of(new Item("지원 동기", "저는…"), new Item("협업 경험", "함께했습니다."));
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
 
@@ -34,7 +38,7 @@ class RedisCoverLetterCheckQueueTest {
 
     private Verdict checkWithResult(String result) {
         when(lists.rightPop(anyString(), eq(RedisCoverLetterCheckQueue.WAIT))).thenReturn(result);
-        return queue.check("○○전자", "백엔드", "저는…");
+        return queue.check("○○전자", "백엔드", ITEMS);
     }
 
     @Test
@@ -46,7 +50,12 @@ class RedisCoverLetterCheckQueueTest {
         JsonNode message = JSON.readTree(sent.getValue());
         assertThat(message.get("companyName").asString()).isEqualTo("○○전자");
         assertThat(message.get("jobTitle").asString()).isEqualTo("백엔드");
-        assertThat(message.get("coverLetter").asString()).isEqualTo("저는…");
+        // 자기소개서 문항은 적은 순서대로 질문 · 답변만 보낸다(AI 명세 2.1)
+        assertThat(message.get("coverLetterItems")).hasSize(2);
+        assertThat(message.get("coverLetterItems").get(0).get("question").asString())
+                .isEqualTo("지원 동기");
+        assertThat(message.get("coverLetterItems").get(1).get("answer").asString())
+                .isEqualTo("함께했습니다.");
         assertThat(message.get("requestedAt").asString()).endsWith("+09:00");
         verify(lists)
                 .rightPop(
@@ -70,6 +79,6 @@ class RedisCoverLetterCheckQueueTest {
         when(lists.leftPush(anyString(), anyString()))
                 .thenThrow(new RedisConnectionFailureException("down"));
 
-        assertThat(queue.check("○○전자", "백엔드", "저는…")).isEqualTo(Verdict.UNAVAILABLE);
+        assertThat(queue.check("○○전자", "백엔드", ITEMS)).isEqualTo(Verdict.UNAVAILABLE);
     }
 }

@@ -103,7 +103,7 @@ test.describe("모바일 · 로그인 후(C/App Header)", () => {
     await signIn();
   });
 
-  test("열면 프로필 · 스트릭 · 홈 · 연습 기록 · 공지 · 마이페이지 · 문의하기 · 다크 모드 · 로그아웃이 보인다", async ({
+  test("열면 프로필 · 스트릭 · 홈 · 연습 기록 · 공지 · 마이페이지 · 지원 관리 · 문의하기 · 다크 모드 · 로그아웃이 보인다", async ({
     page,
   }) => {
     await page.goto("/mypage");
@@ -118,6 +118,7 @@ test.describe("모바일 · 로그인 후(C/App Header)", () => {
       ["홈", "/home"],
       ["연습 기록", "/records"],
       ["마이페이지", "/mypage"],
+      ["지원 관리", "/applications"],
       ["문의하기", "/inquiries"],
     ] as const) {
       await expect(menu(page).getByRole("link", { name, exact: true })).toHaveAttribute(

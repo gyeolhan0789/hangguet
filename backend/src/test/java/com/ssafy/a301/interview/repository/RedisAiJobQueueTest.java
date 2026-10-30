@@ -28,14 +28,14 @@ class RedisAiJobQueueTest {
         message.put("jobType", "PLAN");
         message.put("jobId", "8f0c");
         message.put("sessionId", 55L);
-        message.put("coverLetter", "저는…");
+        message.put("companyName", "○○전자");
 
         queue.push(message);
 
         verify(lists)
                 .leftPush(
                         "ai:jobs:plan",
-                        "{\"jobType\":\"PLAN\",\"jobId\":\"8f0c\",\"sessionId\":55,\"coverLetter\":\"저는…\"}");
+                        "{\"jobType\":\"PLAN\",\"jobId\":\"8f0c\",\"sessionId\":55,\"companyName\":\"○○전자\"}");
     }
 
     // AI 작업자가 AI_WORKER_QUEUE로 읽는 큐 이름과 같아야 한다(AI 명세 1.3)

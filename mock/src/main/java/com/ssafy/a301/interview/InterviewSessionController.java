@@ -162,6 +162,7 @@ public class InterviewSessionController {
             content = @Content(examples = @ExampleObject(value = CREATED)))
     @ApiResponse(
             responseCode = "404",
+            description = "APPLICATION_NOT_FOUND: 없거나 남의 지원서 · 지운 지원서",
             content =
                     @Content(
                             mediaType = ErrorExamples.PROBLEM,

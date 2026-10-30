@@ -7,6 +7,7 @@ from typing import Any, cast
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
+from app.common.cover_letter import as_json
 from app.common.results import KST, RESULT_QUEUE_KEY, ResultPublisher
 from app.interview.plan.job import PlanJobHandler, register_plan_handler
 from app.worker.dispatch import Dispatcher
@@ -26,7 +27,7 @@ PLAN = json.dumps(
         "sessionId": 55,
         "companyName": JOB.company_name,
         "jobTitle": JOB.job_title,
-        "coverLetter": JOB.cover_letter,
+        "coverLetterItems": as_json(JOB.cover_letter_items),
     },
     ensure_ascii=False,
 )
