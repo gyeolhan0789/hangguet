@@ -55,6 +55,12 @@ oauth:
     client-secret: ${KAKAO_CLIENT_SECRET:}
     # 받을 수 있는 redirectUri(쉼표로 구분). FE 콜백 주소이며 카카오 앱 Redirect URI에도 등록해야 한다
     redirect-uris: ${KAKAO_REDIRECT_URIS:}
+  google:
+    # 구글 OAuth 클라이언트 ID와 보안 비밀번호(웹 애플리케이션). 둘 다 있어야 한다
+    client-id: ${GOOGLE_CLIENT_ID:}
+    client-secret: ${GOOGLE_CLIENT_SECRET:}
+    # 받을 수 있는 redirectUri(쉼표로 구분). FE 콜백 주소이며 구글 클라이언트의 승인된 리디렉션 URI에도 등록해야 한다
+    redirect-uris: ${GOOGLE_REDIRECT_URIS:}
 
 # 관리 페이지 관리자 계정. 셋 다 있고 같은 아이디가 없으면 기동할 때 만든다(가입 API 없음)
 admin:

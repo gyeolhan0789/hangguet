@@ -27,8 +27,8 @@ import org.springframework.web.client.RestClient;
 
 class KakaoLoginClientTest {
     private static final String REDIRECT = "https://a301/oauth/kakao/callback";
-    private static final OAuthProperties.Kakao KEYS =
-            new OAuthProperties.Kakao("rest-key", "secret", List.of(REDIRECT));
+    private static final OAuthProperties.Client KEYS =
+            new OAuthProperties.Client("rest-key", "secret", List.of(REDIRECT));
     private MockRestServiceServer kakao;
     private KakaoLoginClient client;
 
@@ -109,7 +109,7 @@ class KakaoLoginClientTest {
     void missingKeyIsUnavailable() {
         var unconfigured =
                 new KakaoLoginClient(
-                        RestClient.create(), new OAuthProperties.Kakao(null, null, null));
+                        RestClient.create(), new OAuthProperties.Client(null, null, null));
         assertCode(
                 () -> unconfigured.fetchProfile("code", REDIRECT),
                 ErrorCode.SOCIAL_LOGIN_UNAVAILABLE);

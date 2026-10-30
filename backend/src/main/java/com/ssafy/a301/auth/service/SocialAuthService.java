@@ -65,7 +65,7 @@ public class SocialAuthService {
         this.transactions = transactions;
     }
 
-    /** 1.6. provider는 경로 값(kakao) */
+    /** 1.6. provider는 경로 값(kakao · google) */
     public SocialLoginResponse login(String provider, String code, String redirectUri) {
         SocialProfile profile = client(provider).fetchProfile(code, redirectUri);
         Optional<User> linked = linkedUser(profile);

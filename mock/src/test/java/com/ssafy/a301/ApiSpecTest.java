@@ -100,6 +100,11 @@ class ApiSpecTest {
                 .extractingPath("$.code")
                 .isEqualTo("SOCIAL_EMAIL_REQUIRED");
         assertThat(socialLogin("kakao", "duplicated")).hasStatus(HttpStatus.CONFLICT);
+        assertThat(socialLogin("google", "signup"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.signupRequired")
+                .isEqualTo(true);
         assertThat(socialLogin("naver", "signup"))
                 .hasStatus(HttpStatus.BAD_REQUEST)
                 .bodyJson()

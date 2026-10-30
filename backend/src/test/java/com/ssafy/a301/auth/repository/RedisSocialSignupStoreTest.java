@@ -27,7 +27,8 @@ class RedisSocialSignupStoreTest {
         var store =
                 new RedisSocialSignupStore(
                         redis,
-                        new OAuthProperties(Duration.ofMinutes(10), Duration.ofSeconds(5), null));
+                        new OAuthProperties(
+                                Duration.ofMinutes(10), Duration.ofSeconds(5), null, null));
         var profile = new SocialProfile(SocialProvider.KAKAO, "12345", "k@kakao.com", "카카오");
 
         String token = store.issue(profile);
