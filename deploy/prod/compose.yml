@@ -157,6 +157,13 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY CI/CD variable is required}
       S3_BUCKET: hanggeut-a301-prod
       AWS_REGION: ap-northeast-2
+      # 소셜 로그인(API 명세 1.6). 키는 개발과 같고, 없으면 그 제공자 로그인만 503. 콜백 주소는 운영 FE 주소만 받는다
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
+      KAKAO_REDIRECT_URIS: https://hangguet.co.kr/oauth/kakao/callback
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URIS: https://hangguet.co.kr/oauth/google/callback
     # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 쓴다(10/27 로컬 실측, 운영과 같은 SerialGC).
     # 768m에서는 부하만으로 90%에 닿아 강제 종료될 수 있어 여유를 두고 올렸다(배포 계획 3.2)
     mem_limit: 1280m
