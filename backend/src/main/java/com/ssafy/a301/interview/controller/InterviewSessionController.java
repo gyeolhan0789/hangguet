@@ -12,6 +12,7 @@ import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCalendarResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionEndRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.service.AnswerService;
@@ -85,7 +86,9 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.8 면접 끝내기",
-            description = "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200).")
+            description =
+                    "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200). 본문은 선택이며,"
+                            + " 화상 면접이면 브라우저가 잰 시선 비율을 함께 보낸다.")
     @ApiResponse(
             responseCode = "202",
             description = "답변 ≥1. status ANALYZING",
@@ -94,6 +97,7 @@ public class InterviewSessionController {
             responseCode = "200",
             description = "답변 0. status ABORTED",
             content = @Content(schema = @Schema(implementation = SessionResponse.class)))
+    @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED: gazeRatio가 0~100이 아님")
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
     @ApiResponse(
             responseCode = "409",
@@ -102,8 +106,10 @@ public class InterviewSessionController {
     @PostMapping("/{sessionId}/end")
     public ResponseEntity<SessionResponse> end(
             @CurrentUserId long userId,
-            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
-        SessionResponse ended = sessions.end(userId, sessionId);
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId,
+            @Valid @RequestBody(required = false) SessionEndRequest request) {
+        SessionResponse ended =
+                sessions.end(userId, sessionId, request == null ? null : request.gazeRatio());
         return ResponseEntity.status(
                         ended.status() == SessionStatus.ANALYZING
                                 ? HttpStatus.ACCEPTED

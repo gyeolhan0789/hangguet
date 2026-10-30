@@ -16,8 +16,8 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 /**
- * 음성 지표. 화상 면접만, 면접당 하나(PK = session_id). 말하기 지표는 답변 음성으로, gazeRatio는 녹화 영상(6.2)으로 구한다. 구하지 못한 값은
- * null.
+ * 음성 지표. 화상 면접만, 면접당 하나(PK = session_id). 말하기 지표는 답변 음성으로 구하고, gazeRatio는 화면이 브라우저에서 잰 값을 면접
+ * 끝내기(5.8)로 받는다. 구하지 못한 값은 null.
  */
 @Entity
 @Table(name = "speech_metrics")
@@ -71,7 +71,7 @@ public class SpeechMetric {
         this.pitchRangeSt = pitchRangeSt;
     }
 
-    // 녹화 영상 분석이 끝나면 채운다
+    // 면접 끝내기(5.8)에서 받은 값. 결과를 다시 쓸 때도 이어 쓴다
     public void recordGazeRatio(BigDecimal gazeRatio) {
         this.gazeRatio = gazeRatio;
     }

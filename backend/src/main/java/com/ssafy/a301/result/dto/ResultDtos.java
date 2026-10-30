@@ -53,7 +53,9 @@ public final class ResultDtos {
             @Schema(description = "억양 변화 폭(세미톤)", nullable = true, example = "6.2")
                     BigDecimal pitchRangeSt,
             @Schema(
-                            description = "말하는 동안 면접관을 바라본 시간 비율(%). 녹화 영상으로 구하므로 녹화가 없으면 null",
+                            description =
+                                    "면접 동안 면접관을 바라본 시간 비율(%). 화면이 브라우저에서 재어 면접 끝내기(5.8)로 보낸 값이고, 받지"
+                                            + " 못했으면 null",
                             nullable = true,
                             example = "71.5")
                     BigDecimal gazeRatio) {}

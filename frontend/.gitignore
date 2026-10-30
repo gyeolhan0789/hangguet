@@ -44,8 +44,14 @@ next-env.d.ts
 # test report
 /junit.xml
 
+# Pact 계약 파일(npm run test:pact가 만들고 CI가 BE 잡으로 넘긴다)
+/pacts/
+
 # e2e (playwright)
 /test-results/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# MediaPipe WASM (npm run dev · build 전에 node_modules에서 복사, scripts/copy-mediapipe-wasm.mjs)
+/public/mediapipe/wasm/

@@ -39,6 +39,7 @@ import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -115,6 +116,7 @@ class InterviewSessionIntegrationTest {
             jdbc.update("DELETE FROM interview_plans WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM ai_job_outbox WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM recordings WHERE session_id IN (" + sessionsOfUser + ")");
+            jdbc.update("DELETE FROM speech_metrics WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
@@ -645,6 +647,68 @@ class InterviewSessionIntegrationTest {
 
         verify(queue, never()).push(argThat(job -> "MERGE_RECORDING".equals(job.get("jobType"))));
         assertThat(recordingStatuses(sessionId)).isEmpty();
+    }
+
+    // 기준: API 명세 5.8 본문 gazeRatio(화면이 브라우저에서 잰 시선 비율, 결과가 나오는 화상 면접만 저장)
+    @Test
+    void endVideoWithGazeRatioSavesItBeforeResult() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "VIDEO");
+        answer(sessionId, 1);
+
+        mvc.perform(end(user, sessionId, "{\"gazeRatio\": 72.456}"))
+                .andExpect(status().isAccepted());
+
+        // 말하기 지표는 결과가 나올 때 채운다
+        assertThat(
+                        jdbc.queryForMap(
+                                "SELECT gaze_ratio, filler_per_min FROM speech_metrics WHERE"
+                                        + " session_id = ?",
+                                sessionId))
+                .containsEntry("gaze_ratio", new BigDecimal("72.46"))
+                .containsEntry("filler_per_min", null);
+    }
+
+    @Test
+    void gazeRatioIsIgnoredWithoutVideoResult() throws Exception {
+        long user = newUser();
+        long chat = started(user, "CHAT");
+        mvc.perform(submit(user, chat, currentQuestionId(user, chat), text("답")))
+                .andExpect(status().isAccepted());
+        long unanswered = started(user, "VIDEO");
+
+        mvc.perform(end(user, chat, "{\"gazeRatio\": 50}")).andExpect(status().isAccepted());
+        mvc.perform(end(user, unanswered, "{\"gazeRatio\": 50}")).andExpect(status().isOk());
+
+        assertThat(speechMetricCount(chat) + speechMetricCount(unanswered)).isZero();
+    }
+
+    @Test
+    void gazeRatioOutOfRangeIsRejected() throws Exception {
+        long user = newUser();
+        long sessionId = started(user, "VIDEO");
+        answer(sessionId, 1);
+
+        for (String body : List.of("{\"gazeRatio\": 100.01}", "{\"gazeRatio\": -1}")) {
+            mvc.perform(end(user, sessionId, body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+        }
+        assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+    }
+
+    private MockHttpServletRequestBuilder end(long userId, long sessionId, String body) {
+        return as(userId, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body);
+    }
+
+    private int speechMetricCount(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT count(*) FROM speech_metrics WHERE session_id = ?",
+                Integer.class,
+                sessionId);
     }
 
     private List<String> recordingStatuses(long sessionId) {

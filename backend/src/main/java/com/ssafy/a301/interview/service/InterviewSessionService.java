@@ -14,6 +14,7 @@ import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
@@ -24,9 +25,12 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.RecordingRepository;
+import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -57,6 +61,7 @@ public class InterviewSessionService {
     private final TransactionTemplate transactions;
     private final InterviewRoom rooms;
     private final RecordingRepository recordings;
+    private final SpeechMetricRepository speechMetrics;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -70,7 +75,8 @@ public class InterviewSessionService {
             AiJobService aiJobs,
             TransactionTemplate transactions,
             InterviewRoom rooms,
-            RecordingRepository recordings) {
+            RecordingRepository recordings,
+            SpeechMetricRepository speechMetrics) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -83,6 +89,7 @@ public class InterviewSessionService {
         this.transactions = transactions;
         this.rooms = rooms;
         this.recordings = recordings;
+        this.speechMetrics = speechMetrics;
     }
 
     /** 5.1. 지원서 행을 잠가 지원서 삭제(4.5)와 겹치지 않게 한다. 지운 지원서로는 만들지 않는다(404). */
@@ -246,17 +253,19 @@ public class InterviewSessionService {
 
     /**
      * 5.8. 답변이 있으면 결과 생성을 시작하고 시작일(한국 시간)에 처음이면 연습 기록을 남긴다. leveledUp은 이번에 기록이 남아 스트릭 뱃지 구간이 바뀌었을
-     * 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다.
+     * 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다. gazeRatio(화면이 잰 시선 비율)는 결과가 나오는 화상 면접일 때만
+     * 남긴다.
      */
-    public SessionResponse end(long userId, long sessionId) {
+    public SessionResponse end(long userId, long sessionId, BigDecimal gazeRatio) {
         OffsetDateTime now = OffsetDateTime.now();
-        SessionResponse response = endInTransaction(userId, sessionId, now);
+        SessionResponse response = endInTransaction(userId, sessionId, now, gazeRatio);
         // 커밋 뒤 면접방을 지운다. 에이전트가 나가고 화상이면 녹화도 끝난다
         rooms.close(sessionId);
         return response;
     }
 
-    private SessionResponse endInTransaction(long userId, long sessionId, OffsetDateTime now) {
+    private SessionResponse endInTransaction(
+            long userId, long sessionId, OffsetDateTime now, BigDecimal gazeRatio) {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
@@ -275,6 +284,13 @@ public class InterviewSessionService {
                             // 다시보기(6.4)가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다
                             aiJobs.enqueue(AiJob.mergeRecording(sessionId));
                             recordings.save(Recording.mergingSessionVideo(session));
+                            if (gazeRatio != null) {
+                                // 말하기 지표는 결과가 나올 때 채운다(AiResultService)
+                                SpeechMetric metric =
+                                        new SpeechMetric(session, null, null, null, null, null);
+                                metric.recordGazeRatio(gazeRatio.setScale(2, RoundingMode.HALF_UP));
+                                speechMetrics.save(metric);
+                            }
                         }
                     }
                     return InterviewMapper.toSessionResponse(

@@ -54,7 +54,7 @@ public class AiJobMessages {
                         .atZoneSameInstant(KoreaTime.ZONE)
                         .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
         switch (job.getJobType()) {
-            case PLAN -> putPlan(message, session.getApplication());
+            case PLAN -> putPlan(message, session);
             case SCORE_ANSWER -> putScoreAnswer(message, job, session);
             case EVALUATE -> putEvaluate(message, job, session);
             case MERGE_RECORDING -> putMergeRecording(message, session);
@@ -64,10 +64,12 @@ public class AiJobMessages {
     }
 
     // AI 명세 2장
-    private static void putPlan(Map<String, Object> message, Application application) {
+    private static void putPlan(Map<String, Object> message, InterviewSession session) {
+        Application application = session.getApplication();
         message.put("companyName", application.getCompanyName());
         message.put("jobTitle", application.getJobTitle());
         message.put("coverLetterItems", coverLetterItems(application));
+        message.put("persona", session.getPersona().name());
     }
 
     // 자기소개서 문항을 순서대로(AI 명세 2장 · 4장)
@@ -89,6 +91,7 @@ public class AiJobMessages {
         InterviewPlan plan = plan(job);
         message.put("answerId", answer.getId());
         message.put("mode", session.getMode().name());
+        message.put("persona", session.getPersona().name());
         message.putAll(answerContent(answer, plan));
     }
 
@@ -96,6 +99,7 @@ public class AiJobMessages {
     private void putEvaluate(Map<String, Object> message, AiJob job, InterviewSession session) {
         InterviewPlan plan = plan(job);
         message.put("mode", session.getMode().name());
+        message.put("persona", session.getPersona().name());
         message.put("coverLetterItems", coverLetterItems(session.getApplication()));
         message.put("claims", plan.getClaims());
         List<Map<String, Object>> answered =

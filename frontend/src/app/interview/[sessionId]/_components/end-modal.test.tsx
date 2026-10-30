@@ -1,10 +1,14 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MIN_GAZE_SAMPLES, type GazeSample } from "@/lib/interview/gaze";
+import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
 
 import { EndModal } from "./end-modal";
 import { SAVE_WAIT_MS } from "./use-save-confirmed";
+
+const FRONT: GazeSample = { headYaw: 0, headPitch: 0, eyeYaw: 0, eyePitch: 0, blinking: false };
 
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
@@ -23,6 +27,7 @@ vi.mock("@/lib/interview/actions", () => ({
 //   기다리는 동안 저장 중 안내) · S15P31A301-257
 
 beforeEach(() => {
+  useGazeStore.getState().reset();
   useInterviewStore.getState().reset();
   useInterviewStore.getState().openEnd();
 });
@@ -86,8 +91,51 @@ describe("EndModal (S06-E 면접 종료 확인)", () => {
 
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
 
-    expect(endSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/));
+    expect(endSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/), null);
     expect(useInterviewStore.getState().endOpen).toBe(false);
+  });
+
+  // 기준: API 명세 5.8 gazeRatio(화상만, 같은 멱등 키로는 같은 값)
+  it("화상은 면접 동안 잰 시선 비율을 보내고, 같은 키로 다시 보낼 때는 처음 값을 그대로 보낸다", async () => {
+    endSession.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
+    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
+    render(<EndModal sessionId={55} video answeredCount={2} />);
+    const end = screen.getByRole("button", { name: "끝내기" });
+
+    await act(async () => fireEvent.click(end));
+    // 실패한 뒤에도 시선은 계속 쌓이지만 같은 키에는 처음 값을 쓴다
+    useGazeStore.setState({ frames: [] });
+    await act(async () => fireEvent.click(end));
+
+    expect(endSession.mock.calls.map((call) => call[2])).toEqual([100, 100]);
+    expect(endSession.mock.calls[1][1]).toBe(endSession.mock.calls[0][1]);
+  });
+
+  it("키를 이미 썼다고 하면(keySpent) 새 키를 만들 때 그때까지 잰 시선으로 비율을 다시 정한다", async () => {
+    endSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
+    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
+    render(<EndModal sessionId={55} video answeredCount={2} />);
+    const end = screen.getByRole("button", { name: "끝내기" });
+
+    await act(async () => fireEvent.click(end));
+    // 그 사이 얼굴이 잡히지 않은 프레임이 같은 수만큼 쌓였다 → 50%
+    useGazeStore.setState({
+      frames: [...Array(MIN_GAZE_SAMPLES).fill(FRONT), ...Array(MIN_GAZE_SAMPLES).fill(null)],
+    });
+    await act(async () => fireEvent.click(end));
+
+    expect(endSession.mock.calls.map((call) => call[2])).toEqual([100, 50]);
+    expect(endSession.mock.calls[1][1]).not.toBe(endSession.mock.calls[0][1]);
+  });
+
+  it("채팅은 시선을 재지 않아 보내지 않는다", async () => {
+    endSession.mockResolvedValue({});
+    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
+    render(<EndModal sessionId={55} video={false} answeredCount={2} />);
+
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+
+    expect(endSession).toHaveBeenCalledWith(55, expect.any(String), null);
   });
 
   it("끝내지 못하면 서버 문구를 보여 주고, 다시 누르면 같은 키로 보낸다", async () => {
@@ -161,6 +209,7 @@ describe("EndModal · 직전 답변 저장 확인(API 명세 5.8)", () => {
     expect(endSession).toHaveBeenCalledExactlyOnceWith(
       55,
       expect.stringMatching(/^[0-9a-f-]{36}$/),
+      null,
     );
     expect(useInterviewStore.getState().endOpen).toBe(false);
     // 남은 대기 시간이 지나도 다시 보내지 않는다

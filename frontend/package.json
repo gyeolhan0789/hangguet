@@ -6,7 +6,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "predev": "node scripts/copy-mediapipe-wasm.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-mediapipe-wasm.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -15,12 +17,13 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:pact": "vitest run --config vitest.pact.config.mts",
     "e2e": "playwright test",
-    "e2e:ui": "playwright test --ui",
-    "types:examples": "node scripts/swagger-type-examples.mjs"
+    "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@hookform/resolvers": "5.9.2",
+    "@mediapipe/tasks-vision": "1.1.1",
     "@prometheus-io/client": "0.16.1",
     "axios": "1.20.0",
     "livekit-client": "2.23.0",
@@ -35,6 +38,7 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@pact-foundation/pact": "17.1.4",
     "@playwright/test": "1.64.1",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/dom": "10.4.2",

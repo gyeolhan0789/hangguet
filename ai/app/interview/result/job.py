@@ -225,6 +225,7 @@ def build_result(
             for a, e in zip(job.answers, evaluations, strict=True)
         ],
         scores=scores,
+        persona=job.persona,
         earlier_summaries=job.earlier_summaries,
     )
     written = write_feedback(session, feedback_chat)

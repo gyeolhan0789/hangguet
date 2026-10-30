@@ -68,7 +68,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
-- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(3·4장)을 면접관에 따라 다르게 만들기 위함이다
+- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
   - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
   - 두 값이 아니면 형식이 틀린 작업이다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
@@ -206,7 +206,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **시작** BE가 답변을 저장한 직후(화상은 `answer.completed`, 채팅은 5.7). `answers.evaluation`이 비어 있을 때만 작업을 넣는다
 - **입력(작업 메시지)** `answerId`, `mode`, `persona`, `seq`, `question`, `criteria`, `content`, `tokens`(화상), `speech`(화상, `answers.speech`) **[제안]**. 고도화에서는 회사 공시 요약을 더한다
 - **말하기 분석(화상만)** 입력은 `tokens`와 작업 메시지의 `speech`
-  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 계산하지 않는다(API 명세 6.3)
+  - 말하기 지표는 답변마다 구하는 5개(군말·긴 멈춤·말 속도·말끝 흐림·억양 폭, API 명세 6.3 `speechMetrics`에서 `gazeRatio`를 제외한 것)다. 시선 비율은 AI가 계산하지 않는다(화면이 브라우저에서 재어 BE에 보낸다, API 명세 5.8)
   - `tokens`의 글자를 이어 붙인 뒤 공백을 경계로 단어로 묶는다. 단어 시각은 첫 토큰의 `startMs`부터 마지막 토큰의 `endMs`까지다
   - `tokens`로 군말 수·말한 시간·긴 멈춤 수·말 속도를 구한다
   - 말끝 흐림·억양 폭은 면접 에이전트가 답변을 듣는 동안 실시간 음성으로 계산해 `answer.completed`로 전송한 값(6.2)을 그대로 사용한다. 답변 음성 파일은 사용하지 않는다
@@ -231,7 +231,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - 평가 항목·3단계·점수 계산은 면접관과 관계없이 같다. 성장 리뷰(API 명세 7.1)에서 면접관이 다른 면접끼리도 같은 기준으로 비교하기 위함이다
-  - `persona`가 `DEVIL`이면 판정 단계는 같은 기준으로 정하고, 판정 이유(`reason`)에 임원면접에서 보는 점(조직 적합·가치관, 압박 질문에 대한 태도)을 덧붙인다
+  - 판정 지침도 면접관과 관계없이 같고, `persona`는 판정에 사용하지 않는다. 판정 지침에 면접 종류를 넣으면 판정 이유뿐 아니라 판정 단계도 함께 달라지기 때문이다. 임원면접 관점은 결과 생성의 피드백 작성(4장 `WRITING_FEEDBACK`)에만 반영한다
   - `COVER_LETTER`는 여기서 임시 판정하고 EVALUATE에서 확정한다
   - `DELIVERY`는 화상이면 답변 글과 말하기 지표로, 채팅이면 답변 글로 판정한다. 비어 있는 지표는 빼고 판정하고, 지표가 모두 비어 있으면 답변 글로만 판정한다
 - **결과** `answer.scored`에 `answerId`와 아래 `evaluation`을 담는다. BE는 `answers.evaluation`이 비어 있을 때만 저장한다
@@ -273,7 +273,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `headline`: 결과 화면 맨 위의 한 줄 총평. 30자 이내. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다(BE도 30자를 넘으면 자른다). BE가 `interview_sessions.headline`에 저장하고 6.3·5.13의 `summary`로 준다
   - `summary`: 성장 리뷰의 "다음에 해볼 것". 다음 면접에서 해 볼 것을 한두 문장으로 쓰고, `earlierSummaries`가 있으면 그 내용과 이번 면접을 모두 반영해 그날 전체에서 가장 중요한 것을 쓴다. BE는 그날 마지막 면접의 `summary`를 7.1에 보여 준다
 - 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 해당 답변의 `improvePoint`에 기록한다
-- 프롬프트 버전은 `evaluate-feedback-v2`(9장)
+- 프롬프트 버전은 `evaluate-feedback-v3`(9장)
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
 
@@ -285,7 +285,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `long_pause_count` | `longPauseCount` | 답변별 합계 |
 | `speed_deviation_pct` | `speedDeviationPct` | (면접 말 속도 − 265) ÷ 265 × 100(%, 소수 둘째 자리). 면접 말 속도는 답변별 `syllablesPerMin`(3장)을 발화 시간(`speakingMs`)으로 가중한 평균이고, 265는 일반 성인의 대화 말 속도(음절/분)다 |
 | `trailing_off_ratio` · `pitch_range_st` | `trailingOffRatio` · `pitchRangeSt` | 말한 시간으로 가중한 평균 |
-| `gaze_ratio` | 키를 전송하지 않음 | 이 작업에서 사용하지 않음(API 명세 6.3) |
+| `gaze_ratio` | 키를 전송하지 않음 | 화면이 5.8로 보낸 값을 BE가 저장한다(API 명세 5.8) |
 
 - 값이 있는 답변만으로 계산하고, 모든 답변에 값이 없으면 null이다
 - 컬럼이 `NUMERIC(5, 2)`이므로 999.99를 넘는 값은 구하지 못한 것으로 간주해 null로 전송한다. 상한으로 잘라 전송하면 실제와 다른 지표가 되기 때문이다

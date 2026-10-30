@@ -12,7 +12,9 @@ import {
 } from "react";
 
 import { endSession } from "@/lib/interview/actions";
+import { gazeRatio } from "@/lib/interview/gaze";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
+import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
 
 import { useSaveConfirmed } from "./use-save-confirmed";
@@ -45,7 +47,8 @@ export function EndModal({
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const [pending, startEnd] = useTransition();
   const [error, setError] = useState<string>();
-  const key = useRef<string | null>(null);
+  // 시선 비율은 키를 만들 때 정해 같은 키로는 같은 값을 보낸다(본문이 다르면 409 IDEMPOTENCY_KEY_REUSED, API 명세 5.8). 채팅은 재지 않는다
+  const key = useRef<{ value: string; gazeRatio: number | null } | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const keep = useRef<HTMLButtonElement>(null);
   // 화상에서 제출됨을 받은 답변이 아직 answeredCount에 보이지 않으면, [끝내기] 뒤 저장을 확인하고(최대 10초) 끝낸다.
@@ -87,9 +90,13 @@ export function EndModal({
   }
 
   function send() {
-    key.current ??= crypto.randomUUID();
+    key.current ??= {
+      value: crypto.randomUUID(),
+      gazeRatio: video ? gazeRatio(useGazeStore.getState().frames) : null,
+    };
+    const { value, gazeRatio: ratio } = key.current;
     startEnd(async () => {
-      const result = await endSession(sessionId, key.current!);
+      const result = await endSession(sessionId, value, ratio);
       if (result.keySpent) key.current = null;
       if (result.formError) setError(result.formError);
       else {

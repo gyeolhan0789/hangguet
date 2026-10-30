@@ -5,6 +5,7 @@ from typing import Any, cast
 import pytest
 
 from app.common.gms import GmsBadOutputError, GmsClient, GmsResult, GmsUnavailableError
+from app.common.session import Persona
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.result.feedback import (
     MAX_HEADLINE_LENGTH,
@@ -14,6 +15,7 @@ from app.interview.result.feedback import (
     AnswerForFeedback,
     SessionForFeedback,
     build_feedback_messages,
+    feedback_system,
     gms_feedback_chat,
     parse_feedback,
     write_feedback,
@@ -33,6 +35,7 @@ SESSION = SessionForFeedback(
         AnswerForFeedback(903, 1, "첫 번째 질문", "첫 번째 답변", criteria(3)),
     ],
     scores={c: 70 + i for i, c in enumerate(Criterion)},
+    persona=Persona.COFFEE_CHAT,
 )
 
 
@@ -76,7 +79,32 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v2"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v3"
+
+
+# 기준: AI 명세 4장 WRITING_FEEDBACK(DEVIL이면 세부 피드백을 임원면접 관점 중심으로 작성)
+EXECUTIVE_FEEDBACK = (
+    "임원면접에서 보는 점(조직 적합·가치관·직업윤리·압박 질문에 대한 태도)을 짚는 문장으로"
+)
+
+
+def test_devil_feedback_centers_executive_view() -> None:
+    devil = feedback_system(Persona.DEVIL)
+    coffee_chat = feedback_system(Persona.COFFEE_CHAT)
+
+    assert EXECUTIVE_FEEDBACK in devil
+    assert "답변에 드러난 사실을 근거로" in devil
+    assert EXECUTIVE_FEEDBACK not in coffee_chat
+    # 개발자 면접관 지침은 유지하고 임원면접 줄 하나만 추가한다
+    added = [line for line in devil.splitlines() if line not in coffee_chat.splitlines()]
+    assert len(added) == 1
+    assert len(devil.splitlines()) == len(coffee_chat.splitlines()) + 1
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_prompt_uses_session_persona(persona: Persona) -> None:
+    session = replace(SESSION, persona=persona)
+    assert build_feedback_messages(session)[0]["content"] == feedback_system(persona)
 
 
 def test_prompt_lists_answers_in_seq_order_with_judgements() -> None:
@@ -97,6 +125,7 @@ def test_inconsistent_answers_are_sent_together_with_consistency_instruction() -
             AnswerForFeedback(904, 2, "기여는?", "저는 팀원으로 API만 구현했습니다.", criteria(2)),
         ],
         scores={c: 70 for c in Criterion},
+        persona=Persona.COFFEE_CHAT,
     )
     system, user = (m["content"] for m in build_feedback_messages(session))
     assert "팀장으로" in user and "팀원으로" in user
@@ -236,6 +265,7 @@ def test_nonconsecutive_sequences_and_response_order_map_to_original_answer_ids(
             AnswerForFeedback(904, 5, "질문", "답변", criteria(2)),
         ],
         scores={c: 70 for c in Criterion},
+        persona=Persona.COFFEE_CHAT,
     )
     content = reply(
         answers=[

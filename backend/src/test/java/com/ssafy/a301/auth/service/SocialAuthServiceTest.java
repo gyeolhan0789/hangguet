@@ -65,7 +65,8 @@ class SocialAuthServiceTest {
                         users,
                         socialAccounts,
                         signups,
-                        new OAuthProperties(Duration.ofMinutes(10), Duration.ofSeconds(5), null),
+                        new OAuthProperties(
+                                Duration.ofMinutes(10), Duration.ofSeconds(5), null, null),
                         new TransactionTemplate(txManager));
         when(kakao.fetchProfile("code", "https://a301/callback")).thenReturn(PROFILE);
         when(auth.isEmailAvailable("K@Kakao.com")).thenReturn(true);

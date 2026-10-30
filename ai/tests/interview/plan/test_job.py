@@ -89,7 +89,7 @@ def test_publishes_progress_then_completed_plan() -> None:
                 }
                 for seq in range(1, 6)
             ],
-            "promptVersion": "plan-v1",
+            "promptVersion": "plan-v2",
             "modelVersion": "gms-served",
         },
     ]
@@ -290,7 +290,7 @@ def test_registered_as_plan_handler() -> None:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v1"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v2"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:

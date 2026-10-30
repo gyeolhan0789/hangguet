@@ -43,7 +43,7 @@ public class AdminMetricsController {
                 { "criterion": "LOGIC", "score": 74.9 }, { "criterion": "DELIVERY", "score": 66.7 } ],
               "speech": { "sessions": 360, "fillerPerMin": 2.3, "longPauseCount": 2.8,
                           "speedDeviationPct": 6.4, "trailingOffRatio": 13.1, "pitchRangeSt": 5.9,
-                          "gazeRatio": null },
+                          "gazeRatio": 70.8 },
               "applications": 150,
               "inquiries": { "waiting": 2 },
               "streakFreezes": { "granted": 260, "used": 41, "expired": 12 },

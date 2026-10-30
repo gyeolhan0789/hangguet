@@ -10,6 +10,7 @@ import com.ssafy.a301.interview.InterviewDtos.InputType;
 import com.ssafy.a301.interview.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.InterviewDtos.SessionCreateRequest;
+import com.ssafy.a301.interview.InterviewDtos.SessionEndRequest;
 import com.ssafy.a301.interview.InterviewDtos.SessionResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -407,7 +408,10 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.8 면접 끝내기",
-            description = "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200).")
+            description =
+                    "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200). 본문은 선택이며,"
+                            + " 화상 면접이면 브라우저가 잰 시선 비율(gazeRatio)을 함께 보낸다. 같은 멱등 키로 다시 보낼 때는 처음과 같은"
+                            + " 값을 보낸다.")
     @ApiResponse(
             responseCode = "202",
             content =
@@ -423,6 +427,15 @@ public class InterviewSessionController {
                     @Content(
                             schema = @Schema(implementation = SessionResponse.class),
                             examples = @ExampleObject(name = "답변 0개 → 홈", value = ENDED_ABORTED)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "VALIDATION_FAILED: gazeRatio가 0~100이 아님",
+                                            value = ErrorExamples.GAZE_RATIO_INVALID)))
     @ApiResponse(
             responseCode = "404",
             content =
@@ -449,7 +462,8 @@ public class InterviewSessionController {
     public ResponseEntity<SessionResponse> end(
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,
             @Parameter(description = IDEMPOTENCY) @RequestHeader("Idempotency-Key")
-                    UUID idempotencyKey) {
+                    UUID idempotencyKey,
+            @Valid @RequestBody(required = false) SessionEndRequest request) {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         return ResponseEntity.accepted().body(stub.read(ENDED_ANALYZING, SessionResponse.class));
     }

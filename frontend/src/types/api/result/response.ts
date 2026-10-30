@@ -52,7 +52,7 @@ export interface SpeechMetrics {
   speedDeviationPct: number;
   trailingOffRatio: number;
   pitchRangeSt: number;
-  /** 말하는 동안 면접관을 바라본 시간 비율(%). 계산하지 않아 항상 null */
+  /** 면접 동안 면접관을 바라본 시간 비율(%). 화면이 브라우저에서 재어 5.8로 보낸 값이고, 받지 못했으면 null */
   gazeRatio: number | null;
 }
 

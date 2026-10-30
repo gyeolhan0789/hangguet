@@ -26,6 +26,8 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     // three.js 예제에서 가져온 코드(MIT). 원본 그대로 둔다.
     "src/lib/interviewer/vendor/**",
+    // MediaPipe WASM 로더(node_modules에서 복사한 원본, scripts/copy-mediapipe-wasm.mjs)
+    "public/mediapipe/wasm/**",
   ]),
 ]);
 

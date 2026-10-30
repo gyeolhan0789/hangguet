@@ -16,9 +16,10 @@ public final class UserDtos {
 
     private UserDtos() {}
 
-    @Schema(description = "소셜 로그인 제공자. KAKAO 카카오")
+    @Schema(description = "소셜 로그인 제공자. KAKAO 카카오, GOOGLE 구글")
     public enum SocialProvider {
-        KAKAO
+        KAKAO,
+        GOOGLE
     }
 
     @Schema(description = "토큰 응답에 담기는 회원")
