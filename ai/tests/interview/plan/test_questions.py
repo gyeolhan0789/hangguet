@@ -1,12 +1,14 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
-from app.common.session import QUESTION_COUNT
+from app.common.session import QUESTION_COUNT, Persona
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.questions import (
     Question,
     build_question_messages,
+    build_regenerate_messages,
     parse_questions,
     request_questions,
 )
@@ -34,6 +36,34 @@ def test_messages_list_claims_with_ids() -> None:
         "c1 (NUMBER, 문장 4) 주문 조회 응답 시간을 40% 줄였다\n"
         "c2 (EXPERIENCE, 문장 5) 캐시 계층을 설계했다"
     )
+
+
+# 기준: AI 명세 2장 면접관별 질문 수준(개발자 면접관 = 실무면접, 구조 이해)
+PRACTICAL_GUIDE = "이 면접은 실무면접이다. 지원자가 자기소개서 경험의 구조를 이해하고 있는지 묻는다"
+PRACTICAL_EXCLUDED = "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다"
+
+
+def test_coffee_chat_questions_ask_structure_understanding() -> None:
+    job = replace(JOB, persona=Persona.COFFEE_CHAT)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        system = messages[0]["content"]
+        assert PRACTICAL_GUIDE in system
+        assert PRACTICAL_EXCLUDED in system
+
+
+def test_devil_questions_do_not_use_practical_guide() -> None:
+    """임원면접 지침은 질문 예시와 함께 추가하므로 그 전까지는 실무면접 지침을 쓰지 않는다."""
+    job = replace(JOB, persona=Persona.DEVIL)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert PRACTICAL_GUIDE not in messages[0]["content"]
 
 
 def test_parses_questions() -> None:

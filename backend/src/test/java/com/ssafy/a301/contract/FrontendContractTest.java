@@ -260,7 +260,7 @@ class FrontendContractTest {
             return values;
         }
         if (stage.equals("ABORTED")) {
-            sessions.end(userId(), sessionId);
+            sessions.end(userId(), sessionId, null);
             return values;
         }
         long answerId =
@@ -273,7 +273,7 @@ class FrontendContractTest {
         if (stage.equals("ANSWERED")) {
             return values;
         }
-        sessions.end(userId(), sessionId);
+        sessions.end(userId(), sessionId, null);
         if (stage.equals("COMPLETED")) {
             aiResult(evaluationCompleted(sessionId, answerId, 70));
         }

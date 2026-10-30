@@ -338,6 +338,9 @@ public class AiResultService {
                                                             result.improvePoint(),
                                                             result.evaluation()));
                             sessionScores.deleteBySessionId(sessionId);
+                            // 시선 비율은 AI가 아니라 5.8에서 받으므로 지우기 전에 읽어 새 행에 이어 쓴다
+                            BigDecimal gazeRatio =
+                                    speechMetrics.findGazeRatio(sessionId).orElse(null);
                             speechMetrics.deleteBySessionId(sessionId);
                             scores.forEach(
                                     score ->
@@ -347,15 +350,20 @@ public class AiResultService {
                                                             score.criterion(),
                                                             score.score(),
                                                             score.comment())));
-                            if (session.isVideo() && metrics != null) {
-                                speechMetrics.save(
-                                        new SpeechMetric(
-                                                session,
-                                                metrics.fillerPerMin(),
-                                                metrics.longPauseCount(),
-                                                metrics.speedDeviationPct(),
-                                                metrics.trailingOffRatio(),
-                                                metrics.pitchRangeSt()));
+                            if (session.isVideo() && (metrics != null || gazeRatio != null)) {
+                                SpeechMetric metric =
+                                        metrics == null
+                                                ? new SpeechMetric(
+                                                        session, null, null, null, null, null)
+                                                : new SpeechMetric(
+                                                        session,
+                                                        metrics.fillerPerMin(),
+                                                        metrics.longPauseCount(),
+                                                        metrics.speedDeviationPct(),
+                                                        metrics.trailingOffRatio(),
+                                                        metrics.pitchRangeSt());
+                                metric.recordGazeRatio(gazeRatio);
+                                speechMetrics.save(metric);
                             }
                             session.complete(headline, summary);
                             return Outcome.SAVED;

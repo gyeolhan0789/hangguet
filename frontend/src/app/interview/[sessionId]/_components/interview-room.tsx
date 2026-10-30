@@ -5,15 +5,18 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 
 import { InterviewerStage } from "@/components/interview/interviewer-stage";
+import { useGazeTracker } from "@/components/interview/use-gaze-tracker";
 import { useInterviewRoom, type RoomPresentation } from "@/components/interview/use-interview-room";
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
+import { gazeRatio } from "@/lib/interview/gaze";
 import { ROUTES } from "@/lib/routes";
 import { PERSONAS } from "@/lib/interview/personas";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
+import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
@@ -378,6 +381,8 @@ function VideoInterview({
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
   const { stream, level } = useInterviewMedia();
+  // 면접 동안 시선을 잰다. 끝낼 때(5.8) 비율만 보낸다
+  useGazeTracker(stream);
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
@@ -551,13 +556,14 @@ function VideoInterview({
 /**
  * 화상 답변이 모두 저장된 것이 보이거나 저장 확인 시간(10초)이 지나면(ready) 면접을 끝낸다(5.8). 실패하면 2초 뒤 다시 보낸다.
  * 같은 끝내기는 같은 멱등 키로 보내고, 서버가 실패로 답했으면 새 키로 보낸다(채팅 마지막 답변과 같음).
+ * 시선 비율은 키를 만들 때 정해 같은 키로는 같은 값을 보낸다(본문이 다르면 409 IDEMPOTENCY_KEY_REUSED, API 명세 5.8).
  */
 function useFinishAfterLastAnswer(
   sessionId: number,
   ready: boolean,
   setLeveledUp: (leveledUp: boolean | null) => void,
 ) {
-  const key = useRef<string | null>(null);
+  const key = useRef<{ value: string; gazeRatio: number | null } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const sent = useRef(-1);
   const retry = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -567,8 +573,11 @@ function useFinishAfterLastAnswer(
   useEffect(() => {
     if (!ready || sent.current === attempt) return;
     sent.current = attempt;
-    key.current ??= crypto.randomUUID();
-    void endSession(sessionId, key.current).then((ended) => {
+    key.current ??= {
+      value: crypto.randomUUID(),
+      gazeRatio: gazeRatio(useGazeStore.getState().frames),
+    };
+    void endSession(sessionId, key.current.value, key.current.gazeRatio).then((ended) => {
       if (ended.keySpent) key.current = null;
       if (!ended.formError) {
         setLeveledUp(ended.leveledUp ?? null);

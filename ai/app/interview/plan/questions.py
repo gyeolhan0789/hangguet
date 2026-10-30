@@ -1,26 +1,44 @@
 """질문·기준 생성(AI 명세 2장 STEP 02): 주장을 검증하는 질문과 질문별 채점 기준을 생성한다."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from app.common.gms import Chat
-from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT
+from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Persona
 from app.interview.plan.llm import PlanOutputError
 from app.worker.messages import Claim, PlanJob
 
-SYSTEM = (
-    "너는 지원자의 자기소개서 주장을 검증하는 면접 질문을 생성한다. "
-    "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
-    f"- questions: 정확히 {QUESTION_COUNT}개, seq는 {MIN_SEQ}부터 {MAX_SEQ}까지 하나씩\n"
-    "- claimId: 질문이 검증하는 주장의 id를 그대로 작성한다. "
-    f"주장이 {QUESTION_COUNT}개보다 적으면 같은 주장을 다른 관점으로 다시 질문하고, "
-    "많으면 검증 가치가 큰 주장을 고른다\n"
-    "- content: 지원자에게 묻는 질문 한 문장\n"
-    "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
-    'JSON으로만 답한다: {"questions": [{"seq": int, "content": str, "criteria": str, '
-    '"claimId": str}]}'
-)
+# AI 명세 2장 면접관별 질문 수준. 임원면접(DEVIL) 지침은 질문 예시와 함께 추가한다
+_INTERVIEW_GUIDES: Mapping[Persona, str] = {
+    Persona.COFFEE_CHAT: (
+        "이 면접은 실무면접이다. 지원자가 자기소개서 경험의 구조를 이해하고 있는지 묻는다: "
+        "구성 요소의 역할, 데이터 흐름, 설계를 선택한 이유와 대안, 변경 시 영향 범위, "
+        "수치·본인 역할의 근거\n"
+        "- 신입이 자기 경험으로 답할 수 있는 수준으로 묻고, "
+        "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다\n"
+    ),
+}
+
+
+def _guide(persona: Persona) -> str:
+    return _INTERVIEW_GUIDES.get(persona, "")
+
+
+def question_system(persona: Persona) -> str:
+    return (
+        "너는 지원자의 자기소개서 주장을 검증하는 면접 질문을 생성한다. "
+        "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
+        f"{_guide(persona)}"
+        f"- questions: 정확히 {QUESTION_COUNT}개, seq는 {MIN_SEQ}부터 {MAX_SEQ}까지 하나씩\n"
+        "- claimId: 질문이 검증하는 주장의 id를 그대로 작성한다. "
+        f"주장이 {QUESTION_COUNT}개보다 적으면 같은 주장을 다른 관점으로 다시 질문하고, "
+        "많으면 검증 가치가 큰 주장을 고른다\n"
+        "- content: 지원자에게 묻는 질문 한 문장\n"
+        "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
+        'JSON으로만 답한다: {"questions": [{"seq": int, "content": str, "criteria": str, '
+        '"claimId": str}]}'
+    )
 
 
 @dataclass(frozen=True)
@@ -44,7 +62,10 @@ def claims_text(claims: Sequence[Claim]) -> str:
 
 def build_question_messages(job: PlanJob, claims: Sequence[Claim]) -> list[dict[str, str]]:
     user = f"회사: {job.company_name}\n직무: {job.job_title}\n\n[주장]\n{claims_text(claims)}"
-    return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
+    return [
+        {"role": "system", "content": question_system(job.persona)},
+        {"role": "user", "content": user},
+    ]
 
 
 def _text(item: dict[str, Any], key: str) -> str:
@@ -88,14 +109,17 @@ def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
     return tuple(sorted(questions, key=lambda q: q.seq))
 
 
-REGENERATE_SYSTEM = (
-    "너는 지원자의 자기소개서 주장을 검증하는 면접 질문 하나를 다시 생성한다. "
-    "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
-    "- claimId: 주장 목록에 있는 id 하나를 그대로 작성한다\n"
-    "- content: 지원자에게 묻는 질문 한 문장\n"
-    "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
-    'JSON으로만 답한다: {"question": {"content": str, "criteria": str, "claimId": str}}'
-)
+def regenerate_system(persona: Persona) -> str:
+    # 다시 생성한 질문 하나만 수준이 달라지지 않도록 처음 생성과 같은 지침을 사용한다
+    return (
+        "너는 지원자의 자기소개서 주장을 검증하는 면접 질문 하나를 다시 생성한다. "
+        "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
+        f"{_guide(persona)}"
+        "- claimId: 주장 목록에 있는 id 하나를 그대로 작성한다\n"
+        "- content: 지원자에게 묻는 질문 한 문장\n"
+        "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
+        'JSON으로만 답한다: {"question": {"content": str, "criteria": str, "claimId": str}}'
+    )
 
 
 def build_regenerate_messages(
@@ -106,7 +130,10 @@ def build_regenerate_messages(
         f"[주장]\n{claims_text(claims)}\n\n"
         f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다."
     )
-    return [{"role": "system", "content": REGENERATE_SYSTEM}, {"role": "user", "content": user}]
+    return [
+        {"role": "system", "content": regenerate_system(job.persona)},
+        {"role": "user", "content": user},
+    ]
 
 
 def request_question(chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int) -> Question:

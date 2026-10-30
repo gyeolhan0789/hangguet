@@ -9,8 +9,9 @@ from redis import Redis
 
 from app.common.gms import GmsBadOutputError, GmsResult, GmsUnavailableError
 from app.common.results import RESULT_QUEUE_KEY, ResultPublisher, ResultPublishError
+from app.common.session import Persona
 from app.common.settings import load_settings
-from app.interview.result.feedback import gms_feedback_chat
+from app.interview.result.feedback import feedback_system, gms_feedback_chat
 from app.interview.result.job import (
     ANALYSIS_TIMEOUT_SECONDS,
     EvaluateJobHandler,
@@ -216,6 +217,13 @@ def test_unscored_answer_is_scored_before_cover_letter() -> None:
     assert rescored["promptVersion"] == "score-answer-v1"
 
 
+# 기준: AI 명세 4장 WRITING_FEEDBACK(결과 생성은 작업의 면접관 기준으로 세부 피드백을 작성)
+@pytest.mark.parametrize("persona", list(Persona))
+def test_feedback_is_written_with_job_persona(persona: Persona) -> None:
+    _, _, written = run(replace(JOB, persona=persona))
+    assert written.calls[0][0]["content"] == feedback_system(persona)
+
+
 def test_stored_speech_is_aggregated_as_judged() -> None:
     """이미 채점한 답변은 전달력 판정에 사용한 speech를 그대로 집계한다."""
     metrics = run()[0][-1]["speechMetrics"]
@@ -335,7 +343,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v2" in caplog.text
+    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v3" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 

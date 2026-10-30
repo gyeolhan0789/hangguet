@@ -52,3 +52,6 @@ next-env.d.ts
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# MediaPipe WASM (npm run dev · build 전에 node_modules에서 복사, scripts/copy-mediapipe-wasm.mjs)
+/public/mediapipe/wasm/

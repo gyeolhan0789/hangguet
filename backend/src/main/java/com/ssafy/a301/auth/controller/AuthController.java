@@ -94,7 +94,8 @@ public class AuthController {
     @ApiResponse(responseCode = "503", description = "SOCIAL_LOGIN_UNAVAILABLE: 제공자 서버 오류·시간 초과")
     @PostMapping("/oauth/{provider}")
     public SocialLoginResponse socialLogin(
-            @Parameter(description = "제공자", example = "kakao") @PathVariable String provider,
+            @Parameter(description = "제공자. kakao · google", example = "kakao") @PathVariable
+                    String provider,
             @Valid @RequestBody SocialLoginRequest request) {
         return social.login(provider, request.code(), request.redirectUri());
     }

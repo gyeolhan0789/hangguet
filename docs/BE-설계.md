@@ -35,7 +35,7 @@ com.ssafy.a301
 │  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7)
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
 │  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
-│  ├─ oauth        SocialLoginClient · KakaoLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
+│  ├─ oauth        SocialLoginClient · KakaoLoginClient · GoogleLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
 │  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore
 │  └─ config       SecurityConfig, OAuthConfig
 ├─ user
@@ -149,7 +149,7 @@ com.ssafy.a301
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
 | `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
-| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 항상 null(API 명세 6.3), 나머지는 답변 음성에서 |
+| `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 면접 끝내기(API 명세 5.8)로 받고, 나머지는 답변 음성에서 |
 | `PracticeLog` | `practice_logs` | N:1 User | **연습한 날** 기록(스트릭·달력용). `(user_id, practice_date)` UNIQUE라 날짜당 한 건. 면접은 하루에 여러 번 볼 수 있고 그 기록은 `interview_sessions`에 면접마다 남는다 |
 | `Admin` | `admins` | - | 관리 페이지 계정. 회원과 따로 둔다. 아이디는 삭제하지 않은 관리자끼리만 중복 불가(V5) |
 | `Notice` | `notices` | N:1 Admin | 게시 기간(`starts_at` ~ `ends_at`, 없으면 계속) 동안 모든 회원에게 보인다. 삭제(8.7)는 soft delete: `deleted_at`만 기록하고 관리 목록 · 8.8 · 8.9 · 8.15에서 뺀다. 8.6에서 `endsAt`을 null로 보내면 지운다(안 보내면 그대로) |
@@ -236,7 +236,7 @@ com.ssafy.a301
      - 전달력: 화상은 답변 + 말하기 지표(비어 있으면 빼고), 채팅은 답변 글로 판단
      - 3단계는 BE가 점수로 계산(경계 API 명세 6.3)
    - 자소서 검증도 다른 기준과 같이 3단계로 판정하고, 자소서 대조로 확정한다 **[결정]**
-3. 시선 응시 비율(`SpeechMetric.recordGazeRatio()`)은 계산하지 않아 항상 null이다(API 명세 6.3)
+3. 시선 응시 비율은 화면이 브라우저에서 잰 값을 5.8 본문(`gazeRatio`)으로 받는다. 결과가 나오는 화상 면접이면 5.8에서 시선 비율만 채운 `SpeechMetric` 행을 먼저 만들고, `evaluation.completed`를 저장할 때 행을 다시 쓰면서 이 값을 이어 쓴다(AI는 보내지 않는다)
 
 ### 5.5 결과 큐 처리 (`ai:results`)
 1. `AiResultConsumer`가 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 메시지를 꺼낸다
@@ -364,13 +364,13 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ### 소셜 로그인 (1.6 · 1.7) **[결정]**
 
-- 화면이 제공자 인가 코드를 받아 BE에 넘기고, BE가 제공자 서버에서 토큰을 받아 회원 정보를 읽는다(`KakaoLoginClient`, `RestClient`). 제공자 토큰은 회원 정보를 읽는 데만 쓰고 저장하지 않는다. 로그인에 성공하면 1.3과 같은 우리 토큰을 주므로 재발급·로그아웃·JWT 검증은 그대로다
+- 화면이 제공자 인가 코드를 받아 BE에 넘기고, BE가 제공자 서버에서 토큰을 받아 회원 정보를 읽는다(`KakaoLoginClient` · `GoogleLoginClient`, `RestClient`). 구글은 OpenID Connect 사용자 정보(userinfo)를 읽고, 회원 번호는 `sub`다. 제공자 토큰은 회원 정보를 읽는 데만 쓰고 저장하지 않는다. 로그인에 성공하면 1.3과 같은 우리 토큰을 주므로 재발급·로그아웃·JWT 검증은 그대로다
 - `redirectUri`는 설정에 등록한 주소만 받는다(다른 주소로 받은 코드를 끼워 넣지 못하게). `state`(CSRF)는 화면이 만들고 확인한다
 - 처음 온 사람은 회원을 바로 만들지 않고 가입 토큰(`social-signup:`)으로 제공자 회원 정보를 맡아 둔다. 약관 동의(1.7) 뒤 회원 · 약관 동의 · 소셜 연결을 한 트랜잭션으로 만들고, 커밋한 뒤 가입 토큰을 지우고 우리 토큰을 만든다. 이미 연결된 소셜 계정이면 새로 만들지 않고 그 회원으로 로그인한다(같은 가입 토큰을 겹쳐 보내도 회원은 하나). 가입이 겹쳐 유일 제약(이메일 · 소셜 계정)에 걸리면, 연결이 생겼으면 그 회원으로 로그인하고 같은 이메일 회원이 생겼으면 409로 답한다
-- 이메일은 제공자가 확인한 것만 쓴다(카카오 `is_email_valid` · `is_email_verified`). 회원 문의 · 관리자 검색 등이 이메일을 쓰므로 없으면 가입하지 않는다(400 `SOCIAL_EMAIL_REQUIRED`). 카카오 앱 동의 항목에서 이메일을 필수로 둔다
+- 이메일은 제공자가 확인한 것만 쓴다(카카오 `is_email_valid` · `is_email_verified`, 구글 `email_verified`). 회원 문의 · 관리자 검색 등이 이메일을 쓰므로 없으면 가입하지 않는다(400 `SOCIAL_EMAIL_REQUIRED`). 카카오 앱 동의 항목에서 이메일을 필수로 둔다
 - 같은 이메일의 회원이 있어도 계정을 합치지 않는다(409 `SOCIAL_EMAIL_DUPLICATED`). 확인하지 않은 연결로 남의 계정에 들어가지 않게 하기 위해서다. 계정 연결은 나중에 로그인한 회원이 직접 하도록 따로 만든다
 - 소셜 회원은 비밀번호가 없다. 1.3은 비밀번호 없는 회원을 고르지 않고, 2.3 · 9.10은 409 `PASSWORD_NOT_SET`, 2.7은 비밀번호를 묻지 않는다. 비밀번호 변경 기록이 없으므로 재발급(1.4)의 비밀번호 변경 확인에도 걸리지 않는다
-- 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분)로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
+- 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분), `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(둘 다 필수) · `GOOGLE_REDIRECT_URIS`로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
 
 ## 10. 파일 (S3) **[제안]**
 
@@ -402,5 +402,5 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변별 음성(B-19)
-4. 구글 로그인: `SocialLoginClient` 구현과 `SocialProvider.GOOGLE`만 더한다. 카카오톡 알림을 보내려면 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
+4. 카카오톡 알림: 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
 5. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다
