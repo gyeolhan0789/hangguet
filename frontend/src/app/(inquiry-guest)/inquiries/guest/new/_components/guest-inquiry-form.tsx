@@ -6,15 +6,19 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
-import { Field, SubmitButton, TextInput } from "@/components/form";
+import { Checkbox, Field, SubmitButton, TextInput } from "@/components/form";
 import { inquiryButtonClass } from "@/components/inquiry/inquiry-button-class";
 import { InquiryButton, InquiryModal, TextArea } from "@/components/inquiry/inquiry-ui";
+import { LegalModal } from "@/components/legal/legal-modal";
+import { LegalViewButton } from "@/components/legal/legal-view-button";
 import { createGuestInquiry } from "@/lib/inquiry/actions";
 import {
   INQUIRY_TITLE_MAX,
-  guestInquirySchema,
+  guestInquiryFormSchema,
+  type GuestInquiryFormValues,
   type GuestInquiryValues,
 } from "@/lib/inquiry/schemas";
+import { GUEST_INQUIRY_CONSENT } from "@/lib/legal/documents";
 import { ROUTES } from "@/lib/routes";
 import { useGuestInquiryStore } from "@/stores/guest-inquiry-store";
 
@@ -24,6 +28,7 @@ import { useGuestInquiryStore } from "@/stores/guest-inquiry-store";
 // · 번호 56 ExtraBold brand-strong · 안내 15 Medium text-2 · [확인](주 버튼, 모달 너비))
 // · 기획 메모 I01-B(이메일 형식 · 조회 비밀번호 4~20자 · 제목 1~100자 · 내용 필수 → 9.1(201) → I01-1, [취소] → I04)
 // · 기획 메모 I01-1(9.1 응답 id를 문의번호로, [확인] → I03 그 문의(방금 정한 조회 비밀번호로 9.3)) · Swagger 9.1(InquiryCreateRequest)
+// · 사용자 결정(2026-10-30: 비회원 문의에 [필수] 개인정보 수집 · 이용 동의를 더한다. Figma에 없어 가입 화면(S01-1)의 동의 줄 모양을 따른다)
 
 export function GuestInquiryForm() {
   const router = useRouter();
@@ -32,6 +37,7 @@ export function GuestInquiryForm() {
     null,
   );
   const [formError, setFormError] = useState<string>();
+  const [viewingConsent, setViewingConsent] = useState(false);
   const [pending, startTransition] = useTransition();
   const {
     register,
@@ -39,14 +45,17 @@ export function GuestInquiryForm() {
     control,
     setError,
     formState: { errors },
-  } = useForm<GuestInquiryValues>({
-    resolver: zodResolver(guestInquirySchema),
-    defaultValues: { email: "", accessPassword: "", title: "", content: "" },
+  } = useForm<GuestInquiryFormValues>({
+    resolver: zodResolver(guestInquiryFormSchema),
+    defaultValues: { email: "", accessPassword: "", title: "", content: "", agreed: false },
   });
   const titleLength = useWatch({ control, name: "title" }).length;
+  const agreed = useWatch({ control, name: "agreed" });
 
-  const submit = handleSubmit((values) => {
+  const submit = handleSubmit(({ email, accessPassword, title, content }) => {
     setFormError(undefined);
+    // 동의(agreed)는 9.1이 받지 않으므로 보내지 않는다.
+    const values: GuestInquiryValues = { email, accessPassword, title, content };
     startTransition(async () => {
       const result = await createGuestInquiry(values);
       if (result.inquiryId) {
@@ -150,6 +159,29 @@ export function GuestInquiryForm() {
             {...register("content")}
           />
         </Field>
+        <div className="flex flex-col gap-2 rounded-xl bg-bg-sub p-4">
+          <div className="flex items-center gap-2.5">
+            <Checkbox
+              checked={agreed}
+              className="flex-1"
+              aria-invalid={!!errors.agreed}
+              {...register("agreed")}
+            >
+              <span className="text-sm leading-normal font-medium text-text-1">
+                [필수] 개인정보 수집 · 이용 동의
+              </span>
+            </Checkbox>
+            <LegalViewButton
+              title={GUEST_INQUIRY_CONSENT.title}
+              onClick={() => setViewingConsent(true)}
+            />
+          </div>
+          {errors.agreed?.message && (
+            <p role="alert" className="text-[13px] leading-normal font-semibold text-danger">
+              {errors.agreed.message}
+            </p>
+          )}
+        </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex gap-2">
             <Link
@@ -190,6 +222,11 @@ export function GuestInquiryForm() {
           확인
         </InquiryButton>
       </InquiryModal>
+
+      <LegalModal
+        doc={viewingConsent ? GUEST_INQUIRY_CONSENT : null}
+        onClose={() => setViewingConsent(false)}
+      />
     </>
   );
 }

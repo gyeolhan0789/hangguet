@@ -26,7 +26,16 @@ export const TERMS = [
 
 export type TermsType = (typeof TERMS)[number]["type"];
 
-/** 화면에 보여 준 약관 버전. 약관 본문이 확정되면 함께 바꾼다. */
+/**
+ * 만 14세 이상 확인(「개인정보 보호법」 제22조의2 · 사용자 결정 2026-10-30).
+ * 1.2는 약관 3개만 받으므로 서버에 보내지 않고 화면에서만 확인한다.
+ */
+export const AGE_CHECK = { type: "AGE", label: "[필수] 만 14세 이상입니다" } as const;
+
+/** 가입 화면의 동의 줄: 만 14세 확인 → 약관 3개 */
+export const AGREEMENT_ITEMS = [AGE_CHECK, ...TERMS] as const;
+
+/** 화면에 보여 준 약관 버전. 약관 본문(lib/legal/documents.ts)을 고치면 함께 올린다. */
 export const TERMS_VERSION = "1.0";
 
 export const loginSchema = z.object({
@@ -55,7 +64,7 @@ export const signupSchema = z
         "8~64자, 영문과 숫자를 모두 포함해야 합니다.",
       ),
     passwordConfirm: z.string().min(1, "비밀번호를 한 번 더 입력해 주세요."),
-    agreements: z.object({ TERMS: agreed, PRIVACY: agreed, RECORDING: agreed }),
+    agreements: z.object({ AGE: agreed, TERMS: agreed, PRIVACY: agreed, RECORDING: agreed }),
   })
   .refine((values) => values.password === values.passwordConfirm, {
     path: ["passwordConfirm"],

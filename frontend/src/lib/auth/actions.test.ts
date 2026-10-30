@@ -38,7 +38,7 @@ const signupValues = {
   email: "a@ssafy.com",
   password: "abcd1234",
   passwordConfirm: "abcd1234",
-  agreements: { TERMS: true, PRIVACY: true, RECORDING: true },
+  agreements: { AGE: true, TERMS: true, PRIVACY: true, RECORDING: true },
 };
 
 // 테스트마다 응답 · 쿠키 구현과 남은 once 값까지 비운다(clearAllMocks는 호출 기록만 지운다).
@@ -135,11 +135,11 @@ describe("signup", () => {
     });
   });
 
-  it("약관이 빠진 값은 서버에 보내지 않는다", async () => {
-    const result = await signup({
-      ...signupValues,
-      agreements: { TERMS: true, PRIVACY: true, RECORDING: false },
-    });
+  it.each([
+    ["약관", { AGE: true, TERMS: true, PRIVACY: true, RECORDING: false }],
+    ["만 14세 이상 확인", { AGE: false, TERMS: true, PRIVACY: true, RECORDING: true }],
+  ])("%s이 빠진 값은 서버에 보내지 않는다", async (_, agreements) => {
+    const result = await signup({ ...signupValues, agreements });
 
     expect(result.formError).toBeDefined();
     expect(post).not.toHaveBeenCalled();

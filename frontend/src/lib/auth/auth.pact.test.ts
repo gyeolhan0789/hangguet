@@ -44,7 +44,7 @@ const signupValues = {
   email: "a@ssafy.com",
   password: "abcd1234",
   passwordConfirm: "abcd1234",
-  agreements: { TERMS: true, PRIVACY: true, RECORDING: true },
+  agreements: { AGE: true, TERMS: true, PRIVACY: true, RECORDING: true },
 } as const;
 const signupBody = {
   nickname: "면접왕",

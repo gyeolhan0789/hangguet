@@ -30,6 +30,18 @@ test.describe("S00 랜딩 · 로그인 전", () => {
     await expect(page.getByRole("heading", { name: "로그인" })).toBeVisible();
   });
 
+  test("푸터 [이용약관] · [개인정보처리방침]은 로그인 없이 본문 화면을 연다", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("contentinfo").getByRole("link", { name: "이용약관" }).click();
+    await expect(page).toHaveURL("/terms");
+    await expect(page.getByRole("heading", { level: 1, name: "서비스 이용약관" })).toBeVisible();
+
+    await page.goto("/");
+    await page.getByRole("contentinfo").getByRole("link", { name: "개인정보처리방침" }).click();
+    await expect(page).toHaveURL("/privacy");
+    await expect(page.getByRole("heading", { level: 1, name: "개인정보 처리방침" })).toBeVisible();
+  });
+
   test("헤더 [시작하기] → S01-1 회원가입", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("banner").getByRole("link", { name: "시작하기", exact: true }).click();
