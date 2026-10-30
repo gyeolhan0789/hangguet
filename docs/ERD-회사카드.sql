@@ -28,7 +28,7 @@ CREATE TABLE company_cards (
     id           BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     company_id   BIGINT      NOT NULL REFERENCES companies (id),
     card         JSONB       NOT NULL,
-    content_hash CHAR(64)    NOT NULL,
+    content_hash VARCHAR(64) NOT NULL,
     generated_at DATE        NOT NULL,
     is_current   BOOLEAN     NOT NULL,
     created_at   TIMESTAMPTZ NOT NULL

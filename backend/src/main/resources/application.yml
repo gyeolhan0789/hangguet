@@ -111,6 +111,13 @@ ai-result:
   consumer-enabled: true
   retry-delay: 5s
 
+# 회사 카드 적재(docs/ERD-회사카드.md). 파이프라인이 카드를 올리는 공용 버킷(개발·운영 같은 버킷)의 manifest를 매시 정각에 확인한다.
+# 버킷이 없으면(로컬·테스트) 적재하지 않는다. 읽기는 storage.s3와 같은 앱 키·리전을 쓴다
+company-card:
+  bucket: ${COMPANY_S3_BUCKET:}
+  # 최신이 아닌 카드는 이 기간이 지나고 어느 면접도 쓰지 않으면 지운다
+  keep: 30d
+
 # 자격 증명은 AWS 기본 공급자(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수 등)에서 읽는다.
 storage:
   s3:
