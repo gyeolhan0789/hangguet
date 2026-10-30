@@ -1,8 +1,8 @@
 // 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.5.
 import type { OffsetDateTime } from "../common";
 
-/** 소셜 로그인 제공자. KAKAO 카카오 */
-export type SocialProvider = "KAKAO";
+/** 소셜 로그인 제공자. KAKAO 카카오, GOOGLE 구글 */
+export type SocialProvider = "KAKAO" | "GOOGLE";
 
 /** 2.1 내 정보 · 2.5 프로필 사진 등록 (200) */
 export interface MeResponse {

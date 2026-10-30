@@ -35,7 +35,7 @@ com.ssafy.a301
 │  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7)
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
 │  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
-│  ├─ oauth        SocialLoginClient · KakaoLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
+│  ├─ oauth        SocialLoginClient · KakaoLoginClient · GoogleLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
 │  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore
 │  └─ config       SecurityConfig, OAuthConfig
 ├─ user
@@ -364,13 +364,13 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 
 ### 소셜 로그인 (1.6 · 1.7) **[결정]**
 
-- 화면이 제공자 인가 코드를 받아 BE에 넘기고, BE가 제공자 서버에서 토큰을 받아 회원 정보를 읽는다(`KakaoLoginClient`, `RestClient`). 제공자 토큰은 회원 정보를 읽는 데만 쓰고 저장하지 않는다. 로그인에 성공하면 1.3과 같은 우리 토큰을 주므로 재발급·로그아웃·JWT 검증은 그대로다
+- 화면이 제공자 인가 코드를 받아 BE에 넘기고, BE가 제공자 서버에서 토큰을 받아 회원 정보를 읽는다(`KakaoLoginClient` · `GoogleLoginClient`, `RestClient`). 구글은 OpenID Connect 사용자 정보(userinfo)를 읽고, 회원 번호는 `sub`다. 제공자 토큰은 회원 정보를 읽는 데만 쓰고 저장하지 않는다. 로그인에 성공하면 1.3과 같은 우리 토큰을 주므로 재발급·로그아웃·JWT 검증은 그대로다
 - `redirectUri`는 설정에 등록한 주소만 받는다(다른 주소로 받은 코드를 끼워 넣지 못하게). `state`(CSRF)는 화면이 만들고 확인한다
 - 처음 온 사람은 회원을 바로 만들지 않고 가입 토큰(`social-signup:`)으로 제공자 회원 정보를 맡아 둔다. 약관 동의(1.7) 뒤 회원 · 약관 동의 · 소셜 연결을 한 트랜잭션으로 만들고, 커밋한 뒤 가입 토큰을 지우고 우리 토큰을 만든다. 이미 연결된 소셜 계정이면 새로 만들지 않고 그 회원으로 로그인한다(같은 가입 토큰을 겹쳐 보내도 회원은 하나). 가입이 겹쳐 유일 제약(이메일 · 소셜 계정)에 걸리면, 연결이 생겼으면 그 회원으로 로그인하고 같은 이메일 회원이 생겼으면 409로 답한다
-- 이메일은 제공자가 확인한 것만 쓴다(카카오 `is_email_valid` · `is_email_verified`). 회원 문의 · 관리자 검색 등이 이메일을 쓰므로 없으면 가입하지 않는다(400 `SOCIAL_EMAIL_REQUIRED`). 카카오 앱 동의 항목에서 이메일을 필수로 둔다
+- 이메일은 제공자가 확인한 것만 쓴다(카카오 `is_email_valid` · `is_email_verified`, 구글 `email_verified`). 회원 문의 · 관리자 검색 등이 이메일을 쓰므로 없으면 가입하지 않는다(400 `SOCIAL_EMAIL_REQUIRED`). 카카오 앱 동의 항목에서 이메일을 필수로 둔다
 - 같은 이메일의 회원이 있어도 계정을 합치지 않는다(409 `SOCIAL_EMAIL_DUPLICATED`). 확인하지 않은 연결로 남의 계정에 들어가지 않게 하기 위해서다. 계정 연결은 나중에 로그인한 회원이 직접 하도록 따로 만든다
 - 소셜 회원은 비밀번호가 없다. 1.3은 비밀번호 없는 회원을 고르지 않고, 2.3 · 9.10은 409 `PASSWORD_NOT_SET`, 2.7은 비밀번호를 묻지 않는다. 비밀번호 변경 기록이 없으므로 재발급(1.4)의 비밀번호 변경 확인에도 걸리지 않는다
-- 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분)로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
+- 설정은 `oauth.*`. 키는 환경 변수 `KAKAO_CLIENT_ID`(REST API 키) · `KAKAO_CLIENT_SECRET`(켰을 때만) · `KAKAO_REDIRECT_URIS`(쉼표로 구분), `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(둘 다 필수) · `GOOGLE_REDIRECT_URIS`로만 받는다. 키가 없으면 1.6이 503 `SOCIAL_LOGIN_UNAVAILABLE`. 제공자 호출은 연결 · 응답 각 5초(`oauth.timeout`)
 
 ## 10. 파일 (S3) **[제안]**
 
@@ -402,5 +402,5 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 1. 면접방: 에이전트가 끊겼을 때 다시 배정(AI 명세 6.5), 5.8 없이 떠난 면접의 방 정리
 2. 탈퇴 회원 보관 데이터의 최종 파기(B-6 결정 후)
 3. 답변별 음성(B-19)
-4. 구글 로그인: `SocialLoginClient` 구현과 `SocialProvider.GOOGLE`만 더한다. 카카오톡 알림을 보내려면 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
+4. 카카오톡 알림: 카카오 토큰 저장(암호화)과 `talk_message` 동의가 더 필요하다
 5. `mock/` 정리: 모두 구현됐으므로 Swagger 예시를 `backend/`로 옮기고 `mock/`과 배포(`mock-deploy`)를 지운다(2장 [결정]). FE가 mock을 더 쓰지 않는지 확인한 뒤 한다
