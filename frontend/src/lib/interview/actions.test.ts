@@ -10,6 +10,7 @@ import type {
   IdempotencyHeaders,
   ProblemDetail,
   SessionCreateRequest,
+  SessionEndRequest,
   SessionResponse,
 } from "@/types/api";
 
@@ -561,6 +562,27 @@ describe("endSession (5.8 면접 끝내기)", () => {
       headers: { "Idempotency-Key": KEY } satisfies IdempotencyHeaders,
     });
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  // 기준: API 명세 5.8 · 레포 mock 5.8 SessionEndRequest(선택 본문 gazeRatio, 0~100. 웹 Swagger에는 mock 배포 뒤 반영)
+  it("화상의 시선 비율은 본문 gazeRatio로 보내고, 없거나 0~100이 아니면 본문 없이 보낸다", async () => {
+    post.mockResolvedValue({ data: ENDED_ANALYZING });
+
+    await endSession(55, KEY, 72.46);
+    expect(post).toHaveBeenLastCalledWith(
+      "/interview-sessions/55/end",
+      { gazeRatio: 72.46 } satisfies SessionEndRequest,
+      { headers: { "Idempotency-Key": KEY } },
+    );
+    // 경계값 0과 100은 보낸다
+    for (const ratio of [0, 100]) {
+      await endSession(55, KEY, ratio);
+      expect(post.mock.lastCall?.[1]).toEqual({ gazeRatio: ratio });
+    }
+    for (const ratio of [null, undefined, -1, 100.01, Number.NaN]) {
+      await endSession(55, KEY, ratio);
+      expect(post.mock.lastCall?.[1]).toBeUndefined();
+    }
   });
 
   it("답변 없이 끝났으면(200 ABORTED) 홈으로 간다", async () => {

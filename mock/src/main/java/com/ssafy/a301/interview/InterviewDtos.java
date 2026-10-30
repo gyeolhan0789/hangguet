@@ -3,10 +3,13 @@ package com.ssafy.a301.interview;
 import com.ssafy.a301.growth.GrowthDtos.Criterion;
 import com.ssafy.a301.growth.GrowthDtos.Grade;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -77,6 +80,16 @@ public final class InterviewDtos {
                     Persona persona,
             @Schema(description = "면접 방식(S05-1)", example = "VIDEO") @NotNull(message = "필수 값입니다.")
                     Mode mode) {}
+
+    public record SessionEndRequest(
+            @Schema(
+                            description =
+                                    "화상 면접 동안 면접관을 바라본 시간 비율(%). 화면이 면접 내내 브라우저에서 잰 값이다."
+                                            + " 재지 못했거나 채팅이면 보내지 않는다",
+                            example = "72.5")
+                    @DecimalMin(value = "0", message = "0~100입니다.")
+                    @DecimalMax(value = "100", message = "0~100입니다.")
+                    BigDecimal gazeRatio) {}
 
     public record CriterionGrade(Criterion criterion, Grade grade) {}
 

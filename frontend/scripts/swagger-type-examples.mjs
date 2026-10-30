@@ -69,6 +69,7 @@ const REQUEST_TYPES = {
   "PATCH /applications/{applicationId}": "ApplicationUpdateRequest",
   "POST /interview-sessions": "SessionCreateRequest",
   "POST /interview-sessions/{sessionId}/questions/{questionId}/answer": "AnswerRequest",
+  "POST /interview-sessions/{sessionId}/end": "SessionEndRequest",
   "POST /users/me/streak-freezes/use": "StreakFreezeUseRequest",
   "POST /inquiries": "InquiryCreateRequest",
   "POST /inquiries/{inquiryId}/messages": "InquiryMessageRequest",

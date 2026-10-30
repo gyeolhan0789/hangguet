@@ -24,6 +24,7 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.repository.RecordingRepository;
+import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.practice.repository.PracticeLogRepository;
 import com.ssafy.a301.practice.service.PracticeService;
@@ -59,6 +60,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private TransactionTemplate transactions;
     @Mock private InterviewRoom rooms;
     @Mock private RecordingRepository recordings;
+    @Mock private SpeechMetricRepository speechMetrics;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -77,7 +79,8 @@ class InterviewSessionPracticeDateTest {
                         aiJobs,
                         transactions,
                         rooms,
-                        recordings);
+                        recordings,
+                        speechMetrics);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {
@@ -99,7 +102,7 @@ class InterviewSessionPracticeDateTest {
 
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
             time.when(OffsetDateTime::now).thenReturn(END);
-            var result = service.end(1, 55);
+            var result = service.end(1, 55, null);
             assertThat(result.leveledUp()).isTrue();
             assertThat(result.endedAt()).isEqualTo(END);
         }
@@ -114,7 +117,7 @@ class InterviewSessionPracticeDateTest {
         when(practiceLogs.insertIfAbsent(1, START_DATE)).thenReturn(0);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
             time.when(OffsetDateTime::now).thenReturn(END);
-            assertThat(service.end(1, 55).leveledUp()).isFalse();
+            assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
     }
 
@@ -127,7 +130,7 @@ class InterviewSessionPracticeDateTest {
         when(practiceLogs.insertIfAbsent(1, oldDate)).thenReturn(1);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
             time.when(OffsetDateTime::now).thenReturn(END);
-            assertThat(service.end(1, 55).leveledUp()).isFalse();
+            assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
         verify(practiceLogs).insertIfAbsent(1, oldDate);
     }
@@ -137,7 +140,7 @@ class InterviewSessionPracticeDateTest {
         session(END.minusHours(1), 0);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
             time.when(OffsetDateTime::now).thenReturn(END);
-            assertThat(service.end(1, 55).leveledUp()).isFalse();
+            assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
         verify(practiceLogs, never()).insertIfAbsent(anyLong(), any());
     }

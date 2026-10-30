@@ -28,6 +28,7 @@ import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -124,6 +125,40 @@ class AiEvaluationResultTest {
 
         // 같은 결과가 다시 오면 버린다
         assertThat(results.handle(json(message))).isEqualTo(Outcome.DISCARDED);
+    }
+
+    // 기준: API 명세 5.8 gazeRatio. 시선 비율은 AI 결과가 아니라 5.8에서 먼저 저장되므로 결과를 쓸 때 잃지 않는다
+    @Test
+    void gazeRatioFromEndIsKeptWhenResultIsSaved() {
+        InterviewSession withMetrics = gazeOnly(analyzing(InterviewMode.VIDEO, 1));
+        InterviewSession withoutMetrics = gazeOnly(analyzing(InterviewMode.VIDEO, 1));
+        Map<String, Object> message = completed(withMetrics, JOB_ID, answersOf(withMetrics));
+        message.put("speechMetrics", Map.of("fillerPerMin", 3.0));
+
+        assertThat(results.handle(json(message))).isEqualTo(Outcome.SAVED);
+        assertThat(
+                        results.handle(
+                                json(completed(withoutMetrics, JOB_ID, answersOf(withoutMetrics)))))
+                .isEqualTo(Outcome.SAVED);
+        em.flush();
+        em.clear();
+
+        SpeechMetric metric = em.find(SpeechMetric.class, withMetrics.getId());
+        assertThat(metric.getFillerPerMin()).isEqualByComparingTo("3.00");
+        assertThat(metric.getGazeRatio()).isEqualByComparingTo("72.46");
+        // AI가 말하기 지표를 보내지 않아도 시선 비율은 남는다
+        assertThat(em.find(SpeechMetric.class, withoutMetrics.getId()).getGazeRatio())
+                .isEqualByComparingTo("72.46");
+    }
+
+    private InterviewSession gazeOnly(InterviewSession session) {
+        SpeechMetric metric = new SpeechMetric(session, null, null, null, null, null);
+        metric.recordGazeRatio(new BigDecimal("72.46"));
+        em.persist(metric);
+        em.flush();
+        // 실제로는 5.8과 결과 저장이 다른 트랜잭션이다
+        em.clear();
+        return session;
     }
 
     @Test
