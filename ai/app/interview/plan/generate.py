@@ -23,11 +23,11 @@ from app.interview.plan.questions import (
     QuestionSet,
     TargetClaim,
     check_question_set,
-    criteria_names,
     request_question,
     request_questions,
 )
 from app.interview.plan.rules import CLAIM_ID_REGENERATIONS
+from app.interview.talent import criteria_names
 from app.worker.messages import Claim, PlanJob
 
 log = logging.getLogger(__name__)
