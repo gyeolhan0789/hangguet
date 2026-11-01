@@ -25,7 +25,7 @@ MIN_CLAIMS = 1
 MAX_CLAIMS = 10
 
 # AI 명세 2장: 주장 수가 5개와 다르면 질문 수(app.common.session.QUESTION_COUNT)를 우선한다.
-# 주장이 적으면 같은 주장을 다른 관점으로 다시 질문하고,
+# 면접관 기준이 드러난 주장이 적으면 같은 주장을 다른 기준으로 나누어 다시 질문하고,
 # 주장이 많으면 검증 가치가 큰 주장을 선택하게 한다(questions.question_system).
 
 # AI 명세 2장: claimId가 없는 주장을 가리키면 그 질문만 1회 다시 생성한다

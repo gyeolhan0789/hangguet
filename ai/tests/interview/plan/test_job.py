@@ -32,9 +32,17 @@ CLAIMS = {
         {"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
     ]
 }
-QUESTIONS = {"questions": [question(seq, "c2" if seq % 2 == 0 else "c1") for seq in range(1, 6)]}
+# 개발자 면접관 기준이 드러난 주장(AI 명세 2장)
+TARGETS = [
+    {"claimId": "c1", "criterion": "실행·성과", "evidence": "40% 줄였다"},
+    {"claimId": "c2", "criterion": "전문성·성장", "evidence": "캐시 계층을 설계했다"},
+]
+QUESTIONS = {
+    "targetClaims": TARGETS,
+    "questions": [question(seq, "c2" if seq % 2 == 0 else "c1") for seq in range(1, 6)],
+}
 BROKEN_CLAIMS: dict[str, Any] = {"claims": []}
-FOUR_QUESTIONS = {"questions": [question(seq) for seq in range(1, 5)]}
+FOUR_QUESTIONS = {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 5)]}
 
 
 def make(
@@ -89,7 +97,7 @@ def test_publishes_progress_then_completed_plan() -> None:
                 }
                 for seq in range(1, 6)
             ],
-            "promptVersion": "plan-v2",
+            "promptVersion": "plan-v3",
             "modelVersion": "gms-served",
         },
     ]
@@ -290,7 +298,7 @@ def test_registered_as_plan_handler() -> None:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v2"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v3"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:
