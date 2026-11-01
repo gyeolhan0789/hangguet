@@ -7,7 +7,7 @@
 
 | 항목 | 결정 | 이유 |
 |---|---|---|
-| 쓰는 곳 | AI 작업 메시지(PLAN·SCORE_ANSWER·EVALUATE)만. 사용자 화면에는 보여 주지 않는다 | |
+| 쓰는 곳 | AI 작업 메시지(PLAN)만. SCORE_ANSWER·EVALUATE는 피드백 반영 방식을 정할 때 추가한다. 사용자 화면에는 보여 주지 않는다 | |
 | DB | 각 환경의 메인 DB(`a301`)에 테이블을 더한다. database를 따로 만들지 않는다 | 면접과 FK로 잇고, Flyway·백업(`pg_dump`)을 하나로 유지한다 |
 | 적재 | **BE**가 S3의 카드를 읽어 넣는다 | DB에는 BE만 접속한다는 규칙을 지킨다(AI·파이프라인은 DB에 접속하지 않음) |
 | 변경 감지 | BE 스케줄러가 1시간마다 `manifest.json`을 본다. SQS를 쓰지 않는다 | 카드는 하루 한 번 바뀐다. 큐·이벤트 설정 없이 S3 요청 몇 번으로 끝난다 |
@@ -31,7 +31,7 @@
 
 [면접]
   면접 생성: 지원서 회사명 → 별칭 → 최신 카드 id를 interview_sessions.company_card_id에 저장(못 찾으면 NULL)
-  PLAN · SCORE_ANSWER · EVALUATE 메시지: company_card_id의 카드를 companyCard에 그대로 담음(NULL이면 뺌)
+  PLAN 메시지: company_card_id의 카드를 companyCard에 그대로 담음(NULL이면 뺌)
 ```
 
 ## 파이프라인이 올리는 것
@@ -118,9 +118,9 @@
 
 ## AI 작업 메시지
 
-- PLAN·SCORE_ANSWER·EVALUATE에 `companyCard`(카드 JSON 그대로)를 더한다. 면접의 `company_card_id`가 NULL이면 필드를 넣지 않는다
+- PLAN에 `companyCard`(카드 JSON 그대로)를 더한다. 면접의 `company_card_id`가 NULL이면 필드를 넣지 않는다
 - 크기: 2026-10-30 카드 110개 평균 약 4KB, 가장 큰 것 9KB
-- AI 명세 8장(요약 한 덩어리 + 출처 목록)과 2·3·4장 입력을 이 형식으로 고친다. AI 담당과 맞춘 뒤 고친다 **[합의 필요]**
+- AI 명세 8장·2장 입력에 반영했다
 
 ## 인프라
 
@@ -134,5 +134,5 @@
 
 ## 정할 것
 
-1. AI 명세에 `companyCard` 반영(필드 이름, 기존 `companySummary` 정리) **[합의 필요]**
+1. AI 명세에 `companyCard` 반영(필드 이름, 기존 `companySummary` 정리): PLAN에만 반영함(AI 명세 2·8장)
 2. 매칭 결과를 화면·관리자에서 볼 필요가 있는지(지금은 로그만)
