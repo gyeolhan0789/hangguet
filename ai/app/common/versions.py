@@ -65,7 +65,7 @@ REGISTRY = VersionRegistry(
             "plan-v3",
             "score-answer-v1",
             "evaluate-feedback-v1",
-            "evaluate-feedback-v3",
+            "evaluate-feedback-v4",
             "evaluate-cover-letter-v1",
             "reaction-v1",
             "cover-letter-check-v1",
