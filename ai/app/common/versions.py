@@ -62,7 +62,7 @@ class VersionRegistry:
 REGISTRY = VersionRegistry(
     prompts=frozenset(
         {
-            "plan-v2",
+            "plan-v3",
             "score-answer-v1",
             "evaluate-feedback-v1",
             "evaluate-feedback-v3",
