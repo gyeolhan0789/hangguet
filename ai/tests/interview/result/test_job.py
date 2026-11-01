@@ -22,6 +22,7 @@ from app.interview.result.job import (
 from app.interview.scoring.job import answer_speech, gms_score_chat
 from app.interview.scoring.judge import Criterion
 from app.interview.speech import aggregate_speech_metrics
+from app.interview.talent import criteria_names
 from app.worker.dispatch import Dispatcher, DispatchResult
 from app.worker.main import lazy_gms_client
 from app.worker.messages import EvaluateJob, parse_job
@@ -109,7 +110,13 @@ REQUESTED = JOB.requested_at.timestamp()
 def feedback_reply(job: EvaluateJob = JOB) -> dict[str, Any]:
     return {
         "answers": [
-            {"seq": a.seq, "goodPoint": f"잘한 점 {a.seq}", "improvePoint": f"고칠 점 {a.seq}"}
+            {
+                "seq": a.seq,
+                "shownCriteria": [],
+                "goodPoint": f"잘한 점 {a.seq}",
+                # 드러난 기준이 없으면 개선할 점에 그 면접관의 기준 이름이 있어야 한다(AI 명세 4장)
+                "improvePoint": f"고칠 점 {a.seq}: {min(criteria_names(job.persona))}",
+            }
             for a in job.answers
         ],
         "criteria": {c.value: f"{c.value} 코멘트" for c in Criterion},
@@ -365,7 +372,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v3" in caplog.text
+    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v4" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 

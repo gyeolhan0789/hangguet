@@ -49,5 +49,5 @@ def joined_names(criteria: Criteria) -> str:
 
 
 def criteria_names(persona: Persona) -> frozenset[str]:
-    """면접관이 묻는 인재상 기준 이름을 반환한다. targetClaims의 criterion을 검사할 때 사용한다."""
+    """면접관의 인재상 기준 이름을 반환한다. 모델이 작성한 기준 이름을 검사할 때 사용한다."""
     return frozenset(name for name, _ in _CRITERIA_BY_PERSONA.get(persona, ()))
