@@ -29,7 +29,14 @@ export default defineConfig({
     // NEXT_TEST_PROXY=1이면 E2E 전용 빌드(.next-e2e)를 만들고 띄운다(next.config.ts). 일반 빌드(.next)와 섞이지 않는다.
     command: `npm run build && npx next start -p ${PORT}`,
     url: BASE_URL,
-    env: { NEXT_TEST_PROXY: "1" },
+    // 카카오 인가 시작 · 콜백(lib/auth/kakao.ts)이 쓰는 값. 카카오로 실제로 가지 않고, 콜백의 1.6 · 2.9는 MSW가 답한다.
+    // e2e/kakao.ts의 KAKAO_CLIENT_ID · KAKAO_CALLBACK과 같아야 한다. 이 env 없이 띄운 서버를 재사용하면 카카오 버튼이
+    // 인가 화면으로 가지 않으므로(제목 '카카오' 대기 시간 초과), 그런 서버는 끄고 다시 띄운다.
+    env: {
+      NEXT_TEST_PROXY: "1",
+      KAKAO_CLIENT_ID: "e2e-kakao-client-id",
+      KAKAO_REDIRECT_URI: `${BASE_URL}/oauth/kakao/callback`,
+    },
     // Playwright 공식 권장값: 로컬에서는 이미 떠 있는 E2E 서버를 다시 쓰고, CI에서는 항상 새로 띄운다.
     // 코드를 고친 뒤 로컬에서 돌릴 때는 떠 있던 서버(예: UI 모드)를 끄고 다시 빌드해야 고친 내용이 반영된다.
     reuseExistingServer: !process.env.CI,

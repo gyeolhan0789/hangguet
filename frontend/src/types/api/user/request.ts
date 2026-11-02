@@ -1,4 +1,4 @@
-// 2. 회원 요청. 기준: 웹 Swagger 2.2 ~ 2.10.
+// 2. 회원 요청. 기준: 웹 Swagger 2.2 ~ 2.12.
 
 /** 2.2 PATCH /users/me 본문 */
 export interface NicknameRequest {
@@ -33,8 +33,19 @@ export interface ProfileImageRequest {
 
 /** 2.7 POST /users/me 본문(회원 탈퇴) */
 export interface WithdrawRequest {
-  /** 본인 확인용 비밀번호. 필수 */
-  password: string;
+  /** 본인 확인용 비밀번호. 이메일 회원은 필수, 소셜 회원은 보내지 않는다(2.1 socialProvider) */
+  password?: string;
+}
+
+/**
+ * 2.12 PUT /users/me/social-accounts/kakao 본문(카카오 계정 연결).
+ * 카카오 로그인과 같은 인가 요청으로 받은 code를 보낸다. 콜백에서 state로 로그인과 구분한다
+ */
+export interface SocialLinkRequest {
+  /** 카카오가 콜백 주소로 넘겨 준 인가 코드. 필수 */
+  code: string;
+  /** 인가 코드를 받은 콜백 주소. 카카오 로그인(1.6)과 같은 주소. 필수 */
+  redirectUri: string;
 }
 
 /**

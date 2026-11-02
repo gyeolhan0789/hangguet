@@ -2,6 +2,7 @@ import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
 import type {
   MyStreakFreezesResponse,
+  PracticeAlarmResponse,
   PracticeLogsQuery,
   PracticeLogsResponse,
   StatsResponse,
@@ -29,5 +30,11 @@ export async function getPracticeLogs(month: string): Promise<PracticeLogsRespon
  */
 export async function getStreakFreezes(): Promise<MyStreakFreezesResponse> {
   const { data } = await api.get<MyStreakFreezesResponse>(endpoints.streakFreezes.mine);
+  return data;
+}
+
+/** 2.8 연습 알림 설정(available · enabled · time). Figma S09-1 · S09-1-B 알림 카드. 서버 컴포넌트에서만 부른다. */
+export async function getPracticeAlarm(): Promise<PracticeAlarmResponse> {
+  const { data } = await api.get<PracticeAlarmResponse>(endpoints.users.practiceAlarm);
   return data;
 }

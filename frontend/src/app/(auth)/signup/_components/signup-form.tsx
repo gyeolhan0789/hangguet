@@ -7,9 +7,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
-import { Checkbox, Field, SubmitButton, TextInput, type FieldMessage } from "@/components/form";
-import { LegalModal } from "@/components/legal/legal-modal";
-import { LegalViewButton } from "@/components/legal/legal-view-button";
+import { Field, SubmitButton, TextInput, type FieldMessage } from "@/components/form";
 import { checkEmailAvailable, signup } from "@/lib/auth/actions";
 import {
   AGREEMENT_ITEMS,
@@ -19,31 +17,16 @@ import {
   signupSchema,
   type SignupValues,
 } from "@/lib/auth/schemas";
-import {
-  PRIVACY_CONSENT,
-  RECORDING_CONSENT,
-  TERMS_OF_SERVICE,
-  type LegalDocument,
-} from "@/lib/legal/documents";
 import { ROUTES } from "@/lib/routes";
+
+import { AgreementsFieldset } from "../../_components/agreements-fieldset";
+import { KakaoButton } from "../../_components/kakao-button";
 
 const EMAIL_CHECK_DELAY_MS = 400;
 /** 서버가 돌려준 칸별 오류(VALIDATION_FAILED · EMAIL_DUPLICATED)의 react-hook-form 오류 type */
 const SERVER_ERROR = "server";
 
 type EmailCheck = { email: string; available: boolean | null };
-
-/**
- * [보기]로 여는 본문. 만 14세 확인 줄은 본문이 없다.
- * 기준: Figma S01-1 동의 줄([보기]) · lib/legal/documents.ts · 사용자 결정(2026-10-30: 만 14세 이상 확인 추가, [보기]는 모달)
- */
-const AGREEMENT_DOCUMENTS: Partial<
-  Record<(typeof AGREEMENT_ITEMS)[number]["type"], LegalDocument>
-> = {
-  TERMS: TERMS_OF_SERVICE,
-  PRIVACY: PRIVACY_CONSENT,
-  RECORDING: RECORDING_CONSENT,
-};
 
 function PasswordRules({ password }: { password: string }) {
   return (
@@ -81,7 +64,6 @@ function PasswordRules({ password }: { password: string }) {
 export function SignupForm({ onComplete }: { onComplete: () => void }) {
   const [formError, setFormError] = useState<string>();
   const [emailCheck, setEmailCheck] = useState<EmailCheck>();
-  const [viewing, setViewing] = useState<LegalDocument | null>(null);
   const {
     register,
     handleSubmit,
@@ -106,7 +88,6 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
   const email = useWatch({ control, name: "email" });
   const password = useWatch({ control, name: "password" });
   const agreements = useWatch({ control, name: "agreements" });
-  const allAgreed = AGREEMENT_ITEMS.every(({ type }) => agreements[type]);
 
   // 이메일 중복 확인: 형식이 맞으면 입력이 멈춘 뒤 0.4초 후 확인한다. 늦게 온 이전 응답은 email이 달라 무시된다.
   const emailFormatOk = emailSchema.safeParse(email).success;
@@ -172,139 +153,124 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
 
   const emailMsg = emailMessage();
 
+  // [카카오로 시작하기]는 자기 폼(서버 액션)이라 가입 폼 밖, 제출 버튼 바로 아래에 둔다(폼 안에 폼을 넣을 수 없다).
   return (
-    <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1.5 pb-1.5">
-        <h1 className="text-[32px] leading-[1.3] font-extrabold tracking-[-0.8px] text-text-1">
-          회원가입
-        </h1>
-        <p className="text-[15px] leading-normal font-medium text-text-2">
-          스트릭을 이어가기 위한 최소 정보만 받아요
-        </p>
-      </div>
+    <div className="flex flex-col gap-4">
+      <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1.5 pb-1.5">
+          <h1 className="text-[32px] leading-[1.3] font-extrabold tracking-[-0.8px] text-text-1">
+            회원가입
+          </h1>
+          <p className="text-[15px] leading-normal font-medium text-text-2">
+            스트릭을 이어가기 위한 최소 정보만 받아요
+          </p>
+        </div>
 
-      <Field label="닉네임" htmlFor="nickname" variant="md" message={shownError("nickname")}>
-        <TextInput
-          id="nickname"
+        <Field label="닉네임" htmlFor="nickname" variant="md" message={shownError("nickname")}>
+          <TextInput
+            id="nickname"
+            variant="md"
+            autoComplete="nickname"
+            placeholder="면접왕"
+            invalid={!!shownError("nickname")}
+            {...register("nickname")}
+          />
+        </Field>
+
+        <Field label="이메일" htmlFor="email" variant="md" message={emailMsg}>
+          <TextInput
+            id="email"
+            type="email"
+            variant="md"
+            autoComplete="email"
+            placeholder="example@ssafy.com"
+            invalid={emailMsg?.tone === "error"}
+            trailing={
+              <AnimatePresence>
+                {checked === true && !errors.email && (
+                  <motion.span
+                    className="flex shrink-0"
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <Image src="/auth/icon-circle-check.svg" alt="" width={18} height={18} />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            }
+            {...register("email")}
+          />
+        </Field>
+
+        <Field
+          label="비밀번호"
+          htmlFor="password"
           variant="md"
-          autoComplete="nickname"
-          placeholder="면접왕"
-          invalid={!!shownError("nickname")}
-          {...register("nickname")}
-        />
-      </Field>
+          message={shownError("password")}
+          hint={<PasswordRules password={password} />}
+        >
+          <TextInput
+            id="password"
+            type="password"
+            variant="md"
+            autoComplete="new-password"
+            placeholder="8자 이상, 영문 + 숫자"
+            invalid={!!shownError("password")}
+            {...register("password")}
+          />
+        </Field>
 
-      <Field label="이메일" htmlFor="email" variant="md" message={emailMsg}>
-        <TextInput
-          id="email"
-          type="email"
+        <Field
+          label="비밀번호 확인"
+          htmlFor="passwordConfirm"
           variant="md"
-          autoComplete="email"
-          placeholder="example@ssafy.com"
-          invalid={emailMsg?.tone === "error"}
-          trailing={
-            <AnimatePresence>
-              {checked === true && !errors.email && (
-                <motion.span
-                  className="flex shrink-0"
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <Image src="/auth/icon-circle-check.svg" alt="" width={18} height={18} />
-                </motion.span>
-              )}
-            </AnimatePresence>
-          }
-          {...register("email")}
+          message={shownError("passwordConfirm")}
+        >
+          <TextInput
+            id="passwordConfirm"
+            type="password"
+            variant="md"
+            autoComplete="new-password"
+            placeholder="한 번 더 입력"
+            invalid={!!shownError("passwordConfirm")}
+            {...register("passwordConfirm")}
+          />
+        </Field>
+
+        <AgreementsFieldset
+          checked={agreements}
+          register={(type) => register(`agreements.${type}`)}
+          onToggleAll={toggleAll}
         />
-      </Field>
 
-      <Field
-        label="비밀번호"
-        htmlFor="password"
-        variant="md"
-        message={shownError("password")}
-        hint={<PasswordRules password={password} />}
-      >
-        <TextInput
-          id="password"
-          type="password"
-          variant="md"
-          autoComplete="new-password"
-          placeholder="8자 이상, 영문 + 숫자"
-          invalid={!!shownError("password")}
-          {...register("password")}
-        />
-      </Field>
+        <AnimatePresence initial={false}>
+          {formError && (
+            <motion.p
+              key={formError}
+              role="alert"
+              className="text-sm leading-normal font-semibold text-danger"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, x: [-4, 4, -2, 2, 0] }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.35 }}
+            >
+              {formError}
+            </motion.p>
+          )}
+        </AnimatePresence>
 
-      <Field
-        label="비밀번호 확인"
-        htmlFor="passwordConfirm"
-        variant="md"
-        message={shownError("passwordConfirm")}
-      >
-        <TextInput
-          id="passwordConfirm"
-          type="password"
-          variant="md"
-          autoComplete="new-password"
-          placeholder="한 번 더 입력"
-          invalid={!!shownError("passwordConfirm")}
-          {...register("passwordConfirm")}
-        />
-      </Field>
+        <SubmitButton
+          height="h-[54px]"
+          disabled={!isValid || checked !== true}
+          pending={isSubmitting}
+          pendingText="가입하는 중…"
+        >
+          가입하고 시작하기
+        </SubmitButton>
+      </form>
 
-      <fieldset className="flex flex-col gap-2.5 rounded-xl bg-bg-sub p-4">
-        <legend className="sr-only">약관 동의</legend>
-        <Checkbox checked={allAgreed} onChange={(e) => toggleAll(e.target.checked)}>
-          <span className="text-[15px] leading-normal font-extrabold text-text-1">전체 동의</span>
-        </Checkbox>
-        <span className="h-px bg-line" aria-hidden />
-        {AGREEMENT_ITEMS.map(({ type, label }, i) => {
-          const doc = AGREEMENT_DOCUMENTS[type];
-          return (
-            <div key={type} className="flex items-center gap-2.5">
-              <Checkbox
-                checked={agreements[type]}
-                delay={allAgreed ? i * 0.05 : 0}
-                className="flex-1"
-                {...register(`agreements.${type}`)}
-              >
-                <span className="text-sm leading-normal font-medium text-text-1">{label}</span>
-              </Checkbox>
-              {doc && <LegalViewButton title={doc.title} onClick={() => setViewing(doc)} />}
-            </div>
-          );
-        })}
-      </fieldset>
-
-      <LegalModal doc={viewing} onClose={() => setViewing(null)} />
-
-      <AnimatePresence initial={false}>
-        {formError && (
-          <motion.p
-            key={formError}
-            role="alert"
-            className="text-sm leading-normal font-semibold text-danger"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1, x: [-4, 4, -2, 2, 0] }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.35 }}
-          >
-            {formError}
-          </motion.p>
-        )}
-      </AnimatePresence>
-
-      <SubmitButton
-        height="h-[54px]"
-        disabled={!isValid || checked !== true}
-        pending={isSubmitting}
-        pendingText="가입하는 중…"
-      >
-        가입하고 시작하기
-      </SubmitButton>
+      <KakaoButton height="h-[54px]">카카오로 시작하기</KakaoButton>
 
       <p className="flex justify-center gap-1.5 text-sm leading-normal">
         <span className="font-medium text-text-3">이미 계정이 있나요?</span>
@@ -312,6 +278,6 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
           로그인
         </Link>
       </p>
-    </form>
+    </div>
   );
 }

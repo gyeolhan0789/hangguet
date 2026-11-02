@@ -71,7 +71,7 @@ public final class ErrorExamples {
             """;
     public static final String PRACTICE_ALARM_UNAVAILABLE =
             """
-            { "title": "Conflict", "status": 409, "detail": "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+            { "title": "Conflict", "status": 409, "detail": "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
               "instance": "/api/v1/users/me/practice-alarm", "code": "PRACTICE_ALARM_UNAVAILABLE" }\
             """;
     public static final String KAKAO_CONSENT_FAILED =
@@ -81,7 +81,7 @@ public final class ErrorExamples {
             """;
     public static final String KAKAO_ACCOUNT_MISMATCH =
             """
-            { "title": "Bad Request", "status": 400, "detail": "가입할 때 쓴 카카오 계정으로 동의해 주세요.",
+            { "title": "Bad Request", "status": 400, "detail": "로그인에 쓰는 카카오 계정으로 동의해 주세요.",
               "instance": "/api/v1/users/me/practice-alarm", "code": "KAKAO_ACCOUNT_MISMATCH" }\
             """;
     public static final String KAKAO_MESSAGE_CONSENT_REQUIRED =
@@ -118,6 +118,21 @@ public final class ErrorExamples {
             """
             { "title": "Unauthorized", "status": 401, "detail": "가입 시간이 지났어요. 다시 로그인해 주세요.",
               "instance": "/api/v1/auth/oauth/signup", "code": "SIGNUP_TOKEN_INVALID" }\
+            """;
+    public static final String SOCIAL_LINK_FAILED =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요.",
+              "instance": "/api/v1/users/me/social-accounts/kakao", "code": "SOCIAL_LINK_FAILED" }\
+            """;
+    public static final String SOCIAL_ALREADY_LINKED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "이미 연결한 소셜 계정이 있어요.",
+              "instance": "/api/v1/users/me/social-accounts/kakao", "code": "SOCIAL_ALREADY_LINKED" }\
+            """;
+    public static final String SOCIAL_ACCOUNT_IN_USE =
+            """
+            { "title": "Conflict", "status": 409, "detail": "다른 회원이 쓰고 있는 카카오 계정이에요.",
+              "instance": "/api/v1/users/me/social-accounts/kakao", "code": "SOCIAL_ACCOUNT_IN_USE" }\
             """;
     public static final String FILE_NOT_FOUND =
             """

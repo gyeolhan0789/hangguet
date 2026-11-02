@@ -7,6 +7,7 @@ import {
   asMember,
   bearer,
   contract,
+  cookieValues,
   EXAMPLE_ACCESS_TOKEN,
   EXAMPLE_REFRESH_TOKEN,
   problem,
@@ -16,10 +17,15 @@ import {
 import type { MeResponse, RefreshResponse } from "@/types/api";
 
 import { checkEmailAvailable, login, logout, signup } from "./actions";
+import { NOTICE_COOKIE, SOCIAL_SIGNUP_COOKIE } from "./kakao";
 import { getMe } from "./session";
+import { socialSignup } from "./social-actions";
 
-// 기준: Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입 · 1.3 로그인 · 1.4 토큰 재발급 · 1.5 로그아웃 · 2.1 내 정보 ·
-// 공통 401(TOKEN_EXPIRED · UNAUTHORIZED) 예시
+// 기준: Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입 · 1.3 로그인 · 1.4 토큰 재발급 · 1.5 로그아웃 · 1.7 소셜 회원가입
+// · 2.1 내 정보 · 공통 401(TOKEN_EXPIRED · UNAUTHORIZED) 예시
+// 1.6 소셜 로그인과 1.7 성공은 BE 계약 테스트에 카카오 클라이언트(@MockitoBean)와 가입 토큰 · 카카오 회원 상황(@State)이 있어야
+// 재현된다. 아직 BE에 없어 이번에는 상황 없이 재현되는 1.7 무효 가입 토큰만 넣었다. BE 상황이 생기면 1.6(가입한 회원 · 처음 온
+// 사람)과 1.7 성공을 더한다.
 const { like } = MatchersV3;
 const pact = contract();
 
@@ -38,7 +44,9 @@ const me = {
   profileImageUrl: null,
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 0,
-} satisfies Omit<MeResponse, "socialProvider">;
+  // S09-1 카카오 줄 · 비밀번호 변경 · 탈퇴 모달이 이 값으로 나뉜다(이메일 회원은 null)
+  socialProvider: null,
+} satisfies Omit<MeResponse, "linkedProvider">;
 const signupValues = {
   nickname: "면접왕",
   email: "a@ssafy.com",
@@ -96,6 +104,36 @@ describe("인증", () => {
             fieldErrors: { email: "이미 사용 중인 이메일이에요." },
           }),
         ),
+      ));
+
+  it("1.7 가입 토큰이 무효면 S01로 돌아간다(401 SIGNUP_TOKEN_INVALID)", () =>
+    pact
+      .addInteraction()
+      .uponReceiving("1.7 무효인 가입 토큰으로 소셜 회원가입")
+      .withRequest("POST", "/api/v1/auth/oauth/signup", (b) =>
+        b.jsonBody({
+          signupToken: "Zm9v…",
+          agreements: signupBody.agreements,
+        }),
+      )
+      .willRespondWith(401, (b) =>
+        problem(b, {
+          detail: "가입 시간이 지났어요. 다시 로그인해 주세요.",
+          code: "SIGNUP_TOKEN_INVALID",
+        }),
+      )
+      .executeTest(
+        asGuest(async () => {
+          cookieValues[SOCIAL_SIGNUP_COOKIE] = "Zm9v…";
+          await expect(
+            socialSignup({ AGE: true, TERMS: true, PRIVACY: true, RECORDING: true }),
+          ).rejects.toThrow("REDIRECT /login");
+          // FE가 서버 문구(detail)를 읽어 S01에 보이도록 남긴다
+          expect(JSON.parse(cookieValues[NOTICE_COOKIE])).toEqual({
+            target: "login",
+            text: "가입 시간이 지났어요. 다시 로그인해 주세요.",
+          });
+        }),
       ));
 
   it("1.3 로그인하면 홈으로 간다", () =>
@@ -185,7 +223,9 @@ describe("인증", () => {
       .given("회원")
       .uponReceiving("2.1 내 정보")
       .withRequest("GET", "/api/v1/users/me", (b) => b.headers(bearer))
-      .willRespondWith(200, (b) => b.jsonBody(shape(me, "profileImageUrl", "currentStreak")))
+      .willRespondWith(200, (b) =>
+        b.jsonBody(shape(me, "profileImageUrl", "currentStreak", "socialProvider")),
+      )
       .executeTest(asMember(async () => expect(await getMe()).toEqual(me))));
 
   it("2.1 만료된 토큰이면 재발급으로 보낸다(401 TOKEN_EXPIRED)", () =>

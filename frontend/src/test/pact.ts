@@ -32,6 +32,8 @@ function useMockServer(url: string) {
 /** executeTest 콜백: 로그인한 상태(쿠키에 토큰)로 FE 함수를 가짜 서버에 보낸다. */
 export const asMember = (call: () => Promise<unknown>) => async (server: { url: string }) => {
   useMockServer(server.url);
+  // 앞 상호작용이 남긴 쿠키(가입 토큰 · 문구 등)가 섞이지 않게 비우고 시작한다
+  for (const name of Object.keys(cookieValues)) delete cookieValues[name];
   cookieValues[ACCESS_TOKEN_COOKIE] = EXAMPLE_ACCESS_TOKEN;
   cookieValues[REFRESH_TOKEN_COOKIE] = EXAMPLE_REFRESH_TOKEN;
   await call();

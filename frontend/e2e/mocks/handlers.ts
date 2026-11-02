@@ -31,6 +31,7 @@ import {
   STREAK_FREEZE_USED,
   STREAK_FREEZES,
   UPLOAD_URL,
+  PRACTICE_ALARM_UNAVAILABLE,
 } from "./data";
 
 /** 웹 Swagger 경로(`/api/v1` 뒤) → 앱이 실제로 부르는 주소 */
@@ -63,6 +64,7 @@ export const defaultHandlers = [
   http.put(api("/users/me/profile-image"), () => HttpResponse.json(ME)),
   http.delete(api("/users/me/profile-image"), () => new HttpResponse(null, { status: 204 })),
   http.post(api("/users/me"), () => new HttpResponse(null, { status: 204 })),
+  http.get(api("/users/me/practice-alarm"), () => HttpResponse.json(PRACTICE_ALARM_UNAVAILABLE)),
   http.get(api("/users/me/stats"), () => HttpResponse.json(STATS)),
   http.get(api("/practice-logs"), () => HttpResponse.json(PRACTICE_LOGS)),
   http.get(api("/home"), () => HttpResponse.json(HOME.NOT_DONE_TODAY)),

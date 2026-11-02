@@ -1,4 +1,5 @@
-import { test as base } from "next/experimental/testmode/playwright/msw";
+import type { Locator, Page } from "@playwright/test";
+import { expect, test as base } from "next/experimental/testmode/playwright/msw";
 
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 
@@ -75,3 +76,27 @@ export const test = base.extend<Fixtures>({
     );
   },
 });
+
+/**
+ * 요소에 React가 붙을 때(하이드레이션)까지 기다린다. SSR 마크업만으로도 보이고 켜져 있는 onClick 버튼은
+ * 하이드레이션 전에 누르면 클릭이 사라지고 다시 시도되지 않으므로, 누르기 전 · 효과(문구 · 토스트)가 없음을 보기 전에 쓴다.
+ */
+export async function hydrated(locator: Locator) {
+  await expect
+    .poll(() =>
+      locator.evaluate((element) =>
+        Object.keys(element).some((key) => key.startsWith("__reactProps$")),
+      ),
+    )
+    .toBe(true);
+}
+
+/**
+ * clock.install() 뒤 페이지가 실제 시간으로 다 뜬 다음에 시계를 멈춘다. 이후 타이머(토스트 2초 등)는 runFor로만 흐른다.
+ * 뜨기 전에 멈추면 React 스트리밍 공개 스크립트(requestAnimationFrame · setTimeout)도 멈춰 화면이 나오지 않는다.
+ * 지난 시각으로는 멈출 수 없어(Playwright) 페이지 시각보다 조금 뒤로 멈춘다.
+ */
+export async function pauseClock(page: Page) {
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(now + 500);
+}

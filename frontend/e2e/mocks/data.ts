@@ -13,9 +13,11 @@ import type {
   NicknameChangeResponse,
   NoticesResponse,
   StreakFreezeUseResponse,
+  PracticeAlarmResponse,
   PracticeLogsResponse,
   ProblemDetail,
   SessionResponse,
+  SocialLoginResponse,
   StatsResponse,
   UploadUrlResponse,
 } from "../../src/types/api";
@@ -44,10 +46,39 @@ export const ME = {
   email: "example@ssafy.com",
   nickname: "면접왕",
   socialProvider: null,
+  linkedProvider: null,
   profileImageUrl: "https://…",
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
 } satisfies MeResponse;
+
+/** 2.1 내 정보 200 — 카카오로 가입한 회원(소셜 회원은 비밀번호가 없다) */
+export const KAKAO_ME = {
+  ...ME,
+  email: "a@kakao.com",
+  socialProvider: "KAKAO",
+} satisfies MeResponse;
+
+/** 2.8 연습 알림 설정 200 — 이메일 회원(카카오로 가입하지 않아 켤 수 없다) */
+export const PRACTICE_ALARM_UNAVAILABLE = {
+  available: false,
+  enabled: false,
+  time: "21:00",
+} satisfies PracticeAlarmResponse;
+
+/** 2.8 연습 알림 설정 200 — 카카오 회원, 꺼짐 */
+export const PRACTICE_ALARM_OFF = {
+  available: true,
+  enabled: false,
+  time: "21:00",
+} satisfies PracticeAlarmResponse;
+
+/** 1.6 소셜 로그인 200 — 웹 Swagger 예시 '처음 온 사람' */
+export const SOCIAL_SIGNUP_REQUIRED = {
+  signupRequired: true,
+  token: null,
+  signup: { signupToken: "Zm9v", email: "a@kakao.com", nickname: "면접왕", expiresIn: 600 },
+} satisfies SocialLoginResponse;
 
 /** 2.2 닉네임 변경 200 — 웹 Swagger 예시(내 정보 + 토큰의 nickname이 바뀐 새 액세스 토큰) */
 export const NICKNAME_CHANGED = {

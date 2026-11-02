@@ -14,6 +14,8 @@ public final class UserDtos {
 
     private static final String SOCIAL_PROVIDER =
             "소셜 회원이면 가입한 제공자, 이메일 회원이면 null. 소셜 회원은 비밀번호가 없어 2.3을 쓸 수 없고 2.7에 비밀번호를 보내지 않는다";
+    private static final String LINKED_PROVIDER =
+            "이메일 회원이 연결한 소셜 계정(2.12). 연결하지 않았거나 소셜 회원이면 null. 연결했으면 1.6으로도 로그인한다";
 
     private UserDtos() {}
 
@@ -30,6 +32,7 @@ public final class UserDtos {
             @Schema(description = "로그인 아이디", example = "example@ssafy.com") String email,
             @Schema(description = "닉네임", example = "면접왕") String nickname,
             @Schema(description = SOCIAL_PROVIDER, nullable = true) SocialProvider socialProvider,
+            @Schema(description = LINKED_PROVIDER, nullable = true) SocialProvider linkedProvider,
             @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
                     String profileImageUrl,
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
@@ -45,6 +48,7 @@ public final class UserDtos {
             @Schema(description = "로그인 아이디", example = "example@ssafy.com") String email,
             @Schema(description = "닉네임", example = "면접왕") String nickname,
             @Schema(description = SOCIAL_PROVIDER, nullable = true) SocialProvider socialProvider,
+            @Schema(description = LINKED_PROVIDER, nullable = true) SocialProvider linkedProvider,
             @Schema(description = "프로필 사진 임시 주소(만료됨). 등록하지 않았으면 null", nullable = true)
                     String profileImageUrl,
             @Schema(description = "가입 일시. S09 \"2026년 9월 시작\"") OffsetDateTime createdAt,
@@ -109,6 +113,18 @@ public final class UserDtos {
             @Schema(description = "2.4에서 받은 objectKey", example = "profile/1/7f3c….png")
                     @NotBlank(message = "필수 값입니다.")
                     String objectKey) {}
+
+    public record SocialLinkRequest(
+            @Schema(description = "카카오가 콜백 주소로 넘겨 준 인가 코드", example = "Ab3x…")
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 2048, message = "최대 2048자입니다.")
+                    String code,
+            @Schema(
+                            description = "인가 코드를 받은 콜백 주소. 카카오 로그인(1.6)과 같은 주소",
+                            example = "https://hangguet.co.kr/oauth/kakao/callback")
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 2048, message = "최대 2048자입니다.")
+                    String redirectUri) {}
 
     public record WithdrawRequest(
             @Schema(

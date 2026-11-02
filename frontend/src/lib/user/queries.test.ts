@@ -1,12 +1,17 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { MyStreakFreezesResponse, PracticeLogsResponse, StatsResponse } from "@/types/api";
+import type {
+  MyStreakFreezesResponse,
+  PracticeAlarmResponse,
+  PracticeLogsResponse,
+  StatsResponse,
+} from "@/types/api";
 
 const get = vi.fn();
 vi.mock("@/lib/api/client", () => ({ api: { get } }));
 
-const { getPracticeLogs, getStats, getStreakFreezes } = await import("./queries");
+const { getPracticeAlarm, getPracticeLogs, getStats, getStreakFreezes } = await import("./queries");
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -53,5 +58,16 @@ describe("getStreakFreezes (8.13 내 스트릭 유지권)", () => {
 
     expect(await getStreakFreezes()).toEqual(freezes);
     expect(get).toHaveBeenCalledWith("/users/me/streak-freezes");
+  });
+});
+
+describe("getPracticeAlarm (2.8 연습 알림 설정)", () => {
+  it("설정을 돌려준다", async () => {
+    // 웹 Swagger 2.8 200 예시
+    const alarm = { available: true, enabled: true, time: "21:00" } satisfies PracticeAlarmResponse;
+    get.mockResolvedValue({ data: alarm });
+
+    expect(await getPracticeAlarm()).toEqual(alarm);
+    expect(get).toHaveBeenCalledWith("/users/me/practice-alarm");
   });
 });

@@ -22,12 +22,15 @@ public enum ErrorCode {
     SOCIAL_EMAIL_REQUIRED(HttpStatus.BAD_REQUEST, "이메일 제공에 동의해야 가입할 수 있어요."),
     SOCIAL_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요."),
     SIGNUP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "가입 시간이 지났어요. 다시 로그인해 주세요."),
+    SOCIAL_LINK_FAILED(HttpStatus.BAD_REQUEST, "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요."),
+    SOCIAL_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 소셜 계정이 있어요."),
+    SOCIAL_ACCOUNT_IN_USE(HttpStatus.CONFLICT, "다른 회원이 쓰고 있는 카카오 계정이에요."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요."),
 
     // 연습 알림
-    PRACTICE_ALARM_UNAVAILABLE(HttpStatus.CONFLICT, "카카오로 가입한 회원만 연습 알림을 받을 수 있어요."),
+    PRACTICE_ALARM_UNAVAILABLE(HttpStatus.CONFLICT, "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요."),
     KAKAO_CONSENT_FAILED(HttpStatus.BAD_REQUEST, "카카오 동의를 확인하지 못했어요. 다시 시도해 주세요."),
-    KAKAO_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "가입할 때 쓴 카카오 계정으로 동의해 주세요."),
+    KAKAO_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "로그인에 쓰는 카카오 계정으로 동의해 주세요."),
     KAKAO_MESSAGE_CONSENT_REQUIRED(HttpStatus.BAD_REQUEST, "카카오톡 메시지 전송에 동의해야 알림을 받을 수 있어요."),
     KAKAO_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "카카오 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요."),
 

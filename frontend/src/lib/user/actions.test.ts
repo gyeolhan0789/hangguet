@@ -1,12 +1,14 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
+import { redirectTo } from "@/test/redirect";
 import type {
   MeResponse,
   NicknameChangeResponse,
   NicknameRequest,
   PasswordChangeRequest,
+  PracticeAlarmTimeRequest,
   ProblemDetail,
   ProfileImageUploadUrlRequest,
   StreakFreezeUseResponse,
@@ -16,6 +18,7 @@ import type {
 import type {
   NicknameValues,
   PasswordChangeValues,
+  PracticeAlarmTimeValues,
   ProfileImageUploadValues,
   WithdrawValues,
 } from "./schemas";
@@ -38,12 +41,17 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const cookieStore = { set: vi.fn(), delete: vi.fn() };
+// has: 2.9 켜기를 시작할 때 로그인했는지(액세스 토큰 쿠키) 본다
+const cookieStore = { set: vi.fn(), delete: vi.fn(), has: vi.fn(() => true) };
 vi.mock("next/headers", () => ({ cookies: async () => cookieStore }));
 
 const {
   applyStreakFreeze,
   changeNickname,
+  changePracticeAlarmTime,
+  disablePracticeAlarm,
+  startKakaoAlarm,
+  withdrawSocial,
   changePassword,
   createProfileImageUploadUrl,
   deleteProfileImage,
@@ -57,6 +65,7 @@ const ME = {
   email: "example@ssafy.com",
   nickname: "면접왕",
   socialProvider: null,
+  linkedProvider: null,
   profileImageUrl: "https://…",
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
@@ -82,15 +91,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   // 앞 테스트의 응답 설정(mockResolvedValue)이 다음 테스트로 새지 않게 API 모킹은 비운다.
   Object.values(api).forEach((fn) => fn.mockReset());
+  cookieStore.has.mockReturnValue(true);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 // tsc(npm run typecheck)가 검사한다: 스키마나 Swagger 요청 타입 어느 쪽이 바뀌어도 여기서 컴파일 오류가 난다.
-describe("스키마 값의 타입이 Swagger 요청 타입과 같다", () => {
-  it("2.2 · 2.3 · 2.4 · 2.7", () => {
+describe("스키마 값의 타입이 Swagger 요청 타입과 같다(탈퇴 폼은 더 좁다)", () => {
+  it("2.2 · 2.3 · 2.4 · 2.7 · 2.10", () => {
     expectTypeOf<NicknameValues>().toEqualTypeOf<NicknameRequest>();
     expectTypeOf<PasswordChangeValues>().toEqualTypeOf<PasswordChangeRequest>();
     expectTypeOf<ProfileImageUploadValues>().toEqualTypeOf<ProfileImageUploadUrlRequest>();
-    expectTypeOf<WithdrawValues>().toEqualTypeOf<WithdrawRequest>();
+    // 이메일 회원 탈퇴 폼은 비밀번호가 필수다(소셜 회원은 보내지 않아 요청 타입에서는 선택)
+    expectTypeOf<WithdrawValues>().toExtend<WithdrawRequest>();
+    expectTypeOf<PracticeAlarmTimeValues>().toEqualTypeOf<PracticeAlarmTimeRequest>();
   });
 });
 
@@ -318,5 +334,154 @@ describe("applyStreakFreeze (8.14 유지권 사용)", () => {
       expect(await applyStreakFreeze(id)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
     }
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("withdrawSocial (2.7 회원 탈퇴 · 소셜 회원)", () => {
+  it("비밀번호 없이 탈퇴하고 쿠키를 지운 뒤 첫 화면으로 보낸다", async () => {
+    api.post.mockResolvedValue({ data: undefined });
+
+    await expect(withdrawSocial()).rejects.toThrow(redirectTo("/"));
+
+    expect(api.post).toHaveBeenCalledWith("/users/me", {});
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_access");
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_refresh");
+  });
+
+  it("실패하면 서버 문구를 돌려주고 쿠키는 그대로 둔다", async () => {
+    api.post.mockRejectedValue(
+      axiosProblem({
+        title: "Internal Server Error",
+        status: 500,
+        detail: "탈퇴를 처리하지 못했어요.",
+        instance: "/api/v1/users/me",
+        code: "INTERNAL_ERROR",
+      }),
+    );
+
+    expect(await withdrawSocial()).toEqual({ formError: "탈퇴를 처리하지 못했어요." });
+    expect(cookieStore.delete).not.toHaveBeenCalled();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내", async () => {
+    api.post.mockRejectedValue(axiosNoResponse());
+
+    expect(await withdrawSocial()).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
+    expect(redirect).not.toHaveBeenCalled();
+  });
+});
+
+describe("startKakaoAlarm (2.9 연습 알림 켜기 시작)", () => {
+  it("state를 쿠키에 담고 카카오 메시지 동의(talk_message) 화면으로 보낸다", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", "http://localhost:3000/oauth/kakao/callback");
+
+    await expect(startKakaoAlarm()).rejects.toThrow(/^REDIRECT https:\/\/kauth\.kakao\.com\//);
+
+    const url = new URL(redirect.mock.calls[0][0]);
+    expect(url.searchParams.get("scope")).toBe("talk_message");
+    expect(url.searchParams.get("client_id")).toBe("client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3000/oauth/kakao/callback");
+    expect(cookieStore.has).toHaveBeenCalledWith("hk_access");
+    expect(cookieStore.set).toHaveBeenCalledWith(
+      "hk_oauth_state",
+      `alarm.${url.searchParams.get("state")}`,
+      expect.objectContaining({ httpOnly: true, maxAge: 600 }),
+    );
+  });
+
+  it("로그인하지 않았으면 동의 화면 대신 로그인 화면으로", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", "http://localhost:3000/oauth/kakao/callback");
+    cookieStore.has.mockReturnValue(false);
+
+    await expect(startKakaoAlarm()).rejects.toThrow(redirectTo("/login"));
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it("카카오 설정이 없으면 이동하지 않고 KAKAO_UNAVAILABLE 문구", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "");
+
+    expect(await startKakaoAlarm()).toEqual({
+      error: "카카오 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    });
+    expect(redirect).not.toHaveBeenCalled();
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("disablePracticeAlarm (2.11 연습 알림 끄기)", () => {
+  it("끄고 화면을 다시 그린다", async () => {
+    api.delete.mockResolvedValue({ data: undefined });
+
+    expect(await disablePracticeAlarm()).toEqual({});
+    expect(api.delete).toHaveBeenCalledWith("/users/me/practice-alarm");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("서버가 거절하면 서버 문구, 다시 그리지 않는다", async () => {
+    api.delete.mockRejectedValue(
+      axiosProblem({
+        title: "Internal Server Error",
+        status: 500,
+        detail: "알림을 끄지 못했어요.",
+        instance: "/api/v1/users/me/practice-alarm",
+        code: "INTERNAL_ERROR",
+      }),
+    );
+
+    expect(await disablePracticeAlarm()).toEqual({ error: "알림을 끄지 못했어요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내, 다시 그리지 않는다", async () => {
+    api.delete.mockRejectedValue(axiosNoResponse());
+
+    expect(await disablePracticeAlarm()).toEqual({ error: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("changePracticeAlarmTime (2.10 연습 알림 시각 변경)", () => {
+  it("HH:mm을 보내고 화면을 다시 그린다", async () => {
+    api.patch.mockResolvedValue({ data: { available: true, enabled: false, time: "22:30" } });
+
+    expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({});
+    expect(api.patch).toHaveBeenCalledWith("/users/me/practice-alarm", { time: "22:30" });
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내", async () => {
+    api.patch.mockRejectedValue(axiosNoResponse());
+
+    expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({
+      error: "잠시 후 다시 시도해 주세요.",
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("형식이 틀리면 보내지 않는다", async () => {
+    expect(await changePracticeAlarmTime({ time: "24:00" })).toEqual({
+      error: "HH:mm 형식(00:00~23:59)입니다.",
+    });
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
+  it("409 PRACTICE_ALARM_UNAVAILABLE이면 서버 문구", async () => {
+    api.patch.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+        instance: "/api/v1/users/me/practice-alarm",
+        code: "PRACTICE_ALARM_UNAVAILABLE",
+      }),
+    );
+
+    expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({
+      error: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+    });
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

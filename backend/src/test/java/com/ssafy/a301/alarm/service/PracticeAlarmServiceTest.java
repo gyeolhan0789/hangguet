@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.ssafy.a301.alarm.domain.PracticeAlarm;
 import com.ssafy.a301.alarm.kakao.KakaoApiException;
 import com.ssafy.a301.alarm.kakao.KakaoApiException.Kind;
 import com.ssafy.a301.alarm.kakao.KakaoMessageClient;
@@ -89,6 +90,25 @@ class PracticeAlarmServiceTest {
 
         assertCode(() -> service.enable(USER_ID, "code", REDIRECT), ErrorCode.KAKAO_UNAVAILABLE);
         verify(alarms, never()).insertIfAbsent(anyLong(), any());
+    }
+
+    @Test
+    void unlinkedWhileCallingKakaoIsNotEnabled() {
+        User user = User.social("k@kakao.com", "카카오");
+        when(socialAccounts.findActiveByUserId(USER_ID))
+                .thenReturn(Optional.of(new UserSocialAccount(user, SocialProvider.KAKAO, "12345")))
+                .thenReturn(Optional.empty());
+        when(users.findActiveForUpdate(USER_ID)).thenReturn(Optional.of(user));
+        PracticeAlarm alarm = new PracticeAlarm(USER_ID);
+        when(alarms.findForUpdate(USER_ID)).thenReturn(Optional.of(alarm));
+        when(kakao.exchange("code", REDIRECT))
+                .thenReturn(new KakaoToken("access", 21_599L, "refresh", 5_183_999L));
+        when(kakao.consent("access")).thenReturn(new KakaoConsent("12345", true));
+
+        assertCode(
+                () -> service.enable(USER_ID, "code", REDIRECT),
+                ErrorCode.PRACTICE_ALARM_UNAVAILABLE);
+        assertThat(alarm.isEnabled()).isFalse();
     }
 
     @Test
