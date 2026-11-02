@@ -33,6 +33,9 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   화면은 리액션 메시지의 안내 글로만 진행한다.
   재생 중에는 7초를 중지하고(AI 명세 6.2 4번), 답변이 끝나거나 지원자가 퇴장하면 재생을 멈춘다.
   [답변 완료]는 재생 중에도 수락하며, 답변이 끝나므로 재생을 멈추고 제출한다(AI 명세 6.3).
+- 오리 면접관의 호응 효과음은 화면이 재생하므로(API 명세 면접방 메시지),
+  답변을 전달한 뒤 NEXT_QUESTION_DELAYS만큼 기다리고 다음 질문으로 진행한다(AI 명세 6.2).
+  마지막 답변 뒤에는 기다리지 않는다.
 """
 
 from __future__ import annotations
@@ -40,7 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -56,7 +59,7 @@ from app.agent.reaction import ReactionStream, chat_input_reply, parse_chat_inpu
 from app.agent.tts import SpeechAudio
 from app.common.answer import SpeechToken
 from app.common.results import ResultPublishError
-from app.common.session import MAX_SEQ, InterviewMode
+from app.common.session import MAX_SEQ, InterviewMode, Persona
 from app.interview.realtime.answer_end import (
     INITIAL_STATE,
     AnswerEndEvent,
@@ -81,6 +84,11 @@ log = logging.getLogger(__name__)
 # 발화 중단 안내를 음성으로도 말할지. 면접 시작 때 안내 2개를 합성하면 ElevenLabs 동시 요청 상한에
 # 1번 질문 합성이 밀려(429) 끈다. 요금제를 정한 뒤 다시 켠다
 SPEAK_NOTICES = False
+# AI 명세 6.2: 다음 질문 전에 기다리는 시간(초).
+# 오리 면접관의 호응 효과음은 화면이 제출을 시작할 때 재생하므로,
+# 제출 처리 뒤 효과음 길이만큼 기다리면 처리 시간과 관계없이 다음 질문 음성과 겹치지 않는다.
+# 화면의 효과음 파일 길이(1초 이내)와 맞춰야 한다
+NEXT_QUESTION_DELAYS: Mapping[Persona, float] = {Persona.DUCK: 1.0}
 
 
 class QuestionAsker(Protocol):
@@ -140,8 +148,10 @@ class InterviewRunner:
         on_answer: Callable[[FinishedAnswer], Awaitable[bool]] | None = None,
         reactions: ReactionStream | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._assignment = assignment
+        self._sleep = sleep
         self._chat = assignment.mode is InterviewMode.CHAT
         self._asker = asker
         self._open_capture = open_capture
@@ -260,6 +270,9 @@ class InterviewRunner:
         while not await self._answer(seq):
             await self._wait_candidate()
         self._prepared.pop(seq, None)
+        delay = NEXT_QUESTION_DELAYS.get(self._assignment.persona, 0.0)
+        if delay and seq < MAX_SEQ:
+            await self._sleep(delay)
 
     def _prepare(self, seq: int) -> None:
         if seq <= MAX_SEQ and seq not in self._prepared:
