@@ -36,8 +36,9 @@ public class AdminMetricsController {
                   { "days": 7, "eligible": 103, "returned": 22 } ] },
               "interviews": { "total": 590, "completed": 580, "analyzing": 4, "failed": 6, "aborted": 50,
                               "video": 380, "chat": 210, "stuck": 1,
-                              "personas": [ { "persona": "DEVIL", "count": 350 },
-                                            { "persona": "COFFEE_CHAT", "count": 240 } ] },
+                              "personas": [ { "persona": "DEVIL", "count": 300 },
+                                            { "persona": "COFFEE_CHAT", "count": 200 },
+                                            { "persona": "DUCK", "count": 90 } ] },
               "averageScores": [
                 { "criterion": "JOB_FIT", "score": 71.4 }, { "criterion": "COVER_LETTER", "score": 68.2 },
                 { "criterion": "LOGIC", "score": 74.9 }, { "criterion": "DELIVERY", "score": 66.7 } ],
