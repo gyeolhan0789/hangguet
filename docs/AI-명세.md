@@ -282,9 +282,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **판정 입력** 질문, 채점 기준, 답변 글. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다
 - **판정** 채점 기준을 잣대로 평가 항목 4개를 3단계로 판정한다(G-Eval)
   - 항목마다 판정 이유와 3단계(`level` 1 아쉬워요 · 2 보통 · 3 좋아요)를 받는다
-  - 점수는 3단계(50·70·90)의 확률로 낸 기대값이다(`PROBABILITY`). 확률을 받지 못하면 판정한 단계의 점수를 그대로 쓴다(`FIXED`). 정수로 반올림한다
-  - 점수 계산 방식은 `evaluation.criteria`의 항목마다 `scoreMethod`로 기록한다. 해당 항목의 점수를 확률 기대값으로 계산했으면 `PROBABILITY`, 판정 단계의 고정 점수로 계산했으면 `FIXED`다. 확률이 없는 항목만 고정 점수를 사용하며, 다른 항목의 점수와 계산 방식은 유지한다
-  - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
+  - 점수는 판정한 단계의 점수(50·70·90)를 그대로 쓴다(`FIXED`)
+  - 점수 계산 방식은 `evaluation.criteria`의 항목마다 `scoreMethod`로 기록하며 값은 `FIXED`다. 이전에 3단계 확률의 기대값으로 계산해 저장한 채점은 `PROBABILITY`로 남아 있으므로 결과 생성(4장)은 두 값을 모두 받는다
+  - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 이전 채점은 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - 평가 항목·3단계·점수 계산은 면접관과 관계없이 같다. 성장 리뷰(API 명세 7.1)에서 면접관이 다른 면접끼리도 같은 기준으로 비교하기 위함이다
   - 판정 지침도 면접관과 관계없이 같고, `persona`는 판정에 사용하지 않는다. 판정 지침에 면접 종류를 넣으면 판정 이유뿐 아니라 판정 단계도 함께 달라지기 때문이다. 면접관별 인재상 기준은 결과 생성의 피드백 작성(4장 `WRITING_FEEDBACK`)에만 반영한다
@@ -295,9 +295,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ```json
 {
   "criteria": {
-    "JOB_FIT": { "level": 3, "score": 86, "scoreMethod": "PROBABILITY", "reason": "직무 요구 기술과 경험을 연결함" },
-    "COVER_LETTER": { "level": 2, "score": 71, "scoreMethod": "PROBABILITY", "reason": "임시 판정" },
-    "LOGIC": { "level": 3, "score": 88, "scoreMethod": "PROBABILITY", "reason": "원인 → 조치 → 결과 순서가 분명함" },
+    "JOB_FIT": { "level": 3, "score": 90, "scoreMethod": "FIXED", "reason": "직무 요구 기술과 경험을 연결함" },
+    "COVER_LETTER": { "level": 2, "score": 70, "scoreMethod": "FIXED", "reason": "임시 판정" },
+    "LOGIC": { "level": 3, "score": 90, "scoreMethod": "FIXED", "reason": "원인 → 조치 → 결과 순서가 분명함" },
     "DELIVERY": { "level": 2, "score": 70, "scoreMethod": "FIXED", "reason": "핵심이 뒤에 나옴" }
   },
   "speech": { "fillerCount": 3, "speakingMs": 41000, "longPauseCount": 1, "syllablesPerMin": 310, "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 },
@@ -371,7 +371,6 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 |---|---|---|
 | GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
 | 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
-| 확률만 없음 | 그 항목만 `FIXED`로 점수를 내고 로그를 남긴다 | — |
 | BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위해서다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
 | 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
 | 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
