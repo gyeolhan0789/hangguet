@@ -7,11 +7,11 @@
 | 경로 | 내용 |
 |---|---|
 | `run.sh` | k6 실행. k6가 없으면 Docker 이미지(`grafana/k6:2.3.0`)로 돌린다. `.env.k6` 값을 `-e`로 넘긴다 |
-| `lib/` | 공통 모듈: 설정(`config.js`), BE API · FE 페이지 호출(`api.js`), 가입 · 로그인(`auth.js`), 지원서 · 면접(`interview.js`), 계정 목록(`accounts.js`), 지어낸 지원서 · 답변(`data.js`) |
-| `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(커밋하지 않는다) |
+| `lib/` | 공통 모듈: 설정(`config.js`), BE API · FE 페이지 호출(`api.js`), 가입 · 로그인(`auth.js`), 지원서 · 면접(`interview.js`), 계정 목록(`accounts.js`), 지어낸 지원서 · 답변(`data.js`), 화면 둘러보기 한 번(`web-mix.js`, S1 · S2) |
+| `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(S2 계정은 `seed/accounts-s2.json`, 커밋하지 않는다) |
 | `seed/interviews-browser.js` | 계정마다 끝낸 화상 면접 만들기(실제 화면). S1의 기록 · 결과 · 다시보기 화면이 실제 데이터를 그리게 한다 |
 | `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
-| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
+| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트 |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
@@ -77,6 +77,25 @@ bash loadtest/run.sh scenarios/s1-web-mix.js                            # 본 �
 - 실패율이 5%를 1분 넘게 넘으면 멈춘다(그 위는 실패만 늘어난다)
 - Next.js는 RSC 요청 주소에 `_rsc` 쿼리가 없으면 307로 다시 보낸다. `lib/api.js`의 `page()`가 붙인다
 
+## S2 로그인 몰림 (계획 6장, 외부 API 없음)
+
+1분 동안 로그인 N건을 고르게 보내는 단계를 올린다(기본 분당 30 · 100 · 200 · 400 · 600 · 800건, 단계 사이 2분 쉼). 같은 시간에 S1을 L1(5 req/s)로 깔아 다른 화면도 느려지는지 본다(H3: 비밀번호 해시 PBKDF2 310,000회).
+
+로그인용 계정은 S1 · S5 계정과 따로 만든다(지원서 없이 계정만, 101번부터 300개, 약 3분 반).
+
+```bash
+COUNT=300 START=101 WITH_APPLICATION=0 ACCOUNTS_FILE=seed/accounts-s2.json bash loadtest/run.sh seed/seed.js
+```
+
+```bash
+LOGINS=30,100 WARMUP=30s REST=30s bash loadtest/run.sh scenarios/s2-login-burst.js   # 짧게 확인
+bash loadtest/run.sh scenarios/s2-login-burst.js                                      # 본 회차(약 20분)
+```
+
+- 결과는 단계(`stage` 태그: `30pm` · `100pm` …)마다 로그인 p95 · 실패율과 배경 화면 p95가 따로 나온다. 로그인 전 배경만 도는 구간은 `base`다
+- 단계 시각(유닉스 초)은 시작할 때 `단계 30pm <시작> <끝>`으로 출력한다. 서버 쪽은 그 구간을 `server/resources.sh`와 Grafana로 본다
+- 배경 화면(`lib/web-mix.js`)은 S1과 같은 코드다. 계정은 `seed/accounts.json`의 앞 `ACCOUNTS`개(끝낸 면접이 있어야 한다)
+
 ## S5 동시 화상 면접 (계획 6장, 실제 외부 API)
 
 계정마다 실제 화면으로 화상 면접 1건씩을 거의 동시에(`STAGGER`초 간격) 진행한다. 계정이 동시 면접 수만큼 필요하다.
@@ -101,6 +120,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 | `BASE_URL` | `https://lt.hangguet.co.kr` | 모든 스크립트 |
 | `LOADTEST_PASSWORD` | (필수) | 모든 스크립트 |
 | `COUNT` · `START` | 1 · 1 | `seed.js`: 만들 계정 수 · 시작 번호 |
+| `WITH_APPLICATION` · `ACCOUNTS_FILE` | 1 · `seed/accounts.json` | `seed.js`: 0이면 지원서 없이 계정만 · 결과 파일 |
 | `N` | 1 | S0: 차례로 돌릴 면접 수 |
 | `ACCOUNT_OFFSET` | 0 | 노트북마다 다른 계정 범위를 쓸 때(계획 6장 S5) |
 | `PERSONA` · `MODE` | `COFFEE_CHAT` · `CHAT` | `s0-smoke.js` |
@@ -108,6 +128,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 | `RATES` · `HOLD` · `RAMP` | `5,30,60` · `10m` · `1m` | `s1-web-mix.js`: 단계별 초당 요청 수 · 유지 시간 · 올리는 시간 |
 | `ACCOUNTS` | 4 | `s1-web-mix.js`: 돌려 쓸 계정 수(앞에서부터, 끝낸 면접이 있어야 한다) |
 | `VUS` · `MAX_VUS` | 20 · 300 | `s1-web-mix.js`: 미리 만들 VU · 최대 VU |
+| `LOGINS` · `WARMUP` · `REST` · `WEB_RATE` | `30,100,200,400,600,800` · `2m` · `2m` · 5 | `s2-login-burst.js`: 단계별 분당 로그인 수 · 배경만 도는 시간 · 단계 사이 쉼 · 배경 화면 req/s |
 | `N` · `STAGGER` · `START_AT` | 1 · 3 · (지금) | `s5-interview-browser.js`: 동시 면접 수 · 시작 간격(초) · 시작 시각(유닉스 초) |
 | `LEVELS` · `COOLDOWN` · `CONTINUE` | `1 3 5 8 10` · 120 · 0 | `s5-levels.sh`: 단계 · 단계 사이 쉬는 시간(초) · 실패해도 계속 |
 | `BROWSER_3D` | 0 | 브라우저 시나리오에서 WebGL(면접관 3D)을 켤지 |
