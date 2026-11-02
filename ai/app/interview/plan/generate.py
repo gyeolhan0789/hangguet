@@ -5,6 +5,8 @@
 - claimId가 없는 주장을 가리키면 질문 5개를 다시 생성하지 않고 그 질문만 1회 다시 생성한다.
   올바른 질문까지 다시 생성하면 GMS 호출이 늘고 이미 검증한 질문이 변경되기 때문이다.
 - 면접관 기준이 드러나지 않은 주장(targetClaims 밖)을 가리킨 질문도 같은 방식으로 다시 생성한다.
+- 회사 정보와 연결한 질문 수나 항목 번호가 어긋나면 질문 5개를 1회 다시 요청한다.
+  다시 요청해도 어긋나면 플랜 생성이 실패하지 않도록 그대로 사용한다.
 - 재시도해도 실패하면 PlanFailedError를 발생시킨다.
   GMS를 호출하지 못한 경우는 GMS 호출 계층이 이미 재시도했으므로
   GmsUnavailableError를 그대로 전파한다.
@@ -15,6 +17,7 @@ from collections.abc import Sequence
 
 from app.common.gms import STRUCTURE_RETRIES, Chat, GmsBadOutputError
 from app.common.session import Persona
+from app.interview.company import company_items
 from app.interview.plan.claims import ClaimSet, request_claims, split_sentences
 from app.interview.plan.grounding import ground_claims
 from app.interview.plan.llm import PlanFailedError, PlanOutputError
@@ -22,6 +25,7 @@ from app.interview.plan.questions import (
     Question,
     QuestionSet,
     TargetClaim,
+    check_company_links,
     check_question_set,
     request_question,
     request_questions,
@@ -45,10 +49,16 @@ def extract_claims(chat: Chat, job: PlanJob) -> ClaimSet:
 
 
 def _question_set(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> QuestionSet:
+    item_ids = {item_id for item_id, _ in company_items(job.company_card, job.persona)}
     for attempt in range(STRUCTURE_RETRIES + 1):
         try:
             result = request_questions(chat, job, claims)
-            return QuestionSet(check_question_set(result.questions), result.model, result.targets)
+            questions = check_question_set(result.questions)
+            # 회사 정보 연결이 어긋나도 플랜 생성 전체가 실패하지 않도록
+            # 마지막 시도는 검사하지 않는다
+            if attempt < STRUCTURE_RETRIES:
+                check_company_links(questions, item_ids, job.persona)
+            return QuestionSet(questions, result.model, result.targets)
         except (GmsBadOutputError, PlanOutputError) as e:
             log.warning("질문 생성 출력 구조 깨짐 %d회: %s", attempt + 1, e)
     raise PlanFailedError("질문 생성 출력 구조가 재시도 후에도 깨져 있다")
