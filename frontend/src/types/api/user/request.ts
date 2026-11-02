@@ -33,8 +33,8 @@ export interface ProfileImageRequest {
 
 /** 2.7 POST /users/me 본문(회원 탈퇴) */
 export interface WithdrawRequest {
-  /** 본인 확인용 비밀번호. 필수 */
-  password: string;
+  /** 본인 확인용 비밀번호. 이메일 회원은 필수, 소셜 회원은 보내지 않는다(2.1 socialProvider) */
+  password?: string;
 }
 
 /**

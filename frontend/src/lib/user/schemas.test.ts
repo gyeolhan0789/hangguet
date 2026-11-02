@@ -4,6 +4,7 @@ import {
   nicknameSchema,
   objectKeySchema,
   passwordChangeSchema,
+  practiceAlarmTimeSchema,
   profileImageUploadSchema,
   withdrawSchema,
 } from "./schemas";
@@ -105,5 +106,18 @@ describe("objectKeySchema (2.5) · withdrawSchema (2.7)", () => {
     expect(firstMessage(withdrawSchema.safeParse({ password: "x".repeat(65) }))).toBe(
       "최대 64자입니다.",
     );
+  });
+});
+
+describe("practiceAlarmTimeSchema (2.10)", () => {
+  it.each(["00:00", "23:59", "09:05"])("%s는 받는다", (time) => {
+    expect(practiceAlarmTimeSchema.safeParse({ time }).success).toBe(true);
+  });
+
+  it.each(["24:00", "23:60", "9:00", "", "21:00 "])("'%s'는 HH:mm이 아니라 받지 않는다", (time) => {
+    const result = practiceAlarmTimeSchema.safeParse({ time });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.message).toBe("HH:mm 형식(00:00~23:59)입니다.");
   });
 });
