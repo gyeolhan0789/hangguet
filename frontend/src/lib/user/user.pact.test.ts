@@ -1,8 +1,21 @@
 import { MatchersV3 } from "@pact-foundation/pact";
-import { describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { GET as kakaoCallback } from "@/app/oauth/kakao/callback/route";
+import { ACCESS_TOKEN_COOKIE } from "@/lib/api/auth-cookies";
+import { NOTICE_COOKIE, OAUTH_STATE_COOKIE } from "@/lib/auth/kakao";
 import { getHome } from "@/lib/home/queries";
-import { asMember, bearer, contract, oneOf, problem, providerValue, shape } from "@/test/pact";
+import {
+  asMember,
+  bearer,
+  contract,
+  EXAMPLE_ACCESS_TOKEN,
+  oneOf,
+  problem,
+  providerValue,
+  shape,
+} from "@/test/pact";
 import type {
   HomeResponse,
   MyStreakFreezesResponse,
@@ -17,14 +30,19 @@ import {
   applyStreakFreeze,
   changeNickname,
   changePassword,
+  changePracticeAlarmTime,
   createProfileImageUploadUrl,
   deleteProfileImage,
+  disablePracticeAlarm,
   registerProfileImage,
   withdraw,
 } from "./actions";
-import { getPracticeLogs, getStats, getStreakFreezes } from "./queries";
+import { getPracticeAlarm, getPracticeLogs, getStats, getStreakFreezes } from "./queries";
 
-// 기준: Swagger 2.2~2.7 회원 · 3.1~3.3 홈 · 통계 · 연습 달력 · 8.13~8.14 스트릭 유지권 예시
+// 기준: Swagger 2.2~2.11 회원 · 연습 알림 · 3.1~3.3 홈 · 통계 · 연습 달력 · 8.13~8.14 스트릭 유지권 예시
+// 2.7 소셜 회원 탈퇴(본문 {}) · 2.8 available true · 2.9 성공과 KAKAO_CONSENT_FAILED · 2.10 성공은 BE 계약 테스트에 카카오 회원
+// 상황(@State)과 카카오 메시지 클라이언트(@MockitoBean)가 있어야 재현된다. 아직 BE에 없어 이번에는 '회원'(이메일 회원) 상황으로
+// 재현되는 응답만 넣었다. BE 상황이 생기면 위 계약을 더한다.
 const { like, eachLike } = MatchersV3;
 const CRITERIA = ["JOB_FIT", "COVER_LETTER", "LOGIC", "DELIVERY"] as const;
 const pact = contract();
@@ -353,4 +371,94 @@ describe("스트릭 유지권", () => {
           expect(await applyStreakFreeze(999999999)).toEqual({ error: "유지권을 찾을 수 없어요." }),
         ),
       ));
+});
+
+describe("연습 알림", () => {
+  const unavailable = {
+    detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+    code: "PRACTICE_ALARM_UNAVAILABLE",
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("2.8 이메일 회원은 켤 수 없다(available false)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("2.8 이메일 회원의 연습 알림 설정")
+      .withRequest("GET", "/api/v1/users/me/practice-alarm", (b) => b.headers(bearer))
+      .willRespondWith(200, (b) =>
+        b.jsonBody(shape({ available: false, enabled: false, time: "21:00" }, "available")),
+      )
+      .executeTest(
+        asMember(async () =>
+          expect(await getPracticeAlarm()).toEqual({
+            available: false,
+            enabled: false,
+            time: "21:00",
+          }),
+        ),
+      ));
+
+  it("2.9 카카오 회원이 아니면 S09-1로 돌아가 서버 문구(409 PRACTICE_ALARM_UNAVAILABLE)", () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback");
+    return pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("2.9 이메일 회원의 연습 알림 켜기")
+      .withRequest("PUT", "/api/v1/users/me/practice-alarm", (b) =>
+        b.headers(bearer).jsonBody({
+          code: "Ab3x…",
+          redirectUri: "https://hangguet.co.kr/oauth/kakao/callback",
+        }),
+      )
+      .willRespondWith(409, (b) => problem(b, unavailable))
+      .executeTest(
+        asMember(async () => {
+          const request = new NextRequest(
+            `https://hangguet.co.kr/oauth/kakao/callback?code=${encodeURIComponent("Ab3x…")}&state=st`,
+            {
+              headers: {
+                cookie: `${OAUTH_STATE_COOKIE}=alarm.st; ${ACCESS_TOKEN_COOKIE}=${EXAMPLE_ACCESS_TOKEN}`,
+              },
+            },
+          );
+          const response = await kakaoCallback(request);
+          expect(response.headers.get("location")).toBe("/mypage/settings");
+          expect(JSON.parse(response.cookies.get(NOTICE_COOKIE)?.value ?? "null")).toEqual({
+            target: "settings",
+            text: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+          });
+        }),
+      );
+  });
+
+  it("2.10 카카오 회원이 아니면 서버 문구(409 PRACTICE_ALARM_UNAVAILABLE)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("2.10 이메일 회원의 연습 알림 시각 변경")
+      .withRequest("PATCH", "/api/v1/users/me/practice-alarm", (b) =>
+        b.headers(bearer).jsonBody({ time: "22:30" }),
+      )
+      .willRespondWith(409, (b) => problem(b, unavailable, { generic: true }))
+      .executeTest(
+        asMember(async () =>
+          expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({
+            error: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+          }),
+        ),
+      ));
+
+  it("2.11 연습 알림을 끈다(이미 꺼져 있어도 204)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("2.11 연습 알림 끄기")
+      .withRequest("DELETE", "/api/v1/users/me/practice-alarm", (b) => b.headers(bearer))
+      .willRespondWith(204)
+      .executeTest(asMember(async () => expect(await disablePracticeAlarm()).toEqual({}))));
 });

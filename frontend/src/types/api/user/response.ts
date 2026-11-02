@@ -47,7 +47,7 @@ export interface PracticeAlarmResponse {
   available: boolean;
   /** 알림이 켜져 있으면 true */
   enabled: boolean;
-  /** 알림 시각(한국 시간, HH:mm). 고르지 않았으면 "21:00" */
+  /** 알림 시각(한국 시간, HH:mm) */
   time: string;
 }
 

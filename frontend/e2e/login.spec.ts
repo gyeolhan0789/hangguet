@@ -31,7 +31,7 @@ test.describe("S01 로그인 · 입력 확인", () => {
     );
     await page.goto("/login");
 
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page.getByText("이메일을 입력해 주세요.")).toBeVisible();
     await expect(page.getByText("비밀번호를 입력해 주세요.")).toBeVisible();
@@ -84,7 +84,7 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await page.getByLabel("비밀번호", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page).toHaveURL("/home");
     expect(body).toEqual({ email: EMAIL, password: PASSWORD });
@@ -124,7 +124,7 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await page.getByLabel("비밀번호", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     const pending = page.getByRole("button", { name: "로그인하는 중…" });
     await expect(pending).toBeDisabled();
@@ -145,11 +145,11 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await page.getByLabel("비밀번호", { exact: true }).fill("wrong1234");
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(PROBLEM.LOGIN_FAILED.detail);
     await expect(page).toHaveURL("/login");
-    await expect(page.getByRole("button", { name: "로그인" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "로그인", exact: true })).toBeEnabled();
     expect(await authCookie(context, ACCESS_TOKEN_COOKIE)).toBeUndefined();
   });
 
@@ -167,11 +167,11 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await password.fill("wrong1234");
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(PROBLEM.LOGIN_FAILED.detail);
 
     await password.fill(PASSWORD);
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page).toHaveURL("/home");
   });
@@ -182,7 +182,7 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await page.getByLabel("비밀번호", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
       "잠시 후 다시 시도해 주세요.",
@@ -199,7 +199,7 @@ test.describe("S01 로그인 · 제출", () => {
 
     await page.getByLabel("이메일").fill(EMAIL);
     await page.getByLabel("비밀번호", { exact: true }).fill(PASSWORD);
-    await page.getByRole("button", { name: "로그인" }).click();
+    await page.getByRole("button", { name: "로그인", exact: true }).click();
 
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
       "잠시 후 다시 시도해 주세요.",

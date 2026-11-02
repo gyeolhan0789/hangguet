@@ -5,7 +5,11 @@ import { cookies } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
 
-import { clearAuthCookies, setAccessTokenCookie } from "@/lib/api/auth-cookies";
+import {
+  ACCESS_TOKEN_COOKIE,
+  clearAuthCookies,
+  setAccessTokenCookie,
+} from "@/lib/api/auth-cookies";
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
 import {
@@ -14,12 +18,14 @@ import {
   toFormActionResult,
   type FormActionResult,
 } from "@/lib/api/problem-detail";
+import { authorizeUrl, issueState, KAKAO_UNAVAILABLE, kakaoConfig } from "@/lib/auth/kakao";
 import { ROUTES } from "@/lib/routes";
 import type {
   MeResponse,
   NicknameChangeResponse,
   NicknameRequest,
   PasswordChangeRequest,
+  PracticeAlarmTimeRequest,
   ProfileImageRequest,
   ProfileImageUploadUrlRequest,
   StreakFreezeUseRequest,
@@ -32,10 +38,12 @@ import {
   nicknameSchema,
   objectKeySchema,
   passwordChangeSchema,
+  practiceAlarmTimeSchema,
   profileImageUploadSchema,
   withdrawSchema,
   type NicknameValues,
   type PasswordChangeValues,
+  type PracticeAlarmTimeValues,
   type ProfileImageUploadValues,
   type WithdrawValues,
 } from "./schemas";
@@ -43,7 +51,9 @@ import {
 // 기준: 웹 Swagger 2.2 닉네임 변경(PATCH /users/me → 200 NicknameChangeResponse) · 2.3 비밀번호 변경(PATCH /users/me/password → 204
 // · 400 PASSWORD_MISMATCH) · 2.4 프로필 사진 업로드 주소(POST …/profile-image/upload-url → 200 UploadUrlResponse)
 // · 2.5 프로필 사진 등록(PUT …/profile-image → 200 MeResponse · 404 FILE_NOT_FOUND) · 2.6 프로필 사진 삭제(DELETE → 204)
-// · 2.7 회원 탈퇴(POST /users/me → 204 · 400 PASSWORD_MISMATCH) · Figma S09-1 설정(18:3157) · 기획 메모 S09-1(18:1251)
+// · 2.7 회원 탈퇴(POST /users/me → 204 · 400 PASSWORD_MISMATCH, 소셜 회원은 비밀번호 없이) · 2.9 연습 알림 켜기(카카오 동의
+// scope=talk_message → 콜백) · 2.10 시각 변경(PATCH …/practice-alarm → 200 · 409 PRACTICE_ALARM_UNAVAILABLE) · 2.11 끄기(DELETE → 204)
+// · Figma S09-1 설정(18:3157) · S09-1-B(436:2104) · 기획 메모 S09-1(18:1251) · S09-1-B(428:2146: 오류는 토스트, 토글 · 시각은 그대로)
 // 바뀐 내 정보(2.1)는 헤더(C01) · 화면이 다시 불러오도록 refresh로 다시 그린다.
 
 export interface UserActionResult<F extends string = never> extends FormActionResult<F> {
@@ -178,6 +188,68 @@ export async function withdraw(
   }
   clearAuthCookies(await cookies());
   redirect(ROUTES.landing);
+}
+
+/** 2.7 회원 탈퇴(소셜 회원). 비밀번호가 없어 보내지 않는다(WithdrawRequest.password "소셜 회원은 보내지 않는다") */
+export async function withdrawSocial(): Promise<UserActionResult> {
+  const body: WithdrawRequest = {};
+  try {
+    await api.post(endpoints.users.me, body);
+  } catch (error) {
+    unstable_rethrow(error);
+    return toFormActionResult(error, []);
+  }
+  clearAuthCookies(await cookies());
+  redirect(ROUTES.landing);
+}
+
+export interface PracticeAlarmActionResult {
+  /** 실패 문구(서버 detail). 토스트로 보인다 */
+  error?: string;
+}
+
+/**
+ * S09-1-B 토글 켜기 → 카카오 메시지 동의(talk_message) 화면으로 보낸다. 돌아오면 콜백이 2.9를 부른다(app/oauth/kakao/callback).
+ * 카카오 앱 키가 없으면 2.9 503 KAKAO_UNAVAILABLE과 같은 문구를 돌려준다.
+ */
+export async function startKakaoAlarm(): Promise<PracticeAlarmActionResult> {
+  const store = await cookies();
+  // 서버 액션은 어느 화면에서든 부를 수 있다. 로그인하지 않았으면 동의 화면으로 보내지 않는다(2.9는 로그인한 회원 API).
+  if (!store.has(ACCESS_TOKEN_COOKIE)) redirect(ROUTES.login);
+  const config = kakaoConfig();
+  if (!config) return { error: KAKAO_UNAVAILABLE };
+  const state = issueState(store, "alarm");
+  redirect(authorizeUrl(config, state, "alarm"));
+}
+
+/** 2.11 연습 알림 끄기(저장한 카카오 토큰 삭제, 이미 꺼져 있어도 204) */
+export async function disablePracticeAlarm(): Promise<PracticeAlarmActionResult> {
+  try {
+    await api.delete(endpoints.users.practiceAlarm);
+  } catch (error) {
+    unstable_rethrow(error);
+    return { error: getProblemDetail(error)?.detail ?? RETRY_LATER };
+  }
+  refresh();
+  return {};
+}
+
+/** 2.10 연습 알림 시각 변경(꺼져 있어도 저장, 다시 동의하지 않아도 된다) */
+export async function changePracticeAlarmTime(
+  values: PracticeAlarmTimeValues,
+): Promise<PracticeAlarmActionResult> {
+  const parsed = practiceAlarmTimeSchema.safeParse(values);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? RETRY_LATER };
+
+  const body: PracticeAlarmTimeRequest = parsed.data;
+  try {
+    await api.patch(endpoints.users.practiceAlarm, body);
+  } catch (error) {
+    unstable_rethrow(error);
+    return { error: getProblemDetail(error)?.detail ?? RETRY_LATER };
+  }
+  refresh();
+  return {};
 }
 
 export interface StreakFreezeActionResult {

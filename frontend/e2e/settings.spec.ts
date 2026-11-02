@@ -1,22 +1,43 @@
 import type { Page } from "@playwright/test";
+import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import { ACCESS_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 import type {
   NicknameRequest,
   PasswordChangeRequest,
+  PracticeAlarmResponse,
+  PracticeAlarmTimeRequest,
   ProfileImageRequest,
   ProfileImageUploadUrlRequest,
   WithdrawRequest,
 } from "../src/types/api";
 
-import { ME, NICKNAME_CHANGED, PROBLEM, UPLOAD_URL } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import {
+  KAKAO_ME,
+  ME,
+  NICKNAME_CHANGED,
+  PRACTICE_ALARM_OFF,
+  PROBLEM,
+  UPLOAD_URL,
+} from "./mocks/data";
+import { cookie, interceptKakao, KAKAO_CALLBACK, KAKAO_NOTICE_COOKIE } from "./kakao";
+import {
+  api,
+  expect,
+  http,
+  HttpResponse,
+  hydrated,
+  pauseClock,
+  problemResponse,
+  test,
+} from "./test";
 
 // S09-1 설정
-// 근거: Figma S09-1 설정(18:3157) · 기획 메모 S09-1(18:1251: 프로필 사진 변경 · 삭제 / 닉네임 변경 / 이메일 변경 불가 / 비밀번호 변경,
-//   연습 알림 메일은 추가 예정(비활성), 회원 탈퇴 → 확인 모달) · 모션 메모 S09-1(18:3261: 사진 업로드 후 체크 토스트, 닉네임 인라인 편집,
-//   알림 토글 흔들림 + 툴팁 '곧 열려요!', 탈퇴 확인 모달 · 빨간 버튼) · 기획 메모 C01(18:1202: 로그아웃 → 확인 없이 S00)
-//   · Swagger 2.2 닉네임 · 2.3 비밀번호 · 2.4 업로드 주소 · 2.5 등록 · 2.6 삭제 · 2.7 탈퇴 · 1.5 로그아웃
+// 근거: Figma S09-1 설정(18:3157) · S09-1-B 카카오 연결됨(436:2104) · 기획 메모 S09-1(18:1251: 프로필 사진 변경 · 삭제 / 닉네임 변경
+//   / 이메일 변경 불가 / 비밀번호 변경, 카카오 줄, 카카오톡 연습 알림(2.8 available false면 비활성), 회원 탈퇴 → 확인 모달)
+//   · 기획 메모 S09-1-B(428:2146: 토글 켜기 → 카카오 동의 → 콜백 2.9, 끄기 2.11, 시간 › 2.10, 오류는 토스트) · 모션 메모 S09-1
+//   (18:3261: 사진 업로드 후 체크 토스트, 닉네임 · 알림 시간 인라인 편집, 탈퇴 확인 모달 · 빨간 버튼) · 기획 메모 C01(18:1202: 로그아웃
+//   → 확인 없이 S00) · Swagger 2.2 닉네임 · 2.3 비밀번호 · 2.4 업로드 주소 · 2.5 등록 · 2.6 삭제 · 2.7 탈퇴 · 2.8~2.11 연습 알림 · 1.5
 // 입력 규칙 경계값과 서버 응답별 처리는 단위 테스트(user/schemas.test.ts · user/actions.test.ts)가 맡는다.
 
 const S09_1 = "/mypage/settings";
@@ -49,7 +70,7 @@ test.describe("S09-1 설정 · 화면", () => {
     await expect(account.getByText(ME.email)).toBeVisible();
     await expect(account.getByText("변경 불가")).toBeVisible();
     await expect(account.getByRole("button", { name: /닉네임/ })).toContainText(ME.nickname);
-    await expect(section(page, "알림").getByText("추가 예정")).toBeVisible();
+    await expect(section(page, "알림").getByText("카카오 연결 필요")).toBeVisible();
     await expect(section(page, "기타").getByRole("button", { name: "로그아웃" })).toBeVisible();
     await expect(main(page).getByRole("button", { name: "회원 탈퇴" })).toBeVisible();
   });
@@ -304,16 +325,17 @@ test.describe("S09-1 설정 · 프로필 사진(2.4 · 2.5 · 2.6)", () => {
 });
 
 test.describe("S09-1 설정 · 알림 · 로그아웃", () => {
-  test("연습 알림 메일 토글은 추가 예정이라 눌러도 꺼진 채로 툴팁 '곧 열려요!'만 뜬다", async ({
+  test("이메일 회원은 카카오 '연결하기'를 누를 수 없고, 카카오톡 연습 알림은 이유와 함께 비활성이다", async ({
     page,
   }) => {
     await page.goto(S09_1);
-    const toggle = section(page, "알림").getByRole("switch", { name: "연습 알림 메일" });
 
-    await toggle.click();
-
-    await expect(section(page, "알림").getByText("곧 열려요!")).toBeVisible();
-    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(section(page, "계정").getByText("연결하기")).toBeVisible();
+    await expect(section(page, "계정").getByRole("button", { name: /연결하기/ })).toHaveCount(0);
+    const toggle = section(page, "알림").getByRole("switch", { name: "카카오톡 연습 알림" });
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).toHaveAccessibleDescription("카카오 계정 연결이 필요한 기능이에요");
+    await expect(section(page, "알림").getByText("매일 21:00")).toBeVisible();
   });
 
   test("로그아웃은 확인 없이 1.5를 부르고 랜딩(S00)으로 간다", async ({ page, msw, context }) => {
@@ -389,5 +411,244 @@ test.describe("S09-1 설정 · 회원 탈퇴(2.7)", () => {
     await expect(dialog(page).getByLabel("비밀번호", { exact: true })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog(page)).toBeHidden();
+  });
+});
+
+test.describe("S09-1-B 카카오 회원 · 연습 알림(2.8~2.11)", () => {
+  /** 서버 상태: 2.9 · 2.10 · 2.11이 바꾼 설정을 2.8이 돌려준다 */
+  function alarmServer(msw: MswFixture, start: PracticeAlarmResponse) {
+    let alarm = { ...start };
+    const calls: string[] = [];
+    msw.use(
+      http.get(api("/users/me"), () => HttpResponse.json(KAKAO_ME)),
+      http.get(api("/users/me/practice-alarm"), () => HttpResponse.json(alarm)),
+      http.put(api("/users/me/practice-alarm"), async ({ request }) => {
+        calls.push(`PUT ${JSON.stringify(await request.json())}`);
+        alarm = { ...alarm, enabled: true };
+        return HttpResponse.json(alarm);
+      }),
+      http.patch(api("/users/me/practice-alarm"), async ({ request }) => {
+        const { time } = (await request.json()) as PracticeAlarmTimeRequest;
+        calls.push(`PATCH ${time}`);
+        alarm = { ...alarm, time };
+        return HttpResponse.json(alarm);
+      }),
+      http.delete(api("/users/me/practice-alarm"), () => {
+        calls.push("DELETE");
+        alarm = { ...alarm, enabled: false };
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    return calls;
+  }
+
+  const alarmSection = (page: Page) => section(page, "알림");
+  const toggle = (page: Page) =>
+    alarmSection(page).getByRole("switch", { name: "카카오톡 연습 알림" });
+
+  /** 꺼진 토글을 눌러 카카오 메시지 동의 화면까지 간다(서버가 state 쿠키를 심는다) */
+  async function startAlarm(page: Page) {
+    const kakao = await interceptKakao(page);
+    await page.goto(S09_1);
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+    await hydrated(toggle(page));
+    await toggle(page).click();
+    await expect(page).toHaveTitle("카카오");
+    return kakao;
+  }
+
+  test("카카오 줄은 '연결됨', 비밀번호가 없어 비밀번호 변경은 누를 수 없다", async ({
+    page,
+    msw,
+  }) => {
+    alarmServer(msw, PRACTICE_ALARM_OFF);
+    await page.goto(S09_1);
+
+    await expect(section(page, "계정").getByText("연결됨")).toBeVisible();
+    await expect(
+      section(page, "계정").getByRole("button", { name: "비밀번호 변경" }),
+    ).toBeDisabled();
+    await expect(
+      alarmSection(page).getByText("연습하지 않았다면 카카오톡으로 알려드릴게요"),
+    ).toBeVisible();
+  });
+
+  test("꺼진 토글을 켜면 카카오 메시지 동의(talk_message)를 거쳐 2.9로 켜고 S09-1로 돌아온다", async ({
+    page,
+    msw,
+  }) => {
+    const calls = alarmServer(msw, PRACTICE_ALARM_OFF);
+    const kakao = await startAlarm(page);
+    expect(kakao.last().searchParams.get("scope")).toBe("talk_message");
+
+    await kakao.returns({ code: "kakao-code" });
+
+    await expect(page).toHaveURL(S09_1);
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+    expect(calls).toEqual([
+      `PUT ${JSON.stringify({ code: "kakao-code", redirectUri: KAKAO_CALLBACK })}`,
+    ]);
+  });
+
+  test("카카오 동의 화면에서 취소하면 문구 없이 S09-1로 돌아오고 토글은 꺼진 채", async ({
+    page,
+    msw,
+    context,
+  }) => {
+    const calls = alarmServer(msw, PRACTICE_ALARM_OFF);
+    const kakao = await startAlarm(page);
+
+    await kakao.returns({ error: "access_denied" });
+
+    await expect(page).toHaveURL(S09_1);
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+    expect(await cookie(context, KAKAO_NOTICE_COOKIE)).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  test("다른 카카오 계정으로 동의하면(2.9 400) 토스트로 서버 문구를 보이고 토글은 꺼진 채, 새로 고치면 다시 뜨지 않는다", async ({
+    page,
+    msw,
+    context,
+  }) => {
+    // 토스트가 2초 뒤 사라지는 시간에 기대지 않도록, 돌아온 화면이 뜬 뒤 시계를 멈춘다
+    await page.clock.install();
+    alarmServer(msw, PRACTICE_ALARM_OFF);
+    msw.use(
+      http.put(api("/users/me/practice-alarm"), () =>
+        problemResponse({
+          title: "Bad Request",
+          status: 400,
+          detail: "가입할 때 쓴 카카오 계정으로 동의해 주세요.",
+          instance: "/api/v1/users/me/practice-alarm",
+          code: "KAKAO_ACCOUNT_MISMATCH",
+        }),
+      ),
+    );
+    const kakao = await startAlarm(page);
+
+    await kakao.returns({ code: "mismatch" });
+    await expect(toggle(page)).toBeVisible();
+    await pauseClock(page);
+
+    await expect(toast(page, "가입할 때 쓴 카카오 계정으로 동의해 주세요.")).toBeVisible();
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+    await expect.poll(() => cookie(context, KAKAO_NOTICE_COOKIE)).toBeUndefined();
+
+    // 멈춘 시계로는 스트리밍 화면이 나오지 않으므로 다시 흐르게 한 뒤 새로 고친다
+    await page.clock.resume();
+    await page.reload();
+    await hydrated(toggle(page));
+    await expect(toast(page, "가입할 때 쓴 카카오 계정으로 동의해 주세요.")).toHaveCount(0);
+  });
+
+  test("켜진 토글을 끄면 2.11을 부르고 꺼진다", async ({ page, msw }) => {
+    const calls = alarmServer(msw, { ...PRACTICE_ALARM_OFF, enabled: true });
+    await page.goto(S09_1);
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+    await hydrated(toggle(page));
+
+    await toggle(page).click();
+
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "false");
+    expect(calls).toEqual(["DELETE"]);
+  });
+
+  test("끄기에 실패하면 토스트로 알리고 켜진 채로 둔다", async ({ page, msw }) => {
+    await page.clock.install();
+    alarmServer(msw, { ...PRACTICE_ALARM_OFF, enabled: true });
+    msw.use(
+      http.delete(api("/users/me/practice-alarm"), () =>
+        problemResponse({ ...PROBLEM.INTERNAL_ERROR, instance: "/api/v1/users/me/practice-alarm" }),
+      ),
+    );
+    await page.goto(S09_1);
+    await hydrated(toggle(page));
+    // 토스트가 2초 뒤 사라지는 시간에 기대지 않도록 시계를 멈춘다
+    await pauseClock(page);
+
+    await toggle(page).click();
+
+    await expect(toast(page, PROBLEM.INTERNAL_ERROR.detail)).toBeVisible();
+    await expect(toggle(page)).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("'매일 HH:mm ›'을 눌러 시간을 바꾸면 2.10을 부르고 새 시간을 보인다(꺼져 있어도)", async ({
+    page,
+    msw,
+  }) => {
+    const calls = alarmServer(msw, PRACTICE_ALARM_OFF);
+    await page.goto(S09_1);
+    const timeButton = alarmSection(page).getByRole("button", {
+      name: "알림 시간 매일 21:00, 바꾸기",
+    });
+    await hydrated(timeButton);
+
+    await timeButton.click();
+    await alarmSection(page).getByLabel("알림 시간", { exact: true }).fill("22:30");
+    await alarmSection(page).getByRole("button", { name: "저장" }).click();
+
+    await expect(
+      alarmSection(page).getByRole("button", { name: "알림 시간 매일 22:30, 바꾸기" }),
+    ).toBeFocused();
+    expect(calls).toEqual(["PATCH 22:30"]);
+  });
+
+  test("시간 변경에 실패하면(2.10 409) 토스트로 서버 문구를 보이고 입력칸을 열어 둔다", async ({
+    page,
+    msw,
+  }) => {
+    await page.clock.install();
+    alarmServer(msw, PRACTICE_ALARM_OFF);
+    msw.use(
+      http.patch(api("/users/me/practice-alarm"), () =>
+        problemResponse({
+          title: "Conflict",
+          status: 409,
+          detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+          instance: "/api/v1/users/me/practice-alarm",
+          code: "PRACTICE_ALARM_UNAVAILABLE",
+        }),
+      ),
+    );
+    await page.goto(S09_1);
+    const timeButton = alarmSection(page).getByRole("button", {
+      name: "알림 시간 매일 21:00, 바꾸기",
+    });
+    await hydrated(timeButton);
+
+    await timeButton.click();
+    await alarmSection(page).getByLabel("알림 시간", { exact: true }).fill("22:30");
+    // '매일 HH:mm ›' 줄이 사라지는 모션이 끝난 뒤(멈추면 그 줄이 [저장]을 덮는다), 토스트가 2초 뒤 사라지는 시간에
+    // 기대지 않도록 시계를 멈춘다
+    await expect(alarmSection(page).getByRole("button", { name: /바꾸기$/ })).toHaveCount(0);
+    await pauseClock(page);
+    await alarmSection(page).getByRole("button", { name: "저장" }).click();
+
+    await expect(toast(page, "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.")).toBeVisible();
+    await expect(alarmSection(page).getByLabel("알림 시간", { exact: true })).toHaveValue("22:30");
+  });
+
+  test("회원 탈퇴는 비밀번호 칸 없이 2.7에 본문 {}로 탈퇴한다", async ({ page, msw }) => {
+    alarmServer(msw, PRACTICE_ALARM_OFF);
+    const bodies: WithdrawRequest[] = [];
+    msw.use(
+      http.post(api("/users/me"), async ({ request }) => {
+        bodies.push((await request.json()) as WithdrawRequest);
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await page.goto(S09_1);
+    const withdraw = main(page).getByRole("button", { name: "회원 탈퇴" });
+    await hydrated(withdraw);
+
+    await withdraw.click();
+    const dialog = page.getByRole("dialog", { name: "정말 탈퇴할까요?" });
+    await expect(dialog.getByLabel("비밀번호", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("button", { name: "취소" })).toBeFocused();
+    await dialog.getByRole("button", { name: "탈퇴하기" }).click();
+
+    await expect(page).toHaveURL("/");
+    expect(bodies).toEqual([{}]);
   });
 });

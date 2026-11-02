@@ -40,6 +40,8 @@ export const ROUTES = {
   terms: "/terms",
   /** 개인정보 처리방침. 랜딩 푸터에서 들어온다(Figma S00 푸터 '개인정보처리방침', 「개인정보 보호법」 제30조 공개) */
   privacy: "/privacy",
+  /** 카카오 인가 뒤 돌아오는 Route Handler. 로그인(1.6)과 연습 알림 켜기(2.9)가 같은 주소를 쓴다(웹 Swagger 2.9 redirectUri) */
+  kakaoCallback: "/oauth/kakao/callback",
   /** 화면을 그리는 도중 액세스 토큰이 만료됐을 때(TOKEN_EXPIRED) 재발급하고 돌아오는 Route Handler */
   tokenRefresh: "/api/auth/refresh",
   /** 화면을 그리는 도중 API가 UNAUTHORIZED를 줬을 때 쿠키를 지우고 로그인 전 상태로 보내는 Route Handler */
@@ -131,6 +133,7 @@ export const PUBLIC_PATHS: readonly string[] = [
   ROUTES.guestInquiryNew,
   ROUTES.terms,
   ROUTES.privacy,
+  ROUTES.kakaoCallback,
 ];
 
 /**
