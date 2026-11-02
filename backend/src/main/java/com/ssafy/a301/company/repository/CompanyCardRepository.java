@@ -12,9 +12,15 @@ public interface CompanyCardRepository extends JpaRepository<CompanyCard, Long> 
     @Query("select c from CompanyCard c where c.company.id = :companyId and c.current = true")
     Optional<CompanyCard> findCurrent(@Param("companyId") long companyId);
 
+    /** 별칭(정규화한 회사명)이 가리키는 회사의 최신 카드 */
+    @Query(
+            "select c from CompanyCard c, CompanyAlias a"
+                    + " where a.alias = :alias and a.company = c.company and c.current = true")
+    Optional<CompanyCard> findCurrentByAlias(@Param("alias") String alias);
+
     /**
      * 최신이 아니고, 어느 면접도 쓰지 않고, before보다 먼저 넣은 카드를 지운다. 면접이 쓰는 카드는 interview_sessions.company_card_id로
-     * 확인한다(면접 엔티티에 아직 매핑하지 않아 네이티브 쿼리).
+     * 확인한다(company 패키지가 면접 엔티티에 기대지 않도록 네이티브 쿼리).
      */
     @Modifying
     @Query(

@@ -70,6 +70,10 @@ public class AiJobMessages {
         message.put("jobTitle", application.getJobTitle());
         message.put("coverLetterItems", coverLetterItems(application));
         message.put("persona", session.getPersona().name());
+        // 회사를 찾지 못했거나 카드가 없으면 넣지 않는다(AI 명세 8장)
+        if (session.getCompanyCard() != null) {
+            message.put("companyCard", session.getCompanyCard().getCard());
+        }
     }
 
     // 자기소개서 문항을 순서대로(AI 명세 2장 · 4장)

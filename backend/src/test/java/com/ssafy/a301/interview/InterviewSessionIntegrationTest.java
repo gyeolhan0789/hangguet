@@ -76,6 +76,9 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMockMvc
 @Import(InMemorySessionRuntimeStore.Config.class)
 class InterviewSessionIntegrationTest {
+    // 회사 카드 매칭 확인용. 실제 DART 고유번호와 겹치지 않게 9로 시작한다
+    private static final String CARD_CORP_CODE = "99000401";
+
     @Autowired private MockMvc mvc;
     @Autowired private UserRepository users;
     @Autowired private ApplicationRepository applications;
@@ -122,6 +125,16 @@ class InterviewSessionIntegrationTest {
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
             jdbc.update("DELETE FROM users WHERE id = ?", id);
         }
+        // 면접을 지운 뒤에 지운다(면접이 가리키는 카드는 FK가 막는다)
+        jdbc.update(
+                "DELETE FROM company_cards WHERE company_id IN"
+                        + " (SELECT id FROM companies WHERE corp_code = ?)",
+                CARD_CORP_CODE);
+        jdbc.update(
+                "DELETE FROM company_aliases WHERE company_id IN"
+                        + " (SELECT id FROM companies WHERE corp_code = ?)",
+                CARD_CORP_CODE);
+        jdbc.update("DELETE FROM companies WHERE corp_code = ?", CARD_CORP_CODE);
     }
 
     @Test
@@ -154,6 +167,34 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.companyName").value("○○전자"));
+    }
+
+    // 기준: ERD 회사카드(면접을 만들 때 지원서 회사명으로 찾은 최신 카드를 면접에 남기고 PLAN에 담는다), AI 명세 8장
+    @Test
+    void createKeepsCompanyCardAndSendsItWithPlan() throws Exception {
+        long cardId = companyCard("테스트에이삼공일", "{\"corp_code\": \"" + CARD_CORP_CODE + "\"}");
+        long user = newUser();
+        long withCard = newApplication(user, "(주) 테스트 에이삼공일");
+        long withoutCard = newApplication(user, "카드없는회사에이삼공일");
+
+        long sessionId = create(user, withCard);
+        long noCardSessionId = create(user, withoutCard);
+
+        assertThat(companyCardOf(sessionId)).isEqualTo(cardId);
+        assertThat(companyCardOf(noCardSessionId)).isNull();
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        Long.valueOf(sessionId).equals(job.get("sessionId"))
+                                                && Map.of("corp_code", CARD_CORP_CODE)
+                                                        .equals(job.get("companyCard"))));
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        Long.valueOf(noCardSessionId).equals(job.get("sessionId"))
+                                                && !job.containsKey("companyCard")));
     }
 
     @Test
@@ -954,9 +995,44 @@ class InterviewSessionIntegrationTest {
     }
 
     private long newApplication(long userId) {
+        return newApplication(userId, "○○전자");
+    }
+
+    private long newApplication(long userId, String companyName) {
         return applications
-                .saveAndFlush(new Application(users.getReferenceById(userId), "○○전자", "백엔드 개발자"))
+                .saveAndFlush(
+                        new Application(users.getReferenceById(userId), companyName, "백엔드 개발자"))
                 .getId();
+    }
+
+    // 적재(CompanyCardImporter)가 넣은 것처럼 회사 · 별칭 · 최신 카드를 넣고 카드 id를 준다
+    private long companyCard(String alias, String cardJson) {
+        long companyId =
+                jdbc.queryForObject(
+                        "INSERT INTO companies (corp_code, name, is_listed, created_at, updated_at)"
+                                + " VALUES (?, ?, true, now(), now()) RETURNING id",
+                        Long.class,
+                        CARD_CORP_CODE,
+                        alias);
+        jdbc.update(
+                "INSERT INTO company_aliases (company_id, alias, created_at) VALUES (?, ?, now())",
+                companyId,
+                alias);
+        return jdbc.queryForObject(
+                "INSERT INTO company_cards (company_id, card, content_hash, generated_at,"
+                        + " is_current, created_at) VALUES (?, CAST(? AS jsonb), ?, DATE"
+                        + " '2026-10-30', true, now()) RETURNING id",
+                Long.class,
+                companyId,
+                cardJson,
+                "4".repeat(64));
+    }
+
+    private Long companyCardOf(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT company_card_id FROM interview_sessions WHERE id = ?",
+                Long.class,
+                sessionId);
     }
 
     private static MockHttpServletRequestBuilder idempotent(MockHttpServletRequestBuilder request) {

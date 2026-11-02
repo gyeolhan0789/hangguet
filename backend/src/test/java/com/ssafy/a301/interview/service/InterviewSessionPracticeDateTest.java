@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
@@ -61,6 +62,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private InterviewRoom rooms;
     @Mock private RecordingRepository recordings;
     @Mock private SpeechMetricRepository speechMetrics;
+    @Mock private CompanyCardFinder companyCards;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -80,7 +82,8 @@ class InterviewSessionPracticeDateTest {
                         transactions,
                         rooms,
                         recordings,
-                        speechMetrics);
+                        speechMetrics,
+                        companyCards);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {
