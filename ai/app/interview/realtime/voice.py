@@ -94,24 +94,49 @@ def _level_db(segment: FloatArray) -> float:
     return 10.0 * math.log10(float(np.mean(segment**2)) + _EPSILON)
 
 
-def trailing_off_ratio(samples: FloatArray, rate: int, words: Sequence[Word]) -> float | None:
-    """흐린 문장 수 ÷ 문장 수 × 100(%).
+def _trailing_judgments(
+    samples: FloatArray, rate: int, words: Sequence[Word]
+) -> list[tuple[int, bool]]:
+    """판단한 문장마다 마지막 단어 끝 시각과 흐렸는지.
 
     음성이 없는 문장은 판단하지 않는다.
     """
-    judged = trailing = 0
+    judgments = []
     for sentence in _sentences(words):
         whole = _segment(samples, rate, sentence[0].start_ms, sentence[-1].end_ms)
         last = _segment(samples, rate, sentence[-1].start_ms, sentence[-1].end_ms)
         # 토큰 시각이 수신한 음성 길이를 넘는 문장은 비교할 음성이 없다
         if whole.size == 0 or last.size == 0:
             continue
-        judged += 1
-        if _level_db(last) <= _level_db(whole) - TRAILING_DROP_DB:
-            trailing += 1
-    if judged == 0:
+        trailing = _level_db(last) <= _level_db(whole) - TRAILING_DROP_DB
+        judgments.append((sentence[-1].end_ms, trailing))
+    return judgments
+
+
+def trailing_off_ratio(samples: FloatArray, rate: int, words: Sequence[Word]) -> float | None:
+    """흐린 문장 수 ÷ 문장 수 × 100(%)."""
+    judgments = _trailing_judgments(samples, rate, words)
+    if not judgments:
         return None
-    return round_half_up_float(Decimal(trailing * 100) / judged, METRIC_DIGITS)
+    trailing = sum(1 for _, trailed in judgments if trailed)
+    return round_half_up_float(Decimal(trailing * 100) / len(judgments), METRIC_DIGITS)
+
+
+def trailing_off_at_ms(
+    samples: FloatArray, rate: int, tokens: Sequence[SpeechToken] | None
+) -> tuple[int, ...] | None:
+    """흐린 문장의 마지막 단어 끝 시각(밀리초, 시각 순).
+
+    다시보기 타임라인용이다(AI 명세 3장 trailingOffAtMs).
+    말끝 흐림 비율과 같은 문장을 판단하며, 비율을 구하지 못하면 None이다.
+    """
+    words = _words(tokens or ())
+    if not words or samples.size == 0:
+        return None
+    judgments = _trailing_judgments(samples, rate, words)
+    if not judgments:
+        return None
+    return tuple(end_ms for end_ms, trailed in judgments if trailed)
 
 
 def _speech_mask(

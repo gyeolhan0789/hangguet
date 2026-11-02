@@ -73,6 +73,15 @@ def _token_json(tokens: tuple[SpeechToken, ...]) -> list[dict[str, Any]]:
     return result
 
 
+def _trailing_json(times: tuple[int, ...]) -> list[int]:
+    # 흐린 문장은 문장 수를 넘을 수 없어 토큰 수 상한을 함께 쓴다(AI 명세 6.2)
+    if len(times) > MAX_ANSWER_TOKENS:
+        raise ProgressMessageError(f"trailingOffAtMs는 {MAX_ANSWER_TOKENS:,}개 이하여야 한다")
+    if any(ms < 0 for ms in times):
+        raise ProgressMessageError("trailingOffAtMs는 0 이상이어야 한다")
+    return sorted(times)
+
+
 def _timestamp(value: datetime, name: str) -> str:
     if value.utcoffset() is None:
         raise ProgressMessageError(f"{name}은 시간대가 있는 시각이어야 한다")
@@ -101,6 +110,9 @@ def answer_completed(
     tokens: tuple[SpeechToken, ...] | None,
     speech: VoiceMetrics | None,
     end_reason: EndReason,
+    *,
+    trailing_off_at_ms: tuple[int, ...] | None = None,
+    impressions: Mapping[str, Any] | None = None,
 ) -> ProgressMessage:
     """화상 답변의 전사 결과와 실시간 음성 지표를 전달한다.
 
@@ -109,6 +121,7 @@ def answer_completed(
     길이를 넘는 답변을 잘라 전달하지 않는 이유는 채점 대상 글이 변경되기 때문이다.
     tokens가 None이면 null로 전달하고, 이 경우 BE에서 말하기 지표만 비게 된다.
     speech가 None이면 두 지표를 모두 null로 전달한다.
+    다시보기 타임라인용 trailing_off_at_ms·impressions는 speech에 함께 담고, 없으면 null이다.
     """
     _check_target(session_id, seq)
     # BE가 answer.completed 답변 글을 String.isBlank로 검사하므로(AiResultService),
@@ -125,7 +138,13 @@ def answer_completed(
             "answerStartedAt": _timestamp(answer_started_at, "answerStartedAt"),
             "content": content,
             "tokens": None if tokens is None else _token_json(tokens),
-            "speech": (speech or VoiceMetrics(None, None)).to_json(),
+            "speech": {
+                **(speech or VoiceMetrics(None, None)).to_json(),
+                "trailingOffAtMs": None
+                if trailing_off_at_ms is None
+                else _trailing_json(trailing_off_at_ms),
+                "impressions": impressions,
+            },
             "endReason": EndReason(end_reason).value,
         },
     )

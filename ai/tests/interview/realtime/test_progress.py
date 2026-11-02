@@ -28,6 +28,23 @@ NOW = datetime(2026, 10, 22, 14, 3, 12, tzinfo=KST)
 # 답변을 듣기 시작한 시각.
 # tokens 시각의 0ms다(AI 명세 6.2)
 STARTED = datetime(2026, 10, 22, 14, 2, 18, 250000, tzinfo=KST)
+# AI 명세 6.2 answer.completed 예시의 speech.impressions
+IMPRESSIONS = {
+    "promptVersion": "impression-v1",
+    "modelVersion": "jev-1.14.0",
+    "items": [
+        {
+            "atMs": 1500,
+            "face": 0.98,
+            "stability": 62.5,
+            "confidence": 70.1,
+            "expression": 55.0,
+            "emotion": 48.3,
+            "likeability": 66.0,
+            "trust": 71.2,
+        }
+    ],
+}
 
 
 def publisher(redis: FakeRedis) -> ResultPublisher:
@@ -80,6 +97,8 @@ def test_answer_completed_matches_spec_example_without_job_id() -> None:
         (SpeechToken("조회", 0, 280),),
         VoiceMetrics(trailing_off_ratio=12.5, pitch_range_st=6.2),
         EndReason.AUTO_SUBMIT,
+        trailing_off_at_ms=(9120,),
+        impressions=IMPRESSIONS,
     ).publish(publisher(redis))
 
     # AI 명세 6.2 answer.completed 예시와 같다.
@@ -92,7 +111,12 @@ def test_answer_completed_matches_spec_example_without_job_id() -> None:
             "answerStartedAt": "2026-10-22T14:02:18.250+09:00",
             "content": "조회 쿼리 실행 계획을 보고…",
             "tokens": [{"text": "조회", "startMs": 0, "endMs": 280}],
-            "speech": {"trailingOffRatio": 12.5, "pitchRangeSt": 6.2},
+            "speech": {
+                "trailingOffRatio": 12.5,
+                "pitchRangeSt": 6.2,
+                "trailingOffAtMs": [9120],
+                "impressions": IMPRESSIONS,
+            },
             "endReason": "AUTO_SUBMIT",
             "occurredAt": "2026-10-22T14:03:12+09:00",
         }
@@ -240,7 +264,55 @@ def test_missing_voice_metrics_are_sent_as_nulls() -> None:
     """에이전트가 음성 지표를 구하지 못하면 두 값을 null로 전송한다(AI 명세 6.2 speech)."""
     message = answer_completed(55, 1, STARTED, "답변입니다.", None, None, EndReason.AUTO_SUBMIT)
 
-    assert message.fields["speech"] == {"trailingOffRatio": None, "pitchRangeSt": None}
+    assert message.fields["speech"] == {
+        "trailingOffRatio": None,
+        "pitchRangeSt": None,
+        "trailingOffAtMs": None,
+        "impressions": None,
+    }
+
+
+def test_trailing_off_times_are_sent_in_order() -> None:
+    message = answer_completed(
+        55,
+        1,
+        STARTED,
+        "답변입니다.",
+        None,
+        None,
+        EndReason.AUTO_SUBMIT,
+        trailing_off_at_ms=(3000, 1000),
+    )
+
+    assert message.fields["speech"]["trailingOffAtMs"] == [1000, 3000]
+
+
+def test_negative_trailing_off_time_is_rejected() -> None:
+    with pytest.raises(ProgressMessageError, match="trailingOffAtMs"):
+        answer_completed(
+            55,
+            1,
+            STARTED,
+            "답변입니다.",
+            None,
+            None,
+            EndReason.AUTO_SUBMIT,
+            trailing_off_at_ms=(-1,),
+        )
+
+
+def test_too_many_trailing_off_times_are_rejected() -> None:
+    with pytest.raises(ProgressMessageError, match="trailingOffAtMs"):
+        answer_completed(
+            55,
+            1,
+            STARTED,
+            "답변입니다.",
+            None,
+            None,
+            EndReason.AUTO_SUBMIT,
+            trailing_off_at_ms=tuple(range(MAX_ANSWER_TOKENS + 1)),
+        )
 
 
 def test_answer_started_at_without_timezone_is_rejected() -> None:

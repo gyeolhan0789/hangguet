@@ -42,3 +42,9 @@ JEV_REQUESTS = Counter(
     "Jev 판단 요청 수",
     ["result"],
 )
+# 인상 판단(사진)은 답변 1초마다 호출해 리액션보다 훨씬 많으므로 비용을 따로 본다
+JEV_IMAGE_REQUESTS = Counter(
+    "a301_agent_jev_image_requests",
+    "Jev 인상 판단(사진) 요청 수",
+    ["result"],
+)

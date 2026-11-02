@@ -23,6 +23,7 @@ from datetime import datetime
 from app.agent.stt import SonioxSTT
 from app.common.answer import SpeechToken
 from app.common.results import KST
+from app.interview.realtime.impression import TimedImpression
 from app.interview.realtime.sentence import Sentence, SentenceTracker
 
 
@@ -42,6 +43,8 @@ class CapturedAnswer:
     # 확정 토큰이 없거나 범위를 벗어나면 None이다(AI 명세 6.2)
     tokens: tuple[SpeechToken, ...] | None
     pcm: bytes
+    # 답변을 듣는 동안 받은 인상 판단(AI 명세 6.6). 판단하지 않았으면 비어 있다
+    impressions: tuple[TimedImpression, ...] = ()
 
 
 SttFactory = Callable[[Callable[[str, str], None]], SonioxSTT]
