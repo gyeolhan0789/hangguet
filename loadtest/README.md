@@ -11,7 +11,7 @@
 | `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(S2 계정은 `seed/accounts-s2.json`, 커밋하지 않는다) |
 | `seed/interviews-browser.js` | 계정마다 끝낸 화상 면접 만들기(실제 화면). S1의 기록 · 결과 · 다시보기 화면이 실제 데이터를 그리게 한다 |
 | `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
-| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S3(`s3-application-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
+| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S3(`s3-application-burst.js`) · S4(`s4-plan-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트 |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
@@ -110,6 +110,21 @@ bash loadtest/run.sh scenarios/s3-application-burst.js                      # �
 - 결과는 단계(`stage` 태그: `5x` · `20x` …)마다 저장 p95 · 실패율 · 503 수(`application_outcomes{outcome:check_unavailable}`)가 나온다
 - 회차마다 지원서가 계정에 쌓인다(테스트 서버 정리 때 같이 지운다, 계획 3.7)
 
+## S4 면접 만들기 몰림 (계획 6장, 실제 GMS)
+
+단계마다 1분 동안 면접 N건을 만들고(기본 5 · 10 · 20 · 30 · 40 · 50건), 사용자마다 질문 준비가 끝날 때까지 장치 점검 화면(`/practice/devices?sessionId=…`)을 화면처럼 2초마다 RSC로 다시 그린다. 질문 준비는 ai-plan 작업자 1개가 차례로 GMS를 부르고, 요청부터 3분이 지나면 `FAILED`가 된다(H1). 면접 시작(5.4)은 하지 않는다.
+
+계정은 S2 계정의 앞 `ACCOUNTS`개(기본 30)를 돌려 쓴다. 지원서가 있어야 하므로 S3를 먼저 돌린다(또는 `seed.js`를 `WITH_APPLICATION=1`로).
+
+```bash
+RATES=2 bash loadtest/run.sh scenarios/s4-plan-burst.js   # 짧게 확인
+bash loadtest/run.sh scenarios/s4-plan-burst.js           # 본 회차(약 28분)
+```
+
+- GMS는 작업자 1개가 한 번에 1건씩만 부르므로 몰려도 GMS 쪽 동시 요청은 1이다(스텁 없이 실제 GMS로 돌린다)
+- 결과는 단계(`stage` 태그: `20pm` …)마다 질문 준비 시간(`plan_ready_seconds`), 실패 · 포기 수(`plan_outcomes`), 화면 다시 그리기 p95가 나온다
+- 만든 면접은 `READY`로 남는다(테스트 서버 정리 때 같이 지운다)
+
 ## S5 동시 화상 면접 (계획 6장, 실제 외부 API)
 
 계정마다 실제 화면으로 화상 면접 1건씩을 거의 동시에(`STAGGER`초 간격) 진행한다. 계정이 동시 면접 수만큼 필요하다.
@@ -139,8 +154,8 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 | `ACCOUNT_OFFSET` | 0 | 노트북마다 다른 계정 범위를 쓸 때(계획 6장 S5) |
 | `PERSONA` · `MODE` | `COFFEE_CHAT` · `CHAT` | `s0-smoke.js` |
 | `PER_ACCOUNT` | 3 | `interviews-browser.js`: 계정마다 만들 면접 수 |
-| `RATES` · `HOLD` · `RAMP` | `5,30,60` · `10m` · `1m` | `s1-web-mix.js`: 단계별 초당 요청 수 · 유지 시간 · 올리는 시간 |
-| `ACCOUNTS` | 4 | `s1-web-mix.js`: 돌려 쓸 계정 수(앞에서부터, 끝낸 면접이 있어야 한다) |
+| `RATES` · `HOLD` · `RAMP` | `5,30,60` · `10m` · `1m` | `s1-web-mix.js`: 단계별 초당 요청 수 · 유지 시간 · 올리는 시간 (`s4-plan-burst.js`는 `RATES`를 단계별 분당 면접 수로 쓴다, 기본 `5,10,20,30,40,50`) |
+| `ACCOUNTS` | 4 · 30 | `s1-web-mix.js` · S2 배경: 돌려 쓸 계정 수(앞에서부터, 끝낸 면접이 있어야 한다) · `s4-plan-burst.js`: S2 계정 중 돌려 쓸 수(지원서가 있어야 한다) |
 | `VUS` · `MAX_VUS` | 20 · 300 | `s1-web-mix.js`: 미리 만들 VU · 최대 VU |
 | `BURSTS` · `REST` | `1,3,5,10,20,30,40,50` · `1m` | `s3-application-burst.js`: 단계별 동시 저장 수 · 단계 사이 쉼 |
 | `LOGINS` · `WARMUP` · `REST` · `WEB_RATE` | `30,100,200,400,600,800` · `2m` · `2m` · 5 | `s2-login-burst.js`: 단계별 분당 로그인 수 · 배경만 도는 시간 · 단계 사이 쉼 · 배경 화면 req/s |
