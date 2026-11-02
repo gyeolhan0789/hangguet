@@ -12,6 +12,7 @@
 | `.env.example` | 서버에서 새로 만들 비밀값 이름. 서버에서 `.env`로 복사해 채운다(커밋하지 않는다) |
 | `setup.sh` | 서버 기본 셋팅(시간대 · 스왑 · Docker · 로그 · TURN 인증서). 운영 서버와 같게 맞춘다 |
 | `ssh.sh` | 로컬 PC(Git Bash)에서 서버 접속 · 명령 실행 · 파일 올리기. 키 경로는 `.env.ssh`(커밋하지 않는다)나 환경 변수로 준다 |
+| `resources.sh` | 서버에서 실행. 컨테이너별 CPU(평균 · 최대) · 메모리(최대, 상한 대비)와 서버 전체 CPU · steal을 구간으로 요약한다. 예) `bash ~/a301/loadtest/server/resources.sh 5m` |
 | `ssh.ps1` | PowerShell용. Git Bash로 `ssh.sh`를 부른다(PowerShell의 `bash`는 WSL bash일 수 있어 키 경로를 못 찾는다) |
 | `aws/` | 테스트 버킷 정책 · CORS · 수명 주기, IAM 정책(앱 · 녹화). 운영(배포 계획 6.1 · 6.2)과 같은 모양이고 버킷 이름만 다르다 |
 
