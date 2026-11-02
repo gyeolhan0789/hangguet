@@ -29,7 +29,7 @@ from app.interview.talent import (
     criteria_names,
 )
 
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v5")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v6")
 # BE의 코멘트·총평 검증과 동일하게 유니코드 코드 포인트 수를 제한한다.
 MAX_TEXT_LENGTH = 255
 # 결과 화면 맨 위 한 줄 총평의 저장 길이(interview_sessions.headline)
@@ -86,6 +86,7 @@ _INTERVIEW_GUIDES: Mapping[Persona, str] = {
         f"{_VIEWPOINT_RULES}"
         "- goodPoint는 답변에서 잘한 점을 구체적으로 먼저 작성하고, "
         "improvePoint는 다음 답변에서 시도할 행동으로 부드럽게 작성한다\n"
+        "- headline은 잘한 점을 먼저 언급하고 개선할 점은 그 뒤에 작성한다\n"
     ),
 }
 

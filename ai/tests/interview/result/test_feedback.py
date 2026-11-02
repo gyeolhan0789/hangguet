@@ -88,7 +88,7 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v5"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v6"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(면접관의 2장 인재상 기준 중 답변에 드러난 것을 중심으로,
@@ -340,6 +340,19 @@ def test_duck_feedback_uses_all_criteria_and_gentle_tone() -> None:
     assert DUCK_TONE in system
     assert DUCK_TONE not in feedback_system(Persona.DEVIL)
     assert DUCK_TONE not in feedback_system(Persona.COFFEE_CHAT)
+
+
+DUCK_HEADLINE = "- headline은 잘한 점을 먼저 언급하고 개선할 점은 그 뒤에 작성한다"
+
+
+def test_duck_headline_mentions_good_point_first() -> None:
+    """오리 면접관의 한 줄 총평은 잘한 점을 먼저 언급한다(AI 명세 4장).
+
+    다음에 해볼 것(summary)은 면접관과 관계없이 개선할 점에서 선택하므로 변경하지 않는다.
+    """
+    assert DUCK_HEADLINE in feedback_system(Persona.DUCK)
+    assert DUCK_HEADLINE not in feedback_system(Persona.DEVIL)
+    assert DUCK_HEADLINE not in feedback_system(Persona.COFFEE_CHAT)
 
 
 def test_last_attempt_keeps_feedback_off_interviewer_criteria() -> None:
