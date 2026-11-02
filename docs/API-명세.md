@@ -592,6 +592,8 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 | `attitude`: `interest` · `trust` (0~1) | 리액션을 표시하는 `durationMs` 동안만 약하게 더하고, 지나면 기본 상태로 돌아감. 표정 리액션이면 표정은 리액션 값을 따름 | 무시 |
 | `durationMs` | 순간 표정 유지 시간 | 이미지 표시 시간. 끝나면 `state` 이미지로 복귀 |
 
+오리 면접관은 면접 자신감 향상이 목적이므로 `expression`은 `smile`, `gesture`는 `small_nod`·`nod`만 표시하고 `frown`·`smirk`·`tilt`는 표시하지 않는다. `attitude`도 부정적인 표정으로 반영하지 않는다.
+
 리액션이 없을 때와 `durationMs`(2,400ms)가 지난 뒤 면접관은 기본 상태(듣는 중 `listening`, 무표정)다.
 
 `state`를 에이전트가 보낼지 화면이 면접 단계로 정할지는 **[미정]**(B-8).
