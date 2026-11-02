@@ -269,6 +269,43 @@ test.describe("S07-1 면접 다시보기", () => {
     await expect(page.getByText(REPLAY.items[2].answer)).toBeVisible();
   });
 
+  // 기준: 웹 Swagger 6.4 items[].timeline(4번 질문 체크포인트 623.25초) · 사용자 결정(2026-10-30: 그래프를 누르면 영상이
+  // 그 위치로 가고, 누른 곳 가까이에 체크포인트가 있으면 그 지점의 보완할 점을 이유별로 보여 준다)
+  test("화상: 답변 흐름의 빨간 점 가까이를 누르면 영상이 그 위치로 가고, 그 지점에서 보완할 점을 보여 준다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+    const chart = page.getByTestId("replay-timeline-chart");
+    await expect(
+      page.getByText("그래프의 빨간 점을 누르면 그 지점에서 보완할 점이 나와요."),
+    ).toBeVisible();
+
+    // 그래프 좌우 여백 8px 안쪽이 0~18:00(1,080초)이다
+    const box = (await chart.boundingBox())!;
+    await chart.click({
+      position: { x: 8 + ((box.width - 16) * 623.25) / 1080, y: box.height / 2 },
+    });
+
+    await expect(page.getByText("10:23 보완할 점")).toBeVisible();
+    await expect(page.getByText("군말 3회")).toBeVisible();
+    await expect(
+      page.getByText("고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요."),
+    ).toBeVisible();
+    // 화면 숫자만이 아니라 실제 영상이 그 위치 근처로 옮겨 갔는지 본다(누른 픽셀 반올림만큼 오차)
+    const time = await page
+      .getByLabel("녹화 영상")
+      .evaluate((video: HTMLVideoElement) => video.currentTime);
+    expect(Math.abs(time - 623.25)).toBeLessThan(2);
+  });
+
   test("'‹ 결과로'를 누르면 S07 피드백 결과로 돌아간다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>

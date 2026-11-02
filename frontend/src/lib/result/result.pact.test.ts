@@ -196,6 +196,8 @@ describe("결과 · 다시보기", () => {
           questionCreatedAt: "2026-10-15T12:00:42+09:00",
           answer: "안녕하세요, 저는…",
           grade: "GOOD",
+          // 채팅 면접은 다시보기 타임라인이 없다(웹 Swagger 6.4 items[].timeline)
+          timeline: null,
         },
       ],
     } satisfies Omit<ReplayResponse, "items" | "mode"> & {
@@ -210,7 +212,7 @@ describe("결과 · 다시보기", () => {
       .willRespondWith(200, (b) =>
         b.jsonBody({
           ...shape(replay, "videoStatus", "videoUrl", "persona"),
-          items: eachLike(shape(replay.items[0], "grade")),
+          items: eachLike(shape(replay.items[0], "grade", "timeline")),
         }),
       )
       .executeTest(

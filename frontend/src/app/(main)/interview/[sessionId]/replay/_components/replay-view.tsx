@@ -9,10 +9,12 @@ import { useMediaQuery } from "@/components/use-media-query";
 import { useOnline } from "@/components/use-online";
 import { PERSONAS } from "@/lib/interview/personas";
 import { itemIndexAt, monthDayKst, questionOffset } from "@/lib/result/format";
+import { timelineSeries } from "@/lib/result/timeline";
 import { resultPath } from "@/lib/routes";
 import type { ReplayResponse } from "@/types/api";
 
 import { ReplayQuestions } from "./replay-questions";
+import { ReplayTimeline } from "./replay-timeline";
 import { VideoPending, type VideoNotice } from "./video-pending";
 import { PLAYBACK_RATES, PlayerControls, VideoScreen, type PlayerState } from "./video-player";
 
@@ -66,6 +68,9 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
   const current = hasVideo ? itemIndexAt(offsets, player.time) : -1;
   // 넓은 화면에서 영상 자리(영상 또는 녹화 안내) 옆에 놓일 때만 질문 목록 높이를 왼쪽 열 끝까지에 맞춘다(lg = Tailwind 1024px).
   const fill = useMediaQuery("(min-width: 1024px)");
+  // 다시보기 타임라인(Swagger 6.4 items[].timeline). 타임라인이 있는 답변이 없으면 그리지 않는다
+  const timeline = timelineSeries(replay.items, player.duration);
+  const showTimeline = hasVideo && timeline !== null && player.duration > 0;
 
   function seek(time: number) {
     if (video.current) video.current.currentTime = time;
@@ -154,11 +159,26 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
                 onNextRate={nextRate}
               />
             </div>
+            {showTimeline && (
+              <div className="min-w-0 shrink-0 lg:col-start-1 lg:row-start-3">
+                <ReplayTimeline
+                  points={timeline.points}
+                  checkpoints={timeline.checkpoints}
+                  duration={player.duration}
+                  offsets={offsets}
+                  time={player.time}
+                  onSeek={seek}
+                />
+              </div>
+            )}
           </>
         )}
         <div
           data-testid="replay-questions-scroll"
-          className="mt-3 min-w-0 max-sm:mt-0 max-sm:min-h-0 max-sm:flex-1 max-sm:overflow-y-auto max-sm:overscroll-contain lg:relative lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-0"
+          className={`mt-3 min-w-0 max-sm:mt-0 max-sm:min-h-0 max-sm:flex-1 max-sm:overflow-y-auto max-sm:overscroll-contain lg:relative lg:col-start-2 lg:row-start-1 lg:mt-0 ${
+            // 답변 흐름도 왼쪽 열에 두므로 질문 목록 높이를 그 끝까지 맞춘다
+            showTimeline ? "lg:row-span-3" : "lg:row-span-2"
+          }`}
         >
           <div className="lg:absolute lg:inset-0">
             <ReplayQuestions

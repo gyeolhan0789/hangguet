@@ -1,6 +1,6 @@
 import type { ReplayResponse, ResultResponse } from "@/types/api";
 
-// Swagger 6.3 · 6.4 200 예시(S07 화상 면접 결과 · S07-1 화상 — 마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30). S07 · S07-1 단위 테스트가 함께 쓴다.
+// Swagger 6.3 · 6.4 200 예시(4번 질문 다시보기 타임라인 포함, S07 화상 면접 결과 · S07-1 화상 — 마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30). S07 · S07-1 단위 테스트가 함께 쓴다.
 
 /** 6.3 면접 결과 200 — Swagger 예시 'S07 화상 면접 결과' */
 export const RESULT = {
@@ -100,6 +100,7 @@ export const REPLAY = {
       answer: "안녕하세요, 저는…",
       answerCreatedAt: "2026-10-15T12:02:40+09:00",
       grade: "GOOD",
+      timeline: null,
     },
     {
       questionId: 302,
@@ -109,6 +110,7 @@ export const REPLAY = {
       answer: "저는 백엔드를 맡아…",
       answerCreatedAt: "2026-10-15T12:05:50+09:00",
       grade: "GOOD",
+      timeline: null,
     },
     {
       questionId: 303,
@@ -118,6 +120,7 @@ export const REPLAY = {
       answer: "저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…",
       answerCreatedAt: "2026-10-15T12:09:40+09:00",
       grade: "NORMAL",
+      timeline: null,
     },
     {
       questionId: 304,
@@ -127,6 +130,36 @@ export const REPLAY = {
       answer: "음… 서버 쪽이…",
       answerCreatedAt: "2026-10-15T12:13:50+09:00",
       grade: "WEAK",
+      timeline: {
+        points: [
+          { at: 620.25, value: 0.4 },
+          { at: 621.25, value: -0.6 },
+          { at: 622.25, value: -1.7 },
+          { at: 623.25, value: -2.1 },
+          { at: 624.25, value: -1.2 },
+          { at: 625.25, value: 0.3 },
+        ],
+        checkpoints: [
+          {
+            at: 623.25,
+            start: 622.25,
+            end: 623.25,
+            value: -2.1,
+            reasons: [
+              {
+                metric: "CONFIDENCE",
+                count: null,
+                text: "고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요.",
+              },
+              {
+                metric: "FILLER",
+                count: 3,
+                text: "'음'이 이어졌어요. 생각할 때는 소리 없이 잠깐 멈춰도 괜찮아요.",
+              },
+            ],
+          },
+        ],
+      },
     },
     {
       questionId: 305,
@@ -136,6 +169,7 @@ export const REPLAY = {
       answer: "읽기 부하는 캐시로…",
       answerCreatedAt: "2026-10-15T12:17:40+09:00",
       grade: "GOOD",
+      timeline: null,
     },
   ],
 } satisfies ReplayResponse;
