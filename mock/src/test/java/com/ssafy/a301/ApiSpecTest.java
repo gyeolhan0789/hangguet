@@ -169,6 +169,33 @@ class ApiSpecTest {
         assertThat(practiceAlarmTime("24:00")).hasStatus(HttpStatus.BAD_REQUEST);
     }
 
+    @Test
+    void socialLinkCodeChoosesResultAndOnlyKakaoIsSupported() {
+        assertThat(linkSocialAccount("kakao", "anything"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.linkedProvider")
+                .isEqualTo("KAKAO");
+        assertThat(linkSocialAccount("kakao", "in-use"))
+                .hasStatus(HttpStatus.CONFLICT)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("SOCIAL_ACCOUNT_IN_USE");
+        assertThat(linkSocialAccount("google", "anything")).hasStatus(HttpStatus.BAD_REQUEST);
+        assertThat(mockMvc.delete().uri("/api/v1/users/me/social-accounts/kakao").exchange())
+                .hasStatus(HttpStatus.NO_CONTENT);
+    }
+
+    private MvcTestResult linkSocialAccount(String provider, String code) {
+        return mockMvc.put()
+                .uri("/api/v1/users/me/social-accounts/" + provider)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                        "{ \"code\": \"%s\", \"redirectUri\": \"http://localhost:3000/cb\" }"
+                                .formatted(code))
+                .exchange();
+    }
+
     private MvcTestResult enablePracticeAlarm(String code) {
         return mockMvc.put()
                 .uri("/api/v1/users/me/practice-alarm")

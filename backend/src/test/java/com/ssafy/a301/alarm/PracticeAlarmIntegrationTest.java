@@ -11,8 +11,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ssafy.a301.KakaoIntegrationTest;
 import com.ssafy.a301.alarm.domain.PracticeAlarm;
-import com.ssafy.a301.alarm.kakao.KakaoMessageClient;
 import com.ssafy.a301.alarm.kakao.KakaoMessageClient.KakaoConsent;
 import com.ssafy.a301.alarm.kakao.KakaoMessageClient.KakaoToken;
 import com.ssafy.a301.alarm.repository.PracticeAlarmRepository;
@@ -28,20 +28,13 @@ import java.time.OffsetDateTime;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.transaction.annotation.Transactional;
 
-/** 2.8 ~ 2.11 연습 알림과 보낼 회원 조회. 카카오 API는 가짜로 둔다. 로컬은 docker compose의 PostgreSQL이 필요하다. */
-@SpringBootTest
-@AutoConfigureMockMvc
-@Transactional
-class PracticeAlarmIntegrationTest {
+/** 2.8 ~ 2.11 연습 알림과 보낼 회원 조회. 카카오 API는 가짜로 둔다. */
+class PracticeAlarmIntegrationTest extends KakaoIntegrationTest {
     private static final String REDIRECT = "https://a301/oauth/kakao/callback";
     private static final LocalDate TODAY = LocalDate.of(2026, 10, 20);
     private static final LocalTime TIME = LocalTime.of(22, 30);
@@ -50,7 +43,6 @@ class PracticeAlarmIntegrationTest {
     @Autowired private EntityManager em;
     @Autowired private PracticeAlarmRepository alarms;
     @Autowired private UserService users;
-    @MockitoBean private KakaoMessageClient kakao;
 
     @Test
     void kakaoUserTurnsOnChangesTimeAndTurnsOff() throws Exception {

@@ -18,8 +18,10 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 
 /**
- * 소셜 계정 연결(1.6 · 1.7). 제공자가 알려 준 회원 번호로 우리 회원을 찾는다. 탈퇴하지 않은 연결끼리만 같은 제공자 계정 중복 불가(부분 UNIQUE 인덱스
- * uk_user_social_accounts_active). 회원이 탈퇴하면 함께 탈퇴 처리해 같은 소셜 계정으로 다시 가입할 수 있다.
+ * 소셜 계정 연결(1.6 · 1.7 · 2.12). 제공자가 알려 준 회원 번호로 우리 회원을 찾는다. 소셜 회원은 가입한 계정, 이메일 회원은 직접 연결한 계정(2.12)
+ * 하나만 가진다(부분 UNIQUE 인덱스 uk_user_social_accounts_user_active). 탈퇴하지 않은 연결끼리만 같은 제공자 계정 중복 불가(부분
+ * UNIQUE 인덱스 uk_user_social_accounts_active). 회원이 탈퇴하면 함께 탈퇴 처리해 같은 소셜 계정으로 다시 가입할 수 있다. 이메일 회원이
+ * 연결을 끊으면(2.13) 행을 지운다.
  */
 @Entity
 @Table(name = "user_social_accounts")

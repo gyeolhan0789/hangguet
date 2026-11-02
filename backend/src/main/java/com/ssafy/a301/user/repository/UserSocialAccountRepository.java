@@ -18,13 +18,13 @@ public interface UserSocialAccountRepository extends JpaRepository<UserSocialAcc
             @Param("provider") SocialProvider provider,
             @Param("providerUserId") String providerUserId);
 
-    /** 소셜 회원이 가입한 제공자. 소셜 회원은 연결이 하나뿐이다 */
+    /** 연결한 제공자. 회원마다 연결은 하나뿐이다(소셜 가입 또는 이메일 회원의 연결 2.12) */
     @Query(
             "select a.provider from UserSocialAccount a where a.user.id = :userId and a.withdrawnAt"
                     + " is null")
     Optional<SocialProvider> findActiveProvider(@Param("userId") long userId);
 
-    /** 소셜 회원의 연결(연습 알림 2.9에서 같은 카카오 계정인지 확인). 소셜 회원은 연결이 하나뿐이다 */
+    /** 회원의 연결(연습 알림 2.9에서 같은 카카오 계정인지 확인). 회원마다 연결은 하나뿐이다 */
     @Query("select a from UserSocialAccount a where a.user.id = :userId and a.withdrawnAt is null")
     Optional<UserSocialAccount> findActiveByUserId(@Param("userId") long userId);
 

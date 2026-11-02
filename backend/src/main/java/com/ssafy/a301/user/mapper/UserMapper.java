@@ -16,12 +16,17 @@ public final class UserMapper {
     }
 
     public static MeResponse toMe(
-            User user, SocialProvider socialProvider, String profileImageUrl, int currentStreak) {
+            User user,
+            SocialProvider socialProvider,
+            SocialProvider linkedProvider,
+            String profileImageUrl,
+            int currentStreak) {
         return new MeResponse(
                 user.getId(),
                 user.getEmail(),
                 user.getNickname(),
                 socialProvider,
+                linkedProvider,
                 profileImageUrl,
                 user.getCreatedAt(),
                 currentStreak);
@@ -30,6 +35,7 @@ public final class UserMapper {
     public static NicknameChangeResponse toNicknameChange(
             User user,
             SocialProvider socialProvider,
+            SocialProvider linkedProvider,
             String profileImageUrl,
             int currentStreak,
             String accessToken,
@@ -39,6 +45,7 @@ public final class UserMapper {
                 user.getEmail(),
                 user.getNickname(),
                 socialProvider,
+                linkedProvider,
                 profileImageUrl,
                 user.getCreatedAt(),
                 currentStreak,

@@ -97,9 +97,11 @@ public class UserService {
                             locked.changeNickname(nickname.strip());
                             return locked;
                         });
+        SocialProvider provider = connectedProvider(userId);
         return UserMapper.toNicknameChange(
                 user,
-                socialProvider(user),
+                user.hasPassword() ? null : provider,
+                user.hasPassword() ? provider : null,
                 storage.presignDownload(user.getProfileImageKey()),
                 currentStreak(userId),
                 accessTokens.issue(userId, user.getNickname()),
@@ -202,19 +204,19 @@ public class UserService {
                 .orElseThrow(() -> new ApiException(ErrorCode.UNAUTHORIZED));
     }
 
+    // 소셜 회원은 가입한 제공자(socialProvider), 이메일 회원은 연결한 제공자(linkedProvider)로 나눠 보낸다
     private MeResponse toMe(User user) {
+        SocialProvider provider = connectedProvider(user.getId());
         return UserMapper.toMe(
                 user,
-                socialProvider(user),
+                user.hasPassword() ? null : provider,
+                user.hasPassword() ? provider : null,
                 storage.presignDownload(user.getProfileImageKey()),
                 currentStreak(user.getId()));
     }
 
-    // 이메일 회원은 소셜 연결이 없어 조회하지 않는다
-    private SocialProvider socialProvider(User user) {
-        return user.hasPassword()
-                ? null
-                : socialAccounts.findActiveProvider(user.getId()).orElse(null);
+    private SocialProvider connectedProvider(long userId) {
+        return socialAccounts.findActiveProvider(userId).orElse(null);
     }
 
     private int currentStreak(long userId) {

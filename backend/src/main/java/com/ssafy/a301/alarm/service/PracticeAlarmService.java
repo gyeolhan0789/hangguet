@@ -25,8 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 카카오톡 연습 알림 설정(2.8 ~ 2.11). 카카오로 가입한 회원만 켤 수 있다. 켤 때 카카오 동의(talk_message)로 받은 인가 코드를 토큰으로 바꿔 암호화해
- * 저장하고, 끄면 토큰을 지운다. 알림 시각은 켜고 끄는 것과 따로 바꾸며 끈 뒤에도 남는다.
+ * 카카오톡 연습 알림 설정(2.8 ~ 2.11). 카카오 계정이 연결된 회원(카카오 가입 · 이메일 회원의 연결 2.12)만 켤 수 있다. 켤 때 카카오
+ * 동의(talk_message)로 받은 인가 코드를 토큰으로 바꿔 암호화해 저장하고, 끄면 토큰을 지운다. 알림 시각은 켜고 끄는 것과 따로 바꾸며 끈 뒤에도 남는다.
  *
  * <p>카카오 호출은 트랜잭션 밖에서 하고, 저장은 회원 행 · 알림 행을 잠그고 한다(탈퇴 · 토큰 갱신과 겹쳐도 덮어쓰지 않게).
  */
@@ -65,7 +65,7 @@ public class PracticeAlarmService {
                                         available, false, format(PracticeAlarm.DEFAULT_TIME)));
     }
 
-    /** 2.9 켜기. 가입한 카카오 계정과 같은 계정이고 메시지 전송에 동의했을 때만 토큰을 저장한다. 이미 켜져 있으면 새 토큰으로 바꾼다(다시 동의한 경우) */
+    /** 2.9 켜기. 연결된 카카오 계정과 같은 계정이고 메시지 전송에 동의했을 때만 토큰을 저장한다. 이미 켜져 있으면 새 토큰으로 바꾼다(다시 동의한 경우) */
     public PracticeAlarmResponse enable(long userId, String code, String redirectUri) {
         UserSocialAccount account =
                 kakaoAccountOf(userId)
@@ -100,6 +100,12 @@ public class PracticeAlarmService {
                 transactions.execute(
                         status -> {
                             PracticeAlarm locked = lockedAlarm(userId);
+                            // 카카오를 부르는 사이 연결을 끊었으면(2.13) 켜지 않는다
+                            if (!kakaoAccountOf(userId)
+                                    .map(UserSocialAccount::getProviderUserId)
+                                    .equals(Optional.of(account.getProviderUserId()))) {
+                                throw new ApiException(ErrorCode.PRACTICE_ALARM_UNAVAILABLE);
+                            }
                             locked.enable(
                                     token.accessToken(),
                                     now.plusSeconds(token.expiresIn()),
@@ -125,7 +131,7 @@ public class PracticeAlarmService {
         return toResponse(true, alarm);
     }
 
-    /** 2.11 끄기. 토큰을 지운다. 이미 꺼져 있거나 카카오 회원이 아니어도 성공으로 본다 */
+    /** 2.11 끄기. 토큰을 지운다. 이미 꺼져 있거나 카카오 계정을 연결하지 않았어도 성공으로 본다 */
     public void disable(long userId) {
         transactions.executeWithoutResult(
                 status -> alarms.findForUpdate(userId).ifPresent(PracticeAlarm::disable));

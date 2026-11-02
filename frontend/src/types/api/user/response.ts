@@ -1,4 +1,4 @@
-// 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.10.
+// 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.12.
 import type { OffsetDateTime } from "../common";
 
 /** 소셜 로그인 제공자. KAKAO 카카오, GOOGLE 구글 */
@@ -15,6 +15,11 @@ export interface MeResponse {
    * 소셜 회원은 비밀번호가 없어 2.3을 쓸 수 없고 2.7에 비밀번호를 보내지 않는다
    */
   socialProvider: SocialProvider | null;
+  /**
+   * 이메일 회원이 연결한 소셜 계정(2.12). 연결하지 않았거나 소셜 회원이면 null.
+   * 연결했으면 카카오 로그인(1.6)으로도 들어오고 연습 알림을 켤 수 있다
+   */
+  linkedProvider: SocialProvider | null;
   /** 프로필 사진 주소. 없으면 null(같은 회원의 웹 Swagger 1.2 · 1.3 예시 user.profileImageUrl) */
   profileImageUrl: string | null;
   /** 가입 일시. S09 "2026년 9월 시작" */
