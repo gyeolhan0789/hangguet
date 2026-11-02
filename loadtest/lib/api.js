@@ -29,17 +29,20 @@ export function apiPost(path, body, token, name, { idempotent = false, expected 
 }
 
 /** FE 페이지 GET. 로그인 쿠키(hk_access)를 붙이고, 로그인 화면으로 보내면(3xx) 실패로 본다 */
-export function page(path, token, name, { rsc = false } = {}) {
+export function page(path, token, name, { rsc = false, tags = {} } = {}) {
   const headers = {};
+  let url = `${BASE_URL}${path}`;
   if (rsc) {
-    // 화면의 다시 그리기(router.refresh)와 같은 요청(load_test_plan 4.1)
+    // 화면 이동 · 다시 그리기(router.refresh)와 같은 요청(load_test_plan 4.1). Next.js는 RSC 요청에 헤더로 계산한
+    // _rsc 쿼리가 없으면 307로 다시 보낸다. 헤더가 RSC: 1뿐이면 기대값이 빈 값이라 `_rsc`만 붙인다
     headers.RSC = "1";
+    url += `${path.includes("?") ? "&" : "?"}_rsc`;
   }
-  return http.get(`${BASE_URL}${path}`, {
+  return http.get(url, {
     headers,
     cookies: { hk_access: token },
     redirects: 0,
-    tags: { name, type: "page" },
+    tags: { name, type: "page", ...tags },
     responseCallback: http.expectedStatuses(200),
   });
 }

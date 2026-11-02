@@ -5,6 +5,15 @@ import { SharedArray } from "k6/data";
 const accounts = new SharedArray("accounts", () => JSON.parse(open("../seed/accounts.json")));
 const OFFSET = Number(__ENV.ACCOUNT_OFFSET || 0);
 
+/**
+ * VU 번호(1부터)를 계정 수로 돌려 가며 고른다. VU가 계정보다 많은 시나리오(S1)용.
+ * count를 주면 앞에서부터 그 수만 쓴다(데이터가 있는 계정만 쓸 때)
+ */
+export function accountCycled(vu, count = accounts.length) {
+  const n = Math.min(count, accounts.length - OFFSET);
+  return accounts[OFFSET + ((vu - 1) % n)];
+}
+
 /** VU 번호(1부터)에 맞는 계정 */
 export function account(vu) {
   const i = OFFSET + vu - 1;

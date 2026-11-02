@@ -9,7 +9,9 @@
 | `run.sh` | k6 실행. k6가 없으면 Docker 이미지(`grafana/k6:2.3.0`)로 돌린다. `.env.k6` 값을 `-e`로 넘긴다 |
 | `lib/` | 공통 모듈: 설정(`config.js`), BE API · FE 페이지 호출(`api.js`), 가입 · 로그인(`auth.js`), 지원서 · 면접(`interview.js`), 계정 목록(`accounts.js`), 지어낸 지원서 · 답변(`data.js`) |
 | `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(커밋하지 않는다) |
-| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) |
+| `seed/interviews-browser.js` | 계정마다 끝낸 화상 면접 만들기(실제 화면). S1의 기록 · 결과 · 다시보기 화면이 실제 데이터를 그리게 한다 |
+| `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
+| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트 |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
@@ -55,6 +57,26 @@ bash loadtest/run.sh scenarios/s0-browser.js
 
 `s0-smoke.js`가 면접을 진행하지 않는 이유: 채팅 면접도 질문은 에이전트가 면접방(LiveKit)에서 내고, 에이전트는 사용자가 방에 들어올 때까지 기다린다. k6 HTTP는 방에 들어갈 수 없으므로 면접 진행은 브라우저로 본다.
 
+## S1 웹 · API 혼합 (계획 6장, 외부 API 없음)
+
+면접 없이 화면을 둘러보는 요청만 초당 수를 정해 올린다. 화면은 FE 페이지로 보내고(70%는 화면 이동과 같은 RSC 요청), 비율은 홈 25 · 기록 20 · 결과 20 · 마이페이지 15 · 성장 리뷰 10 · 다시보기 10(%)이다.
+
+먼저 끝낸 면접이 있는 계정을 만든다(빈 계정이면 화면이 실제보다 가볍다). 계정 1은 S0로 이미 있으면 2부터 만든다.
+
+```bash
+COUNT=4 bash loadtest/run.sh seed/seed.js
+COUNT=3 PER_ACCOUNT=3 ACCOUNT_OFFSET=1 bash loadtest/run.sh seed/interviews-browser.js
+```
+
+```bash
+RATES=5 HOLD=2m RAMP=30s bash loadtest/run.sh scenarios/s1-web-mix.js   # 짧게 확인
+bash loadtest/run.sh scenarios/s1-web-mix.js                            # 본 회차: 5 → 30 → 60 req/s, 단계마다 10분
+```
+
+- 결과는 단계(`stage` 태그: `5rps` · `30rps` …)마다 p95 · 실패율이 따로 나온다. 서버 쪽은 같은 구간을 `server/resources.sh`와 Grafana로 본다
+- 실패율이 5%를 1분 넘게 넘으면 멈춘다(그 위는 실패만 늘어난다)
+- Next.js는 RSC 요청 주소에 `_rsc` 쿼리가 없으면 307로 다시 보낸다. `lib/api.js`의 `page()`가 붙인다
+
 ## 값
 
 | 이름 | 기본값 | 쓰는 곳 |
@@ -65,6 +87,10 @@ bash loadtest/run.sh scenarios/s0-browser.js
 | `N` | 1 | S0: 차례로 돌릴 면접 수 |
 | `ACCOUNT_OFFSET` | 0 | 노트북마다 다른 계정 범위를 쓸 때(계획 6장 S5) |
 | `PERSONA` · `MODE` | `COFFEE_CHAT` · `CHAT` | `s0-smoke.js` |
+| `PER_ACCOUNT` | 3 | `interviews-browser.js`: 계정마다 만들 면접 수 |
+| `RATES` · `HOLD` · `RAMP` | `5,30,60` · `10m` · `1m` | `s1-web-mix.js`: 단계별 초당 요청 수 · 유지 시간 · 올리는 시간 |
+| `ACCOUNTS` | 4 | `s1-web-mix.js`: 돌려 쓸 계정 수(앞에서부터, 끝낸 면접이 있어야 한다) |
+| `VUS` · `MAX_VUS` | 20 · 300 | `s1-web-mix.js`: 미리 만들 VU · 최대 VU |
 
 ## 주의
 
