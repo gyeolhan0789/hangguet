@@ -20,6 +20,8 @@
 # - 앱 S3 키(AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY)도 CI/CD Variables에서 받아 BE에 넘긴다. 없으면 프로필 사진 API만 실패한다.
 # - 소셜 로그인 키(KAKAO_CLIENT_ID·KAKAO_CLIENT_SECRET·GOOGLE_CLIENT_ID·GOOGLE_CLIENT_SECRET)도 CI/CD Variables에서 받아 BE에 넘긴다.
 #   없으면 그 제공자 로그인만 503으로 답한다. 콜백 주소(*_REDIRECT_URIS)는 비밀이 아니라 이 파일에 적는다.
+#   FE도 카카오 인가 화면으로 보낼 때 같은 KAKAO_CLIENT_ID(REST API 키)와 콜백 주소(KAKAO_REDIRECT_URI)를 쓴다. 시크릿은 FE에 넘기지 않는다.
+#   FE 콜백 주소는 BE KAKAO_REDIRECT_URIS와 카카오 앱 Redirect URI에 등록한 값과 글자까지 같아야 한다. 키가 없으면 카카오 버튼만 안내 문구를 띄운다.
 # - LiveKit: 개발 서버는 LiveKit Cloud를 쓴다(운영은 셀프 호스팅, 이해준/deploy_plan 4.0). 키·시크릿은 CI/CD Variables,
 #   주소는 비밀이 아니라 이 파일에 적는다. 없어도 BE·AI는 뜨고 면접방 기능만 실패하므로 필수로 두지 않는다.
 # - 비밀이 아닌 설정은 이 파일에 적는다.
@@ -302,6 +304,9 @@ services:
       # - be:   http://a301-dev-be:8080/api/v1
       # - mock: http://a301-mock:8080/api/v1
       API_BASE_URL: ${API_BASE_URL:-http://a301-dev-be:8080/api/v1}
+      # 카카오 로그인 · 계정 연결 · 연습 알림 동의(frontend/src/lib/auth/kakao.ts). 키는 BE와 같은 CI/CD Variable
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
+      KAKAO_REDIRECT_URI: https://hangguet.yobistory.com/oauth/kakao/callback
     mem_limit: 512m
     networks:
       - internal

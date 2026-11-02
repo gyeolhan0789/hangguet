@@ -3,12 +3,14 @@ import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import { ACCESS_TOKEN_COOKIE } from "../src/lib/api/auth-cookies";
 import type {
+  MeResponse,
   NicknameRequest,
   PasswordChangeRequest,
   PracticeAlarmResponse,
   PracticeAlarmTimeRequest,
   ProfileImageRequest,
   ProfileImageUploadUrlRequest,
+  SocialLinkRequest,
   WithdrawRequest,
 } from "../src/types/api";
 
@@ -38,6 +40,7 @@ import {
 //   · 기획 메모 S09-1-B(428:2146: 토글 켜기 → 카카오 동의 → 콜백 2.9, 끄기 2.11, 시간 › 2.10, 오류는 토스트) · 모션 메모 S09-1
 //   (18:3261: 사진 업로드 후 체크 토스트, 닉네임 · 알림 시간 인라인 편집, 탈퇴 확인 모달 · 빨간 버튼) · 기획 메모 C01(18:1202: 로그아웃
 //   → 확인 없이 S00) · Swagger 2.2 닉네임 · 2.3 비밀번호 · 2.4 업로드 주소 · 2.5 등록 · 2.6 삭제 · 2.7 탈퇴 · 2.8~2.11 연습 알림 · 1.5
+//   · 2.12 소셜 계정 연결 · 2.13 연결 해제 · 사용자 결정(연결하면 '연결이 완료되었어요' 안내 모달, 해제는 확인 모달, 오류는 토스트)
 // 입력 규칙 경계값과 서버 응답별 처리는 단위 테스트(user/schemas.test.ts · user/actions.test.ts)가 맡는다.
 
 const S09_1 = "/mypage/settings";
@@ -325,13 +328,14 @@ test.describe("S09-1 설정 · 프로필 사진(2.4 · 2.5 · 2.6)", () => {
 });
 
 test.describe("S09-1 설정 · 알림 · 로그아웃", () => {
-  test("이메일 회원은 카카오 '연결하기'를 누를 수 없고, 카카오톡 연습 알림은 이유와 함께 비활성이다", async ({
+  test("카카오를 연결하지 않은 이메일 회원은 카카오 '연결하기' 줄이 있고, 카카오톡 연습 알림은 이유와 함께 비활성이다", async ({
     page,
   }) => {
     await page.goto(S09_1);
 
-    await expect(section(page, "계정").getByText("연결하기")).toBeVisible();
-    await expect(section(page, "계정").getByRole("button", { name: /연결하기/ })).toHaveCount(0);
+    await expect(
+      section(page, "계정").getByRole("button", { name: /카카오\s*연결하기/ }),
+    ).toBeVisible();
     const toggle = section(page, "알림").getByRole("switch", { name: "카카오톡 연습 알림" });
     await expect(toggle).toBeDisabled();
     await expect(toggle).toHaveAccessibleDescription("카카오 계정 연결이 필요한 기능이에요");
@@ -465,6 +469,8 @@ test.describe("S09-1-B 카카오 회원 · 연습 알림(2.8~2.11)", () => {
     await page.goto(S09_1);
 
     await expect(section(page, "계정").getByText("연결됨")).toBeVisible();
+    // 카카오로 가입한 회원은 연결을 해제할 수 없다(2.13 409 PASSWORD_NOT_SET)
+    await expect(section(page, "계정").getByRole("button", { name: "연결 해제" })).toHaveCount(0);
     await expect(
       section(page, "계정").getByRole("button", { name: "비밀번호 변경" }),
     ).toBeDisabled();
@@ -605,7 +611,7 @@ test.describe("S09-1-B 카카오 회원 · 연습 알림(2.8~2.11)", () => {
         problemResponse({
           title: "Conflict",
           status: 409,
-          detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+          detail: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
           instance: "/api/v1/users/me/practice-alarm",
           code: "PRACTICE_ALARM_UNAVAILABLE",
         }),
@@ -625,7 +631,9 @@ test.describe("S09-1-B 카카오 회원 · 연습 알림(2.8~2.11)", () => {
     await pauseClock(page);
     await alarmSection(page).getByRole("button", { name: "저장" }).click();
 
-    await expect(toast(page, "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.")).toBeVisible();
+    await expect(
+      toast(page, "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요."),
+    ).toBeVisible();
     await expect(alarmSection(page).getByLabel("알림 시간", { exact: true })).toHaveValue("22:30");
   });
 
@@ -650,5 +658,159 @@ test.describe("S09-1-B 카카오 회원 · 연습 알림(2.8~2.11)", () => {
 
     await expect(page).toHaveURL("/");
     expect(bodies).toEqual([{}]);
+  });
+});
+
+test.describe("S09-1 카카오 계정 연결(2.12 · 2.13)", () => {
+  const account = (page: Page) => section(page, "계정");
+  const linkRow = (page: Page) => account(page).getByRole("button", { name: /카카오\s*연결하기/ });
+  const unlinkButton = (page: Page) => account(page).getByRole("button", { name: "연결 해제" });
+  const linkedDialog = (page: Page) => page.getByRole("dialog", { name: "연결이 완료되었어요" });
+  const confirmDialog = (page: Page) =>
+    page.getByRole("dialog", { name: "카카오 연결을 해제할까요?" });
+
+  /** 이메일 회원의 2.1 · 2.12 · 2.13. 연결 · 해제하면 2.1 linkedProvider가 바뀐다 */
+  function accountServer(msw: MswFixture, linkedProvider: MeResponse["linkedProvider"]) {
+    let me: MeResponse = { ...ME, linkedProvider };
+    const calls: string[] = [];
+    msw.use(
+      http.get(api("/users/me"), () => HttpResponse.json(me)),
+      http.put(api("/users/me/social-accounts/kakao"), async ({ request }) => {
+        calls.push(`PUT ${JSON.stringify((await request.json()) as SocialLinkRequest)}`);
+        me = { ...me, linkedProvider: "KAKAO" };
+        return HttpResponse.json(me);
+      }),
+      http.delete(api("/users/me/social-accounts/kakao"), () => {
+        calls.push("DELETE");
+        me = { ...me, linkedProvider: null };
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    return calls;
+  }
+
+  /** '연결하기'를 눌러 카카오 동의 화면까지 간다(서버가 state 쿠키를 심는다) */
+  async function startLink(page: Page) {
+    const kakao = await interceptKakao(page);
+    await page.goto(S09_1);
+    await hydrated(linkRow(page));
+    await linkRow(page).click();
+    await expect(page).toHaveTitle("카카오");
+    return kakao;
+  }
+
+  test("'연결하기'를 누르면 카카오 동의(동의 항목 없이)를 거쳐 2.12로 연결하고, 돌아와 완료 안내를 한 번 띄운다", async ({
+    page,
+    msw,
+    context,
+  }) => {
+    const calls = accountServer(msw, null);
+    const kakao = await startLink(page);
+    expect(kakao.last().searchParams.get("scope")).toBeNull();
+
+    await kakao.returns({ code: "kakao-code" });
+
+    await expect(page).toHaveURL(S09_1);
+    await expect(linkedDialog(page)).toBeVisible();
+    await expect(linkedDialog(page).getByRole("button", { name: "확인" })).toBeFocused();
+    expect(calls).toEqual([
+      `PUT ${JSON.stringify({ code: "kakao-code", redirectUri: KAKAO_CALLBACK })}`,
+    ]);
+    // 완료 표시는 주소에 싣지 않고, 보여 준 뒤 쿠키에서 지운다
+    expect(new URL(page.url()).search).toBe("");
+    await expect.poll(() => cookie(context, KAKAO_NOTICE_COOKIE)).toBeUndefined();
+
+    await linkedDialog(page).getByRole("button", { name: "확인" }).click();
+
+    await expect(linkedDialog(page)).toHaveCount(0);
+    await expect(account(page).getByText("연결됨")).toBeVisible();
+    await expect(unlinkButton(page)).toBeFocused();
+
+    await page.reload();
+    await hydrated(unlinkButton(page));
+    await expect(linkedDialog(page)).toHaveCount(0);
+  });
+
+  test("다른 회원이 쓰는 카카오 계정이면(2.12 409) 토스트로 서버 문구를 보이고 '연결하기' 그대로", async ({
+    page,
+    msw,
+  }) => {
+    await page.clock.install();
+    accountServer(msw, null);
+    msw.use(
+      http.put(api("/users/me/social-accounts/kakao"), () =>
+        problemResponse({
+          title: "Conflict",
+          status: 409,
+          detail: "다른 회원이 쓰고 있는 카카오 계정이에요.",
+          instance: "/api/v1/users/me/social-accounts/kakao",
+          code: "SOCIAL_ACCOUNT_IN_USE",
+        }),
+      ),
+    );
+    const kakao = await startLink(page);
+
+    await kakao.returns({ code: "in-use" });
+    await expect(linkRow(page)).toBeVisible();
+    // 토스트가 2초 뒤 사라지는 시간에 기대지 않도록, 돌아온 화면이 뜬 뒤 시계를 멈춘다
+    await pauseClock(page);
+
+    await expect(toast(page, "다른 회원이 쓰고 있는 카카오 계정이에요.")).toBeVisible();
+    await expect(linkedDialog(page)).toHaveCount(0);
+  });
+
+  test("카카오 동의 화면에서 취소하면 2.12를 부르지 않고 문구 없이 S09-1로 돌아온다", async ({
+    page,
+    msw,
+  }) => {
+    const calls = accountServer(msw, null);
+    const kakao = await startLink(page);
+    // 문구 · 완료 표시를 남기지 않았는지는 콜백 응답(이동)의 Set-Cookie로 본다: 화면에 띄운 뒤 지워진 쿠키로는 판정할 수 없다
+    const callback = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === "/oauth/kakao/callback",
+    );
+
+    await kakao.returns({ error: "access_denied" });
+
+    await expect(page).toHaveURL(S09_1);
+    const response = await (await callback).response();
+    const setCookies = (await response!.headersArray())
+      .filter((header) => header.name.toLowerCase() === "set-cookie")
+      .map((header) => header.value);
+    expect(setCookies.some((value) => value.startsWith(`${KAKAO_NOTICE_COOKIE}=`))).toBe(false);
+    await expect(linkedDialog(page)).toHaveCount(0);
+    expect(calls).toEqual([]);
+  });
+
+  test("연결한 이메일 회원은 [연결 해제] → 확인 모달 → [해제하기]로 2.13을 부르고 '연결하기'로 바뀐다", async ({
+    page,
+    msw,
+  }) => {
+    const calls = accountServer(msw, "KAKAO");
+    await page.goto(S09_1);
+    await expect(account(page).getByText("연결됨")).toBeVisible();
+    await hydrated(unlinkButton(page));
+
+    await unlinkButton(page).click();
+    await expect(confirmDialog(page)).toContainText("켜 둔 연습 알림도 꺼져요");
+    await expect(confirmDialog(page).getByRole("button", { name: "취소" })).toBeFocused();
+    await confirmDialog(page).getByRole("button", { name: "해제하기" }).click();
+
+    await expect(confirmDialog(page)).toHaveCount(0);
+    await expect(linkRow(page)).toBeFocused();
+    expect(calls).toEqual(["DELETE"]);
+  });
+
+  test("확인 모달에서 [취소]하면 해제하지 않는다", async ({ page, msw }) => {
+    const calls = accountServer(msw, "KAKAO");
+    await page.goto(S09_1);
+    await hydrated(unlinkButton(page));
+
+    await unlinkButton(page).click();
+    await confirmDialog(page).getByRole("button", { name: "취소" }).click();
+
+    await expect(confirmDialog(page)).toHaveCount(0);
+    await expect(unlinkButton(page)).toBeFocused();
+    expect(calls).toEqual([]);
   });
 });

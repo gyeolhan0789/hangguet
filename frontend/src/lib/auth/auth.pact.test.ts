@@ -46,7 +46,9 @@ const me = {
   currentStreak: 0,
   // S09-1 카카오 줄 · 비밀번호 변경 · 탈퇴 모달이 이 값으로 나뉜다(이메일 회원은 null)
   socialProvider: null,
-} satisfies Omit<MeResponse, "linkedProvider">;
+  // S09-1 카카오 줄(연결하기 · 연결됨 + 연결 해제)이 이 값으로 나뉜다(연결하지 않았으면 null)
+  linkedProvider: null,
+} satisfies MeResponse;
 const signupValues = {
   nickname: "면접왕",
   email: "a@ssafy.com",
@@ -224,7 +226,9 @@ describe("인증", () => {
       .uponReceiving("2.1 내 정보")
       .withRequest("GET", "/api/v1/users/me", (b) => b.headers(bearer))
       .willRespondWith(200, (b) =>
-        b.jsonBody(shape(me, "profileImageUrl", "currentStreak", "socialProvider")),
+        b.jsonBody(
+          shape(me, "profileImageUrl", "currentStreak", "socialProvider", "linkedProvider"),
+        ),
       )
       .executeTest(asMember(async () => expect(await getMe()).toEqual(me))));
 

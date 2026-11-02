@@ -41,7 +41,7 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-// has: 2.9 켜기를 시작할 때 로그인했는지(액세스 토큰 쿠키) 본다
+// has: 2.9 켜기 · 2.12 연결을 시작할 때 로그인했는지(액세스 토큰 쿠키) 본다
 const cookieStore = { set: vi.fn(), delete: vi.fn(), has: vi.fn(() => true) };
 vi.mock("next/headers", () => ({ cookies: async () => cookieStore }));
 
@@ -51,6 +51,8 @@ const {
   changePracticeAlarmTime,
   disablePracticeAlarm,
   startKakaoAlarm,
+  startKakaoLink,
+  unlinkKakao,
   withdrawSocial,
   changePassword,
   createProfileImageUploadUrl,
@@ -473,15 +475,94 @@ describe("changePracticeAlarmTime (2.10 연습 알림 시각 변경)", () => {
       axiosProblem({
         title: "Conflict",
         status: 409,
-        detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+        detail: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
         instance: "/api/v1/users/me/practice-alarm",
         code: "PRACTICE_ALARM_UNAVAILABLE",
       }),
     );
 
     expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({
-      error: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+      error: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
     });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("startKakaoLink (2.12 카카오 계정 연결 시작)", () => {
+  it("state를 연결 용도로 쿠키에 담고, 동의 항목 없이 카카오 동의 화면으로 보낸다", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", "http://localhost:3000/oauth/kakao/callback");
+
+    await expect(startKakaoLink()).rejects.toThrow(/^REDIRECT https:\/\/kauth\.kakao\.com\//);
+
+    const url = new URL(redirect.mock.calls[0][0]);
+    expect(url.searchParams.get("scope")).toBeNull();
+    expect(url.searchParams.get("client_id")).toBe("client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3000/oauth/kakao/callback");
+    expect(cookieStore.has).toHaveBeenCalledWith("hk_access");
+    expect(cookieStore.set).toHaveBeenCalledWith(
+      "hk_oauth_state",
+      `link.${url.searchParams.get("state")}`,
+      expect.objectContaining({ httpOnly: true, maxAge: 600 }),
+    );
+  });
+
+  it("로그인하지 않았으면 동의 화면 대신 로그인 화면으로", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", "http://localhost:3000/oauth/kakao/callback");
+    cookieStore.has.mockReturnValue(false);
+
+    await expect(startKakaoLink()).rejects.toThrow(redirectTo("/login"));
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+
+  it("카카오 설정이 없으면 이동하지 않고 2.12 503과 같은 문구", async () => {
+    vi.stubEnv("KAKAO_CLIENT_ID", "");
+
+    expect(await startKakaoLink()).toEqual({
+      error: "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    });
+    expect(redirect).not.toHaveBeenCalled();
+    expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+});
+
+describe("unlinkKakao (2.13 카카오 연결 해제)", () => {
+  it("해제하고 화면을 다시 그린다(2.1 linkedProvider · 2.8 알림이 바뀐다)", async () => {
+    api.delete.mockResolvedValue({ data: undefined });
+
+    expect(await unlinkKakao()).toEqual({});
+    expect(api.delete).toHaveBeenCalledWith("/users/me/social-accounts/kakao");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("소셜 회원이라 거절하면(409 PASSWORD_NOT_SET) 서버 문구, 다시 그리지 않는다", async () => {
+    api.delete.mockRejectedValue(
+      axiosProblem({
+        title: "Conflict",
+        status: 409,
+        detail: "소셜 로그인 회원은 비밀번호가 없어요.",
+        instance: "/api/v1/users/me/password",
+        code: "PASSWORD_NOT_SET",
+      }),
+    );
+
+    expect(await unlinkKakao()).toEqual({ error: "소셜 로그인 회원은 비밀번호가 없어요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내, 다시 그리지 않는다", async () => {
+    api.delete.mockRejectedValue(axiosNoResponse());
+
+    expect(await unlinkKakao()).toEqual({ error: "잠시 후 다시 시도해 주세요." });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("토큰이 없어 로그인 화면으로 보내지면(api 인터셉터의 redirect) 문구로 삼키지 않고 그대로 이동한다", async () => {
+    const signedOut = new RedirectSignal("REDIRECT /login");
+    api.delete.mockRejectedValue(signedOut);
+
+    await expect(unlinkKakao()).rejects.toBe(signedOut);
     expect(refresh).not.toHaveBeenCalled();
   });
 });

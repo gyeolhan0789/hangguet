@@ -22,12 +22,15 @@ vi.mock("@/lib/user/actions", () => ({
   disablePracticeAlarm: vi.fn(),
   registerProfileImage: vi.fn(),
   startKakaoAlarm: vi.fn(),
+  startKakaoLink: vi.fn(),
+  unlinkKakao: vi.fn(),
   withdraw: vi.fn(),
   withdrawSocial: vi.fn(),
 }));
 
-// 기준: Figma S09-1 Row 카카오(436:2096: '카카오' · '연결하기', 누를 수 없음) · S09-1-B(436:2104: '연결됨' · '비밀번호 변경' 비활성)
-// · 기획 메모 S09-1 · S09-1-B(2.1 socialProvider: KAKAO면 '연결됨', null이면 '연결하기'(API 없어 비활성), 소셜 회원은 2.3을 쓸 수 없음)
+// 기준: Figma S09-1 Row 카카오(436:2096: '카카오' · '연결하기') · S09-1-B(436:2104: '연결됨' · '비밀번호 변경' 비활성)
+// · 기획 메모 S09-1 · S09-1-B(2.1 socialProvider: KAKAO면 '연결됨', 소셜 회원은 2.3을 쓸 수 없음) · 카카오 줄의 연결 · 해제 동작은
+// kakao-row.test.tsx가 본다(사용자 결정: 연결하고 돌아오면 '연결이 완료되었어요' 안내 모달)
 
 const EMAIL_MEMBER = {
   id: 1,
@@ -60,10 +63,10 @@ afterEach(() => {
 const account = () => within(screen.getByRole("region", { name: "계정" }));
 
 describe("SettingsView 카카오 줄 · 비밀번호 변경", () => {
-  it("이메일 회원: 카카오 '연결하기'(누를 수 없음), 비밀번호 변경은 누를 수 있다", () => {
+  it("이메일 회원: 카카오 '연결하기' 줄을 누를 수 있고, 비밀번호 변경도 누를 수 있다", () => {
     render(<SettingsView me={EMAIL_MEMBER} alarm={ALARM} />);
 
-    expect(account().getByText("연결하기")).toBeTruthy();
+    expect(account().getByRole("button", { name: /카카오\s*연결하기/ })).toBeTruthy();
     const password = account().getByRole("button", { name: /비밀번호 변경/ }) as HTMLButtonElement;
     expect(password.disabled).toBe(false);
   });
@@ -86,6 +89,24 @@ describe("SettingsView 카카오 줄 · 비밀번호 변경", () => {
 
     expect(screen.getByRole("dialog", { name: "정말 탈퇴할까요?" })).toBeTruthy();
     expect(screen.queryByLabelText("비밀번호", { selector: "input" }) !== null).toBe(hasPassword);
+  });
+});
+
+describe("SettingsView 카카오 계정 연결 완료", () => {
+  it("연결하고 돌아오면(linked) 카카오 줄에 안내 모달을 띄운다", async () => {
+    await act(async () => {
+      render(
+        <SettingsView me={{ ...EMAIL_MEMBER, linkedProvider: "KAKAO" }} alarm={ALARM} linked />,
+      );
+    });
+
+    expect(screen.getByRole("dialog", { name: "연결이 완료되었어요" })).toBeTruthy();
+  });
+
+  it("연결하고 돌아온 게 아니면 안내 모달이 없다", () => {
+    render(<SettingsView me={{ ...EMAIL_MEMBER, linkedProvider: "KAKAO" }} alarm={ALARM} />);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 
