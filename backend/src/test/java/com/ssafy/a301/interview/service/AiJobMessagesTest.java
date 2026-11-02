@@ -30,6 +30,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -304,17 +306,18 @@ class AiJobMessagesTest {
     }
 
     // 기준: AI 명세 1.3 persona(면접을 만들 때 고른 면접관)
-    @Test
-    void coffeeChatSessionSendsItsPersona() {
-        InterviewSession session = plannedSession(InterviewMode.CHAT, Persona.COFFEE_CHAT);
+    @ParameterizedTest
+    @EnumSource(names = {"COFFEE_CHAT", "DUCK"})
+    void sessionSendsItsPersona(Persona persona) {
+        InterviewSession session = plannedSession(InterviewMode.CHAT, persona);
         Answer answer = answer(session, 1, "답", null);
 
         assertThat(messages.of(withId(AiJob.plan(session.getId()))))
-                .containsEntry("persona", "COFFEE_CHAT");
+                .containsEntry("persona", persona.name());
         assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
-                .containsEntry("persona", "COFFEE_CHAT");
+                .containsEntry("persona", persona.name());
         assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
-                .containsEntry("persona", "COFFEE_CHAT");
+                .containsEntry("persona", persona.name());
     }
 
     @Test

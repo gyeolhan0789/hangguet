@@ -386,7 +386,7 @@ class AdminIntegrationTest {
                 .andExpect(jsonPath("$.practice.retention[*].days").value(contains(1, 3, 7)))
                 .andExpect(
                         jsonPath("$.interviews.personas[*].persona")
-                                .value(contains("DEVIL", "COFFEE_CHAT")))
+                                .value(contains("DEVIL", "COFFEE_CHAT", "DUCK")))
                 .andExpect(jsonPath("$.speech.sessions").isNumber())
                 .andExpect(jsonPath("$.inquiries.waiting").isNumber())
                 .andExpect(jsonPath("$.applications").isNumber());
