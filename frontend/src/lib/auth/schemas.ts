@@ -17,11 +17,15 @@ export const PASSWORD_RULES = [
 
 export const PASSWORD_MAX = 64;
 
-/** 필수 약관 3개. 서버는 셋 모두 받아야 가입시킨다(AGREEMENT_REQUIRED). */
+/**
+ * 필수 약관 3개. 서버는 셋 모두 받아야 가입시킨다(AGREEMENT_REQUIRED).
+ * version은 화면에 보여 준 약관 버전이다. 약관 본문(lib/legal/documents.ts)을 고치면 그 약관만 올린다.
+ */
 export const TERMS = [
-  { type: "TERMS", label: "[필수] 이용약관" },
-  { type: "PRIVACY", label: "[필수] 개인정보 수집 · 이용" },
-  { type: "RECORDING", label: "[필수] 면접 녹화 · 음성 이용" },
+  { type: "TERMS", label: "[필수] 이용약관", version: "1.0" },
+  { type: "PRIVACY", label: "[필수] 개인정보 수집 · 이용", version: "1.0" },
+  // 1.1: 인상 분석용 카메라 사진 추가(2026-11-02)
+  { type: "RECORDING", label: "[필수] 면접 녹화 · 음성 이용", version: "1.1" },
 ] as const;
 
 export type TermsType = (typeof TERMS)[number]["type"];
@@ -34,9 +38,6 @@ export const AGE_CHECK = { type: "AGE", label: "[필수] 만 14세 이상입니�
 
 /** 가입 화면의 동의 줄: 만 14세 확인 → 약관 3개 */
 export const AGREEMENT_ITEMS = [AGE_CHECK, ...TERMS] as const;
-
-/** 화면에 보여 준 약관 버전. 약관 본문(lib/legal/documents.ts)을 고치면 함께 올린다. */
-export const TERMS_VERSION = "1.0";
 
 export const loginSchema = z.object({
   email: emailSchema,

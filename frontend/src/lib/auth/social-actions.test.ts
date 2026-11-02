@@ -114,7 +114,7 @@ describe("socialSignup (1.7)", () => {
       agreements: [
         { termsType: "TERMS", termsVersion: "1.0" },
         { termsType: "PRIVACY", termsVersion: "1.0" },
-        { termsType: "RECORDING", termsVersion: "1.0" },
+        { termsType: "RECORDING", termsVersion: "1.1" },
       ],
     });
     expect(jar.get(ACCESS_TOKEN_COOKIE)).toBe("access");

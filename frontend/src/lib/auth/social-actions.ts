@@ -22,7 +22,7 @@ import {
   SOCIAL_LOGIN_UNAVAILABLE,
   SOCIAL_SIGNUP_COOKIE,
 } from "./kakao";
-import { socialSignupSchema, TERMS, TERMS_VERSION, type SocialSignupValues } from "./schemas";
+import { socialSignupSchema, TERMS, type SocialSignupValues } from "./schemas";
 
 // 기준: 웹 Swagger 1.7 소셜 회원가입(SocialSignupRequest: signupToken · agreements 3개 → 201 TokenResponse · 400 AGREEMENT_REQUIRED
 // · 401 SIGNUP_TOKEN_INVALID · 409 SOCIAL_EMAIL_DUPLICATED) · 기획 메모 S01-3(423:2140: [카카오 로그인] → 카카오 동의 화면
@@ -66,7 +66,7 @@ export async function socialSignup(values: SocialSignupValues): Promise<void> {
     notice = SOCIAL_LOGIN_FAILED;
     const body: SocialSignupRequest = {
       signupToken,
-      agreements: TERMS.map(({ type }) => ({ termsType: type, termsVersion: TERMS_VERSION })),
+      agreements: TERMS.map(({ type, version }) => ({ termsType: type, termsVersion: version })),
     };
     try {
       ({ data: tokens } = await plainClient.post<TokenResponse>(endpoints.auth.socialSignup, body));
