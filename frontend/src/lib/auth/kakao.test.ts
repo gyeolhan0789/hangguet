@@ -11,7 +11,9 @@ import {
   NOTICE_COOKIE,
   OAUTH_STATE_COOKIE,
   purposeOf,
+  readLinked,
   readNotice,
+  saveLinked,
   saveNotice,
   saveSignupToken,
   SOCIAL_SIGNUP_COOKIE,
@@ -20,6 +22,7 @@ import {
 
 // 카카오 인가 도우미(lib/auth/kakao.ts). 쿠키는 set만 기록하는 가짜로 받는다.
 // 기준: 카카오 로그인 REST API 인가 코드 받기(response_type · client_id · redirect_uri · state · scope) · 웹 Swagger 2.9(scope=talk_message)
+// · 2.12(계정 연결: 동의 항목 없이 인가 코드만) · 사용자 결정(연결하면 S09-1에 완료 안내 모달 한 번)
 
 const writer = () => ({ set: vi.fn() });
 
@@ -86,6 +89,7 @@ describe("state", () => {
   it("돌아온 state가 저장한 값과 같으면 용도를 돌려준다", () => {
     expect(verifyState("alarm.abc", "abc")).toBe("alarm");
     expect(verifyState("login.abc", "abc")).toBe("login");
+    expect(verifyState("link.abc", "abc")).toBe("link");
   });
 
   it.each([
@@ -102,6 +106,7 @@ describe("state", () => {
 
   it("purposeOf는 쿠키 값에서 용도만 읽는다", () => {
     expect(purposeOf("alarm.x")).toBe("alarm");
+    expect(purposeOf("link.x")).toBe("link");
     expect(purposeOf("other.x")).toBeNull();
     expect(purposeOf("login")).toBeNull();
     expect(purposeOf(undefined)).toBeNull();
@@ -144,6 +149,41 @@ describe("authorizeUrl", () => {
     const url = new URL(authorizeUrl(config, "st", "alarm"));
 
     expect(url.searchParams.get("scope")).toBe("talk_message");
+  });
+
+  it("계정 연결은 로그인과 같이 동의 항목 없이 인가 코드만 요청한다", () => {
+    const url = new URL(authorizeUrl(config, "st", "link"));
+
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      response_type: "code",
+      client_id: "client-id",
+      redirect_uri: "http://localhost:3000/oauth/kakao/callback",
+      state: "st",
+    });
+  });
+});
+
+describe("계정 연결 완료 표시", () => {
+  it("문구 쿠키에 1분 저장하고, readLinked만 읽는다(문구로는 읽히지 않는다)", () => {
+    const cookies = writer();
+    saveLinked(cookies);
+    const [name, value, options] = cookies.set.mock.calls[0] as [string, string, object];
+
+    expect(name).toBe(NOTICE_COOKIE);
+    expect(options).toEqual(expect.objectContaining({ httpOnly: true, path: "/", maxAge: 60 }));
+    expect(readLinked(value)).toBe(true);
+    expect(readNotice(value, "settings")).toBeNull();
+  });
+
+  it.each([
+    ["없다", undefined],
+    ["JSON이 아니다", "linked"],
+    ["null이다", "null"],
+    ["실패 문구다", JSON.stringify({ target: "settings", text: "x" })],
+    ["다른 화면 것이다", JSON.stringify({ target: "login", linked: true })],
+    ["true가 아니다", JSON.stringify({ target: "settings", linked: "true" })],
+  ])("쿠키가 %s면 false", (_, value) => {
+    expect(readLinked(value)).toBe(false);
   });
 });
 

@@ -1,9 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
-// 카카오 인가(로그인 1.6 · 연습 알림 켜기 2.9)에 쓰는 설정 · 쿠키 · 주소. 서버(서버 액션 · Route Handler)에서만 쓴다.
+// 카카오 인가(로그인 1.6 · 연습 알림 켜기 2.9 · 계정 연결 2.12)에 쓰는 설정 · 쿠키 · 주소. 서버(서버 액션 · Route Handler)에서만 쓴다.
 // 기준: 웹 Swagger 1.6 소셜 로그인(code · redirectUri: 서버에 등록한 주소) · 2.9 연습 알림 켜기(scope=talk_message,
-// redirectUri는 1.6과 같은 주소) · 기획 메모 S01-3 · S09-1-B(state는 서버가 만든 무작위 값을 httpOnly 쿠키에 한 번만 쓰도록 저장,
-// 콜백은 주소 값 대신 쿠키에 저장한 용도로 로그인 · 알림을 고름, 가입 토큰과 오류 문구는 주소에 싣지 않고 httpOnly 쿠키로 넘김)
+// redirectUri는 1.6과 같은 주소) · 2.12 소셜 계정 연결(redirectUri는 1.6과 같은 주소) · 기획 메모 S01-3 · S09-1-B(state는 서버가 만든 무작위 값을 httpOnly 쿠키에 한 번만 쓰도록 저장,
+// 콜백은 주소 값 대신 쿠키에 저장한 용도로 로그인 · 알림 · 연결을 고름, 가입 토큰과 오류 문구는 주소에 싣지 않고 httpOnly 쿠키로 넘김)
 // · 카카오 로그인 REST API '인가 코드 받기'(GET kauth.kakao.com/oauth/authorize: client_id · redirect_uri · response_type=code
 // · scope · state)
 
@@ -12,8 +12,10 @@ export const KAKAO_AUTHORIZE_URL = "https://kauth.kakao.com/oauth/authorize";
 /** 연습 알림 메시지를 보내려면 받아야 하는 카카오 동의 항목(웹 Swagger 2.9) */
 export const KAKAO_MESSAGE_SCOPE = "talk_message";
 
-/** 인가를 시작한 용도. 콜백은 이 값으로 1.6(로그인)과 2.9(알림 켜기)를 고른다 */
-export type KakaoPurpose = "login" | "alarm";
+/** 인가를 시작한 용도. 콜백은 이 값으로 1.6(로그인) · 2.9(알림 켜기) · 2.12(계정 연결)를 고른다 */
+export type KakaoPurpose = "login" | "alarm" | "link";
+
+const PURPOSES: ReadonlySet<string> = new Set<KakaoPurpose>(["login", "alarm", "link"]);
 
 const production = process.env.NODE_ENV === "production";
 
@@ -51,6 +53,8 @@ export const SIGNUP_TOKEN_INVALID = "가입 시간이 지났어요. 다시 로�
 export const KAKAO_CONSENT_FAILED = "카카오 동의를 확인하지 못했어요. 다시 시도해 주세요.";
 /** 카카오에 닿지 못한 알림 켜기(웹 Swagger 2.9 503 KAKAO_UNAVAILABLE detail). FE 카카오 설정이 없을 때도 쓴다(구현 결정) */
 export const KAKAO_UNAVAILABLE = "카카오 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.";
+/** 사용자가 고칠 수 없는 계정 연결 실패(state 불일치 등). 웹 Swagger 2.12 400 SOCIAL_LINK_FAILED detail */
+export const SOCIAL_LINK_FAILED = "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요.";
 
 export interface KakaoConfig {
   /** 카카오 앱 REST API 키(BE와 같은 앱) */
@@ -111,7 +115,7 @@ export function issueState(cookies: CookieWriter, purpose: KakaoPurpose): string
 export function purposeOf(saved: string | undefined): KakaoPurpose | null {
   if (!saved?.includes(".")) return null;
   const purpose = saved.split(".", 1)[0];
-  return purpose === "login" || purpose === "alarm" ? purpose : null;
+  return PURPOSES.has(purpose) ? (purpose as KakaoPurpose) : null;
 }
 
 /** 콜백의 state가 쿠키에 저장한 값과 같으면 그 용도를, 다르면 null. 비교는 길이가 같을 때 일정한 시간으로 한다 */
@@ -156,7 +160,7 @@ export function clearSignupToken(cookies: CookieWriter) {
   cookies.set(SOCIAL_SIGNUP_COOKIE, "", { ...baseOptions, maxAge: 0 });
 }
 
-/** 문구를 보여 줄 화면. 로그인 실패는 S01, 알림 켜기 실패는 S09-1 */
+/** 문구를 보여 줄 화면. 로그인 실패는 S01, 알림 켜기 · 계정 연결 실패는 S09-1 */
 export type NoticeTarget = "login" | "settings";
 
 export interface Notice {
@@ -191,6 +195,35 @@ export function readNotice(value: string | undefined, target: NoticeTarget): str
     // 모양이 다른 값은 무시한다
   }
   return null;
+}
+
+/**
+ * 계정 연결(2.12)이 끝났음을 S09-1에 한 번 알린다(완료 안내 모달). 문구 쿠키와 같은 쿠키를 써서 실패 문구와 함께 남지 않고,
+ * 보여 준 뒤 dismissNotice로 함께 지운다.
+ */
+export function saveLinked(cookies: CookieWriter) {
+  cookies.set(NOTICE_COOKIE, JSON.stringify({ target: "settings", linked: true }), {
+    ...baseOptions,
+    maxAge: NOTICE_MAX_AGE_SECONDS,
+  });
+}
+
+/** 계정 연결 완료 표시가 있는지 */
+export function readLinked(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const notice: unknown = JSON.parse(value);
+    return (
+      typeof notice === "object" &&
+      notice !== null &&
+      "target" in notice &&
+      "linked" in notice &&
+      notice.target === "settings" &&
+      notice.linked === true
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function clearNotice(cookies: CookieWriter) {

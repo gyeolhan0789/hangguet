@@ -18,7 +18,13 @@ import {
   toFormActionResult,
   type FormActionResult,
 } from "@/lib/api/problem-detail";
-import { authorizeUrl, issueState, KAKAO_UNAVAILABLE, kakaoConfig } from "@/lib/auth/kakao";
+import {
+  authorizeUrl,
+  issueState,
+  KAKAO_UNAVAILABLE,
+  kakaoConfig,
+  SOCIAL_LOGIN_UNAVAILABLE,
+} from "@/lib/auth/kakao";
 import { ROUTES } from "@/lib/routes";
 import type {
   MeResponse,
@@ -53,6 +59,7 @@ import {
 // · 2.5 프로필 사진 등록(PUT …/profile-image → 200 MeResponse · 404 FILE_NOT_FOUND) · 2.6 프로필 사진 삭제(DELETE → 204)
 // · 2.7 회원 탈퇴(POST /users/me → 204 · 400 PASSWORD_MISMATCH, 소셜 회원은 비밀번호 없이) · 2.9 연습 알림 켜기(카카오 동의
 // scope=talk_message → 콜백) · 2.10 시각 변경(PATCH …/practice-alarm → 200 · 409 PRACTICE_ALARM_UNAVAILABLE) · 2.11 끄기(DELETE → 204)
+// · 2.12 소셜 계정 연결(카카오 동의 → 콜백) · 2.13 연결 해제(DELETE …/social-accounts/kakao → 204 · 409 PASSWORD_NOT_SET)
 // · Figma S09-1 설정(18:3157) · S09-1-B(436:2104) · 기획 메모 S09-1(18:1251) · S09-1-B(428:2146: 오류는 토스트, 토글 · 시각은 그대로)
 // 바뀐 내 정보(2.1)는 헤더(C01) · 화면이 다시 불러오도록 refresh로 다시 그린다.
 
@@ -279,4 +286,35 @@ export async function applyStreakFreeze(freezeId: number): Promise<StreakFreezeA
   }
   refresh();
   return { used: data };
+}
+
+export interface SocialLinkActionResult {
+  /** 실패 문구(서버 detail). 토스트로 보인다 */
+  error?: string;
+}
+
+/**
+ * S09-1 카카오 '연결하기' → 카카오 동의 화면으로 보낸다. 돌아오면 콜백이 2.12를 부른다(app/oauth/kakao/callback).
+ * 카카오 앱 키가 없으면 2.12 503 SOCIAL_LOGIN_UNAVAILABLE과 같은 문구를 돌려준다.
+ */
+export async function startKakaoLink(): Promise<SocialLinkActionResult> {
+  const store = await cookies();
+  // 2.12는 로그인한 회원 API다. 로그인하지 않았으면 동의 화면으로 보내지 않는다.
+  if (!store.has(ACCESS_TOKEN_COOKIE)) redirect(ROUTES.login);
+  const config = kakaoConfig();
+  if (!config) return { error: SOCIAL_LOGIN_UNAVAILABLE };
+  const state = issueState(store, "link");
+  redirect(authorizeUrl(config, state, "link"));
+}
+
+/** 2.13 카카오 연결 해제(켜 둔 연습 알림도 꺼진다). 소셜 회원은 409 PASSWORD_NOT_SET */
+export async function unlinkKakao(): Promise<SocialLinkActionResult> {
+  try {
+    await api.delete(endpoints.users.socialAccount("kakao"));
+  } catch (error) {
+    unstable_rethrow(error);
+    return { error: getProblemDetail(error)?.detail ?? RETRY_LATER };
+  }
+  refresh();
+  return {};
 }

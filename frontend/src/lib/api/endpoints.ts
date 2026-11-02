@@ -33,6 +33,8 @@ export const userEndpoints = {
   profileImage: "/users/me/profile-image",
   /** 2.8 GET 연습 알림 설정 · 2.9 PUT 켜기 · 2.10 PATCH 시각 변경 · 2.11 DELETE 끄기 */
   practiceAlarm: "/users/me/practice-alarm",
+  /** 2.12 PUT 소셜 계정 연결 · 2.13 DELETE 연결 해제. provider는 kakao만 */
+  socialAccount: (provider: "kakao") => `/users/me/social-accounts/${provider}`,
 } as const;
 
 /** 3. 홈 · 스트릭 */

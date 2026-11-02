@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { NOTICE_COOKIE, readNotice } from "@/lib/auth/kakao";
+import { NOTICE_COOKIE, readLinked, readNotice } from "@/lib/auth/kakao";
 import { getMe } from "@/lib/auth/session";
 import { ROUTES } from "@/lib/routes";
 import { getPracticeAlarm } from "@/lib/user/queries";
@@ -13,13 +13,15 @@ import { SettingsView } from "./_components/settings-view";
 export const metadata: Metadata = { title: "설정 · 한끗" };
 
 // S09-1 설정. 기준: Figma S09-1(18:3157) · S09-1-B(436:2104) · Swagger 2.1 내 정보(MeResponse) · 2.8 연습 알림 설정
-// · 기획 메모 S09-1-B(428:2146: 알림 켜기 실패는 S09-1-B로 돌아와 토스트, 토글은 그대로)
+// · 기획 메모 S09-1-B(428:2146: 알림 켜기 실패는 S09-1-B로 돌아와 토스트, 토글은 그대로) · 2.12 소셜 계정 연결(연결하고 돌아오면
+// 완료 안내 모달, 실패는 토스트 — 사용자 결정)
 async function Settings() {
   const me = await getMe();
   if (!me) redirect(ROUTES.login);
   const [alarm, store] = await Promise.all([getPracticeAlarm(), cookies()]);
-  const notice = readNotice(store.get(NOTICE_COOKIE)?.value, "settings") ?? undefined;
-  return <SettingsView me={me} alarm={alarm} notice={notice} />;
+  const saved = store.get(NOTICE_COOKIE)?.value;
+  const notice = readNotice(saved, "settings") ?? undefined;
+  return <SettingsView me={me} alarm={alarm} notice={notice} linked={readLinked(saved)} />;
 }
 
 /** 내 정보(2.1)를 불러오는 동안. Figma에 로딩 화면이 없어 같은 자리에 회색 덩어리(S02 Home Skeleton 색)를 둔다. */

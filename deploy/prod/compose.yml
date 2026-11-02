@@ -269,6 +269,10 @@ services:
     environment:
       # FE가 서버에서 부를 API 주소(/api/v1 포함)
       API_BASE_URL: http://a301-prod-be:8080/api/v1
+      # 카카오 로그인 · 계정 연결 · 연습 알림 동의(frontend/src/lib/auth/kakao.ts). 키는 BE와 같은 CI/CD Variable, 시크릿은 넘기지 않는다.
+      # 콜백 주소는 BE KAKAO_REDIRECT_URIS와 카카오 앱 Redirect URI에 등록한 값과 글자까지 같아야 한다
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
+      KAKAO_REDIRECT_URI: https://hangguet.co.kr/oauth/kakao/callback
     mem_limit: 512m
     networks:
       - internal
