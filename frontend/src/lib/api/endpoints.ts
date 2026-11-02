@@ -15,6 +15,10 @@ export const authEndpoints = {
   tokenRefresh: "/auth/token/refresh",
   /** 1.5 POST 로그아웃 */
   logout: "/auth/logout",
+  /** 1.6 POST 소셜 로그인 (토큰 없이). provider는 kakao · google */
+  socialLogin: (provider: "kakao" | "google") => `/auth/oauth/${provider}`,
+  /** 1.7 POST 소셜 회원가입 (토큰 없이) */
+  socialSignup: "/auth/oauth/signup",
 } as const;
 
 /** 2. 회원 */
@@ -27,6 +31,8 @@ export const userEndpoints = {
   profileImageUploadUrl: "/users/me/profile-image/upload-url",
   /** 2.5 PUT 프로필 사진 등록 · 2.6 DELETE 프로필 사진 삭제 */
   profileImage: "/users/me/profile-image",
+  /** 2.8 GET 연습 알림 설정 · 2.9 PUT 켜기 · 2.10 PATCH 시각 변경 · 2.11 DELETE 끄기 */
+  practiceAlarm: "/users/me/practice-alarm",
 } as const;
 
 /** 3. 홈 · 스트릭 */

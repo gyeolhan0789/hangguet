@@ -7,8 +7,14 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (name in cookieValues ? { value: cookieValues[name] } : undefined),
     has: (name: string) => name in cookieValues,
-    set: vi.fn(),
-    delete: vi.fn(),
+    // 서버 액션이 남긴 쿠키(예: 실패 문구)를 단언할 수 있게 담아 둔다. maxAge 0은 지우기다.
+    set: (name: string, value: string, options?: { maxAge?: number }) => {
+      if (options?.maxAge === 0) delete cookieValues[name];
+      else cookieValues[name] = value;
+    },
+    delete: (name: string) => {
+      delete cookieValues[name];
+    },
   }),
   headers: async () => new Headers(),
 }));

@@ -71,5 +71,17 @@ export const signupSchema = z
     message: "비밀번호가 일치하지 않아요.",
   });
 
+/**
+ * S01-3 카카오 가입 약관 동의. 1.7은 약관 3개만 받고, 만 14세 확인은 이메일 가입(1.2)과 같이 화면에서만 확인한다.
+ * 기준: 웹 Swagger 1.7(agreements 3개) · 사용자 결정(2026-10-30: 가입 화면에 만 14세 이상 확인)
+ */
+export const socialSignupSchema = z.object({
+  AGE: agreed,
+  TERMS: agreed,
+  PRIVACY: agreed,
+  RECORDING: agreed,
+});
+
 export type LoginValues = z.infer<typeof loginSchema>;
+export type SocialSignupValues = z.infer<typeof socialSignupSchema>;
 export type SignupValues = z.infer<typeof signupSchema>;
