@@ -10,6 +10,7 @@ from app.interview.company import BUSINESS_TITLE, TALENT_TITLE, company_section
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.rules import COMPANY_LINKED_MAX, COMPANY_LINKED_MIN
 from app.interview.talent import (
+    ALL_CRITERIA,
     EXECUTIVE_CRITERIA,
     PRACTICAL_CRITERIA,
     criteria_lines,
@@ -42,6 +43,20 @@ _INTERVIEW_GUIDES: Mapping[Persona, str] = {
         "지원자를 비하하거나 단정하는 표현은 쓰지 않는다\n"
         "- 기술 세부 구현, 출신 지역·가족·외모 등 직무와 무관한 개인 사항은 묻지 않는다\n"
         f"- [{TALENT_TITLE}]이 주어지면 자소서 주장을 회사 인재상과 연결해 묻는다. "
+        "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
+    ),
+    # 오리 면접관은 면접 자신감 향상이 목적이므로 12개 기준을 모두 사용하고 압박하지 않는다
+    Persona.DUCK: (
+        f"이 면접은 자신감 연습 면접이다. {_ONLY_REVEALED}"
+        f"{criteria_lines(ALL_CRITERIA)}"
+        "- 기술 경험과 태도·가치관 경험이 모두 드러나면 두 종류를 섞어 묻는다\n"
+        "- 질문 문장은 자기소개서에 작성한 경험을 편하게 설명할 수 있는 말투로 작성하고, "
+        "약점을 짚는 압박 표현은 쓰지 않는다\n"
+        "- 신입이 자기 경험으로 답할 수 있는 수준으로 묻고, "
+        "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다\n"
+        "- 출신 지역·가족·외모 등 직무와 무관한 개인 사항은 묻지 않는다\n"
+        f"- [{TALENT_TITLE}]이나 [{BUSINESS_TITLE}]이 주어지면 "
+        "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
     ),
 }

@@ -374,7 +374,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v4" in caplog.text
+    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v5" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 

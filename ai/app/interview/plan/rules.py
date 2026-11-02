@@ -34,8 +34,13 @@ MAX_CLAIMS = 10
 # AI 명세 2장 회사 카드 사용: 질문 5개 중 회사 정보와 연결하는 질문 수.
 # 나머지 질문은 자소서 주장 검증에 집중하도록 상한을 둔다.
 # 개발자 면접관은 경험과 회사 사업 방향·시장이 이어지지 않는 경우가 많아
-# 연결을 강제하면 관계없는 질문에 항목 번호만 작성하므로 하한을 0으로 둔다(plan-v4 GMS 실측)
-COMPANY_LINKED_MIN: Mapping[Persona, int] = {Persona.DEVIL: 1, Persona.COFFEE_CHAT: 0}
+# 연결을 강제하면 관계없는 질문에 항목 번호만 작성하므로 하한을 0으로 둔다(plan-v4 GMS 실측).
+# 오리 면접관도 같은 이유로 연결을 강제하지 않는다
+COMPANY_LINKED_MIN: Mapping[Persona, int] = {
+    Persona.DEVIL: 1,
+    Persona.COFFEE_CHAT: 0,
+    Persona.DUCK: 0,
+}
 COMPANY_LINKED_MAX = 2
 
 # AI 명세 2장: claimId가 없는 주장을 가리키면 그 질문만 1회 다시 생성한다

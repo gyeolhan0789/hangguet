@@ -43,6 +43,9 @@ INTERRUPT_PHRASES: Mapping[tuple[Persona, InterruptReason], str] = {
         InterruptReason.OFF_TOPIC,
     ): "흥미로운 이야기네요. 질문으로 다시 돌아가 볼까요?",
     (Persona.COFFEE_CHAT, InterruptReason.TOO_LONG): "좋아요, 그중 가장 중요한 부분만 들려주세요.",
+    # 오리 면접관은 면접 자신감 향상이 목적이므로 답변을 격려하는 문구로 중단한다
+    (Persona.DUCK, InterruptReason.OFF_TOPIC): "좋은 이야기예요. 질문으로 함께 돌아가 볼까요?",
+    (Persona.DUCK, InterruptReason.TOO_LONG): "잘하고 있어요. 가장 중요한 부분부터 들려주세요.",
 }
 
 

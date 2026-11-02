@@ -424,9 +424,9 @@ def test_unknown_mode_is_invalid(mode: Any) -> None:
         parse_job(score(mode=mode))
 
 
-# 기준: AI 명세 1.3 persona(없으면 COFFEE_CHAT, 두 값이 아니면 형식이 틀린 작업)
+# 기준: AI 명세 1.3 persona(없으면 COFFEE_CHAT, 명세에 나열한 값이 아니면 형식이 틀린 작업)
 @pytest.mark.parametrize("factory", [plan, score, evaluate])
-@pytest.mark.parametrize("persona", ["DEVIL", "COFFEE_CHAT"])
+@pytest.mark.parametrize("persona", ["DEVIL", "COFFEE_CHAT", "DUCK"])
 def test_reads_persona(factory: Any, persona: str) -> None:
     job = parse_job(factory(persona=persona))
 

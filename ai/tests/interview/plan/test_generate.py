@@ -363,6 +363,16 @@ def test_practical_interview_accepts_zero_to_two_company_links(items: tuple[str,
     assert [q.company_item for q in result.questions[: len(items)]] == [i or None for i in items]
 
 
+def test_duck_interview_accepts_no_company_link() -> None:
+    """오리 면접관은 회사 정보 연결을 강제하지 않는다(AI 명세 2장, 0~2개)."""
+    duck = replace(CARD_JOB, persona=Persona.DUCK)
+    chat = FakeChat([linked()])
+
+    generate_questions(chat, duck, CLAIMS)
+
+    assert len(chat.calls) == 1
+
+
 def test_executive_interview_accepts_one_company_link() -> None:
     chat = FakeChat([linked("co1")])
 

@@ -79,6 +79,29 @@ def test_coffee_chat_uses_direction_and_market_only() -> None:
     )
 
 
+def test_duck_uses_talent_then_business_with_continued_numbers() -> None:
+    """오리 면접관은 인재상과 사업 방향·시장을 모두 사용하고, 번호가 겹치지 않게 이어서 매긴다."""
+    assert [item_id for item_id, _ in company_items(CARD, Persona.DUCK)] == [
+        "co1",
+        "co2",
+        "co3",
+        "co4",
+    ]
+    assert company_section(CARD, Persona.DUCK) == (
+        "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n"
+        "co2 고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게\n\n"
+        "[회사 사업 방향·시장]\nco3 사업 방향: 해외 결제 확대\nco4 시장: 간편결제 점유율 1위"
+    )
+
+
+def test_duck_skips_empty_section() -> None:
+    card = {"talent": [], "direction": [{"summary": "해외 결제 확대"}]}
+
+    assert company_section(card, Persona.DUCK) == (
+        "[회사 사업 방향·시장]\nco1 사업 방향: 해외 결제 확대"
+    )
+
+
 @pytest.mark.parametrize("persona", list(Persona))
 @pytest.mark.parametrize(
     "card",

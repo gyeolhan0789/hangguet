@@ -8,7 +8,7 @@ def test_interview_mode_values_match_backend() -> None:
 
 
 def test_persona_values_match_backend() -> None:
-    assert [p.value for p in Persona] == ["DEVIL", "COFFEE_CHAT"]
+    assert [p.value for p in Persona] == ["DEVIL", "COFFEE_CHAT", "DUCK"]
 
 
 def test_values_parse_from_message_strings() -> None:

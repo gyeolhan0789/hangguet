@@ -32,9 +32,13 @@ EXECUTIVE_CRITERIA: Criteria = (
     ("사회적 책임·공공성", "일이 사회·공공에 미치는 영향에 대한 생각"),
 )
 
+# 오리 면접관은 면접 자신감 향상이 목적이므로 기준을 나누지 않고 12개 기준을 모두 사용한다
+ALL_CRITERIA: Criteria = (*PRACTICAL_CRITERIA, *EXECUTIVE_CRITERIA)
+
 _CRITERIA_BY_PERSONA: Mapping[Persona, Criteria] = {
     Persona.COFFEE_CHAT: PRACTICAL_CRITERIA,
     Persona.DEVIL: EXECUTIVE_CRITERIA,
+    Persona.DUCK: ALL_CRITERIA,
 }
 
 

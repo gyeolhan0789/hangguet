@@ -7,13 +7,11 @@
 모델이 질문에 연결한 항목 번호가 주어진 항목인지 검사할 때 항목 번호를 사용한다.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from app.common.session import Persona
 
-# 개발자 면접관은 경험을 회사 사업과,
-# 악마 면접관은 자소서 주장을 회사 인재상과 연결해 묻는다(AI 명세 2장)
 TALENT_TITLE = "회사 인재상"
 BUSINESS_TITLE = "회사 사업 방향·시장"
 
@@ -63,23 +61,48 @@ def business_items(card: Mapping[str, Any]) -> list[str]:
     return items
 
 
+CardSection = tuple[str, Callable[[Mapping[str, Any]], list[str]]]
+
+# 악마 면접관은 자소서 주장을 회사 인재상과, 개발자 면접관은 경험을 회사 사업과 연결하고,
+# 오리 면접관은 두 가지를 모두 사용한다(AI 명세 2장)
+_SECTIONS: Mapping[Persona, Sequence[CardSection]] = {
+    Persona.DEVIL: ((TALENT_TITLE, talent_items),),
+    Persona.COFFEE_CHAT: ((BUSINESS_TITLE, business_items),),
+    Persona.DUCK: ((TALENT_TITLE, talent_items), (BUSINESS_TITLE, business_items)),
+}
+
+
+def _numbered_sections(
+    card: Mapping[str, Any] | None, persona: Persona
+) -> list[tuple[str, list[CompanyItem]]]:
+    if card is None:
+        return []
+    sections = []
+    no = 0
+    for title, items_of in _SECTIONS.get(persona, ()):
+        items = []
+        # 모델이 항목 이름에 프롬프트 줄의 상위 범주·머리말까지 덧붙여 작성해 이름이 어긋나므로
+        # 주장 id처럼 번호로 가리키게 한다(plan-v4 GMS 실측).
+        # 구역이 여러 개여도 번호가 겹치지 않도록 이어서 매긴다
+        for text in items_of(card):
+            no += 1
+            items.append((f"co{no}", f"co{no} {text}"))
+        if items:
+            sections.append((title, items))
+    return sections
+
+
 def company_items(card: Mapping[str, Any] | None, persona: Persona) -> list[CompanyItem]:
     """면접관이 사용할 회사 항목마다 (co1부터 매긴 번호, 「번호 항목」)을 반환한다.
 
     카드가 없으면 빈 목록이다.
     """
-    if card is None:
-        return []
-    texts = talent_items(card) if persona is Persona.DEVIL else business_items(card)
-    # 모델이 항목 이름에 프롬프트 줄의 상위 범주·머리말까지 덧붙여 작성해 이름이 어긋나므로
-    # 주장 id처럼 번호로 가리키게 한다(plan-v4 GMS 실측)
-    return [(f"co{no}", f"co{no} {text}") for no, text in enumerate(texts, start=1)]
+    return [item for _, items in _numbered_sections(card, persona) for item in items]
 
 
 def company_section(card: Mapping[str, Any] | None, persona: Persona) -> str:
     """면접관이 사용할 회사 정보 구역을 반환한다. 사용할 항목이 없으면 빈 글이다."""
-    items = company_items(card, persona)
-    if not items:
-        return ""
-    title = TALENT_TITLE if persona is Persona.DEVIL else BUSINESS_TITLE
-    return f"[{title}]\n" + "\n".join(line for _, line in items)
+    return "\n\n".join(
+        f"[{title}]\n" + "\n".join(line for _, line in items)
+        for title, items in _numbered_sections(card, persona)
+    )

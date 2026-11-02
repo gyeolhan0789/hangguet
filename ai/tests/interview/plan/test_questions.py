@@ -113,6 +113,26 @@ def test_devil_questions_use_executive_criteria(system: str) -> None:
     assert NO_BELITTLING in system
 
 
+DUCK_MIXED = "- 기술 경험과 태도·가치관 경험이 모두 드러나면 두 종류를 섞어 묻는다"
+DUCK_TONE = (
+    "질문 문장은 자기소개서에 작성한 경험을 편하게 설명할 수 있는 말투로 작성하고, "
+    "약점을 짚는 압박 표현은 쓰지 않는다"
+)
+
+
+@pytest.mark.parametrize("system", system_prompts(Persona.DUCK))
+def test_duck_questions_use_all_criteria_without_pressure(system: str) -> None:
+    """오리 면접관은 자신감 연습이 목적이므로 12개 기준을 모두 쓰고 압박하지 않는다(AI 명세 2장)."""
+    assert "이 면접은 자신감 연습 면접이다" in system
+    assert ONLY_REVEALED in system
+    assert all(f"- {name}:" in system for name in (*PRACTICAL_CRITERIA, *EXECUTIVE_CRITERIA))
+    assert DUCK_MIXED in system
+    assert DUCK_TONE in system
+    assert PRACTICAL_EXCLUDED in system
+    assert PRESSURE_TONE not in system
+    assert "기준(" not in system
+
+
 def test_parses_questions() -> None:
     content = {"questions": [question(1), {**question(2, "c2"), "content": " 캐시를 왜? "}]}
 
@@ -183,7 +203,8 @@ def test_parse_targets_keeps_ids_and_criteria_as_received() -> None:
     assert parse_targets(content) == (TargetClaim("c9", "협력·소통", "근거"),)
 
 
-# 기준: AI 명세 2장 회사 카드 사용(악마 면접관은 인재상, 개발자 면접관은 사업 방향·시장)
+# 기준: AI 명세 2장 회사 카드 사용
+# (악마 면접관은 인재상, 개발자 면접관은 사업 방향·시장, 오리 면접관은 둘 다)
 CARD: dict[str, Any] = {
     "talent": [{"title": "해결", "details": ["스스로 문제를 정의하고 해결한다"]}],
     "direction": [{"summary": "해외 결제 확대"}],
@@ -195,11 +216,20 @@ COMPANY_RULES = {
         "- [회사 사업 방향·시장]이 주어지면 경험과 이어지는 경우에만 "
         "경험을 회사 사업 방향·시장과 연결해 묻는다"
     ),
+    Persona.DUCK: (
+        "- [회사 인재상]이나 [회사 사업 방향·시장]이 주어지면 "
+        "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다"
+    ),
 }
 NO_INVENTED_COMPANY = "주어지지 않은 회사 정보를 전제로 묻지 않는다"
 COMPANY_SECTIONS = {
     Persona.DEVIL: "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n\n[주장]\n",
     Persona.COFFEE_CHAT: "[회사 사업 방향·시장]\nco1 사업 방향: 해외 결제 확대\n\n[주장]\n",
+    # 오리 면접관은 두 구역을 모두 사용하고 번호를 이어서 매긴다
+    Persona.DUCK: (
+        "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n\n"
+        "[회사 사업 방향·시장]\nco2 사업 방향: 해외 결제 확대\n\n[주장]\n"
+    ),
 }
 
 
@@ -231,7 +261,11 @@ def test_no_company_section_without_card(persona: Persona) -> None:
 
 
 # 개발자 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다
-COMPANY_ITEM_COUNTS = {Persona.DEVIL: "1~2개", Persona.COFFEE_CHAT: "0~2개"}
+COMPANY_ITEM_COUNTS = {
+    Persona.DEVIL: "1~2개",
+    Persona.COFFEE_CHAT: "0~2개",
+    Persona.DUCK: "0~2개",
+}
 COMPANY_ITEM_RULE = (
     "질문만 회사 정보와 연결하고, 연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
     "질문 내용이 회사 정보를 다루지 않으면 연결하지 않는다"
