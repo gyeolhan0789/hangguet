@@ -8,7 +8,7 @@
 # 2. 그동안 발생기(k6 Docker 컨테이너) CPU · 메모리를 15초마다 기록 → results/s5-N<단계>-generator.txt(발생기가 먼저 막히면 그 단계는 쓰지 않는다, 3.2)
 # 3. 끝나면 그 구간의 서버 자원 요약(server/resources.sh) → results/s5-N<단계>-resources.txt
 # 4. COOLDOWN초 쉬어 결과 · 합치기 대기열과 CPU가 가라앉게 한다
-# 면접이 하나라도 실패하면(기능 한계, 5.1) 그 단계에서 멈춘다. CONTINUE=1이면 계속 올린다.
+# 면접이나 다시보기(녹화)가 하나라도 실패하면(기능 한계, 5.1) 그 단계에서 멈춘다. CONTINUE=1이면 계속 올린다.
 # 단계별 시각은 results/s5-levels.tsv(단계 · 시작 · 끝, 유닉스 초)에 쌓인다. 보고서 그래프(report/charts.mjs)에 쓴다.
 set -euo pipefail
 
@@ -48,9 +48,9 @@ for n in $LEVELS; do
   head -3 "${RESULTS}/s5-N${n}-resources.txt" | tail -2
   echo "발생기 최대: $(sort -k2 -t' ' -rn "${RESULTS}/s5-N${n}-generator.txt" 2>/dev/null | head -1)"
 
-  failed=$(grep -oE 'interview_failed[^0-9]*[0-9]+' "${RESULTS}/s5-N${n}.log" | grep -oE '[0-9]+$' | tail -1 || true)
+  failed=$(grep -oE "(interview|replay)_failed[^0-9]*[0-9]+" "${RESULTS}/s5-N${n}.log" | grep -oE "[0-9]+$" | awk '{s+=$1} END {print s+0}' || true)
   if [ "${failed:-0}" -gt 0 ] && [ "${CONTINUE:-0}" != "1" ]; then
-    echo "동시 ${n}건에서 면접 ${failed}건 실패: 기능 한계라 여기서 멈춘다(CONTINUE=1이면 계속)"
+    echo "동시 ${n}건에서 면접 · 다시보기 ${failed}건 실패: 기능 한계라 여기서 멈춘다(CONTINUE=1이면 계속)"
     break
   fi
   [ "$n" = "${LEVELS##* }" ] || sleep "$COOLDOWN"

@@ -48,7 +48,8 @@ const FIRST_QUESTION_TIMEOUT = 120;
 
 export async function runVideoInterview(page, applicationId, { persona = "COFFEE_CHAT", log = () => {} } = {}) {
   let step = "면접관 · 방식 선택";
-  let sessionId = null;
+  // 재는 대로 채운다. 중간 단계에서 실패해도 이미 잰 값은 오류에 담아 넘긴다(다시보기만 실패한 면접의 시간도 남기려고)
+  const t = { sessionId: null, firstQuestionSeconds: null, questionGaps: [] };
   try {
     await page.goto(`${BASE_URL}/practice/interviewer?applicationId=${applicationId}`);
     await page.getByText(PERSONA_LABEL[persona], { exact: true }).click();
@@ -56,7 +57,8 @@ export async function runVideoInterview(page, applicationId, { persona = "COFFEE
     await page.getByText("화상으로 할래요", { exact: true }).click();
     await page.getByRole("button", { name: "다음: 장치 점검" }).click();
     if (!(await waitForUrl(page, /\/practice\/devices\?sessionId=\d+/, 30))) throw new Error("장치 점검 화면으로 가지 않았다");
-    sessionId = page.url().match(/sessionId=(\d+)/)[1];
+    const sessionId = page.url().match(/sessionId=(\d+)/)[1];
+    t.sessionId = sessionId;
     const atDevices = Date.now();
     log(`면접 ${sessionId} 만듦`);
 
@@ -67,7 +69,7 @@ export async function runVideoInterview(page, applicationId, { persona = "COFFEE
 
     step = "질문 준비";
     await page.getByText("면접관이 질문을 준비했어요").waitFor({ timeout: 200000 });
-    const planReadySeconds = seconds(atDevices);
+    t.planReadySeconds = seconds(atDevices);
     await page.getByRole("button", { name: "면접 시작", exact: true }).click();
     if (!(await waitForUrl(page, new RegExp(`/interview/${sessionId}$`), 30))) throw new Error("면접방으로 가지 않았다");
     const inRoom = Date.now();
@@ -76,8 +78,6 @@ export async function runVideoInterview(page, applicationId, { persona = "COFFEE
     // 마지막 답변 뒤 화면이 면접을 자동으로 끝내고 결과 분석 화면을 보여 준다
     let lastSeq = 0;
     let lastSeqAt = null;
-    let firstQuestionSeconds = null;
-    const questionGaps = [];
     const analyzing = page.getByText("면접관이 답변을 검토하고 있어요");
     const roomUntil = Date.now() + 20 * 60 * 1000;
     while (!(await analyzing.isVisible())) {
@@ -97,41 +97,41 @@ export async function runVideoInterview(page, applicationId, { persona = "COFFEE
       if (seq > lastSeq) {
         log(`면접 ${sessionId} 질문 ${seq} (${Math.round(seconds(inRoom))}초)`);
         if (lastSeq === 0) {
-          firstQuestionSeconds = seconds(inRoom);
+          t.firstQuestionSeconds = seconds(inRoom);
         } else {
-          questionGaps.push(seconds(lastSeqAt));
+          t.questionGaps.push(seconds(lastSeqAt));
         }
         lastSeq = seq;
         lastSeqAt = Date.now();
       }
       await page.waitForTimeout(2000);
     }
-    const interviewSeconds = seconds(inRoom);
+    t.interviewSeconds = seconds(inRoom);
 
     step = "결과 분석";
     const analyzingFrom = Date.now();
     if (!(await waitForUrl(page, new RegExp(`/interview/${sessionId}/result$`), 660))) throw new Error("결과 화면으로 가지 않았다");
     await page.getByText("오늘의 성장 리뷰 보기").waitFor();
-    const evaluationSeconds = seconds(analyzingFrom);
+    t.evaluationSeconds = seconds(analyzingFrom);
 
     step = "다시보기";
+    // 영상이 나오거나 "녹화를 불러오지 못했어요"(녹화 합치기 실패)가 나올 때까지 기다린다. 합치는 중이면 화면이 10초마다 다시 그린다
     const replayFrom = Date.now();
     await page.goto(`${BASE_URL}/interview/${sessionId}/replay`);
-    await page.locator("video").first().waitFor({ timeout: 900000 });
-    const replaySeconds = seconds(replayFrom);
-
-    return {
-      sessionId,
-      planReadySeconds,
-      firstQuestionSeconds,
-      questionGaps,
-      interviewSeconds,
-      evaluationSeconds,
-      replaySeconds,
-    };
+    const video = page.locator("video").first();
+    const failedText = page.getByText("녹화를 불러오지 못했어요");
+    const replayUntil = Date.now() + 15 * 60 * 1000;
+    while (!(await video.isVisible())) {
+      if (await failedText.isVisible()) throw new Error("녹화 합치기 실패(녹화를 불러오지 못했어요)");
+      if (Date.now() > replayUntil) throw new Error("15분 안에 다시보기 영상이 나오지 않았다");
+      await page.waitForTimeout(2000);
+    }
+    t.replaySeconds = seconds(replayFrom);
+    return t;
   } catch (e) {
     const error = e instanceof InterviewStepError ? e : new InterviewStepError(step, String(e));
-    error.sessionId = sessionId;
+    error.sessionId = t.sessionId;
+    error.timings = t;
     throw error;
   }
 }

@@ -89,6 +89,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 
 - `s5-levels.sh`는 단계마다 k6 출력(`results/s5-N<단계>.log`), 발생기 CPU · 메모리(`-generator.txt`, 15초마다), 서버 자원 요약(`-resources.txt`)을 남기고, 단계별 시각을 `results/s5-levels.tsv`에 쌓는다. 면접이 하나라도 실패하면 그 단계에서 멈춘다(`CONTINUE=1`이면 계속)
 - 재는 것: 질문 준비 · 첫 질문(면접관 입장) · 질문 간격 · 면접 · 결과 · 다시보기 시간. 첫 질문이 2분 안에 안 나오면 "면접관 입장" 실패로 센다(에이전트가 새 면접을 받지 않을 때)
+- 실패는 `interview_failed`(면접 자체)와 `replay_failed`(면접은 끝났지만 녹화 실패)로 나눠 세고, 실패해도 그 전까지 잰 값은 남긴다. 다시보기 화면에 "녹화를 불러오지 못했어요"가 나오면 바로 실패로 본다
 - Chromium은 WebGL을 끈다(면접관 3D 화면은 정지 이미지로 대신 나온다). 켜면 Chromium 1개가 노트북 CPU를 약 9코어 쓴다. 끄면 약 1.5코어 · 430MB. `BROWSER_3D=1`이면 켠다
 - 노트북 여러 대: 노트북마다 `ACCOUNT_OFFSET`(0 · 10 …)과 같은 `START_AT`(유닉스 초)을 주고 `s5-interview-browser.js`를 돌린다
 
