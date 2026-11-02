@@ -6,8 +6,7 @@ AI는 DB를 읽지 않으므로 BE가 작업에 필요한 내용을 메시지에
   큐 수신부는 job_header로 공통 필드를 읽을 수 있으면
   실패 결과(INVALID_JOB)를 전송하고 폐기한다(AI 명세 1.3).
 - 명세에 없는 필드는 무시한다.
-  고도화에서 회사 공시 요약(AI 명세 8장)이 추가돼도
-  배포 순서와 관계없이 작업을 처리하게 하기 위함이다.
+  고도화에서 필드가 추가돼도 배포 순서와 관계없이 작업을 처리하게 하기 위함이다.
 - 글자 수·토큰 수 상한은 BE가 답변을 저장할 때 검사하므로 여기서 다시 검사하지 않는다.
 """
 
@@ -100,6 +99,8 @@ class PlanJob(Job):
     # 자기소개서 문항(1~5개). 문항 순서대로다
     cover_letter_items: tuple[CoverLetterItem, ...]
     persona: Persona = Persona.COFFEE_CHAT
+    # 지원 회사의 회사 카드(AI 명세 8장). 파이프라인 카드 JSON을 그대로 두고, 없으면 None이다
+    company_card: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -195,6 +196,14 @@ def _persona(data: Mapping[str, Any]) -> Persona:
         return Persona(str(value))
     except ValueError as e:
         raise InvalidJobError("persona는 DEVIL 또는 COFFEE_CHAT이어야 한다") from e
+
+
+def _company_card(data: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """회사를 찾지 못했거나 카드가 없으면 필드가 없다(AI 명세 8장). 카드 내용은 해석하지 않는다."""
+    value = data.get("companyCard")
+    if value is None:
+        return None
+    return _object(value, "companyCard")
 
 
 def _object(value: Any, path: str) -> Mapping[str, Any]:
@@ -470,6 +479,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 job_title=_text(data, "jobTitle"),
                 cover_letter_items=_cover_letter_items(data),
                 persona=_persona(data),
+                company_card=_company_card(data),
             )
         case JobType.SCORE_ANSWER:
             return ScoreAnswerJob(

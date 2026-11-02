@@ -452,6 +452,32 @@ def test_unknown_persona_is_invalid(factory: Any, persona: Any) -> None:
         parse_job(message)
 
 
+# 기준: AI 명세 1.3·8장 companyCard(PLAN만, 카드가 없으면 필드 없음, 카드 내용은 해석하지 않음)
+def test_plan_keeps_company_card_as_received() -> None:
+    card = {"name": "한끗전자", "talent": [{"title": "도전"}], "future_field": 1}
+
+    job = parse_job(plan(companyCard=card))
+
+    assert isinstance(job, PlanJob)
+    assert job.company_card == card
+
+
+@pytest.mark.parametrize("card", [..., None])
+def test_plan_without_company_card_has_none(card: Any) -> None:
+    job = parse_job(plan(companyCard=card))
+
+    assert isinstance(job, PlanJob)
+    assert job.company_card is None
+
+
+@pytest.mark.parametrize("card", ["카드", [], 1, True])
+def test_company_card_that_is_not_object_is_invalid(card: Any) -> None:
+    message = plan(companyCard=card)
+
+    with pytest.raises(InvalidJobError, match="companyCard"):
+        parse_job(message)
+
+
 @pytest.mark.parametrize("seq", [0, 6, "3", True])
 def test_seq_outside_question_range_is_invalid(seq: Any) -> None:
     """질문은 seq 1~5로 5개다(AI 명세 2장)."""

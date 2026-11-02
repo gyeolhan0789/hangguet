@@ -336,3 +336,79 @@ def test_devil_uses_executive_criteria_for_targets() -> None:
 
     assert chat.calls[1] == build_regenerate_messages(devil, CLAIMS[:1], 2)
     assert [q.claim_id for q in result.questions] == ["c1"] * 5
+
+
+# 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 개발자 면접관이므로 사업 방향·시장을 사용한다.
+# 회사 항목은 co1부터 번호를 매긴다(co1 해외 결제 확대, co2 점유율 1위)
+CARD = {"direction": [{"summary": "해외 결제 확대"}], "market": [{"summary": "점유율 1위"}]}
+CARD_JOB = replace(JOB, company_card=CARD)
+DEVIL_CARD_JOB = replace(JOB, persona=Persona.DEVIL, company_card={"talent": [{"title": "해결"}]})
+
+
+def linked(*items: str) -> dict[str, Any]:
+    """앞 질문부터 순서대로 companyItem을 채운 질문 5개."""
+    reply = five()
+    for question_item, company_item in zip(reply["questions"], items, strict=False):
+        question_item["companyItem"] = company_item
+    return reply
+
+
+@pytest.mark.parametrize("items", [(), ("co1",), ("co1", "co2"), ("co1", "")])
+def test_practical_interview_accepts_zero_to_two_company_links(items: tuple[str, ...]) -> None:
+    chat = FakeChat([linked(*items)])
+
+    result = generate_questions(chat, CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 1
+    assert [q.company_item for q in result.questions[: len(items)]] == [i or None for i in items]
+
+
+def test_executive_interview_accepts_one_company_link() -> None:
+    chat = FakeChat([linked("co1")])
+
+    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 1
+
+
+def test_executive_interview_without_company_link_is_retried() -> None:
+    chat = FakeChat([linked(), linked("co1")])
+
+    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "first",
+    [
+        pytest.param(linked("co1", "co2", "co1"), id="three-links"),
+        pytest.param(linked("co3"), id="item-not-in-card"),
+        pytest.param(linked("해외 결제 확대"), id="item-name-instead-of-id"),
+    ],
+)
+def test_wrong_company_links_are_retried_once(first: dict[str, Any]) -> None:
+    chat = FakeChat([first, linked("co1")])
+
+    generate_questions(chat, CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+
+
+def test_company_link_without_card_is_retried() -> None:
+    """카드가 없는데 회사 항목을 연결했다면 주어지지 않은 회사 정보를 전제로 한 질문이다."""
+    chat = FakeChat([linked("co1"), five()])
+
+    generate_questions(chat, JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+
+
+def test_last_attempt_keeps_questions_with_wrong_company_links() -> None:
+    """회사 정보 연결이 어긋나도 플랜 생성 전체가 실패하지 않도록 마지막 시도는 그대로 사용한다."""
+    chat = FakeChat([linked(), linked()])
+
+    result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+    assert all(q.company_item is None for q in result.questions)

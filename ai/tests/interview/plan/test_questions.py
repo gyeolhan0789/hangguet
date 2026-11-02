@@ -181,3 +181,81 @@ def test_parse_targets_keeps_ids_and_criteria_as_received() -> None:
     content = {"targetClaims": [{"claimId": "c9", "criterion": "협력·소통", "evidence": "근거"}]}
 
     assert parse_targets(content) == (TargetClaim("c9", "협력·소통", "근거"),)
+
+
+# 기준: AI 명세 2장 회사 카드 사용(악마 면접관은 인재상, 개발자 면접관은 사업 방향·시장)
+CARD: dict[str, Any] = {
+    "talent": [{"title": "해결", "details": ["스스로 문제를 정의하고 해결한다"]}],
+    "direction": [{"summary": "해외 결제 확대"}],
+    "market": [],
+}
+COMPANY_RULES = {
+    Persona.DEVIL: "- [회사 인재상]이 주어지면 자소서 주장을 회사 인재상과 연결해 묻는다",
+    Persona.COFFEE_CHAT: (
+        "- [회사 사업 방향·시장]이 주어지면 경험과 이어지는 경우에만 "
+        "경험을 회사 사업 방향·시장과 연결해 묻는다"
+    ),
+}
+NO_INVENTED_COMPANY = "주어지지 않은 회사 정보를 전제로 묻지 않는다"
+COMPANY_SECTIONS = {
+    Persona.DEVIL: "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n\n[주장]\n",
+    Persona.COFFEE_CHAT: "[회사 사업 방향·시장]\nco1 사업 방향: 해외 결제 확대\n\n[주장]\n",
+}
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_company_card_is_sent_for_interviewer(persona: Persona) -> None:
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 면접관이 사용할 회사 정보를 전송한다."""
+    job = replace(JOB, persona=persona, company_card=CARD)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert COMPANY_RULES[persona] in messages[0]["content"]
+        assert NO_INVENTED_COMPANY in messages[0]["content"]
+        assert COMPANY_SECTIONS[persona] in messages[1]["content"]
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_no_company_section_without_card(persona: Persona) -> None:
+    job = replace(JOB, persona=persona)
+
+    user = build_question_messages(job, CLAIMS)[1]["content"]
+
+    assert user == (
+        "회사: ○○전자\n직무: 백엔드 개발자\n\n[주장]\n"
+        "c1 (NUMBER, 문장 4) 주문 조회 응답 시간을 40% 줄였다\n"
+        "c2 (EXPERIENCE, 문장 5) 캐시 계층을 설계했다"
+    )
+
+
+# 개발자 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다
+COMPANY_ITEM_COUNTS = {Persona.DEVIL: "1~2개", Persona.COFFEE_CHAT: "0~2개"}
+COMPANY_ITEM_RULE = (
+    "질문만 회사 정보와 연결하고, 연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
+    "질문 내용이 회사 정보를 다루지 않으면 연결하지 않는다"
+)
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_questions_name_linked_company_item(persona: Persona) -> None:
+    system = build_question_messages(replace(JOB, persona=persona), CLAIMS)[0]["content"]
+    rule = f"- companyItem: 회사 정보가 주어지면 {COMPANY_ITEM_COUNTS[persona]} {COMPANY_ITEM_RULE}"
+
+    assert rule in system
+    assert '"companyItem": str' in system
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [(..., None), (None, None), ("", None), (" ", None), (" co1 ", "co1")]
+)
+def test_company_item_is_optional(value: Any, expected: str | None) -> None:
+    item = question(1) if value is ... else {**question(1), "companyItem": value}
+
+    assert parse_questions({"questions": [item]})[0].company_item == expected
+
+
+def test_company_item_that_is_not_text_is_output_error() -> None:
+    with pytest.raises(PlanOutputError):
+        parse_questions({"questions": [{**question(1), "companyItem": 1}]})
