@@ -1,4 +1,4 @@
-// 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.5.
+// 2. 회원 응답. 기준: 웹 Swagger 2.1 ~ 2.10.
 import type { OffsetDateTime } from "../common";
 
 /** 소셜 로그인 제공자. KAKAO 카카오, GOOGLE 구글 */
@@ -40,3 +40,15 @@ export interface PasswordChangeResponse {
 
 // 2.4 프로필 사진 업로드 주소(200)는 공통 UploadUrlResponse(../common)
 // 2.6 프로필 사진 삭제 · 2.7 회원 탈퇴는 204(본문 없음)
+
+/** 2.8 연습 알림 설정 · 2.9 켜기 · 2.10 시각 변경 (200) */
+export interface PracticeAlarmResponse {
+  /** 카카오로 가입한 회원이면 true. false면 알림을 켤 수 없다 */
+  available: boolean;
+  /** 알림이 켜져 있으면 true */
+  enabled: boolean;
+  /** 알림 시각(한국 시간, HH:mm). 고르지 않았으면 "21:00" */
+  time: string;
+}
+
+// 2.11 연습 알림 끄기는 204(본문 없음)

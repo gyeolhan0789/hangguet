@@ -10,12 +10,14 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 //   (입력 즉시 검사: 이메일 형식 · 중복, 비밀번호 조건, 확인 일치 → 칸 아래 안내 /
 //    필수 동의 + 모든 칸 통과해야 버튼 활성화 / 가입 완료 → 자동 로그인 → S02-D 첫 방문 홈),
 //   S01-1 모션 메모(규칙 칩 ○ → ✓, 전체 동의 → 하위 체크), 웹 Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입
-// 필수 동의는 Figma의 2개에 녹화 · 음성 동의를 더한 3개다(웹 Swagger 1.2 필수 약관 3개).
+// 필수 동의는 Figma의 2개에 녹화 · 음성 동의(웹 Swagger 1.2 필수 약관 3개)와 만 14세 이상 확인(사용자 결정 2026-10-30)을 더한 4개다.
+// [보기]는 본문 모달을 연다(lib/legal/documents.ts).
 
 const NICKNAME = "면접왕";
 const EMAIL = "a@ssafy.com";
 const PASSWORD = "abcd1234";
 const AGREEMENTS = [
+  "[필수] 만 14세 이상입니다",
   "[필수] 이용약관",
   "[필수] 개인정보 수집 · 이용",
   "[필수] 면접 녹화 · 음성 이용",
@@ -185,7 +187,7 @@ test.describe("S01-1 회원가입 · 입력 즉시 검사", () => {
 });
 
 test.describe("S01-1 회원가입 · 약관 동의 · 버튼 활성화", () => {
-  test("[전체 동의]를 누르면 필수 약관 3개가 모두 체크되고, 다시 누르면 모두 풀린다", async ({
+  test("[전체 동의]를 누르면 필수 동의 4개가 모두 체크되고, 다시 누르면 모두 풀린다", async ({
     page,
   }) => {
     await page.goto("/signup");
@@ -202,6 +204,8 @@ test.describe("S01-1 회원가입 · 약관 동의 · 버튼 활성화", () => {
     for (const label of AGREEMENTS) {
       await expect(page.getByRole("checkbox", { name: label })).not.toBeChecked();
     }
+    // 만 14세 이상 확인 줄에는 본문이 없어 [보기]가 없다
+    await expect(page.getByRole("button", { name: /보기$/ })).toHaveCount(3);
   });
 
   test("하나씩 모두 체크하면 [전체 동의]도 체크되고, 하나를 풀면 [전체 동의]도 풀린다", async ({
@@ -232,9 +236,38 @@ test.describe("S01-1 회원가입 · 약관 동의 · 버튼 활성화", () => {
     await page.getByText("[필수] 면접 녹화 · 음성 이용").click();
     await expect(submitButton(page)).toBeEnabled();
 
+    // 만 14세 이상 확인을 풀어도 막힌다(서버에는 보내지 않는 화면 확인).
+    await page.getByText("[필수] 만 14세 이상입니다").click();
+    await expect(submitButton(page)).toBeDisabled();
+    await page.getByText("[필수] 만 14세 이상입니다").click();
+    await expect(submitButton(page)).toBeEnabled();
+
     // 비밀번호 조건이 깨져도 막힌다.
     await passwordInput(page).fill("abcdefgh");
     await expect(submitButton(page)).toBeDisabled();
+  });
+
+  test("[보기]는 동의 항목의 본문을 모달로 보여 주고, [확인]으로 닫는다. 체크는 바뀌지 않는다", async ({
+    page,
+  }) => {
+    await page.goto("/signup");
+
+    for (const [button, title] of [
+      ["서비스 이용약관 보기", "서비스 이용약관"],
+      ["개인정보 수집 · 이용 동의 보기", "개인정보 수집 · 이용 동의"],
+      ["면접 녹화 · 음성 이용 동의 보기", "면접 녹화 · 음성 이용 동의"],
+    ]) {
+      await page.getByRole("button", { name: button }).click();
+      const dialog = page.getByRole("dialog", { name: title });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole("button", { name: "확인" }).click();
+      await expect(dialog).toBeHidden();
+    }
+    for (const label of AGREEMENTS) {
+      await expect(page.getByRole("checkbox", { name: label })).not.toBeChecked();
+    }
+    // 만 14세 이상 확인 줄에는 본문이 없어 [보기]가 없다
+    await expect(page.getByRole("button", { name: /보기$/ })).toHaveCount(3);
   });
 });
 

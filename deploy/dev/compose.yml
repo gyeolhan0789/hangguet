@@ -175,6 +175,9 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       S3_BUCKET: a301-livekit-recordings-dev
       AWS_REGION: ap-northeast-2
+      # 회사 카드 공용 버킷(docs/ERD-회사카드.md). 파이프라인이 올린 카드를 운영과 같이 읽어 이 서버 DB에 넣는다.
+      # 앱 키(a301-dev-app)에 이 버킷 읽기 권한이 있어야 한다. 없으면 적재만 경고 로그를 남기고 넘어간다
+      COMPANY_S3_BUCKET: hanggeut-a301-company
       # 소셜 로그인(API 명세 1.6). 콜백 주소는 FE 화면 주소이며 카카오 · 구글 앱에 등록한 주소와 같아야 한다(쉼표로 구분).
       # 개발 서버는 FE를 로컬에서 띄워 확인할 수 있게 localhost도 받는다
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}

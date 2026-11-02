@@ -7,6 +7,7 @@
 companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 ⑤ 뉴스 수집(규칙으로 거르기 → 같은 사건 묶기) ───────┴→ ③ LLM 요약(원문 인용) → ④ 인용 검증
                                                       → data/cards/{고유번호}.json
+                                                      → ⑥ 카드 올리기(AWS 공용 버킷, BE가 적재)
 ```
 
 ③은 항목마다 LLM을 따로 부른다(인재상, 사업 방향, 경쟁·시장, 최근 이슈 → 회사당 최대 4번). 원문이 없는 항목은 부르지 않는다.
@@ -24,6 +25,11 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
   "prompt_version": "card-v9",
   "model": "gpt-4.1-mini",
   "talent_model": "gpt-5.6-terra",
+  "report": {"rcept_no": "20260317000521", "title": "사업보고서 (2025.12)",
+             "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260317000521",
+             "published": "2026-03-17"},
+  "talent_page": {"url": "https://www.samsungsdi.co.kr/career/index.html",
+                  "collected_at": "2026-10-20"},
   "talent": [
     {"title": "Passion and Challenge", "parent": null,
      "details": ["열정과 도전", "끊임없는 열정으로 미래에 도전하는 인재"],
@@ -52,6 +58,8 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 |---|---|
 | `corp_code`, `name` | DART 고유번호, DART 등록 회사명 |
 | `generated_at`, `prompt_version`, `model`, `talent_model` | 카드를 만든 날, 프롬프트 버전, LLM 모델, 인재상에 쓴 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
+| `report` | `direction`·`market`을 뽑은 사업보고서. `rcept_no` DART 접수번호, `title` 보고서명, `url` DART 공시 화면, `published` 접수일. 사업보고서가 없으면 `null` |
+| `talent_page` | `talent`를 뽑은 인재상 원문. `url` 채용 페이지 주소, `collected_at` 복사한 날. 인재상 원문이 없으면 `null` |
 | `talent[]` | 원문에 나열된 인재상·행동 원칙마다 하나(개수 제한 없음). `title` 항목명 또는 원칙 문장, `parent` 상위 범주(없으면 `null`), `details` 설명 구절 배열(없으면 `[]`)로 셋 다 원문 그대로. `source` 채용 페이지 주소. 상위 범주 아래 세부 항목이 있으면 세부 항목이 하나씩 들어간다 |
 | `direction[]` | 앞으로 집중·강화하려는 사업 방향 1~3개. `summary` 요약, `quote` 사업보고서 원문 그대로, `source` 출처 이름 |
 | `market[]` | 경쟁 위치(점유율·주요 고객·경쟁사 등) 1~3개. 필드는 `direction`과 같다 |
@@ -61,6 +69,8 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 - card-v8 이전 카드의 인재상은 `keyword`·`quote` 형식이다. 확인 화면은 두 형식을 모두 보여 준다
 - 사업보고서가 없는 회사(비상장 등)는 `direction`·`market`이 빈 배열인 **부분 카드**다
 - 인재상 원문이 없는 회사는 `talent`가 빈 배열이다
+- `report`·`talent_page`는 카드 전체 생성 때 채운다(2026-10-30 추가). 그 전에 만든 카드에는 칸이 없고, 매일 작업(최근 이슈만 갱신)은 기존 칸을 그대로 둔다. 그래서 칸이 없는 카드를 다시 채우려면 카드 전체 생성을 한 번 돌린다
+- 카드 형식은 BE를 거쳐 AI 작업 메시지(`companyCard`)로 그대로 넘어간다. 칸을 바꾸거나 빼면 `prompt_version`을 올리고 AI 담당과 맞춘다([회사 카드 ERD](../../docs/ERD-회사카드.md))
 
 ## 현황 (2026-10-26)
 
@@ -82,6 +92,9 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 인재상은 공식 채용 페이지에서 글자 그대로 복사해 `talent_text`에, 그 페이지 주소를 `talent_url`에,
 복사한 날짜를 `talent_collected_at`에 넣는다. 인재상 페이지가 없으면 "일하는 방식" 같은 페이지를 쓰고,
 그것도 없으면 비워 둔다(카드에 사업 방향만 남는다).
+
+`aliases`(선택)는 지원자가 지원서에 쓸 수 있는 다른 이름을 쉼표로 적는다(예: `"SDS, 삼성 SDS"`).
+회사명·DART 영문명·기사 검색어는 따로 적지 않아도 별칭에 들어간다. BE는 지원서 회사명을 별칭에서 찾아 카드를 붙인다(⑥).
 
 ### 회사 후보 추가 도구
 
@@ -108,7 +121,7 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 - 끝에 `companies.json`에 붙여 넣을 줄을 출력한다. 입력한 이름이 정식명과 다르면 기사 검색어(`news_query`)로 넣는다. 인재상 칸은 사람이 채운다
 
 ```json
-[{"name": "삼성전자", "news_query": "기사 검색어(회사명과 다를 때만)", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문", "talent_collected_at": "2026-10-20"}]
+[{"name": "삼성전자", "news_query": "기사 검색어(회사명과 다를 때만)", "aliases": "별칭(선택, 쉼표로 구분)", "talent_url": "채용 페이지 주소", "talent_text": "인재상 원문", "talent_collected_at": "2026-10-20"}]
 ```
 
 ## 환경변수
@@ -126,6 +139,9 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | developers.naver.com 애플리케이션의 검색 API 키 |
 | `EMBED_URL`, `EMBED_MODEL`, `EMBED_API_KEY` | 기사 묶기용 embeddings 주소·모델·키 (비우면 로컬 Ollama `bge-m3`) |
 | `SAME_EVENT` | 같은 사건 묶기 기준값. 기본 0.58(text-embedding-3-large), bge-m3면 0.65 |
+| `CARD_S3_BUCKET` | 카드를 올릴 AWS 공용 버킷(⑥). 비우면 `data/publish/`에 쓴다 |
+| `CARD_AWS_ACCESS_KEY_ID`, `CARD_AWS_SECRET_ACCESS_KEY` | 공용 버킷 쓰기 키(IAM `a301-company-pipeline`). MinIO용 `S3_*`와 따로 둔다 |
+| `CARD_AWS_REGION` | 공용 버킷 리전 (기본 `ap-northeast-2`) |
 
 기본 설정 (SSAFY GMS, 2026-10-22 모델 비교로 선택):
 
@@ -160,6 +176,7 @@ cd company-pipeline
 uv run --env-file .env python -m pipeline.news             # 최근 기사 수집 (날마다, 먼저)
 uv run --env-file .env python -m pipeline.run              # companies.json 전체
 uv run --env-file .env python -m pipeline.run --only 카카오  # 한 곳만
+uv run --env-file .env python -m pipeline.publish          # 카드를 공용 버킷에 올리기
 ```
 
 - 한 회사가 실패해도 나머지는 계속하고, 끝에 실패한 회사를 알려 준다
@@ -190,7 +207,7 @@ uv run --env-file .env python -m pipeline.viewer
 - DART 고유번호 목록에서 한글명·영문명으로 검색해 **고른 회사만** 추가한다(직접 친 이름은 추가하지 않는다)
 - 검색에 없는 약칭은 "AI로 정식 회사명 찾기"(DART 목록에서 하나로 정해질 때만 보여 줌)
 - 고르면 최근 1년 사업보고서가 있는지 DART로 확인한다. 없으면(비상장 등) 인재상·최근 이슈만 있는 부분 카드가 된다. 이미 등록된 회사는 추가할 수 없다
-- 기사 검색어·인재상(페이지 주소, 원문)은 함께 넣거나 비워 두고 나중에 채운다
+- 기사 검색어·별칭·인재상(페이지 주소, 원문)은 함께 넣거나 비워 두고 나중에 채운다
 - 추가 후 다음 매일 작업(13:00)이나 Airflow ▶에서 카드가 만들어진다. `companies.json` 변경은 커밋해야 팀에 반영된다
 - 서버는 127.0.0.1에만 열려 이 컴퓨터에서만 쓸 수 있다
 - EC2에서는 compose의 `viewer` 컨테이너가 띄우고, `https://pipeline-cards.hangguet.co.kr/viewer.html`(Cloudflare Access, 허용 이메일만)에서 **바로 회사를 추가**할 수 있다
@@ -218,3 +235,31 @@ uv run --env-file .env python -m pipeline.viewer
 ## 데이터
 
 원문·기사는 `storage.py`로 저장한다. `S3_ENDPOINT`가 있으면 MinIO, 없으면 `data/` 폴더에 같은 경로(`reference/`·`raw/`·`processed/`)로 둔다. 경로 구조는 [Airflow README](../airflow/README.md#데이터-minio-버킷-company-pipeline). 만든 카드는 `data/cards/`에 저장한다. `data/`는 git에서 제외한다.
+
+## 카드 올리기 (⑥)
+
+`publish.py`가 카드와 `manifest.json`을 AWS 공용 버킷(`CARD_S3_BUCKET`)에 올린다. Airflow는 두 DAG 끝에서 자동으로 부른다.
+원문·기사는 MinIO에 그대로 두고, BE가 읽을 카드만 올린다. 개발·운영 BE가 같은 버킷을 읽어 각자 DB에 넣는다(설계: [회사 카드 ERD](../../docs/ERD-회사카드.md)).
+
+| 키 | 내용 |
+|---|---|
+| `cards/{고유번호}/{sha256}.json` | 카드 파일 그대로. 내용이 바뀌면 키도 바뀐다 |
+| `manifest.json` | 이번에 올린 회사 목록. 카드를 모두 올린 뒤 마지막에 쓴다 |
+
+```json
+{
+  "format": 1,
+  "run_id": "2026-10-30T13:42:10+09:00",
+  "companies": [
+    {"corp_code": "00126186", "name": "삼성에스디에스", "is_listed": true,
+     "aliases": ["삼성에스디에스", "samsungsds", "삼성sds", "sds"],
+     "generated_at": "2026-10-30", "card_key": "cards/00126186/9f2c….json", "sha256": "9f2c…"}
+  ]
+}
+```
+
+- `aliases`는 회사명·DART 영문명·기사 검색어·`aliases` 칸을 `candidates.key` 규칙(띄어쓰기·문장부호·`(주)`·`주식회사`·Co., Ltd·Corp·Inc 제거, 소문자)으로 맞춘 것이다. BE도 지원서 회사명을 같은 규칙으로 맞춰 찾는다
+- `sha256`은 올린 카드 파일 내용의 해시다. BE는 지금 카드와 해시가 같으면 건너뛴다
+- 회사 목록에 있고 카드가 있는 회사만 올린다. 목록에서 뺀 회사는 manifest에서 빠진다(BE는 이미 넣은 카드를 지우지 않는다)
+- 바뀌지 않은 카드도 매번 같은 키로 다시 올린다. 버킷 수명 주기로 지난 카드(`cards/`, 30일)를 정리해도 지금 카드는 남는다
+- 올릴 카드가 하나도 없으면 실패한다(빈 manifest를 쓰지 않는다)

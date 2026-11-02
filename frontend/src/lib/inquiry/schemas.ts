@@ -31,6 +31,15 @@ export const guestInquirySchema = z.object({
 export type GuestInquiryValues = z.infer<typeof guestInquirySchema>;
 export const GUEST_INQUIRY_FIELDS = guestInquirySchema.keyof().options;
 
+/**
+ * I01-B 폼: 9.1 본문에 개인정보 수집 · 이용 동의를 더한다(「개인정보 보호법」 제15조 · 사용자 결정 2026-10-30).
+ * 동의는 9.1이 받지 않으므로 서버에 보내지 않고 화면에서만 확인한다.
+ */
+export const guestInquiryFormSchema = guestInquirySchema.extend({
+  agreed: z.boolean().refine((value) => value, "개인정보 수집 · 이용에 동의해 주세요."),
+});
+export type GuestInquiryFormValues = z.infer<typeof guestInquiryFormSchema>;
+
 /** I04 비회원 문의 확인: 문의번호(양의 정수) · 조회 비밀번호 */
 export const guestLookupSchema = z.object({
   inquiryId: z

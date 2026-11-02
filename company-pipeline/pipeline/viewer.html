@@ -244,6 +244,8 @@ $("view").addEventListener("click", (e) => {
   <div id="extra" hidden>
     <label for="news_query">기사 검색어 (기사에서 부르는 이름이 다를 때만)</label>
     <input id="news_query" placeholder="예: 삼성SDS">
+    <label for="aliases">별칭 (지원서에 쓸 수 있는 다른 이름, 쉼표로 구분. 회사명·영문명·기사 검색어는 자동으로 들어간다)</label>
+    <input id="aliases" placeholder="예: SDS, 삼성 SDS">
     <label for="talent_url">인재상 페이지 주소 (공식 채용 페이지)</label>
     <input id="talent_url" placeholder="https://">
     <label for="talent_text">인재상 원문 (페이지 문장 그대로, 비워도 됨)</label>
@@ -284,7 +286,7 @@ $("view").addEventListener("click", (e) => {
         (info.registered ? "이미 등록된 회사" : info.report ? "최근 1년 사업보고서 있음 ✓ 전체 카드"
           : "사업보고서 없음 → 인재상·최근 이슈만 있는 부분 카드 (인재상 원문을 꼭 채워 주세요)");
       $("extra").hidden = !ok; $("do-add").disabled = !ok; picked = ok ? info : null;
-      for (const f of ["news_query", "talent_url", "talent_text"]) $(f).value = "";
+      for (const f of ["news_query", "aliases", "talent_url", "talent_text"]) $(f).value = "";
     } catch (err) { say(err.message, "err"); }
   };
   $("q").addEventListener("input", () => {
@@ -307,7 +309,7 @@ $("view").addEventListener("click", (e) => {
   $("do-add").addEventListener("click", async () => {
     if (!picked) return;
     const body = { code: picked.code };
-    for (const f of ["news_query", "talent_url", "talent_text", "talent_collected_at"]) body[f] = $(f).value;
+    for (const f of ["news_query", "aliases", "talent_url", "talent_text", "talent_collected_at"]) body[f] = $(f).value;
     try { const r = await api("/api/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       say(`${r.added} 추가됨${r.report ? "" : " (부분 카드)"}. 다음 매일 작업(13:00)이나 Airflow ▶에서 카드가 만들어진다` +
         (serverMode ? "" : ". companies.json 변경은 커밋해야 팀에 반영된다"), "ok");
@@ -334,6 +336,8 @@ $("view").addEventListener("click", (e) => {
     매일 작업(13:00)은 최근 이슈만 갱신한다.</p>
   <label for="edit_news_query">기사 검색어 (기사에서 부르는 이름이 다를 때만, 비우면 회사명)</label>
   <input id="edit_news_query">
+  <label for="edit_aliases">별칭 (지원서에 쓸 수 있는 다른 이름, 쉼표로 구분. 다음 카드 업로드부터 반영)</label>
+  <input id="edit_aliases">
   <label for="edit_talent_url">인재상 페이지 주소 (공식 채용 페이지)</label>
   <input id="edit_talent_url" placeholder="https://">
   <label for="edit_talent_text">인재상 원문 (페이지 문장 그대로, 비워도 됨)</label>
@@ -347,7 +351,7 @@ $("view").addEventListener("click", (e) => {
 // 정보 수정: /api/company로 지금 값을 채우고 /api/update로 저장한다. 회사명은 그대로 둔다
 (() => {
   const $ = (id) => document.getElementById(id);
-  const FIELDS = ["news_query", "talent_url", "talent_text", "talent_collected_at"];
+  const FIELDS = ["news_query", "aliases", "talent_url", "talent_text", "talent_collected_at"];
   let name = null, serverMode = false;
   const say = (text, cls = "") => { $("edit-msg").textContent = text; $("edit-msg").className = cls; };
   const api = async (path, init) => {

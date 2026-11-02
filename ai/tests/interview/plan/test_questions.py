@@ -7,9 +7,11 @@ from app.common.session import QUESTION_COUNT, Persona
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.questions import (
     Question,
+    TargetClaim,
     build_question_messages,
     build_regenerate_messages,
     parse_questions,
+    parse_targets,
     request_questions,
 )
 from app.worker.messages import Claim, ClaimType
@@ -38,32 +40,77 @@ def test_messages_list_claims_with_ids() -> None:
     )
 
 
-# 기준: AI 명세 2장 면접관별 질문 수준(개발자 면접관 = 실무면접, 구조 이해)
-PRACTICAL_GUIDE = "이 면접은 실무면접이다. 지원자가 자기소개서 경험의 구조를 이해하고 있는지 묻는다"
+# 기준: AI 명세 2장 면접관별 인재상 기준(개발자 면접관 = 실무면접, 악마 면접관 = 임원면접)
+ONLY_REVEALED = (
+    "다음 기준 중 자기소개서에 드러난 것에 대해서만 묻고, 드러나지 않은 기준은 묻지 않는다"
+)
+PRACTICAL_CRITERIA = (
+    "전문성·성장",
+    "도전·혁신",
+    "실행·성과",
+    "고객·사용자 중심",
+    "유연·적응·개방",
+    "성실·정확·품질",
+)
+EXECUTIVE_CRITERIA = (
+    "정직·윤리·공정",
+    "책임·주도성",
+    "협력·소통",
+    "존중·배려",
+    "글로벌·다양성 이해",
+    "사회적 책임·공공성",
+)
 PRACTICAL_EXCLUDED = "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다"
+PRESSURE_TONE = "질문 문장은 자기소개서 주장의 약점을 짚는 압박 어조로 작성"
+NO_BELITTLING = "지원자를 비하하거나 단정하는 표현은 쓰지 않는다"
+EXCLUDE_EXECUTIVE = f"- 임원면접 기준({', '.join(EXECUTIVE_CRITERIA)})은 묻지 않는다"
+EXCLUDE_PRACTICAL = f"- 실무면접 기준({', '.join(PRACTICAL_CRITERIA)})은 묻지 않는다"
+TARGETS_FIRST = "- targetClaims: 질문을 생성하기 전에 위 기준 중 하나 이상이 드러난 주장을 고른다"
+CLAIM_FROM_TARGETS = "- claimId: targetClaims에 있는 주장의 id만 그대로 작성한다"
+SPLIT_BY_CRITERIA = (
+    "targetClaims가 5개보다 적으면 같은 주장을 위 기준 중 다른 기준으로 나누어 다시 질문하고"
+)
 
 
-def test_coffee_chat_questions_ask_structure_understanding() -> None:
-    job = replace(JOB, persona=Persona.COFFEE_CHAT)
+@pytest.mark.parametrize("persona", list(Persona))
+def test_questions_use_only_claims_showing_interviewer_criteria(persona: Persona) -> None:
+    """질문 전에 면접관 기준이 드러난 주장을 고르게 하고, 그 주장으로만 질문하게 한다."""
+    system = build_question_messages(replace(JOB, persona=persona), CLAIMS)[0]["content"]
 
-    for messages in (
-        build_question_messages(job, CLAIMS),
-        build_regenerate_messages(job, CLAIMS, 3),
-    ):
-        system = messages[0]["content"]
-        assert PRACTICAL_GUIDE in system
-        assert PRACTICAL_EXCLUDED in system
+    assert TARGETS_FIRST in system
+    assert CLAIM_FROM_TARGETS in system
+    assert SPLIT_BY_CRITERIA in system
+    assert '"targetClaims": [{"claimId": str, "criterion": str, "evidence": str}]' in system
 
 
-def test_devil_questions_do_not_use_practical_guide() -> None:
-    """임원면접 지침은 질문 예시와 함께 추가하므로 그 전까지는 실무면접 지침을 쓰지 않는다."""
-    job = replace(JOB, persona=Persona.DEVIL)
+def system_prompts(persona: Persona) -> tuple[str, str]:
+    """처음 생성과 질문 하나를 다시 생성할 때의 시스템 프롬프트를 반환한다."""
+    job = replace(JOB, persona=persona)
+    return (
+        build_question_messages(job, CLAIMS)[0]["content"],
+        build_regenerate_messages(job, CLAIMS, 3)[0]["content"],
+    )
 
-    for messages in (
-        build_question_messages(job, CLAIMS),
-        build_regenerate_messages(job, CLAIMS, 3),
-    ):
-        assert PRACTICAL_GUIDE not in messages[0]["content"]
+
+@pytest.mark.parametrize("system", system_prompts(Persona.COFFEE_CHAT))
+def test_coffee_chat_questions_use_practical_criteria(system: str) -> None:
+    assert "이 면접은 실무면접이다" in system
+    assert ONLY_REVEALED in system
+    assert all(f"- {name}:" in system for name in PRACTICAL_CRITERIA)
+    assert not any(f"- {name}:" in system for name in EXECUTIVE_CRITERIA)
+    assert EXCLUDE_EXECUTIVE in system
+    assert PRACTICAL_EXCLUDED in system
+
+
+@pytest.mark.parametrize("system", system_prompts(Persona.DEVIL))
+def test_devil_questions_use_executive_criteria(system: str) -> None:
+    assert "이 면접은 임원면접이다" in system
+    assert ONLY_REVEALED in system
+    assert all(f"- {name}:" in system for name in EXECUTIVE_CRITERIA)
+    assert not any(f"- {name}:" in system for name in PRACTICAL_CRITERIA)
+    assert EXCLUDE_PRACTICAL in system
+    assert PRESSURE_TONE in system
+    assert NO_BELITTLING in system
 
 
 def test_parses_questions() -> None:
@@ -103,10 +150,34 @@ def test_broken_question_is_output_error(content: dict[str, Any]) -> None:
 
 
 def test_request_questions_calls_gms_once_and_keeps_model() -> None:
-    chat = FakeChat([{"questions": [question(seq) for seq in range(1, 6)]}])
+    target = {"claimId": "c1", "criterion": "실행·성과", "evidence": " 40% 줄였다 "}
+    chat = FakeChat([{"targetClaims": [target], "questions": [question(s) for s in range(1, 6)]}])
 
     result = request_questions(chat, JOB, CLAIMS)
 
     assert chat.calls == [build_question_messages(JOB, CLAIMS)]
     assert [q.seq for q in result.questions] == [1, 2, 3, 4, 5]
     assert result.model == "gms-served"
+    assert result.targets == (TargetClaim("c1", "실행·성과", "40% 줄였다"),)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        {},
+        {"targetClaims": "c1"},
+        {"targetClaims": ["c1"]},
+        {"targetClaims": [{"claimId": "c1", "criterion": "실행·성과"}]},
+        {"targetClaims": [{"claimId": "c1", "criterion": " ", "evidence": "근거"}]},
+    ],
+)
+def test_parse_targets_rejects_broken_items(content: dict[str, Any]) -> None:
+    with pytest.raises(PlanOutputError):
+        parse_targets(content)
+
+
+def test_parse_targets_keeps_ids_and_criteria_as_received() -> None:
+    """주장 id와 기준 이름은 결과 검증 단계가 검사하므로 형식 검사에서는 그대로 유지한다."""
+    content = {"targetClaims": [{"claimId": "c9", "criterion": "협력·소통", "evidence": "근거"}]}
+
+    assert parse_targets(content) == (TargetClaim("c9", "협력·소통", "근거"),)

@@ -147,6 +147,16 @@ def test_update_clears_query_same_as_name_and_date_without_text(tmp_path: Path) 
     assert row["talent_collected_at"] == ""  # 인재상 원문이 없으면 수집일도 비운다
 
 
+def test_update_cleans_aliases_and_drops_empty(tmp_path: Path) -> None:
+    companies = tmp_path / "companies.json"
+    companies.write_text(json.dumps([{"name": "삼성에스디에스"}], ensure_ascii=False), "utf-8")
+
+    row = update("삼성에스디에스", {"aliases": " 삼성SDS,, SDS , 삼성SDS "}, companies)
+    assert row["aliases"] == "삼성SDS, SDS"  # 공백·빈 이름·중복을 뺀다
+
+    assert "aliases" not in update("삼성에스디에스", {"aliases": " , "}, companies)
+
+
 def test_update_unknown_company(tmp_path: Path) -> None:
     companies = tmp_path / "companies.json"
     companies.write_text("[]", "utf-8")

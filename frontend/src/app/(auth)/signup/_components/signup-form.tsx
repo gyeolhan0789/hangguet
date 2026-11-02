@@ -8,15 +8,23 @@ import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
 import { Checkbox, Field, SubmitButton, TextInput, type FieldMessage } from "@/components/form";
+import { LegalModal } from "@/components/legal/legal-modal";
+import { LegalViewButton } from "@/components/legal/legal-view-button";
 import { checkEmailAvailable, signup } from "@/lib/auth/actions";
 import {
+  AGREEMENT_ITEMS,
   emailSchema,
   PASSWORD_MAX,
   PASSWORD_RULES,
   signupSchema,
-  TERMS,
   type SignupValues,
 } from "@/lib/auth/schemas";
+import {
+  PRIVACY_CONSENT,
+  RECORDING_CONSENT,
+  TERMS_OF_SERVICE,
+  type LegalDocument,
+} from "@/lib/legal/documents";
 import { ROUTES } from "@/lib/routes";
 
 const EMAIL_CHECK_DELAY_MS = 400;
@@ -24,6 +32,18 @@ const EMAIL_CHECK_DELAY_MS = 400;
 const SERVER_ERROR = "server";
 
 type EmailCheck = { email: string; available: boolean | null };
+
+/**
+ * [보기]로 여는 본문. 만 14세 확인 줄은 본문이 없다.
+ * 기준: Figma S01-1 동의 줄([보기]) · lib/legal/documents.ts · 사용자 결정(2026-10-30: 만 14세 이상 확인 추가, [보기]는 모달)
+ */
+const AGREEMENT_DOCUMENTS: Partial<
+  Record<(typeof AGREEMENT_ITEMS)[number]["type"], LegalDocument>
+> = {
+  TERMS: TERMS_OF_SERVICE,
+  PRIVACY: PRIVACY_CONSENT,
+  RECORDING: RECORDING_CONSENT,
+};
 
 function PasswordRules({ password }: { password: string }) {
   return (
@@ -61,6 +81,7 @@ function PasswordRules({ password }: { password: string }) {
 export function SignupForm({ onComplete }: { onComplete: () => void }) {
   const [formError, setFormError] = useState<string>();
   const [emailCheck, setEmailCheck] = useState<EmailCheck>();
+  const [viewing, setViewing] = useState<LegalDocument | null>(null);
   const {
     register,
     handleSubmit,
@@ -78,14 +99,14 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
       email: "",
       password: "",
       passwordConfirm: "",
-      agreements: { TERMS: false, PRIVACY: false, RECORDING: false },
+      agreements: { AGE: false, TERMS: false, PRIVACY: false, RECORDING: false },
     },
   });
 
   const email = useWatch({ control, name: "email" });
   const password = useWatch({ control, name: "password" });
   const agreements = useWatch({ control, name: "agreements" });
-  const allAgreed = TERMS.every(({ type }) => agreements[type]);
+  const allAgreed = AGREEMENT_ITEMS.every(({ type }) => agreements[type]);
 
   // 이메일 중복 확인: 형식이 맞으면 입력이 멈춘 뒤 0.4초 후 확인한다. 늦게 온 이전 응답은 email이 달라 무시된다.
   const emailFormatOk = emailSchema.safeParse(email).success;
@@ -129,7 +150,7 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
   };
 
   function toggleAll(next: boolean) {
-    for (const { type } of TERMS) {
+    for (const { type } of AGREEMENT_ITEMS) {
       setValue(`agreements.${type}`, next, { shouldValidate: true, shouldDirty: true });
     }
   }
@@ -240,21 +261,25 @@ export function SignupForm({ onComplete }: { onComplete: () => void }) {
           <span className="text-[15px] leading-normal font-extrabold text-text-1">전체 동의</span>
         </Checkbox>
         <span className="h-px bg-line" aria-hidden />
-        {TERMS.map(({ type, label }, i) => (
-          <div key={type} className="flex items-center gap-2.5">
-            <Checkbox
-              checked={agreements[type]}
-              delay={allAgreed ? i * 0.05 : 0}
-              className="flex-1"
-              {...register(`agreements.${type}`)}
-            >
-              <span className="text-sm leading-normal font-medium text-text-1">{label}</span>
-            </Checkbox>
-            {/* 약관 본문이 아직 없어 보기 화면은 연결하지 않았다. */}
-            <span className="text-[13px] leading-normal font-semibold text-text-3">보기</span>
-          </div>
-        ))}
+        {AGREEMENT_ITEMS.map(({ type, label }, i) => {
+          const doc = AGREEMENT_DOCUMENTS[type];
+          return (
+            <div key={type} className="flex items-center gap-2.5">
+              <Checkbox
+                checked={agreements[type]}
+                delay={allAgreed ? i * 0.05 : 0}
+                className="flex-1"
+                {...register(`agreements.${type}`)}
+              >
+                <span className="text-sm leading-normal font-medium text-text-1">{label}</span>
+              </Checkbox>
+              {doc && <LegalViewButton title={doc.title} onClick={() => setViewing(doc)} />}
+            </div>
+          );
+        })}
       </fieldset>
+
+      <LegalModal doc={viewing} onClose={() => setViewing(null)} />
 
       <AnimatePresence initial={false}>
         {formError && (
