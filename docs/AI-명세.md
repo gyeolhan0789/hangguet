@@ -46,7 +46,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
 | 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` · `assignment.rejected` | `interview_questions`, `answers`(화상, `speech` 포함), `interview_sessions`의 `status` |
 
-`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)와 `answerStartedAt`을 저장할 `answers.started_at`은 BE 마이그레이션 V4로 추가했다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다.
+`interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)와 `answerStartedAt`을 저장할 `answers.started_at`은 BE 마이그레이션 V4로 추가했다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다. 같은 `speech`에 다시보기 타임라인용 값 `trailingOffAtMs`(말끝 흐린 문장의 끝 시각, 3장)와 `impressions`(답변 중 인상 판단, 6.6)도 담는다 **[제안]**. 둘 다 실시간 음성·사진으로만 구할 수 있고 답변 시각 기준이라 답변과 함께 둔다. 지금은 저장만 하고 채점·결과에는 쓰지 않는다.
 
 ### 1.2 Redis 진행 상태
 
@@ -223,6 +223,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 군말 목록과 2초는 로컬 실측(조용한 곳에서 망설임 소리·담화 표지가 모두 전사됨) 결과와 한국어 구어의 군말·쉼 쓰임을 근거로 정한 초안이다. 면접 단위 집계는 4장 `speech_metrics` 집계를 따른다.
 
+- **말끝 흐린 문장의 끝 시각 `trailingOffAtMs`** **[제안]** (에이전트) 말끝 흐림 비율을 구할 때 흐린 문장으로 집계한 문장의 마지막 단어 끝 시각(`answerStartedAt` 기준 밀리초) 목록이다. 시각 순이고, 흐린 문장이 없으면 빈 목록, 비율을 구하지 못했으면 null이다. 문장 경계·말끝 흐림 판정은 위 표와 같다. 다시보기 타임라인에서 말끝을 흐린 곳을 짚기 위해 남기며, 판정 입력과 면접 단위 집계에는 쓰지 않는다. 문장 경계는 `tokens`로 다시 구할 수 있지만 흐렸는지는 실시간 음성으로만 알 수 있어 따로 남긴다
+- 작업 메시지의 `speech`에는 `trailingOffRatio`·`pitchRangeSt`만 담는다. 타임라인용 값(`trailingOffAtMs`·`impressions`)은 채점에 쓰지 않기 때문이다
+
 - **판정 입력** 질문, 채점 기준, 답변 글. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다
 - **판정** 채점 기준을 잣대로 평가 항목 4개를 3단계로 판정한다(G-Eval)
   - 항목마다 판정 이유와 3단계(`level` 1 아쉬워요 · 2 보통 · 3 좋아요)를 받는다
@@ -255,7 +258,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
+- **입력(작업 메시지)** **[제안]** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`의 지표 2개)·`timeline`(화상, `answers.speech`의 `trailingOffAtMs`·`impressions`, 아래 다시보기 타임라인)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 고도화에서는 회사 공시 요약을 더한다
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -276,6 +279,24 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - 프롬프트 버전은 `evaluate-feedback-v3`(9장)
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
+
+**다시보기 타임라인** **[제안]** (화상만) 다시보기(API 명세 6.4)에서 면접 흐름 곡선과, 평소보다 유난히 낮은 지점(체크포인트)의 보완할 점을 보여 주기 위해 `WRITING_FEEDBACK` 단계에서 함께 만든다. 아래 수치는 모두 임시 값이며 실제 면접으로 조정한다.
+
+- **입력** 작업 메시지의 답변마다 `timeline`(`answers.speech`의 `trailingOffAtMs`·`impressions`, 없으면 null)과 `tokens`
+- **곡선 `points`** 답변마다 0초부터 1초 간격으로 네 값을 구한다
+  - 인상: 그 1초에 찍은 사진 중 `face` 0.5 이상인 판단의 6항목 평균(받지 못한 항목은 뺀다). 없으면 비운다
+  - 말끝 흐림·군말·긴 멈춤: 앞뒤 5초 안에 일어난 횟수. 말끝 흐림은 `trailingOffAtMs`, 군말·긴 멈춤은 3장 규칙으로 `tokens`에서 구한 시각(군말은 단어 시작, 긴 멈춤은 멈춤 시작)
+  - 네 값을 면접 전체 1초 값들의 평균·표준편차로 표준화한다. 음성 3개는 많을수록 나쁘므로 부호를 뒤집는다. 표준편차가 0이면 0이다. 점수와 횟수처럼 단위가 다른 값을 "그 면접의 평소에서 얼마나 벗어났나"로 같이 보기 위함이다
+  - 인상 1/2, 음성 3개 각 1/6로 가중 평균한다(비운 값은 빼고 남은 가중치로 나눈다). 개수가 많은 음성 쪽이 곡선을 좌우하지 않게 하기 위함이다. 이 값을 다시 면접 전체로 표준화한 것이 `value`(소수 둘째 자리)이고 0이 그 면접의 평균이다
+- **낮은 체크포인트 `checkpoints`** `value`가 −1.5 이하로 이어진 구간마다 가장 낮은 1초. 서로 10초 이내면 더 낮은 것만 남긴다. 높은 체크포인트는 나중에 더한다
+- **이유 `reasons`** 체크포인트 앞뒤 5초에서
+  - 인상 6항목 중 표준화 평균이 −1 이하인 항목
+  - 말끝 흐림·군말·긴 멈춤 중 1번 이상 있고 표준화 값이 −1 이하인 것(`count`는 앞뒤 5초 안의 횟수)
+  - 하나도 없으면 가장 낮은 값 하나
+  - `metric`: `STABILITY` 안정감 · `CONFIDENCE` 자신감 · `EXPRESSION` 의사표현 · `EMOTION` 감정 전달 · `LIKEABILITY` 매력도 · `TRUST` 신뢰도 · `TRAILING_OFF` 말끝 흐림 · `FILLER` 군말 · `LONG_PAUSE` 긴 멈춤
+- **문구 `text`** 면접 하나의 체크포인트 전체를 GMS에 한 번 보내 이유마다 보완할 점(100자 이하)을 받는다(프롬프트 `timeline-feedback-v1`). 입력은 질문, 체크포인트 앞뒤 5초에 말한 글, 이유와 횟수다. 실패하거나 형식이 틀리면 이유마다 정해진 문구를 쓴다
+- **결과** `answers[].evaluation.timeline` = `{ "points": [ { "atMs", "value" } ], "checkpoints": [ { "atMs", "startMs", "endMs", "value", "reasons": [ { "metric", "count", "text" } ] } ] }`. 시각은 `answerStartedAt` 기준 밀리초이고 `count`는 음성 이유에만 있다(인상은 null). 구할 값이 없는 답변(채팅, 판단·토큰이 모두 없음)은 null이다
+- 타임라인 계산·문구 생성이 실패해도 결과 생성을 실패로 처리하지 않는다. 그 면접의 타임라인만 null이다
 
 **`speech_metrics` 집계**
 
@@ -349,14 +370,17 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
   "answerStartedAt": "2026-10-22T14:02:18.250+09:00",
   "content": "조회 쿼리 실행 계획을 보고…",
   "tokens": [ { "text": "조회", "startMs": 0, "endMs": 280 } ],
-  "speech": { "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 },
+  "speech": { "trailingOffRatio": 12.5, "pitchRangeSt": 6.2, "trailingOffAtMs": [ 9120 ],
+              "impressions": { "promptVersion": "impression-v1", "modelVersion": "jev-1.14.0",
+                               "items": [ { "atMs": 1500, "face": 0.98, "stability": 62.5, "confidence": 70.1,
+                                            "expression": 55.0, "emotion": 48.3, "likeability": 66.0, "trust": 71.2 } ] } },
   "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12+09:00" }
 ```
 
 - `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 녹화 시작 시각과의 차이로 답변 위치를 구한다
 - `content`: 답변 글. 1~10,000자(BE와 같은 UTF-16 단위). 넘는 답변은 잘라 전송하지 않는다. 채점 대상 글이 변경되기 때문이다
 - `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 제외한다. 10,000개 이하, `0 ≤ startMs ≤ endMs`. STT가 재연결돼도 시각은 `answerStartedAt` 기준으로 이어서 계산한다. 토큰이 없으면 null
-- `speech`: 말끝 흐림 비율 `trailingOffRatio`·억양 폭 `pitchRangeSt`(계산은 3장 표). 구하지 못한 값은 null
+- `speech`: 말끝 흐림 비율 `trailingOffRatio`·억양 폭 `pitchRangeSt`(계산은 3장 표). 구하지 못한 값은 null. 다시보기 타임라인용으로 말끝 흐린 문장의 끝 시각 `trailingOffAtMs`(3장, 10,000개 이하, 0 이상, 시각 순)와 인상 판단 `impressions`(6.6)를 함께 담는다 **[제안]**. 둘 다 구하지 못했으면 null
 - `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
 - **채팅** 답변은 화면이 5.7로 BE에 낸다. 화면은 5.7 응답이 202이거나 409 `ANSWER_ALREADY_SUBMITTED`이면 `answer.submit`(`seq`)을 전송한다. 409를 포함하는 것은 새로고침 뒤 다시 제출해 이미 저장된 답변도 다음 질문으로 진행하게 하기 위함이다. 에이전트는 `seq`가 지금 질문일 때만 다음 질문으로 진행하고, 이미 진행한 질문의 `answer.submit`은 무시하고 `false`로 응답한다
@@ -376,6 +400,12 @@ STT 표시는 LiveKit 텍스트 스트림 `interview.stt`로 선택된 지원자
 - `confirmedText`는 누적 확정 글, `interimText`는 최신 미확정 글이다. `state`는 `listening`·`failed`다. 토큰별 시각은 이 메시지에 포함하지 않는다.
 - 브라우저는 현재 면접의 5.14 입장 정보로 연결하고 기존 마이크 트랙을 송출한다. 장치 권한과 입장 토큰은 별개다.
 - 새로고침 후에는 새 캡처를 시작하며 이전 자막은 복원하지 않는다. 이 메시지는 DB에 저장하지 않는다.
+
+인상 판단(6.6)용 카메라 사진은 LiveKit 바이트 스트림 `interview.frame`으로 화면이 에이전트(`interviewer`)에게만 보낸다 **[제안]**. RPC 본문 상한(15KiB)보다 사진이 커서 바이트 스트림을 쓴다.
+
+- 화상 면접 동안 1초마다 1장이다. 본문은 JPEG(640×480, 품질 0.8)이고, 속성 `ageMs`는 사진을 찍은 뒤 보낼 때까지 걸린 시간(밀리초, 0 이상 정수 문자열)이다
+- 사진은 화면이 시선 추적(API 명세 5.8)과 같은 MediaPipe 측정으로 고른다. 0.1초마다 두 눈 `eyeBlinkLeft`·`eyeBlinkRight` 평균을 재고, 그 1초 동안 가장 작은(눈을 가장 크게 뜬) 프레임을 보낸다. 얼굴이 잡히지 않은 1초는 보내지 않는다
+- 화면은 응답을 기다리지 않는다. 에이전트가 판단하지 않는 구간(질문 음성 재생 중 등)에도 보내며, 에이전트가 버린다
 
 이하 RPC의 본문은 JSON 문자열(15KiB 이하)이다. 질문은 `seq`(질문 순서 1~5)로 가리키고, 리액션·채팅 입력은 `seq`를 메시지 순번으로 사용하므로 질문을 `questionSeq`로 가리킨다. 메시지 종류와 화면 동작은 API 명세 면접방 메시지를 따른다.
 
@@ -414,6 +444,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | 상황 | 처리 |
 |---|---|
 | Jev 늦음·실패 | 그 문장은 리액션 없이 넘어감(6.4) |
+| 인상 판단 Jev 늦음·실패 | 그 사진은 남기지 않는다(6.6). 답변 진행과 제출에는 영향이 없다 |
 | LiveKit 일시 끊김 | 브라우저 SDK가 재접속하며 화면에 연결 중 상태를 표시한다. 완전히 끊기면 [다시 연결]로 5.14 입장 정보를 새로 받는다 |
 | 지원자 퇴장·새로고침 | 현재 STT 캡처를 정리하고 에이전트는 방에서 재입장을 기다린다. 재입장하면 새 캡처를 시작한다. 답변 중이었으면 그때까지 인식한 글을 폐기하고 답변 끝 판단의 7초·60초 계산을 멈추며, 재입장하면 같은 질문의 답변을 처음부터 다시 듣는다. 질문 음성 재생 중에 퇴장했으면 재입장 뒤 면접방 메시지 `question`(`started`)부터 질문을 다시 말하고, 결과 메시지 `question.started`는 다시 전송하지 않는다. 리액션의 태도(`attitude`)는 면접 전체에 대한 값이므로 유지하고, 폐기한 답변으로 판단 중이던 리액션은 전송하지 않는다. 같은 질문의 리액션 `seq`는 1로 되돌리지 않고 이어서 증가시킨다. 새로 연결한 화면은 이전 채팅 입력 `seq`를 알 수 없으므로, 재입장하면 수신한 채팅 입력 `seq` 기록을 초기화한다 |
 | Soniox STT 오류 | `interview.stt`의 `state: failed`와 `answer.state`(`sttFailed`)를 전송한다. 화면은 마지막 텍스트와 실패 안내를 유지한다. 그 답변에서 발화가 있었으면, [답변 완료](`answer.submit`)를 수신할 때 그때까지 인식된 글을 제출한다. STT 오류는 지원자가 일으킨 것이 아니므로 인식된 글을 폐기하지 않는다. 발화가 없었으면 [답변 완료]는 `2001 EMPTY_ANSWER`로 거절되므로, 오류 상태에서도 60초를 계속 계산해 답변 시작 60초 뒤 `answer.state`(`timedOut`)를 전송한다 |
@@ -423,6 +454,21 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]** |
 | 동시 면접 상한 초과 | 배정을 거절하고 결과 메시지 `assignment.rejected`(`CAPACITY_EXCEEDED`)를 전송한다. BE는 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다(1.4) |
 | 배정 정보 형식 오류 | LiveKit이 배정을 에이전트에 전달할 때 방에 들어가지 않고 거절한다. 틀린 배정 정보로는 질문을 진행할 수 없고, 같은 배정 정보로는 어느 에이전트 서버도 진행할 수 없으므로 다른 에이전트 서버에 다시 넘기지 않는다. 결과 메시지 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송하고, BE·화면 처리는 동시 면접 상한 초과와 같다 |
+
+### 6.6 인상 판단 (Jev 이미지) **[제안]**
+
+화상 답변을 듣는 동안 지원자 카메라 사진으로 인상 6가지를 1초마다 판단해, 그 답변의 `speech.impressions`(6.2)에 담는다. 나중에 다시보기 타임라인에서 지표가 유난히 낮은 구간을 짚는 데 쓰며, 지금은 저장만 한다.
+
+- **판단 구간** 화상 답변을 듣는 동안(6.2 2~4번) 받은 사진만 판단한다. 질문 음성 재생 중·답변 사이·채팅 면접의 사진은 버린다. 저장 위치가 답변이기 때문이다
+- **시각 `atMs`** 사진을 찍은 시각에서 `answerStartedAt`을 뺀 값(밀리초)이다. 찍은 시각은 에이전트가 받은 시각에서 `ageMs`(6.3)를 뺀다. 브라우저 시계는 서버와 어긋날 수 있어 쓰지 않는다. 0 미만이면 버린다
+- **판단** Jev(`jev-1.14.0`) 이미지 입력(`assets`, 요청 헤더 `TypeSafe-Danger-Zone-Images: true`)으로 한 요청에 묻는다
+  - `face`: 웹캠으로 찍은 실제 사람 얼굴이 표정·시선을 알아볼 만큼 보이는지(`noul` 확률, 0~1). 그림·캐릭터·화면 속 화면에도 인상 점수가 높게 나와 같이 묻는다
+  - 인상 6가지(`score`, 5단계): 안정감 `stability`·자신감 `confidence`·의사표현 `expression`·감정 전달 `emotion`·매력도 `likeability`·신뢰도 `trust`(역검 소통역량 관찰특성). 점수는 5단계 확률 가중 평균을 0~100으로 바꾼 값(소수 첫째 자리)이다
+  - 외모·성별·나이·피부색·복장·배경은 판단에 쓰지 않고 표정·시선·자세·고개 방향만 보도록 지시한다
+- **측정값 그대로 저장** `face`가 낮은 사진도 점수와 함께 남긴다. 얼굴로 볼 기준(0.5, 임시 값)은 쓰는 쪽에서 적용한다. 기준이나 질문 문구가 바뀌어도 저장한 값을 다시 판정할 수 있게 하기 위함이다. 받지 못한 점수는 null이다
+- **요청** 리액션 판단(6.4)과 따로 요청한다. 동시 요청은 2개(임시 값)이고, 2개가 판단 중이면 새 사진은 버린다. 응답 상한은 5초(임시 값)다. 답변이 끝날 때 응답이 오지 않은 판단은 기다리지 않고 버린다. 답변 전달을 늦추지 않기 위함이다
+- **형식** `{ "promptVersion", "modelVersion", "items": [ { "atMs", "face", "stability", "confidence", "expression", "emotion", "likeability", "trust" } ] }`. `items`는 `atMs` 순이고 3,600개 이하다. 판단한 사진이 없으면 `impressions`는 null이다
+- **주의** 답변 1초마다 1번 호출한다. Jev 이미지 입력은 Jev 문서상 운영용이 아니다. 얼굴 사진이 미국 서버(Jev)로 간다(저장하지 않는다)
 
 ## 7. MERGE_RECORDING: 녹화 합치기
 
