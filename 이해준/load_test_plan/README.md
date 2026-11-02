@@ -63,7 +63,7 @@
 | H3 | 로그인이 몰리면 비밀번호 해시(PBKDF2-SHA256 310,000회, Spring 5.8 기본값)가 CPU를 다 쓴다 | `auth/config/SecurityConfig.java`의 `Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8()` | BE 컨테이너 CPU, 1.3 p95, 같은 시간 다른 API p95 | 로그인뿐 아니라 모든 API가 느려짐 |
 | H4 | 모든 인증 요청이 회원 확인으로 DB를 한 번 더 부르고, 커넥션 풀이 기본값 10이라 풀 대기가 생긴다 | JWT 디코더가 요청마다 탈퇴 여부 조회(`auth/config/SecurityConfig.java`의 `findByIdAndDeletedAtIsNull`), `application.yml`에 Hikari 설정 없음 | `hikaricp_connections_pending`, DB 연결 수, API p95 | CPU는 여유인데 응답이 느림 |
 | H5 | FE가 2초마다 다시 그리기(`router.refresh`)로 서버 렌더링을 해 FE(Node 1프로세스, 512m)가 먼저 막힌다 | 질문 준비 · 질문 전환 · 결과 분석 대기 중 2초 폴링(`plan-progress.tsx`, `interview-room.tsx`), 다시보기 10초 | FE 컨테이너 CPU(1코어 근처면 포화), 페이지 응답 시간 | 화면 전환 · 상태 갱신이 늦음 |
-| H6 | 에이전트가 면접마다 프로세스를 띄워(약 150~200MB, 추정) 동시 면접 수를 메모리 · CPU가 정한다. **상한을 넘었을 때 거절하는 코드가 없어** 넘치면 OOM으로 진행 중인 면접이 모두 끊길 수 있다 | `mem_limit: 4g`, `ai/app/agent/main.py`의 `AgentServer`에 동시 면접 상한 없음(AI 명세 6.5 `CAPACITY_EXCEEDED`가 아직 코드에 없음) | ai-agent 메모리 · CPU, 면접 1건당 증가량, OOM kill 수 | 면접 중 면접관이 갑자기 사라짐 |
+| H6 | 에이전트가 면접마다 프로세스를 띄워(약 150~200MB, 추정) 동시 면접 수를 메모리 · CPU가 정한다. **메모리 기준으로 거절하는 코드가 없어** 넘치면 OOM으로 진행 중인 면접이 모두 끊길 수 있다. CPU는 LiveKit 에이전트 기본 장치가 부하 0.7을 넘으면 새 면접을 받지 않는다(11/02 테스트 서버 기동 직후 로그 `worker is at full capacity ... load 0.76 > 0.7`). 그래서 CPU가 먼저 차면 OOM보다 **새 면접방에 면접관이 들어오지 않는** 모습으로 먼저 막힐 수 있다 | `mem_limit: 4g`, `ai/app/agent/main.py`의 `AgentServer`에 동시 면접 상한 없음(AI 명세 6.5 `CAPACITY_EXCEEDED`가 아직 코드에 없음), LiveKit 로그 `failed to send job request` | ai-agent 메모리 · CPU, 면접 1건당 증가량, OOM kill 수, 에이전트 `marking as unavailable` 로그 · 면접관 입장 실패 수 | 면접 중 면접관이 갑자기 사라짐, 또는 새 면접방에 면접관이 들어오지 않음 |
 | H7 | LiveKit(단일 UDP 포트 모드)과 Egress(트랙 녹화 · S3 업로드)가 동시 면접이 늘면 CPU · 대역폭을 먼저 쓴다 | `livekit.yaml` `udp_port: 7882`, Egress `mem_limit: 1g` | 패킷 손실률 · 지터 p95(LiveKit), Egress 메모리 · 녹화 실패, 서버 네트워크 송수신 | 음성이 끊기거나 녹화가 빠짐 |
 | H8 | 결과 · 채점 작업자가 1개라 면접이 몰려 끝나면 답변마다 쌓인 채점(SCORE_ANSWER)과 결과(EVALUATE)가 밀려 10분 마감을 넘긴다 | `a301-prod-ai-analysis` 1개, 큐 `ai:jobs`에 채점 · 결과가 함께 들어감 | `a301_ai_jobs_queued{queue="ai:jobs"}`, 5.8 → `COMPLETED` 시간, `evaluation.failed` | 결과 화면이 "분석 중"에서 실패 |
 | H9 | 녹화 합치기 작업자(1코어 · 1개)가 몰리면 다시보기 15분 대기를 넘긴다 | `a301-prod-ai-recording` `cpus: 1`, BE `MERGE_WAIT` 15분 | `a301_ai_jobs_queued{queue="ai:jobs:recording"}`, `recordings.status` | 다시보기 실패 |
@@ -308,7 +308,7 @@ S5 동시 화상 면접 (UDP 경로)
 
 | ID | 이름 | 확인 가설 | 실행 방식 | 외부 API | 부하 모양 |
 |---|---|---|---|---|---|
-| S0 | 스모크 · 보정 | — | 브라우저 1 + HTTP 1 | **실제** | 화상 면접 1~3건 전체 흐름. 스크립트 확인, 외부 API 지연 · 사용량 측정(3.4) |
+| S0 | 스모크 · 보정 | — | 브라우저 1 + HTTP 1(`s0-browser.js` · `s0-smoke.js`) | **실제** | HTTP: 지원서 저장 → 질문 준비 → 시작 → 바로 끝내기. 브라우저: 화상 면접 1건 전체 흐름. 스크립트 확인, 외부 API 지연 · 사용량 측정(3.4) |
 | S1 | 웹 · API 혼합 | H4 · H5 | HTTP(`ramping-arrival-rate`) | 없음 | 홈 · 통계 · 달력 · 기록 · 결과 · 공지 조회를 섞어 5 → 30 → 60 … 요청/초로 올리고 10분 유지 |
 | S2 | 로그인 몰림 | H3 | HTTP(`ramping-arrival-rate`) | 없음 | 1분 동안 30 → 100 → 200 …건. 같은 시간에 S1을 L1로 깔아 다른 API가 느려지는지 본다 |
 | S3 | 지원서 저장 몰림 | H2 | HTTP(`shared-iterations`) | Jev(스텁 권장) | 동시 1 · 3 · 5 · 10 · 20건을 한 번에 저장 |
@@ -319,12 +319,14 @@ S5 동시 화상 면접 (UDP 경로)
 
 시나리오별 주의:
 
+- **면접 진행은 브라우저로만 할 수 있다**(11/02 S0에서 확인): 채팅 면접도 질문은 에이전트가 면접방(LiveKit)에서 내고, 에이전트는 사용자가 방에 들어올 때까지 기다린다(`ai/app/agent/main.py` `first_participant`). BE의 "지금 질문"(5.5)은 에이전트가 보내는 `question.started`를 받아야 생기므로, k6 HTTP로 면접을 시작하면 첫 질문이 나오지 않는다. 그래서 질문 · 답변 · 채점(H8) · 녹화(H9) 부하는 브라우저 시나리오(S5)로만 만든다. HTTP 시나리오가 면접을 시작했다면 5.8로 바로 끝내 에이전트를 놓아준다(답변 0개 → `ABORTED`)
 - **S1 · S4 요청 방식**: 조회 · 폴링은 실제 화면처럼 **FE 페이지**로 보낸다. 쿠키 `hk_access`에 BE 액세스 토큰을 넣고, 다시 그리기는 `RSC: 1` 헤더로 같은 페이지를 GET한다. 쓰기(5.1 · 5.4 · 5.8)는 FE의 서버 액션 대신 **BE API를 직접**(`/be/api/v1`, `Authorization: Bearer`, `Idempotency-Key`) 부른다
   - 왜: 폴링 비용의 대부분이 FE 서버 렌더링이라(H5) BE만 부르면 FE 부담을 재지 못한다. 서버 액션은 빌드마다 바뀌는 액션 id가 필요해 스크립트로 흉내 내기 어렵고, 쓰기 요청은 수가 적어 FE 부담이 작다
 - **S4에서 면접 시작은 하지 않는다**: 5.4를 부르면 에이전트가 배정되는데, 아무도 들어오지 않는 방에 에이전트 프로세스가 떠 S5 결과를 흐린다. 만든 면접은 그대로 둔다(READY 상태는 연습 기록에 들어가지 않는다)
 - **S5 가짜 장치**: `K6_BROWSER_ARGS`로 Chromium에 `use-fake-ui-for-media-stream`, `use-fake-device-for-media-stream`, `use-file-for-fake-audio-capture=<답변.wav>`, `use-file-for-fake-video-capture=<얼굴.y4m>`를 넘긴다. 실제 FE 화면(로그인 → 면접 만들기 → 장치 점검 → 면접방)을 그대로 밟는다
   - 노트북 1대에 Chromium 약 10~15개까지로 본다(3.2). 그 이상은 팀원 노트북을 더해 노트북마다 같은 k6 스크립트를 `N`(면접 수) · 계정 범위만 다르게 넣어 **같은 시각에** 시작한다(예: 노트북 A는 계정 1~10, B는 11~20). 노트북끼리 시계가 다르면 시작이 어긋나므로 시작 시각을 환경 변수로 주고 그때까지 기다리게 한다 **[제안]**
-  - 시선 추적(`use-gaze-tracker.ts`)과 영상 인코딩이 노트북 CPU를 쓴다. 노트북 CPU가 먼저 차면(3.2) 그 노트북의 면접 수를 줄이고 노트북을 늘린다
+  - 영상 인코딩과 면접관 3D 화면이 노트북 CPU를 쓴다. 노트북 CPU가 먼저 차면(3.2) 그 노트북의 면접 수를 줄이고 노트북을 늘린다. 시선 추적(`use-gaze-tracker.ts`)은 테스트 서버 이미지(master)에 아직 없다. 들어오면 CPU를 더 쓰므로 노트북 1대당 면접 수를 다시 잰다
+  - 가짜 마이크 파일(`media/answer.wav`)은 Windows 음성 합성(ko-KR)으로 만든 지어낸 답변 5개에 8초 침묵을 붙인 것이다. Soniox가 실제로 인식해 답변 5개가 저장되는 것을 S0에서 확인했다. 카메라 파일은 얼굴이 아닌 단순한 영상이다(지금 화면에는 얼굴 검사가 없다)
   - 노트북 여러 대가 같은 Wi-Fi(공유기)에 붙으면 공유기 업로드가 먼저 막힐 수 있다. 노트북마다 송신량을 기록해 합이 회선 업로드에 가까우면 그 회차는 쓰지 않는다
 - **S5 동시 수 올리는 법**: `ramping-vus`가 아니라 단계마다 정해진 수의 면접을 거의 같은 때 시작하고(`per-vu-iterations`, 시작 시각 몇 초씩 분산) 그 면접이 끝날 때까지 유지한다. 왜: 면접 1건이 약 10분이라 VU 수를 계속 바꾸면 "동시 몇 건"이 흐려진다
 - **에이전트 한계 회차(L3)**: H6처럼 상한 거절이 없어 넘치면 그 순간 진행 중인 면접이 모두 끊긴다. 테스트 서버라 실제 OOM이 나는 지점까지 올린다(3.5). 1건당 메모리 증가량으로 계산한 한계와 실제로 OOM이 난 동시 면접 수를 같이 적는다. 왜: 운영에서는 이 지점을 일부러 넘길 수 없으므로, 에이전트에 동시 면접 상한(AI 명세 6.5 `CAPACITY_EXCEEDED`)을 넣을 때 이 값을 근거로 쓴다
@@ -334,17 +336,21 @@ S5 동시 화상 면접 (UDP 경로)
 ```
 loadtest/
   README.md               # 실행 방법, 환경 변수(BASE_URL, 계정 비밀번호 등)
+  run.sh                  # k6 실행(없으면 Docker grafana/k6:2.3.0, 브라우저는 -with-browser). .env.k6 값을 넘긴다
   lib/
-    auth.js               # 로그인 → 액세스 토큰, FE 쿠키 만들기
-    api.js                # BE API 호출(Idempotency-Key 자동)
-    pages.js              # FE 페이지 GET · 다시 그리기(RSC) 호출
+    config.js             # BASE_URL · 비밀번호 · 계정 이메일 규칙
+    auth.js               # 가입 · 로그인 → 액세스 토큰
+    api.js                # BE API 호출(Idempotency-Key 자동) · FE 페이지 GET · 다시 그리기(RSC)
+    interview.js          # 지원서 · 면접 진행 · 결과 호출, 2초 폴링
     accounts.js           # 계정 · 지원서 id 목록 읽기(SharedArray)
+    data.js               # 지어낸 지원서 · 답변
   scenarios/
+    s0-smoke.js  s0-browser.js                              # 만듦(11/02)
     s1-web-mix.js  s2-login.js  s3-application.js
     s4-plan-burst.js  s5-interview-browser.js  s6-peak.js  s7-soak.js
-  seed/                   # 테스트 계정 · 지원서 만들기(3.6)
+  seed/                   # 테스트 계정 · 지원서 만들기(3.6) → accounts.json(커밋하지 않음)
   stubs/gms/              # GMS 스텁(OpenAI 호환, 지연 시간 설정)
-  media/                  # 답변.wav · 얼굴.y4m (지어낸 내용)
+  media/                  # make-media.ps1 → answer.wav · camera.y4m (지어낸 내용, 커밋하지 않음)
   server/                 # 테스트 서버(3.1)
     README.md             # 서버 만들기 · 띄우기 · 정리(3.7) 절차
     compose.loadtest.yml  # 운영 compose 덮어쓰기(주소 · 버킷 · LLM_CHAT_URL · GMS 스텁 컨테이너)
@@ -417,15 +423,15 @@ export default function () {
 | 테스트 서버 만들기: EC2(`t3.xlarge`, standard 크레딧) · 탄력적 IP · 보안 그룹 · 기본 셋팅(배포 계획 3.1과 같게). 첫 회차 24시간 전에 만들어 크레딧을 채운다(3.1.2) | 인프라 | [x] |
 | 주소 · Tunnel `a301-loadtest` · TURN 인증서(`lt` · `rtc-lt` · `grafana-lt` · `turn-lt`) | 인프라 | [x] |
 | 테스트 버킷 · IAM 사용자(3.1.4), Docker Hub 테스트용 pull 토큰 | 인프라 | [x] |
-| `loadtest/server/`(덮어쓰기 파일 · 테스트용 `livekit.yaml`), 운영과 같은 이미지 태그로 띄워 헬스체크 · 면접 1건 직접 확인 | 인프라 | [ ] |
+| `loadtest/server/`(덮어쓰기 파일 · 테스트용 `livekit.yaml`), 운영과 같은 이미지 태그로 띄워 헬스체크 · 면접 1건 직접 확인 | 인프라 | [x] |
 | 노트북 준비(3.2): k6 · Chrome 설치, 버전 기록, 전원 · 절전 · Tailscale 설정 | 인프라(브라우저 시나리오에 쓸 팀원 노트북도) | [ ] |
 | 테스트 네트워크 정하기(SSAFY Wi-Fi · 집 · 테더링), 업로드 속도 측정 | 인프라 | [ ] |
 | Cloudflare 설정 확인(규칙 없음 · Bot Fight Mode 꺼짐, 3.3). 건너뛰기 규칙은 S0에서 막힐 때만 | 인프라 | [x] |
 | GMS 스텁 컨테이너, 덮어쓰기 파일에서 작업자 `LLM_CHAT_URL` 연결(3.4) | 인프라 · AI | [ ] |
 | Soniox · ElevenLabs · Jev 주소를 환경 변수로 바꿀 수 있게(스텁용) **[제안]** | AI | [ ] |
-| 테스트 계정 · 지원서 만들기 스크립트(3.6) | 인프라 · BE | [ ] |
-| 답변 wav · 얼굴 y4m 만들기(지어낸 내용) | 인프라 | [ ] |
-| k6 스크립트(6.1), S0 스모크 통과 | 인프라 | [ ] |
+| 테스트 계정 · 지원서 만들기 스크립트(3.6, `seed/seed.js`) | 인프라 · BE | [x] |
+| 답변 wav · 카메라 y4m 만들기(지어낸 내용, `media/make-media.ps1`) | 인프라 | [x] |
+| k6 스크립트(6.1), S0 스모크 통과(S0 통과 11/02, S1~S7 남음) | 인프라 | [ ] |
 | 외부 API 비용 계산 · 승인(3.4) | 전체 | [ ] |
 | 테스트 서버에서 `pg_stat_statements` 켤지 결정 **[제안]** | BE · 인프라 | [ ] |
 | 정리 절차(3.7) 확인: 결과 내보내기 → 서버 · 버킷 · 주소 · 토큰 삭제 | 인프라 | [ ] |
@@ -464,7 +470,8 @@ export default function () {
 
 | 날짜 · 시각 | 시나리오 · 수준 | 이미지 태그 | 시작 크레딧 잔량 | 발생기(노트북 수) · 네트워크 | 외부 API(실제 · 스텁) | 주요 결과(p95 · 오류율 · 마감 초과) | 먼저 막힌 곳 · 가설 판단 | 비고 |
 |---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| 11/02 12시 | S0 HTTP, N=2 | `e9874c74` | 확인 안 함(서버 기동 약 2시간 뒤) | 인프라 PC 1대(Docker k6 2.3.0) · SSAFY 네트워크 | 실제(ElevenLabs 끔) | 지원서 저장 0.47~0.53초(Jev), 질문 준비 5.1~7.2초(GMS PLAN), 시작 0.32초, 오류 0 | 부하 아님 | HTTP로는 면접을 진행할 수 없음을 확인(6장 시나리오별 주의) |
+| 11/02 12시 | S0 브라우저, 1건 × 2회 | `e9874c74` | 확인 안 함 | 같음(Docker `-with-browser`) | 실제(ElevenLabs 끔) | 질문 준비 6.5~6.8초, 면접 113초(질문 5개, 약 20초 간격), 결과 17~20초, 다시보기 0.7~1.2초. 답변 5개 인식, 녹화 READY | 부하 아님 | 답변이 짧은 합성 음성(약 14초)이라 실제 면접 1건 길이는 아직 모른다 |
 
 ## 9. 미정 · 확인 필요
 
