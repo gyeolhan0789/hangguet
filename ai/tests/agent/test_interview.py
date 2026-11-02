@@ -34,13 +34,13 @@ def short_timers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(answer_end, "NO_SPEECH_TIMEOUT_MS", 150)
 
 
-def assignment(current_seq: int = 1, mode: str = "VIDEO") -> Any:
+def assignment(current_seq: int = 1, mode: str = "VIDEO", persona: str = "DEVIL") -> Any:
     return parse_assignment(
         json.dumps(
             {
                 "sessionId": 55,
                 "mode": mode,
-                "persona": "DEVIL",
+                "persona": persona,
                 "currentSeq": current_seq,
                 "questions": [
                     {"seq": seq, "content": f"질문 {seq}", "criteria": "기준"}
@@ -174,7 +174,7 @@ class FakeReactions:
 
 
 class Harness:
-    def __init__(self, current_seq: int = 1, mode: str = "VIDEO") -> None:
+    def __init__(self, current_seq: int = 1, mode: str = "VIDEO", persona: str = "DEVIL") -> None:
         self.asker = FakeAsker()
         self.sessions: list[FakeSession] = []
         self.states: list[tuple[int, str]] = []
@@ -186,14 +186,21 @@ class Harness:
         self.running: asyncio.Task[None] | None = None
         self.session_opened = asyncio.Event()
         self.reactions = FakeReactions()
+        # 다음 질문 전 대기마다 (대기 시간, 그때까지 말한 질문 수)
+        self.sleeps: list[tuple[float, int]] = []
         self.runner = InterviewRunner(
-            assignment(current_seq, mode),
+            assignment(current_seq, mode, persona),
             self.asker,
             self.open_capture,
             self.send_state,
             on_answer=self.on_answer,
             reactions=self.reactions,  # type: ignore[arg-type]
+            sleep=self.sleep,
         )
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append((seconds, len(self.asker.asked)))
+        await asyncio.sleep(0)
 
     def open_capture(
         self,
@@ -245,10 +252,13 @@ async def until(check: Callable[[], bool]) -> None:
 
 
 def run_async(
-    scenario: Callable[[Harness], Awaitable[None]], current_seq: int = 1, mode: str = "VIDEO"
+    scenario: Callable[[Harness], Awaitable[None]],
+    current_seq: int = 1,
+    mode: str = "VIDEO",
+    persona: str = "DEVIL",
 ) -> Harness:
     async def main() -> Harness:
-        harness = Harness(current_seq, mode)
+        harness = Harness(current_seq, mode, persona)
         harness.runner.candidate_joined(CANDIDATE)
         running = asyncio.create_task(harness.runner.run())
         harness.running = running
@@ -288,6 +298,31 @@ def test_runs_every_question_with_auto_submit() -> None:
         state for seq in range(1, 6) for state in ((seq, "autoSubmitted"), (seq, "submitted"))
     ]
     assert all(s.closed for s in h.sessions)
+
+
+def auto_submit_every_question() -> Callable[[Harness], Awaitable[None]]:
+    async def scenario(h: Harness) -> None:
+        for _ in range(5):
+            (await h.next_session()).speak()
+        assert h.running is not None
+        await asyncio.wait_for(h.running, timeout=1)
+
+    return scenario
+
+
+# 기준: AI 명세 6.2 호응(오리 면접관의 효과음은 화면이 재생하고 에이전트는 다음 질문 전에 기다림)
+def test_duck_waits_before_next_question_but_not_after_last_answer() -> None:
+    h = run_async(auto_submit_every_question(), persona="DUCK")
+
+    # 질문을 말하기 전에 기다리므로 n번 질문까지 말한 상태에서 n+1번 질문 전에 기다린다
+    assert h.sleeps == [(1.0, 1), (1.0, 2), (1.0, 3), (1.0, 4)]
+
+
+@pytest.mark.parametrize("persona", ["DEVIL", "COFFEE_CHAT"])
+def test_other_interviewers_do_not_wait_before_next_question(persona: str) -> None:
+    h = run_async(auto_submit_every_question(), persona=persona)
+
+    assert h.sleeps == []
 
 
 def test_starts_from_current_seq() -> None:
