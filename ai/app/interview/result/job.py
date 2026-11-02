@@ -37,7 +37,7 @@ from app.common.results import (
     ResultType,
 )
 from app.common.session import InterviewMode
-from app.interview.result import cover_letter, feedback
+from app.interview.result import cover_letter, feedback, timeline_feedback
 from app.interview.result.cover_letter import (
     CoverLetterInput,
     confirm_cover_letter,
@@ -45,6 +45,13 @@ from app.interview.result.cover_letter import (
 )
 from app.interview.result.feedback import AnswerForFeedback, SessionForFeedback, write_feedback
 from app.interview.result.scores import answer_score, session_scores
+from app.interview.result.timeline import (
+    TimelineAnswer,
+    build_timelines,
+    timeline_json,
+    window_text,
+)
+from app.interview.result.timeline_feedback import CheckpointForFeedback, write_texts
 from app.interview.scoring import judge
 from app.interview.scoring.job import AnswerInput, build_evaluation
 from app.interview.scoring.judge import Criterion, StructureBrokenError, parse_item
@@ -230,6 +237,10 @@ def build_result(
     )
     written = write_feedback(session, feedback_chat)
     models.add(written.model)
+    if job.mode is InterviewMode.VIDEO:
+        timelines = _timelines(job, feedback_chat, models)
+        for answer, evaluation in zip(job.answers, evaluations, strict=True):
+            evaluation["timeline"] = timelines.get(answer.answer_id)
     return {
         "answers": [
             {
@@ -253,9 +264,43 @@ def build_result(
     }
 
 
+def _timelines(job: EvaluateJob, chat: Chat, models: set[str]) -> dict[int, dict[str, Any]]:
+    """다시보기 타임라인(AI 명세 4장). 계산하지 못해도 결과 생성은 실패시키지 않는다."""
+    try:
+        timelines = build_timelines(
+            [TimelineAnswer(a.answer_id, a.tokens, a.timeline) for a in job.answers]
+        )
+        by_id = {a.answer_id: a for a in job.answers}
+        items = [
+            CheckpointForFeedback(
+                answer_id=aid,
+                question=by_id[aid].question,
+                spoken=window_text(by_id[aid].tokens, checkpoint.at_ms),
+                checkpoint=checkpoint,
+            )
+            for aid, found in timelines.items()
+            for checkpoint in found.checkpoints
+        ]
+        texts = write_texts(items, chat, models)
+        return {
+            aid: timeline_json(
+                found, {(at, metric): text for (a, at, metric), text in texts.items() if a == aid}
+            )
+            for aid, found in timelines.items()
+        }
+    except Exception:
+        log.exception("다시보기 타임라인을 만들지 못했다 sessionId=%s", job.session_id)
+        return {}
+
+
 def _versions(models: set[str]) -> str:
     # AI 명세 9장: EVALUATE는 사용한 Prompt·Model 버전을 로그에만 남긴다
-    prompts = (judge.PROMPT_VERSION, cover_letter.PROMPT_VERSION, feedback.PROMPT_VERSION)
+    prompts = (
+        judge.PROMPT_VERSION,
+        cover_letter.PROMPT_VERSION,
+        feedback.PROMPT_VERSION,
+        timeline_feedback.PROMPT_VERSION,
+    )
     return f"prompt={','.join(prompts)} model={','.join(sorted(models)) or '-'}"
 
 

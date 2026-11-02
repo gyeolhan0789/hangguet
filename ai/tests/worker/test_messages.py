@@ -5,7 +5,13 @@ from typing import Any
 
 import pytest
 
-from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.answer import (
+    ImpressionSample,
+    SpeechToken,
+    TimelineInput,
+    VoiceMetrics,
+    is_java_blank,
+)
 from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode, Persona
 from app.worker.messages import (
@@ -630,6 +636,82 @@ def test_evaluate_answer_speech_is_parsed() -> None:
 
     assert isinstance(job, EvaluateJob)
     assert job.answers[0].speech == VoiceMetrics(trailing_off_ratio=12.5, pitch_range_st=6.2)
+
+
+TIMELINE = {
+    "trailingOffAtMs": [9120],
+    "impressions": {
+        "promptVersion": "impression-v1",
+        "modelVersion": "jev-1.14.0",
+        "items": [
+            {
+                "atMs": 1500,
+                "face": 0.98,
+                "stability": 62.5,
+                "confidence": 70.1,
+                "expression": 55,
+                "emotion": None,
+                "likeability": 66.0,
+                "trust": 71.2,
+            }
+        ],
+    },
+}
+
+
+def test_evaluate_answer_timeline_is_parsed() -> None:
+    """다시보기 타임라인 입력(AI 명세 4장)."""
+    job = parse_job(evaluate(answers=[answer(timeline=TIMELINE)]))
+
+    assert isinstance(job, EvaluateJob)
+    assert job.answers[0].timeline == TimelineInput(
+        trailing_off_at_ms=(9120,),
+        impressions=(
+            ImpressionSample(
+                at_ms=1500,
+                face=0.98,
+                scores={
+                    "stability": 62.5,
+                    "confidence": 70.1,
+                    "expression": 55.0,
+                    "emotion": None,
+                    "likeability": 66.0,
+                    "trust": 71.2,
+                },
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("timeline", [..., None])
+def test_answer_without_timeline_is_valid(timeline: Any) -> None:
+    job = parse_job(evaluate(answers=[answer(timeline=timeline)]))
+
+    assert isinstance(job, EvaluateJob)
+    assert job.answers[0].timeline is None
+
+
+@pytest.mark.parametrize(
+    "timeline",
+    [
+        "x",
+        {"trailingOffAtMs": [-1]},
+        {"trailingOffAtMs": [True]},
+        {"impressions": {"items": "x"}},
+        {"impressions": {"items": [{"atMs": "1", "face": 0.9}]}},
+        {"impressions": {"items": [{"atMs": 1, "face": None}]}},
+        {"impressions": {"items": [{"atMs": 1, "face": 0.9, "trust": "70"}]}},
+    ],
+)
+def test_broken_timeline_is_ignored_and_job_continues(
+    timeline: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """타임라인은 부가 결과라 형식이 틀려도 결과 생성을 실패시키지 않는다(AI 명세 4장)."""
+    job = parse_job(evaluate(answers=[answer(timeline=timeline)]))
+
+    assert isinstance(job, EvaluateJob)
+    assert job.answers[0].timeline is None
+    assert "timeline 형식이 틀려" in caplog.text
 
 
 def test_job_header_of_invalid_job_keeps_common_fields() -> None:
