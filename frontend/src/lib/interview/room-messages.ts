@@ -8,6 +8,8 @@ export const ANSWER_SUBMIT_METHOD = "interview.answerSubmit";
 export const QUESTION_METHOD = "interview.question";
 export const CHAT_INPUT_METHOD = "interview.chatInput";
 export const REACTION_METHOD = "interview.reaction";
+// 기준: AI 명세 6.3 interview.frame(바이트 스트림, 화면 → 에이전트). 인상 판단용 카메라 사진(JPEG)과 속성 ageMs
+export const FRAME_TOPIC = "interview.frame";
 // 기준: AI 명세 6.3 reaction.durationMs(2,400ms).
 // 표시 시간은 수신한 값을 사용하고, 명세 값보다 긴 리액션은 폐기한다.
 export const REACTION_MAX_DURATION_MS = 2400;

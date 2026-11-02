@@ -38,6 +38,13 @@ function score(categories: { categoryName: string; score: number }[], name: stri
   return categories.find((category) => category.categoryName === name)?.score ?? 0;
 }
 
+/** 두 눈 eyeBlink 평균(0 뜸 ~ 1 감음). 얼굴이 없으면 null. 인상 판단 사진은 1초 동안 이 값이 가장 작은 프레임이다(AI 명세 6.3) */
+export function blinkScore(result: FaceLandmarkerResult): number | null {
+  const blendshapes = result.faceBlendshapes[0]?.categories;
+  if (!blendshapes) return null;
+  return (score(blendshapes, "eyeBlinkLeft") + score(blendshapes, "eyeBlinkRight")) / 2;
+}
+
 /** Face Landmarker 결과에서 시선 하나를 꺼낸다. 얼굴이 없거나 블렌드셰이프 · 변환 행렬이 없으면 null */
 export function gazeSample(result: FaceLandmarkerResult): GazeFrame {
   const blendshapes = result.faceBlendshapes[0]?.categories;
@@ -51,7 +58,7 @@ export function gazeSample(result: FaceLandmarkerResult): GazeFrame {
   const other = score(blendshapes, "eyeLookInLeft") + score(blendshapes, "eyeLookOutRight");
   const up = score(blendshapes, "eyeLookUpLeft") + score(blendshapes, "eyeLookUpRight");
   const down = score(blendshapes, "eyeLookDownLeft") + score(blendshapes, "eyeLookDownRight");
-  const blink = (score(blendshapes, "eyeBlinkLeft") + score(blendshapes, "eyeBlinkRight")) / 2;
+  const blink = blinkScore(result) ?? 0;
   return {
     headYaw: Math.atan2(x, z) * toDegrees,
     headPitch: Math.atan2(-y, Math.hypot(x, z)) * toDegrees,
