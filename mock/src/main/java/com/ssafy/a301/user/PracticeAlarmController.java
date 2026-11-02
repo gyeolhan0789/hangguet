@@ -41,7 +41,9 @@ public class PracticeAlarmController {
 
     @Operation(
             summary = "2.8 연습 알림 설정",
-            description = "카카오로 가입한 회원만 켤 수 있다(available). 켜 두면 고른 시각에 그날 연습하지 않았을 때 카카오톡으로 알린다.")
+            description =
+                    "카카오 계정이 연결된 회원(카카오 가입 · 2.12 연결)만 켤 수 있다(available). 켜 두면 고른 시각에 그날 연습하지 않았을 때"
+                            + " 카카오톡으로 알린다.")
     @ApiResponse(
             responseCode = "200",
             content = @Content(examples = @ExampleObject(value = ALARM_EXAMPLE)))

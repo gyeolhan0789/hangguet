@@ -271,12 +271,22 @@ class UserServiceTest {
     @Test
     void meHasSocialProviderOnlyForSocialUser() {
         assertThat(service.me(USER_ID).socialProvider()).isNull();
-        verify(socialAccounts, never()).findActiveProvider(USER_ID);
+        assertThat(service.me(USER_ID).linkedProvider()).isNull();
 
         socialUser();
         when(socialAccounts.findActiveProvider(USER_ID))
                 .thenReturn(Optional.of(SocialProvider.KAKAO));
         assertThat(service.me(USER_ID).socialProvider()).isEqualTo(SocialProvider.KAKAO);
+        assertThat(service.me(USER_ID).linkedProvider()).isNull();
+    }
+
+    @Test
+    void emailUserWithKakaoLinkedHasLinkedProvider() {
+        when(socialAccounts.findActiveProvider(USER_ID))
+                .thenReturn(Optional.of(SocialProvider.KAKAO));
+
+        assertThat(service.me(USER_ID).socialProvider()).isNull();
+        assertThat(service.me(USER_ID).linkedProvider()).isEqualTo(SocialProvider.KAKAO);
     }
 
     private User socialUser() {

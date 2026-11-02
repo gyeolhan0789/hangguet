@@ -12,7 +12,10 @@ public final class PracticeAlarmDtos {
 
     @Schema(description = "카카오톡 연습 알림 설정")
     public record PracticeAlarmResponse(
-            @Schema(description = "카카오로 가입한 회원이면 true. false면 알림을 켤 수 없다", example = "true")
+            @Schema(
+                            description =
+                                    "카카오 계정이 연결된 회원(카카오 가입 · 2.12 연결)이면 true. false면 알림을 켤 수 없다",
+                            example = "true")
                     boolean available,
             @Schema(description = "알림이 켜져 있으면 true", example = "true") boolean enabled,
             @Schema(description = "알림 시각(한국 시간, HH:mm). 고르지 않았으면 21:00", example = "21:00")

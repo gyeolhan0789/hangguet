@@ -46,7 +46,7 @@ const me = {
   currentStreak: 0,
   // S09-1 카카오 줄 · 비밀번호 변경 · 탈퇴 모달이 이 값으로 나뉜다(이메일 회원은 null)
   socialProvider: null,
-} satisfies MeResponse;
+} satisfies Omit<MeResponse, "linkedProvider">;
 const signupValues = {
   nickname: "면접왕",
   email: "a@ssafy.com",

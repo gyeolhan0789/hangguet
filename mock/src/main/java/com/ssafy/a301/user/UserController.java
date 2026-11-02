@@ -38,12 +38,14 @@ public class UserController {
     private static final String ME_EXAMPLE =
             """
             { "id": 1, "email": "example@ssafy.com", "nickname": "면접왕", "socialProvider": null,
-              "profileImageUrl": "https://…", "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7 }\
+              "linkedProvider": null, "profileImageUrl": "https://…",
+              "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7 }\
             """;
     private static final String NICKNAME_CHANGE_EXAMPLE =
             """
             { "id": 1, "email": "example@ssafy.com", "nickname": "면접왕", "socialProvider": null,
-              "profileImageUrl": "https://…", "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7,
+              "linkedProvider": null, "profileImageUrl": "https://…",
+              "createdAt": "2026-09-01T10:00:00+09:00", "currentStreak": 7,
               "accessToken": "eyJ…", "expiresIn": 3600 }\
             """;
     private static final String PASSWORD_CHANGE_EXAMPLE =
@@ -88,6 +90,7 @@ public class UserController {
                 me.email(),
                 nickname,
                 me.socialProvider(),
+                me.linkedProvider(),
                 me.profileImageUrl(),
                 me.createdAt(),
                 me.currentStreak(),

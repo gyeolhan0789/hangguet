@@ -82,6 +82,7 @@ class UserControllerTest {
                                 "면접왕",
                                 null,
                                 null,
+                                null,
                                 OffsetDateTime.parse("2026-09-01T01:00:00Z"),
                                 0));
         mvc.perform(get("/api/v1/users/me").with(USER_7))
@@ -91,7 +92,7 @@ class UserControllerTest {
     @Test
     void meUsesAuthenticatedUser() throws Exception {
         when(service.me(7L))
-                .thenReturn(new MeResponse(7L, "a@test.com", "면접왕", null, null, null, 3));
+                .thenReturn(new MeResponse(7L, "a@test.com", "면접왕", null, null, null, null, 3));
         mvc.perform(get("/api/v1/users/me").with(USER_7))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(7))
@@ -103,7 +104,16 @@ class UserControllerTest {
         when(service.changeNickname(7L, "새닉네임"))
                 .thenReturn(
                         new NicknameChangeResponse(
-                                7L, "a@test.com", "새닉네임", null, null, null, 0, "new-access", 3600));
+                                7L,
+                                "a@test.com",
+                                "새닉네임",
+                                null,
+                                null,
+                                null,
+                                null,
+                                0,
+                                "new-access",
+                                3600));
         mvc.perform(json(patch("/api/v1/users/me"), "{\"nickname\":\"새닉네임\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.nickname").value("새닉네임"))

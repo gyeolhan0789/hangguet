@@ -65,6 +65,7 @@ const ME = {
   email: "example@ssafy.com",
   nickname: "면접왕",
   socialProvider: null,
+  linkedProvider: null,
   profileImageUrl: "https://…",
   createdAt: "2026-09-01T10:00:00+09:00",
   currentStreak: 7,
