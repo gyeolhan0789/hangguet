@@ -12,16 +12,15 @@
 import { check } from "k6";
 import { SharedArray } from "k6/data";
 import exec from "k6/execution";
-import http from "k6/http";
 
-import { API, PASSWORD, requirePassword } from "../lib/config.js";
+import { LOGIN_NAME, loginRequest } from "../lib/auth.js";
+import { requirePassword } from "../lib/config.js";
 import { browse } from "../lib/web-mix.js";
 
 const LOGINS = (__ENV.LOGINS || "30,100,200,400,600,800").split(",").map(Number);
 const WARMUP = __ENV.WARMUP || "2m";
 const REST = __ENV.REST || "2m";
 const WEB_RATE = Number(__ENV.WEB_RATE || 5);
-const LOGIN_NAME = "1.3 POST /auth/login";
 
 const loginAccounts = new SharedArray("s2-accounts", () => JSON.parse(open("../seed/accounts-s2.json")));
 
@@ -112,10 +111,6 @@ export function web() {
 export function burst() {
   const offset = Number(__ENV.ACCOUNT_OFFSET_S2 || 0);
   const me = loginAccounts[(offset + exec.scenario.iterationInTest) % loginAccounts.length];
-  const res = http.post(`${API}/auth/login`, JSON.stringify({ email: me.email, password: PASSWORD }), {
-    headers: { "Content-Type": "application/json" },
-    tags: { name: LOGIN_NAME, type: "write" },
-    responseCallback: http.expectedStatuses(200),
-  });
+  const res = loginRequest(me.email);
   check(res, { "1.3 로그인 200": (r) => r.status === 200 });
 }

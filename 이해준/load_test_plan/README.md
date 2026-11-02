@@ -324,6 +324,7 @@ S5 동시 화상 면접 (UDP 경로)
   - 왜: 폴링 비용의 대부분이 FE 서버 렌더링이라(H5) BE만 부르면 FE 부담을 재지 못한다. 서버 액션은 빌드마다 바뀌는 액션 id가 필요해 스크립트로 흉내 내기 어렵고, 쓰기 요청은 수가 적어 FE 부담이 작다
   - Next.js는 RSC 요청 주소에 헤더로 계산한 `_rsc` 쿼리가 없으면 307로 다시 보낸다(11/02 S1 시험 실행에서 확인). 헤더가 `RSC: 1`뿐이면 기대값이 빈 값이라 주소에 `_rsc`만 붙인다(`loadtest/lib/api.js` `page()`)
 - **S2 계정 · 단계**(11/02): 로그인 계정은 S1 · S5 계정과 따로 지원서 없이 만든다(101~400번, `seed.js` `WITH_APPLICATION=0`). 단계마다 1분 동안 고르게 보내고 2분 쉰다. 배경 S1은 같은 화면 코드(`loadtest/lib/web-mix.js`)를 쓴다. `constant-arrival-rate`는 실행 중에 VU를 새로 만들면 그동안 보낼 요청을 버리므로 VU를 미리 넉넉히 만든다
+- **S6 단계 [제안]**(11/02): 따로 잰 한계(화면 지속 약 19 req/s · 로그인 약 290건/분 · 질문 준비 약 12건/분 · 화상 면접 지속 약 5건)의 약 25 · 50 · 75%를 L1 · L2 · L3로 둔다. L1 = 화면 5 req/s · 로그인 70건/분 · 면접 만들기 3건/분 · 화상 면접 2건(10분), L2 = 10 · 150 · 6 · 3건(30분), L3 = 15 · 220 · 9 · 5건(10분). 네 흐름을 한 k6 스크립트(`s6-peak-browser.js`)에 넣어 시간 기준과 단계 태그를 하나로 맞춘다. 화상 면접은 단계 동안 끝나면 다시 시작해 동시 수를 유지한다. S3 지원서 저장은 계획대로 넣지 않는다. 테스트 서버 Egress는 `track_cpu_cost: 0.1`인 채로 돌린다(기본값이면 이미 아는 녹화 거절이 다른 신호를 가린다, S5 보고서 7 · 9장)
 - **S4에서 면접 시작은 하지 않는다**: 5.4를 부르면 에이전트가 배정되는데, 아무도 들어오지 않는 방에 에이전트 프로세스가 떠 S5 결과를 흐린다. 만든 면접은 그대로 둔다(READY 상태는 연습 기록에 들어가지 않는다)
 - **S5 가짜 장치**: `K6_BROWSER_ARGS`로 Chromium에 `use-fake-ui-for-media-stream`, `use-fake-device-for-media-stream`, `use-file-for-fake-audio-capture=<답변.wav>`, `use-file-for-fake-video-capture=<얼굴.y4m>`를 넘긴다. 실제 FE 화면(로그인 → 면접 만들기 → 장치 점검 → 면접방)을 그대로 밟는다
   - 노트북 1대에 Chromium 약 10~15개까지로 본다(3.2). 그 이상은 팀원 노트북을 더해 노트북마다 같은 k6 스크립트를 `N`(면접 수) · 계정 범위만 다르게 넣어 **같은 시각에** 시작한다(예: 노트북 A는 계정 1~10, B는 11~20). 노트북끼리 시계가 다르면 시작이 어긋나므로 시작 시각을 환경 변수로 주고 그때까지 기다리게 한다 **[제안]**
@@ -348,10 +349,12 @@ loadtest/
     accounts.js           # 계정 · 지원서 id 목록 읽기(SharedArray)
     data.js               # 지어낸 지원서 · 답변
     browser-interview.js  # 실제 화면으로 화상 면접 1건 진행(S0 · 데이터 만들기 · S5)
-    web-mix.js            # 화면 둘러보기 한 번(S1 · S2 배경)
+    web-mix.js            # 화면 둘러보기 한 번(S1 · S2 배경 · S6)
+    plan-wait.js          # 질문 준비 완료까지 화면처럼 2초 폴링(S4 · S6)
+    video-interview-run.js  # 화상 면접 1건 진행 · 사용자 지표(S5 · S6)
   scenarios/
     s0-smoke.js  s0-browser.js  s1-web-mix.js  s2-login-burst.js  s3-application-burst.js  s4-plan-burst.js  s5-interview-browser.js(+ ../s5-levels.sh)   # 만듦(11/02)
-    s6-peak.js  s7-soak.js
+    s6-peak-browser.js(만듦, 11/02 실행 전)  s7-soak.js
   seed/                   # 테스트 계정 · 지원서(seed.js) → accounts.json · S2 계정 accounts-s2.json(커밋하지 않음), 끝낸 면접(interviews-browser.js)
   stubs/gms/              # GMS 스텁(OpenAI 호환, 지연 시간 설정)
   media/                  # make-media.ps1 → answer.wav · camera.y4m (지어낸 내용, 커밋하지 않음)
@@ -517,3 +520,4 @@ export default function () {
 | 인프라 | 6장 S2 주의 · 6.1 · 8.2: S2 스크립트(`s2-login-burst.js`) · 화면 둘러보기 공통 모듈(`lib/web-mix.js`) · 계정만 만드는 seed 옵션 추가, S2 첫 회차 기록 | 로그인 몰림을 S1 화면 부하와 함께 재려고 S1의 화면 코드를 나눠 썼다. 분당 약 290건에서 로그인 처리량이 멈추고 다른 화면까지 느려졌다(H3) |
 | 인프라 | 6장 S3 · 6.1 · 8.2: S3 스크립트(`s3-application-burst.js`) 추가, S3 첫 회차 기록. 단계를 계획(최대 20건)보다 높게 50건까지 올림 | 시험 실행에서 검증 1건이 약 0.18초라 8초 한계가 약 45건으로 계산돼, 기능 한계가 나오는 곳까지 올렸다. Jev는 한 번에 하나씩만 불리므로 실제 API로 돌렸다 |
 | 인프라 | 3.4 · 6장 S4 · 6.1 · 8.2: S4 스크립트(`s4-plan-burst.js`) 추가, S4 첫 회차 기록. S4를 GMS 스텁 없이 실제 GMS로 돌림, 단계를 50건까지 올림 | 질문 준비는 ai-plan 작업자 1개가 1건씩 GMS를 불러 몰려도 GMS 쪽 동시 요청이 1이다. 그래서 스텁 없이도 우리 작업자 쪽 줄만 잴 수 있다. 시험 실행에서 1건 약 5초라 마감 3분 한계가 약 45건으로 계산돼 거기까지 올렸다 |
+| 인프라 | 6장 S6 단계 [제안] · 6.1: S6 스크립트(`s6-peak-browser.js`) 추가. S2 · S4 · S5의 흐름을 공통 모듈(`lib/plan-wait.js` · `lib/video-interview-run.js` · `lib/auth.js` `loginRequest`)로 나눔 | 네 흐름을 한 스크립트에서 같은 시간 기준 · 단계 태그로 돌리려고 시나리오별 코드를 나눠 썼다. 단계는 따로 잰 한계의 비율로 잡았다. 집 네트워크(연결 실패 12~35%, SSH 막힘)에서는 돌리지 않고 SSAFY에서 돌린다 |

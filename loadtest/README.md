@@ -7,11 +7,11 @@
 | 경로 | 내용 |
 |---|---|
 | `run.sh` | k6 실행. k6가 없으면 Docker 이미지(`grafana/k6:2.3.0`)로 돌린다. `.env.k6` 값을 `-e`로 넘긴다 |
-| `lib/` | 공통 모듈: 설정(`config.js`), BE API · FE 페이지 호출(`api.js`), 가입 · 로그인(`auth.js`), 지원서 · 면접(`interview.js`), 계정 목록(`accounts.js`), 지어낸 지원서 · 답변(`data.js`), 화면 둘러보기 한 번(`web-mix.js`, S1 · S2) |
+| `lib/` | 공통 모듈: 설정(`config.js`), BE API · FE 페이지 호출(`api.js`), 가입 · 로그인(`auth.js`), 지원서 · 면접(`interview.js`), 계정 목록(`accounts.js`), 지어낸 지원서 · 답변(`data.js`), 화면 둘러보기 한 번(`web-mix.js`, S1 · S2 · S6), 질문 준비 대기(`plan-wait.js`, S4 · S6), 화상 면접 1건과 지표(`video-interview-run.js`, S5 · S6) |
 | `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(S2 계정은 `seed/accounts-s2.json`, 커밋하지 않는다) |
 | `seed/interviews-browser.js` | 계정마다 끝낸 화상 면접 만들기(실제 화면). S1의 기록 · 결과 · 다시보기 화면이 실제 데이터를 그리게 한다 |
 | `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
-| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S3(`s3-application-burst.js`) · S4(`s4-plan-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
+| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S3(`s3-application-burst.js`) · S4(`s4-plan-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) · S6(`s6-peak-browser.js`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트 |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
@@ -142,6 +142,29 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 - 노트북 여러 대: 노트북마다 `ACCOUNT_OFFSET`(0 · 10 …)과 같은 `START_AT`(유닉스 초)을 주고 `s5-interview-browser.js`를 돌린다
 - 테스트 서버 Egress는 운영과 달리 `track_cpu_cost: 0.1`이다(`server/compose.loadtest.yml`). 운영 기본값(0.5)이면 15초 안에 트랙 녹화 약 6개(면접 2건)만 받아 동시 5건부터 녹화가 빠진다([S5 보고서](report/s5-2026-11-02.md) 7 · 9장). 운영과 같은 조건으로 재려면 그 덮어쓰기를 빼고 Egress를 다시 띄운다
 
+## S6 피크 혼합 (계획 6장, 실제 외부 API)
+
+S1 화면 · S2 로그인 · S4 면접 만들기 · S5 화상 면접을 한 스크립트에서 같이 돌리고 단계(L1 → L2 → L3)마다 같은 비율로 올린다. 기본값은 따로 잰 한계의 약 25 · 50 · 75%다.
+
+| 단계 | 화면 | 로그인 | 면접 만들기 | 동시 화상 면접 | 유지 |
+|---|---|---|---|---|---|
+| L1 | 5 req/s | 70건/분 | 3건/분 | 2건 | 10분 |
+| L2 | 10 req/s | 150건/분 | 6건/분 | 3건 | 30분 |
+| L3 | 15 req/s | 220건/분 | 9건/분 | 5건 | 10분 |
+
+S1 · S2 · S4 · S5를 위해 만든 계정 · 지원서 · 미디어 파일을 그대로 쓴다(`seed/accounts.json` 1~10번, `seed/accounts-s2.json` 앞 30개에 지원서, `media/answer.wav`).
+
+```bash
+MIX=2/20/1/1/3m REST=1m bash loadtest/run.sh scenarios/s6-peak-browser.js   # 짧게 확인(약 4분 + 마무리)
+bash loadtest/run.sh scenarios/s6-peak-browser.js                           # 본 회차(약 1시간)
+```
+
+- `MIX`: 단계마다 `화면 req/s/로그인 건/분/면접 만들기 건/분/동시 화상 면접/유지 시간`을 쉼표로 잇는다. 단계 사이는 `REST`(기본 2분) 쉰다
+- 결과는 단계(`stage` 태그: `L1` · `L2` · `L3`)마다 화면 · 로그인 p95, 질문 준비 실패, 화상 면접 · 녹화 실패, 첫 질문 · 질문 간격 · 결과 시간이 나온다. 단계 시각은 시작할 때 `단계 L1 <시작> <끝>`으로 출력한다
+- 화상 면접 VU는 면접이 끝나면 다음 면접을 바로 시작해 동시 수를 유지한다. 단계가 끝날 때 진행 중이던 면접 · 질문 준비는 끝까지 기다리므로 다음 단계 앞부분과 겹칠 수 있다
+- 이름에 `browser`가 있어 `-with-browser` 이미지로 돌고, 발생기는 L3에서 Chromium 5개(약 7코어)를 쓴다. 발생기 CPU가 80%를 넘으면 그 단계는 쓰지 않는다(계획 3.2)
+- 화상 면접 흐름은 S5와 같은 `lib/video-interview-run.js`, 질문 준비 대기는 S4와 같은 `lib/plan-wait.js`다
+
 ## 값
 
 | 이름 | 기본값 | 쓰는 곳 |
@@ -161,6 +184,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 | `LOGINS` · `WARMUP` · `REST` · `WEB_RATE` | `30,100,200,400,600,800` · `2m` · `2m` · 5 | `s2-login-burst.js`: 단계별 분당 로그인 수 · 배경만 도는 시간 · 단계 사이 쉼 · 배경 화면 req/s |
 | `N` · `STAGGER` · `START_AT` | 1 · 3 · (지금) | `s5-interview-browser.js`: 동시 면접 수 · 시작 간격(초) · 시작 시각(유닉스 초) |
 | `LEVELS` · `COOLDOWN` · `CONTINUE` | `1 3 5 8 10` · 120 · 0 | `s5-levels.sh`: 단계 · 단계 사이 쉬는 시간(초) · 실패해도 계속 |
+| `MIX` · `PLAN_ACCOUNTS` | `5/70/3/2/10m,10/150/6/3/30m,15/220/9/5/10m` · 30 | `s6-peak-browser.js`: 단계별 화면 req/s · 로그인 건/분 · 면접 만들기 건/분 · 동시 화상 면접 · 유지 시간, 면접 만들기에 쓸 S2 계정 수 |
 | `BROWSER_3D` | 0 | 브라우저 시나리오에서 WebGL(면접관 3D)을 켤지 |
 
 ## 주의
