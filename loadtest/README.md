@@ -11,7 +11,7 @@
 | `seed/seed.js` | 테스트 계정 · 지원서 만들기 → `seed/accounts.json`(커밋하지 않는다) |
 | `seed/interviews-browser.js` | 계정마다 끝낸 화상 면접 만들기(실제 화면). S1의 기록 · 결과 · 다시보기 화면이 실제 데이터를 그리게 한다 |
 | `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
-| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) |
+| `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트 |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
@@ -92,6 +92,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 - 실패는 `interview_failed`(면접 자체)와 `replay_failed`(면접은 끝났지만 녹화 실패)로 나눠 세고, 실패해도 그 전까지 잰 값은 남긴다. 다시보기 화면에 "녹화를 불러오지 못했어요"가 나오면 바로 실패로 본다
 - Chromium은 WebGL을 끈다(면접관 3D 화면은 정지 이미지로 대신 나온다). 켜면 Chromium 1개가 노트북 CPU를 약 9코어 쓴다. 끄면 약 1.5코어 · 430MB. `BROWSER_3D=1`이면 켠다
 - 노트북 여러 대: 노트북마다 `ACCOUNT_OFFSET`(0 · 10 …)과 같은 `START_AT`(유닉스 초)을 주고 `s5-interview-browser.js`를 돌린다
+- 테스트 서버 Egress는 운영과 달리 `track_cpu_cost: 0.1`이다(`server/compose.loadtest.yml`). 운영 기본값(0.5)이면 15초 안에 트랙 녹화 약 6개(면접 2건)만 받아 동시 5건부터 녹화가 빠진다([S5 보고서](report/s5-2026-11-02.md) 7 · 9장). 운영과 같은 조건으로 재려면 그 덮어쓰기를 빼고 Egress를 다시 띄운다
 
 ## 값
 
