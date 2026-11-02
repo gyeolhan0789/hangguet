@@ -93,6 +93,39 @@ def test_trailing_off_and_long_pause_are_voice_events() -> None:
     assert found.checkpoints[0].reasons[0].metric is Metric.TRAILING_OFF
 
 
+def speech_with_pauses(seconds: int, pauses: dict[int, float]) -> tuple[SpeechToken, ...]:
+    """1초마다 한 단어를 말하고, pauses의 초에 말한 단어 뒤에서 그 초만큼 더 멈춘다."""
+    tokens, at = [], 0.0
+    while at < seconds:
+        tokens.append(word("말하고", at))
+        at += 1 + pauses.get(int(at), 0)
+    return tuple(tokens)
+
+
+def test_one_long_pause_becomes_checkpoint() -> None:
+    """한 번 멈춘 곳도 곡선에 드러난다. 인상이 조금씩 흔들려도 체크포인트가 된다."""
+    tokens = speech_with_pauses(60, {30: 3})
+    samples = tuple(sample(s, **dict.fromkeys(KEYS, 60.0 + s * 3 % 7 * 2)) for s in range(63))
+    answer = TimelineAnswer(1, tokens, TimelineInput(None, samples))
+
+    found = build_timelines([answer])[1]
+
+    assert len(found.checkpoints) == 1
+    assert 25_000 <= found.checkpoints[0].at_ms <= 36_000
+    assert found.checkpoints[0].reasons == (Reason(Metric.LONG_PAUSE, 1),)
+
+
+def test_longer_pause_lowers_the_curve_more() -> None:
+    tokens = speech_with_pauses(70, {15: 2, 50: 5})
+    found = build_timelines([TimelineAnswer(1, tokens, TimelineInput(None, None))])[1]
+    points = dict(found.points)
+
+    def lowest(at_ms: int) -> float:
+        return min(v for t, v in points.items() if abs(t - at_ms) <= 5_000)
+
+    assert lowest(53_000) < lowest(16_000) < 0
+
+
 def test_close_dips_keep_only_the_lower_one() -> None:
     dips = {s: {"confidence": 20.0} for s in (20, 21)} | {
         s: {"confidence": 0.0, "trust": 0.0} for s in (27, 28)

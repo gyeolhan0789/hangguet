@@ -1,10 +1,11 @@
 """다시보기 타임라인 곡선과 낮은 체크포인트를 계산한다(AI 명세 4장 다시보기 타임라인).
 
-- 곡선은 인상(6항목 평균)과 말끝 흐림·군말·긴 멈춤 횟수를 1초마다 구해 합친다.
+- 곡선은 인상(6항목 평균)과 말끝 흐림·군말 횟수, 긴 멈춤 시간을 1초마다 구해 합친다.
   단위가 다른 값을 함께 보도록 각 값을 면접 전체의 평균·표준편차로 표준화한 뒤 가중 평균하고,
   그 값을 다시 면접 전체로 표준화한다. 0이 그 면접의 평균이다.
 - 음성 3개는 많을수록 나쁘므로 부호를 뒤집는다.
-- 인상 1/2, 음성 3개 각 1/6로 합친다. 개수가 많은 음성 쪽이 곡선을 좌우하지 않게 하기 위함이다.
+- 인상 1/3, 긴 멈춤 1/3, 말끝 흐림·군말 각 1/6로 합친다.
+  긴 멈춤은 횟수가 적어 1/6로는 한 번 멈춘 곳이 곡선에 드러나지 않았다.
 - 체크포인트는 곡선이 LOW_LIMIT 이하로 이어진 구간마다 가장 낮은 1초다.
 - 수치는 모두 임시 값이며 실제 면접으로 조정한다.
 """
@@ -24,8 +25,7 @@ STEP_MS = 1_000
 FACE_LIMIT = 0.5
 # 음성 사건을 세는 앞뒤 범위이자 체크포인트 이유를 보는 범위
 WINDOW_MS = 5_000
-IMPRESSION_WEIGHT = 1 / 2
-VOICE_WEIGHT = 1 / 6
+IMPRESSION_WEIGHT = 1 / 3
 # 곡선이 이 값 이하면 평소보다 유난히 낮다
 LOW_LIMIT = -1.5
 # 체크포인트 사이 최소 간격
@@ -59,6 +59,11 @@ IMPRESSION_METRICS: Mapping[str, Metric] = {
     "trust": Metric.TRUST,
 }
 VOICE_METRICS = (Metric.TRAILING_OFF, Metric.FILLER, Metric.LONG_PAUSE)
+VOICE_WEIGHTS: Mapping[Metric, float] = {
+    Metric.TRAILING_OFF: 1 / 6,
+    Metric.FILLER: 1 / 6,
+    Metric.LONG_PAUSE: 1 / 3,
+}
 
 
 @dataclass(frozen=True)
@@ -99,26 +104,30 @@ class _Second:
     impression: float | None = None
     # 인상 6항목 각각(이유를 고를 때 쓴다)
     items: dict[str, float] = field(default_factory=dict)
+    # 음성 사건 횟수(이유에 표시한다)
     counts: dict[Metric, int | None] = field(default_factory=dict)
+    # 곡선에 쓰는 음성 값. 긴 멈춤은 멈춘 초, 나머지는 횟수다
+    amounts: dict[Metric, float | None] = field(default_factory=dict)
 
 
-def _events(answer: TimelineAnswer) -> dict[Metric, list[int] | None]:
-    """음성 사건 시각(답변 시작 기준 밀리초). 구할 수 없는 사건은 None이다."""
+def _events(answer: TimelineAnswer) -> dict[Metric, list[tuple[int, float]] | None]:
+    """음성 사건마다 (답변 시작 기준 밀리초, 곡선 값). 구할 수 없는 사건은 None이다."""
     trailing = None
     if answer.timeline is not None and answer.timeline.trailing_off_at_ms is not None:
-        trailing = list(answer.timeline.trailing_off_at_ms)
+        trailing = [(at, 1.0) for at in answer.timeline.trailing_off_at_ms]
     if answer.tokens is None:
         return {Metric.TRAILING_OFF: trailing, Metric.FILLER: None, Metric.LONG_PAUSE: None}
     words = group_words([token.to_json() for token in answer.tokens])
-    # AI 명세 3장: 문장 중간에서 앞 단어 끝부터 다음 단어 시작까지 2초 이상이면 긴 멈춤
+    # AI 명세 3장: 문장 중간에서 앞 단어 끝부터 다음 단어 시작까지 2초 이상이면 긴 멈춤.
+    # 오래 멈출수록 곡선이 더 내려가도록 멈춘 초를 값으로 쓴다
     pauses = [
-        cur.end_ms
+        (cur.end_ms, (nxt.start_ms - cur.end_ms) / STEP_MS)
         for cur, nxt in zip(words, words[1:], strict=False)
         if nxt.start_ms - cur.end_ms >= LONG_PAUSE_MS and not ends_sentence(cur.text)
     ]
     return {
         Metric.TRAILING_OFF: trailing,
-        Metric.FILLER: [word.start_ms for word in words if is_filler(word.text)],
+        Metric.FILLER: [(word.start_ms, 1.0) for word in words if is_filler(word.text)],
         Metric.LONG_PAUSE: pauses,
     }
 
@@ -153,10 +162,13 @@ def _seconds(answer: TimelineAnswer) -> list[_Second]:
     for index, second in enumerate(seconds):
         center = index * STEP_MS
         for metric in VOICE_METRICS:
-            times = events[metric]
-            second.counts[metric] = (
-                None if times is None else sum(1 for t in times if abs(t - center) <= WINDOW_MS)
-            )
+            happened = events[metric]
+            if happened is None:
+                second.counts[metric] = second.amounts[metric] = None
+                continue
+            near = [amount for t, amount in happened if abs(t - center) <= WINDOW_MS]
+            second.counts[metric] = len(near)
+            second.amounts[metric] = sum(near)
     return seconds
 
 
@@ -189,7 +201,7 @@ def build_timelines(answers: Sequence[TimelineAnswer]) -> dict[int, AnswerTimeli
         key: _scale([s.items[key] for s in pooled if key in s.items]) for key in IMPRESSION_METRICS
     }
     voice = {
-        metric: _scale([c for s in pooled if (c := s.counts.get(metric)) is not None])
+        metric: _scale([a for s in pooled if (a := s.amounts.get(metric)) is not None])
         for metric in VOICE_METRICS
     }
 
@@ -198,10 +210,10 @@ def build_timelines(answers: Sequence[TimelineAnswer]) -> dict[int, AnswerTimeli
         if second.impression is not None and impression is not None:
             parts.append((IMPRESSION_WEIGHT, impression.z(second.impression)))
         for metric in VOICE_METRICS:
-            count = second.counts.get(metric)
+            amount = second.amounts.get(metric)
             scale = voice[metric]
-            if count is not None and scale is not None:
-                parts.append((VOICE_WEIGHT, -scale.z(count)))
+            if amount is not None and scale is not None:
+                parts.append((VOICE_WEIGHTS[metric], -scale.z(amount)))
         if not parts:
             return None
         return sum(w * z for w, z in parts) / sum(w for w, _ in parts)
@@ -221,10 +233,11 @@ def build_timelines(answers: Sequence[TimelineAnswer]) -> dict[int, AnswerTimeli
                 scored.append((_mean([scale.z(v) for v in values]), Reason(metric, None)))
         for metric in VOICE_METRICS:
             count = found[index].counts.get(metric)
+            amount = found[index].amounts.get(metric)
             scale = voice[metric]
             # 일어나지 않은 음성 사건은 이유가 될 수 없다
-            if count is not None and count > 0 and scale is not None:
-                scored.append((-scale.z(count), Reason(metric, count)))
+            if count and amount is not None and scale is not None:
+                scored.append((-scale.z(amount), Reason(metric, count)))
         chosen = sorted(
             (item for item in scored if item[0] <= REASON_LIMIT), key=lambda item: item[0]
         )
