@@ -146,7 +146,7 @@ class PlanJobHandler:
 
 
 def gms_plan_chat(client: Callable[[], GmsClient]) -> Chat:
-    """주장 추출·질문 생성은 판정 확률을 사용하지 않으므로 확률을 요청하지 않는다.
+    """주장 추출·질문 생성이 사용하는 GMS 호출 함수를 반환한다.
 
     client는 GMS 클라이언트를 반환하는 함수다.
     채점·결과 생성 작업과 같은 클라이언트를 공유하도록

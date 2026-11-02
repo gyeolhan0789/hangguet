@@ -300,7 +300,7 @@ def write_feedback(session: SessionForFeedback, chat: Chat) -> Feedback:
 
 
 def gms_feedback_chat(client: Callable[[], GmsClient]) -> Chat:
-    """피드백은 점수에 사용하지 않으므로 확률을 요청하지 않는다."""
+    """총평·항목별·타임라인 피드백 작성이 사용하는 GMS 호출 함수를 반환한다."""
 
     def call(messages: Sequence[Mapping[str, str]]) -> GmsResult:
         return client().chat_json(messages)

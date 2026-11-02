@@ -309,13 +309,13 @@ def test_plan_chat_checks_gms_settings_on_call() -> None:
         chat([{"role": "user", "content": "질문"}])
 
 
-def test_plan_chat_requests_without_logprobs() -> None:
+def test_plan_chat_passes_messages_without_options() -> None:
     calls: list[tuple[list[Mapping[str, str]], dict[str, Any]]] = []
 
     class FakeClient:
         def chat_json(self, messages: Sequence[Mapping[str, str]], **options: Any) -> GmsResult:
             calls.append((list(messages), options))
-            return GmsResult(content={}, token_logprobs=None, model="gms-served")
+            return GmsResult(content={}, model="gms-served")
 
     chat = gms_plan_chat(lambda: cast(GmsClient, FakeClient()))
 

@@ -25,13 +25,13 @@ from app.interview.scoring.job import (
     register_score_answer_handler,
     score_answer_input,
 )
-from app.interview.scoring.judge import TOP_LOGPROBS, Criterion, StructureBrokenError
+from app.interview.scoring.judge import StructureBrokenError
 from app.worker.dispatch import Dispatcher
 from app.worker.messages import ScoreAnswerJob, parse_job
 from app.worker.queue import PROCESSING_KEY, QUEUE_KEY, ReceiveResult, RedisJobQueue
 from tests.common.test_results import FakeRedis
 from tests.interview.plan.test_job_flow import ResultQueueDownRedis
-from tests.interview.scoring.test_judge import GOOD, response_tokens
+from tests.interview.scoring.test_judge import GOOD
 from tests.worker.test_queue import FakeListRedis
 
 RAW: dict[str, Any] = {
@@ -67,8 +67,8 @@ class FakeChat:
         return outcome
 
 
-def good(*, probabilities: bool = False) -> GmsResult:
-    return GmsResult(dict(GOOD), response_tokens() if probabilities else None, "served-model")
+def good() -> GmsResult:
+    return GmsResult(dict(GOOD), "served-model")
 
 
 def make(chat: FakeChat, redis: FakeRedis | None = None) -> tuple[ScoreAnswerJobHandler, FakeRedis]:
@@ -114,13 +114,15 @@ def test_video_result_contains_only_contract_fields() -> None:
     assert "발화 시간" not in chat.calls[0][1]["content"]
 
 
-def test_result_records_probability_method_per_criterion() -> None:
-    evaluation = build_evaluation(score_answer_input(JOB), FakeChat(good(probabilities=True)))
+def test_result_records_fixed_method_per_criterion() -> None:
+    evaluation = build_evaluation(score_answer_input(JOB), FakeChat(good()))
     assert "scoreMethod" not in evaluation
-    assert all(
-        item["score"] == 80 and item["scoreMethod"] == "PROBABILITY"
-        for item in evaluation["criteria"].values()
-    )
+    assert {name: item["scoreMethod"] for name, item in evaluation["criteria"].items()} == {
+        "JOB_FIT": "FIXED",
+        "COVER_LETTER": "FIXED",
+        "LOGIC": "FIXED",
+        "DELIVERY": "FIXED",
+    }
 
 
 def test_chat_result_has_null_speech_and_no_metric_prompt() -> None:
@@ -136,18 +138,6 @@ def test_chat_result_has_null_speech_and_no_metric_prompt() -> None:
     handler(job)
     assert pushed(redis)[0]["evaluation"]["speech"] is None
     assert "말하기 지표" not in chat.calls[0][1]["content"]
-
-
-def test_result_preserves_mixed_methods_without_top_level_method() -> None:
-    outcome = GmsResult(dict(GOOD), response_tokens(missing=Criterion.DELIVERY), "served-model")
-    handler, redis = make(FakeChat(outcome))
-    handler(JOB)
-    evaluation = pushed(redis)[0]["evaluation"]
-    assert "scoreMethod" not in evaluation
-    assert evaluation["criteria"]["JOB_FIT"]["scoreMethod"] == "PROBABILITY"
-    assert evaluation["criteria"]["JOB_FIT"]["score"] == 80
-    assert evaluation["criteria"]["DELIVERY"]["scoreMethod"] == "FIXED"
-    assert evaluation["criteria"]["DELIVERY"]["score"] == 90
 
 
 @pytest.mark.parametrize("tokens", [None, ()])
@@ -187,7 +177,7 @@ def test_partial_voice_metrics_preserve_zero_values() -> None:
 
 
 @pytest.mark.parametrize(
-    "first", [GmsBadOutputError("invalid JSON"), GmsResult({}, None, "invalid-model")]
+    "first", [GmsBadOutputError("invalid JSON"), GmsResult({}, "invalid-model")]
 )
 def test_structure_failure_retries_once_and_uses_successful_model(
     first: GmsResult | Exception,
@@ -199,9 +189,7 @@ def test_structure_failure_retries_once_and_uses_successful_model(
     assert pushed(redis)[0]["evaluation"]["modelVersion"] == "served-model"
 
 
-@pytest.mark.parametrize(
-    "failure", [GmsBadOutputError("invalid JSON"), GmsResult({}, None, "test")]
-)
+@pytest.mark.parametrize("failure", [GmsBadOutputError("invalid JSON"), GmsResult({}, "test")])
 def test_repeated_structure_failure_sends_no_result(failure: GmsResult | Exception) -> None:
     chat = FakeChat(failure, failure, good())
     handler, redis = make(chat)
@@ -229,7 +217,7 @@ def test_build_evaluation_propagates_final_structure_failure() -> None:
     with pytest.raises(StructureBrokenError):
         build_evaluation(
             score_answer_input(JOB),
-            FakeChat(GmsResult({}, None, "test"), GmsResult({}, None, "test")),
+            FakeChat(GmsResult({}, "test"), GmsResult({}, "test")),
         )
 
 
@@ -241,7 +229,8 @@ def test_result_queue_failure_propagates() -> None:
     assert pushed(redis) == []
 
 
-def test_gms_score_chat_requests_logprobs_with_real_client() -> None:
+def test_gms_score_chat_requests_without_logprobs_with_real_client() -> None:
+    """gpt-5.6-terra가 logprobs 요청을 400으로 거절하므로 채점 요청에도 포함하지 않는다."""
     payloads: list[dict[str, Any]] = []
 
     def transport(payload: dict[str, Any]) -> HttpResponse:
@@ -249,11 +238,10 @@ def test_gms_score_chat_requests_logprobs_with_real_client() -> None:
         body = {"model": "served-model", "choices": [{"message": {"content": json.dumps(GOOD)}}]}
         return HttpResponse(200, {}, json.dumps(body).encode())
 
-    client = GmsClient(model="gpt-4.1-mini", transport=transport)
+    client = GmsClient(model="gpt-5.6-terra", transport=transport)
     evaluation = build_evaluation(score_answer_input(JOB), gms_score_chat(lambda: client))
     assert evaluation["modelVersion"] == "served-model"
-    assert payloads[0]["logprobs"] is True
-    assert payloads[0]["top_logprobs"] == TOP_LOGPROBS
+    assert set(payloads[0]) == {"model", "messages", "response_format"}
 
 
 @pytest.mark.parametrize("fails", [False, True])

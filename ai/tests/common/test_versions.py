@@ -55,11 +55,17 @@ def test_registered_kind_does_not_leak_to_other_kind() -> None:
         REGISTERED.require(VersionKind.RUBRIC, "score-answer-v1")
 
 
-def test_default_registry_accepts_requested_model_id() -> None:
-    """GMS에 요청하는 모델 ID를 등록한다. 응답의 스냅샷 이름은 등록 대상이 아니다."""
-    assert REGISTRY.require(VersionKind.MODEL, "gpt-4.1-mini") == "gpt-4.1-mini"
+@pytest.mark.parametrize("model", ["gpt-4.1-mini", "gpt-5.6-terra"])
+def test_default_registry_accepts_requested_model_id(model: str) -> None:
+    """배포 설정을 전환하는 동안 기존 모델과 gpt-5.6-terra를 모두 허용한다."""
+    assert REGISTRY.require(VersionKind.MODEL, model) == model
+
+
+@pytest.mark.parametrize("model", ["gpt-4.1-mini-2025-04-14", "gpt-5"])
+def test_default_registry_rejects_unregistered_model(model: str) -> None:
+    """응답의 스냅샷 이름과 등록하지 않은 모델 ID는 허용하지 않는다."""
     with pytest.raises(UnregisteredVersionError):
-        REGISTRY.require(VersionKind.MODEL, "gpt-4.1-mini-2025-04-14")
+        REGISTRY.require(VersionKind.MODEL, model)
 
 
 def test_default_registry_rejects_unknown_version() -> None:

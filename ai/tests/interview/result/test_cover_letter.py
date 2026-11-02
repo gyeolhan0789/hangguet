@@ -1,5 +1,3 @@
-import json
-import math
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import replace
@@ -7,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from app.common.gms import GmsBadOutputError, GmsResult, GmsUnavailableError, TokenLogprob
+from app.common.gms import GmsBadOutputError, GmsResult, GmsUnavailableError
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.result.cover_letter import (
     PROMPT_VERSION,
@@ -50,14 +48,6 @@ EVALUATION: dict[str, Any] = {
 }
 
 
-def level_tokens(content: Mapping[str, Any], top: Mapping[str, float]) -> list[TokenLogprob]:
-    text = json.dumps(content, ensure_ascii=False)
-    out = [TokenLogprob(ch, 0.0, {}) for ch in text]
-    pos = next(i for i in range(text.index('"level"') + 7, len(text)) if text[i].isdigit())
-    out[pos] = TokenLogprob(text[pos], 0.0, {k: math.log(v) for k, v in top.items()})
-    return out
-
-
 class FakeChat:
     def __init__(self, *outcomes: GmsResult | Mapping[str, Any] | Exception) -> None:
         self.outcomes = list(outcomes)
@@ -70,7 +60,7 @@ class FakeChat:
             raise item
         if isinstance(item, GmsResult):
             return item
-        return GmsResult(dict(item), None, "gpt-test")
+        return GmsResult(dict(item), "gpt-test")
 
 
 def user_prompt(source: CoverLetterInput) -> str:
@@ -100,19 +90,12 @@ def test_prompt_without_claims_states_none() -> None:
     assert "[추출한 주장]\n- 없음" in user_prompt(replace(SOURCE, claims=()))
 
 
-def test_probabilities_give_expected_score() -> None:
-    result = GmsResult(dict(GOOD), level_tokens(GOOD, {"3": 0.5, "2": 0.5}), "gpt-x")
-    confirmed = judge_cover_letter(SOURCE, FakeChat(result))
+def test_judgement_uses_fixed_level_score() -> None:
+    confirmed = judge_cover_letter(SOURCE, FakeChat(GmsResult(dict(GOOD), "gpt-x")))
     assert confirmed == CoverLetterResult(
-        {"level": 3, "score": 80, "scoreMethod": "PROBABILITY", "reason": "자소서와 일치함"},
+        {"level": 3, "score": 90, "scoreMethod": "FIXED", "reason": "자소서와 일치함"},
         "gpt-x",
     )
-
-
-def test_missing_probabilities_give_fixed_score() -> None:
-    confirmed = judge_cover_letter(SOURCE, FakeChat(GOOD))
-    assert confirmed.item["score"] == 90
-    assert confirmed.item["scoreMethod"] == "FIXED"
 
 
 @pytest.mark.parametrize(
@@ -180,11 +163,3 @@ def test_invalid_level_is_rejected_after_one_retry(level: Any) -> None:
     with pytest.raises(StructureBrokenError):
         judge_cover_letter(SOURCE, chat)
     assert len(chat.messages) == 2
-
-
-def test_unrelated_criterion_probability_does_not_change_cover_letter_method() -> None:
-    content = {"LOGIC": {"level": 2, "reason": "논리"}, **GOOD}
-    tokens = level_tokens(content, {"2": 0.5, "3": 0.5})
-    confirmed = judge_cover_letter(SOURCE, FakeChat(GmsResult(content, tokens, "gpt-test")))
-    assert confirmed.item["score"] == 90
-    assert confirmed.item["scoreMethod"] == "FIXED"

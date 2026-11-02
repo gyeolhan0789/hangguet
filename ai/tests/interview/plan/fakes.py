@@ -40,7 +40,7 @@ class FakeChat:
         outcome = self._outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
-        return GmsResult(content=outcome, token_logprobs=None, model="gms-served")
+        return GmsResult(content=outcome, model="gms-served")
 
 
 def question(seq: Any, claim_id: str = "c1") -> dict[str, Any]:

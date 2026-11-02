@@ -71,7 +71,7 @@ def reply(**changes: Any) -> dict[str, Any]:
 
 
 def result(content: Mapping[str, Any]) -> GmsResult:
-    return GmsResult(dict(content), None, "gpt-test")
+    return GmsResult(dict(content), "gpt-test")
 
 
 class FakeChat:
@@ -373,7 +373,7 @@ def test_gms_unavailable_is_not_retried_here() -> None:
     assert len(chat.messages) == 1
 
 
-def test_feedback_chat_requests_no_probabilities() -> None:
+def test_feedback_chat_passes_messages_without_options() -> None:
     calls: list[dict[str, Any]] = []
 
     class Client:

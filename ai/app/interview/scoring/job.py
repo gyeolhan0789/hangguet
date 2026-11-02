@@ -22,7 +22,6 @@ from app.common.results import ResultPublisher, ResultType
 from app.common.session import InterviewMode
 from app.interview.scoring.judge import (
     PROMPT_VERSION,
-    TOP_LOGPROBS,
     Criterion,
     Judgement,
     StructureBrokenError,
@@ -130,10 +129,10 @@ class ScoreAnswerJobHandler:
 
 
 def gms_score_chat(client: Callable[[], GmsClient]) -> Chat:
-    """판정 단계의 확률을 수신하도록 상위 토큰 확률을 요청한다."""
+    """답변 채점과 결과 생성의 재채점·자소서 대조가 사용하는 GMS 호출 함수를 반환한다."""
 
     def call(messages: Sequence[Mapping[str, str]]) -> GmsResult:
-        return client().chat_json(messages, logprobs=True, top_logprobs=TOP_LOGPROBS)
+        return client().chat_json(messages)
 
     return call
 
