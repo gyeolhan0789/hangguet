@@ -22,7 +22,8 @@ class InterviewMode(StrEnum):
 
 
 class Persona(StrEnum):
-    """면접관. BE Persona와 같다."""
+    """면접관. 목 서버 Persona와 같다."""
 
     DEVIL = "DEVIL"
     COFFEE_CHAT = "COFFEE_CHAT"
+    DUCK = "DUCK"

@@ -22,6 +22,7 @@ from app.interview.result.feedback import (
 )
 from app.interview.scoring.judge import Criterion, StructureBrokenError
 from app.interview.talent import (
+    ALL_CRITERIA,
     EXECUTIVE_CRITERIA,
     PRACTICAL_CRITERIA,
     Criteria,
@@ -87,7 +88,7 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v4"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v5"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(면접관의 2장 인재상 기준 중 답변에 드러난 것을 중심으로,
@@ -305,6 +306,40 @@ def test_feedback_off_interviewer_criteria_is_retried_once(answer: dict[str, Any
     write_feedback(SESSION, chat)
 
     assert len(chat.messages) == 2
+
+
+def test_duck_accepts_any_talent_criterion_once() -> None:
+    """오리 면접관은 12개 기준이 모두 자기 기준이므로,
+    실무·임원 기준을 함께 작성해도 재생성하지 않는다.
+    """
+    duck = replace(SESSION, persona=Persona.DUCK)
+    mixed = {
+        **SHOWN,
+        "shownCriteria": ["실행·성과", "협력·소통"],
+        "goodPoint": "실행·성과와 협력·소통이 함께 드러납니다.",
+    }
+    chat = FakeChat(reply(answers=[mixed, NOT_SHOWN_ANSWER]))
+
+    write_feedback(duck, chat)
+
+    assert len(chat.messages) == 1
+
+
+DUCK_TONE = (
+    "- goodPoint는 답변에서 잘한 점을 구체적으로 먼저 작성하고, "
+    "improvePoint는 다음 답변에서 시도할 행동으로 부드럽게 작성한다"
+)
+
+
+def test_duck_feedback_uses_all_criteria_and_gentle_tone() -> None:
+    """오리 면접관 피드백은 12개 기준을 모두 쓰고, 문체만 부드럽게 한다(AI 명세 4장)."""
+    system = feedback_system(Persona.DUCK)
+
+    assert f"이 면접은 자신감 연습 면접이다. {VIEWPOINT}" in system
+    assert criteria_lines(ALL_CRITERIA) in system
+    assert DUCK_TONE in system
+    assert DUCK_TONE not in feedback_system(Persona.DEVIL)
+    assert DUCK_TONE not in feedback_system(Persona.COFFEE_CHAT)
 
 
 def test_last_attempt_keeps_feedback_off_interviewer_criteria() -> None:

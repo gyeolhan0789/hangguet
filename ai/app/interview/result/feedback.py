@@ -22,13 +22,14 @@ from app.common.session import Persona
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.scoring.judge import Criterion, StructureBrokenError
 from app.interview.talent import (
+    ALL_CRITERIA,
     EXECUTIVE_CRITERIA,
     PRACTICAL_CRITERIA,
     criteria_lines,
     criteria_names,
 )
 
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v4")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v5")
 # BE의 코멘트·총평 검증과 동일하게 유니코드 코드 포인트 수를 제한한다.
 MAX_TEXT_LENGTH = 255
 # 결과 화면 맨 위 한 줄 총평의 저장 길이(interview_sessions.headline)
@@ -64,8 +65,8 @@ _VIEWPOINT_RULES = (
     "- 위 기준에 대한 평가는 답변에 드러난 사실을 근거로 작성하고, "
     "판정 단계와 어긋나는 평가는 작성하지 않는다\n"
 )
-_ALL_CRITERIA_NAMES = frozenset(name for name, _ in (*PRACTICAL_CRITERIA, *EXECUTIVE_CRITERIA))
-# 질문 생성과 달리 상대 면접관의 기준 이름은 넣지 않는다.
+_ALL_CRITERIA_NAMES = frozenset(name for name, _ in ALL_CRITERIA)
+# 질문 생성과 달리 그 면접관의 기준이 아닌 기준 이름은 넣지 않는다.
 # 제외하라고 나열하면 오히려 그 기준으로 평가했으므로(GMS 실측) parse_feedback이 이름으로 검사한다
 _INTERVIEW_GUIDES: Mapping[Persona, str] = {
     Persona.COFFEE_CHAT: (
@@ -77,6 +78,14 @@ _INTERVIEW_GUIDES: Mapping[Persona, str] = {
         f"이 면접은 임원면접이다. {_VIEWPOINT}"
         f"{criteria_lines(EXECUTIVE_CRITERIA)}"
         f"{_VIEWPOINT_RULES}"
+    ),
+    # 오리 면접관은 면접 자신감 향상이 목적이므로 점수는 같게 두고 문체만 부드럽게 한다(AI 명세 4장)
+    Persona.DUCK: (
+        f"이 면접은 자신감 연습 면접이다. {_VIEWPOINT}"
+        f"{criteria_lines(ALL_CRITERIA)}"
+        f"{_VIEWPOINT_RULES}"
+        "- goodPoint는 답변에서 잘한 점을 구체적으로 먼저 작성하고, "
+        "improvePoint는 다음 답변에서 시도할 행동으로 부드럽게 작성한다\n"
     ),
 }
 
@@ -204,7 +213,7 @@ def _check_viewpoint(
         raise StructureBrokenError(f"{label} 피드백에 면접관 기준 이름이 없다")
     both = f"{feedback.good_point} {feedback.improve_point}"
     if any(name in both for name in _ALL_CRITERIA_NAMES - allowed):
-        raise StructureBrokenError(f"{label} 피드백에 상대 면접관의 기준 이름이 있다")
+        raise StructureBrokenError(f"{label} 피드백에 면접관 기준이 아닌 인재상 기준 이름이 있다")
 
 
 def _answer_feedback(

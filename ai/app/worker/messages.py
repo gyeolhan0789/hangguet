@@ -195,7 +195,7 @@ def _persona(data: Mapping[str, Any]) -> Persona:
     try:
         return Persona(str(value))
     except ValueError as e:
-        raise InvalidJobError("persona는 DEVIL 또는 COFFEE_CHAT이어야 한다") from e
+        raise InvalidJobError(f"persona는 {', '.join(Persona)} 중 하나여야 한다") from e
 
 
 def _company_card(data: Mapping[str, Any]) -> Mapping[str, Any] | None:
