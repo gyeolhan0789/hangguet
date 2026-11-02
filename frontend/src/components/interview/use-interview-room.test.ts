@@ -28,6 +28,9 @@ const sdk = vi.hoisted(() => {
       performRpc: vi.fn<(params: unknown) => Promise<string>>(async () =>
         JSON.stringify({ accepted: true }),
       ),
+      sendBytes: vi.fn<(bytes: Uint8Array, options?: unknown) => Promise<unknown>>(
+        async () => ({}),
+      ),
     };
     rpcHandlers = new Map<string, RpcHandler>();
     registerRpcMethod = vi.fn((method: string, handler: RpcHandler) => {
@@ -425,6 +428,49 @@ describe("채팅 입력 신호 전송", () => {
     unmount();
     await result.current.sendChatInput(3, 2, "답변", 800);
     expect(room.localParticipant.performRpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("인상 판단 사진 전송(interview.frame)", () => {
+  // 기준: AI 명세 6.3 interview.frame(바이트 스트림, 화면 → 에이전트, 속성 ageMs) · 6.6
+  const jpeg = { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer } as Blob;
+  afterEach(() => vi.restoreAllMocks());
+
+  async function joined(listenOnly = false) {
+    // 그릴 때마다 새 마이크를 넘기면 다시 입장하므로 한 번만 만든다
+    const stream = listenOnly ? null : media().stream;
+    const hook = renderHook(() => useInterviewRoom(55, stream, { listenOnly }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    return { ...hook, room };
+  }
+
+  it("사진을 바이트 스트림으로 에이전트에게만 보내고, 찍은 뒤 지난 시간을 ageMs로 붙인다", async () => {
+    const { result, room } = await joined();
+    // 보낼 때의 시각만 고정한다. React 스케줄러도 이 시계를 쓰므로 보낸 뒤 바로 되돌린다
+    const now = vi.spyOn(performance, "now").mockReturnValue(1300.4);
+    await result.current.sendFrame(jpeg, 1000);
+    now.mockRestore();
+
+    expect(room.localParticipant.sendBytes).toHaveBeenCalledExactlyOnceWith(
+      new Uint8Array([1, 2, 3]),
+      { topic: "interview.frame", destinationIdentities: ["agent"], attributes: { ageMs: "300" } },
+    );
+  });
+
+  it("채팅 면접 · 에이전트 없음에는 보내지 않고, 전송 오류는 전파하지 않는다", async () => {
+    const chat = await joined(true);
+    await chat.result.current.sendFrame(jpeg, 0);
+    expect(chat.room.localParticipant.sendBytes).not.toHaveBeenCalled();
+    chat.unmount();
+    sdk.FakeRoom.instances = [];
+
+    const { result, room } = await joined();
+    room.localParticipant.sendBytes.mockRejectedValueOnce(new Error("closed"));
+    await expect(result.current.sendFrame(jpeg, 0)).resolves.toBeUndefined();
+    room.remoteParticipants.delete("agent");
+    await result.current.sendFrame(jpeg, 0);
+    expect(room.localParticipant.sendBytes).toHaveBeenCalledTimes(1);
   });
 });
 

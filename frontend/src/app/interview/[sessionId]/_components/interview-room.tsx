@@ -381,8 +381,6 @@ function VideoInterview({
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
   const { stream, level } = useInterviewMedia();
-  // 면접 동안 시선을 잰다. 끝낼 때(5.8) 비율만 보낸다
-  useGazeTracker(stream);
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
@@ -430,6 +428,8 @@ function VideoInterview({
     questionSeq: question?.seq,
     onPresentation,
   });
+  // 면접 동안 시선을 잰다. 끝낼 때(5.8) 비율만 보낸다. 같은 측정으로 고른 사진은 인상 판단용으로 에이전트에 보낸다(AI 명세 6.6)
+  useGazeTracker(stream, stt.sendFrame);
   const liveQuestion =
     stt.question &&
     stt.question.seq > completedSeq &&

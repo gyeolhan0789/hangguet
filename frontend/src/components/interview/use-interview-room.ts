@@ -10,6 +10,7 @@ import {
   ANSWER_SUBMIT_METHOD,
   QUESTION_METHOD,
   CHAT_INPUT_METHOD,
+  FRAME_TOPIC,
   chatInputPayload,
   REACTION_METHOD,
   reactionMessageSchema,
@@ -415,7 +416,28 @@ export function useInterviewRoom(
     [sessionId, listenOnly],
   );
 
-  return { ...state, question, reaction, retry, submitAnswer, sendChatInput };
+  // 인상 판단 사진을 에이전트에 보낸다(AI 명세 6.3 interview.frame). 응답을 기다리지 않고, 실패해도 면접은 이어 간다.
+  // ageMs는 찍은 뒤 보낼 때까지 걸린 시간이다. 에이전트가 받은 시각에서 빼 찍은 시각을 구한다(브라우저 시계는 쓰지 않는다)
+  const sendFrame = useCallback(
+    async (jpeg: Blob, capturedAt: number) => {
+      const room = connected.current;
+      const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
+      if (listenOnly || !room || !agent) return;
+      try {
+        const bytes = new Uint8Array(await jpeg.arrayBuffer());
+        await room.localParticipant.sendBytes(bytes, {
+          topic: FRAME_TOPIC,
+          destinationIdentities: [agent.identity],
+          attributes: { ageMs: String(Math.max(0, Math.round(performance.now() - capturedAt))) },
+        });
+      } catch {
+        // 사진 전송 실패는 면접 진행에 영향을 주지 않는다.
+      }
+    },
+    [listenOnly],
+  );
+
+  return { ...state, question, reaction, retry, submitAnswer, sendChatInput, sendFrame };
 }
 
 /**

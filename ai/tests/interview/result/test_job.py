@@ -19,6 +19,8 @@ from app.interview.result.job import (
     evaluate_answer_input,
     register_evaluate_handler,
 )
+from app.interview.result.timeline import Metric
+from app.interview.result.timeline_feedback import DEFAULT_TEXTS
 from app.interview.scoring.job import answer_speech, gms_score_chat
 from app.interview.scoring.judge import Criterion
 from app.interview.speech import aggregate_speech_metrics
@@ -411,6 +413,69 @@ def test_registered_as_evaluate_handler() -> None:
     register_evaluate_handler(dispatcher, handler)
     assert dispatcher.dispatch(JOB) is DispatchResult.HANDLED
     assert pushed(redis)[-1]["type"] == "evaluation.completed"
+
+
+def timeline_answer(answer_id: int, seq: int) -> dict[str, Any]:
+    """30~35초에 자신감이 크게 떨어진 60초 답변(AI 명세 4장 다시보기 타임라인 입력)."""
+    items = [
+        {
+            "atMs": s * 1000,
+            "face": 0.9,
+            **{key: 60.0 for key in ("stability", "expression", "emotion", "likeability")},
+            "confidence": 10.0 if 30 <= s <= 35 else 60.0,
+            "trust": 60.0,
+        }
+        for s in range(60)
+    ]
+    item = answer(answer_id, seq, evaluation())
+    item["timeline"] = {
+        "trailingOffAtMs": None,
+        "impressions": {"promptVersion": "impression-v1", "modelVersion": "jev", "items": items},
+    }
+    return item
+
+
+TIMELINE_REPLY = {
+    "checkpoints": [
+        {"id": "c1", "reasons": [{"metric": "CONFIDENCE", "text": "고개를 들고 말해 보세요."}]}
+    ]
+}
+
+
+def test_video_answer_evaluation_has_timeline_with_gms_texts() -> None:
+    """다시보기 타임라인은 결과 생성의 피드백 단계에서 함께 만든다(AI 명세 4장)."""
+    target = job(timeline_answer(903, 1))
+    written = FakeChat(feedback_reply(target), TIMELINE_REPLY)
+
+    messages, _, _ = run(target, written=written)
+
+    timeline = messages[-1]["answers"][0]["evaluation"]["timeline"]
+    assert len(timeline["points"]) == 60
+    [checkpoint] = timeline["checkpoints"]
+    assert 30_000 <= checkpoint["atMs"] <= 35_000
+    assert checkpoint["reasons"] == [
+        {"metric": "CONFIDENCE", "count": None, "text": "고개를 들고 말해 보세요."}
+    ]
+    assert len(written.calls) == 2
+
+
+def test_timeline_text_failure_does_not_fail_result() -> None:
+    target = job(timeline_answer(903, 1))
+    written = FakeChat(feedback_reply(target), GmsUnavailableError("503"))
+
+    messages, _, _ = run(target, written=written)
+
+    assert messages[-1]["type"] == "evaluation.completed"
+    [checkpoint] = messages[-1]["answers"][0]["evaluation"]["timeline"]["checkpoints"]
+    assert checkpoint["reasons"][0]["text"] == DEFAULT_TEXTS[Metric.CONFIDENCE]
+
+
+def test_chat_answer_evaluation_has_no_timeline() -> None:
+    target = job(answer(903, 1, evaluation(speech=None)), mode="CHAT")
+
+    messages, _, _ = run(target)
+
+    assert "timeline" not in messages[-1]["answers"][0]["evaluation"]
 
 
 def test_answers_keep_job_order() -> None:

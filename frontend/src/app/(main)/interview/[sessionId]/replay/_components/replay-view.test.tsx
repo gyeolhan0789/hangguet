@@ -383,6 +383,68 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
   });
 });
 
+// 기준: 웹 Swagger 6.4 items[].timeline(4번 질문 체크포인트 623.25초: 자신감 · 군말 3회) · 사용자 결정(2026-10-30: 그래프를 누르면
+// 영상이 그 위치로 가고, 누른 곳 가까이에 체크포인트가 있으면 그래프 아래에 그 지점의 보완할 점만 이유별로 보여 준다)
+// jsdom은 레이아웃이 없어 그래프 상자의 위치 · 크기를 테스트가 정한다(좌우 여백 8px, 1px = 1초).
+describe("ReplayView · 다시보기 타임라인", () => {
+  function shown() {
+    render(<ReplayView replay={REPLAY} />);
+    const { video, state } = fakeVideo();
+    state.duration = 1080;
+    fireEvent.loadedMetadata(video);
+    const chart = screen.getByTestId("replay-timeline-chart");
+    vi.spyOn(chart, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 1080 + 16,
+    } as DOMRect);
+    return { chart, state };
+  }
+
+  it("영상 길이를 알면 답변 흐름을 그리고, 처음에는 빨간 점을 누르라는 안내만 둔다", () => {
+    shown();
+
+    expect(screen.getByRole("heading", { name: "답변 흐름" })).toBeDefined();
+    expect(
+      screen.getByText("그래프의 빨간 점을 누르면 그 지점에서 보완할 점이 나와요."),
+    ).toBeDefined();
+  });
+
+  it("체크포인트 가까이를 누르면 영상이 그 위치로 가고, 그 지점의 보완할 점을 이유별로 보여 준다", () => {
+    const { chart, state } = shown();
+
+    fireEvent.click(chart, { clientX: 8 + 625 });
+
+    expect(state.currentTime).toBe(625);
+    expect(screen.getByText("10:23 보완할 점")).toBeDefined();
+    expect(screen.getByText("자신감")).toBeDefined();
+    expect(screen.getByText("고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요.")).toBeDefined();
+    expect(screen.getByText("군말 3회")).toBeDefined();
+  });
+
+  it("체크포인트에서 먼 곳을 누르면 영상만 옮기고 보완할 점은 닫는다", () => {
+    const { chart, state } = shown();
+    fireEvent.click(chart, { clientX: 8 + 623 });
+
+    fireEvent.click(chart, { clientX: 8 + 100 });
+
+    expect(state.currentTime).toBe(100);
+    expect(screen.queryByText("10:23 보완할 점")).toBeNull();
+    expect(
+      screen.getByText("그래프의 빨간 점을 누르면 그 지점에서 보완할 점이 나와요."),
+    ).toBeDefined();
+  });
+
+  it("타임라인이 있는 답변이 없으면 답변 흐름을 그리지 않는다", () => {
+    const replay = { ...REPLAY, items: REPLAY.items.map((item) => ({ ...item, timeline: null })) };
+    render(<ReplayView replay={replay} />);
+    const { video, state } = fakeVideo();
+    state.duration = 1080;
+    fireEvent.loadedMetadata(video);
+
+    expect(screen.queryByRole("heading", { name: "답변 흐름" })).toBeNull();
+  });
+});
+
 // 기준: API 명세 6.4 videoStatus(MERGING: 플레이어 자리에 처리 중 안내 + 10초마다 다시 조회, FAILED: 불러오지 못했다고 안내,
 // 두 경우 모두 질문 목록과 답변은 보여 준다) · S15P31A301-259
 describe("ReplayView · 녹화 상태(videoStatus)", () => {

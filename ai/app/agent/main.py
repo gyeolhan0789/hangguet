@@ -9,6 +9,7 @@ import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AsyncExitStack
+from dataclasses import replace
 from typing import Any
 
 from livekit import rtc
@@ -18,6 +19,7 @@ from app.agent.answer_capture import AnswerCapture, CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
 from app.agent.interview import InterviewRunner
 from app.agent.jev import JevJudge
 from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
@@ -137,7 +139,10 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 class RoomCapture:
-    """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다."""
+    """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다.
+
+    impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담는다(AI 명세 6.6).
+    """
 
     def __init__(
         self,
@@ -146,9 +151,11 @@ class RoomCapture:
         settings: SttSettings,
         on_speech: Callable[[], None],
         on_sentence: Callable[[Sentence, str], None],
+        impressions: ImpressionRecorder | None = None,
     ) -> None:
         self._room = room
         self._identity = identity
+        self._impressions = impressions
         self._stop = asyncio.Event()
         self._publisher = TranscriptPublisher(room.local_participant, identity)
         self._capture = AnswerCapture(
@@ -169,17 +176,25 @@ class RoomCapture:
             num_channels=1,
         )
         chunks = audio_chunks(stream, self._stop)
+        if self._impressions is not None:
+            self._impressions.start()
         try:
-            return await self._capture.run(chunks)
+            answer = await self._capture.run(chunks)
         finally:
             await chunks.aclose()
             await stream.aclose()
+        if self._impressions is None:
+            return answer
+        return replace(answer, impressions=self._impressions.stop())
 
     def stop(self) -> None:
         self._stop.set()
 
     def snapshot(self) -> CapturedAnswer:
-        return self._capture.snapshot()
+        answer = self._capture.snapshot()
+        if self._impressions is None:
+            return answer
+        return replace(answer, impressions=self._impressions.judged())
 
     def answer_tokens(self) -> tuple[SpeechToken, ...] | None:
         return self._capture.answer_tokens()
@@ -189,6 +204,9 @@ class RoomCapture:
 
     async def aclose(self) -> None:
         self._stop.set()
+        if self._impressions is not None:
+            # 폐기한 답변(퇴장 등)에서 판단 중이던 사진은 다음 답변에 섞이지 않게 버린다
+            self._impressions.stop()
         await self._publisher.aclose()
 
 
@@ -236,7 +254,13 @@ async def run_interview(
     video = assignment.mode is InterviewMode.VIDEO
     common = load_settings(os.environ)
     results = ResultPublisher(create_redis(common))
-    delivery = AnswerDelivery(assignment.session_id, results, SAMPLE_RATE)
+    impressions = impression_recorder(common) if video else None
+    delivery = AnswerDelivery(
+        assignment.session_id,
+        results,
+        SAMPLE_RATE,
+        impression_model=None if impressions is None else impressions.model,
+    )
     judge = reaction_judge(common, off_topic=video)
     reactions = (
         None
@@ -257,7 +281,7 @@ async def run_interview(
         assignment,
         speaker,
         lambda identity, on_speech, on_sentence: RoomCapture(
-            room, identity, settings, on_speech, on_sentence
+            room, identity, settings, on_speech, on_sentence, impressions
         ),
         lambda destination, payload: send_room_message(
             room.local_participant, destination, ANSWER_STATE_METHOD, payload
@@ -284,9 +308,19 @@ async def run_interview(
     def left(participant: rtc.RemoteParticipant) -> None:
         runner.candidate_left(participant.identity)
 
+    def frame_received(reader: rtc.ByteStreamReader, identity: str) -> None:
+        if impressions is None or identity != CANDIDATE_IDENTITY:
+            reader.close()
+            return
+        impressions.receive(lambda: read_frame(reader))
+
     async with AsyncExitStack() as cleanup:
         if judge is not None:
             cleanup.push_async_callback(judge.aclose)
+        if impressions is not None:
+            cleanup.push_async_callback(impressions.aclose)
+            room.register_byte_stream_handler(FRAME_TOPIC, frame_received)
+            cleanup.callback(room.unregister_byte_stream_handler, FRAME_TOPIC)
         room.on("track_published", subscribe)
         cleanup.callback(room.off, "track_published", subscribe)
         room.on("participant_connected", joined)
@@ -317,6 +351,14 @@ def reaction_judge(settings: Settings, *, off_topic: bool = False) -> JevJudge |
         log.warning("JEV_API_KEY가 없어 리액션 없이 진행한다")
         return None
     return JevJudge(settings.jev_api_key, off_topic=off_topic)
+
+
+def impression_recorder(settings: Settings) -> ImpressionRecorder | None:
+    if settings.jev_api_key is None:
+        # 리액션과 같이 인상 판단 없이 진행한다(AI 명세 6.5)
+        log.warning("JEV_API_KEY가 없어 인상 판단 없이 진행한다")
+        return None
+    return ImpressionRecorder(ImpressionJudge(settings.jev_api_key))
 
 
 def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker:

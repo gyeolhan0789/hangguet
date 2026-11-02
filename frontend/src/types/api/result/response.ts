@@ -96,6 +96,53 @@ export interface ReplayItem {
   answerCreatedAt: OffsetDateTime | null;
   /** 질문별 3단계. 답하지 않은 질문이면 null */
   grade: Grade | null;
+  /** 다시보기 타임라인(화상만). 채팅 · 답하지 않은 질문 · 만들지 못한 답변은 null */
+  timeline: ReplayTimeline | null;
+}
+
+/** 체크포인트 이유. 인상 6항목(STABILITY ~ TRUST)과 음성 3개(TRAILING_OFF · FILLER · LONG_PAUSE) */
+export type TimelineMetric =
+  | "STABILITY"
+  | "CONFIDENCE"
+  | "EXPRESSION"
+  | "EMOTION"
+  | "LIKEABILITY"
+  | "TRUST"
+  | "TRAILING_OFF"
+  | "FILLER"
+  | "LONG_PAUSE";
+
+/** 곡선의 1초. 시각은 영상 위치(초) */
+export interface TimelinePoint {
+  at: number;
+  /** 그 면접 평균이 0인 표준화 값. 음수면 평소보다 아쉬움 */
+  value: number;
+}
+
+export interface TimelineReason {
+  metric: TimelineMetric;
+  /** 음성 이유의 앞뒤 5초 횟수. 인상 이유면 null */
+  count: number | null;
+  /** 보완할 점 */
+  text: string;
+}
+
+/** 평소보다 유난히 낮은 지점 */
+export interface TimelineCheckpoint {
+  /** 가장 낮은 지점(영상 위치, 초) */
+  at: number;
+  start: number;
+  end: number;
+  value: number;
+  reasons: TimelineReason[];
+}
+
+/** 6.4 다시보기 타임라인(화상만). 그 답변 동안의 면접 흐름 */
+export interface ReplayTimeline {
+  /** 1초 간격 */
+  points: TimelinePoint[];
+  /** 시간 순 */
+  checkpoints: TimelineCheckpoint[];
 }
 
 /** 6.4 녹화 영상 상태 */

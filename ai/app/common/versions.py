@@ -68,6 +68,8 @@ REGISTRY = VersionRegistry(
             "evaluate-feedback-v4",
             "evaluate-cover-letter-v1",
             "reaction-v1",
+            "impression-v1",
+            "timeline-feedback-v1",
             "cover-letter-check-v1",
             "cover-letter-check-v2",
         }

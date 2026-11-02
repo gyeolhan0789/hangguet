@@ -16,6 +16,7 @@ from app.interview.realtime.voice import (
     MIN_PITCH_SPEECH_MS,
     TRAILING_DROP_DB,
     pcm16_samples,
+    trailing_off_at_ms,
     voice_metrics,
 )
 
@@ -115,6 +116,51 @@ def test_sentence_beyond_received_audio_is_not_judged() -> None:
     samples = np.concatenate([tone(0.5, 150, 0.5), tone(0.5, 150, 0.05)])
 
     assert voice_metrics(samples, RATE, tokens).trailing_off_ratio == 100.0
+
+
+def test_trailing_off_times_are_ends_of_trailing_sentences() -> None:
+    """흐린 문장의 마지막 단어 끝 시각만 남긴다(AI 명세 3장 trailingOffAtMs)."""
+    tokens = (
+        *SENTENCE,
+        SpeechToken(" 그리고", 1000, 1500),
+        SpeechToken(" 배웠습니다.", 1500, 2000),
+        SpeechToken(" 그래서", 2000, 2500),
+        SpeechToken(" 음", 2500, 3000),
+    )
+    samples = np.concatenate(
+        [
+            tone(0.5, 150, 0.5),
+            tone(0.5, 150, 0.05),  # 1번 문장 흐림(끝 1000ms)
+            tone(1.0, 150, 0.5),  # 2번 문장 고름
+            tone(0.5, 150, 0.5),
+            tone(0.5, 150, 0.05),  # 3번(종결어미 없음) 흐림(끝 3000ms)
+        ]
+    )
+
+    assert trailing_off_at_ms(samples, RATE, tokens) == (1000, 3000)
+
+
+def test_no_trailing_sentence_gives_empty_times() -> None:
+    assert trailing_off_at_ms(tone(1.0, 150, 0.5), RATE, SENTENCE) == ()
+
+
+def test_trailing_off_times_judge_same_sentences_as_ratio() -> None:
+    """음성이 없는 문장은 비율과 같이 판단하지 않는다."""
+    tokens = (*SENTENCE, SpeechToken(" 끝입니다.", 5000, 5500))
+    samples = np.concatenate([tone(0.5, 150, 0.5), tone(0.5, 150, 0.05)])
+
+    assert trailing_off_at_ms(samples, RATE, tokens) == (1000,)
+
+
+@pytest.mark.parametrize("tokens", [None, ()])
+def test_without_tokens_trailing_off_times_are_empty(
+    tokens: tuple[SpeechToken, ...] | None,
+) -> None:
+    assert trailing_off_at_ms(tone(1.0, 150), RATE, tokens) is None
+
+
+def test_without_audio_trailing_off_times_are_empty() -> None:
+    assert trailing_off_at_ms(np.zeros(0), RATE, SENTENCE) is None
 
 
 def test_steady_pitch_has_almost_no_range() -> None:

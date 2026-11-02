@@ -10,6 +10,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
 import com.ssafy.a301.interview.domain.AiJobType;
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.AnswerImpressions;
 import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewMode;
@@ -32,6 +33,7 @@ import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -175,6 +177,53 @@ class AiResultServiceTest {
                                         && job.getAnswerId().equals(answer.getId()));
 
         assertThat(results.handle(answerCompleted(session, 1, "다시"))).isEqualTo(Outcome.DISCARDED);
+    }
+
+    @Test
+    void timelineValuesAreSavedWithAnswer() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+        results.handle(questionStarted(session, 1));
+
+        assertThat(results.handle(answerCompletedWithTimeline(session, TIMELINE)))
+                .isEqualTo(Outcome.SAVED);
+
+        AnswerSpeech speech =
+                answers.findWithQuestionBySessionId(session.getId()).getFirst().getSpeech();
+        assertThat(speech.trailingOffAtMs()).containsExactly(9120);
+        assertThat(speech.impressions().promptVersion()).isEqualTo("impression-v1");
+        assertThat(speech.impressions().items())
+                .containsExactly(
+                        new AnswerImpressions.Item(1500, 0.98, 62.5, 70.1, 55.0, null, 66.0, 71.2));
+    }
+
+    @Test
+    void invalidTimelineValuesAreDroppedButAnswerIsSaved() {
+        // 타임라인 값은 저장만 하고 채점에 쓰지 않으므로, 범위를 벗어난 값만 버리고 답변은 저장한다
+        Map<String, Boolean> timesKept =
+                Map.of(
+                        TIMELINE.replace("[9120]", "[-1]"), false,
+                        TIMELINE.replace("\"atMs\":1500", "\"atMs\":-1"), true,
+                        TIMELINE.replace("\"face\":0.98", "\"face\":1.5"), true,
+                        TIMELINE.replace("\"trust\":71.2", "\"trust\":100.1"), true,
+                        TIMELINE.replace("\"impression-v1\"", "\"\""), true);
+        timesKept.forEach(
+                (timeline, kept) -> {
+                    InterviewSession session = startedSession(InterviewMode.VIDEO);
+                    results.handle(questionStarted(session, 1));
+
+                    assertThat(results.handle(answerCompletedWithTimeline(session, timeline)))
+                            .as(timeline)
+                            .isEqualTo(Outcome.SAVED);
+
+                    AnswerSpeech speech =
+                            answers.findWithQuestionBySessionId(session.getId())
+                                    .getFirst()
+                                    .getSpeech();
+                    assertThat(speech.trailingOffRatio()).isEqualTo(12.5);
+                    assertThat(speech.trailingOffAtMs() != null).as(timeline).isEqualTo(kept);
+                    // 시각만 틀린 경우는 인상이 남고, 인상이 틀린 경우는 인상만 버린다
+                    assertThat(speech.impressions() != null).as(timeline).isEqualTo(!kept);
+                });
     }
 
     @Test
@@ -393,6 +442,25 @@ class AiResultServiceTest {
          "speech":{"trailingOffRatio":12.5,"pitchRangeSt":null},"endReason":"AUTO_SUBMIT"}
         """
                 .formatted(session.getId(), seq, content);
+    }
+
+    // AI 명세 6.2 answer.completed 예시의 타임라인 값(emotion은 받지 못한 점수)
+    private static final String TIMELINE =
+            """
+            "trailingOffAtMs":[9120],
+            "impressions":{"promptVersion":"impression-v1","modelVersion":"jev-1.14.0",
+             "items":[{"atMs":1500,"face":0.98,"stability":62.5,"confidence":70.1,
+                       "expression":55.0,"emotion":null,"likeability":66.0,"trust":71.2}]}
+            """;
+
+    private static String answerCompletedWithTimeline(InterviewSession session, String timeline) {
+        return """
+        {"type":"answer.completed","sessionId":%d,"seq":1,
+         "answerStartedAt":"2026-10-15T12:01:05.250+09:00","content":"답",
+         "tokens":[{"text":"조회","startMs":0,"endMs":280}],
+         "speech":{"trailingOffRatio":12.5,"pitchRangeSt":null,%s},"endReason":"AUTO_SUBMIT"}
+        """
+                .formatted(session.getId(), timeline);
     }
 
     private static String answerScored(long sessionId, long answerId, String scoreMethod) {

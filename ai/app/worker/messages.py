@@ -12,6 +12,7 @@ AI는 DB를 읽지 않으므로 BE가 작업에 필요한 내용을 메시지에
 """
 
 import json
+import logging
 import math
 import uuid
 from collections.abc import Mapping
@@ -20,13 +21,21 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.answer import (
+    ImpressionSample,
+    SpeechToken,
+    TimelineInput,
+    VoiceMetrics,
+    is_java_blank,
+)
 from app.common.cover_letter import (
     CoverLetterItem,
     InvalidCoverLetterError,
     parse_cover_letter_items,
 )
 from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode, Persona
+
+log = logging.getLogger(__name__)
 
 
 class JobType(StrEnum):
@@ -68,6 +77,8 @@ class EvaluateAnswer:
     # SCORE_ANSWER가 이미 채점한 결과(AI 명세 3장 evaluation)다.
     # 형식 검사는 결과 생성이 담당한다
     evaluation: Mapping[str, Any] | None
+    # 다시보기 타임라인 입력(AI 명세 4장). 채팅이거나 이전 BE 메시지면 None이다
+    timeline: TimelineInput | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -243,6 +254,59 @@ def _speech(data: Mapping[str, Any], path: str = "") -> VoiceMetrics | None:
     )
 
 
+# AI 명세 6.6 impressions.items의 인상 6항목
+_IMPRESSION_KEYS = ("stability", "confidence", "expression", "emotion", "likeability", "trust")
+
+
+def _number(value: object) -> float:
+    # bool은 int의 하위 형식이므로 형식을 정확히 비교한다
+    if not (type(value) is int or type(value) is float) or not math.isfinite(value):
+        raise ValueError("유한한 숫자가 아니다")
+    return float(value)
+
+
+def _impression_sample(value: object) -> ImpressionSample:
+    if not isinstance(value, Mapping):
+        raise ValueError("items가 JSON 객체가 아니다")
+    at_ms = value.get("atMs")
+    if type(at_ms) is not int or at_ms < 0:
+        raise ValueError("atMs가 0 이상의 정수가 아니다")
+    scores = {
+        key: None if value.get(key) is None else _number(value.get(key)) for key in _IMPRESSION_KEYS
+    }
+    return ImpressionSample(at_ms=at_ms, face=_number(value.get("face")), scores=scores)
+
+
+def _timeline(data: Mapping[str, Any], path: str = "") -> TimelineInput | None:
+    """다시보기 타임라인 입력. 형식이 틀리면 None으로 보고 결과 생성은 계속한다.
+
+    타임라인은 저장만 하는 부가 결과라 결과 생성 전체를 실패시키지 않는다(AI 명세 4장).
+    """
+    value = data.get("timeline")
+    if value is None:
+        return None
+    try:
+        timeline = _object(value, f"{path}timeline")
+        times = timeline.get("trailingOffAtMs")
+        if times is not None and (
+            not isinstance(times, list) or any(type(ms) is not int or ms < 0 for ms in times)
+        ):
+            raise ValueError("trailingOffAtMs가 0 이상의 정수 목록이 아니다")
+        impressions = timeline.get("impressions")
+        items = None
+        if impressions is not None:
+            raw = _object(impressions, f"{path}timeline.impressions").get("items")
+            if not isinstance(raw, list):
+                raise ValueError("impressions.items가 목록이 아니다")
+            items = tuple(_impression_sample(item) for item in raw)
+        return TimelineInput(
+            trailing_off_at_ms=None if times is None else tuple(times), impressions=items
+        )
+    except (InvalidJobError, ValueError) as e:
+        log.warning("%stimeline 형식이 틀려 타임라인 없이 진행한다: %s", path, e)
+        return None
+
+
 def _claims(data: Mapping[str, Any]) -> tuple[Claim, ...]:
     claims = []
     for i, item in enumerate(_list(data, "claims")):
@@ -298,6 +362,7 @@ def _evaluate_answers(data: Mapping[str, Any]) -> tuple[EvaluateAnswer, ...]:
                 tokens=_tokens(answer, path),
                 speech=_speech(answer, path),
                 evaluation=evaluation,
+                timeline=_timeline(answer, path),
             )
         )
     # 질문 하나에 답변 하나이므로(answers.question_id UNIQUE)

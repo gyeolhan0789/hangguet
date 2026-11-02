@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GazeSample } from "@/lib/interview/gaze";
 import { useGazeStore } from "@/stores/gaze-store";
 
-import { GAZE_INTERVAL_MS, useGazeTracker } from "./use-gaze-tracker";
+import { FRAME_WIDTH, FRAME_WINDOW_MS, GAZE_INTERVAL_MS, useGazeTracker } from "./use-gaze-tracker";
 
 // 기준: API 명세 5.8 gazeRatio(화면이 면접 내내 브라우저에서 잰 값) · MediaPipe Face Landmarker 웹 가이드
 // (FilesetResolver.forVisionTasks · FaceLandmarker.createFromOptions · runningMode VIDEO · detectForVideo,
@@ -19,7 +19,11 @@ const SAMPLE: GazeSample = {
   blinking: false,
 };
 const gazeSample = vi.fn<() => GazeSample | null>();
-vi.mock("@/lib/interview/gaze", () => ({ gazeSample: () => gazeSample() }));
+const blinkScore = vi.fn<() => number | null>();
+vi.mock("@/lib/interview/gaze", () => ({
+  gazeSample: () => gazeSample(),
+  blinkScore: () => blinkScore(),
+}));
 
 const landmarker = { detectForVideo: vi.fn(), close: vi.fn() };
 const createFromOptions = vi.fn();
@@ -67,6 +71,7 @@ beforeEach(() => {
   forVisionTasks.mockReset().mockResolvedValue({});
   createFromOptions.mockReset().mockResolvedValue(landmarker);
   gazeSample.mockReset().mockReturnValue(SAMPLE);
+  blinkScore.mockReset().mockReturnValue(0.1);
   useGazeStore.setState({ frames: [SAMPLE] });
 });
 
@@ -206,5 +211,88 @@ describe("useGazeTracker (S06 화상 면접 시선 측정)", () => {
     await loaded();
 
     expect(forVisionTasks).not.toHaveBeenCalled();
+  });
+});
+
+describe("useGazeTracker 인상 판단 사진 고르기(AI 명세 6.3 interview.frame)", () => {
+  // 캔버스마다 마지막으로 찍은 프레임 번호. jsdom에는 캔버스 그리기가 없어 그린 내용 대신 번호로 따라간다
+  const drawn = new WeakMap<object, number>();
+  let frameNo: number;
+
+  beforeEach(() => {
+    // 1초 구간을 정확히 세도록 performance.now도 가짜 시계로 돌린다
+    vi.useRealTimers();
+    vi.useFakeTimers({
+      toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "performance"],
+    });
+    frameNo = 0;
+    vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1280);
+    vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(720);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (
+      this: HTMLCanvasElement,
+    ) {
+      return {
+        canvas: this,
+        drawImage(this: { canvas: HTMLCanvasElement }, source: object) {
+          const frame = source instanceof HTMLVideoElement ? ++frameNo : drawn.get(source)!;
+          drawn.set(this.canvas, frame);
+        },
+      } as unknown as CanvasRenderingContext2D;
+    } as unknown as HTMLCanvasElement["getContext"]);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function (
+      this: HTMLCanvasElement,
+      callback: BlobCallback,
+    ) {
+      callback(new Blob([String(drawn.get(this))], { type: "image/jpeg" }));
+    });
+  });
+
+  /** 찍은 n번째 프레임을 잰 시각(detectForVideo에 넘긴 시각) */
+  const detectedAt = (n: number) => landmarker.detectForVideo.mock.calls[n - 1][1] as number;
+
+  it("찍은 캔버스를 재고, 1초마다 그동안 눈을 가장 크게 뜬 프레임을 640px 가로로 넘긴다", async () => {
+    // 2번째 프레임(0.05)이 가장 눈을 크게 떴고, 얼굴이 없는 프레임(null)은 고르지 않는다
+    blinkScore
+      .mockReturnValueOnce(0.3)
+      .mockReturnValueOnce(0.05)
+      .mockReturnValueOnce(null)
+      .mockReturnValue(0.6);
+    const onFrame = vi.fn();
+    renderHook(() => useGazeTracker(stream, onFrame));
+    await loaded();
+    await tick(FRAME_WINDOW_MS / GAZE_INTERVAL_MS);
+    expect(onFrame).not.toHaveBeenCalled();
+    await tick(1);
+
+    expect(landmarker.detectForVideo.mock.calls[0][0]).toBeInstanceOf(HTMLCanvasElement);
+    expect(onFrame).toHaveBeenCalledTimes(1);
+    const [jpeg, capturedAt] = onFrame.mock.calls[0] as [Blob, number];
+    expect(await jpeg.text()).toBe("2");
+    expect(capturedAt).toBe(detectedAt(2));
+    const encoder = vi.mocked(HTMLCanvasElement.prototype.toBlob).mock
+      .contexts[0] as HTMLCanvasElement;
+    expect([encoder.width, encoder.height]).toEqual([FRAME_WIDTH, 360]);
+  });
+
+  it("다음 1초는 새로 고르고, 얼굴이 잡히지 않은 1초는 넘기지 않는다", async () => {
+    const onFrame = vi.fn();
+    renderHook(() => useGazeTracker(stream, onFrame));
+    await loaded();
+    await tick(FRAME_WINDOW_MS / GAZE_INTERVAL_MS + 1);
+    expect(onFrame).toHaveBeenCalledTimes(1);
+
+    blinkScore.mockReturnValue(null);
+    await tick(FRAME_WINDOW_MS / GAZE_INTERVAL_MS);
+
+    expect(onFrame).toHaveBeenCalledTimes(1);
+  });
+
+  it("넘길 곳이 없어도 시선은 그대로 잰다", async () => {
+    renderHook(() => useGazeTracker(stream));
+    await loaded();
+    await tick(FRAME_WINDOW_MS / GAZE_INTERVAL_MS + 1);
+
+    expect(useGazeStore.getState().frames).toHaveLength(FRAME_WINDOW_MS / GAZE_INTERVAL_MS + 1);
+    expect(HTMLCanvasElement.prototype.toBlob).not.toHaveBeenCalled();
   });
 });

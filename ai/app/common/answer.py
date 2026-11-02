@@ -6,6 +6,7 @@
 """
 
 import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 # BE @NotBlank(Hibernate Validator 9)는 Java String.isBlank로 검사한다.
@@ -42,6 +43,30 @@ class VoiceMetrics:
 
     def to_json(self) -> dict[str, float | None]:
         return {"trailingOffRatio": self.trailing_off_ratio, "pitchRangeSt": self.pitch_range_st}
+
+
+@dataclass(frozen=True)
+class ImpressionSample:
+    """답변 중 사진 한 장의 인상 판단(answers.speech.impressions.items, AI 명세 6.6).
+
+    at_ms는 답변 시작 기준 밀리초, face는 실제 얼굴 확률,
+    scores는 6항목 점수(0~100, 받지 못하면 None)다.
+    """
+
+    at_ms: int
+    face: float
+    scores: Mapping[str, float | None]
+
+
+@dataclass(frozen=True)
+class TimelineInput:
+    """다시보기 타임라인 계산에 쓰는 답변의 값(AI 명세 4장 다시보기 타임라인 입력).
+
+    에이전트가 실시간으로만 구할 수 있어 answers.speech에 저장된 값이다. 구하지 못했으면 None이다.
+    """
+
+    trailing_off_at_ms: tuple[int, ...] | None
+    impressions: tuple[ImpressionSample, ...] | None
 
 
 def _is_java_whitespace(char: str) -> bool:

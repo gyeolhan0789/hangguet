@@ -81,7 +81,42 @@ public final class ResultDtos {
                     OffsetDateTime questionCreatedAt,
             @Schema(description = "답변 글. 재생 중 자막(답변 단위)", nullable = true) String answer,
             @Schema(description = "답변 제출 일시", nullable = true) OffsetDateTime answerCreatedAt,
-            @Schema(description = "질문별 3단계", nullable = true) Grade grade) {}
+            @Schema(description = "질문별 3단계", nullable = true) Grade grade,
+            @Schema(
+                            description =
+                                    "다시보기 타임라인(화상만). 그 답변 동안의 면접 흐름 곡선과 평소보다 유난히 낮은 지점."
+                                            + " 채팅 · 답하지 않은 질문 · 만들지 못한 답변은 null",
+                            nullable = true)
+                    ReplayTimeline timeline) {}
+
+    /** 6.4 다시보기 타임라인(AI 명세 4장 다시보기 타임라인). 시각은 모두 영상 위치(초) */
+    public record ReplayTimeline(
+            @Schema(description = "1초 간격 곡선") List<TimelinePoint> points,
+            @Schema(description = "평소보다 유난히 낮은 지점, 시간 순") List<TimelineCheckpoint> checkpoints) {}
+
+    public record TimelinePoint(
+            @Schema(description = "영상 위치(초)", example = "84.25") double at,
+            @Schema(description = "그 면접 평균이 0인 표준화 값. 음수면 평소보다 아쉬움", example = "-0.42")
+                    double value) {}
+
+    public record TimelineCheckpoint(
+            @Schema(description = "가장 낮은 지점(영상 위치, 초)", example = "131.25") double at,
+            @Schema(description = "낮은 구간 시작(영상 위치, 초)", example = "130.25") double start,
+            @Schema(description = "낮은 구간 끝(영상 위치, 초)", example = "135.25") double end,
+            @Schema(description = "가장 낮은 지점의 표준화 값", example = "-2.1") double value,
+            @Schema(description = "낮았던 이유. 이유마다 보완할 점") List<TimelineReason> reasons) {}
+
+    public record TimelineReason(
+            @Schema(
+                            description =
+                                    "STABILITY 안정감 · CONFIDENCE 자신감 · EXPRESSION 의사표현 · EMOTION 감정"
+                                        + " 전달 · LIKEABILITY 매력도 · TRUST 신뢰도 · TRAILING_OFF 말끝 흐림 ·"
+                                        + " FILLER 군말 · LONG_PAUSE 긴 멈춤",
+                            example = "CONFIDENCE")
+                    String metric,
+            @Schema(description = "음성 이유의 앞뒤 5초 횟수. 인상 이유면 null", nullable = true, example = "3")
+                    Integer count,
+            @Schema(description = "보완할 점", example = "고개를 들고 화면 속 면접관을 보며 말해 보세요.") String text) {}
 
     public record ReplayResponse(
             @Schema(description = "면접 id", example = "55") long id,

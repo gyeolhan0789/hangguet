@@ -41,6 +41,7 @@ import com.ssafy.a301.user.mapper.UserMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -169,6 +170,104 @@ class MapperTest {
                 ResultMapper.toReplay(s, List.of(), ResultDtos.VideoStatus.READY, "https://video");
         assertThat(replay.videoStatus()).isEqualTo(ResultDtos.VideoStatus.READY);
         assertThat(replay.videoUrl()).isEqualTo("https://video");
+    }
+
+    // AI 명세 4장 answers[].evaluation.timeline(답변 기준 밀리초)
+    private static Map<String, Object> aiTimeline(String metric) {
+        Map<String, Object> filler = new HashMap<>();
+        filler.put("metric", "FILLER");
+        filler.put("count", 3);
+        filler.put("text", "멈춰도 돼요.");
+        Map<String, Object> checkpoint =
+                Map.of(
+                        "atMs", 1000,
+                        "startMs", 1000,
+                        "endMs", 1000,
+                        "value", -2.1,
+                        "reasons", List.of(Map.of("metric", metric, "text", "고개를 드세요."), filler));
+        return Map.of(
+                "timeline",
+                Map.of(
+                        "points",
+                        List.of(
+                                Map.of("atMs", 0, "value", 0.4),
+                                Map.of("atMs", 1000, "value", -2.1)),
+                        "checkpoints",
+                        List.of(checkpoint)));
+    }
+
+    @Test
+    void videoReplayTimelineIsMovedToVideoSeconds() {
+        // 영상 위치 = (답변을 듣기 시작한 일시 - 면접 시작 일시) + 답변 기준 밀리초(API 명세 6.4)
+        InterviewSession s = session(InterviewMode.VIDEO);
+        s.start(T0);
+        var q1 = withId(new InterviewQuestion(s, 1, "자기소개"), 301);
+        var a1 =
+                withId(
+                        Answer.voice(
+                                q1, "안녕하세요", null, null, T0.plusSeconds(84).plusNanos(250_000_000)),
+                        901);
+        a1.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
+
+        ResultDtos.ReplayTimeline timeline =
+                ResultMapper.toReplay(s, List.of(new QuestionAndAnswer(q1, a1)), null, null)
+                        .items()
+                        .getFirst()
+                        .timeline();
+
+        assertThat(timeline.points())
+                .containsExactly(
+                        new ResultDtos.TimelinePoint(84.25, 0.4),
+                        new ResultDtos.TimelinePoint(85.25, -2.1));
+        assertThat(timeline.checkpoints())
+                .containsExactly(
+                        new ResultDtos.TimelineCheckpoint(
+                                85.25,
+                                85.25,
+                                85.25,
+                                -2.1,
+                                List.of(
+                                        new ResultDtos.TimelineReason(
+                                                "CONFIDENCE", null, "고개를 드세요."),
+                                        new ResultDtos.TimelineReason("FILLER", 3, "멈춰도 돼요."))));
+    }
+
+    @Test
+    void brokenMissingOrChatReplayTimelineIsNull() {
+        // 저장만 하는 부가 값이라 형식이 틀리면 그 답변의 타임라인만 null로 둔다
+        InterviewSession s = session(InterviewMode.VIDEO);
+        s.start(T0);
+        var q1 = withId(new InterviewQuestion(s, 1, "자기소개"), 301);
+        var broken = withId(Answer.voice(q1, "답", null, null, T0.plusSeconds(5)), 901);
+        broken.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("UNKNOWN"));
+        var q2 = withId(new InterviewQuestion(s, 2, "역할은?"), 302);
+        var noTimeline = withId(Answer.voice(q2, "답", null, null, T0.plusSeconds(60)), 902);
+        noTimeline.completeEvaluation(85, "좋음", "아쉬움", Map.of());
+        var q3 = withId(new InterviewQuestion(s, 3, "장점은?"), 303);
+
+        ReplayResponse replay =
+                ResultMapper.toReplay(
+                        s,
+                        List.of(
+                                new QuestionAndAnswer(q1, broken),
+                                new QuestionAndAnswer(q2, noTimeline),
+                                new QuestionAndAnswer(q3, null)),
+                        null,
+                        null);
+        assertThat(replay.items()).allSatisfy(item -> assertThat(item.timeline()).isNull());
+
+        InterviewSession chat = session(InterviewMode.CHAT);
+        chat.start(T0);
+        var cq = withId(new InterviewQuestion(chat, 1, "자기소개"), 401);
+        var ca = withId(new Answer(cq, InputType.TEXT, "안녕하세요"), 991);
+        ca.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
+        assertThat(
+                        ResultMapper.toReplay(
+                                        chat, List.of(new QuestionAndAnswer(cq, ca)), null, null)
+                                .items()
+                                .getFirst()
+                                .timeline())
+                .isNull();
     }
 
     @Test

@@ -92,7 +92,12 @@ public final class ResultMapper {
                                                         : i.answer().getCreatedAt(),
                                                 i.answer() == null
                                                         ? null
-                                                        : Grade.ofNullable(i.answer().getScore())))
+                                                        : Grade.ofNullable(i.answer().getScore()),
+                                                i.answer() == null || !session.isVideo()
+                                                        ? null
+                                                        : ReplayTimelines.of(
+                                                                i.answer(),
+                                                                session.getStartedAt())))
                         .toList();
         return new ReplayResponse(
                 session.getId(),
