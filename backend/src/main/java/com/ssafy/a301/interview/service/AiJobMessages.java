@@ -4,6 +4,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
@@ -109,12 +110,25 @@ public class AiJobMessages {
                                     Map<String, Object> item = new LinkedHashMap<>();
                                     item.put("answerId", answer.getId());
                                     item.putAll(answerContent(answer, plan));
+                                    putTimelineInput(item, answer);
                                     item.put("evaluation", answer.getEvaluation());
                                     return item;
                                 })
                         .toList();
         message.put("answers", answered);
         message.put("earlierSummaries", earlierSummaries(session));
+    }
+
+    // 다시보기 타임라인 입력(AI 명세 4장). 에이전트가 answers.speech에 남긴 말끝 흐림 시각 · 인상 판단. 둘 다 없으면 넣지 않는다
+    private static void putTimelineInput(Map<String, Object> item, Answer answer) {
+        AnswerSpeech speech = answer.getSpeech();
+        if (speech == null || (speech.trailingOffAtMs() == null && speech.impressions() == null)) {
+            return;
+        }
+        Map<String, Object> timeline = new LinkedHashMap<>();
+        timeline.put("trailingOffAtMs", speech.trailingOffAtMs());
+        timeline.put("impressions", speech.impressions());
+        item.put("timeline", timeline);
     }
 
     // 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 summary. summary를 그날 누적 "다음에 해볼 것"으로 만든다(AI 명세 4장)
@@ -139,7 +153,7 @@ public class AiJobMessages {
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }
 
-    // seq·question·criteria·content와 화상이면 tokens·speech
+    // seq·question·criteria·content와 화상이면 tokens·speech. speech는 채점에 쓰는 지표 2개만 보낸다(AI 명세 3장)
     private static Map<String, Object> answerContent(Answer answer, InterviewPlan plan) {
         InterviewQuestion question = answer.getQuestion();
         Map<String, Object> content = new LinkedHashMap<>();
@@ -153,7 +167,7 @@ public class AiJobMessages {
             content.put("tokens", answer.getTokens());
         }
         if (answer.getSpeech() != null) {
-            content.put("speech", answer.getSpeech());
+            content.put("speech", answer.getSpeech().metrics());
         }
         return content;
     }

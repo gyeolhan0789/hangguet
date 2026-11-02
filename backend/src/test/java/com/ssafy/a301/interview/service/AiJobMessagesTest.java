@@ -7,6 +7,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.AnswerImpressions;
 import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.AnswerToken;
 import com.ssafy.a301.interview.domain.InputType;
@@ -91,7 +92,18 @@ class AiJobMessagesTest {
         InterviewSession session = plannedSession(InterviewMode.VIDEO);
         InterviewQuestion question = new InterviewQuestion(session, 1, "질문1");
         em.persist(question);
-        AnswerSpeech speech = new AnswerSpeech(12.5, 6.2);
+        // 타임라인용 값은 채점에 쓰지 않아 작업 메시지에 담지 않는다(AI 명세 3장)
+        AnswerSpeech speech =
+                new AnswerSpeech(
+                        12.5,
+                        6.2,
+                        List.of(9120),
+                        new AnswerImpressions(
+                                "impression-v1",
+                                "jev-1.14.0",
+                                List.of(
+                                        new AnswerImpressions.Item(
+                                                1500, 0.98, 62.5, 70.1, 55.0, 48.3, 66.0, 71.2))));
         Answer answer =
                 Answer.voice(
                         question,
@@ -103,12 +115,71 @@ class AiJobMessagesTest {
         em.flush();
 
         assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
-                .containsEntry("speech", speech);
+                .containsEntry("speech", new AnswerSpeech.Metrics(12.5, 6.2));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> answered =
                 (List<Map<String, Object>>)
                         messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
-        assertThat(answered.getFirst()).containsEntry("speech", speech);
+        assertThat(answered.getFirst())
+                .containsEntry("speech", new AnswerSpeech.Metrics(12.5, 6.2));
+    }
+
+    @Test
+    void evaluateHasTimelineInputButScoreAnswerDoesNot() {
+        // 다시보기 타임라인 입력은 결과 생성에만 보낸다(AI 명세 4장). 채점에는 쓰지 않는다
+        InterviewSession session = plannedSession(InterviewMode.VIDEO);
+        InterviewQuestion question = new InterviewQuestion(session, 1, "질문1");
+        em.persist(question);
+        AnswerImpressions impressions =
+                new AnswerImpressions(
+                        "impression-v1",
+                        "jev-1.14.0",
+                        List.of(
+                                new AnswerImpressions.Item(
+                                        1500, 0.98, 62.5, 70.1, 55.0, 48.3, 66.0, 71.2)));
+        Answer answer =
+                Answer.voice(
+                        question,
+                        "조회",
+                        List.of(new AnswerToken("조회", 0, 280)),
+                        new AnswerSpeech(12.5, 6.2, List.of(9120), impressions),
+                        OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
+        em.persist(answer);
+        em.flush();
+
+        assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
+                .doesNotContainKey("timeline");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> answered =
+                (List<Map<String, Object>>)
+                        messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> timeline = (Map<String, Object>) answered.getFirst().get("timeline");
+        assertThat(timeline)
+                .containsEntry("trailingOffAtMs", List.of(9120))
+                .containsEntry("impressions", impressions);
+    }
+
+    @Test
+    void answerWithoutTimelineValuesHasNoTimelineInput() {
+        InterviewSession session = plannedSession(InterviewMode.VIDEO);
+        InterviewQuestion question = new InterviewQuestion(session, 1, "질문1");
+        em.persist(question);
+        Answer answer =
+                Answer.voice(
+                        question,
+                        "조회",
+                        null,
+                        new AnswerSpeech(12.5, 6.2),
+                        OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
+        em.persist(answer);
+        em.flush();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> answered =
+                (List<Map<String, Object>>)
+                        messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
+        assertThat(answered.getFirst()).doesNotContainKey("timeline");
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.service;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.AnswerToken;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewPlan;
@@ -240,6 +241,7 @@ public class AiResultService {
                     "토큰은 10,000개 이하, 0 ≤ startMs ≤ endMs다: session=" + sessionId + " seq=" + seq);
         }
         OffsetDateTime answerStartedAt = required(message.answerStartedAt(), "answerStartedAt");
+        AnswerSpeech speech = validTimeline(message.speech(), sessionId, seq);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
@@ -254,11 +256,7 @@ public class AiResultService {
                     Answer answer =
                             answers.save(
                                     Answer.voice(
-                                            question,
-                                            content,
-                                            tokens,
-                                            message.speech(),
-                                            answerStartedAt));
+                                            question, content, tokens, speech, answerStartedAt));
                     aiJobs.enqueue(AiJob.scoreAnswer(sessionId, answer.getId()));
                     return Outcome.SAVED;
                 });
@@ -573,6 +571,19 @@ public class AiResultService {
             throw new InvalidAiResultException("seq는 1~5다: " + seq);
         }
         return seq;
+    }
+
+    // 다시보기 타임라인용 값(AI 명세 3장 trailingOffAtMs·6.6 impressions)이 범위를 벗어나면 그 값만 버리고 답변은 저장한다.
+    // 저장만 하고 채점·결과에 쓰지 않는 값이라 답변을 실패 목록으로 보낼 이유가 없다
+    private static AnswerSpeech validTimeline(AnswerSpeech speech, long sessionId, int seq) {
+        if (speech == null) {
+            return null;
+        }
+        AnswerSpeech valid = speech.withValidTimeline();
+        if (valid != speech) {
+            LOG.warn("answer.completed 타임라인 값이 범위를 벗어나 버린다: session={} seq={}", sessionId, seq);
+        }
+        return valid;
     }
 
     private static AiResultMessage parse(String raw) {
