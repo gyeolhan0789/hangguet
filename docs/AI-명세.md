@@ -68,9 +68,10 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
 - 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
-- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
+- PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관 · `DUCK` 오리 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
   - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
-  - 두 값이 아니면 형식이 틀린 작업이다
+  - 위 `persona` 값이 아니면 형식이 틀린 작업이다
+  - `DUCK`은 AI가 수신을 구현한 뒤 BE가 전송한다. AI 구현 전에 전송하면 형식이 틀린 작업으로 실패하기 때문이다
 - PLAN은 지원 회사의 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 넣지 않는다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다

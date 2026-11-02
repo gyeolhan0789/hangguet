@@ -18,10 +18,11 @@ public final class InterviewDtos {
 
     private InterviewDtos() {}
 
-    @Schema(description = "면접관. DEVIL 악마 면접관 · COFFEE_CHAT 개발자 면접관")
+    @Schema(description = "면접관. DEVIL 악마 면접관 · COFFEE_CHAT 개발자 면접관 · DUCK 오리 면접관")
     public enum Persona {
         DEVIL,
-        COFFEE_CHAT
+        COFFEE_CHAT,
+        DUCK
     }
 
     @Schema(description = "면접 방식. VIDEO 화상 · CHAT 채팅")
