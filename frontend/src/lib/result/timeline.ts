@@ -28,7 +28,7 @@ const SELECT_RANGE_SECONDS = 5;
 
 /**
  * 곡선 한 점. 곡선은 영상 처음부터 끝까지 실선 하나로 잇는다.
- * 값이 없는 시간(질문을 듣는 시간 등)은 평균(0)으로 보고, measured가 false다. 화면은 measured인 점만 위아래로 칠한다.
+ * 값이 없는 시간(질문을 듣는 시간 등)은 평균(0)으로 보고, measured가 false다. 체크포인트 점은 measured인 점 위에만 찍는다.
  */
 export interface ChartPoint {
   time: number;

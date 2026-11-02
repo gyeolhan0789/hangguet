@@ -51,12 +51,12 @@ export function ReplayTimeline({
   time: number;
   onSeek: (time: number) => void;
 }) {
-  // 위아래 칠하기는 실제 값(measured)에만 한다. 평균으로 채운 시간은 선만 잇는다
+  // 평균으로 이어지는 구간도 선과 같이 칠해야 색이 끊기지 않는다
   const data = points.map((point) => ({
     time: point.time,
     value: point.value,
-    up: point.measured ? Math.max(point.value, 0) : null,
-    down: point.measured ? Math.min(point.value, 0) : null,
+    up: Math.max(point.value, 0),
+    down: Math.min(point.value, 0),
   }));
   // 누른 체크포인트. 체크포인트에서 먼 곳을 누르면 비운다
   const [selected, setSelected] = useState<TimelineCheckpoint | null>(null);
