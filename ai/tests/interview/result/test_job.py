@@ -138,7 +138,7 @@ class FakeChat:
         if isinstance(item, Exception):
             raise item
         model = "gpt-feedback" if "summary" in item else "gpt-judge"
-        return GmsResult(dict(item), None, model)
+        return GmsResult(dict(item), model)
 
 
 def make(
@@ -314,6 +314,14 @@ def test_valid_stored_evaluation_passes_check() -> None:
     check_stored(evaluation())
     check_stored(evaluation(speech=None))
     check_stored(evaluation(speech={**SPEECH_1, "trailingOffRatio": None}))
+
+
+def test_stored_probability_evaluation_passes_check() -> None:
+    """채점 방식을 FIXED로 변경한 뒤에도 확률 기대값으로 저장된 이전 답변을 그대로 사용한다."""
+    stored = evaluation(score=86)
+    for item in stored["criteria"].values():
+        item["scoreMethod"] = "PROBABILITY"
+    check_stored(stored)
 
 
 def failed(messages: list[dict[str, Any]]) -> str:

@@ -46,7 +46,7 @@ class FakeChat:
         item = self.outcomes.pop(0)
         if isinstance(item, Exception):
             raise item
-        return GmsResult(dict(item), None, "gpt-timeline")
+        return GmsResult(dict(item), "gpt-timeline")
 
 
 def test_texts_for_every_reason_in_one_call() -> None:

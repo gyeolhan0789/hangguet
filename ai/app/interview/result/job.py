@@ -65,7 +65,8 @@ log = logging.getLogger(__name__)
 # BE 최대 대기 시간(BE 설계 5.4, ai-job.analysis-timeout, AI 명세 5장)과 같은 값이다.
 # BE가 작업을 요청한 시각(requestedAt)부터 계산해 큐에서 대기한 시간까지 포함한다(AI 명세 5장)
 ANALYSIS_TIMEOUT_SECONDS = 600.0
-# 점수는 판정 단계 점수의 기대값이므로 가장 낮은 단계와 가장 높은 단계의 점수 사이다(AI 명세 3장)
+# 저장된 점수는 판정 단계의 고정 점수이거나 이전 채점의 단계 점수 기대값이므로
+# 가장 낮은 단계와 가장 높은 단계의 점수 사이다(AI 명세 3장)
 _SCORE_RANGE = range(min(LEVEL_SCORES.values()), max(LEVEL_SCORES.values()) + 1)
 _SCORE_METHODS = frozenset(method.value for method in ScoreMethod)
 # 답변 채점이 화상 답변마다 기록하는 말하기 지표(AI 명세 3장)

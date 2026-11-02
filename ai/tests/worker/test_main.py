@@ -18,7 +18,6 @@ from app.common.cover_letter import CoverLetterItem
 from app.common.gms import GmsClient, HttpResponse
 from app.common.results import ResultPublisher
 from app.common.settings import SettingsError, load_settings
-from app.interview.scoring.judge import TOP_LOGPROBS
 from app.worker import main as main_module
 from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
@@ -261,7 +260,7 @@ def test_dispatcher_connects_scoring_to_shared_gms_client(monkeypatch: pytest.Mo
         }
         return HttpResponse(200, {}, json.dumps(body).encode())
 
-    client = GmsClient(model="gpt-4.1-mini", transport=transport)
+    client = GmsClient(model="gpt-5.6-terra", transport=transport)
     monkeypatch.setattr(main_module, "lazy_gms_client", lambda settings: lambda: client)
     redis = RecordingRedis()
     dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
@@ -269,8 +268,7 @@ def test_dispatcher_connects_scoring_to_shared_gms_client(monkeypatch: pytest.Mo
     [message] = [json.loads(raw) for raw in redis.pushed]
     assert message["type"] == "answer.scored"
     assert message["evaluation"]["modelVersion"] == "served-model"
-    assert payloads[0]["logprobs"] is True
-    assert payloads[0]["top_logprobs"] == TOP_LOGPROBS
+    assert set(payloads[0]) == {"model", "messages", "response_format"}
 
 
 def test_dispatcher_handles_evaluate_after_checking_gms_settings() -> None:

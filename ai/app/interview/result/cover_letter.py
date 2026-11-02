@@ -1,7 +1,7 @@
 """자소서 원문·주장·답변을 대조해 자소서 검증 판정을 확정한다(AI 명세 4장).
 
 작업 메시지에 질문의 claimId가 없으므로 주장 전체를 전송한다.
-판정 단계의 토큰 확률을 기존 채점과 같은 방식으로 해석하도록 답변별로 호출한다.
+답변별로 호출하고, 점수는 답변 채점과 같이 판정 단계의 고정 점수로 계산한다.
 """
 
 from collections.abc import Mapping, Sequence
@@ -14,7 +14,6 @@ from app.interview.scoring.judge import (
     Criterion,
     Judgement,
     StructureBrokenError,
-    level_probs,
     parse_item,
     score_judgement,
 )
@@ -80,15 +79,14 @@ def judge_cover_letter(source: CoverLetterInput, chat: Chat) -> CoverLetterResul
     def attempt() -> tuple[GmsResult, Judgement]:
         result = chat(messages)
         level, reason = parse_item(result.content, Criterion.COVER_LETTER)
-        probs = level_probs(result.token_logprobs, Criterion.COVER_LETTER)
-        return result, Judgement(level, reason, probs)
+        return result, Judgement(level, reason)
 
     result, judgement = with_structure_retry(
         attempt,
         retry_on=(GmsBadOutputError, StructureBrokenError),
         label=f"자소서 대조 answerId={source.answer_id}",
     )
-    item = score_judgement(Criterion.COVER_LETTER, judgement)
+    item = score_judgement(judgement)
     return CoverLetterResult(item, result.model)
 
 

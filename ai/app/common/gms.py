@@ -59,18 +59,8 @@ Transport = Callable[[dict[str, Any]], HttpResponse]
 
 
 @dataclass(frozen=True)
-class TokenLogprob:
-    token: str
-    logprob: float
-    top: Mapping[str, float]
-
-
-@dataclass(frozen=True)
 class GmsResult:
     content: dict[str, Any]
-    # 응답에 확률이 없으면 None이다.
-    # 호출 측은 이 값으로 PROBABILITY·FIXED 방식을 선택한다
-    token_logprobs: list[TokenLogprob] | None
     model: str
 
 
@@ -157,20 +147,6 @@ def _log_usage(data: Mapping[str, Any]) -> None:
     log.info("GMS 사용량 promptTokens=%d completionTokens=%d", prompt, completion)
 
 
-def _parse_logprobs(choice: Mapping[str, Any]) -> list[TokenLogprob] | None:
-    content = (choice.get("logprobs") or {}).get("content")
-    if not content:
-        return None
-    return [
-        TokenLogprob(
-            token=str(item["token"]),
-            logprob=float(item["logprob"]),
-            top={str(t["token"]): float(t["logprob"]) for t in item.get("top_logprobs") or []},
-        )
-        for item in content
-    ]
-
-
 class GmsClient:
     def __init__(
         self,
@@ -196,40 +172,24 @@ class GmsClient:
         REGISTRY.require(VersionKind.MODEL, llm.model)
         return cls(model=llm.model, transport=urllib_transport(llm.chat_url, llm.api_key))
 
-    def chat_json(
-        self,
-        messages: Sequence[Mapping[str, str]],
-        *,
-        logprobs: bool = False,
-        top_logprobs: int | None = None,
-    ) -> GmsResult:
-        # 같은 입력에 같은 판정이 나오도록 temperature를 0으로 고정한다
+    def chat_json(self, messages: Sequence[Mapping[str, str]]) -> GmsResult:
+        # gpt-5.6-terra는 temperature 0과 logprobs 요청을 400으로 거절하므로
+        # 두 값을 전송하지 않는다
         payload: dict[str, Any] = {
             "model": self._model,
             "messages": list(messages),
             "response_format": {"type": "json_object"},
-            "temperature": 0,
         }
-        if logprobs:
-            payload["logprobs"] = True
-            if top_logprobs is not None:
-                payload["top_logprobs"] = top_logprobs
         response = self._send_with_retry(payload)
         try:
             data = json.loads(response.body)
-            choice = data["choices"][0]
-            content = json.loads(_THINK_BLOCK.sub("", choice["message"]["content"]))
-            token_logprobs = _parse_logprobs(choice)
+            content = json.loads(_THINK_BLOCK.sub("", data["choices"][0]["message"]["content"]))
         except (ValueError, KeyError, IndexError, TypeError) as e:
             raise GmsBadOutputError("GMS 응답을 JSON으로 해석하지 못했다") from e
         if not isinstance(content, dict):
             raise GmsBadOutputError("GMS 응답이 JSON 객체가 아니다")
         _log_usage(data)
-        return GmsResult(
-            content=content,
-            token_logprobs=token_logprobs,
-            model=str(data.get("model") or self._model),
-        )
+        return GmsResult(content=content, model=str(data.get("model") or self._model))
 
     def _send_with_retry(self, payload: dict[str, Any]) -> HttpResponse:
         # 재시도 대기를 포함한 전체 시간이 BE 대기 상한에 영향을 주므로 호출 전체를 잰다

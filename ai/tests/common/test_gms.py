@@ -26,11 +26,8 @@ from app.common.versions import UnregisteredVersionError
 MESSAGES = [{"role": "user", "content": "판정하라"}]
 
 
-def ok(content: str = '{"level": 3}', *, logprobs: Any = None) -> HttpResponse:
-    choice: dict[str, Any] = {"message": {"content": content}}
-    if logprobs is not None:
-        choice["logprobs"] = logprobs
-    body = {"model": "gpt-served", "choices": [choice]}
+def ok(content: str = '{"level": 3}') -> HttpResponse:
+    body = {"model": "gpt-served", "choices": [{"message": {"content": content}}]}
     return HttpResponse(200, {}, json.dumps(body).encode())
 
 
@@ -57,7 +54,8 @@ def client(transport: FakeTransport, sleeps: list[float]) -> GmsClient:
     return GmsClient(model="gpt-test", transport=transport, sleep=sleeps.append)
 
 
-def test_sends_json_mode_with_zero_temperature() -> None:
+def test_sends_json_mode_without_temperature_or_logprobs() -> None:
+    """gpt-5.6-terra가 400으로 거절하는 temperature 0과 logprobs를 요청에 포함하지 않는다."""
     transport = FakeTransport([ok()])
 
     result = client(transport, []).chat_json(MESSAGES)
@@ -67,7 +65,6 @@ def test_sends_json_mode_with_zero_temperature() -> None:
             "model": "gpt-test",
             "messages": MESSAGES,
             "response_format": {"type": "json_object"},
-            "temperature": 0,
         }
     ]
     assert result.content == {"level": 3}
@@ -178,37 +175,6 @@ def test_strips_think_block_before_parsing() -> None:
     assert client(transport, []).chat_json(MESSAGES).content == {"level": 2}
 
 
-def test_missing_logprobs_returns_none() -> None:
-    """확률을 요청해도 응답에 없으면 None을 반환해 호출 측이 고정 점수 방식을 선택하게 한다."""
-    transport = FakeTransport([ok()])
-
-    result = client(transport, []).chat_json(MESSAGES, logprobs=True, top_logprobs=3)
-
-    assert transport.payloads[0]["logprobs"] is True
-    assert transport.payloads[0]["top_logprobs"] == 3
-    assert result.token_logprobs is None
-
-
-def test_parses_token_logprobs() -> None:
-    logprobs = {
-        "content": [
-            {
-                "token": "3",
-                "logprob": -0.1,
-                "top_logprobs": [{"token": "3", "logprob": -0.1}, {"token": "2", "logprob": -2.4}],
-            }
-        ]
-    }
-    transport = FakeTransport([ok(logprobs=logprobs)])
-
-    result = client(transport, []).chat_json(MESSAGES, logprobs=True)
-
-    assert result.token_logprobs is not None
-    [token] = result.token_logprobs
-    assert (token.token, token.logprob) == ("3", -0.1)
-    assert token.top == {"3": -0.1, "2": -2.4}
-
-
 class FakeUrlResponse:
     """응답 본문을 수신하는 중에 지정한 예외를 발생시키는 urlopen 응답 대역."""
 
@@ -290,7 +256,7 @@ def test_from_settings_sends_bearer_key_to_chat_url(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setattr("urllib.request.urlopen", capture)
     settings = load_settings(
-        {"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-4.1-mini", "LLM_API_KEY": "k"}
+        {"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-5.6-terra", "LLM_API_KEY": "k"}
     )
 
     result = GmsClient.from_settings(settings).chat_json(MESSAGES)
@@ -298,7 +264,7 @@ def test_from_settings_sends_bearer_key_to_chat_url(monkeypatch: pytest.MonkeyPa
     [req] = requests
     assert req.full_url == "http://gms.test/chat"
     assert req.get_header("Authorization") == "Bearer k"
-    assert json.loads(req.data)["model"] == "gpt-4.1-mini"  # type: ignore[arg-type]
+    assert json.loads(req.data)["model"] == "gpt-5.6-terra"  # type: ignore[arg-type]
     assert result.content == {"level": 3}
 
 
@@ -333,7 +299,7 @@ class FakeOkResponse:
 
 
 def _answer(messages: Sequence[Mapping[str, str]]) -> GmsResult:
-    return GmsResult(content={"ok": True}, token_logprobs=None, model="gms-served")
+    return GmsResult(content={"ok": True}, model="gms-served")
 
 
 def test_with_deadline_calls_until_deadline() -> None:
