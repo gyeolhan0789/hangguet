@@ -77,6 +77,21 @@ bash loadtest/run.sh scenarios/s1-web-mix.js                            # 본 �
 - 실패율이 5%를 1분 넘게 넘으면 멈춘다(그 위는 실패만 늘어난다)
 - Next.js는 RSC 요청 주소에 `_rsc` 쿼리가 없으면 307로 다시 보낸다. `lib/api.js`의 `page()`가 붙인다
 
+## S5 동시 화상 면접 (계획 6장, 실제 외부 API)
+
+계정마다 실제 화면으로 화상 면접 1건씩을 거의 동시에(`STAGGER`초 간격) 진행한다. 계정이 동시 면접 수만큼 필요하다.
+
+```bash
+COUNT=10 bash loadtest/run.sh seed/seed.js
+bash loadtest/s5-levels.sh                                  # 동시 1 · 3 · 5 · 8 · 10건, 단계 사이 2분 쉼
+N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
+```
+
+- `s5-levels.sh`는 단계마다 k6 출력(`results/s5-N<단계>.log`), 발생기 CPU · 메모리(`-generator.txt`, 15초마다), 서버 자원 요약(`-resources.txt`)을 남기고, 단계별 시각을 `results/s5-levels.tsv`에 쌓는다. 면접이 하나라도 실패하면 그 단계에서 멈춘다(`CONTINUE=1`이면 계속)
+- 재는 것: 질문 준비 · 첫 질문(면접관 입장) · 질문 간격 · 면접 · 결과 · 다시보기 시간. 첫 질문이 2분 안에 안 나오면 "면접관 입장" 실패로 센다(에이전트가 새 면접을 받지 않을 때)
+- Chromium은 WebGL을 끈다(면접관 3D 화면은 정지 이미지로 대신 나온다). 켜면 Chromium 1개가 노트북 CPU를 약 9코어 쓴다. 끄면 약 1.5코어 · 430MB. `BROWSER_3D=1`이면 켠다
+- 노트북 여러 대: 노트북마다 `ACCOUNT_OFFSET`(0 · 10 …)과 같은 `START_AT`(유닉스 초)을 주고 `s5-interview-browser.js`를 돌린다
+
 ## 값
 
 | 이름 | 기본값 | 쓰는 곳 |
@@ -91,6 +106,9 @@ bash loadtest/run.sh scenarios/s1-web-mix.js                            # 본 �
 | `RATES` · `HOLD` · `RAMP` | `5,30,60` · `10m` · `1m` | `s1-web-mix.js`: 단계별 초당 요청 수 · 유지 시간 · 올리는 시간 |
 | `ACCOUNTS` | 4 | `s1-web-mix.js`: 돌려 쓸 계정 수(앞에서부터, 끝낸 면접이 있어야 한다) |
 | `VUS` · `MAX_VUS` | 20 · 300 | `s1-web-mix.js`: 미리 만들 VU · 최대 VU |
+| `N` · `STAGGER` · `START_AT` | 1 · 3 · (지금) | `s5-interview-browser.js`: 동시 면접 수 · 시작 간격(초) · 시작 시각(유닉스 초) |
+| `LEVELS` · `COOLDOWN` · `CONTINUE` | `1 3 5 8 10` · 120 · 0 | `s5-levels.sh`: 단계 · 단계 사이 쉬는 시간(초) · 실패해도 계속 |
+| `BROWSER_3D` | 0 | 브라우저 시나리오에서 WebGL(면접관 3D)을 켤지 |
 
 ## 주의
 

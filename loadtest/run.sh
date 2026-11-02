@@ -13,7 +13,7 @@ SCRIPT="${1:?스크립트 경로가 필요하다(예: scenarios/s0-smoke.js)}"
 shift
 
 # k6에 넘길 값 이름
-VARS=(BASE_URL LOADTEST_PASSWORD N COUNT START ACCOUNT_OFFSET PERSONA MODE PER_ACCOUNT ACCOUNTS RATES HOLD RAMP VUS MAX_VUS)
+VARS=(BASE_URL LOADTEST_PASSWORD N COUNT START ACCOUNT_OFFSET PERSONA MODE PER_ACCOUNT ACCOUNTS RATES HOLD RAMP VUS MAX_VUS STAGGER START_AT)
 
 if [ -f "${LOADTEST_DIR}/.env.k6" ]; then
   while IFS='=' read -r key value; do
@@ -31,9 +31,13 @@ done
 # 브라우저 시나리오(파일 이름에 browser): Chromium에 가짜 카메라 · 마이크를 준다(load_test_plan 6장 S5)
 BROWSER=false
 case "$SCRIPT" in *browser*) BROWSER=true ;; esac
+# WebGL은 끈다: GPU가 없는 Chromium은 면접관 3D 화면을 CPU로 그려 1개가 노트북 CPU를 약 9코어까지 쓴다(11/02 S5 동시 1건).
+# 화면은 WebGL이 안 되면 정지 이미지로 대신하고 면접은 그대로 진행한다. 3D는 사용자 PC에서만 그리므로 서버 부하는 같다. BROWSER_3D=1이면 켠다
 browser_args() {
   local media="$1"
-  echo "no-sandbox,use-fake-ui-for-media-stream,use-fake-device-for-media-stream,use-file-for-fake-audio-capture=${media}/answer.wav,use-file-for-fake-video-capture=${media}/camera.y4m,autoplay-policy=no-user-gesture-required"
+  local args="no-sandbox,use-fake-ui-for-media-stream,use-fake-device-for-media-stream,use-file-for-fake-audio-capture=${media}/answer.wav,use-file-for-fake-video-capture=${media}/camera.y4m,autoplay-policy=no-user-gesture-required"
+  [ "${BROWSER_3D:-0}" = "1" ] || args="${args},disable-3d-apis,disable-webgl"
+  echo "$args"
 }
 if $BROWSER && [ ! -f "${LOADTEST_DIR}/media/answer.wav" ]; then
   echo "FAIL: media/answer.wav가 없다. media/make-media.ps1을 먼저 실행한다"; exit 1

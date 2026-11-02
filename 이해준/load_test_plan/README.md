@@ -328,6 +328,7 @@ S5 동시 화상 면접 (UDP 경로)
   - 영상 인코딩과 면접관 3D 화면이 노트북 CPU를 쓴다. 노트북 CPU가 먼저 차면(3.2) 그 노트북의 면접 수를 줄이고 노트북을 늘린다. 시선 추적(`use-gaze-tracker.ts`)은 테스트 서버 이미지(master)에 아직 없다. 들어오면 CPU를 더 쓰므로 노트북 1대당 면접 수를 다시 잰다
   - 가짜 마이크 파일(`media/answer.wav`)은 Windows 음성 합성(ko-KR)으로 만든 지어낸 답변 5개에 8초 침묵을 붙인 것이다. Soniox가 실제로 인식해 답변 5개가 저장되는 것을 S0에서 확인했다. 카메라 파일은 얼굴이 아닌 단순한 영상이다(지금 화면에는 얼굴 검사가 없다)
   - 노트북 여러 대가 같은 Wi-Fi(공유기)에 붙으면 공유기 업로드가 먼저 막힐 수 있다. 노트북마다 송신량을 기록해 합이 회선 업로드에 가까우면 그 회차는 쓰지 않는다
+- **S5 단계 [결정]**: S0 · S1에서 동시 3건이 이미 지속 가능 한계 부근이라 1 · 3 · 5 · 8 · 10건으로 촘촘하게 올린다(`loadtest/s5-levels.sh`). 이 규모면 GMS 호출이 면접 1건에 7번 안팎이라 실제 API로 돌린다. 부하 테스트 Chromium은 WebGL을 끈다(면접관 3D를 CPU로 그려 Chromium 1개가 노트북 약 9코어를 쓴다. 끄면 약 1.5코어 · 430MB. 화면은 정지 이미지로 대신하고 3D는 사용자 PC 일이라 서버 부하는 같다)
 - **S5 동시 수 올리는 법**: `ramping-vus`가 아니라 단계마다 정해진 수의 면접을 거의 같은 때 시작하고(`per-vu-iterations`, 시작 시각 몇 초씩 분산) 그 면접이 끝날 때까지 유지한다. 왜: 면접 1건이 약 10분이라 VU 수를 계속 바꾸면 "동시 몇 건"이 흐려진다
 - **에이전트 한계 회차(L3)**: H6처럼 상한 거절이 없어 넘치면 그 순간 진행 중인 면접이 모두 끊긴다. 테스트 서버라 실제 OOM이 나는 지점까지 올린다(3.5). 1건당 메모리 증가량으로 계산한 한계와 실제로 OOM이 난 동시 면접 수를 같이 적는다. 왜: 운영에서는 이 지점을 일부러 넘길 수 없으므로, 에이전트에 동시 면접 상한(AI 명세 6.5 `CAPACITY_EXCEEDED`)을 넣을 때 이 값을 근거로 쓴다
 
@@ -346,9 +347,9 @@ loadtest/
     data.js               # 지어낸 지원서 · 답변
     browser-interview.js  # 실제 화면으로 화상 면접 1건 진행(S0 · 데이터 만들기 · S5)
   scenarios/
-    s0-smoke.js  s0-browser.js  s1-web-mix.js               # 만듦(11/02)
+    s0-smoke.js  s0-browser.js  s1-web-mix.js  s5-interview-browser.js(+ ../s5-levels.sh)   # 만듦(11/02)
     s2-login.js  s3-application.js
-    s4-plan-burst.js  s5-interview-browser.js  s6-peak.js  s7-soak.js
+    s4-plan-burst.js  s6-peak.js  s7-soak.js
   seed/                   # 테스트 계정 · 지원서(seed.js) → accounts.json(커밋하지 않음), 끝낸 면접(interviews-browser.js)
   stubs/gms/              # GMS 스텁(OpenAI 호환, 지연 시간 설정)
   media/                  # make-media.ps1 → answer.wav · camera.y4m (지어낸 내용, 커밋하지 않음)
@@ -433,7 +434,7 @@ export default function () {
 | Soniox · ElevenLabs · Jev 주소를 환경 변수로 바꿀 수 있게(스텁용) **[제안]** | AI | [ ] |
 | 테스트 계정 · 지원서 만들기 스크립트(3.6, `seed/seed.js`) | 인프라 · BE | [x] |
 | 답변 wav · 카메라 y4m 만들기(지어낸 내용, `media/make-media.ps1`) | 인프라 | [x] |
-| k6 스크립트(6.1), S0 스모크 통과(S0 · S1 스크립트 11/02, S2~S7 남음) | 인프라 | [ ] |
+| k6 스크립트(6.1), S0 스모크 통과(S0 · S1 · S5 스크립트 11/02, S2 · S3 · S4 · S6 · S7 남음) | 인프라 | [ ] |
 | 테스트 서버에서 `pg_stat_statements` 켤지 결정 **[제안]** | BE · 인프라 | [ ] |
 | 정리 절차(3.7) 확인: 결과 내보내기 → 서버 · 버킷 · 주소 · 토큰 삭제 | 인프라 | [ ] |
 
@@ -503,3 +504,4 @@ export default function () {
 | 인프라 | 5.2: 보고서 위치를 `loadtest/report/`로 정함, S0 결과 보고서 작성 | 스크립트 옆에 두어 회차마다 같은 곳에 쌓는다 |
 | 인프라 | 6장 S1 주의 · 6.1 · 7.1 · 8.2: S1 스크립트 · 데이터 만들기(`seed/interviews-browser.js`) · 브라우저 면접 공통 모듈 추가, RSC `_rsc` 주의, 동시 3건 측정 기록 | S1을 돌리려면 끝낸 면접이 있는 계정이 필요하다. 동시 3건에서 1건당 자원 기울기를 처음 확인했다 |
 | 인프라 | 8.2: S1 첫 회차 기록, 보고서 `loadtest/report/s1-2026-11-02.md`와 그래프 도구 `loadtest/report/charts.mjs` 추가 | S1 결과 FE가 먼저 막혔다(H5). 그래프는 Grafana 대시보드와 같은 질의로 그린다(Grafana는 로그인이 필요하고 화면을 파일로 저장할 수 없다) |
+| 인프라 | 6장 S5 · 6.1 · 7.1: S5 스크립트와 단계 실행(`s5-levels.sh`) 추가, 단계 1 · 3 · 5 · 8 · 10건 [결정], 부하용 Chromium WebGL 끔 | S0 · S1 결과로 한계가 낮게 보여 촘촘하게 잡았다. WebGL을 켜면 발생기가 먼저 막힌다 |
