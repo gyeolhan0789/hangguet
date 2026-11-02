@@ -63,7 +63,7 @@ const signupBody = {
   agreements: [
     { termsType: "TERMS", termsVersion: "1.0" },
     { termsType: "PRIVACY", termsVersion: "1.0" },
-    { termsType: "RECORDING", termsVersion: "1.0" },
+    { termsType: "RECORDING", termsVersion: "1.1" },
   ],
 };
 

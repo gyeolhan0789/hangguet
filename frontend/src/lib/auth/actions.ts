@@ -31,7 +31,6 @@ import {
   loginSchema,
   signupSchema,
   TERMS,
-  TERMS_VERSION,
   type LoginValues,
   type SignupValues,
 } from "./schemas";
@@ -85,7 +84,7 @@ export async function signup(values: SignupValues): Promise<AuthActionResult> {
     nickname,
     email,
     password,
-    agreements: TERMS.map(({ type }) => ({ termsType: type, termsVersion: TERMS_VERSION })),
+    agreements: TERMS.map(({ type, version }) => ({ termsType: type, termsVersion: version })),
   };
   try {
     const { data } = await plainClient.post<TokenResponse>(endpoints.auth.signup, body);
