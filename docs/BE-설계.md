@@ -158,7 +158,7 @@ com.ssafy.a301
 | `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 회원마다 탈퇴하지 않은 연결은 하나다: 소셜 회원은 가입한 계정, 이메일 회원은 직접 연결한 계정(2.12). DB도 부분 UNIQUE 인덱스(`user_id`, V16)로 막는다. 이메일 회원이 연결을 끊으면(2.13) 행을 지운다. 로그인에 쓴 제공자 토큰은 저장하지 않는다 **[결정]** |
 | `PracticeAlarm` | `practice_alarms` | 1:1 User(PK `user_id`) | 카카오톡 연습 알림(V14). 알림 시각(`alarm_time`, 분 단위, 기본 21:00)은 끈 뒤에도 남고, 켜져 있을 때만 카카오 토큰(액세스 · 리프레시, 암호화)과 만료 시각이 있다(넷이 함께 있거나 함께 없음, CHECK). `last_sent_on`(한국 날짜)으로 하루 한 번만 보낸다. 회원이 탈퇴하면 행을 지운다 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application, N:1 CompanyCard(null 가능) | 상태 전이는 엔티티 메서드로만(4장). `company_card_id`(V15)는 면접을 만들 때 지원서 회사명으로 찾은 회사 카드이고 바꾸지 않는다(5.1). 못 찾으면 null. `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
-| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE |
+| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE. `content`·`criteria`·`prompt_version`·`model_version`은 `question.started`로 받은 실제 출제 질문의 값이다. 2·4·5번은 꼬리질문이라 플랜과 다를 수 있으므로 채점·결과·다시보기는 플랜이 아니라 이 행의 글과 채점 기준을 사용한다(AI 명세 2.2). 버전은 꼬리질문만 있고 그 밖에는 null |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭, 다시보기 타임라인용 `trailingOffAtMs`·`impressions`)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
@@ -219,7 +219,7 @@ com.ssafy.a301
    - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 바꾼다(AI 명세 5장). 아직 GENERATING일 때만 바꾸고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 본다
 3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5). GENERATING인데 플랜 행이 이미 있으면(저장 뒤 READY를 남기지 못하고 다시 처리) 새로 저장하지 않고 READY만 남긴다
 4. 회사 카드는 면접을 만들 때 한 번 찾아 `interview_sessions.company_card_id`에 남긴다. 회사명에서 `(주)`·`㈜`·`주식회사`·`Co., Ltd`·`Corp`·`Inc`·공백·`.` `,` `·` `-`를 지우고 소문자로 바꾼 값(파이프라인 별칭과 같은 규칙, `CompanyCardFinder`)과 같은 별칭의 회사에서 최신 카드를 고른다. 못 찾으면 null이고 질문은 카드 없이 만든다. 5.3 다시 만들기도 면접에 남긴 같은 카드를 쓰고, 그 사이 카드가 갱신돼도 바꾸지 않는다([회사 카드 ERD](ERD-회사카드.md))
-5. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 넣는다 **[결정]**(5.2)
+5. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 실제로 출제한 질문(꼬리질문 포함)을 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
 1. 5.4 한 트랜잭션(면접 행 잠금): `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
@@ -227,7 +227,7 @@ com.ssafy.a301
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 이전 상태(`READY`·`START_FAILED`)로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
    - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 호출마다 5초(연결·읽기·전체)라 방 만들기·배정·실패 시 방 지우기까지 최대 15초 잠근다. 멱등 대기(20초)는 이보다 길게 둔다
-2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`) → `InterviewQuestion(seq, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
+2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`) → `InterviewQuestion(seq, content, criteria, prompt_version, model_version, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 

@@ -22,7 +22,7 @@
 ```
 브라우저 ─ BE(Spring)                     모든 API (API 명세)
 브라우저 ⇄ LiveKit 면접방 ⇄ AI 면접 에이전트  음성 · 면접방 메시지 (6장)
-                              └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev
+                              └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev · GMS(꼬리질문)
 
 BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
@@ -32,7 +32,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **AI는 DB에 접속하지 않는다** **[결정]**(읽기 · 쓰기 모두). 입력은 BE가 작업 메시지(1.3)와 에이전트 배정 정보(6.1)에 담아 보내고, 출력은 결과 메시지(1.4)로 돌려준다. BE가 받아 검증한 뒤 DB와 Redis 진행 상태에 쓴다
   - 왜: 스키마는 BE의 Flyway가 관리한다. AI가 같은 테이블을 직접 다루면 마이그레이션 때마다 두 파트가 함께 고쳐야 하고, 면접 상태 규칙이 두 곳에 생긴다. AI와 BE 사이 계약을 메시지 형식 하나로 둔다
 - BE와 AI는 서로 HTTP로 부르지 않는다. Redis 큐와 LiveKit만 거친다. BE는 DB 커밋과 함께 Outbox로 작업을 큐에 넣는다(CONTRIBUTING 6.2)
-- 외부 서비스: GMS(LLM, 분석 작업자), Jev(면접관 반응), Soniox(STT), ElevenLabs(TTS). 모두 AI 서버에서만 부르고 키도 AI 서버에만 있다. 면접 중에는 GMS를 부르지 않는다(질문 5개를 미리 만들고 꼬리질문은 MVP 범위 밖)
+- 외부 서비스: GMS(LLM, 분석 작업자·면접 에이전트), Jev(면접관 반응), Soniox(STT), ElevenLabs(TTS). 모두 AI 서버에서만 부르고 키도 AI 서버에만 있다. 면접 중에는 꼬리질문 생성(2.2)에만 GMS를 호출한다
 - 평가 항목은 `JOB_FIT`(직무 적합성)·`COVER_LETTER`(자소서 검증)·`LOGIC`(논리성)·`DELIVERY`(전달력) 4개이고, 판정은 3단계(좋아요·보통·아쉬워요)다
 
 ### 1.1 주체별 입력과 출력
@@ -106,7 +106,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
-| `question.started` | 면접 에이전트 | `seq`, `startedAt`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`) |
+| `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 | `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
 
@@ -204,7 +204,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
-- **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) BE가 만든다. 질문 수는 5개 고정이다
+- **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다
 
 ### 2.1 자기소개서 검증
 
@@ -226,6 +226,31 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 요청에 자기소개서가 담기므로 본문을 로그에 남기지 않는다
 - **결과** `{ "usable": true }` 또는 `{ "usable": false }`. 판단하지 못하면(Jev 장애·시간 초과·응답 형식 오류, `JEV_API_KEY` 없음, 메시지 형식 오류(문항이 1~5개가 아니거나 빈 질문·답변 포함)) `{ "error": "CHECK_FAILED" }`
 - **BE 응답** `usable: false`는 400 `VALIDATION_FAILED`(`coverLetterItems`), `CHECK_FAILED`·시간 초과·Redis 장애는 503 `COVER_LETTER_CHECK_UNAVAILABLE`. 둘 다 저장하지 않는다
+
+### 2.2 꼬리질문
+
+면접 중에 직전 기본 질문의 답변을 파고드는 질문을 면접 에이전트가 GMS로 생성한다. 미리 만든 질문만으로는 지원자의 답변 내용에 따라 질문이 달라지지 않기 때문이다.
+
+- **출제 순서** 질문 수는 5개로 유지한다
+
+  | 순서 | 질문 | 생성 시점 |
+  |---|---|---|
+  | 1 | 기본 질문(플랜 `seq` 1) | 면접 전(2장) |
+  | 2 | 꼬리질문 | 1번 답변이 끝난 직후 |
+  | 3 | 기본 질문(플랜 `seq` 3) | 면접 전(2장) |
+  | 4·5 | 꼬리질문 2개 | 3번 답변이 끝난 직후 한 번에 |
+
+  - 4·5번은 3번 답변의 서로 다른 측면을 묻는다. 한 번에 생성하는 것은 두 질문이 겹치지 않게 하고 5번 질문 앞에서 기다리지 않게 하기 위함이다
+- **입력** 면접관(`persona`), 직전 기본 질문의 글·채점 기준, 그 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `answer.submit`의 `content`, 6.3)
+- **출력** 질문마다 `content`(질문 글)·`criteria`(채점 기준). 답변 채점(3장)은 출제한 질문의 채점 기준을 사용한다
+- **생성 지침**
+  - 한 질문에서 한 가지만 묻는다
+  - 답변과 직전 질문에 없는 사실을 전제로 질문하지 않는다
+  - 면접관별 질문 수준·어조와 인재상 기준은 2장과 같다
+- **검증** JSON이 아니거나, 질문 수가 맞지 않거나, 질문 글·채점 기준이 비어 있으면 생성 실패로 처리한다. 기다리는 시간이 짧으므로 재시도하지 않는다
+- **예비 질문** 답변이 끝난 시점부터 4초(임시 값) 안에 생성하지 못하거나 생성에 실패하면 같은 순서의 미리 만든 질문(2장)을 출제한다. 4·5번은 함께 생성하므로 함께 예비 질문으로 대체한다. 직전 답변을 전송하지 않았으면(6.5 저장할 수 없는 답변) 생성하지 않고 예비 질문을 출제한다
+  - 4초는 실측(`gpt-5.6-terra`, 1개 1.5~2.8초·2개 2.1~2.3초, 각 3회)의 최댓값에 여유를 둔 값이다. 질문 음성 합성 시간은 포함하지 않으며, 별도로 0.5~1.7초(57자 질문, 3회)가 걸린다
+- **버전** 프롬프트 버전은 `followup-v1`, 모델은 PLAN과 같다(9장). 생성한 질문은 `question.started`에 `promptVersion`·`modelVersion`을 담고, 예비 질문은 둘 다 null이다
 
 ## 3. SCORE_ANSWER: 답변 채점
 
@@ -257,9 +282,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **판정 입력** 질문, 채점 기준, 답변 글. 화상은 `DELIVERY` 판정에 그 답변의 말하기 지표를 더한다
 - **판정** 채점 기준을 잣대로 평가 항목 4개를 3단계로 판정한다(G-Eval)
   - 항목마다 판정 이유와 3단계(`level` 1 아쉬워요 · 2 보통 · 3 좋아요)를 받는다
-  - 점수는 3단계(50·70·90)의 확률로 낸 기대값이다(`PROBABILITY`). 확률을 받지 못하면 판정한 단계의 점수를 그대로 쓴다(`FIXED`). 정수로 반올림한다
-  - 점수 계산 방식은 `evaluation.criteria`의 항목마다 `scoreMethod`로 기록한다. 해당 항목의 점수를 확률 기대값으로 계산했으면 `PROBABILITY`, 판정 단계의 고정 점수로 계산했으면 `FIXED`다. 확률이 없는 항목만 고정 점수를 사용하며, 다른 항목의 점수와 계산 방식은 유지한다
-  - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
+  - 점수는 판정한 단계의 점수(50·70·90)를 그대로 쓴다(`FIXED`)
+  - 점수 계산 방식은 `evaluation.criteria`의 항목마다 `scoreMethod`로 기록하며 값은 `FIXED`다. 이전에 3단계 확률의 기대값으로 계산해 저장한 채점은 `PROBABILITY`로 남아 있으므로 결과 생성(4장)은 두 값을 모두 받는다
+  - `evaluation` 최상위에는 `scoreMethod`를 두지 않는다. 이전 채점은 항목마다 계산 방식이 다를 수 있으므로 항목별 값만 기록한다
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - 평가 항목·3단계·점수 계산은 면접관과 관계없이 같다. 성장 리뷰(API 명세 7.1)에서 면접관이 다른 면접끼리도 같은 기준으로 비교하기 위함이다
   - 판정 지침도 면접관과 관계없이 같고, `persona`는 판정에 사용하지 않는다. 판정 지침에 면접 종류를 넣으면 판정 이유뿐 아니라 판정 단계도 함께 달라지기 때문이다. 면접관별 인재상 기준은 결과 생성의 피드백 작성(4장 `WRITING_FEEDBACK`)에만 반영한다
@@ -270,9 +295,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 ```json
 {
   "criteria": {
-    "JOB_FIT": { "level": 3, "score": 86, "scoreMethod": "PROBABILITY", "reason": "직무 요구 기술과 경험을 연결함" },
-    "COVER_LETTER": { "level": 2, "score": 71, "scoreMethod": "PROBABILITY", "reason": "임시 판정" },
-    "LOGIC": { "level": 3, "score": 88, "scoreMethod": "PROBABILITY", "reason": "원인 → 조치 → 결과 순서가 분명함" },
+    "JOB_FIT": { "level": 3, "score": 90, "scoreMethod": "FIXED", "reason": "직무 요구 기술과 경험을 연결함" },
+    "COVER_LETTER": { "level": 2, "score": 70, "scoreMethod": "FIXED", "reason": "임시 판정" },
+    "LOGIC": { "level": 3, "score": 90, "scoreMethod": "FIXED", "reason": "원인 → 조치 → 결과 순서가 분명함" },
     "DELIVERY": { "level": 2, "score": 70, "scoreMethod": "FIXED", "reason": "핵심이 뒤에 나옴" }
   },
   "speech": { "fillerCount": 3, "speakingMs": 41000, "longPauseCount": 1, "syllablesPerMin": 310, "trailingOffRatio": 12.5, "pitchRangeSt": 6.2 },
@@ -346,7 +371,6 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 |---|---|---|
 | GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
 | 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
-| 확률만 없음 | 그 항목만 `FIXED`로 점수를 내고 로그를 남긴다 | — |
 | BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위해서다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
 | 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
 | 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
@@ -359,7 +383,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 ## 6. 면접 에이전트
 
-면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄인다. 면접관별 음성 id는 DEVIL `FXxhHa2cRkhRQpD1I1Ut`, COFFEE_CHAT `kv35JHV8eknIPqadZFol`, DUCK `kv35JHV8eknIPqadZFol`(전용 음성을 정하기 전까지 COFFEE_CHAT과 같음), 모델은 `eleven_multilingual_v2`다. 질문과 말 끊기 안내는 면접관 음성 트랙 하나로 송출한다. 오리 면접관의 호응 효과음은 화면이 재생하므로 송출하지 않는다(API 명세 면접방 메시지). 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
+면접방(LiveKit)에 참가자로 들어가 면접을 진행한다. 질문을 말하고, 지원자 음성을 알아듣고, 리액션을 정하고, 답변이 끝났는지 판단해 BE에 넘긴다. LiveKit Agents(Python)로 만들고 STT는 원본 토큰별 시각을 보존하도록 Soniox WebSocket에 직접 연결한다. TTS는 ElevenLabs REST `POST /v1/text-to-speech/{voice_id}/with-timestamps`로 질문 글 하나를 통째로 합성해 음성(PCM 24kHz)과 원문 글자별 발음 시각을 함께 받는다 **[결정]**. `question`(`started`)에 질문 전체의 글자별 시각을 담아야 하는데, LiveKit ElevenLabs 플러그인은 시각을 단어 단위로 묶고 스트리밍 중 조각마다 늦게 주기 때문이다. 미리 만든 질문 5개는 배정 때 알고 있으므로 미리 합성해 지연을 줄이고, 꼬리질문(2.2)은 생성한 직후 합성한다. 면접관별 음성 id는 DEVIL `FXxhHa2cRkhRQpD1I1Ut`, COFFEE_CHAT `kv35JHV8eknIPqadZFol`, DUCK `kv35JHV8eknIPqadZFol`(전용 음성을 정하기 전까지 COFFEE_CHAT과 같음), 모델은 `eleven_multilingual_v2`다. 질문과 말 끊기 안내는 면접관 음성 트랙 하나로 송출한다. 오리 면접관의 호응 효과음은 화면이 재생하므로 송출하지 않는다(API 명세 면접방 메시지). 화면 동작은 [API 명세 면접방 메시지](API-명세.md#면접방-메시지-livekit)를 따른다.
 
 ### 6.1 배정
 
@@ -379,16 +403,16 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
   ] }
 ```
 
-- `questions`는 5개 전부. 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준을 여기서 받는다
+- `questions`는 미리 만든 5개 전부. 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준을 여기서 받는다. 2·4·5번은 꼬리질문의 예비 질문으로 사용한다(2.2)
 - 형식이 틀리면(질문 5개가 아님, 질문 글·채점 기준이 비어 있음, 512KiB 초과 등) 에이전트는 배정을 거절한다(6.5)
 - `currentSeq`: 몇 번 질문부터 할지. 처음엔 1이고, 에이전트가 중간에 끊겨 다시 배정할 때 이어 갈 번호다
 - 면접이 끝나면 BE가 방을 삭제(`RoomService.DeleteRoom`)하고 에이전트는 그 면접을 정리한다. 끝나지 않은 답변은 보내지 않는다
 
 ### 6.2 진행 흐름
 
-질문마다 다음을 반복한다(1~5번).
+질문마다 다음을 반복한다(1~5번). 2·4·5번 질문은 직전 기본 질문의 답변이 끝나면 생성한 꼬리질문이고, 생성하지 못하면 예비 질문이다(2.2).
 
-1. **질문** `question.started` 결과 메시지(`seq`, `startedAt`)를 보내고, 면접방 메시지 `question`(`started`)을 보낸 뒤 질문 글을 TTS로 말한다. 다 말하면 `question`(`ended`), 합성에 실패하면 `failed`
+1. **질문** `question.started` 결과 메시지(`seq`, `startedAt`, 출제한 질문의 `content`·`criteria`, `promptVersion`·`modelVersion`)를 보내고, 면접방 메시지 `question`(`started`)을 보낸 뒤 질문 글을 TTS로 말한다. 다 말하면 `question`(`ended`), 합성에 실패하면 `failed`
 2. **듣기(화상)** 지원자 음성을 STT로 수신해 확정 토큰과 시각을 수집한다. 에이전트는 `interview.stt` 텍스트 스트림으로 확정 글·미확정 글의 전체 스냅샷을 지원자 화면에 전달한다. 미확정 글은 교체하며 토큰별 시각은 에이전트에 보존한다. 같은 음성으로 말끝 흐림·억양 폭(3장)을 계산한다
 3. **리액션** 화상은 문장이 끝날 때마다(문장 끝 기준은 API 명세 면접방 메시지), 채팅은 `chat.input`을 받을 때마다 입력 글의 마지막 문장을 Jev로 판단해 `reaction`을 보낸다(6.4)
 4. **답변 끝(화상)** 마지막 말소리 뒤 7초 침묵(임시 값) 또는 `answer.submit`이면 답변을 끝낸다. 말 끊기 안내 음성(6.3)을 재생하는 동안에는 7초 계산을 멈추고, 재생이 끝난 시점부터 7초를 다시 계산한다. 안내 음성의 합성을 기다리는 동안에는 계산을 멈추지 않는다. 한마디도 안 했으면 끝내지 않고, 60초(임시 값) 동안 말을 시작하지 않으면 `answer.state`(`timedOut`)를 보낸다. 전송한 뒤에도 같은 질문에서 계속 듣고, 말을 시작하면 7초 규칙으로 끝낸다. 다음 질문으로 진행하지 않으며, 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용한다. STT 오류 뒤에도 같다(6.5)
@@ -410,9 +434,9 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 - `content`: 답변 글. 1~10,000자(BE와 같은 UTF-16 단위). 넘는 답변은 잘라 전송하지 않는다. 채점 대상 글이 변경되기 때문이다
 - `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 제외한다. 10,000개 이하, `0 ≤ startMs ≤ endMs`. STT가 재연결돼도 시각은 `answerStartedAt` 기준으로 이어서 계산한다. 토큰이 없으면 null
 - `speech`: 말끝 흐림 비율 `trailingOffRatio`·억양 폭 `pitchRangeSt`(계산은 3장 표). 구하지 못한 값은 null. 다시보기 타임라인용으로 말끝 흐린 문장의 끝 시각 `trailingOffAtMs`(3장, 10,000개 이하, 0 이상, 시각 순)와 인상 판단 `impressions`(6.6)를 함께 담는다 **[제안]**. 둘 다 구하지 못했으면 null
-- `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준)
+- `question.started`의 `startedAt`도 밀리초까지 기록한다(다시보기 마커 기준). `content`·`criteria`는 실제로 출제한 질문의 글·채점 기준이고, BE는 플랜이 아니라 이 값으로 질문 행을 저장한다. `promptVersion`·`modelVersion`은 꼬리질문이면 생성 버전, 예비 질문이나 기본 질문이면 null이다(2.2)
 - `endReason`: `AUTO_SUBMIT`(침묵 7초) · `MANUAL_SUBMIT`([답변 완료])
-- **채팅** 답변은 화면이 5.7로 BE에 낸다. 화면은 5.7 응답이 202이거나 409 `ANSWER_ALREADY_SUBMITTED`이면 `answer.submit`(`seq`)을 전송한다. 409를 포함하는 것은 새로고침 뒤 다시 제출해 이미 저장된 답변도 다음 질문으로 진행하게 하기 위함이다. 에이전트는 `seq`가 지금 질문일 때만 다음 질문으로 진행하고, 이미 진행한 질문의 `answer.submit`은 무시하고 `false`로 응답한다
+- **채팅** 답변은 화면이 5.7로 BE에 낸다. 화면은 5.7 응답이 202이거나 409 `ANSWER_ALREADY_SUBMITTED`이면 `answer.submit`(`seq`, 5.7로 제출한 답변 글 `content`)을 전송한다. 에이전트는 이 `content`로 꼬리질문을 생성한다(2.2). 409를 포함하는 것은 새로고침 뒤 다시 제출해 이미 저장된 답변도 다음 질문으로 진행하게 하기 위함이다. 에이전트는 `seq`가 지금 질문일 때만 다음 질문으로 진행하고, 이미 진행한 질문의 `answer.submit`은 무시하고 `false`로 응답한다
 - **호응(오리 면접관)** 호응 효과음은 화면이 재생한다(API 명세 면접방 메시지). 오리 면접에서는 답변 전달 뒤 효과음과 다음 질문 음성이 겹치지 않도록 잠시 기다린 뒤 다음 질문으로 진행한다. 효과음은 제출이 시작될 때 재생되므로 제출 처리 뒤 효과음 길이(1초)만큼 기다리고, 마지막 답변 뒤에는 기다리지 않는다
 - 5번 질문의 답변이 끝나면 더 말하지 않는다. 면접 끝내기는 화면이 답변 저장을 확인한 뒤 호출한다(API 명세 5.8)
 
@@ -446,7 +470,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만 `{ chars[] }`, `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0. 그 밖에는 null. 키는 항상 담는다) |
 | `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단하지 못했거나 반응할 내용이 없으면 null), `attitude`(`interest`·`trust`, 0~1, 첫 판단 전에는 0.5), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
 | `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` · `submitFailed` |
-| `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false`. `submitFailed` 뒤에 수신하면 보관한 답변을 다시 전송하고 `true`로 응답한다(6.5) |
+| `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서), `content`(채팅만, 5.7로 제출한 답변 글, 1,000자 이하. 화상은 null). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false`. `submitFailed` 뒤에 수신하면 보관한 답변을 다시 전송하고 `true`로 응답한다(6.5) |
 | `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs`. 응답 `{ "accepted": true }`. 현재 진행 중인 질문이 아니거나 그 질문에서 이미 수신한 `seq` 이하면 판단하지 않고 `false`로 응답한다. `true`는 판단 대상으로 수신했다는 뜻이며 리액션 판단의 성공을 뜻하지 않는다 |
 
 - RPC 오류: `2001 EMPTY_ANSWER`(한마디도 안 함), `2002 NOT_ANSWERING`(질문 음성 재생 중 등). 1001~1999는 LiveKit 예약
@@ -480,8 +504,10 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | Soniox STT 오류 | `interview.stt`의 `state: failed`와 `answer.state`(`sttFailed`)를 전송한다. 화면은 마지막 텍스트와 실패 안내를 유지한다. 그 답변에서 발화가 있었으면, [답변 완료](`answer.submit`)를 수신할 때 그때까지 인식된 글을 제출한다. STT 오류는 지원자가 일으킨 것이 아니므로 인식된 글을 폐기하지 않는다. 발화가 없었으면 [답변 완료]는 `2001 EMPTY_ANSWER`로 거절되므로, 오류 상태에서도 60초를 계속 계산해 답변 시작 60초 뒤 `answer.state`(`timedOut`)를 전송한다 |
 | TTS 실패 | `question`에 `failed`. 화면은 질문 글로 진행 |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도(5장). 답변 완료(`answer.completed`)가 재시도 후에도 실패하면 `answer.state`로 `submitFailed`를 전송한다. 에이전트는 그 답변을 메모리에 보관하고 다음 질문으로 진행하지 않는다. 화면은 실패를 안내하고 [다시 시도]를 표시하며, 에이전트는 `submitFailed` 상태에서 `answer.submit`을 수신하면 보관한 같은 답변을 같은 재시도 규칙으로 다시 전송한다. 성공하면 `answer.state`(`submitted`)를 전송하고 다음 질문으로 진행한다. 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용하며, 이때 보관한 답변은 저장되지 않는다. `submitFailed` 상태에서 지원자가 재입장하면 `submitFailed`를 다시 전송한다. 새로 연결한 화면은 실패 상태를 알 수 없기 때문이다. 같은 결과가 두 번 전송돼도 BE가 제외한다 |
+| 질문 시작 전송 실패 | `question.started`가 재시도(5장) 후에도 실패해도 질문은 그대로 진행한다. 질문 행이 없으면 BE가 그 질문의 답변을 저장하지 못하므로, 에이전트는 같은 메시지를 보관하고 전송에 성공하거나 면접이 끝날 때까지 4초 간격으로 다시 전송한다. 화상은 `question.started` 전송에 성공한 뒤에만 `answer.completed`를 전송하고, 답변이 끝날 때까지 성공하지 못하면 결과 큐에 넣기 실패와 같이 `submitFailed`를 전송한다. 이 상태에서 `answer.submit`을 수신하면 `question.started`부터 다시 전송한다. 채팅은 질문 행이 생기기 전까지 답변 제출(API 명세 5.7)이 404 `QUESTION_NOT_FOUND`로 실패하며, 다시 제출하면 저장된다 |
 | 저장할 수 없는 답변 | 답변 글·토큰이 `answer.completed`의 범위(6.2)를 벗어나면 다시 전송해도 BE가 저장하지 못하므로, `answer.completed`를 전송하지 않고 다음 질문으로 진행한다. `answer.state`(`submitted`·`submitFailed`)는 전송하지 않으며, 그 답변은 저장되지 않는다 |
-| 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]** |
+| 꼬리질문 생성 실패·시간 초과 | 같은 순서의 예비 질문을 출제한다(2.2). 면접 진행에는 영향이 없다 |
+| 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]**. 이미 출제한 꼬리질문은 질문 행에만 남으므로, 다시 배정할 때 그 질문 글을 넘길지도 함께 정한다 |
 | 동시 면접 상한 초과 | 배정을 거절하고 결과 메시지 `assignment.rejected`(`CAPACITY_EXCEEDED`)를 전송한다. BE는 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다(1.4) |
 | 배정 정보 형식 오류 | LiveKit이 배정을 에이전트에 전달할 때 방에 들어가지 않고 거절한다. 틀린 배정 정보로는 질문을 진행할 수 없고, 같은 배정 정보로는 어느 에이전트 서버도 진행할 수 없으므로 다른 에이전트 서버에 다시 넘기지 않는다. 결과 메시지 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송하고, BE·화면 처리는 동시 면접 상한 초과와 같다 |
 
