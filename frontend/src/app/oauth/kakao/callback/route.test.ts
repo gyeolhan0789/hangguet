@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
 import type { ProblemDetail, SocialLoginResponse } from "@/types/api";
 
-// 카카오 콜백(로그인 1.6 · 알림 켜기 2.9). HTTP 경계(plainClient)만 바꾸고, 요청 쿠키 · 응답(이동 · Set-Cookie)을 그대로 본다.
-// 기준: 웹 Swagger 1.6 · 2.9 · 기획 메모 S01-3 · S09-1-B(가입한 회원 → 홈, 처음 온 사람 → S01 약관 동의 모달, 알림 → S09-1,
-// 카카오 화면 취소는 문구 없이, 고칠 수 있는 오류는 서버 detail · 고칠 수 없는 오류는 정해 둔 문구)
+// 카카오 콜백(로그인 1.6 · 알림 켜기 2.9 · 계정 연결 2.12). HTTP 경계(plainClient)만 바꾸고, 요청 쿠키 · 응답(이동 · Set-Cookie)을 그대로 본다.
+// 기준: 웹 Swagger 1.6 · 2.9 · 2.12 · 기획 메모 S01-3 · S09-1-B(가입한 회원 → 홈, 처음 온 사람 → S01 약관 동의 모달, 알림 → S09-1,
+// 카카오 화면 취소는 문구 없이, 고칠 수 있는 오류는 서버 detail · 고칠 수 없는 오류는 정해 둔 문구) · 사용자 결정(연결하면 S09-1에
+// 완료 안내 모달, 2.12 오류는 모두 서버 문구)
 
 const post = vi.fn();
 const put = vi.fn();
@@ -21,6 +22,8 @@ const { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } = await import("@/lib/api/au
 const REDIRECT_URI = "http://localhost:3000/oauth/kakao/callback";
 const SOCIAL_LOGIN_FAILED = "소셜 로그인에 실패했어요. 다시 시도해 주세요.";
 const KAKAO_CONSENT_FAILED = "카카오 동의를 확인하지 못했어요. 다시 시도해 주세요.";
+const SOCIAL_LINK_FAILED = "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요.";
+const LINKED = { target: "settings", linked: true };
 
 const tokens = {
   accessToken: "access",
@@ -287,7 +290,7 @@ describe("연습 알림 켜기 (2.9)", () => {
       "409 PRACTICE_ALARM_UNAVAILABLE",
       409,
       "PRACTICE_ALARM_UNAVAILABLE",
-      "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+      "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
     ],
     [
       "503 KAKAO_UNAVAILABLE",
@@ -351,6 +354,163 @@ describe("연습 알림 켜기 (2.9)", () => {
     expect(response.headers.get("location")).toBe("/mypage/settings");
     expect(notice(response)).toBeNull();
     expect(response.cookies.get(SOCIAL_SIGNUP_COOKIE)).toBeUndefined();
+  });
+});
+
+describe("계정 연결 (2.12)", () => {
+  const link = (cookies: Record<string, string> = { [ACCESS_TOKEN_COOKIE]: "access" }) =>
+    callback({ code: "c", state: "s" }, { [OAUTH_STATE_COOKIE]: "link.s", ...cookies });
+
+  it("쿠키의 토큰을 붙여 인가 코드를 보내고, 성공하면 S09-1로 가며 완료 표시를 남긴다(state는 지운다)", async () => {
+    put.mockResolvedValue({ data: {} });
+
+    const response = await link();
+
+    expect(put).toHaveBeenCalledWith(
+      "/users/me/social-accounts/kakao",
+      { code: "c", redirectUri: REDIRECT_URI },
+      { headers: { Authorization: "Bearer access" } },
+    );
+    expect(post).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("/mypage/settings");
+    expect(notice(response)).toEqual(LINKED);
+    expect(response.cookies.get(OAUTH_STATE_COOKIE)).toMatchObject({ value: "", maxAge: 0 });
+  });
+
+  it("그 사이 로그아웃해 토큰이 없으면 2.12를 부르지 않고 로그인 화면으로", async () => {
+    const response = await link({});
+
+    expect(put).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("/login");
+    expect(notice(response)).toBeNull();
+  });
+
+  it.each([
+    ["400 SOCIAL_LINK_FAILED", 400, "SOCIAL_LINK_FAILED", "서버가 준 연결 실패 문구"],
+    ["409 SOCIAL_ALREADY_LINKED", 409, "SOCIAL_ALREADY_LINKED", "이미 연결한 소셜 계정이 있어요."],
+    [
+      "409 SOCIAL_ACCOUNT_IN_USE",
+      409,
+      "SOCIAL_ACCOUNT_IN_USE",
+      "다른 회원이 쓰고 있는 카카오 계정이에요.",
+    ],
+    [
+      "503 SOCIAL_LOGIN_UNAVAILABLE",
+      503,
+      "SOCIAL_LOGIN_UNAVAILABLE",
+      "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    ],
+  ])("%s면 S09-1에 서버 문구(완료 표시 없음)", async (_, status, code, detail) => {
+    put.mockRejectedValue(problem({ status, code, detail }));
+
+    const response = await link();
+
+    expect(response.headers.get("location")).toBe("/mypage/settings");
+    expect(notice(response)).toEqual({ target: "settings", text: detail });
+  });
+
+  it("그 밖의 오류(400 VALIDATION_FAILED)는 정해 둔 문구(SOCIAL_LINK_FAILED)", async () => {
+    put.mockRejectedValue(
+      problem({ code: "VALIDATION_FAILED", detail: "입력값을 확인해 주세요." }),
+    );
+
+    const response = await link();
+
+    expect(notice(response)).toEqual({ target: "settings", text: SOCIAL_LINK_FAILED });
+  });
+
+  it("서버에 닿지 못하면 S09-1에 다시 시도 안내", async () => {
+    put.mockRejectedValue(axiosNoResponse());
+
+    const response = await link();
+
+    expect(notice(response)).toEqual({
+      target: "settings",
+      text: "잠시 후 다시 시도해 주세요.",
+    });
+  });
+
+  it.each(["TOKEN_EXPIRED", "UNAUTHORIZED"])(
+    "401 %s면 인가 코드가 든 주소를 넘기지 않고 문구 없이 S09-1로, 토큰 쿠키는 건드리지 않는다",
+    async (code) => {
+      put.mockRejectedValue(problem({ status: 401, code }));
+
+      const response = await link();
+
+      expect(response.headers.get("location")).toBe("/mypage/settings");
+      expect(notice(response)).toBeNull();
+      expect(response.cookies.get(ACCESS_TOKEN_COOKIE)).toBeUndefined();
+    },
+  );
+
+  it("카카오 동의 화면에서 취소하면 2.12를 부르지 않고 문구 없이 S09-1로", async () => {
+    const response = await callback(
+      { error: "access_denied", state: "s" },
+      { [OAUTH_STATE_COOKIE]: "link.s", [ACCESS_TOKEN_COOKIE]: "access" },
+    );
+
+    expect(put).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("/mypage/settings");
+    expect(notice(response)).toBeNull();
+  });
+
+  it.each([
+    ["카카오가 다른 오류를 주면", { error: "server_error", state: "s" }],
+    ["인가 코드가 없으면", { state: "s" }],
+  ])("%s 2.12를 부르지 않고 SOCIAL_LINK_FAILED", async (_, query) => {
+    const response = await callback(query, {
+      [OAUTH_STATE_COOKIE]: "link.s",
+      [ACCESS_TOKEN_COOKIE]: "access",
+    });
+
+    expect(put).not.toHaveBeenCalled();
+    expect(notice(response)).toEqual({ target: "settings", text: SOCIAL_LINK_FAILED });
+  });
+
+  it("카카오 설정이 없으면 SOCIAL_LOGIN_UNAVAILABLE 문구", async () => {
+    vi.stubEnv("KAKAO_REDIRECT_URI", "");
+
+    const response = await link();
+
+    expect(put).not.toHaveBeenCalled();
+    expect(notice(response)).toEqual({
+      target: "settings",
+      text: "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    });
+  });
+
+  it("로그인한 회원의 state가 다르면 2.12를 부르지 않고, 쿠키에 남은 용도(연결)대로 S09-1에 SOCIAL_LINK_FAILED, state 쿠키는 그대로", async () => {
+    const response = await callback(
+      { code: "c", state: "other" },
+      { [OAUTH_STATE_COOKIE]: "link.s", [ACCESS_TOKEN_COOKIE]: "access" },
+    );
+
+    expect(put).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("/mypage/settings");
+    expect(notice(response)).toEqual({ target: "settings", text: SOCIAL_LINK_FAILED });
+    expect(response.cookies.get(OAUTH_STATE_COOKIE)).toBeUndefined();
+  });
+
+  it.each([
+    [
+      "로그인한 회원 · 쿠키 용도가 로그인",
+      { [OAUTH_STATE_COOKIE]: "login.s", [ACCESS_TOKEN_COOKIE]: "access" },
+      "/mypage/settings",
+      { target: "settings", text: KAKAO_CONSENT_FAILED },
+    ],
+    [
+      "로그아웃 · 쿠키 용도가 연결",
+      { [OAUTH_STATE_COOKIE]: "link.s" },
+      "/login",
+      { target: "login", text: SOCIAL_LOGIN_FAILED },
+    ],
+  ])("state가 다를 때 %s면 로그인 여부로 화면을 고른다", async (_, cookies, location, text) => {
+    const response = await callback({ code: "c", state: "other" }, cookies);
+
+    expect(post).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe(location);
+    expect(notice(response)).toEqual(text);
   });
 });
 

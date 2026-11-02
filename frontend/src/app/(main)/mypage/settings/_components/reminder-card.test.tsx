@@ -173,7 +173,7 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
 
   it("시각 저장이 실패하면 토스트로 알리고 편집 칸은 열어 둔다", async () => {
     changePracticeAlarmTime.mockResolvedValue({
-      error: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+      error: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
     });
     renderCard(ALARM_ON);
 
@@ -181,7 +181,7 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "저장" })));
 
     expect(screen.getByRole("status").textContent).toBe(
-      "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+      "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
     );
     expect(timeInput()).toBeTruthy();
   });

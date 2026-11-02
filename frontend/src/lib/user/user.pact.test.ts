@@ -35,14 +35,17 @@ import {
   deleteProfileImage,
   disablePracticeAlarm,
   registerProfileImage,
+  unlinkKakao,
   withdraw,
 } from "./actions";
 import { getPracticeAlarm, getPracticeLogs, getStats, getStreakFreezes } from "./queries";
 
-// 기준: Swagger 2.2~2.11 회원 · 연습 알림 · 3.1~3.3 홈 · 통계 · 연습 달력 · 8.13~8.14 스트릭 유지권 예시
+// 기준: Swagger 2.2~2.13 회원 · 연습 알림 · 소셜 계정 연결 · 3.1~3.3 홈 · 통계 · 연습 달력 · 8.13~8.14 스트릭 유지권 예시
 // 2.7 소셜 회원 탈퇴(본문 {}) · 2.8 available true · 2.9 성공과 KAKAO_CONSENT_FAILED · 2.10 성공은 BE 계약 테스트에 카카오 회원
 // 상황(@State)과 카카오 메시지 클라이언트(@MockitoBean)가 있어야 재현된다. 아직 BE에 없어 이번에는 '회원'(이메일 회원) 상황으로
-// 재현되는 응답만 넣었다. BE 상황이 생기면 위 계약을 더한다.
+// 재현되는 응답만 넣었다. 2.12 소셜 계정 연결은 성공 · 실패 모두 BE가 카카오에 인가 코드를 확인해야 정해져(카카오 로그인 클라이언트
+// @MockitoBean 필요) 이번에는 넣지 않았다. 2.13 409 PASSWORD_NOT_SET은 소셜 회원 상황(@State)이 있어야 재현된다.
+// BE 상황이 생기면 위 계약을 더한다.
 const { like, eachLike } = MatchersV3;
 const CRITERIA = ["JOB_FIT", "COVER_LETTER", "LOGIC", "DELIVERY"] as const;
 const pact = contract();
@@ -375,7 +378,7 @@ describe("스트릭 유지권", () => {
 
 describe("연습 알림", () => {
   const unavailable = {
-    detail: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+    detail: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
     code: "PRACTICE_ALARM_UNAVAILABLE",
   };
 
@@ -430,7 +433,7 @@ describe("연습 알림", () => {
           expect(response.headers.get("location")).toBe("/mypage/settings");
           expect(JSON.parse(response.cookies.get(NOTICE_COOKIE)?.value ?? "null")).toEqual({
             target: "settings",
-            text: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+            text: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
           });
         }),
       );
@@ -448,7 +451,7 @@ describe("연습 알림", () => {
       .executeTest(
         asMember(async () =>
           expect(await changePracticeAlarmTime({ time: "22:30" })).toEqual({
-            error: "카카오로 가입한 회원만 연습 알림을 받을 수 있어요.",
+            error: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
           }),
         ),
       ));
@@ -461,4 +464,15 @@ describe("연습 알림", () => {
       .withRequest("DELETE", "/api/v1/users/me/practice-alarm", (b) => b.headers(bearer))
       .willRespondWith(204)
       .executeTest(asMember(async () => expect(await disablePracticeAlarm()).toEqual({}))));
+});
+
+describe("소셜 계정 연결", () => {
+  it("2.13 카카오 연결을 해제한다(연결하지 않았어도 204)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("2.13 카카오 연결 해제")
+      .withRequest("DELETE", "/api/v1/users/me/social-accounts/kakao", (b) => b.headers(bearer))
+      .willRespondWith(204)
+      .executeTest(asMember(async () => expect(await unlinkKakao()).toEqual({}))));
 });
