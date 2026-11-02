@@ -53,15 +53,21 @@ public class ResultController {
               "videoUrl": "https://…s3…/recordings/55.mp4?X-Amz-Signature=…",
               "items": [
                 { "questionId": 301, "seq": 1, "question": "1분 자기소개", "questionCreatedAt": "2026-10-15T12:00:42+09:00",
-                  "answer": "안녕하세요, 저는…", "answerCreatedAt": "2026-10-15T12:02:40+09:00", "grade": "GOOD" },
+                  "answer": "안녕하세요, 저는…", "answerCreatedAt": "2026-10-15T12:02:40+09:00", "grade": "GOOD", "timeline": null },
                 { "questionId": 302, "seq": 2, "question": "○○ 프로젝트에서 맡은 역할은?", "questionCreatedAt": "2026-10-15T12:03:10+09:00",
-                  "answer": "저는 백엔드를 맡아…", "answerCreatedAt": "2026-10-15T12:05:50+09:00", "grade": "GOOD" },
+                  "answer": "저는 백엔드를 맡아…", "answerCreatedAt": "2026-10-15T12:05:50+09:00", "grade": "GOOD", "timeline": null },
                 { "questionId": 303, "seq": 3, "question": "가장 큰 기술적 문제는?", "questionCreatedAt": "2026-10-15T12:06:12+09:00",
-                  "answer": "저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…", "answerCreatedAt": "2026-10-15T12:09:40+09:00", "grade": "NORMAL" },
+                  "answer": "저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…", "answerCreatedAt": "2026-10-15T12:09:40+09:00", "grade": "NORMAL", "timeline": null },
                 { "questionId": 304, "seq": 4, "question": "백엔드 직무에 지원한 이유는?", "questionCreatedAt": "2026-10-15T12:10:05+09:00",
-                  "answer": "음… 서버 쪽이…", "answerCreatedAt": "2026-10-15T12:13:50+09:00", "grade": "WEAK" },
+                  "answer": "음… 서버 쪽이…", "answerCreatedAt": "2026-10-15T12:13:50+09:00", "grade": "WEAK",
+                  "timeline": {
+                    "points": [ { "at": 620.25, "value": 0.4 }, { "at": 621.25, "value": -0.6 }, { "at": 622.25, "value": -1.7 },
+                                { "at": 623.25, "value": -2.1 }, { "at": 624.25, "value": -1.2 }, { "at": 625.25, "value": 0.3 } ],
+                    "checkpoints": [ { "at": 623.25, "start": 622.25, "end": 623.25, "value": -2.1,
+                      "reasons": [ { "metric": "CONFIDENCE", "count": null, "text": "고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요." },
+                                   { "metric": "FILLER", "count": 3, "text": "'음'이 이어졌어요. 생각할 때는 소리 없이 잠깐 멈춰도 괜찮아요." } ] } ] } },
                 { "questionId": 305, "seq": 5, "question": "대용량 트래픽 처리 방법은?", "questionCreatedAt": "2026-10-15T12:14:30+09:00",
-                  "answer": "읽기 부하는 캐시로…", "answerCreatedAt": "2026-10-15T12:17:40+09:00", "grade": "GOOD" } ] }\
+                  "answer": "읽기 부하는 캐시로…", "answerCreatedAt": "2026-10-15T12:17:40+09:00", "grade": "GOOD", "timeline": null } ] }\
             """;
 
     private final Stub stub;
