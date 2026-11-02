@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.domain;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.company.domain.CompanyCard;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -40,6 +41,11 @@ public class InterviewSession {
     @JoinColumn(name = "application_id", nullable = false)
     private Application application;
 
+    // 면접을 만들 때 지원서 회사명으로 찾은 회사 카드. 못 찾았으면 null. 면접 안에서는 바꾸지 않는다(docs/ERD-회사카드.md)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "company_card_id")
+    private CompanyCard companyCard;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Persona persona;
@@ -72,8 +78,18 @@ public class InterviewSession {
 
     public InterviewSession(
             User user, Application application, Persona persona, InterviewMode mode) {
+        this(user, application, null, persona, mode);
+    }
+
+    public InterviewSession(
+            User user,
+            Application application,
+            CompanyCard companyCard,
+            Persona persona,
+            InterviewMode mode) {
         this.user = user;
         this.application = application;
+        this.companyCard = companyCard;
         this.persona = persona;
         this.mode = mode;
         this.status = SessionStatus.READY;

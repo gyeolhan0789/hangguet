@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.company.domain.Company;
+import com.ssafy.a301.company.domain.CompanyCard;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerSpeech;
@@ -20,6 +22,7 @@ import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +66,26 @@ class AiJobMessagesTest {
                         Map.entry("jobTitle", "백엔드 개발자"),
                         Map.entry("coverLetterItems", COVER_LETTER_ITEMS),
                         Map.entry("persona", "DEVIL"));
+    }
+
+    // 기준: AI 명세 1.3·8장(PLAN만 면접에 남긴 회사 카드를 그대로 담는다. SCORE_ANSWER·EVALUATE에는 아직 담지 않는다)
+    @Test
+    void planMessageHasCompanyCardOfSession() {
+        Map<String, Object> card =
+                Map.of(
+                        "corp_code",
+                        "99000301",
+                        "talent",
+                        List.of(Map.of("text", "도전", "quote", "도전하는 인재")));
+        InterviewSession session = plannedSession(InterviewMode.CHAT, Persona.DEVIL, card);
+        Answer answer = answer(session, 1, "답", null);
+
+        assertThat(messages.of(withId(AiJob.plan(session.getId()))))
+                .containsEntry("companyCard", card);
+        assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
+                .doesNotContainKey("companyCard");
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .doesNotContainKey("companyCard");
     }
 
     @Test
@@ -240,11 +263,17 @@ class AiJobMessagesTest {
     }
 
     private InterviewSession newSession(InterviewMode mode, Persona persona) {
+        return newSession(mode, persona, null);
+    }
+
+    private InterviewSession newSession(
+            InterviewMode mode, Persona persona, Map<String, Object> card) {
         User user = new User("job-msg-" + UUID.randomUUID() + "@example.com", "hash", "메시지");
         em.persist(user);
         Application application = new Application(user, "○○전자", "백엔드 개발자");
         em.persist(application);
-        InterviewSession session = new InterviewSession(user, application, persona, mode);
+        InterviewSession session =
+                new InterviewSession(user, application, companyCard(card), persona, mode);
         em.persist(session);
         em.flush();
         insertCoverLetterItem(application.getId(), 2, "협업 경험", "함께했습니다.");
@@ -269,8 +298,26 @@ class AiJobMessagesTest {
         return plannedSession(mode, Persona.DEVIL);
     }
 
+    // 적재가 넣은 것처럼 회사와 최신 카드를 넣는다. card가 없으면 카드 없는 면접이다
+    private CompanyCard companyCard(Map<String, Object> card) {
+        if (card == null) {
+            return null;
+        }
+        Company company = new Company((String) card.get("corp_code"), "카드회사", true);
+        em.persist(company);
+        CompanyCard companyCard =
+                new CompanyCard(company, card, "3".repeat(64), LocalDate.parse("2026-10-30"));
+        em.persist(companyCard);
+        return companyCard;
+    }
+
     private InterviewSession plannedSession(InterviewMode mode, Persona persona) {
-        InterviewSession session = newSession(mode, persona);
+        return plannedSession(mode, persona, null);
+    }
+
+    private InterviewSession plannedSession(
+            InterviewMode mode, Persona persona, Map<String, Object> card) {
+        InterviewSession session = newSession(mode, persona, card);
         plans.save(
                 new InterviewPlan(
                         session.getId(),

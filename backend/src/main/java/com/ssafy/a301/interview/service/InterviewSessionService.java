@@ -5,6 +5,7 @@ import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
@@ -62,6 +63,7 @@ public class InterviewSessionService {
     private final InterviewRoom rooms;
     private final RecordingRepository recordings;
     private final SpeechMetricRepository speechMetrics;
+    private final CompanyCardFinder companyCards;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -76,7 +78,8 @@ public class InterviewSessionService {
             TransactionTemplate transactions,
             InterviewRoom rooms,
             RecordingRepository recordings,
-            SpeechMetricRepository speechMetrics) {
+            SpeechMetricRepository speechMetrics,
+            CompanyCardFinder companyCards) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -90,9 +93,13 @@ public class InterviewSessionService {
         this.rooms = rooms;
         this.recordings = recordings;
         this.speechMetrics = speechMetrics;
+        this.companyCards = companyCards;
     }
 
-    /** 5.1. 지원서 행을 잠가 지원서 삭제(4.5)와 겹치지 않게 한다. 지운 지원서로는 만들지 않는다(404). */
+    /**
+     * 5.1. 지원서 행을 잠가 지원서 삭제(4.5)와 겹치지 않게 한다. 지운 지원서로는 만들지 않는다(404). 지원서 회사명으로 찾은 회사 카드를 면접에 남겨 질문
+     * 생성(5.3 다시 만들기 포함)에 같은 카드를 쓴다(AI 명세 8장).
+     */
     public SessionResponse create(long userId, SessionCreateRequest request) {
         OffsetDateTime now = OffsetDateTime.now();
         return transactions.execute(
@@ -109,6 +116,9 @@ public class InterviewSessionService {
                                     new InterviewSession(
                                             users.getReferenceById(userId),
                                             application,
+                                            companyCards
+                                                    .findCurrent(application.getCompanyName())
+                                                    .orElse(null),
                                             request.persona(),
                                             request.mode()));
                     startPlan(session.getId(), now);
