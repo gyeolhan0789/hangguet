@@ -79,11 +79,11 @@ x-ai-worker-redis-env: &ai-worker-redis-env
   REDIS_HOST: a301-dev-redis
   REDIS_PORT: "6379"
 
-# GMS 접속 값(PLAN · SCORE_ANSWER · EVALUATE). 이름과 값은 회사 카드 파이프라인(company-pipeline/pipeline/README.md)과 같다.
+# GMS 접속 값(PLAN · SCORE_ANSWER · EVALUATE). 변수 이름과 GMS 주소는 회사 카드 파이프라인(company-pipeline/pipeline/README.md)과 같고, 모델은 다르다.
 # 모델은 AI에 등록된 버전(ai/app/common/versions.py)만 쓸 수 있다
 x-gms-env: &gms-env
   LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
-  LLM_MODEL: gpt-4.1-mini
+  LLM_MODEL: gpt-5.6-terra
   LLM_API_KEY: ${LLM_API_KEY:-}
 
 # 녹화 합치기(MERGE_RECORDING): BE와 같은 버킷 · 앱 키로 원본 트랙(recordings/raw/)을 받고 합친 mp4를 올린다.
