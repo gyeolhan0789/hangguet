@@ -104,7 +104,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
 | `evaluation.completed` | 분석 작업자 | 4장(`headline`·`summary` 포함) | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
-| `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4) | `recordings` 저장 |
+| `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4), `recordingStartedAt`(영상 0초 시각, 없으면 null) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
@@ -412,7 +412,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 
 질문마다 다음을 반복한다(1~5번). 2·4·5번 질문은 직전 기본 질문의 답변이 끝나면 생성한 꼬리질문이고, 생성하지 못하면 예비 질문이다(2.2).
 
-1. **질문** `question.started` 결과 메시지(`seq`, `startedAt`, 출제한 질문의 `content`·`criteria`, `promptVersion`·`modelVersion`)를 보내고, 면접방 메시지 `question`(`started`)을 보낸 뒤 질문 글을 TTS로 말한다. 다 말하면 `question`(`ended`), 합성에 실패하면 `failed`
+1. **질문** 면접방 메시지 `question`(`started`)을 전송한 뒤 질문 음성을 송출한다. 음성의 첫 소리를 송출하는 시각을 `startedAt`으로 해 `question.started` 결과 메시지(`seq`, `startedAt`, 출제한 질문의 `content`·`criteria`, `promptVersion`·`modelVersion`)를 전송한다. 합성에 실패해 음성 없이 출제하면 `question`(`failed`)을 전송하기 직전 시각을 `startedAt`으로 한다. 다 말하면 `question`(`ended`)을 전송한다
 2. **듣기(화상)** 지원자 음성을 STT로 수신해 확정 토큰과 시각을 수집한다. 에이전트는 `interview.stt` 텍스트 스트림으로 확정 글·미확정 글의 전체 스냅샷을 지원자 화면에 전달한다. 미확정 글은 교체하며 토큰별 시각은 에이전트에 보존한다. 같은 음성으로 말끝 흐림·억양 폭(3장)을 계산한다
 3. **리액션** 화상은 문장이 끝날 때마다(문장 끝 기준은 API 명세 면접방 메시지), 채팅은 `chat.input`을 받을 때마다 입력 글의 마지막 문장을 Jev로 판단해 `reaction`을 보낸다(6.4)
 4. **답변 끝(화상)** 마지막 말소리 뒤 7초 침묵(임시 값) 또는 `answer.submit`이면 답변을 끝낸다. 말 끊기 안내 음성(6.3)을 재생하는 동안에는 7초 계산을 멈추고, 재생이 끝난 시점부터 7초를 다시 계산한다. 안내 음성의 합성을 기다리는 동안에는 계산을 멈추지 않는다. 한마디도 안 했으면 끝내지 않고, 60초(임시 값) 동안 말을 시작하지 않으면 `answer.state`(`timedOut`)를 보낸다. 전송한 뒤에도 같은 질문에서 계속 듣고, 말을 시작하면 7초 규칙으로 끝낸다. 다음 질문으로 진행하지 않으며, 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용한다. STT 오류 뒤에도 같다(6.5)
@@ -430,7 +430,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
   "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12+09:00" }
 ```
 
-- `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 녹화 시작 시각과의 차이로 답변 위치를 구한다
+- `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 영상 0초(API 명세 6.4 `recordingStartedAt`)와의 차이로 답변 위치를 구한다
 - `content`: 답변 글. 1~10,000자(BE와 같은 UTF-16 단위). 넘는 답변은 잘라 전송하지 않는다. 채점 대상 글이 변경되기 때문이다
 - `tokens`: STT가 확정한 토큰을 그대로(단어 일부·공백 포함, 단어로 합치지 않음). 끝 표시 토큰(`<end>`·`<fin>`)은 제외한다. 10,000개 이하, `0 ≤ startMs ≤ endMs`. STT가 재연결돼도 시각은 `answerStartedAt` 기준으로 이어서 계산한다. 토큰이 없으면 null
 - `speech`: 말끝 흐림 비율 `trailingOffRatio`·억양 폭 `pitchRangeSt`(계산은 3장 표). 구하지 못한 값은 null. 다시보기 타임라인용으로 말끝 흐린 문장의 끝 시각 `trailingOffAtMs`(3장, 10,000개 이하, 0 이상, 시각 순)와 인상 판단 `impressions`(6.6)를 함께 담는다 **[제안]**. 둘 다 구하지 못했으면 null
@@ -500,7 +500,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | Jev 늦음·실패 | 그 문장은 리액션 없이 넘어감(6.4) |
 | 인상 판단 Jev 늦음·실패 | 그 사진은 남기지 않는다(6.6). 답변 진행과 제출에는 영향이 없다 |
 | LiveKit 일시 끊김 | 브라우저 SDK가 재접속하며 화면에 연결 중 상태를 표시한다. 완전히 끊기면 [다시 연결]로 5.14 입장 정보를 새로 받는다 |
-| 지원자 퇴장·새로고침 | 현재 STT 캡처를 정리하고 에이전트는 방에서 재입장을 기다린다. 재입장하면 새 캡처를 시작한다. 답변 중이었으면 그때까지 인식한 글을 폐기하고 답변 끝 판단의 7초·60초 계산을 멈추며, 재입장하면 같은 질문의 답변을 처음부터 다시 듣는다. 질문 음성 재생 중에 퇴장했으면 재입장 뒤 면접방 메시지 `question`(`started`)부터 질문을 다시 말하고, 결과 메시지 `question.started`는 다시 전송하지 않는다. 리액션의 태도(`attitude`)는 면접 전체에 대한 값이므로 유지하고, 폐기한 답변으로 판단 중이던 리액션은 전송하지 않는다. 같은 질문의 리액션 `seq`는 1로 되돌리지 않고 이어서 증가시킨다. 새로 연결한 화면은 이전 채팅 입력 `seq`를 알 수 없으므로, 재입장하면 수신한 채팅 입력 `seq` 기록을 초기화한다 |
+| 지원자 퇴장·새로고침 | 현재 STT 캡처를 정리하고 에이전트는 방에서 재입장을 기다린다. 재입장하면 새 캡처를 시작한다. 답변 중이었으면 그때까지 인식한 글을 폐기하고 답변 끝 판단의 7초·60초 계산을 멈추며, 재입장하면 같은 질문의 답변을 처음부터 다시 듣는다. 질문 음성 재생 중에 퇴장했으면 재입장 뒤 면접방 메시지 `question`(`started`)부터 질문을 다시 말한다. 결과 메시지 `question.started`는 이미 전송했으면 다시 전송하지 않고, 음성을 송출하기 전에 퇴장해 아직 전송하지 않았으면 다시 말하며 음성을 송출할 때 전송한다(6.2). 리액션의 태도(`attitude`)는 면접 전체에 대한 값이므로 유지하고, 폐기한 답변으로 판단 중이던 리액션은 전송하지 않는다. 같은 질문의 리액션 `seq`는 1로 되돌리지 않고 이어서 증가시킨다. 새로 연결한 화면은 이전 채팅 입력 `seq`를 알 수 없으므로, 재입장하면 수신한 채팅 입력 `seq` 기록을 초기화한다 |
 | Soniox STT 오류 | `interview.stt`의 `state: failed`와 `answer.state`(`sttFailed`)를 전송한다. 화면은 마지막 텍스트와 실패 안내를 유지한다. 그 답변에서 발화가 있었으면, [답변 완료](`answer.submit`)를 수신할 때 그때까지 인식된 글을 제출한다. STT 오류는 지원자가 일으킨 것이 아니므로 인식된 글을 폐기하지 않는다. 발화가 없었으면 [답변 완료]는 `2001 EMPTY_ANSWER`로 거절되므로, 오류 상태에서도 60초를 계속 계산해 답변 시작 60초 뒤 `answer.state`(`timedOut`)를 전송한다 |
 | TTS 실패 | `question`에 `failed`. 화면은 질문 글로 진행 |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도(5장). 답변 완료(`answer.completed`)가 재시도 후에도 실패하면 `answer.state`로 `submitFailed`를 전송한다. 에이전트는 그 답변을 메모리에 보관하고 다음 질문으로 진행하지 않는다. 화면은 실패를 안내하고 [다시 시도]를 표시하며, 에이전트는 `submitFailed` 상태에서 `answer.submit`을 수신하면 보관한 같은 답변을 같은 재시도 규칙으로 다시 전송한다. 성공하면 `answer.state`(`submitted`)를 전송하고 다음 질문으로 진행한다. 면접을 중단하려면 면접 끝내기(API 명세 5.8)를 사용하며, 이때 보관한 답변은 저장되지 않는다. `submitFailed` 상태에서 지원자가 재입장하면 `submitFailed`를 다시 전송한다. 새로 연결한 화면은 실패 상태를 알 수 없기 때문이다. 같은 결과가 두 번 전송돼도 BE가 제외한다 |
@@ -537,11 +537,15 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
   - 다른 면접의 녹화를 읽거나 덮어쓰지 않도록, 두 값이 그 작업 `sessionId`의 위치가 아니면 형식 오류(1.3)로 처리한다
 - **원본 트랙 파일** **[결정]** BE가 방을 만들 때 켠 트랙 자동 녹화가 `rawPrefix` 아래 `{참가자 이름}-{트랙 종류}-{트랙 id}.{확장자}`로 저장한다. 트랙 id(`TR_…`)는 LiveKit 서버가 붙이므로 미리 알 수 없다
   - 이름 앞부분으로 찾는다: `candidate-video-`(지원자 영상, H.264 → `.mp4`), `candidate-audio-`(지원자 음성, `.ogg`), `interviewer-audio-`(면접관 음성, `.ogg`)
-  - 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 여러 개면 녹화 시작 시각 순서로 이어 붙인다
+  - 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음)
+  - 녹화 시작 시각은 LiveKit 녹화 목록 조회(`ListEgress`, 면접방 `interview-{sessionId}`, 끝난 녹화 포함)로 얻는다. 웹훅은 전송을 보장하지 않으므로 사용하지 않는다. 그 면접의 트랙 녹화가 모두 끝날 때까지 5초 간격으로 최대 5분(임시 값) 조회하고, 조회가 연속 3회 실패하면 조회를 중단한다
+  - 녹화가 정상 완료(`EGRESS_COMPLETE`)되고 시작 시각이 있으며 길이가 0보다 큰 파일만 사용한다. Egress는 첫 패킷을 수신하지 못한 파일의 시작 시각을 종료 시각으로 채우므로 시작 시각만으로는 빈 트랙을 구분할 수 없다
+  - 세 종류 트랙 중 가장 이른 파일 시작 시각(첫 패킷 수신, T0)을 영상 0초로 두고 모든 트랙을 각자 시작 시각 − T0 위치에 배치한다. 처음 시차와 재접속 공백이 함께 맞는다. 같은 종류의 빈 구간은 음성은 무음, 영상은 다시 인코딩하지 않고 직전 화면을 유지한다. 같은 종류 트랙이 겹치면 뒤 트랙이 시작하는 위치에서 앞 트랙을 자른다. 세 종류에 맞지 않는 파일은 무시한다
+  - LiveKit 주소·키가 없거나, 조회를 중단했거나, 5분 안에 녹화가 모두 끝나지 않았거나, 사용할 파일 중 한 종류라도 없거나, 목록의 파일이 저장소에 없으면 저장소 목록이 15초(임시 값) 동안 바뀌지 않을 때까지 기다린 뒤 업로드 순서로 이어 붙이며, 시차는 맞추지 않는다
 - **처리** 영상은 다시 인코딩하지 않고 그대로 복사하고, 두 음성은 한 트랙으로 혼합해 AAC로 인코딩한 mp4를 `objectKey`에 업로드한다
   - 화상 면접 화면은 카메라 영상을 H.264로 송출한다. Egress 트랙 녹화는 영상을 다시 인코딩하지 않고 코덱에 맞는 형식으로 저장하므로(H.264는 MP4, Opus는 OGG) 합친 mp4도 브라우저에서 그대로 재생된다
   - 영상을 다시 인코딩하면 합치기가 면접 길이에 비례해 오래 걸려, 작업을 하나씩 처리하는 작업자에서 뒤에 대기한 작업이 BE 최대 대기 시간을 넘을 수 있다
-- **결과** `recording.merged`(`objectKey`). 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4)
+- **결과** `recording.merged`(`objectKey`, `recordingStartedAt`). `recordingStartedAt`은 T0(ISO 8601, 밀리초까지)이고, 이어 붙여 합쳤으면 null이다. 실패하면 `recording.mergeFailed`(`TRACK_NOT_FOUND`·`STORAGE_ERROR`·`MERGE_ERROR`·`INVALID_JOB`·`INTERNAL_ERROR`, 1.4). 같은 작업을 다시 처리해도 결과가 같을 가능성이 높으므로 재시도하지 않는다. BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4)
 
 ## 8. 회사 카드
 

@@ -666,14 +666,15 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 화상은 녹화 영상과 질문별 시점(마커), 채팅은 같은 목록을 대화 기록으로 준다(`mode: CHAT`, `videoUrl: null`). 재생 중 자막은 재생 위치가 속한 질문(`questionCreatedAt` ≤ 위치 < 다음 질문)의 `answer`.
 
 - `videoUrl`: 합친 mp4(`recordings/{면접 id}.mp4`)의 Presigned URL. 브라우저가 S3에서 바로 재생한다
-- `questionCreatedAt`: 에이전트가 그 질문을 말하기 시작한 시각(녹화 시작 기준으로 마커 위치를 구한다)
+- `questionCreatedAt`: 에이전트가 그 질문을 말하기 시작한 시각(영상 0초 `recordingStartedAt`, null이면 `startedAt` 기준으로 마커 위치를 구한다)
+- `recordingStartedAt`: 합친 영상의 0초에 해당하는 시각(녹화 합치기에 사용한 트랙 중 가장 먼저 시작한 트랙의 시작 시각). 녹화 시작 시각을 얻지 못해 트랙을 이어 붙여 합쳤거나 채팅이면 null이고, 이때 화면은 `startedAt`을 기준으로 사용한다
 - `videoStatus`: 녹화 영상 상태. `READY`(재생 가능) · `MERGING`(녹화 합치기 중) · `FAILED`(합치기 실패). 채팅이면 null이고, `READY`일 때만 `videoUrl`이 있다
 - 화면은 `MERGING`이면 플레이어 자리에 녹화를 처리하는 중임을 안내하고 10초마다(임시 값) 6.4를 다시 조회한다. `FAILED`면 녹화를 불러오지 못했다고 안내한다. 두 경우 모두 질문 목록과 답변은 보여 준다
 - 면접 종료 후 15분(임시 값)이 지나도 합치기 결과가 없으면 `FAILED`로 응답한다. 작업자 장애로 결과가 오지 않아도 `MERGING`에 계속 남지 않게 하기 위함이다
 - `items[].timeline` **[제안]**: 다시보기 타임라인(화상만). 그 답변 동안의 면접 흐름 곡선과 평소보다 유난히 낮은 지점(체크포인트)이다. 계산은 [AI 명세](AI-명세.md) 4장 다시보기 타임라인. 채팅, 답하지 않은 질문, 타임라인을 만들지 못한 답변은 null
   - `points[]`: `at`(영상 위치, 초, 소수 셋째 자리) · `value`(그 면접 평균이 0인 표준화 값, 음수면 평소보다 아쉬움). 1초 간격
   - `checkpoints[]`: `at`(가장 낮은 지점) · `start` · `end`(이어진 낮은 구간, 영상 위치 초) · `value` · `reasons[]`(`metric`: `STABILITY`·`CONFIDENCE`·`EXPRESSION`·`EMOTION`·`LIKEABILITY`·`TRUST`·`TRAILING_OFF`·`FILLER`·`LONG_PAUSE`, `count`: 음성 이유의 횟수, 인상이면 null, `text`: 보완할 점)
-  - 영상 위치 = (`answers.started_at` − 면접 `startedAt`) + 답변 기준 밀리초. 질문 마커(`questionCreatedAt`)와 같은 기준이다
+  - 영상 위치 = (`answers.started_at` − `recordingStartedAt`(null이면 면접 `startedAt`)) + 답변 기준 밀리초. 질문 마커(`questionCreatedAt`)와 같은 기준이다
 
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
