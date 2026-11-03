@@ -144,9 +144,59 @@ class AiResultServiceTest {
         InterviewQuestion question =
                 questions.findBySessionIdAndSeq(session.getId(), 2).orElseThrow();
         assertThat(question.getContent()).isEqualTo("질문2");
+        assertThat(question.getCriteria()).isEqualTo("기준2");
+        assertThat(question.getPromptVersion()).isNull();
+        assertThat(question.getModelVersion()).isNull();
         assertThat(question.getCreatedAt()).isEqualTo(STARTED_AT);
 
         assertThat(results.handle(questionStarted(session, 2))).isEqualTo(Outcome.DISCARDED);
+    }
+
+    // 기준: AI 명세 1.4·2.2, BE 설계 5.4(질문 행은 플랜이 아니라 실제로 출제한 질문의 글·채점 기준·버전으로 만든다)
+    @Test
+    void questionStartedSavesFollowUpQuestionAsAsked() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+
+        assertThat(
+                        results.handle(
+                                """
+                                {"type":"question.started","sessionId":%d,"seq":2,
+                                 "startedAt":"2026-10-15T12:01:00+09:00","content":"꼬리질문2",
+                                 "criteria":"꼬리기준2","promptVersion":"followup-v1",
+                                 "modelVersion":"gms-test"}
+                                """
+                                        .formatted(session.getId())))
+                .isEqualTo(Outcome.SAVED);
+
+        InterviewQuestion question =
+                questions.findBySessionIdAndSeq(session.getId(), 2).orElseThrow();
+        assertThat(question.getContent()).isEqualTo("꼬리질문2");
+        assertThat(question.getCriteria()).isEqualTo("꼬리기준2");
+        assertThat(question.getPromptVersion()).isEqualTo("followup-v1");
+        assertThat(question.getModelVersion()).isEqualTo("gms-test");
+    }
+
+    @Test
+    void questionStartedWithoutContentOrCriteriaIsInvalid() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+
+        for (String fields :
+                List.of(
+                        "\"criteria\":\"기준1\"",
+                        "\"content\":\" \",\"criteria\":\"기준1\"",
+                        "\"content\":\"질문1\"",
+                        "\"content\":\"질문1\",\"criteria\":\"\"")) {
+            String raw =
+                    "{\"type\":\"question.started\",\"sessionId\":%d,\"seq\":1,"
+                                    .formatted(session.getId())
+                            + "\"startedAt\":\"2026-10-15T12:01:00+09:00\","
+                            + fields
+                            + "}";
+            assertThatThrownBy(() -> results.handle(raw))
+                    .as(raw)
+                    .isInstanceOf(InvalidAiResultException.class);
+        }
+        assertThat(questions.findBySessionIdAndSeq(session.getId(), 1)).isEmpty();
     }
 
     @Test
@@ -429,9 +479,9 @@ class AiResultServiceTest {
     private static String questionStarted(InterviewSession session, int seq) {
         return """
         {"type":"question.started","sessionId":%d,"seq":%d,
-         "startedAt":"2026-10-15T12:01:00+09:00"}
+         "startedAt":"2026-10-15T12:01:00+09:00","content":"질문%d","criteria":"기준%d"}
         """
-                .formatted(session.getId(), seq);
+                .formatted(session.getId(), seq, seq, seq);
     }
 
     private static String answerCompleted(InterviewSession session, int seq, String content) {
