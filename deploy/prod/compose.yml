@@ -25,7 +25,7 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
-# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
+# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트 · 녹화 작업자의 녹화 목록 조회)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
 # 운영은 서버가 붙는 내부 주소(LIVEKIT_URL)와 브라우저에 알려 줄 주소(LIVEKIT_PUBLIC_URL)가 다르다(배포 계획 4.0).
 x-livekit-env: &livekit-env
   LIVEKIT_URL: ws://a301-prod-livekit:7880
@@ -256,7 +256,8 @@ services:
     <<: *ai-worker
     container_name: a301-prod-ai-recording
     environment:
-      <<: [*ai-worker-redis-env, *recording-s3-env]
+      # 녹화 시작 시각 조회(LiveKit)
+      <<: [*ai-worker-redis-env, *recording-s3-env, *livekit-env]
       AI_WORKER_QUEUE: recording
     mem_limit: 256m
     cpus: 1
