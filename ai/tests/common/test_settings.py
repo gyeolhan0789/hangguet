@@ -22,6 +22,9 @@ def test_starts_without_any_variable() -> None:
     assert settings.elevenlabs_api_key is None
     assert settings.s3_bucket is None
     assert settings.aws_region is None
+    assert settings.livekit_url is None
+    assert settings.livekit_api_key is None
+    assert settings.livekit_api_secret is None
     assert settings.worker_queue is None
 
 
@@ -81,6 +84,9 @@ def test_reads_every_variable() -> None:
         "ELEVENLABS_API_KEY": "elevenlabs-key",
         "S3_BUCKET": "recordings-bucket",
         "AWS_REGION": "ap-northeast-2",
+        "LIVEKIT_URL": "ws://livekit:7880",
+        "LIVEKIT_API_KEY": "livekit-key",
+        "LIVEKIT_API_SECRET": "livekit-secret",
         "AI_WORKER_QUEUE": "plan",
     }
 
@@ -97,6 +103,9 @@ def test_reads_every_variable() -> None:
         elevenlabs_api_key="elevenlabs-key",
         s3_bucket="recordings-bucket",
         aws_region="ap-northeast-2",
+        livekit_url="ws://livekit:7880",
+        livekit_api_key="livekit-key",
+        livekit_api_secret="livekit-secret",
         worker_queue="plan",
     )
 
@@ -130,6 +139,8 @@ def test_repr_hides_secret_values() -> None:
         "JEV_API_KEY": "jev-key-value",
         "SONIOX_API_KEY": "soniox-key-value",
         "ELEVENLABS_API_KEY": "elevenlabs-key-value",
+        "LIVEKIT_API_KEY": "livekit-key-value",
+        "LIVEKIT_API_SECRET": "livekit-secret-value",
     }
     settings = load_settings({**LLM, **secrets})
 

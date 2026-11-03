@@ -5,6 +5,8 @@
 권한이 없으면 조회가 실패해 STORAGE_ERROR로 보고된다.
 """
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -21,9 +23,17 @@ class StorageError(Exception):
     """저장소에서 파일을 조회·다운로드·업로드하지 못했다."""
 
 
+@dataclass(frozen=True)
+class StoredObject:
+    """저장소 파일의 키와 저장소가 기록한 저장 시각(S3 LastModified)."""
+
+    key: str
+    last_modified: datetime
+
+
 class RecordingStorage(Protocol):
-    def list(self, prefix: str) -> list[str]:
-        """prefix로 시작하는 파일의 키 목록이다. 실패하면 StorageError다."""
+    def list(self, prefix: str) -> list[StoredObject]:
+        """prefix로 시작하는 파일 목록이다. 실패하면 StorageError다."""
         ...
 
     def download(self, key: str, path: Path) -> None:
@@ -40,13 +50,17 @@ class S3RecordingStorage:
         self._client = client
         self._bucket = bucket
 
-    def list(self, prefix: str) -> list[str]:
+    def list(self, prefix: str) -> list[StoredObject]:
         try:
             # 한 번에 최대 1,000개만 반환하므로 페이지를 끝까지 조회한다
             pages = self._client.get_paginator("list_objects_v2").paginate(
                 Bucket=self._bucket, Prefix=prefix
             )
-            return [item["Key"] for page in pages for item in page.get("Contents", [])]
+            return [
+                StoredObject(item["Key"], item["LastModified"])
+                for page in pages
+                for item in page.get("Contents", [])
+            ]
         except (ClientError, BotoCoreError) as e:
             raise StorageError(f"목록 조회 실패 {prefix}: {_code(e)}") from e
 

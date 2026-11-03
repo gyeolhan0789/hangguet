@@ -32,6 +32,7 @@ from app.interview.scoring.job import (
     gms_score_chat,
     register_score_answer_handler,
 )
+from app.recording.egress import create_track_start_lookup
 from app.recording.job import RecordingMerger, register_merge_recording_handler
 from app.recording.storage import create_s3_storage
 from app.worker.checks import CoverLetterCheckWorker
@@ -86,7 +87,11 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     )
     register_merge_recording_handler(
         dispatcher,
-        RecordingMerger(functools.cache(lambda: create_s3_storage(settings)), results),
+        RecordingMerger(
+            functools.cache(lambda: create_s3_storage(settings)),
+            results,
+            track_starts=create_track_start_lookup(settings),
+        ),
     )
     return dispatcher
 
