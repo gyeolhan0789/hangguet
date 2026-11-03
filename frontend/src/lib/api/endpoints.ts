@@ -123,6 +123,8 @@ export const inquiryEndpoints = {
   messages: (inquiryId: Id) => `/inquiries/${inquiryId}/messages`,
   /** 9.5 POST 문의 종료(토큰 없이도) */
   close: (inquiryId: Id) => `/inquiries/${inquiryId}/close`,
+  /** 9.11 POST 문의 사진 업로드 주소(토큰 없이도) */
+  attachmentUploadUrl: "/inquiries/attachments/upload-url",
 } as const;
 
 export const endpoints = {

@@ -1,12 +1,13 @@
 import type { Page } from "@playwright/test";
 
-import type { InquiryMessage, InquiryResponse } from "../src/types/api";
+import type { InquiryAttachment, InquiryMessage, InquiryResponse } from "../src/types/api";
 
 import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 
 // I01 · I01-B · I01-1 · I02 · I03 · I03-1 · I04 문의(회원 · 비회원)
 // 근거: Figma I01 ~ I04(화이트 · 다크) · 기획 메모 I01 ~ I04 · C01(프로필 메뉴 [문의하기] → I02) · S00 로그인 전 헤더 [문의하기] → I04
 //   · Swagger 9.1 ~ 9.5(비회원은 X-Inquiry-Password, 없는 문의 · 틀린 조회 비밀번호는 404 INQUIRY_NOT_FOUND)
+//   · Swagger 9.11 사진 업로드 주소 → 브라우저가 S3에 PUT → 9.1 · 9.4 attachmentKeys · 9.3 attachments
 // 칸별 문구 · 말풍선 순서 · 모달 동작은 컴포넌트 테스트가, 여기서는 진입점 · 서버 컴포넌트 · 서버 액션이 실제 API를
 // 회원은 토큰으로, 비회원은 조회 비밀번호 헤더로 부르고 다시 그리는지 본다.
 
@@ -27,6 +28,13 @@ interface Seen {
   password: string | null;
   authorized: boolean;
 }
+
+/** 9.11이 주는 업로드 주소. 브라우저가 보내는 PUT은 테스트 브라우저에서 가로챈다 */
+const S3 = "https://s3.test";
+
+// 9.1 · 9.4로 받은 키를 9.3 사진(받는 주소)으로 바꾼다
+const photosOf = (body: { attachmentKeys?: string[] }): InquiryAttachment[] =>
+  (body.attachmentKeys ?? []).map((key, index) => ({ id: index + 1, url: `${S3}/${key}` }));
 
 /**
  * 서버 상태를 흉내 낸다: 9.1로 만든 문의(id 7)를 9.2 · 9.3이 돌려주고, 9.4는 메시지를 더하며, 9.5는 종료한다.
@@ -63,14 +71,26 @@ function inquiryServer(accessPassword?: string) {
   const handlers = [
     http.post(api("/inquiries"), async ({ request }) => {
       await record(request);
-      const body = (await request.json()) as { title: string; content: string };
+      const body = (await request.json()) as {
+        title: string;
+        content: string;
+        attachmentKeys?: string[];
+      };
       state.inquiry = {
         id: 7,
         title: body.title,
         status: "WAITING",
         createdAt: stamp,
         updatedAt: stamp,
-        messages: [{ id: 21, authorType: "USER", content: body.content, createdAt: stamp }],
+        messages: [
+          {
+            id: 21,
+            authorType: "USER",
+            content: body.content,
+            createdAt: stamp,
+            attachments: photosOf(body),
+          },
+        ],
       };
       return HttpResponse.json(state.inquiry, { status: 201 });
     }),
@@ -103,15 +123,30 @@ function inquiryServer(accessPassword?: string) {
       await record(request);
       const { inquiry } = state;
       if (!found(request, params.id) || !inquiry) return problemResponse(INQUIRY_NOT_FOUND);
-      const { content } = (await request.json()) as { content: string };
+      const body = (await request.json()) as { content: string; attachmentKeys?: string[] };
       const message: InquiryMessage = {
         id: 30 + inquiry.messages.length,
         authorType: "USER",
-        content,
+        content: body.content,
         createdAt: stamp,
+        attachments: photosOf(body),
       };
       state.inquiry = { ...inquiry, status: "WAITING", messages: [...inquiry.messages, message] };
       return HttpResponse.json(message, { status: 201 });
+    }),
+    http.post(api("/inquiries/attachments/upload-url"), async ({ request }) => {
+      await record(request);
+      const { files } = (await request.json()) as {
+        files: { contentType: string; size: number }[];
+      };
+      // 키는 테스트가 고른 파일의 크기로 만든다(크기를 사진마다 다르게 준다)
+      return HttpResponse.json({
+        files: files.map((file) => {
+          const extension = file.contentType === "image/png" ? "png" : "jpg";
+          const objectKey = `inquiry/${file.size}.${extension}`;
+          return { uploadUrl: `${S3}/upload/${objectKey}`, objectKey, expiresAt: stamp };
+        }),
+      });
     }),
     http.post(api("/inquiries/:id/close"), async ({ request, params }) => {
       await record(request);
@@ -122,6 +157,27 @@ function inquiryServer(accessPassword?: string) {
     }),
   ];
   return { handlers, seen, state };
+}
+
+/** 크기(바이트)가 다른 사진. 9.11 흉내가 크기로 키를 만든다 */
+const picture = (name: string, size: number, mimeType = "image/png") => ({
+  name,
+  mimeType,
+  buffer: Buffer.alloc(size),
+});
+
+/** 브라우저가 S3로 보내는 PUT을 가로채 주소 · Content-Type을 남기고 status로 답한다 */
+async function fakeS3(page: Page, status = 200) {
+  const puts: { url: string; method: string; contentType?: string }[] = [];
+  await page.route(`${S3}/upload/**`, async (route) => {
+    puts.push({
+      url: route.request().url(),
+      method: route.request().method(),
+      contentType: route.request().headers()["content-type"],
+    });
+    await route.fulfill({ status });
+  });
+  return puts;
 }
 
 async function fillAndSend(page: Page, title: string, content: string) {
@@ -176,6 +232,32 @@ test.describe("회원 문의(I02 · I01 · I03)", () => {
     ).toBe(true);
     await row.click();
     await expect(page).toHaveURL("/inquiries/7");
+  });
+
+  test("I01에서 사진을 올리지 못하면 9.1을 부르지 않고 문구를 보이며, 다시 보내면 사진을 붙여 남긴다", async ({
+    page,
+    msw,
+  }) => {
+    const server = inquiryServer();
+    msw.use(...server.handlers);
+    await fakeS3(page, 403);
+    await page.goto("/inquiries/new");
+
+    await page.getByLabel("사진 파일").setInputFiles(picture("a.png", 3));
+    await fillAndSend(page, "녹화가 안 돼요", "화면이 까매요");
+
+    await expect(page.getByText("잠시 후 다시 시도해 주세요.")).toBeVisible();
+    expect(server.seen.some((s) => s.method === "POST" && s.path === "/inquiries")).toBe(false);
+    await expect(page.getByRole("img", { name: "고른 사진 1" })).toBeVisible();
+
+    await page.unroute(`${S3}/upload/**`);
+    await fakeS3(page);
+    await page.getByRole("button", { name: "문의 보내기" }).click();
+
+    await expect(page).toHaveURL("/inquiries/7");
+    const created = server.seen.find((s) => s.method === "POST" && s.path === "/inquiries");
+    expect(created?.body).toMatchObject({ attachmentKeys: ["inquiry/3.png"] });
+    expect(created?.authorized).toBe(true);
   });
 
   test("I03에서 이어서 쓰고 종료하면 9.4 · 9.5 뒤 다시 그려 '종료한 문의예요.'만 남는다", async ({
@@ -333,6 +415,59 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
       ["/inquiries/7/messages", "1234", false],
       ["/inquiries/7/close", "1234", false],
     ]);
+  });
+
+  test("사진을 붙이면 9.11 → S3에 PUT → 9.1 attachmentKeys로 보내고, I03 말풍선 아래에 보여 준다. 이어서 쓸 때도 붙인다", async ({
+    page,
+    msw,
+  }) => {
+    const server = inquiryServer("1234");
+    msw.use(...server.handlers);
+    const s3 = await fakeS3(page);
+    await page.goto("/inquiries/guest/new");
+
+    await page
+      .getByLabel("사진 파일")
+      .setInputFiles([picture("a.png", 3), picture("b.jpg", 4, "image/jpeg")]);
+    await expect(page.getByRole("img", { name: /고른 사진/ })).toHaveCount(2);
+    await writeGuestInquiry(page);
+    await page
+      .getByRole("dialog", { name: "문의를 남겼어요" })
+      .getByRole("button", { name: "확인" })
+      .click();
+
+    const uploadUrl = server.seen.find((s) => s.path === "/inquiries/attachments/upload-url");
+    expect(uploadUrl?.body).toEqual({
+      files: [
+        { contentType: "image/png", size: 3 },
+        { contentType: "image/jpeg", size: 4 },
+      ],
+    });
+    // PUT은 동시에 보내므로 순서 대신 주소별로 본다: 사진마다 자기 주소로, 고른 형식으로 올린다
+    expect(s3.every((put) => put.method === "PUT")).toBe(true);
+    expect(Object.fromEntries(s3.map((put) => [put.url, put.contentType]))).toEqual({
+      [`${S3}/upload/inquiry/3.png`]: "image/png",
+      [`${S3}/upload/inquiry/4.jpg`]: "image/jpeg",
+    });
+    const created = server.seen.find((s) => s.method === "POST" && s.path === "/inquiries");
+    expect(created?.body).toMatchObject({ attachmentKeys: ["inquiry/3.png", "inquiry/4.jpg"] });
+    const photos = thread(page).getByRole("list", { name: "붙인 사진" }).getByRole("link");
+    await expect(photos).toHaveCount(2);
+    await expect(photos.first()).toHaveAttribute("href", `${S3}/inquiry/3.png`);
+
+    await page.getByLabel("붙일 사진 파일").setInputFiles(picture("c.png", 5));
+    await page.getByLabel("이어서 쓰기").fill("하나 더요");
+    await page.getByRole("button", { name: "보내기" }).click();
+
+    await expect(thread(page).getByRole("list", { name: "붙인 사진" })).toHaveCount(2);
+    const added = server.seen.find(
+      (s) => s.method === "POST" && s.path === "/inquiries/7/messages",
+    );
+    expect(added?.body).toMatchObject({
+      content: "하나 더요",
+      attachmentKeys: ["inquiry/5.png"],
+    });
+    expect(added?.password).toBe("1234");
   });
 
   test("I03에서 쓰는 사이 문의가 없어지면(404) I04로 돌아간다", async ({ page, msw }) => {
