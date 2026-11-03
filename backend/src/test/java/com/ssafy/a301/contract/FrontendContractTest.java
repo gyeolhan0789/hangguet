@@ -31,6 +31,8 @@ import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.service.AuthService;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.company.service.CompanyCardManifest;
+import com.ssafy.a301.company.service.CompanyCardWriter;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.AttachmentFile;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.service.InquiryService;
@@ -53,10 +55,15 @@ import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.storage.s3.StoredFile;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.service.UserService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -101,6 +108,7 @@ class FrontendContractTest {
     @Autowired private SessionRuntimeStore runtimes;
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private InquiryService inquiries;
+    @Autowired private CompanyCardWriter companyCards;
     @Autowired private AdminRepository admins;
     @Autowired private AdminNoticeService notices;
     @Autowired private StreakFreezeGrantService grants;
@@ -390,6 +398,24 @@ class FrontendContractTest {
         long id =
                 inquiries.create(null, inquiryRequest(ContractData.GUEST_EMAIL, "1234", null)).id();
         values.put("inquiryId", id);
+        return values;
+    }
+
+    /** 회사는 파이프라인이 올린 manifest로만 생기므로 적재기(CompanyCardWriter)로 하나 넣는다 */
+    @State("적재한 회사")
+    Map<String, Object> company() throws NoSuchAlgorithmException {
+        byte[] card = "{}".getBytes(StandardCharsets.UTF_8);
+        companyCards.apply(
+                new CompanyCardManifest.Entry(
+                        ContractData.CORP_CODE,
+                        "계약검증회사",
+                        true,
+                        List.of("계약검증회사"),
+                        LocalDate.of(2026, 10, 20),
+                        "contract/card.json",
+                        HexFormat.of()
+                                .formatHex(MessageDigest.getInstance("SHA-256").digest(card))),
+                key -> card);
         return values;
     }
 

@@ -55,6 +55,8 @@ export const applicationEndpoints = {
   detail: (applicationId: Id) => `/applications/${applicationId}`,
   /** 4.6 GET 지원서의 연습 면접 목록(page · size) */
   sessions: (applicationId: Id) => `/applications/${applicationId}/interview-sessions`,
+  /** 4.7 GET 회사 목록 */
+  companies: "/companies",
 } as const;
 
 /** 5. 면접 진행 */

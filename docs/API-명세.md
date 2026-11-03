@@ -69,6 +69,7 @@
 | 4.3 | 지원서 목록 | `GET /applications` | 지원 관리 목록(`/applications`), S03 |
 | 4.5 | 지원서 삭제 | `DELETE /applications/{applicationId}` | 지원 관리 상세(`/applications/{id}`) |
 | 4.6 | 지원서의 연습 면접 목록 | `GET /applications/{applicationId}/interview-sessions` | 지원 관리 상세(`/applications/{id}`) |
+| 4.7 | 회사 목록 | `GET /companies` | 지원서 쓰기(`/applications/new`) |
 | 5.1 | 면접 만들기 | `POST /interview-sessions` | S05-1 |
 | 5.2 | 면접 조회 | `GET /interview-sessions/{sessionId}` | S05, S06 · S06-B, S06-F, S06-1 |
 | 5.3 | 면접 플랜 재생성 | `POST /interview-sessions/{sessionId}/plan/retry` | S05 |
@@ -407,6 +408,14 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 - **400 / VALIDATION_FAILED**: 음수 페이지·`size` 범위 오류
 - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
 - **500 / INTERNAL_ERROR**: 5.13과 같다. 완료 상태인데 기준별 평가 4개가 모두 저장되지 않은 경우. 불완전한 결과를 정상 평가로 표시하지 않는다
+
+#### 4.7 회사 목록
+
+**화면 — 지원서 쓰기 › 회사명 자동 완성**
+
+회사 카드를 적재한 회사 전체를 별칭과 함께 준다. 영문 다음 한글 가나다순이고 페이지는 없다. 별칭은 회사명 · 영문명 · 기사 검색어 등을 띄어쓰기 · (주) 등을 빼고 소문자로 맞춘 값이다(회사 카드 매칭과 같은 규칙). 화면은 입력한 글을 같은 규칙으로 맞춰 회사명이나 별칭에 든 회사를 보여 준다. 목록에 없는 회사도 지원서에 쓸 수 있다.
+
+- **200**: 항상. 회사가 없으면 빈 `content`
 
 ### 5. 면접 진행
 
