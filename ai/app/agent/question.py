@@ -5,6 +5,10 @@
   녹화 파일 이름이 참가자 이름(interviewer)과 트랙 종류로 정해지므로(AI 명세 7장)
   트랙은 하나만 올린다.
 - BE에는 question.started(seq·startedAt·출제한 질문의 글·채점 기준·생성 버전)를 결과 큐로 전송한다.
+  startedAt은 질문 음성의 첫 소리를 송출하는 시각이고,
+  음성이 없으면 failed를 전송하기 직전 시각이다(AI 명세 6.2).
+  화면 알림이 최대 3초를 기다리므로,
+  알림 전에 기록하면 다시보기 마커가 실제 음성보다 앞에 찍히기 때문이다.
   BE가 이 메시지로 질문 행을 생성해야 화면의 지금 질문(5.5)이 이 질문을 반환한다.
   꼬리질문은 플랜에 없으므로 질문 글은 배정 정보가 아니라 출제한 질문에서 읽는다(AI 명세 6.2).
 - 화면에는 interview.question RPC로 started(글자별 발음 시각 포함) → ended를 보낸다.
@@ -119,6 +123,8 @@ class QuestionSpeaker:
         self._clock = clock
         self._timer = timer
         self._source: rtc.AudioSource | None = None
+        # question.started를 전송한 질문 순서. 같은 질문을 다시 말해도 한 번만 전송한다
+        self._announced: set[int] = set()
 
     async def publish_track(self) -> None:
         source = rtc.AudioSource(SAMPLE_RATE, 1)
@@ -173,28 +179,34 @@ class QuestionSpeaker:
         question: AssignedQuestion,
         destination: str,
         audio: SpeechAudio | None,
-        *,
-        announce: bool = True,
     ) -> None:
         """질문을 말한다.
 
-        재입장 뒤 같은 질문을 다시 말할 때는 announce=False로
-        question.started를 다시 전송하지 않는다.
+        question.started는 그 질문의 음성 송출을 처음 시작할 때,
+        음성이 없으면 failed를 처음 전송할 때 한 번만 전송한다.
+        재입장 뒤 같은 질문을 다시 말할 때 이미 전송했으면 다시 전송하지 않는다.
         BE가 질문 행을 처음 시작 시각으로 이미 저장했기 때문이다(AI 명세 6.5).
+        음성을 송출하기 전에 퇴장했으면 아직 전송하지 않았으므로 다시 말할 때 전송한다.
         """
         content = question.content
-        started = (
-            asyncio.create_task(self._publish_started(seq, question, self._clock()))
-            if announce
-            else None
-        )
+        started: asyncio.Task[None] | None = None
+
+        def mark_started() -> None:
+            nonlocal started
+            if seq in self._announced:
+                return
+            self._announced.add(seq)
+            started = asyncio.create_task(self._publish_started(seq, question, self._clock()))
+
         try:
             if audio is None or self._source is None:
+                # 화면 응답을 기다린 뒤 기록하면 최대 3초 늦어지므로 failed를 전송하기 전에 기록한다
+                mark_started()
                 await self._notify(destination, seq, content, SpeechState.FAILED)
                 return
             await self._notify(destination, seq, content, SpeechState.STARTED, audio)
             try:
-                await self._play(audio)
+                await self._play(audio, on_start=mark_started)
             except Exception:
                 log.exception("질문 음성 송출 실패", extra={"seq": seq})
                 await self._notify(destination, seq, content, SpeechState.FAILED)
@@ -210,10 +222,14 @@ class QuestionSpeaker:
             await self._source.aclose()
             self._source = None
 
-    async def _play(self, audio: SpeechAudio) -> None:
+    async def _play(
+        self, audio: SpeechAudio, *, on_start: Callable[[], None] | None = None
+    ) -> None:
         assert self._source is not None
         source = self._source
         try:
+            if on_start is not None:
+                on_start()
             for frame in audio_frames(audio.pcm):
                 await source.capture_frame(frame)
             await source.wait_for_playout()

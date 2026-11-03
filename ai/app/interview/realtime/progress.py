@@ -85,7 +85,8 @@ def _trailing_json(times: tuple[int, ...]) -> list[int]:
 def _timestamp(value: datetime, name: str) -> str:
     if value.utcoffset() is None:
         raise ProgressMessageError(f"{name}은 시간대가 있는 시각이어야 한다")
-    # 다시보기에서 녹화 시작 시각과의 차이로 위치를 구하므로 밀리초까지 기록한다(AI 명세 6.2)
+    # 다시보기에서 영상 0초(recordingStartedAt)와의 차이로 위치를 구하므로
+    # 밀리초까지 기록한다(AI 명세 6.2)
     return value.astimezone(KST).isoformat(timespec="milliseconds")
 
 

@@ -64,7 +64,7 @@ class FakeAsker:
         self.content_holds: dict[str, asyncio.Event] = {}
         # 합성을 시작한 질문 글
         self.prepared_contents: list[str] = []
-        self.asked: list[tuple[int, str, Any, bool]] = []
+        self.asked: list[tuple[int, str, Any]] = []
         # 말한 질문의 글·채점 기준·생성 버전
         self.questions: list[AssignedQuestion] = []
         self.hold: asyncio.Event | None = None
@@ -106,10 +106,8 @@ class FakeAsker:
         question: AssignedQuestion,
         destination: str,
         audio: Any,
-        *,
-        announce: bool = True,
     ) -> None:
-        self.asked.append((seq, destination, audio, announce))
+        self.asked.append((seq, destination, audio))
         self.questions.append(question)
         self.speaking.set()
         try:
@@ -357,8 +355,8 @@ def test_runs_every_question_with_auto_submit() -> None:
     h = run_async(scenario)
     assert [a.seq for a in h.answers] == [1, 2, 3, 4, 5]
     assert {a.end_reason for a in h.answers} == {EndReason.AUTO_SUBMIT}
-    assert [(seq, audio, announce) for seq, _, audio, announce in h.asker.asked] == [
-        (seq, f"audio-{seq}", True) for seq in range(1, 6)
+    assert [(seq, audio) for seq, _, audio in h.asker.asked] == [
+        (seq, f"audio-{seq}") for seq in range(1, 6)
     ]
     assert h.states == [
         state for seq in range(1, 6) for state in ((seq, "autoSubmitted"), (seq, "submitted"))
@@ -514,11 +512,11 @@ def test_leaving_during_answer_discards_it_and_restarts_same_question() -> None:
     # 전달된 답변은 재입장 뒤에 들은 답변이다
     assert h.answers[0].answer.content == "답변답변"
     # 답변 중 퇴장이면 질문은 다시 말하지 않는다
-    assert [seq for seq, _, _, _ in h.asker.asked].count(1) == 1
+    assert [seq for seq, _, _ in h.asker.asked].count(1) == 1
     assert h.sessions[0].stopped.is_set()
 
 
-def test_leaving_during_question_repeats_it_without_announcing_again() -> None:
+def test_leaving_during_question_repeats_it() -> None:
     async def scenario(h: Harness) -> None:
         h.asker.hold = asyncio.Event()
         await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
@@ -529,7 +527,7 @@ def test_leaving_during_question_repeats_it_without_announcing_again() -> None:
         await h.next_session()
 
     h = run_async(scenario)
-    assert [(seq, announce) for seq, _, _, announce in h.asker.asked] == [(1, True), (1, False)]
+    assert [seq for seq, _, _ in h.asker.asked] == [1, 1]
 
 
 def test_quick_rejoin_still_discards_answer() -> None:
@@ -559,7 +557,7 @@ def test_submit_failure_waits_for_resubmit_of_same_answer() -> None:
         await asyncio.sleep(0.1)
         # 제출에 실패한 질문에서 멈추고 다음 질문으로 진행하지 않는다
         assert len(h.sessions) == 1
-        assert [seq for seq, _, _, _ in h.asker.asked] == [1]
+        assert [seq for seq, _, _ in h.asker.asked] == [1]
         assert json.loads(h.submit(1)) == {"accepted": True}
         await until(lambda: h.states.count((1, "submitFailed")) == 2)
         assert json.loads(h.submit(1)) == {"accepted": True}
@@ -628,7 +626,7 @@ def test_chat_moves_to_next_question_on_submit_without_listening() -> None:
         await asyncio.sleep(0.05)
 
     h = run_async(scenario, mode="CHAT")
-    assert [seq for seq, _, _, _ in h.asker.asked] == [1, 2, 3, 4, 5]
+    assert [seq for seq, _, _ in h.asker.asked] == [1, 2, 3, 4, 5]
     # 채팅 답변은 화면이 5.7로 저장하므로 음성을 듣거나 답변을 전달하지 않는다
     assert h.sessions == []
     assert h.deliveries == []
@@ -659,7 +657,7 @@ def test_chat_resumed_from_current_seq_ignores_earlier_question() -> None:
         assert rpc_code(lambda: h.submit(4)) == 2002
 
     h = run_async(scenario, current_seq=3, mode="CHAT")
-    assert [seq for seq, _, _, _ in h.asker.asked] == [3]
+    assert [seq for seq, _, _ in h.asker.asked] == [3]
 
 
 def test_chat_keeps_waiting_for_same_answer_after_rejoin() -> None:
@@ -673,7 +671,7 @@ def test_chat_keeps_waiting_for_same_answer_after_rejoin() -> None:
         await asked(h, 2)
 
     h = run_async(scenario, mode="CHAT")
-    assert [(seq, announce) for seq, _, _, announce in h.asker.asked] == [(1, True), (2, True)]
+    assert [seq for seq, _, _ in h.asker.asked] == [1, 2]
 
 
 def test_closing_room_drops_answer_in_progress() -> None:
@@ -951,7 +949,7 @@ def test_followups_replace_second_fourth_and_fifth_questions() -> None:
         "꼬리 질문 3-1",
         "꼬리 질문 3-2",
     ]
-    assert [audio for _, _, audio, _ in h.asker.asked] == [
+    assert [audio for _, _, audio in h.asker.asked] == [
         "audio-1",
         "audio-꼬리 질문 1-1",
         "audio-3",
@@ -992,7 +990,7 @@ def test_slow_generation_falls_back_to_prepared_questions(monkeypatch: pytest.Mo
 
     assert len(followups.calls) == 2
     assert [q.content for q in h.asker.questions] == [f"질문 {seq}" for seq in range(1, 6)]
-    assert [audio for _, _, audio, _ in h.asker.asked] == [f"audio-{seq}" for seq in range(1, 6)]
+    assert [audio for _, _, audio in h.asker.asked] == [f"audio-{seq}" for seq in range(1, 6)]
     assert {(q.prompt_version, q.model_version) for q in h.asker.questions} == {(None, None)}
 
 
@@ -1033,7 +1031,7 @@ def test_generation_failure_replaces_fourth_and_fifth_together() -> None:
         "질문 4",
         "질문 5",
     ]
-    assert [audio for _, _, audio, _ in h.asker.asked][3:] == ["audio-4", "audio-5"]
+    assert [audio for _, _, audio in h.asker.asked][3:] == ["audio-4", "audio-5"]
 
 
 def test_unexpected_generation_error_still_falls_back() -> None:
@@ -1167,10 +1165,10 @@ def test_leaving_during_followup_question_repeats_same_followup() -> None:
         await asked(h, 3)
 
     h = run_async(scenario, followups=FakeFollowups())
-    assert [(seq, audio, announce) for seq, _, audio, announce in h.asker.asked] == [
-        (1, "audio-1", True),
-        (2, "audio-꼬리 질문 1-1", True),
-        (2, "audio-꼬리 질문 1-1", False),
+    assert [(seq, audio) for seq, _, audio in h.asker.asked] == [
+        (1, "audio-1"),
+        (2, "audio-꼬리 질문 1-1"),
+        (2, "audio-꼬리 질문 1-1"),
     ]
     assert [q.content for q in h.asker.questions][1:] == ["꼬리 질문 1-1", "꼬리 질문 1-1"]
 
