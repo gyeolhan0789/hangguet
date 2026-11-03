@@ -370,6 +370,10 @@ services:
           address: a301-prod-redis:6379
         health_port: 8080
         prometheus_port: 9090
+        # 기본값 0.5면 트랙 녹화 1개를 0.5코어로 15초 예약해 4코어 × 0.8 기준 15초에 약 6개만 받는다.
+        # 실제 사용은 1개 약 0.03코어라 0.1로 낮춘다(loadtest/report/s5-2026-11-02.md 7 · 9장)
+        cpu_cost:
+          track_cpu_cost: 0.1
     # 트랙 녹화는 인코딩하지 않지만 동시 녹화 수에 따라 실측 후 조정한다(배포 계획 3.2)
     mem_limit: 1g
     networks:

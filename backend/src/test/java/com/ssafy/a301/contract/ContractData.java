@@ -30,6 +30,13 @@ final class ContractData {
         String guestInquiries =
                 "SELECT id FROM inquiries WHERE user_id IS NULL AND email = ? AND created_at >= ?";
         jdbc.update(
+                "DELETE FROM inquiry_attachments WHERE message_id IN (SELECT id FROM"
+                        + " inquiry_messages WHERE inquiry_id IN ("
+                        + guestInquiries
+                        + "))",
+                GUEST_EMAIL,
+                since);
+        jdbc.update(
                 "DELETE FROM inquiry_messages WHERE inquiry_id IN (" + guestInquiries + ")",
                 GUEST_EMAIL,
                 since);
@@ -60,6 +67,11 @@ final class ContractData {
             jdbc.update("DELETE FROM " + table + " WHERE session_id IN (" + sessions + ")");
         }
         jdbc.update("DELETE FROM password_changes WHERE user_id = ?", id);
+        jdbc.update(
+                "DELETE FROM inquiry_attachments WHERE message_id IN (SELECT id FROM"
+                        + " inquiry_messages WHERE inquiry_id IN ("
+                        + inquiries
+                        + "))");
         jdbc.update("DELETE FROM inquiry_messages WHERE inquiry_id IN (" + inquiries + ")");
         jdbc.update(
                 "DELETE FROM cover_letter_items WHERE application_id IN (SELECT id FROM"

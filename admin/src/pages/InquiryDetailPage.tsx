@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { ApiError, api } from '../api'
 import { navigate } from '../route'
-import type { AdminInquiryResponse, AdminUser } from '../types'
+import type { AdminInquiryResponse, AdminUser, InquiryAttachment } from '../types'
 import { InquiryStatusChip } from '../components/InquiryStatusChip'
 
 const PASSWORD_RULE = /^(?=.*[A-Za-z])(?=.*\d).+$/
@@ -13,6 +13,7 @@ const stamp = (dateTime: string) => `${dateTime.slice(5, 10).replace('-', '.')} 
 
 /**
  * A04-1 문의 상세(9.7). 메시지는 오래된 순: 문의한 사람 왼쪽, 관리자 답변 오른쪽 + 답변한 관리자 이름.
+ * 붙인 사진은 말풍선 아래에 두고, 누르면 원본을 새 탭에서 연다(사용자 화면 I03과 같음).
  * [답변 보내기] 9.8 → 상태 답변함. 종료한 문의면 답변칸 · [문의 종료]가 없다(409 INQUIRY_CLOSED).
  * [비밀번호 변경] → A04-2, [문의 종료] → A04-3. 없는 문의(404)면 A04로.
  */
@@ -96,11 +97,11 @@ export function InquiryDetailPage({ inquiryId }: { inquiryId: number }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button type="button" className="btn" style={{ width: 120, height: 40, fontSize: 14 }} onClick={() => setModal('password')}>
+          <button type="button" className="btn" style={{ width: 120, height: 40, padding: 0, fontSize: 14 }} onClick={() => setModal('password')}>
             비밀번호 변경
           </button>
           {!closed && (
-            <button type="button" className="btn" style={{ width: 96, height: 40, fontSize: 14 }} onClick={() => setModal('close')}>
+            <button type="button" className="btn" style={{ width: 96, height: 40, padding: 0, fontSize: 14 }} onClick={() => setModal('close')}>
               문의 종료
             </button>
           )}
@@ -129,6 +130,7 @@ export function InquiryDetailPage({ inquiryId }: { inquiryId: number }) {
               >
                 {m.content}
               </p>
+              <MessagePhotos attachments={m.attachments} />
               <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{stamp(m.createdAt)}</span>
             </div>
           )
@@ -156,7 +158,7 @@ export function InquiryDetailPage({ inquiryId }: { inquiryId: number }) {
             {answerError && <p className="error">{answerError}</p>}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button type="submit" className="btn btn-primary" style={{ width: 120 }} disabled={pending}>
+            <button type="submit" className="btn btn-primary" style={{ width: 120, padding: 0 }} disabled={pending}>
               답변 보내기
             </button>
           </div>
@@ -175,6 +177,32 @@ export function InquiryDetailPage({ inquiryId }: { inquiryId: number }) {
         />
       )}
     </div>
+  )
+}
+
+function MessagePhotos({ attachments }: { attachments: InquiryAttachment[] }) {
+  if (attachments.length === 0) return null
+  return (
+    <ul aria-label="붙인 사진" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxWidth: 480, margin: 0, padding: 0, listStyle: 'none' }}>
+      {attachments.map((photo, index) => (
+        <li key={photo.id}>
+          <a
+            href={photo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`붙인 사진 ${index + 1} 원본 보기(새 탭)`}
+            style={{
+              display: 'block',
+              width: 96,
+              height: 96,
+              border: '1px solid var(--line)',
+              borderRadius: 12,
+              background: `var(--surface) center / cover no-repeat url("${photo.url}")`,
+            }}
+          />
+        </li>
+      ))}
+    </ul>
   )
 }
 

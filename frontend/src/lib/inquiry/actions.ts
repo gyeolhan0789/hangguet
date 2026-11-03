@@ -13,19 +13,26 @@ import {
 } from "@/lib/api/problem-detail";
 import { inquiryPath } from "@/lib/routes";
 import type {
+  AttachmentFile,
+  AttachmentUploadUrl,
+  AttachmentUploadUrlRequest,
+  AttachmentUploadUrlResponse,
   InquiryCreateRequest,
   InquiryMessage,
-  InquiryMessageRequest,
   InquiryPasswordHeaders,
+  InquiryQuestionRequest,
   InquiryResponse,
+  ProblemDetail,
 } from "@/types/api";
 
 import {
+  attachmentKeysSchema,
   GUEST_INQUIRY_FIELDS,
   guestInquirySchema,
   guestLookupSchema,
   INQUIRY_FIELDS,
   inquiryMessageSchema,
+  inquiryPhotosSchema,
   inquirySchema,
   type GuestInquiryValues,
   type GuestLookupValues,
@@ -35,6 +42,7 @@ import {
 // 기준: Swagger 9.1 문의 작성(POST /inquiries → 201 InquiryResponse, 토큰이 있으면 회원 · 없으면 비회원(email · accessPassword 필수))
 // · 9.3 문의 조회(GET /inquiries/{id}, 비회원은 X-Inquiry-Password) · 9.4 이어서 쓰기(201 InquiryMessage · 409 INQUIRY_CLOSED)
 // · 9.5 종료(204, 이미 종료했어도 204) · 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 INQUIRY_NOT_FOUND
+// · 9.11 사진 업로드 주소(토큰 없이) → 9.1 · 9.4 attachmentKeys(400 · 404 FILE_NOT_FOUND는 서버 문구)
 // · 기획 메모 I01(→ I03) · I01-B(→ I01-1) · I04(→ I03) · I03 · I03-1
 // 회원은 로그인 토큰(쿠키)으로, 비회원은 화면이 들고 있는 조회 비밀번호를 헤더로 보낸다(비회원 화면은 로그인 전에만 열린다).
 
@@ -47,20 +55,66 @@ function passwordHeaders(accessPassword: string) {
   return { "X-Inquiry-Password": accessPassword } satisfies InquiryPasswordHeaders;
 }
 
+// 사진 키 400(attachmentKeys)은 폼에 칸이 없어 서버가 준 이유를 그대로 문구로 쓴다
+function photoReason(problem: ProblemDetail | null) {
+  return problem?.errors?.find(({ field }) => field === "attachmentKeys")?.reason;
+}
+
+function withPhotoReason<F extends string>(
+  error: unknown,
+  result: FormActionResult<F>,
+): FormActionResult<F> {
+  const reason = photoReason(getProblemDetail(error));
+  return reason ? { ...result, formError: reason } : result;
+}
+
+// 붙인 사진이 없으면 attachmentKeys를 보내지 않는다(Swagger 9.1 · 9.4)
+function withPhotos<T extends object>(body: T, attachmentKeys: string[]) {
+  return attachmentKeys.length > 0 ? { ...body, attachmentKeys } : body;
+}
+
+export interface PhotoUploadUrls {
+  uploads?: AttachmentUploadUrl[];
+  error?: string;
+}
+
+/** 9.11 사진 업로드 주소. 화면이 받은 주소로 S3에 직접 올린 뒤 objectKey를 9.1 · 9.4에 보낸다 */
+export async function createInquiryPhotoUploadUrls(
+  files: AttachmentFile[],
+): Promise<PhotoUploadUrls> {
+  const parsed = inquiryPhotosSchema.safeParse(files);
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const body: AttachmentUploadUrlRequest = { files: parsed.data };
+  try {
+    const { data } = await api.post<AttachmentUploadUrlResponse>(
+      endpoints.inquiries.attachmentUploadUrl,
+      body,
+    );
+    return { uploads: data.files };
+  } catch (error) {
+    unstable_rethrow(error);
+    // 400은 이유(errors[].reason)에 형식 · 크기 · 장수 문구가 온다
+    const problem = getProblemDetail(error);
+    return { error: problem?.errors?.[0]?.reason ?? problem?.detail ?? RETRY_LATER };
+  }
+}
+
 /** 9.1 문의 작성(회원) → I03 그 문의 */
 export async function createInquiry(
   values: InquiryValues,
+  attachmentKeys: string[] = [],
 ): Promise<FormActionResult<keyof InquiryValues>> {
   const parsed = inquirySchema.safeParse(values);
-  if (!parsed.success) return { formError: INVALID };
-  const body: InquiryCreateRequest = parsed.data;
+  const keys = attachmentKeysSchema.safeParse(attachmentKeys);
+  if (!parsed.success || !keys.success) return { formError: INVALID };
+  const body: InquiryCreateRequest = withPhotos(parsed.data, keys.data);
   let data: InquiryResponse;
   try {
     ({ data } = await api.post<InquiryResponse>(endpoints.inquiries.root, body));
   } catch (error) {
     // 401이면 api가 재발급 · 로그아웃 화면으로 redirect한다. 그 신호는 Next가 처리하게 다시 던진다.
     unstable_rethrow(error);
-    return toFormActionResult(error, INQUIRY_FIELDS);
+    return withPhotoReason(error, toFormActionResult(error, INQUIRY_FIELDS));
   }
   redirect(inquiryPath(data.id));
 }
@@ -72,16 +126,18 @@ export interface GuestInquiryCreated {
 /** 9.1 문의 작성(비회원) → I01-1에 보여 줄 문의번호 */
 export async function createGuestInquiry(
   values: GuestInquiryValues,
+  attachmentKeys: string[] = [],
 ): Promise<GuestInquiryCreated & FormActionResult<keyof GuestInquiryValues>> {
   const parsed = guestInquirySchema.safeParse(values);
-  if (!parsed.success) return { formError: INVALID };
-  const body: InquiryCreateRequest = parsed.data;
+  const keys = attachmentKeysSchema.safeParse(attachmentKeys);
+  if (!parsed.success || !keys.success) return { formError: INVALID };
+  const body: InquiryCreateRequest = withPhotos(parsed.data, keys.data);
   try {
     const { data } = await api.post<InquiryResponse>(endpoints.inquiries.root, body);
     return { inquiryId: data.id };
   } catch (error) {
     unstable_rethrow(error);
-    return toFormActionResult(error, GUEST_INQUIRY_FIELDS);
+    return withPhotoReason(error, toFormActionResult(error, GUEST_INQUIRY_FIELDS));
   }
 }
 
@@ -123,7 +179,7 @@ export interface InquiryWriteResult {
 function writeFailure(error: unknown): InquiryWriteResult {
   const problem = getProblemDetail(error);
   return {
-    error: problem?.detail ?? RETRY_LATER,
+    error: photoReason(problem) ?? problem?.detail ?? RETRY_LATER,
     ...(problem?.code === "INQUIRY_NOT_FOUND" && { notFound: true as const }),
     ...(problem?.code === "INQUIRY_CLOSED" && { closed: true as const }),
   };
@@ -135,12 +191,13 @@ function writeFailure(error: unknown): InquiryWriteResult {
  */
 export async function addInquiryMessage(
   inquiryId: number,
-  content: string,
+  question: InquiryQuestionRequest,
   accessPassword?: string,
 ): Promise<InquiryWriteResult> {
-  const parsed = inquiryMessageSchema.safeParse({ content });
-  if (!isId(inquiryId) || !parsed.success) return { error: INVALID };
-  const body: InquiryMessageRequest = parsed.data;
+  const parsed = inquiryMessageSchema.safeParse({ content: question.content });
+  const keys = attachmentKeysSchema.safeParse(question.attachmentKeys ?? []);
+  if (!isId(inquiryId) || !parsed.success || !keys.success) return { error: INVALID };
+  const body: InquiryQuestionRequest = withPhotos(parsed.data, keys.data);
   try {
     const { data } = await api.post<InquiryMessage>(endpoints.inquiries.messages(inquiryId), body, {
       ...(accessPassword && { headers: passwordHeaders(accessPassword) }),

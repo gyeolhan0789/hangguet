@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 // 기준: Swagger 9.1 문의 작성(InquiryCreateRequest: title 필수 · 최대 100자, content 필수, 비회원은 email(형식 · 최대 255자)
-// · accessPassword(4~20자) 필수) · 9.4 이어서 쓰기(InquiryMessageRequest: content 필수) · 9.3 문의 조회(경로 문의 id · X-Inquiry-Password)
+// · accessPassword(4~20자) 필수) · 9.4 이어서 쓰기(InquiryQuestionRequest: content 필수) · 9.3 문의 조회(경로 문의 id · X-Inquiry-Password)
+// · 9.11 사진 업로드 주소(AttachmentFile: JPG · PNG, 1바이트~5MB, 한 번에 1~5장) · attachmentKeys 최대 5개
 // 오류 문구는 서버(400 VALIDATION_FAILED errors[].reason)와 같다. 폼(클라이언트)과 서버 액션이 같이 쓴다.
 
 export const INQUIRY_TITLE_MAX = 100;
@@ -50,6 +51,30 @@ export const guestLookupSchema = z.object({
   accessPassword,
 });
 export type GuestLookupValues = z.infer<typeof guestLookupSchema>;
+
+export const INQUIRY_PHOTO_MAX = 5;
+export const INQUIRY_PHOTO_TYPES = ["image/jpeg", "image/png"] as const;
+const INQUIRY_PHOTO_MAX_BYTES = 5_242_880;
+export const PHOTO_COUNT = "사진은 5장까지 붙일 수 있습니다.";
+
+/** 9.11 사진 하나(형식 · 크기) */
+export const inquiryPhotoSchema = z.object({
+  contentType: z.enum(INQUIRY_PHOTO_TYPES, "JPG·PNG만 올릴 수 있습니다."),
+  size: z
+    .number()
+    .int()
+    .min(1, "1바이트 이상입니다.")
+    .max(INQUIRY_PHOTO_MAX_BYTES, "5MB 이하만 올릴 수 있습니다."),
+});
+
+/** 9.11 한 번에 올릴 사진들 */
+export const inquiryPhotosSchema = z
+  .array(inquiryPhotoSchema)
+  .min(1, REQUIRED)
+  .max(INQUIRY_PHOTO_MAX, PHOTO_COUNT);
+
+/** 9.1 · 9.4 attachmentKeys */
+export const attachmentKeysSchema = z.array(z.string().min(1)).max(INQUIRY_PHOTO_MAX, PHOTO_COUNT);
 
 /** I03 이어서 쓰기 */
 export const inquiryMessageSchema = z.object({ content });

@@ -8,18 +8,22 @@ import { useForm, useWatch } from "react-hook-form";
 import { Field, SubmitButton, TextInput } from "@/components/form";
 import { inquiryButtonClass } from "@/components/inquiry/inquiry-button-class";
 import { TextArea } from "@/components/inquiry/inquiry-ui";
+import { PhotoField, usePhotoPicks } from "@/components/inquiry/photo-picker";
 import { createInquiry } from "@/lib/inquiry/actions";
+import { uploadInquiryPhotos } from "@/lib/inquiry/upload-photos";
 import { INQUIRY_TITLE_MAX, inquirySchema, type InquiryValues } from "@/lib/inquiry/schemas";
 import { ROUTES } from "@/lib/routes";
 
 // 기준: Figma I01 문의하기 · 회원(제목(카운터 'N / 100', 오른쪽 13 Medium text-3) · 내용(높이 220)
 // · [취소](보조 120) [문의 보내기](주 160), 오른쪽 맞춤 간격 8)
 // · 기획 메모 I01(제목 1~100자 · 내용 필수 → 9.1(201) → I03 그 문의, [취소] → I02) · Swagger 9.1 문의 작성(InquiryCreateRequest)
-// 서버 칸 오류(VALIDATION_FAILED)는 그 칸 아래에, 그 밖의 실패는 버튼 아래에 서버 문구로 보여 준다.
+// · Swagger 9.11 → 9.1 attachmentKeys · 사용자 결정(2026-11-03: 내용 아래 '사진' 칸(photo-picker))
+// 서버 칸 오류(VALIDATION_FAILED)는 그 칸 아래에, 그 밖의 실패(사진 올리기 실패 포함)는 버튼 아래에 서버 문구로 보여 준다.
 
 export function InquiryForm() {
   const [formError, setFormError] = useState<string>();
   const [pending, startTransition] = useTransition();
+  const picks = usePhotoPicks();
   const {
     register,
     handleSubmit,
@@ -35,7 +39,12 @@ export function InquiryForm() {
   const submit = handleSubmit((values) => {
     setFormError(undefined);
     startTransition(async () => {
-      const result = await createInquiry(values);
+      const uploaded = await uploadInquiryPhotos(picks.files);
+      if (!uploaded.keys) {
+        setFormError(uploaded.error);
+        return;
+      }
+      const result = await createInquiry(values, uploaded.keys);
       for (const [field, reason] of Object.entries(result.fieldErrors ?? {})) {
         setError(field as keyof InquiryValues, { message: reason });
       }
@@ -82,6 +91,7 @@ export function InquiryForm() {
           {...register("content")}
         />
       </Field>
+      <PhotoField picks={picks} disabled={pending} />
       <div className="flex flex-col items-end gap-2">
         <div className="flex gap-2">
           <Link href={ROUTES.inquiries} className={`w-[120px] ${inquiryButtonClass("secondary")}`}>
