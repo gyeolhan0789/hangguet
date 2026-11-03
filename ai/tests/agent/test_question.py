@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -214,6 +215,38 @@ def test_playback_failure_after_voice_starts_still_announces_to_be() -> None:
     talker, _, source = speaker(results)
     source.capture_frame.side_effect = RuntimeError("closed")
     asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
+    results.publish.assert_called_once()
+
+
+# 기준: BE 설계 5.3(질문 행이 없으면 answer.completed를 저장하지 않음)
+def test_question_ends_only_after_question_started_is_sent() -> None:
+    """question.started 전송이 끝나기 전에는 질문 말하기가 끝나지 않는다.
+
+    답변은 질문 말하기가 끝난 뒤에 듣기 시작하므로,
+    answer.completed가 질문 행을 생성하는 question.started보다 먼저 전송되지 않는다.
+    """
+    results = Mock()
+    publishing = threading.Event()
+    sent = threading.Event()
+
+    def publish(*_args: Any, **_kwargs: Any) -> None:
+        publishing.set()
+        sent.wait(timeout=5)
+
+    results.publish.side_effect = publish
+    talker, _, _ = speaker(results)
+
+    async def run() -> None:
+        asking = asyncio.create_task(talker.ask(1, QUESTION, "candidate", AUDIO))
+        await asyncio.to_thread(publishing.wait, 5)
+        # 전송 대기 코드가 없으면 시험의 가짜 음성 송출이 바로 끝나므로,
+        # 0.3초 동안 질문 말하기가 끝나지 않는지 확인한다
+        done, _ = await asyncio.wait({asking}, timeout=0.3)
+        assert not done
+        sent.set()
+        await asyncio.wait_for(asking, timeout=5)
+
+    asyncio.run(run())
     results.publish.assert_called_once()
 
 
