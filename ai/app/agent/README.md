@@ -16,6 +16,8 @@ LiveKit에 등록하고 배정받은 방에서 지원자 마이크를 Soniox에 
 | `SONIOX_STT_MODEL` | 선택. 기본 `stt-rt-v5` |
 | `ELEVENLABS_API_KEY` | 질문 음성 합성 키. 없으면 질문 음성 없이 `question`에 `failed`를 보낸다 |
 | `REDIS_HOST`·`REDIS_PORT` | `question.started`를 보낼 결과 큐(BE와 같은 Redis). 기본 `localhost:6379` |
+| `LLM_CHAT_URL`·`LLM_MODEL` | 꼬리질문을 생성할 GMS 주소와 모델 ID(분석 작업자와 같은 값). 하나라도 없거나 등록되지 않은 모델이면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
+| `LLM_API_KEY` | GMS 키. 없으면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
 
 ```bash
 uv sync --locked
@@ -52,6 +54,16 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - 지원자가 들어오면 ① 결과 큐에 `question.started`(`seq`, `startedAt` 밀리초) ② 지원자에게 `interview.question` RPC `started`(글자별 시각 `alignment.chars`) ③ 마이크 트랙(`interviewer-voice`)으로 음성 송출 ④ `ended` 순으로 보낸다. 합성·송출에 실패하면 `failed`를 보낸다.
 - 화면이 RPC를 받지 못해도(처리 함수 없음·3초 응답 없음) 음성은 계속 낸다. 결과 큐 전송이 1·2·4초 재시도 후에도 실패하면 오류 로그만 남긴다.
 - 지금은 질문 하나만 말한다. 다음 질문 진행과 새로고침 후 다시 말하기는 아직 없다.
+
+## 꼬리질문(AI 명세 2.2)
+
+- 1번 답변이 끝나면 2번을, 3번 답변이 끝나면 4·5번을 GMS 한 번 호출로 생성한다. 입력은 면접관, 직전 기본 질문의 글·채점 기준, 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `interview.answerSubmit`의 `content`)이다. 면접관별 질문 수준·어조·인재상 기준은 질문 생성(PLAN)과 같은 지침(`app/interview/interviewer.py`)을 사용하되, 악마 면접관의 압박 어조는 지시하지 않는다.
+- 생성은 답변 전달을 막지 않는다. 다음 질문 음성 준비가 생성 결과를 기다리므로 답변 전달과 오리 면접관의 효과음 1초 대기는 생성 시간과 겹쳐 계산된다. 생성한 질문은 앞 질문의 음성 합성이 끝난 뒤 합성한다(ElevenLabs 동시 요청을 하나로 유지).
+- 답변이 끝난 시점부터 4초(`FOLLOWUP_TIMEOUT`, 임시 값) 안에 생성하지 못하거나, 출력이 JSON이 아니거나 질문 수가 맞지 않거나 질문 글·채점 기준이 비어 있으면 재시도하지 않고 같은 순서의 미리 만든 질문(예비 질문)을 출제한다. 4·5번은 함께 대체한다. GMS 요청도 재시도 없이 4초 타임아웃으로 전송한다.
+- 화상 답변을 BE에 전송하지 않았으면(저장할 수 없는 답변) 생성한 질문을 출제하지 않는다. 채팅 `content`가 없거나 비어 있으면 생성하지 않는다. `currentSeq`로 이어 시작해 직전 답변이 없으면 예비 질문이다.
+- `question.started`에는 실제로 출제한 질문의 `content`·`criteria`와 `promptVersion`·`modelVersion`을 담는다. 버전은 꼬리질문이면 `followup-v1`과 GMS 응답의 모델 이름이고, 미리 만든 질문이면 둘 다 null이다. 면접방 메시지 `question`의 `content`도 실제로 출제한 질문 글이다.
+- 리액션 판단(Jev)도 실제로 출제한 질문 글·채점 기준으로 한다.
+- 요청에 답변이 담기므로 질문 글과 답변은 로그에 남기지 않는다. `꼬리질문 생성 완료 ms=…`와 실패 경고 로그로 소요 시간과 대체 여부를 확인한다.
 
 ## 면접 화면 연결·검증
 

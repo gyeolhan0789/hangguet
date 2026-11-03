@@ -89,16 +89,34 @@ def _timestamp(value: datetime, name: str) -> str:
     return value.astimezone(KST).isoformat(timespec="milliseconds")
 
 
-def question_started(session_id: int, seq: int, started_at: datetime) -> ProgressMessage:
-    """질문 음성을 시작한 시각을 전달한다.
+def question_started(
+    session_id: int,
+    seq: int,
+    started_at: datetime,
+    content: str,
+    criteria: str,
+    *,
+    prompt_version: str | None = None,
+    model_version: str | None = None,
+) -> ProgressMessage:
+    """질문 음성을 시작한 시각과 실제로 출제한 질문을 전달한다.
 
-    BE는 이 시각을 질문 행의 생성 시각으로 저장한다.
+    BE는 이 시각을 질문 행의 생성 시각으로, content·criteria를 질문 글·채점 기준으로 저장한다.
+    2·4·5번은 꼬리질문이거나 예비 질문이라 플랜과 다를 수 있기 때문이다(AI 명세 6.2).
+    prompt_version·model_version은 꼬리질문이면 생성 버전이고, 미리 만든 질문이면 None이다.
     """
     _check_target(session_id, seq)
     return ProgressMessage(
         ResultType.QUESTION_STARTED,
         session_id,
-        {"seq": seq, "startedAt": _timestamp(started_at, "startedAt")},
+        {
+            "seq": seq,
+            "startedAt": _timestamp(started_at, "startedAt"),
+            "content": content,
+            "criteria": criteria,
+            "promptVersion": prompt_version,
+            "modelVersion": model_version,
+        },
     )
 
 

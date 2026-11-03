@@ -7,54 +7,25 @@ from typing import Any
 from app.common.gms import Chat
 from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Persona
 from app.interview.company import BUSINESS_TITLE, TALENT_TITLE, company_section
+from app.interview.interviewer import COVER_LETTER, interviewer_guide
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.rules import COMPANY_LINKED_MAX, COMPANY_LINKED_MIN
-from app.interview.talent import (
-    ALL_CRITERIA,
-    EXECUTIVE_CRITERIA,
-    PRACTICAL_CRITERIA,
-    criteria_lines,
-    joined_names,
-)
 from app.worker.messages import Claim, PlanJob
 
-_ONLY_REVEALED = (
-    "다음 기준 중 자기소개서에 드러난 것에 대해서만 묻고, 드러나지 않은 기준은 묻지 않는다\n"
-)
-
-# 상대 면접관의 기준을 이름으로 나열해 제외해야 실무면접에서 태도를,
-# 임원면접에서 기술 구조를 묻지 않는다(plan-v3 GMS 실측에서 경계를 넘는 질문이 생성됨)
-_INTERVIEW_GUIDES: Mapping[Persona, str] = {
+# 회사 카드 사용 지침(AI 명세 2장 회사 카드 사용).
+# 꼬리질문 생성은 회사 카드를 받지 않으므로 면접관 공용 지침(app.interview.interviewer)과 나누어
+# 질문 생성에만 둔다
+_COMPANY_GUIDES: Mapping[Persona, str] = {
     Persona.COFFEE_CHAT: (
-        f"이 면접은 실무면접이다. {_ONLY_REVEALED}"
-        f"{criteria_lines(PRACTICAL_CRITERIA)}"
-        f"- 임원면접 기준({joined_names(EXECUTIVE_CRITERIA)})은 묻지 않는다\n"
-        "- 신입이 자기 경험으로 답할 수 있는 수준으로 묻고, "
-        "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다\n"
         f"- [{BUSINESS_TITLE}]이 주어지면 경험과 이어지는 경우에만 "
         "경험을 회사 사업 방향·시장과 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
     ),
     Persona.DEVIL: (
-        f"이 면접은 임원면접이다. {_ONLY_REVEALED}"
-        f"{criteria_lines(EXECUTIVE_CRITERIA)}"
-        f"- 실무면접 기준({joined_names(PRACTICAL_CRITERIA)})은 묻지 않는다\n"
-        "- 질문 문장은 자기소개서 주장의 약점을 짚는 압박 어조로 작성하고, "
-        "지원자를 비하하거나 단정하는 표현은 쓰지 않는다\n"
-        "- 기술 세부 구현, 출신 지역·가족·외모 등 직무와 무관한 개인 사항은 묻지 않는다\n"
         f"- [{TALENT_TITLE}]이 주어지면 자소서 주장을 회사 인재상과 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
     ),
-    # 오리 면접관은 면접 자신감 향상이 목적이므로 12개 기준을 모두 사용하고 압박하지 않는다
     Persona.DUCK: (
-        f"이 면접은 자신감 연습 면접이다. {_ONLY_REVEALED}"
-        f"{criteria_lines(ALL_CRITERIA)}"
-        "- 기술 경험과 태도·가치관 경험이 모두 드러나면 두 종류를 섞어 묻는다\n"
-        "- 질문 문장은 자기소개서에 작성한 경험을 편하게 설명할 수 있는 말투로 작성하고, "
-        "약점을 짚는 압박 표현은 쓰지 않는다\n"
-        "- 신입이 자기 경험으로 답할 수 있는 수준으로 묻고, "
-        "라이브러리 내부 구현·수치나 명령어 암기·코드 작성은 요구하지 않는다\n"
-        "- 출신 지역·가족·외모 등 직무와 무관한 개인 사항은 묻지 않는다\n"
         f"- [{TALENT_TITLE}]이나 [{BUSINESS_TITLE}]이 주어지면 "
         "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
@@ -63,7 +34,7 @@ _INTERVIEW_GUIDES: Mapping[Persona, str] = {
 
 
 def _guide(persona: Persona) -> str:
-    return _INTERVIEW_GUIDES.get(persona, "")
+    return interviewer_guide(persona, COVER_LETTER) + _COMPANY_GUIDES.get(persona, "")
 
 
 def question_system(persona: Persona) -> str:
