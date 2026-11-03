@@ -1,0 +1,25 @@
+# 에이전트 분리용 덮어쓰기(이해준/agent_autoscale_plan 3 · 5장). compose.loadtest.yml 뒤에 더한다. 레포 루트에서
+#   COMPOSE="docker compose --env-file loadtest/server/.env -f deploy/prod/compose.yml \
+#     -f loadtest/server/compose.loadtest.yml -f loadtest/server/compose.agent-split.yml"
+#   $COMPOSE up -d && docker rm -f a301-prod-ai-agent
+# 되돌리기: 이 파일을 빼고 다시 up -d 한다(에이전트가 메인 서버에서 다시 뜨고, 7880 · 6379는 닫힌다)
+#
+# - 에이전트는 메인 서버에서 띄우지 않고 에이전트 ASG(loadtest/agent/)에서 띄운다. 두 곳에 같이 있으면
+#   LiveKit이 면접을 양쪽에 나눠 줘 분리 효과를 잴 수 없다
+# - 에이전트 인스턴스가 LiveKit(시그널링 7880)과 Redis(결과 큐 6379)에 닿아야 한다. 사설 IP에만 열고,
+#   보안 그룹에서 에이전트 보안 그룹만 허용한다(Docker가 연 포트는 ufw를 거치지 않는다). Redis는 비밀번호가 없으므로
+#   보안 그룹이 유일한 보호다. 운영에 반영할 때는 Redis 비밀번호를 먼저 켠다(agent_autoscale_plan 5.2)
+# - 미디어(UDP 7882)는 에이전트도 사용자처럼 LiveKit이 알려 주는 공인 IP로 붙는다(livekit.yaml use_external_ip)
+
+services:
+  a301-prod-ai-agent:
+    # 프로필을 켜지 않으면 띄우지 않는다. 이미 떠 있던 컨테이너는 위 명령의 docker rm으로 지운다
+    profiles: ["agent-on-main"]
+
+  a301-prod-livekit:
+    ports:
+      - "${MAIN_PRIVATE_IP:?MAIN_PRIVATE_IP(메인 서버 사설 IP)가 필요하다}:7880:7880"
+
+  a301-prod-redis:
+    ports:
+      - "${MAIN_PRIVATE_IP:?MAIN_PRIVATE_IP(메인 서버 사설 IP)가 필요하다}:6379:6379"

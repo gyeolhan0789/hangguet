@@ -25,13 +25,33 @@ export class InterviewStepError extends Error {
   }
 }
 
-/** 로그인해 홈까지 간다 */
-export async function loginByUi(page, email) {
-  await page.goto(`${BASE_URL}/login`);
-  await page.locator("#email").fill(email);
+const LOGIN_ATTEMPTS = 2;
+
+/** 로그인 화면이 다 그려진 뒤 입력하고, 입력값이 들어갔는지 확인한다 */
+async function tryLogin(page, email) {
+  // 화면을 그리는 도중(hydration 전)에 입력하면 값이 지워지거나 브라우저가 메시지 없는 오류를 던진다(11/03 동시 시작 때 5번)
+  await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle" });
+  const emailInput = page.locator("#email");
+  await emailInput.waitFor({ state: "visible", timeout: 30000 });
+  await emailInput.fill(email);
   await page.locator("#password").fill(PASSWORD);
+  if ((await emailInput.inputValue()) !== email) throw new Error("이메일 입력값이 지워졌다");
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  if (!(await waitForUrl(page, /\/home$/, 30))) throw new InterviewStepError("로그인", "홈으로 가지 않았다");
+  if (!(await waitForUrl(page, /\/home$/, 30))) throw new Error("홈으로 가지 않았다");
+}
+
+/** 로그인해 홈까지 간다. 실패하면 한 번 더 시도한다(발생기 쪽 실패가 서버 측정에 섞이지 않게) */
+export async function loginByUi(page, email) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await tryLogin(page, email);
+      return;
+    } catch (e) {
+      const reason = e?.message ?? String(e);
+      if (attempt >= LOGIN_ATTEMPTS) throw new InterviewStepError("로그인", reason);
+      console.warn(`${email} 로그인 ${attempt}번째 실패, 다시 시도: ${reason}`);
+    }
+  }
 }
 
 /**
