@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type ComponentProps } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import {
@@ -10,16 +10,17 @@ import {
   PHOTO_COUNT,
 } from "@/lib/inquiry/schemas";
 
-// 기준: Swagger 9.11(JPG · PNG, 5MB 이하, 메시지당 5장) · 사용자 결정(2026-11-03: Figma에 없어 사진 칸 방식을 쓴다)
-// · 참고: Ant Design Upload picture-card · MYDS File upload
+// 기준: Swagger 9.11(JPG · PNG, 5MB 이하, 메시지당 5장) · 사용자 결정(2026-11-03: Figma에 없어
+// 첫 문의(I01 · I01-B)는 내용 아래 사진 칸(끝에 '추가' 칸), 이어서 쓰기(I03)는 채팅 입력창처럼 상자 안 사진 버튼 · 글 위 사진)
+// · 참고: Ant Design Upload picture-card · LibreChat Composer(첨부는 글 위) · Stream Chat 첨부 미리보기(모서리 빼기, 작게)
 
 const PHOTO_HINT = "JPG · PNG, 5MB 이하 · 최대 5장";
 // 커서는 이웃 버튼(inquiry-button-class)과 같다
-const tileButton =
-  "cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-40";
-export const PHOTO_ACCEPT = INQUIRY_PHOTO_TYPES.join(",");
+const iconButton =
+  "flex cursor-pointer items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-40";
+const PHOTO_ACCEPT = INQUIRY_PHOTO_TYPES.join(",");
 
-export interface PickedPhoto {
+interface PickedPhoto {
   id: number;
   file: File;
   /** 미리보기 주소(URL.createObjectURL). 빼거나 화면을 떠나면 해제한다 */
@@ -92,26 +93,28 @@ export function usePhotoPicks() {
   };
 }
 
-/** 고른 사진 칸. onAdd가 있으면 5장이 될 때까지 끝에 '추가' 칸을 둔다 */
-export function PhotoTiles({
+/** 고른 사진. 칸 안 오른쪽 위에 빼기 버튼, onAdd가 있으면 5장이 될 때까지 끝에 '추가' 칸 */
+function PhotoTiles({
   photos,
   onRemove,
   onAdd,
-  disabled = false,
+  disabled,
+  sizeClass,
 }: {
   photos: PickedPhoto[];
   onRemove: (id: number) => void;
   onAdd?: () => void;
-  disabled?: boolean;
+  disabled: boolean;
+  sizeClass: string;
 }) {
   return (
-    <ul aria-label="고른 사진" className="flex flex-wrap gap-2.5 pt-1.5">
+    <ul aria-label="고른 사진" className="flex flex-wrap gap-2">
       {photos.map((photo, index) => (
-        <li key={photo.id} className="relative size-[72px]">
+        <li key={photo.id} className={`relative ${sizeClass}`}>
           <span
             role="img"
             aria-label={`고른 사진 ${index + 1}`}
-            className="block size-full rounded-xl border border-line bg-surface bg-cover bg-center"
+            className="block size-full rounded-lg border border-line bg-surface bg-cover bg-center"
             style={{ backgroundImage: `url("${photo.url}")` }}
           />
           <button
@@ -119,9 +122,9 @@ export function PhotoTiles({
             aria-label={`사진 ${index + 1} 빼기`}
             disabled={disabled}
             onClick={() => onRemove(photo.id)}
-            className={`absolute -top-1.5 -right-1.5 flex size-6 items-center justify-center rounded-full bg-text-1 ${tileButton}`}
+            className={`absolute top-1 right-1 size-5 rounded-full bg-black/60 ${iconButton}`}
           >
-            <MaskIcon src="/review/icon-x.svg" size={14} className="bg-bg" />
+            <MaskIcon src="/review/icon-x.svg" size={12} className="bg-white" />
           </button>
         </li>
       ))}
@@ -129,10 +132,10 @@ export function PhotoTiles({
         <li>
           <button
             type="button"
+            aria-label="사진 추가"
             disabled={disabled}
             onClick={onAdd}
-            aria-label="사진 추가"
-            className={`flex size-[72px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-text-3/50 bg-bg-sub text-xs leading-normal font-semibold text-text-3 ${tileButton}`}
+            className={`${sizeClass} flex-col gap-1 rounded-lg border border-dashed border-text-3/50 bg-bg-sub text-xs leading-normal font-semibold text-text-3 ${iconButton}`}
           >
             <MaskIcon src="/inquiry/icon-image-plus.svg" size={22} className="bg-text-3" />
             추가
@@ -143,7 +146,7 @@ export function PhotoTiles({
   );
 }
 
-/** I01 · I01-B '사진' 칸. 장수는 제목 칸 카운터처럼 아래 오른쪽에 둔다 */
+/** I01 · I01-B 내용 아래 '사진' 칸. 장수는 제목 칸 카운터처럼 아래 오른쪽에 둔다 */
 export function PhotoField({
   picks,
   disabled = false,
@@ -166,10 +169,10 @@ export function PhotoField({
       <input
         ref={input}
         type="file"
-        aria-label="사진 파일"
         accept={PHOTO_ACCEPT}
         multiple
         className="hidden"
+        aria-label="사진 파일"
         onChange={picks.onInputChange}
       />
       <PhotoTiles
@@ -177,6 +180,7 @@ export function PhotoField({
         onRemove={picks.remove}
         onAdd={() => input.current?.click()}
         disabled={disabled}
+        sizeClass="size-[72px]"
       />
       <p
         id={`${id}-hint`}
@@ -192,6 +196,71 @@ export function PhotoField({
           {picks.error}
         </p>
       )}
+    </div>
+  );
+}
+
+/** I03 이어서 쓰기 입력 상자. 고른 사진은 글 위, 사진 버튼과 안내(고르면 장수)는 아래. 테두리는 TextArea와 같다 */
+export function PhotoComposer({
+  picks,
+  invalid = false,
+  disabled = false,
+  heightClass,
+  ...textarea
+}: ComponentProps<"textarea"> & {
+  picks: ReturnType<typeof usePhotoPicks>;
+  invalid?: boolean;
+  disabled?: boolean;
+  /** 글 칸 높이 */
+  heightClass: string;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const count = picks.photos.length;
+  return (
+    <div
+      className={`flex flex-col rounded-xl border bg-bg-sub transition-colors focus-within:border-brand focus-within:ring-1 focus-within:ring-brand ${
+        invalid ? "border-danger ring-1 ring-danger" : "border-line"
+      }`}
+    >
+      {count > 0 && (
+        <div className="px-3 pt-3">
+          <PhotoTiles
+            photos={picks.photos}
+            onRemove={picks.remove}
+            disabled={disabled}
+            sizeClass="size-16"
+          />
+        </div>
+      )}
+      <textarea
+        aria-invalid={invalid || undefined}
+        aria-describedby={textarea.id ? `${textarea.id}-message` : undefined}
+        className={`w-full resize-none bg-transparent px-4 pt-3.5 text-[15px] leading-normal font-semibold text-text-1 outline-none placeholder:font-medium placeholder:text-text-3 ${heightClass}`}
+        {...textarea}
+      />
+      <div className="flex items-center gap-1.5 px-2 pb-2">
+        <input
+          ref={input}
+          type="file"
+          accept={PHOTO_ACCEPT}
+          multiple
+          className="hidden"
+          aria-label="사진 파일"
+          onChange={picks.onInputChange}
+        />
+        <button
+          type="button"
+          aria-label="사진 붙이기"
+          disabled={disabled || picks.full}
+          onClick={() => input.current?.click()}
+          className={`size-9 rounded-lg hover:bg-surface ${iconButton}`}
+        >
+          <MaskIcon src="/inquiry/icon-image-plus.svg" size={20} className="bg-text-3" />
+        </button>
+        <span className="text-xs leading-normal font-medium text-text-3">
+          {count > 0 ? `사진 ${count} / ${INQUIRY_PHOTO_MAX}` : PHOTO_HINT}
+        </span>
+      </div>
     </div>
   );
 }

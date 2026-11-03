@@ -1,18 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 
-import { Field } from "@/components/form";
-import { MaskIcon } from "@/components/mask-icon";
 import type { InquiryWriteResult } from "@/lib/inquiry/actions";
 import { inquiryMessageSchema, type InquiryMessageValues } from "@/lib/inquiry/schemas";
 import { uploadInquiryPhotos } from "@/lib/inquiry/upload-photos";
 import type { InquiryAttachment, InquiryQuestionRequest, InquiryResponse } from "@/types/api";
 
-import { InquiryButton, InquiryHead, InquiryModal, StatusChip, TextArea } from "./inquiry-ui";
-import { PHOTO_ACCEPT, PhotoTiles, usePhotoPicks } from "./photo-picker";
+import { InquiryButton, InquiryHead, InquiryModal, StatusChip } from "./inquiry-ui";
+import { PhotoComposer, usePhotoPicks } from "./photo-picker";
 
 // 기준: Figma I03 문의 상세 · I03-1 문의 종료 확인(화이트 · 다크) · 기획 메모 I03 · I03-1
 // · Swagger 9.3 문의 조회(InquiryResponse: 메시지 오래된 순) · 9.4 이어서 쓰기(201 · 409 INQUIRY_CLOSED) · 9.5 종료(204)
@@ -23,7 +21,7 @@ import { PHOTO_ACCEPT, PhotoTiles, usePhotoPicks } from "./photo-picker";
 // · 종료한 문의면 입력칸 · [문의 종료] 대신 '종료한 문의예요'(409 INQUIRY_CLOSED도 같은 문구)
 // · 회원 · 비회원이 같이 쓴다. 쓰기 · 종료는 부모가 넘긴 서버 액션으로 하고, 비회원은 부모가 9.3을 다시 불러 그린다.
 // · 사진(Swagger 9.3 attachments · 9.11 → 9.4 attachmentKeys) · 사용자 결정(2026-11-03: 말풍선 아래 사진 칸,
-//   이어서 쓰기는 입력칸 왼쪽 사진 버튼 + 입력칸 위 고른 사진 칸)
+//   이어서 쓰기는 사진을 붙이는 입력 상자(photo-picker))
 
 const CLOSED_TEXT = "종료한 문의예요.";
 
@@ -80,7 +78,6 @@ export function InquiryThread({
   const [sending, startSending] = useTransition();
   const [closing, startClosing] = useTransition();
   const picks = usePhotoPicks();
-  const photoInput = useRef<HTMLInputElement>(null);
   const {
     register,
     handleSubmit,
@@ -188,44 +185,27 @@ export function InquiryThread({
         </p>
       ) : (
         <form onSubmit={send} noValidate className="flex w-full items-end gap-2">
-          <input
-            ref={photoInput}
-            type="file"
-            accept={PHOTO_ACCEPT}
-            multiple
-            className="hidden"
-            aria-label="붙일 사진 파일"
-            onChange={picks.onInputChange}
-          />
-          <InquiryButton
-            kind="secondary"
-            aria-label="사진 붙이기"
-            className={`w-[54px] shrink-0 px-0! ${fieldMessage ? "mb-6" : ""}`}
-            disabled={sending || picks.full}
-            onClick={() => photoInput.current?.click()}
-          >
-            <MaskIcon src="/inquiry/icon-image-plus.svg" size={22} className="bg-text-2" />
-          </InquiryButton>
-          <div className="min-w-0 flex-1">
-            <Field
-              label="이어서 쓰기"
-              htmlFor="inquiry-message"
-              variant="md"
-              message={fieldMessage ? { text: fieldMessage, tone: "error" } : undefined}
-            >
-              {picks.photos.length > 0 && (
-                <div className="mb-2">
-                  <PhotoTiles photos={picks.photos} onRemove={picks.remove} disabled={sending} />
-                </div>
-              )}
-              <TextArea
-                id="inquiry-message"
-                heightClass="h-24"
-                placeholder="더 궁금한 점을 적어 주세요"
-                invalid={!!contentError}
-                {...register("content")}
-              />
-            </Field>
+          {/* 라벨 글자는 보이지 않게 두고(사용자 결정 2026-11-03) 입력 상자 이름으로만 쓴다 */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <PhotoComposer
+              id="inquiry-message"
+              aria-label="이어서 쓰기"
+              heightClass="h-14"
+              placeholder="더 궁금한 점을 적어 주세요"
+              picks={picks}
+              disabled={sending}
+              invalid={!!contentError}
+              {...register("content")}
+            />
+            {fieldMessage && (
+              <p
+                id="inquiry-message-message"
+                role="alert"
+                className="text-xs leading-normal font-semibold text-danger"
+              >
+                {fieldMessage}
+              </p>
+            )}
           </div>
           <InquiryButton
             type="submit"
