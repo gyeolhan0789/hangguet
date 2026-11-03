@@ -85,6 +85,7 @@ cd backend && ./gradlew contractTest
 | 응답에서 FE가 값으로 분기하는 필드 | `shape(example, "필드", …)`(→ `equal`) | 상태값 · 첫 연습 여부 · null 여부 · 페이지 계산 · 오류 `code` · `errors[].field` |
 | 목록마다 값이 다른 enum(라벨 · 색) | `oneOf(values, example)`(→ `regex`) | FE가 아는 값 중 하나인지만 본다 |
 | 배열 | `eachLike` | 요소 하나 이상, 각 요소의 모양을 본다 |
+| 비어 있어도 정상인 배열 | `atLeastLike(example, 0)` | BE가 빈 배열을 정상으로 줄 수 있으면 쓴다(예: 4.7 회사 `aliases`). `eachLike`는 빈 배열을 실패로 본다. 예시는 하나 그대로 둔다 |
 | 오류 응답 | `problem(b, { code, detail?, errors? }, { generic? })` | `application/problem+json`. `generic`이면 `code`도 타입만 비교한다 |
 
 - `like` · `eachLike`의 타입 비교는 안쪽 값 전부로 이어진다. 안쪽에 정확히 비교할 값이 있으면 `equal`로 다시 감싼다. `shape`과 `problem`은 이 처리를 이미 한다. **[공식]** [pact-js Matching](https://docs.pact.io/implementation_guides/javascript/docs/matching)

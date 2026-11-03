@@ -1,4 +1,4 @@
-// 4. 지원서 응답. 기준: Swagger 4.1 ~ 4.6 · ERD cover_letter_items.
+// 4. 지원서 응답. 기준: Swagger 4.1 ~ 4.7 · ERD cover_letter_items · companies · company_aliases.
 import type { OffsetDateTime, Page } from "../common";
 import type { SessionListItem } from "../interview/response";
 
@@ -45,3 +45,18 @@ export type ApplicationListResponse = Page<ApplicationListItem>;
 
 /** 4.6 지원서의 연습 면접 목록 (200). 항목은 5.13과 같고, 면접이 없으면 빈 content */
 export type ApplicationSessionListResponse = Page<SessionListItem>;
+
+/** 회사 하나 */
+export interface CompanyItem {
+  /** 회사 id */
+  id: number;
+  /** 회사명 */
+  name: string;
+  /** 회사를 찾는 다른 이름. 띄어쓰기 · (주) 등을 빼고 소문자로 맞춘 값 */
+  aliases: string[];
+}
+
+/** 4.7 회사 목록 (200). 영문 다음 한글 가나다순이고 페이지 없음 */
+export interface CompanyListResponse {
+  content: CompanyItem[];
+}
