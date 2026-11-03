@@ -10,7 +10,7 @@ from app.common.versions import (
 
 REGISTERED = VersionRegistry(
     prompts=frozenset({"score-answer-v1"}),
-    models=frozenset({"gpt-4.1-mini"}),
+    models=frozenset({"gpt-5.6-terra"}),
     rubrics=frozenset({"rubric-v1"}),
 )
 
@@ -25,7 +25,7 @@ def test_returns_registered_versions() -> None:
     ("kind", "version"),
     [
         (VersionKind.PROMPT, "score-answer-v2"),
-        (VersionKind.MODEL, "gpt-4.1-mini-2025-04-14"),
+        (VersionKind.MODEL, "gpt-4.1-mini"),
         (VersionKind.RUBRIC, "rubric-v0"),
     ],
 )
@@ -55,13 +55,12 @@ def test_registered_kind_does_not_leak_to_other_kind() -> None:
         REGISTERED.require(VersionKind.RUBRIC, "score-answer-v1")
 
 
-@pytest.mark.parametrize("model", ["gpt-4.1-mini", "gpt-5.6-terra"])
-def test_default_registry_accepts_requested_model_id(model: str) -> None:
-    """배포 설정을 전환하는 동안 기존 모델과 gpt-5.6-terra를 모두 허용한다."""
-    assert REGISTRY.require(VersionKind.MODEL, model) == model
+def test_default_registry_accepts_requested_model_id() -> None:
+    """요청하는 모델 ID를 허용한다."""
+    assert REGISTRY.require(VersionKind.MODEL, "gpt-5.6-terra") == "gpt-5.6-terra"
 
 
-@pytest.mark.parametrize("model", ["gpt-4.1-mini-2025-04-14", "gpt-5"])
+@pytest.mark.parametrize("model", ["gpt-4.1-mini", "gpt-4.1-mini-2025-04-14", "gpt-5"])
 def test_default_registry_rejects_unregistered_model(model: str) -> None:
     """응답의 스냅샷 이름과 등록하지 않은 모델 ID는 허용하지 않는다."""
     with pytest.raises(UnregisteredVersionError):
