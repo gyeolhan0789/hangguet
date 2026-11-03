@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" font-family="Pretendard, 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif" font-size="12">
+<rect width="900" height="300" fill="#ffffff"/>
+<text x="70" y="22" font-size="15" font-weight="bold" fill="#111827">BE 평균 응답 시간</text>
+<rect x="152.76086956521738" y="40" width="35.217391304347814" height="200" fill="#e0f2fe"/>
+<text x="170.36956521739128" y="54" text-anchor="middle" fill="#6b7280">30/분</text>
+<rect x="258.4130434782609" y="40" width="35.21739130434787" height="200" fill="#fef3c7"/>
+<text x="276.0217391304348" y="54" text-anchor="middle" fill="#6b7280">100/분</text>
+<rect x="364.0652173913044" y="40" width="35.217391304347814" height="200" fill="#fee2e2"/>
+<text x="381.67391304347825" y="54" text-anchor="middle" fill="#6b7280">200/분</text>
+<rect x="469.7173913043478" y="40" width="35.21739130434787" height="200" fill="#ede9fe"/>
+<text x="487.32608695652175" y="54" text-anchor="middle" fill="#6b7280">400/분</text>
+<rect x="575.3695652173913" y="40" width="35.21739130434787" height="200" fill="#dcfce7"/>
+<text x="592.9782608695652" y="54" text-anchor="middle" fill="#6b7280">600/분</text>
+<rect x="681.0217391304348" y="40" width="35.21739130434776" height="200" fill="#e0f2fe"/>
+<text x="698.6304347826086" y="54" text-anchor="middle" fill="#6b7280">800/분</text>
+<line x1="70" x2="880" y1="240" y2="240" stroke="#e5e7eb"/>
+<text x="64" y="244" text-anchor="end" fill="#6b7280">0ms</text>
+<line x1="70" x2="880" y1="190" y2="190" stroke="#e5e7eb"/>
+<text x="64" y="194" text-anchor="end" fill="#6b7280">5000ms</text>
+<line x1="70" x2="880" y1="140" y2="140" stroke="#e5e7eb"/>
+<text x="64" y="144" text-anchor="end" fill="#6b7280">10000ms</text>
+<line x1="70" x2="880" y1="90" y2="90" stroke="#e5e7eb"/>
+<text x="64" y="94" text-anchor="end" fill="#6b7280">15000ms</text>
+<line x1="70" x2="880" y1="40" y2="40" stroke="#e5e7eb"/>
+<text x="64" y="44" text-anchor="end" fill="#6b7280">20000ms</text>
+<text x="70" y="256" text-anchor="middle" fill="#6b7280">16:34</text>
+<text x="171.25" y="256" text-anchor="middle" fill="#6b7280">16:36</text>
+<text x="272.5" y="256" text-anchor="middle" fill="#6b7280">16:39</text>
+<text x="373.75" y="256" text-anchor="middle" fill="#6b7280">16:42</text>
+<text x="475" y="256" text-anchor="middle" fill="#6b7280">16:45</text>
+<text x="576.25" y="256" text-anchor="middle" fill="#6b7280">16:48</text>
+<text x="677.5" y="256" text-anchor="middle" fill="#6b7280">16:51</text>
+<text x="778.75" y="256" text-anchor="middle" fill="#6b7280">16:54</text>
+<text x="880" y="256" text-anchor="middle" fill="#6b7280">16:57</text>
+<polyline fill="none" stroke="#2563eb" stroke-width="2" points="70.0,239.8 78.8,240.0 87.6,240.0 96.4,239.8 105.2,239.8 114.0,240.0 122.8,240.0 131.6,240.0 140.4,240.0 149.2,240.0 158.0,240.0 166.8,239.9 175.7,239.9 184.5,239.9 193.3,239.9 202.1,239.9 210.9,239.9 219.7,240.0 228.5,240.0 237.3,240.0 246.1,240.0 254.9,240.0 263.7,240.0 272.5,239.9 281.3,239.9 290.1,239.8 298.9,239.8 307.7,239.9 316.5,239.9 325.3,240.0 334.1,240.0 342.9,240.0 351.7,240.0 360.5,240.0 369.3,240.0 378.2,239.7 387.0,239.7 395.8,239.6 404.6,239.6 413.4,239.8 422.2,239.8 431.0,240.0 439.8,240.0 448.6,240.0 457.4,240.0 466.2,240.0 475.0,240.0 483.8,237.3 492.6,237.3 501.4,228.0 510.2,228.0 519.0,223.4 527.8,223.4 536.6,240.0 545.4,240.0 554.2,240.0 563.0,240.0 571.8,240.0 580.7,240.0 589.5,235.6 598.3,235.6 607.1,219.2 615.9,219.2 624.7,188.2 633.5,188.2 642.3,206.6 651.1,206.6 659.9,240.0 668.7,240.0 677.5,240.0 686.3,240.0 695.1,236.8 703.9,236.8 712.7,204.1 721.5,204.1 730.3,66.9 739.1,66.9 747.9,159.2 756.7,159.2 765.5,210.1 774.3,210.1 783.2,240.0 792.0,240.0 800.8,240.0 809.6,240.0"/>
+<rect x="70" y="278" width="10" height="10" fill="#2563eb"/>
+<text x="84" y="287" fill="#374151">평균 (최대 17312ms)</text>
+</svg>

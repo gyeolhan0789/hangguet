@@ -149,7 +149,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | 시간대 | `Asia/Seoul`로 바꿔 둠 | 서버 로그와 매일 돌릴 DB 백업 시각을 한국 시간으로 읽기 위해. 앱은 이미 한국 시간으로 응답하므로 영향 없다 |
 | 셋팅 결과 | Ubuntu 24.04.4 · 4코어 · 15GB(처음 사용 약 0.6GB) · 디스크 309GB · 공인 IP `13.209.81.168`. Docker 29.9 + Compose v5.6(공식 저장소, 기본 로그 10MB × 3). 배포 폴더 `/opt/a301`(러너 계정 전용) | 기본 셋팅 기록. 다시 만들 일이 생기면 이 값과 비교한다 |
 | 로그 | json-file 10MB × 3(개발 서버와 같음) | 로그가 디스크를 채우지 않게 한다 |
-| CPU 버스트 | Lightsail 플랜은 버스트형(기준 CPU 사용률이 있음)이다. 미디어 중계 · AI가 기준치를 넘겨 CPU를 오래 쓰면 크레딧이 바닥나 서버 전체가 느려지므로 플랜의 기준치를 확인한다 **[확인 필요]** | 동시 면접 수를 정할 때 이 기준치가 상한이 된다 |
+| CPU 버스트 | Lightsail 플랜은 버스트형이다. 이 서버는 Linux $84 플랜(4 vCPU · 16GB · 320GB)이고 **기준치는 vCPU당 40%**다(AWS 문서 [Baseline CPU performance](https://docs.aws.amazon.com/lightsail/latest/userguide/baseline-cpu-performance.html)). 2023-06-29 이전에 만든 서버는 같은 플랜이라도 22.5%인데, 이 서버는 2026-10-21(UTC)에 처음 부팅했다(`/var/log/cloud-init.log` 첫 줄, 11/02 확인). 평균 CPU가 40%를 넘는 동안 크레딧을 쓰고, 다 쓰면 40%로 묶여 서버 전체가 느려진다. 크레딧은 24시간 동안 모을 수 있는 양까지만 쌓인다 | 동시 면접 수를 정할 때 이 기준치가 상한이 된다. 크레딧 잔량은 SSAFY 계정 콘솔에서만 보이므로, 서버에서는 CPU `steal` 증가로 간접 확인한다 |
 
 ### 3.2 컨테이너
 
@@ -546,7 +546,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 ### 준비
 
 - [x] pem · IP 받기, Docker 설치, 스왑, 시간대
-- [ ] Lightsail 플랜의 CPU 기준치 확인
+- [x] Lightsail 플랜의 CPU 기준치 확인(vCPU당 40%, 3.1)
 - [x] 포트 열기(UDP 7882 · 3478, TCP 7881 · 443), 바깥 네트워크와 SSAFY 와이파이에서 확인
 - [x] Cloudflare `a301-prod` 터널(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`), `turn.hangguet.co.kr` DNS(프록시 끔), Always Use HTTPS
 - [x] TURN 인증서: certbot + Cloudflare DNS 플러그인 발급, 자동 갱신 · LiveKit 재시작 hook
@@ -631,7 +631,6 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 
 | 항목 | 상태 |
 |---|---|
-| Lightsail 플랜의 CPU 기준치 | 확인 필요 |
 | 동시 녹화 수 · Egress 메모리 | **[미정]** 실측 |
 | AI 에이전트 · 분석 작업자 메모리, 동시 면접 수 | **[미정]** 실측 |
 | 리액션 데이터 메시지 형식(12장) | **[미정]** (AI · FE) |
@@ -675,3 +674,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 3.2 | 운영 AI 에이전트 상한 1g → 4g. 3.2 합계를 모든 컨테이너 상한 합(약 11.8GB)으로 다시 적고, 이 서버 한 대의 동시 면접 한계를 적음 | 면접마다 처리 프로세스(약 150~200MB, 추정)가 면접이 끝날 때까지 떠 있어 1g로는 동시 4~6건에서 메모리가 넘쳐 진행 중인 면접이 모두 끊긴다. 동시 면접을 많이 받으려고 서버(15GB)에서 다른 상한을 빼고 남는 만큼 줬다. 100건처럼 그 이상은 에이전트 하나가 서버 메모리를 넘으므로 서버를 나눠야 한다 |
 | BE · 인프라 | 7 | BE의 브라우저용 LiveKit 주소 설정 이름을 `livekit.url` → `livekit.public-url`로 바꿈(hotfix, S15P31A301-285). 운영과 같이 두 주소를 다르게 넣는 재현 시험(`LiveKitInterviewRoomTest`) 추가. 환경 변수 이름(`LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL`)과 compose는 그대로 | 첫 운영 배포에서 면접방에 들어갈 수 없었다. Spring이 환경 변수 `LIVEKIT_URL`(내부 주소)을 같은 이름의 설정 `livekit.url`로 읽어 `application.yml`의 `LIVEKIT_PUBLIC_URL` 값을 덮어써서, 브라우저가 `ws://a301-prod-livekit:7880`으로 접속하려다 막혔다. 개발 서버는 두 값이 같아 드러나지 않았다. compose로 덮는 임시 우회 대신 설정 이름을 환경 변수와 겹치지 않게 바꿔, 두 주소가 다른 어느 환경에서도 다시 생기지 않게 했다 |
 | 인프라 | 3.2 | 운영 Grafana 상한 384m → 768m, `GOMEMLIMIT=512MiB` 추가. 3.2 합계 약 11.8GB → 12.2GB | 10/28 운영 Grafana가 프로세스 메모리 약 380MB로 상한에 걸려 두 번 강제 종료됐다(dmesg `Memory cgroup out of memory`). 다시 뜬 뒤에도 실행 파일(약 195MB)이 메모리에서 밀려나 디스크를 계속 다시 읽었다 |
+| 인프라 | 3.1 · 11 · 13 | CPU 기준치를 vCPU당 40%로 확인(Linux $84 플랜, 2026-10-21 생성), 13장에서 뺌 | AWS 문서의 플랜별 기준치 표와 서버 첫 부팅 날짜(`cloud-init.log`)로 확인했다. 2023-06-29 이전 서버면 22.5%라 생성 날짜까지 확인했다. 부하 테스트 서버(t3.xlarge)도 vCPU당 40%라 결과를 운영에 옮길 수 있다 |

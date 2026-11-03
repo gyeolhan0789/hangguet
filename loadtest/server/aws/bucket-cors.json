@@ -1,0 +1,8 @@
+[
+  {
+    "AllowedOrigins": ["https://lt.hangguet.co.kr"],
+    "AllowedMethods": ["GET", "PUT", "HEAD"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag"]
+  }
+]
