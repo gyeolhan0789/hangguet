@@ -15,6 +15,9 @@ final class ContractData {
     final List<Long> notices = new ArrayList<>();
     final List<Long> admins = new ArrayList<>();
 
+    /** 상황이 넣은 회사의 고유번호. 실제 DART 고유번호와 겹치지 않게 9로 시작한다 */
+    static final String CORP_CODE = "99000363";
+
     /** 계약의 비회원 문의 이메일. 상황과 재생된 요청(9.1 비회원 문의 작성)이 만든 비회원 문의를 이 이메일로 찾아 지운다. */
     static final String GUEST_EMAIL = "a@ssafy.com";
 
@@ -51,6 +54,10 @@ final class ContractData {
             jdbc.update("DELETE FROM streak_freeze_grants WHERE admin_id = ?", id);
             jdbc.update("DELETE FROM admins WHERE id = ?", id);
         }
+        String company = "SELECT id FROM companies WHERE corp_code = '" + CORP_CODE + "'";
+        jdbc.update("DELETE FROM company_cards WHERE company_id IN (" + company + ")");
+        jdbc.update("DELETE FROM company_aliases WHERE company_id IN (" + company + ")");
+        jdbc.update("DELETE FROM companies WHERE corp_code = ?", CORP_CODE);
     }
 
     /** 회원과 회원이 만든 데이터를 외래키 순서대로 지운다. */

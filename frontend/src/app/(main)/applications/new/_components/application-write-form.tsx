@@ -4,7 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useRouter } from "next/navigation";
 import { useCallback, useId, useRef, useState, type ReactNode } from "react";
-import { useFieldArray, useForm, useWatch, type UseFormRegisterReturn } from "react-hook-form";
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+  type UseFormRegisterReturn,
+} from "react-hook-form";
 
 import { CoverLetterCounter } from "@/components/application/cover-letter-counter";
 import { MaskIcon } from "@/components/mask-icon";
@@ -20,6 +26,9 @@ import {
   type ApplicationValues,
 } from "@/lib/application/schemas";
 import { ROUTES, type ApplicationWriteFrom } from "@/lib/routes";
+import type { CompanyItem } from "@/types/api";
+
+import { CompanyCombobox } from "./company-combobox";
 
 // 기준: Figma 지원서 쓰기(화이트 · 다크: S03 지원서 입력 틀에서 진행 단계를 뺀 화면 — 제목 32 ExtraBold · 설명 17 Medium text-2
 // · 회사명 · 직무 입력(높이 56 · 둥글기 12) · 자기소개서 줄(14 Bold text-2) · 문항 상자(둥글기 16 · 패딩 20 ·
@@ -31,6 +40,7 @@ import { ROUTES, type ApplicationWriteFrom } from "@/lib/routes";
 // · 사용자 결정(2026-10-29: 빈 문항 · 답변이 있으면 [저장하기] 비활성, 저장 뒤 · [← 뒤로]는 들어온 곳으로, 글자 수는 문항마다
 //   답변 20,000자 — 상자 오른쪽 아래에 그 문항의 글자 수를 보여 준다. Figma의 자기소개서 줄 합계 '0 / 3,000'은 문항별로 바뀌어 뺐다)
 // · 문항이 5개면 [+ 문항 추가]를 숨긴다(문항이 1개면 ✕를 숨기는 기획 메모와 같은 방식)
+// · 회사명은 4.7 회사 목록으로 자동 완성한다(company-combobox)
 
 /** 서버가 돌려준 칸별 오류(VALIDATION_FAILED)의 react-hook-form 오류 type */
 const SERVER_ERROR = "server";
@@ -120,12 +130,19 @@ function AnswerField({
  * 폼을 새로 그려 처음부터 쓰게 한다. 뒤로 · 앞으로 가기로 돌아오면 쓰던 내용을 그대로 둔다(Next useRouter().bfcacheId).
  * 떠날 때 reset()으로 비우면 돌아왔을 때 지난 문항 상자가 사라지는 연출이 새 상자와 겹쳐 보여, 새로 그리는 쪽을 쓴다.
  */
-export function ApplicationWriteForm({ from }: { from: ApplicationWriteFrom }) {
+export function ApplicationWriteForm({
+  from,
+  companies = [],
+}: {
+  from: ApplicationWriteFrom;
+  /** 4.7 회사 목록. 비어 있으면 회사명은 일반 입력칸이다 */
+  companies?: CompanyItem[];
+}) {
   const { bfcacheId } = useRouter();
-  return <WriteForm key={bfcacheId} from={from} />;
+  return <WriteForm key={bfcacheId} from={from} companies={companies} />;
 }
 
-function WriteForm({ from }: { from: ApplicationWriteFrom }) {
+function WriteForm({ from, companies }: { from: ApplicationWriteFrom; companies: CompanyItem[] }) {
   const reduce = useReducedMotion();
   const [formError, setFormError] = useState<string>();
   // 자기소개서 거절 문구. setError(root)는 isValid를 false로 만들어 같은 내용으로 다시 저장할 수 없게 하므로 따로 둔다.
@@ -191,15 +208,23 @@ function WriteForm({ from }: { from: ApplicationWriteFrom }) {
 
           <div className="flex flex-col gap-4 sm:flex-row">
             <Field label="회사명" htmlFor="companyName" error={companyError}>
-              <input
-                id="companyName"
-                autoComplete="organization"
-                placeholder="예) ○○전자"
-                maxLength={COMPANY_NAME_MAX}
-                aria-invalid={!!companyError || undefined}
-                aria-describedby={companyError ? "companyName-error" : undefined}
-                className={`h-14 w-full rounded-xl px-4 text-base leading-normal font-semibold tracking-[-0.2px] placeholder:text-text-3 ${inputBox} ${companyError ? invalidBox : "border-line"}`}
-                {...register("companyName")}
+              <Controller
+                control={control}
+                name="companyName"
+                render={({ field: { onChange, ...field } }) => (
+                  <CompanyCombobox
+                    {...field}
+                    companies={companies}
+                    onValueChange={onChange}
+                    id="companyName"
+                    autoComplete="organization"
+                    placeholder="예) ○○전자"
+                    maxLength={COMPANY_NAME_MAX}
+                    aria-invalid={!!companyError || undefined}
+                    aria-describedby={companyError ? "companyName-error" : undefined}
+                    className={`h-14 w-full rounded-xl px-4 text-base leading-normal font-semibold tracking-[-0.2px] placeholder:text-text-3 ${inputBox} ${companyError ? invalidBox : "border-line"}`}
+                  />
+                )}
               />
             </Field>
             <Field label="직무" htmlFor="jobTitle" error={jobError}>

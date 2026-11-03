@@ -6,6 +6,7 @@ import type {
   ApplicationListResponse,
   ApplicationResponse,
   ApplicationSessionListResponse,
+  CompanyListResponse,
   PendingResponse,
   QuestionResponse,
   MeResponse,
@@ -297,6 +298,18 @@ export const APPLICATION_NO_SESSIONS = {
   content: [],
   page: { size: 10, number: 0, totalElements: 0, totalPages: 0 },
 } satisfies ApplicationSessionListResponse;
+
+/** 4.7 회사 목록 200 — Swagger 예시(영문 다음 한글 가나다순) */
+export const COMPANIES = {
+  content: [
+    { id: 2, name: "NAVER", aliases: ["naver", "네이버"] },
+    { id: 7, name: "NC", aliases: ["nc", "ncsoft", "엔씨소프트"] },
+    { id: 3, name: "SK하이닉스", aliases: ["sk하이닉스", "skhynix"] },
+    { id: 1, name: "삼성전자", aliases: ["삼성전자", "samsungelectronics"] },
+    { id: 5, name: "카카오", aliases: ["카카오", "kakao"] },
+    { id: 4, name: "현대자동차", aliases: ["현대자동차", "hyundaimotorcompany"] },
+  ],
+} satisfies CompanyListResponse;
 
 /** 5.1 면접 만들기 201 — Swagger 예시 */
 export const SESSION = {
