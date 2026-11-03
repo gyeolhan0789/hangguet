@@ -49,7 +49,8 @@ public class ResultController {
     private static final String REPLAY =
             """
             { "id": 55, "persona": "DEVIL", "mode": "VIDEO", "companyName": "○○전자", "jobTitle": "백엔드 개발자",
-              "startedAt": "2026-10-15T12:00:00+09:00", "videoStatus": "READY",
+              "startedAt": "2026-10-15T12:00:00+09:00", "recordingStartedAt": "2026-10-15T12:00:03.120+09:00",
+              "videoStatus": "READY",
               "videoUrl": "https://…s3…/recordings/55.mp4?X-Amz-Signature=…",
               "items": [
                 { "questionId": 301, "seq": 1, "question": "1분 자기소개", "questionCreatedAt": "2026-10-15T12:00:42+09:00",
@@ -61,9 +62,9 @@ public class ResultController {
                 { "questionId": 304, "seq": 4, "question": "백엔드 직무에 지원한 이유는?", "questionCreatedAt": "2026-10-15T12:10:05+09:00",
                   "answer": "음… 서버 쪽이…", "answerCreatedAt": "2026-10-15T12:13:50+09:00", "grade": "WEAK",
                   "timeline": {
-                    "points": [ { "at": 620.25, "value": 0.4 }, { "at": 621.25, "value": -0.6 }, { "at": 622.25, "value": -1.7 },
-                                { "at": 623.25, "value": -2.1 }, { "at": 624.25, "value": -1.2 }, { "at": 625.25, "value": 0.3 } ],
-                    "checkpoints": [ { "at": 623.25, "start": 622.25, "end": 623.25, "value": -2.1,
+                    "points": [ { "at": 617.13, "value": 0.4 }, { "at": 618.13, "value": -0.6 }, { "at": 619.13, "value": -1.7 },
+                                { "at": 620.13, "value": -2.1 }, { "at": 621.13, "value": -1.2 }, { "at": 622.13, "value": 0.3 } ],
+                    "checkpoints": [ { "at": 620.13, "start": 619.13, "end": 620.13, "value": -2.1,
                       "reasons": [ { "metric": "CONFIDENCE", "count": null, "text": "고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요." },
                                    { "metric": "FILLER", "count": 3, "text": "'음'이 이어졌어요. 생각할 때는 소리 없이 잠깐 멈춰도 괜찮아요." } ] } ] } },
                 { "questionId": 305, "seq": 5, "question": "대용량 트래픽 처리 방법은?", "questionCreatedAt": "2026-10-15T12:14:30+09:00",
@@ -119,8 +120,8 @@ public class ResultController {
                             examples =
                                     @ExampleObject(
                                             name =
-                                                    "S07-1 화상(마커 00:42 · 03:10 · 06:12 · 10:05 ·"
-                                                            + " 14:30)",
+                                                    "S07-1 화상(마커 00:38 · 03:06 · 06:08 · 10:01 ·"
+                                                            + " 14:26)",
                                             value = REPLAY)))
     @ApiResponse(
             responseCode = "404",
