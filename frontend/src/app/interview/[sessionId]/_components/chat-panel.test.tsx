@@ -141,7 +141,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
       );
       type("마지막 답변");
       await enter();
-      expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5);
+      expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5, "마지막 답변");
       expect(endSession).toHaveBeenCalledTimes(1);
       expect(submitTextAnswer.mock.invocationCallOrder[0]).toBeLessThan(
         onAnswered.mock.invocationCallOrder[0],
@@ -283,7 +283,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
 
     await enter();
 
-    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3);
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3, "캐시를 바꿨어요");
   });
 
   it("이미 낸 답변이면(409 ANSWER_ALREADY_SUBMITTED) 오류 없이 [답변 완료]를 보내고 다음 질문을 기다린다", async () => {
@@ -298,7 +298,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
 
     await enter();
 
-    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3);
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(3, "새로고침 뒤 다시 낸 답");
     expect(screen.queryByRole("alert")).toBeNull();
     // 이미 낸 답변은 보낸 답변 말풍선을 띄우지 않고 입력창만 비운다
     expect(screen.queryByText("새로고침 뒤 다시 낸 답")).toBeNull();
@@ -321,7 +321,7 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
 
     await enter();
 
-    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5);
+    expect(onAnswered).toHaveBeenCalledExactlyOnceWith(5, "마지막 답");
     expect(endSession).toHaveBeenCalledTimes(1);
   });
 

@@ -296,7 +296,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
         { content: "작성 중인 답변" },
         expect.any(String),
       );
-      expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
+      expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3, "작성 중인 답변");
       expect(thinking()).toBeTruthy();
     },
   );
@@ -1079,7 +1079,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     await act(async () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: "답변" }), { key: "Enter" });
     });
-    expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
+    expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3, "캐시를 바꿨어요");
 
     await act(async () => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS - 1));
     expect(room.submitAnswer).toHaveBeenCalledTimes(1);
@@ -1089,7 +1089,7 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(room.submitAnswer).toHaveBeenCalledTimes(3);
     await act(async () => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS * 5));
     expect(room.submitAnswer).toHaveBeenCalledTimes(3);
-    expect(room.submitAnswer).toHaveBeenLastCalledWith(3);
+    expect(room.submitAnswer).toHaveBeenLastCalledWith(3, "캐시를 바꿨어요");
   });
 
   it("채팅: 지난 질문의 늦은 결과가 다음 질문의 재전송을 지우지 않는다", async () => {
@@ -1117,12 +1117,12 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       />,
     );
     await answer("4번 답");
-    expect(room.submitAnswer).toHaveBeenLastCalledWith(4);
+    expect(room.submitAnswer).toHaveBeenLastCalledWith(4, "4번 답");
 
     await act(async () => settleOld("rejected"));
     await act(async () => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS));
     expect(room.submitAnswer).toHaveBeenCalledTimes(3);
-    expect(room.submitAnswer).toHaveBeenLastCalledWith(4);
+    expect(room.submitAnswer).toHaveBeenLastCalledWith(4, "4번 답");
   });
 
   it("악마 면접관은 번개 빛을 깔고, 커피챗은 깔지 않는다", () => {
