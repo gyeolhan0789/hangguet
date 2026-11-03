@@ -30,6 +30,16 @@ class ApiSpecTest {
     }
 
     @Test
+    void companiesListEnglishNamesFirstWithAliases() {
+        MvcTestResult result = mockMvc.get().uri("/api/v1/companies").exchange();
+
+        assertThat(result).hasStatusOk();
+        assertThat(result).bodyJson().extractingPath("$.content[0].name").isEqualTo("NAVER");
+        assertThat(result).bodyJson().extractingPath("$.content[0].aliases[1]").isEqualTo("네이버");
+        assertThat(result).bodyJson().extractingPath("$.content[3].name").isEqualTo("삼성전자");
+    }
+
+    @Test
     void dateTimeHasKoreanOffset() {
         assertThat(mockMvc.get().uri("/api/v1/users/me"))
                 .bodyJson()

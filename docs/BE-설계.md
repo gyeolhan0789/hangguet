@@ -68,7 +68,7 @@ com.ssafy.a301
 │  ├─ mapper       ApplicationMapper
 │  ├─ repository   ApplicationRepository
 │  └─ domain       Application, CoverLetterItem
-├─ company         회사 카드(docs/ERD-회사카드.md). 파이프라인이 공용 버킷에 올린 카드를 적재하고, 면접을 만들 때 지원서 회사명으로 찾는다
+├─ company         회사 카드(docs/ERD-회사카드.md). 파이프라인이 공용 버킷에 올린 카드를 적재하고, 면접을 만들 때 지원서 회사명으로 찾는다. 회사 목록(4.7)도 준다
 │  ├─ service      CompanyCardImporter · CompanyCardImportScheduler(1시간마다 manifest 적재), CompanyCardWriter(회사마다 DB 반영),
 │  │               CompanyCardSource(공용 버킷 읽기), CompanyCardFinder(회사명 정규화 → 별칭 → 최신 카드)
 │  ├─ repository   CompanyRepository, CompanyAliasRepository, CompanyCardRepository, CompanyCardImportRepository
@@ -185,6 +185,7 @@ com.ssafy.a301
 - 문의 쓰기 · 종료(9.4 · 9.5 · 9.8 · 9.9)는 문의 행을 잠그고 한다. 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(`X-Inquiry-Password`)가 맞을 때만 볼 수 있고, 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다
 - 문의 제목 · 본문은 AES-256-GCM으로 암호화해 저장한다(`EncryptedTextConverter`). 키는 환경 변수 `INQUIRY_ENCRYPTION_KEY`(Base64, 32바이트)로만 받고 없으면 기동하지 않는다. 키를 잃거나 바꾸면 저장한 문의를 풀 수 없다
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고 문항은 넣지 않는다. 지원서의 연습 면접 목록(4.6)은 5.13과 같은 기준 · 항목(`InterviewSessionListService`)을 지원서로 거른다
+- 회사 목록(4.7)은 회사 전체와 별칭을 한 번씩 읽어 `Collator`(한국어)로 정렬한다. 영문이 한글보다 먼저 오고, 이름이 같으면 id 순이다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
 - ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(4.6 지원서의 연습 면접 목록), `uk_interview_questions_session_seq`(질문 순서 중복 방지), `ck_cover_letter_items_item_order`(V13. 문항 순서 1~5)
