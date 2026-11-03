@@ -13,7 +13,8 @@
 | `lib/browser-interview.js` | 실제 화면으로 화상 면접 1건을 끝까지 진행하는 흐름(S0 · 데이터 만들기 · S5가 같이 쓴다) |
 | `scenarios/` | 시나리오(계획 6장). 지금은 S0(`s0-smoke.js` · `s0-browser.js`) · S1(`s1-web-mix.js`) · S2(`s2-login-burst.js`) · S3(`s3-application-burst.js`) · S4(`s4-plan-burst.js`) · S5(`s5-interview-browser.js`, 단계 실행 `s5-levels.sh`) · S6(`s6-peak-browser.js`) |
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
-| `server/` | 테스트 서버 구성 · 접속 스크립트 |
+| `server/` | 테스트 서버 구성 · 접속 스크립트(에이전트 분리용 덮어쓰기 `compose.agent-split.yml` 포함) |
+| `agent/` | 에이전트 분리 · scale out: 시작 템플릿 user data, 인스턴스 역할 정책, 콘솔 작업 순서([agent/README.md](agent/README.md)) |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
 | `results/` | k6 원본 출력 · 실패 화면 캡처(커밋하지 않는다) |
 
