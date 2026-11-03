@@ -79,4 +79,4 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 
 `deploy/dev/compose.yml`의 `a301-dev-ai-agent`가 위 프로그램을 `start`로 실행한다. 기존 `a301-dev-ai`의 FastAPI는 별도로 실행한다.
 
-GitLab의 `ai-agent-deploy` 잡이 배포한다. `LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`·`SONIOX_API_KEY`·`ELEVENLABS_API_KEY`(선택)는 `dev/ai-agent`에서도 읽을 수 있는 변수 범위(예: `dev/*`)로 설정해야 한다. 호스트 포트는 열지 않으며, 컨테이너 내부 `http://127.0.0.1:8081/`의 `OK` 응답을 Docker 상태 검사로 확인한다. 파이프라인은 컨테이너가 `healthy`가 될 때까지 기다린다. 실제 방 참가·Soniox 연결·인식 결과 수신은 별도로 확인한다.
+GitLab의 `ai-agent-deploy` 잡이 배포한다. `LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`·`SONIOX_API_KEY`·`ELEVENLABS_API_KEY`(선택)·`LLM_API_KEY`(선택, 없으면 꼬리질문 없이 진행)는 `dev/ai-agent`에서도 읽을 수 있는 변수 범위(예: `dev/*`)로 설정해야 한다. 호스트 포트는 열지 않으며, 컨테이너 내부 `http://127.0.0.1:8081/`의 `OK` 응답을 Docker 상태 검사로 확인한다. 파이프라인은 컨테이너가 `healthy`가 될 때까지 기다린다. 실제 방 참가·Soniox 연결·인식 결과 수신은 별도로 확인한다.

@@ -64,7 +64,7 @@ x-ai-worker-redis-env: &ai-worker-redis-env
 # GMS 접속 값. 개발 서버와 같다
 x-gms-env: &gms-env
   LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
-  LLM_MODEL: gpt-4.1-mini
+  LLM_MODEL: gpt-5.6-terra
   LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
 
 # 녹화 합치기: BE와 같은 버킷 · 앱 키(IAM a301-prod-app, 배포 계획 6.2)로 원본 트랙을 받고 합친 mp4를 올린다
@@ -199,7 +199,8 @@ services:
       a301-prod-livekit:
         condition: service_started
     environment:
-      <<: *livekit-env
+      # 꼬리질문 생성(GMS)
+      <<: [*livekit-env, *gms-env]
       LIVEKIT_AGENT_NAME: a301-interviewer
       SONIOX_API_KEY: ${SONIOX_API_KEY:?SONIOX_API_KEY CI/CD variable is required}
       SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
