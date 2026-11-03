@@ -28,8 +28,8 @@ class GuideSource:
 
     # 「다음 기준 중 {revealed_in} 드러난 것」
     revealed_in: str
-    # 「질문 문장은 {weak_point}의 약점을 짚는 압박 어조로」
-    weak_point: str
+    # 「질문 문장은 {weak_point}의 약점을 짚는 압박 어조로」. None이면 압박 어조를 지시하지 않는다
+    weak_point: str | None
     # 「질문 문장은 {experience}을 편하게 설명할 수 있는 말투로」
     experience: str
 
@@ -39,6 +39,13 @@ COVER_LETTER = GuideSource(
     revealed_in="자기소개서에",
     weak_point="자기소개서 주장",
     experience="자기소개서에 작성한 경험",
+)
+# 꼬리질문(AI 명세 2.2)의 근거 글.
+# 압박 어조를 지시하면 답변에 없는 부정적 사실을 전제로 질문하므로 꼬리질문에는 지시하지 않는다
+ANSWER = GuideSource(
+    revealed_in="답변에",
+    weak_point=None,
+    experience="답변에 담긴 경험",
 )
 
 
@@ -61,13 +68,21 @@ def _practical(source: GuideSource) -> str:
     )
 
 
+def _executive_tone(source: GuideSource) -> str:
+    if source.weak_point is None:
+        return "- 지원자를 비하하거나 단정하는 표현은 쓰지 않는다\n"
+    return (
+        f"- 질문 문장은 {source.weak_point}의 약점을 짚는 압박 어조로 작성하고, "
+        "지원자를 비하하거나 단정하는 표현은 쓰지 않는다\n"
+    )
+
+
 def _executive(source: GuideSource) -> str:
     return (
         f"이 면접은 임원면접이다. {_only_revealed(source)}"
         f"{criteria_lines(EXECUTIVE_CRITERIA)}"
         f"- 실무면접 기준({joined_names(PRACTICAL_CRITERIA)})은 묻지 않는다\n"
-        f"- 질문 문장은 {source.weak_point}의 약점을 짚는 압박 어조로 작성하고, "
-        "지원자를 비하하거나 단정하는 표현은 쓰지 않는다\n"
+        f"{_executive_tone(source)}"
         "- 기술 세부 구현, 출신 지역·가족·외모 등 직무와 무관한 개인 사항은 묻지 않는다\n"
     )
 
@@ -96,7 +111,7 @@ _GUIDES: Mapping[Persona, Callable[[GuideSource], str]] = {
 def interviewer_guide(persona: Persona, source: GuideSource) -> str:
     """면접관의 질문 기준·수준·어조 지침을 프롬프트 줄로 반환한다.
 
-    source는 질문의 근거 글을 가리키는 구절이다(질문 생성은 COVER_LETTER).
+    source는 질문의 근거 글을 가리키는 구절이다(질문 생성은 COVER_LETTER, 꼬리질문은 ANSWER).
     """
     guide = _GUIDES.get(persona)
     return "" if guide is None else guide(source)

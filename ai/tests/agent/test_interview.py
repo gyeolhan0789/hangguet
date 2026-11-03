@@ -14,11 +14,13 @@ from livekit import rtc
 
 from app.agent import interview as interview_module
 from app.agent.answer_capture import CapturedAnswer
-from app.agent.assignment import parse_assignment
+from app.agent.assignment import AssignedQuestion, parse_assignment
+from app.agent.followup import FollowupError
 from app.agent.interview import FinishedAnswer, InterviewRunner
 from app.agent.reaction import InvalidChatInputError
 from app.agent.stt import SttError
 from app.common.results import KST, ResultPublishError
+from app.common.session import Persona
 from app.interview.realtime import answer_end
 from app.interview.realtime.interrupt import Interrupt, InterruptReason
 from app.interview.realtime.progress import EndReason
@@ -56,7 +58,15 @@ class FakeAsker:
         self.prepared: list[int] = []
         # 1번 질문 합성을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
         self.first_prepare_hold: asyncio.Event | None = None
+        # 미리 만든 2번 질문 합성을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
+        self.planned_second_hold: asyncio.Event | None = None
+        # 질문 글별로 합성을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
+        self.content_holds: dict[str, asyncio.Event] = {}
+        # 합성을 시작한 질문 글
+        self.prepared_contents: list[str] = []
         self.asked: list[tuple[int, str, Any, bool]] = []
+        # 말한 질문의 글·채점 기준·생성 버전
+        self.questions: list[AssignedQuestion] = []
         self.hold: asyncio.Event | None = None
         self.speaking = asyncio.Event()
         self.notices: list[str] = []
@@ -65,11 +75,18 @@ class FakeAsker:
         self.notice_hold = asyncio.Event()
         self.saying = asyncio.Event()
 
-    async def prepare(self, seq: int) -> Any:
+    async def prepare(self, seq: int, question: AssignedQuestion) -> Any:
         self.prepared.append(seq)
         if seq == 1 and self.first_prepare_hold is not None:
             await self.first_prepare_hold.wait()
-        return f"audio-{seq}"
+        if question.content == "질문 2" and self.planned_second_hold is not None:
+            await self.planned_second_hold.wait()
+        self.prepared_contents.append(question.content)
+        hold = self.content_holds.get(question.content)
+        if hold is not None:
+            await hold.wait()
+        # 미리 만든 질문은 순서로, 꼬리질문은 질문 글로 음성을 구분한다
+        return f"audio-{seq}" if question.content == f"질문 {seq}" else f"audio-{question.content}"
 
     async def prepare_notice(self, text: str) -> Any:
         self.notices.append(text)
@@ -83,8 +100,17 @@ class FakeAsker:
         finally:
             self.saying.clear()
 
-    async def ask(self, seq: int, destination: str, audio: Any, *, announce: bool = True) -> None:
+    async def ask(
+        self,
+        seq: int,
+        question: AssignedQuestion,
+        destination: str,
+        audio: Any,
+        *,
+        announce: bool = True,
+    ) -> None:
         self.asked.append((seq, destination, audio, announce))
+        self.questions.append(question)
         self.speaking.set()
         try:
             if self.hold is not None:
@@ -173,8 +199,44 @@ class FakeReactions:
         self.calls.append(("stop",))
 
 
+class FakeFollowups:
+    """꼬리질문 생성기 대역.
+
+    생성 요청을 기록하고, 결과를 반환할 시점과 실패를 시험이 정한다.
+    """
+
+    def __init__(self) -> None:
+        # (면접관, 직전 질문 글, 직전 채점 기준, 답변 글, 생성할 질문 수)
+        self.calls: list[tuple[Persona, str, str, str, int]] = []
+        self.hold: asyncio.Event | None = None
+        # 호출 순서마다 발생시킬 오류. 없으면 생성에 성공한다
+        self.errors: list[Exception | None] = []
+
+    async def generate(
+        self, persona: Persona, question: AssignedQuestion, answer: str, count: int
+    ) -> tuple[AssignedQuestion, ...]:
+        self.calls.append((persona, question.content, question.criteria, answer, count))
+        error = self.errors.pop(0) if self.errors else None
+        if self.hold is not None:
+            await self.hold.wait()
+        if error is not None:
+            raise error
+        return tuple(
+            AssignedQuestion(
+                f"꼬리 {question.content}-{index}", f"꼬리 기준 {index}", "followup-v1", "gpt-test"
+            )
+            for index in range(1, count + 1)
+        )
+
+
 class Harness:
-    def __init__(self, current_seq: int = 1, mode: str = "VIDEO", persona: str = "DEVIL") -> None:
+    def __init__(
+        self,
+        current_seq: int = 1,
+        mode: str = "VIDEO",
+        persona: str = "DEVIL",
+        followups: FakeFollowups | None = None,
+    ) -> None:
         self.asker = FakeAsker()
         self.sessions: list[FakeSession] = []
         self.states: list[tuple[int, str]] = []
@@ -188,6 +250,8 @@ class Harness:
         self.reactions = FakeReactions()
         # 다음 질문 전 대기마다 (대기 시간, 그때까지 말한 질문 수)
         self.sleeps: list[tuple[float, int]] = []
+        # 다음 질문 전 대기를 실제로 기다릴 시간(초). 시험을 빠르게 하려고 기본은 기다리지 않는다
+        self.sleep_seconds = 0.0
         self.runner = InterviewRunner(
             assignment(current_seq, mode, persona),
             self.asker,
@@ -195,12 +259,13 @@ class Harness:
             self.send_state,
             on_answer=self.on_answer,
             reactions=self.reactions,  # type: ignore[arg-type]
+            followups=followups,
             sleep=self.sleep,
         )
 
     async def sleep(self, seconds: float) -> None:
         self.sleeps.append((seconds, len(self.asker.asked)))
-        await asyncio.sleep(0)
+        await asyncio.sleep(self.sleep_seconds)
 
     def open_capture(
         self,
@@ -237,9 +302,9 @@ class Harness:
             await asyncio.wait_for(self.session_opened.wait(), timeout=1)
         return self.sessions[-1]
 
-    def submit(self, seq: int) -> str:
+    def submit(self, seq: int, content: str | None = None) -> str:
         return self.runner.submit_requested(
-            json.dumps({"type": "answer.submit", "sessionId": 55, "seq": seq})
+            json.dumps({"type": "answer.submit", "sessionId": 55, "seq": seq, "content": content})
         )
 
 
@@ -256,9 +321,10 @@ def run_async(
     current_seq: int = 1,
     mode: str = "VIDEO",
     persona: str = "DEVIL",
+    followups: FakeFollowups | None = None,
 ) -> Harness:
     async def main() -> Harness:
-        harness = Harness(current_seq, mode, persona)
+        harness = Harness(current_seq, mode, persona, followups)
         harness.runner.candidate_joined(CANDIDATE)
         running = asyncio.create_task(harness.runner.run())
         harness.running = running
@@ -867,3 +933,263 @@ def test_notice_is_not_played_outside_answer() -> None:
         h.asker.hold.set()
 
     assert run_async(scenario).asker.said == []
+
+
+# 기준: AI 명세 2.2 출제 순서(1 기본 → 2 꼬리 → 3 기본 → 4·5 꼬리, 4·5는 한 번에 생성)
+def test_followups_replace_second_fourth_and_fifth_questions() -> None:
+    followups = FakeFollowups()
+    h = run_async(auto_submit_every_question(), persona="DUCK", followups=followups)
+
+    assert followups.calls == [
+        (Persona.DUCK, "질문 1", "기준", "답변", 1),
+        (Persona.DUCK, "질문 3", "기준", "답변", 2),
+    ]
+    assert [q.content for q in h.asker.questions] == [
+        "질문 1",
+        "꼬리 질문 1-1",
+        "질문 3",
+        "꼬리 질문 3-1",
+        "꼬리 질문 3-2",
+    ]
+    assert [audio for _, _, audio, _ in h.asker.asked] == [
+        "audio-1",
+        "audio-꼬리 질문 1-1",
+        "audio-3",
+        "audio-꼬리 질문 3-1",
+        "audio-꼬리 질문 3-2",
+    ]
+    # 생성한 질문은 생성 버전을, 미리 만든 질문은 null을 question.started에 담는다(AI 명세 6.2)
+    assert [(q.prompt_version, q.model_version) for q in h.asker.questions] == [
+        (None, None),
+        ("followup-v1", "gpt-test"),
+        (None, None),
+        ("followup-v1", "gpt-test"),
+        ("followup-v1", "gpt-test"),
+    ]
+    assert [q.criteria for q in h.asker.questions][1] == "꼬리 기준 1"
+    # 질문 수는 5개로 유지한다
+    assert [a.seq for a in h.answers] == [1, 2, 3, 4, 5]
+
+
+def test_reactions_judge_against_question_actually_asked() -> None:
+    async def scenario(h: Harness) -> None:
+        (await h.next_session()).speak()
+        await asked(h, 2)
+        assert h.runner.question(2) == "꼬리 질문 1-1"
+        assert h.runner.criteria(2) == "꼬리 기준 1"
+        # 아직 출제하지 않은 순서는 배정 정보의 질문이다
+        assert h.runner.question(3) == "질문 3"
+
+    run_async(scenario, followups=FakeFollowups())
+
+
+# 기준: AI 명세 2.2 예비 질문(답변이 끝난 시점부터 4초 안에 생성하지 못하면 미리 만든 질문)
+def test_slow_generation_falls_back_to_prepared_questions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(interview_module, "FOLLOWUP_TIMEOUT", 0.05)
+    followups = FakeFollowups()
+    followups.hold = asyncio.Event()
+    h = run_async(auto_submit_every_question(), followups=followups)
+
+    assert len(followups.calls) == 2
+    assert [q.content for q in h.asker.questions] == [f"질문 {seq}" for seq in range(1, 6)]
+    assert [audio for _, _, audio, _ in h.asker.asked] == [f"audio-{seq}" for seq in range(1, 6)]
+    assert {(q.prompt_version, q.model_version) for q in h.asker.questions} == {(None, None)}
+
+
+def test_time_limit_counts_from_answer_end_not_from_next_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """오리 면접관의 효과음 대기가 생성을 기다리는 시간과 겹쳐 계산되는지 확인한다."""
+    monkeypatch.setattr(interview_module, "FOLLOWUP_TIMEOUT", 0.3)
+    waited: list[float] = []
+
+    async def scenario(h: Harness) -> None:
+        loop = asyncio.get_running_loop()
+        h.sleep_seconds = 0.15
+        (await h.next_session()).speak()
+        spoke = loop.time()
+        await asked(h, 2)
+        waited.append(loop.time() - spoke)
+
+    followups = FakeFollowups()
+    followups.hold = asyncio.Event()
+    h = run_async(scenario, persona="DUCK", followups=followups)
+
+    assert h.asker.questions[1].content == "질문 2"
+    # 발화 뒤 침묵 0.06초에 상한 0.3초를 더한 0.36초 근처에서 출제한다.
+    # 효과음 대기 0.15초를 따로 더하면 0.51초가 걸린다
+    assert waited[0] < 0.45
+
+
+def test_generation_failure_replaces_fourth_and_fifth_together() -> None:
+    followups = FakeFollowups()
+    followups.errors = [None, FollowupError("questions가 2개가 아니다")]
+    h = run_async(auto_submit_every_question(), followups=followups)
+
+    assert [q.content for q in h.asker.questions] == [
+        "질문 1",
+        "꼬리 질문 1-1",
+        "질문 3",
+        "질문 4",
+        "질문 5",
+    ]
+    assert [audio for _, _, audio, _ in h.asker.asked][3:] == ["audio-4", "audio-5"]
+
+
+def test_unexpected_generation_error_still_falls_back() -> None:
+    followups = FakeFollowups()
+    followups.errors = [RuntimeError("예상하지 못한 오류")]
+    h = run_async(auto_submit_every_question(), followups=followups)
+
+    assert h.asker.questions[1].content == "질문 2"
+
+
+# 기준: AI 명세 2.2(직전 답변을 전송하지 않았으면 예비 질문), 6.5 저장할 수 없는 답변
+def test_answer_that_cannot_be_saved_gets_prepared_question() -> None:
+    async def scenario(h: Harness) -> None:
+        h.saved = False
+        (await h.next_session()).speak()
+        await asked(h, 2)
+        h.saved = True
+
+    h = run_async(scenario, followups=FakeFollowups())
+    assert h.asker.questions[1].content == "질문 2"
+    assert h.asker.asked[1][2] == "audio-2"
+
+
+def test_generation_starts_before_delivery_and_survives_resubmit() -> None:
+    """답변 전달이 실패해 다시 전송하는 동안에도 생성 결과를 유지한다."""
+
+    async def scenario(h: Harness) -> None:
+        h.publish_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        assert len(followups.calls) == 1
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await asked(h, 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, followups=followups)
+    assert h.asker.questions[1].content == "꼬리 질문 1-1"
+
+
+def test_resumed_interview_without_previous_answer_uses_prepared_questions() -> None:
+    async def scenario(h: Harness) -> None:
+        for _ in range(2):
+            (await h.next_session()).speak()
+        await until(lambda: len(h.answers) == 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, current_seq=4, followups=followups)
+    assert followups.calls == []
+    assert [q.content for q in h.asker.questions] == ["질문 4", "질문 5"]
+
+
+# 기준: AI 명세 2.2 입력(채팅은 [답변 완료]의 content), 6.3 interview.answerSubmit
+def test_chat_followup_uses_submitted_answer_text() -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        await until(lambda: not h.asker.speaking.is_set())
+        assert json.loads(h.submit(1, "채팅 답변")) == {"accepted": True}
+        await asked(h, 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, mode="CHAT", persona="COFFEE_CHAT", followups=followups)
+    assert followups.calls == [(Persona.COFFEE_CHAT, "질문 1", "기준", "채팅 답변", 1)]
+    assert h.asker.questions[1].content == "꼬리 질문 1-1"
+
+
+@pytest.mark.parametrize("content", [None, "  "])
+def test_chat_submit_without_answer_text_gets_prepared_question(content: str | None) -> None:
+    async def scenario(h: Harness) -> None:
+        await asked(h, 1)
+        await until(lambda: not h.asker.speaking.is_set())
+        assert json.loads(h.submit(1, content)) == {"accepted": True}
+        await asked(h, 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, mode="CHAT", followups=followups)
+    assert followups.calls == []
+    assert h.asker.questions[1].content == "질문 2"
+
+
+def test_followup_is_synthesized_after_planned_question_synthesis() -> None:
+    """ElevenLabs 동시 요청 상한을 넘지 않도록 꼬리질문도 앞 질문 합성이 끝난 뒤 합성한다."""
+
+    async def scenario(h: Harness) -> None:
+        hold = h.asker.planned_second_hold = asyncio.Event()
+        (await h.next_session()).speak()
+        await until(lambda: len(followups.calls) == 1)
+        await asyncio.sleep(0.05)
+        # 2번 예비 질문 합성이 끝나지 않았으므로 꼬리질문 합성을 시작하지 않는다
+        assert h.asker.prepared == [1, 2]
+        hold.set()
+        await asked(h, 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, followups=followups)
+    assert h.asker.prepared[:3] == [1, 2, 2]
+
+
+# 기준: AI 명세 6.5 지원자 퇴장·새로고침(답변 중 퇴장하면 그 답변을 폐기)
+def test_leaving_during_answer_starts_generation_once() -> None:
+    """폐기한 답변으로는 생성하지 않고, 재입장 뒤 다시 수신한 답변으로 한 번만 생성한다."""
+
+    async def scenario(h: Harness) -> None:
+        first = await h.next_session()
+        first.speak()
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: first.closed)
+        h.runner.candidate_joined(CANDIDATE)
+        (await h.next_session()).speak()
+        await asked(h, 2)
+
+    followups = FakeFollowups()
+    h = run_async(scenario, followups=followups)
+    assert len(followups.calls) == 1
+    assert h.asker.questions[1].content == "꼬리 질문 1-1"
+
+
+# 기준: AI 명세 6.5 지원자 퇴장·새로고침(질문 음성 재생 중 퇴장하면 같은 질문을 다시 말함)
+def test_leaving_during_followup_question_repeats_same_followup() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.hold = asyncio.Event()
+        await asyncio.wait_for(h.asker.speaking.wait(), timeout=1)
+        h.asker.hold.set()
+        h.asker.hold = asyncio.Event()
+        (await h.next_session()).speak()
+        await asked(h, 2)
+        await until(h.asker.speaking.is_set)
+        h.runner.candidate_left(CANDIDATE)
+        await until(lambda: not h.asker.speaking.is_set())
+        h.asker.hold.set()
+        h.runner.candidate_joined(CANDIDATE)
+        await asked(h, 3)
+
+    h = run_async(scenario, followups=FakeFollowups())
+    assert [(seq, audio, announce) for seq, _, audio, announce in h.asker.asked] == [
+        (1, "audio-1", True),
+        (2, "audio-꼬리 질문 1-1", True),
+        (2, "audio-꼬리 질문 1-1", False),
+    ]
+    assert [q.content for q in h.asker.questions][1:] == ["꼬리 질문 1-1", "꼬리 질문 1-1"]
+
+
+def test_fifth_followup_is_synthesized_after_fourth_followup() -> None:
+    """ElevenLabs 동시 요청 상한을 넘지 않도록
+    5번 꼬리질문은 4번 꼬리질문 합성이 끝난 뒤 합성한다.
+    """
+
+    async def scenario(h: Harness) -> None:
+        hold = h.asker.content_holds["꼬리 질문 3-1"] = asyncio.Event()
+        for _ in range(3):
+            (await h.next_session()).speak()
+        await until(lambda: "꼬리 질문 3-1" in h.asker.prepared_contents)
+        await asyncio.sleep(0.05)
+        assert "꼬리 질문 3-2" not in h.asker.prepared_contents
+        hold.set()
+        await asked(h, 4)
+
+    h = run_async(scenario, followups=FakeFollowups())
+    contents = h.asker.prepared_contents
+    assert contents.index("꼬리 질문 3-2") > contents.index("꼬리 질문 3-1")

@@ -58,32 +58,60 @@ def sent(redis: FakeRedis) -> list[dict[str, Any]]:
 def test_question_started_has_spec_fields_and_millisecond_started_at() -> None:
     redis = FakeRedis()
 
-    question_started(55, 3, datetime(2026, 10, 22, 14, 2, 10, tzinfo=KST)).publish(publisher(redis))
+    question_started(55, 3, datetime(2026, 10, 22, 14, 2, 10, tzinfo=KST), "질문", "기준").publish(
+        publisher(redis)
+    )
 
-    # 필드는 AI 명세 6.2 question.started(seq, startedAt)와 같다.
-    # startedAt은 다시보기 기준이므로 같은 메시지의 occurredAt(초 단위)과 달리 밀리초까지 기록한다
+    # 필드는 AI 명세 6.2 question.started(seq, startedAt, content, criteria, 버전)와 같다.
+    # startedAt은 다시보기 기준이므로 같은 메시지의 occurredAt(초 단위)과 달리 밀리초까지 기록한다.
+    # 미리 만든 질문은 생성 버전이 없으므로 promptVersion·modelVersion이 null이다
     assert sent(redis) == [
         {
             "type": "question.started",
             "sessionId": 55,
             "seq": 3,
             "startedAt": "2026-10-22T14:02:10.000+09:00",
+            "content": "질문",
+            "criteria": "기준",
+            "promptVersion": None,
+            "modelVersion": None,
             "occurredAt": "2026-10-22T14:03:12+09:00",
         }
     ]
 
 
+def test_followup_question_started_carries_generation_versions() -> None:
+    message = question_started(
+        55,
+        2,
+        NOW,
+        "꼬리 질문",
+        "꼬리 기준",
+        prompt_version="followup-v1",
+        model_version="gpt-5.6-terra-2026",
+    )
+
+    assert {key: message.fields[key] for key in ("content", "criteria")} == {
+        "content": "꼬리 질문",
+        "criteria": "꼬리 기준",
+    }
+    assert (message.fields["promptVersion"], message.fields["modelVersion"]) == (
+        "followup-v1",
+        "gpt-5.6-terra-2026",
+    )
+
+
 def test_started_at_is_converted_to_korea_time_with_milliseconds() -> None:
     utc = datetime(2026, 10, 22, 5, 2, 10, 123456, tzinfo=UTC)
 
-    message = question_started(55, 1, utc)
+    message = question_started(55, 1, utc, "질문", "기준")
 
     assert message.fields["startedAt"] == "2026-10-22T14:02:10.123+09:00"
 
 
 def test_started_at_without_timezone_is_rejected() -> None:
     with pytest.raises(ProgressMessageError, match="시간대"):
-        question_started(55, 1, datetime(2026, 10, 22, 14, 2, 10))
+        question_started(55, 1, datetime(2026, 10, 22, 14, 2, 10), "질문", "기준")
 
 
 def test_answer_completed_matches_spec_example_without_job_id() -> None:
@@ -228,14 +256,14 @@ def test_equal_start_and_end_token_is_valid() -> None:
 @pytest.mark.parametrize(("session_id", "seq"), [(0, 1), (55, 0), (55, 6)])
 def test_target_out_of_range_is_rejected(session_id: int, seq: int) -> None:
     with pytest.raises(ProgressMessageError):
-        question_started(session_id, seq, NOW)
+        question_started(session_id, seq, NOW, "질문", "기준")
     with pytest.raises(ProgressMessageError):
         answer_completed(session_id, seq, STARTED, "답변", None, None, EndReason.AUTO_SUBMIT)
 
 
 def test_seq_boundaries_are_valid() -> None:
     for seq in (1, 5):
-        assert question_started(55, seq, NOW).fields["seq"] == seq
+        assert question_started(55, seq, NOW, "질문", "기준").fields["seq"] == seq
 
 
 def test_publish_retries_then_raises_for_submit_failed() -> None:
@@ -255,7 +283,9 @@ def test_publish_retries_then_raises_for_submit_failed() -> None:
 def test_other_offset_is_kept_as_same_instant() -> None:
     plus_one = timezone(timedelta(hours=1))
 
-    message = question_started(55, 1, datetime(2026, 10, 22, 6, 2, 10, tzinfo=plus_one))
+    message = question_started(
+        55, 1, datetime(2026, 10, 22, 6, 2, 10, tzinfo=plus_one), "질문", "기준"
+    )
 
     assert message.fields["startedAt"] == "2026-10-22T14:02:10.000+09:00"
 

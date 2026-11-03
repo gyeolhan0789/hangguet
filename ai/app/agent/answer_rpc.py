@@ -5,9 +5,12 @@
 - [답변 완료]의 응답은 받으면 accepted true, 이미 제출 중이면 false이고,
   발화가 없으면 2001 EMPTY_ANSWER, 답변 중이 아니면 2002 NOT_ANSWERING 오류다.
 - 판단은 app.interview.realtime.answer_end가 하고, 이 모듈은 그 결정을 메시지로 변환한다.
+- 채팅의 [답변 완료]는 답변 제출 API(5.7)로 제출한 답변 글(content)을 담는다.
+  에이전트는 채팅 답변을 듣지 않으므로 꼬리질문(AI 명세 2.2)을 이 글로 생성한다.
 """
 
 import json
+from dataclasses import dataclass
 from enum import IntEnum, StrEnum
 from typing import Any
 
@@ -18,6 +21,9 @@ from app.interview.realtime.answer_end import Decision
 
 ANSWER_SUBMIT_METHOD = "interview.answerSubmit"
 ANSWER_STATE_METHOD = "interview.answerState"
+# AI 명세 6.3: [답변 완료]의 답변 글(content) 상한.
+# 화면은 UTF-16 단위로 자르지만, 이 검사는 과도한 본문을 막는 용도이므로 글자 수로 비교한다
+MAX_SUBMIT_CONTENT_LENGTH = 1_000
 
 
 class AnswerState(StrEnum):
@@ -45,8 +51,15 @@ class InvalidAnswerSubmitError(ValueError):
     """[답변 완료] 본문 형식이 틀렸다."""
 
 
-def parse_answer_submit(payload: str, session_id: int) -> int:
-    """[답변 완료] 본문의 질문 순서(seq)를 반환한다.
+@dataclass(frozen=True)
+class AnswerSubmit:
+    seq: int
+    # 채팅의 답변 글. 화상이거나 화면이 담지 않았으면 None이다
+    content: str | None
+
+
+def parse_answer_submit(payload: str, session_id: int) -> AnswerSubmit:
+    """[답변 완료] 본문의 질문 순서(seq)와 답변 글(content)을 반환한다.
 
     다른 면접의 메시지이거나 형식이 틀리면 InvalidAnswerSubmitError를 발생시킨다.
     """
@@ -64,7 +77,14 @@ def parse_answer_submit(payload: str, session_id: int) -> int:
     # bool은 int에 속하므로 true를 질문 순서 1로 허용하지 않도록 형식을 비교한다.
     if type(seq) is not int or not MIN_SEQ <= seq <= MAX_SEQ:
         raise InvalidAnswerSubmitError(f"seq는 {MIN_SEQ}~{MAX_SEQ}의 정수여야 한다")
-    return seq
+    content = message.get("content")
+    if content is not None and (
+        not isinstance(content, str) or len(content) > MAX_SUBMIT_CONTENT_LENGTH
+    ):
+        raise InvalidAnswerSubmitError(
+            f"content는 {MAX_SUBMIT_CONTENT_LENGTH}자 이하의 문자열이거나 null이어야 한다"
+        )
+    return AnswerSubmit(seq, content)
 
 
 def answer_submit_reply(decision: Decision) -> str:

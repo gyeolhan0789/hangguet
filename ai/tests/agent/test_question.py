@@ -22,13 +22,14 @@ from app.common.results import KST, ResultPublishError, ResultType
 from app.common.session import InterviewMode, Persona
 
 STARTED_AT = datetime(2026, 10, 22, 14, 2, 18, 250000, tzinfo=KST)
+QUESTION = AssignedQuestion("질문", "기준")
 AUDIO = SpeechAudio(b"\x01\x00" * 600, (AlignedChar("질", 0, 10), AlignedChar("문", 10, 25)))
 ASSIGNMENT = Assignment(
     session_id=55,
     mode=InterviewMode.VIDEO,
     persona=Persona.DEVIL,
     current_seq=1,
-    questions={1: AssignedQuestion("질문", "기준")},
+    questions={1: QUESTION},
 )
 
 
@@ -100,12 +101,53 @@ def test_question_is_announced_to_be_then_spoken_between_started_and_ended() -> 
         json.loads(kw["payload"])["speech"]
     )
     source.capture_frame.side_effect = lambda _frame: order.append("frame")
-    asyncio.run(talker.ask(1, "candidate", AUDIO))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
     assert order == ["started", "frame", "frame", "frame", "ended"]
     source.wait_for_playout.assert_awaited_once()
+    # 미리 만든 질문은 생성 버전이 없으므로 null이다(AI 명세 6.2)
     results.publish.assert_called_once_with(
-        ResultType.QUESTION_STARTED, 55, {"seq": 1, "startedAt": "2026-10-22T14:02:18.250+09:00"}
+        ResultType.QUESTION_STARTED,
+        55,
+        {
+            "seq": 1,
+            "startedAt": "2026-10-22T14:02:18.250+09:00",
+            "content": "질문",
+            "criteria": "기준",
+            "promptVersion": None,
+            "modelVersion": None,
+        },
     )
+
+
+# 기준: AI 명세 6.2 question.started(실제로 출제한 질문의 글·채점 기준·생성 버전)
+def test_followup_question_is_announced_and_spoken_with_its_own_text_and_versions() -> None:
+    results = Mock()
+    talker, participant, _ = speaker(results)
+    followup = AssignedQuestion("꼬리 질문", "꼬리 기준", "followup-v1", "gpt-5.6-terra-2026")
+    asyncio.run(talker.ask(2, followup, "candidate", AUDIO))
+    contents = [
+        json.loads(call.kwargs["payload"])["content"]
+        for call in participant.perform_rpc.await_args_list
+    ]
+    assert contents == ["꼬리 질문", "꼬리 질문"]
+    results.publish.assert_called_once_with(
+        ResultType.QUESTION_STARTED,
+        55,
+        {
+            "seq": 2,
+            "startedAt": "2026-10-22T14:02:18.250+09:00",
+            "content": "꼬리 질문",
+            "criteria": "꼬리 기준",
+            "promptVersion": "followup-v1",
+            "modelVersion": "gpt-5.6-terra-2026",
+        },
+    )
+
+
+def test_prepare_synthesizes_given_question_not_assignment() -> None:
+    talker, _, _ = speaker()
+    asyncio.run(talker.prepare(2, AssignedQuestion("꼬리 질문", "꼬리 기준")))
+    talker._tts.synthesize.assert_awaited_once_with("꼬리 질문", Persona.DEVIL)  # type: ignore[attr-defined]
 
 
 def test_repeated_question_is_spoken_without_announcing_to_be_again() -> None:
@@ -115,7 +157,7 @@ def test_repeated_question_is_spoken_without_announcing_to_be_again() -> None:
     """
     results = Mock()
     talker, participant, _ = speaker(results)
-    asyncio.run(talker.ask(1, "candidate", AUDIO, announce=False))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO, announce=False))
     assert speeches(participant) == ["started", "ended"]
     results.publish.assert_not_called()
 
@@ -123,7 +165,7 @@ def test_repeated_question_is_spoken_without_announcing_to_be_again() -> None:
 def test_synthesis_failure_reports_failed_but_question_still_starts() -> None:
     results = Mock()
     talker, participant, source = speaker(results)
-    asyncio.run(talker.ask(1, "candidate", None))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", None))
     assert speeches(participant) == ["failed"]
     source.capture_frame.assert_not_awaited()
     results.publish.assert_called_once()
@@ -132,12 +174,12 @@ def test_synthesis_failure_reports_failed_but_question_still_starts() -> None:
 def test_prepare_returns_none_when_tts_fails() -> None:
     talker, _, _ = speaker()
     talker._tts.synthesize = AsyncMock(side_effect=TtsError("down"))  # type: ignore[method-assign]
-    assert asyncio.run(talker.prepare(1)) is None
+    assert asyncio.run(talker.prepare(1, QUESTION)) is None
 
 
 def test_prepare_synthesizes_question_with_persona_voice() -> None:
     talker, _, _ = speaker()
-    assert asyncio.run(talker.prepare(1)) is AUDIO
+    assert asyncio.run(talker.prepare(1, QUESTION)) is AUDIO
     talker._tts.synthesize.assert_awaited_once_with("질문", Persona.DEVIL)  # type: ignore[attr-defined]
 
 
@@ -145,7 +187,7 @@ def test_prepare_synthesizes_question_with_persona_voice() -> None:
 def test_screen_not_receiving_rpc_does_not_stop_voice(error: Exception) -> None:
     talker, participant, source = speaker()
     participant.perform_rpc.side_effect = error
-    asyncio.run(talker.ask(1, "candidate", AUDIO))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
     assert source.capture_frame.await_count == 3
     assert participant.perform_rpc.await_count == 2
 
@@ -153,7 +195,7 @@ def test_screen_not_receiving_rpc_does_not_stop_voice(error: Exception) -> None:
 def test_playback_failure_reports_failed() -> None:
     talker, participant, source = speaker()
     source.capture_frame.side_effect = RuntimeError("closed")
-    asyncio.run(talker.ask(1, "candidate", AUDIO))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
     assert speeches(participant) == ["started", "failed"]
 
 
@@ -161,7 +203,7 @@ def test_result_queue_failure_does_not_stop_question() -> None:
     results = Mock()
     results.publish.side_effect = ResultPublishError("redis down")
     talker, participant, _ = speaker(results)
-    asyncio.run(talker.ask(1, "candidate", AUDIO))
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
     assert speeches(participant) == ["started", "ended"]
 
 
@@ -176,7 +218,7 @@ def test_cancel_during_playback_drops_queued_audio() -> None:
             await asyncio.Event().wait()
 
         source.capture_frame.side_effect = wait
-        task = asyncio.create_task(talker.ask(1, "candidate", AUDIO))
+        task = asyncio.create_task(talker.ask(1, QUESTION, "candidate", AUDIO))
         await blocked.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -216,7 +258,7 @@ def test_synthesis_time_is_logged_in_milliseconds(caplog: pytest.LogCaptureFixtu
     tts = Mock(synthesize=AsyncMock(return_value=AUDIO))
     talker = timed_speaker(tts, 10.0, 11.25, 20.0, 20.5)
     with caplog.at_level(logging.INFO, logger="app.agent.question"):
-        asyncio.run(talker.prepare(1))
+        asyncio.run(talker.prepare(1, QUESTION))
         asyncio.run(talker.prepare_notice("안내"))
     assert [record.getMessage() for record in caplog.records] == [
         "질문 음성 합성 완료 ms=1250 chars=2",
@@ -231,7 +273,7 @@ def test_synthesis_failure_keeps_alert_phrase_and_adds_time(
     tts = Mock(synthesize=AsyncMock(side_effect=TtsError("ElevenLabs 합성 실패 (status=500)")))
     talker = timed_speaker(tts, 0.0, 2.0, 5.0, 5.3)
     with caplog.at_level(logging.INFO, logger="app.agent.question"):
-        asyncio.run(talker.prepare(1))
+        asyncio.run(talker.prepare(1, QUESTION))
         asyncio.run(talker.prepare_notice("안내"))
     assert [record.getMessage() for record in caplog.records] == [
         "질문 음성 합성 실패: ElevenLabs 합성 실패 (status=500) ms=2000",

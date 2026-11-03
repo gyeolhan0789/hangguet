@@ -11,6 +11,7 @@ import pytest
 from app.common.gms import (
     BACKOFF_SECONDS,
     MAX_RETRY_AFTER_SECONDS,
+    REQUEST_TIMEOUT_SECONDS,
     GmsBadOutputError,
     GmsClient,
     GmsDeadlineError,
@@ -388,3 +389,33 @@ def test_missing_or_malformed_usage_is_not_logged(
         result = client(transport, []).chat_json(MESSAGES)
     assert result.content == {"level": 3}
     assert not [r for r in caplog.records if r.getMessage().startswith("GMS 사용량")]
+
+
+@pytest.mark.parametrize("failure", [status(503), TimeoutError()])
+def test_empty_retry_delays_call_once_without_retry(failure: HttpResponse | Exception) -> None:
+    """면접 중 꼬리질문처럼 기다릴 시간이 짧은 호출은 재시도하지 않고 한 번만 호출한다."""
+    transport = FakeTransport([failure, ok()])
+    sleeps: list[float] = []
+    gms = GmsClient(model="gpt-test", transport=transport, sleep=sleeps.append, retry_delays=())
+
+    with pytest.raises(GmsUnavailableError):
+        gms.chat_json(MESSAGES)
+
+    assert len(transport.payloads) == 1
+    assert sleeps == []
+
+
+def test_from_settings_passes_request_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    timeouts: list[object] = []
+
+    def capture(req: urllib.request.Request, **kwargs: object) -> FakeOkResponse:
+        timeouts.append(kwargs.get("timeout"))
+        return FakeOkResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", capture)
+    settings = load_settings({"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-5.6-terra"})
+
+    GmsClient.from_settings(settings, timeout=4.0).chat_json(MESSAGES)
+    GmsClient.from_settings(settings).chat_json(MESSAGES)
+
+    assert timeouts == [4.0, REQUEST_TIMEOUT_SECONDS]
