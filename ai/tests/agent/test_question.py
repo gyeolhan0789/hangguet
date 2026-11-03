@@ -1,6 +1,8 @@
 import asyncio
 import json
 import logging
+import threading
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -67,14 +69,16 @@ def test_pcm_is_split_into_10ms_frames_with_silent_padding() -> None:
     assert bytes(frames[1].data)[120:] == b"\0" * 360
 
 
-def speaker(results: Mock | None = None) -> tuple[QuestionSpeaker, Mock, Mock]:
+def speaker(
+    results: Mock | None = None, clock: Callable[[], datetime] = lambda: STARTED_AT
+) -> tuple[QuestionSpeaker, Mock, Mock]:
     participant = Mock()
     participant.publish_track = AsyncMock()
     participant.perform_rpc = AsyncMock(return_value="")
     source = Mock(capture_frame=AsyncMock(), wait_for_playout=AsyncMock(), aclose=AsyncMock())
     tts = Mock()
     tts.synthesize = AsyncMock(return_value=AUDIO)
-    talker = QuestionSpeaker(participant, ASSIGNMENT, tts, results, clock=lambda: STARTED_AT)
+    talker = QuestionSpeaker(participant, ASSIGNMENT, tts, results, clock=clock)
     with (
         patch("app.agent.question.rtc.AudioSource", return_value=source),
         patch("app.agent.question.rtc.LocalAudioTrack.create_audio_track") as create,
@@ -144,22 +148,159 @@ def test_followup_question_is_announced_and_spoken_with_its_own_text_and_version
     )
 
 
+def recording_clock(order: list[str]) -> Callable[[], datetime]:
+    def clock() -> datetime:
+        order.append("clock")
+        return STARTED_AT
+
+    return clock
+
+
+# 기준: AI 명세 6.2 질문(음성의 첫 소리를 송출하는 시각이 startedAt)
+def test_started_at_is_taken_after_started_notice_and_before_first_frame() -> None:
+    """화면 알림은 최대 3초를 기다리므로, 알림 뒤에 기록해야 다시보기 마커가 음성과 맞는다."""
+    results = Mock()
+    order: list[str] = []
+    talker, participant, source = speaker(results, recording_clock(order))
+    participant.perform_rpc.side_effect = lambda **kw: order.append(
+        json.loads(kw["payload"])["speech"]
+    )
+    source.capture_frame.side_effect = lambda _frame: order.append("frame")
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
+    assert order == ["started", "clock", "frame", "frame", "frame", "ended"]
+    results.publish.assert_called_once()
+
+
+# 기준: AI 명세 6.2 질문(음성 없이 출제하면 failed를 전송하기 직전 시각이 startedAt)
+def test_started_at_without_audio_is_taken_when_sending_failed_notice() -> None:
+    """화면 응답을 기다린 뒤 기록하면 최대 3초 늦어지므로 failed를 전송하기 전에 기록한다."""
+    results = Mock()
+    order: list[str] = []
+    talker, participant, _ = speaker(results, recording_clock(order))
+    participant.perform_rpc.side_effect = lambda **kw: order.append(
+        json.loads(kw["payload"])["speech"]
+    )
+    asyncio.run(talker.ask(1, QUESTION, "candidate", None))
+    assert order == ["clock", "failed"]
+    results.publish.assert_called_once()
+
+
+def test_question_cancelled_before_voice_is_not_announced_to_be() -> None:
+    """음성을 송출하기 전에 면접이 끝나면 말하기 시작한 시각이 없으므로 전송하지 않는다."""
+    results = Mock()
+    talker, participant, source = speaker(results)
+
+    async def run() -> None:
+        notified = asyncio.Event()
+
+        async def block(**_kw: Any) -> None:
+            notified.set()
+            await asyncio.Event().wait()
+
+        participant.perform_rpc.side_effect = block
+        task = asyncio.create_task(talker.ask(1, QUESTION, "candidate", AUDIO))
+        await notified.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+    source.capture_frame.assert_not_awaited()
+    results.publish.assert_not_called()
+
+
+def test_playback_failure_after_voice_starts_still_announces_to_be() -> None:
+    """송출을 시작한 뒤 실패해도 질문은 출제되었으므로 BE가 질문 행을 생성해야 한다."""
+    results = Mock()
+    talker, _, source = speaker(results)
+    source.capture_frame.side_effect = RuntimeError("closed")
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
+    results.publish.assert_called_once()
+
+
+# 기준: BE 설계 5.3(질문 행이 없으면 answer.completed를 저장하지 않음)
+def test_question_ends_only_after_question_started_is_sent() -> None:
+    """question.started 전송이 끝나기 전에는 질문 말하기가 끝나지 않는다.
+
+    답변은 질문 말하기가 끝난 뒤에 듣기 시작하므로,
+    answer.completed가 질문 행을 생성하는 question.started보다 먼저 전송되지 않는다.
+    """
+    results = Mock()
+    publishing = threading.Event()
+    sent = threading.Event()
+
+    def publish(*_args: Any, **_kwargs: Any) -> None:
+        publishing.set()
+        sent.wait(timeout=5)
+
+    results.publish.side_effect = publish
+    talker, _, _ = speaker(results)
+
+    async def run() -> None:
+        asking = asyncio.create_task(talker.ask(1, QUESTION, "candidate", AUDIO))
+        await asyncio.to_thread(publishing.wait, 5)
+        # 전송 대기 코드가 없으면 시험의 가짜 음성 송출이 바로 끝나므로,
+        # 0.3초 동안 질문 말하기가 끝나지 않는지 확인한다
+        done, _ = await asyncio.wait({asking}, timeout=0.3)
+        assert not done
+        sent.set()
+        await asyncio.wait_for(asking, timeout=5)
+
+    asyncio.run(run())
+    results.publish.assert_called_once()
+
+
 def test_prepare_synthesizes_given_question_not_assignment() -> None:
     talker, _, _ = speaker()
     asyncio.run(talker.prepare(2, AssignedQuestion("꼬리 질문", "꼬리 기준")))
     talker._tts.synthesize.assert_awaited_once_with("꼬리 질문", Persona.DEVIL)  # type: ignore[attr-defined]
 
 
-def test_repeated_question_is_spoken_without_announcing_to_be_again() -> None:
-    """재입장 뒤 다시 말할 때는 question.started를 전송하지 않는다.
-
-    BE가 질문 행을 이미 저장했기 때문이다.
-    """
+# 기준: AI 명세 6.5 지원자 퇴장·새로고침(재입장 뒤 다시 말할 때 question.started 재전송 안 함)
+def test_repeated_question_is_announced_to_be_only_once() -> None:
+    """BE가 질문 행을 처음 시작 시각으로 이미 저장했으므로 다시 말해도 전송하지 않는다."""
     results = Mock()
     talker, participant, _ = speaker(results)
-    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO, announce=False))
-    assert speeches(participant) == ["started", "ended"]
-    results.publish.assert_not_called()
+
+    async def run() -> None:
+        await talker.ask(1, QUESTION, "candidate", AUDIO)
+        await talker.ask(1, QUESTION, "candidate", AUDIO)
+
+    asyncio.run(run())
+    assert speeches(participant) == ["started", "ended", "started", "ended"]
+    results.publish.assert_called_once()
+
+
+def test_question_left_before_voice_is_announced_when_spoken_again() -> None:
+    """음성을 송출하기 전에 퇴장했으면 전송하지 않았으므로,
+    다시 말하며 소리를 낼 때 전송한다.
+
+    전송하지 않으면 BE에 질문 행이 생성되지 않아 그 질문의 답변을 저장할 수 없다.
+    """
+    results = Mock()
+    order: list[str] = []
+    talker, participant, source = speaker(results, recording_clock(order))
+    source.capture_frame.side_effect = lambda _frame: order.append("frame")
+
+    async def run() -> None:
+        notified = asyncio.Event()
+
+        async def block(**_kw: Any) -> None:
+            notified.set()
+            await asyncio.Event().wait()
+
+        participant.perform_rpc.side_effect = block
+        first = asyncio.create_task(talker.ask(1, QUESTION, "candidate", AUDIO))
+        await notified.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        participant.perform_rpc.side_effect = None
+        await talker.ask(1, QUESTION, "candidate", AUDIO)
+
+    asyncio.run(run())
+    assert order == ["clock", "frame", "frame", "frame"]
+    results.publish.assert_called_once()
 
 
 def test_synthesis_failure_reports_failed_but_question_still_starts() -> None:

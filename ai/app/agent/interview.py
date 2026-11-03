@@ -14,8 +14,8 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   지금 질문이 아닌 seq의 [답변 완료]도 지금 답할 수 있는 질문이 아니므로 2002로 거절한다.
 - 지원자가 퇴장하면 진행 중인 답변을 폐기하고 재입장을 기다린다.
   재입장하면 같은 질문의 답변을 처음부터 다시 듣는다.
-  질문 음성 재생 중에 퇴장했으면 질문을 다시 말하고,
-  BE에 전송하는 question.started는 다시 전송하지 않는다.
+  질문 음성 재생 중에 퇴장했으면 질문을 다시 말한다.
+  BE에 전송하는 question.started는 질문 음성 담당(QuestionSpeaker)이 질문마다 한 번만 전송한다.
 - 면접방이 닫히면 진행 중인 답변은 전달하지 않는다(AI 명세 6.1).
 - 다음 질문 음성은 답변을 듣는 동안 미리 합성한다(AI 명세 6장 머리말).
   ElevenLabs 동시 요청 상한(요금제)을 넘지 않도록 질문은 앞 질문 합성이 끝난 뒤 하나씩 합성한다.
@@ -114,8 +114,6 @@ class QuestionAsker(Protocol):
         question: AssignedQuestion,
         destination: str,
         audio: SpeechAudio | None,
-        *,
-        announce: bool = True,
     ) -> None: ...
 
 
@@ -310,16 +308,14 @@ class InterviewRunner:
         self._chat_input_seq = 0
         self._prepare(seq)
         self._prepare(seq + 1)
-        announce = True
         while True:
             destination = await self._wait_candidate()
             if self._chat and self._reactions is not None:
                 self._reactions.start(seq, destination)
             # 질문 음성 재생 중에는 답변 중이 아니므로 [답변 완료]를 거절한다
             self._state = INITIAL_STATE
-            if await self._speak(seq, destination, announce):
+            if await self._speak(seq, destination):
                 break
-            announce = False
         while not await self._answer(seq):
             await self._wait_candidate()
         self._prepared.pop(seq, None)
@@ -414,16 +410,14 @@ class InterviewRunner:
         assert self._candidate is not None
         return self._candidate
 
-    async def _speak(self, seq: int, destination: str, announce: bool) -> bool:
+    async def _speak(self, seq: int, destination: str) -> bool:
         """질문을 말한다.
 
         말하는 도중 지원자가 퇴장하면 False다.
         """
         question, audio = await self._prepared[seq]
         self._asked[seq] = question
-        asking = asyncio.create_task(
-            self._asker.ask(seq, question, destination, audio, announce=announce)
-        )
+        asking = asyncio.create_task(self._asker.ask(seq, question, destination, audio))
         left = asyncio.create_task(self._left.wait())
         try:
             done, _ = await asyncio.wait((asking, left), return_when=asyncio.FIRST_COMPLETED)
