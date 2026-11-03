@@ -82,6 +82,22 @@ class S3FileStorageTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void findGivesUploadedTypeAndSize() {
+        when(s3.headObject(any(Consumer.class)))
+                .thenReturn(
+                        HeadObjectResponse.builder()
+                                .contentType("image/png")
+                                .contentLength(2048L)
+                                .build());
+        assertThat(storage.find("inquiry/a.png")).contains(new StoredFile("image/png", 2048L));
+
+        when(s3.headObject(any(Consumer.class)))
+                .thenThrow(NoSuchKeyException.builder().statusCode(404).build());
+        assertThat(storage.find("inquiry/a.png")).isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void accessDeniedIsNotTreatedAsMissingFile() {
         when(s3.headObject(any(Consumer.class)))
                 .thenThrow(S3Exception.builder().statusCode(403).build());

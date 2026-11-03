@@ -3,8 +3,13 @@ package com.ssafy.a301.inquiry.dto;
 import com.ssafy.a301.inquiry.domain.AuthorType;
 import com.ssafy.a301.inquiry.domain.InquiryStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
@@ -12,6 +17,11 @@ import java.util.List;
 
 /** 9. 문의 요청 · 응답. 목 서버(mock/ inquiry)와 같은 모양이다. */
 public final class InquiryDtos {
+
+    public static final int MAX_ATTACHMENTS = 5;
+
+    private static final String ATTACHMENT_KEYS =
+            "붙일 사진. 9.11에서 받은 objectKey(올린 뒤 1시간 안, 한 번만 쓴다). 없으면 보내지 않는다";
 
     private InquiryDtos() {}
 
@@ -43,11 +53,56 @@ public final class InquiryDtos {
                             maxLength = 20,
                             nullable = true)
                     @Size(min = 4, max = 20, message = "4~20자입니다.")
-                    String accessPassword) {}
+                    String accessPassword,
+            @Schema(description = ATTACHMENT_KEYS, nullable = true)
+                    @Size(max = MAX_ATTACHMENTS, message = "사진은 5장까지 붙일 수 있습니다.")
+                    List<@NotBlank(message = "필수 값입니다.") String> attachmentKeys) {}
 
-    public record InquiryMessageRequest(
-            @Schema(description = "질문 또는 답변 본문", example = "확인 부탁드려요.")
+    @Schema(description = "9.4 문의한 사람이 이어서 쓰는 질문")
+    public record InquiryQuestionRequest(
+            @Schema(description = "질문 본문", example = "확인 부탁드려요.") @NotBlank(message = "필수 값입니다.")
+                    String content,
+            @Schema(description = ATTACHMENT_KEYS, nullable = true)
+                    @Size(max = MAX_ATTACHMENTS, message = "사진은 5장까지 붙일 수 있습니다.")
+                    List<@NotBlank(message = "필수 값입니다.") String> attachmentKeys) {}
+
+    @Schema(description = "9.11 사진 업로드 주소 요청")
+    public record AttachmentUploadUrlRequest(
+            @Schema(description = "올릴 사진들. 1~5장")
+                    @NotEmpty(message = "필수 값입니다.")
+                    @Size(max = MAX_ATTACHMENTS, message = "사진은 5장까지 붙일 수 있습니다.")
+                    List<@Valid @NotNull(message = "필수 값입니다.") AttachmentFile> files) {}
+
+    public record AttachmentFile(
+            @Schema(
+                            description = "올릴 파일 형식",
+                            allowableValues = {"image/jpeg", "image/png"},
+                            example = "image/png")
                     @NotBlank(message = "필수 값입니다.")
+                    @Pattern(regexp = "image/jpeg|image/png", message = "JPG·PNG만 올릴 수 있습니다.")
+                    String contentType,
+            @Schema(description = "파일 크기(바이트). 1~5,242,880(5MB)", example = "204800")
+                    @NotNull(message = "필수 값입니다.")
+                    @Min(value = 1, message = "1바이트 이상입니다.")
+                    @Max(value = 5_242_880, message = "5MB 이하만 올릴 수 있습니다.")
+                    Long size) {}
+
+    @Schema(description = "요청한 순서대로 사진마다 업로드 주소")
+    public record AttachmentUploadUrlResponse(List<AttachmentUploadUrl> files) {}
+
+    public record AttachmentUploadUrl(
+            @Schema(description = "파일을 PUT할 임시 주소") String uploadUrl,
+            @Schema(description = "올린 파일의 키. 9.1 · 9.4의 attachmentKeys에 그대로 보낸다") String objectKey,
+            @Schema(description = "uploadUrl 만료 일시") OffsetDateTime expiresAt) {}
+
+    @Schema(description = "메시지에 붙인 사진")
+    public record InquiryAttachment(
+            @Schema(description = "사진 id", example = "3") long id,
+            @Schema(description = "사진을 받는 임시 주소(1시간)") String url) {}
+
+    @Schema(description = "9.8 관리자 답변")
+    public record InquiryMessageRequest(
+            @Schema(description = "답변 본문", example = "확인 부탁드려요.") @NotBlank(message = "필수 값입니다.")
                     String content) {}
 
     @Schema(description = "문의 메시지 하나(질문 또는 답변)")
@@ -55,7 +110,8 @@ public final class InquiryDtos {
             @Schema(description = "메시지 id", example = "21") long id,
             @Schema(description = "쓴 사람") AuthorType authorType,
             @Schema(description = "본문") String content,
-            @Schema(description = "쓴 일시") OffsetDateTime createdAt) {}
+            @Schema(description = "쓴 일시") OffsetDateTime createdAt,
+            @Schema(description = "붙인 사진. 붙인 순. 없으면 빈 목록") List<InquiryAttachment> attachments) {}
 
     @Schema(description = "문의. 문의 id가 곧 문의번호다")
     public record InquiryResponse(
@@ -85,7 +141,8 @@ public final class InquiryDtos {
                             nullable = true)
                     String adminName,
             @Schema(description = "본문") String content,
-            @Schema(description = "쓴 일시") OffsetDateTime createdAt) {}
+            @Schema(description = "쓴 일시") OffsetDateTime createdAt,
+            @Schema(description = "붙인 사진. 붙인 순. 없으면 빈 목록") List<InquiryAttachment> attachments) {}
 
     public record AdminInquiryListItem(
             @Schema(description = "문의 id(문의번호)", example = "7") long id,

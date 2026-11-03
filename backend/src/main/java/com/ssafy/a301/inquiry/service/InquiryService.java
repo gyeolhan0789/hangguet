@@ -6,13 +6,18 @@ import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.inquiry.domain.Inquiry;
 import com.ssafy.a301.inquiry.domain.InquiryMessage;
+import com.ssafy.a301.inquiry.domain.InquiryStatus;
 import com.ssafy.a301.inquiry.dto.InquiryDtos;
+import com.ssafy.a301.inquiry.dto.InquiryDtos.AttachmentFile;
+import com.ssafy.a301.inquiry.dto.InquiryDtos.AttachmentUploadUrlResponse;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryListItem;
+import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryQuestionRequest;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryResponse;
 import com.ssafy.a301.inquiry.mapper.InquiryMapper;
 import com.ssafy.a301.inquiry.repository.InquiryMessageRepository;
 import com.ssafy.a301.inquiry.repository.InquiryRepository;
+import com.ssafy.a301.inquiry.service.InquiryAttachments.Claimed;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
@@ -43,6 +48,7 @@ public class InquiryService {
     private final UserRepository users;
     // 조회 비밀번호는 회원 비밀번호와 같은 방식으로 해시한다
     private final PasswordEncoder passwords;
+    private final InquiryAttachments attachments;
     private final TransactionTemplate transactions;
 
     public InquiryService(
@@ -50,11 +56,13 @@ public class InquiryService {
             InquiryMessageRepository messages,
             UserRepository users,
             PasswordEncoder passwords,
+            InquiryAttachments attachments,
             TransactionTemplate transactions) {
         this.inquiries = inquiries;
         this.messages = messages;
         this.users = users;
         this.passwords = passwords;
+        this.attachments = attachments;
         this.transactions = transactions;
     }
 
@@ -81,14 +89,19 @@ public class InquiryService {
                             passwords.encode(request.accessPassword()),
                             now);
         }
+        List<Claimed> photos = attachments.claim(request.attachmentKeys());
         Inquiry target = inquiry;
         InquiryMessage first =
                 transactions.execute(
                         status -> {
                             inquiries.save(target);
-                            return messages.save(target.addQuestion(request.content(), now));
+                            InquiryMessage saved =
+                                    messages.save(target.addQuestion(request.content(), now));
+                            attachments.attach(saved, photos, now);
+                            return saved;
                         });
-        return InquiryMapper.toInquiry(target, List.of(first));
+        List<InquiryMessage> thread = List.of(first);
+        return InquiryMapper.toInquiry(target, thread, attachments.of(thread));
     }
 
     /** 9.2. 메시지는 빼고 준다 */
@@ -102,19 +115,34 @@ public class InquiryService {
     /** 9.3 */
     public InquiryResponse get(Long userId, long inquiryId, String accessPassword) {
         Inquiry inquiry = readable(inquiryId, userId, accessPassword);
-        return InquiryMapper.toInquiry(inquiry, messages.findThread(inquiryId));
+        List<InquiryMessage> thread = messages.findThread(inquiryId);
+        return InquiryMapper.toInquiry(inquiry, thread, attachments.of(thread));
     }
 
-    /** 9.4. 종료한 문의면 409 INQUIRY_CLOSED */
+    /** 9.4. 종료한 문의면 409 INQUIRY_CLOSED(사진 키를 쓰기 전에 막는다) */
     public InquiryDtos.InquiryMessage addQuestion(
-            Long userId, long inquiryId, String accessPassword, String content) {
-        readable(inquiryId, userId, accessPassword);
+            Long userId, long inquiryId, String accessPassword, InquiryQuestionRequest request) {
+        if (readable(inquiryId, userId, accessPassword).getStatus() == InquiryStatus.CLOSED) {
+            throw new ApiException(ErrorCode.INQUIRY_CLOSED);
+        }
+        List<Claimed> photos = attachments.claim(request.attachmentKeys());
         InquiryMessage saved =
                 transactions.execute(
-                        status ->
-                                messages.save(
-                                        locked(inquiryId).addQuestion(content, KoreaTime.now())));
-        return InquiryMapper.toMessage(saved);
+                        status -> {
+                            OffsetDateTime now = KoreaTime.now();
+                            InquiryMessage question =
+                                    messages.save(
+                                            locked(inquiryId).addQuestion(request.content(), now));
+                            attachments.attach(question, photos, now);
+                            return question;
+                        });
+        return InquiryMapper.toMessage(
+                saved, attachments.of(List.of(saved)).getOrDefault(saved.getId(), List.of()));
+    }
+
+    /** 9.11 */
+    public AttachmentUploadUrlResponse attachmentUploadUrls(List<AttachmentFile> files) {
+        return attachments.uploadUrls(files);
     }
 
     /** 9.5. 이미 종료했어도 그대로 성공 */

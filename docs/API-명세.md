@@ -110,6 +110,7 @@
 | 9.8 | 문의 답변 | `POST /admin/inquiries/{inquiryId}/messages` | 관리자 |
 | 9.9 | 문의 종료(관리) | `POST /admin/inquiries/{inquiryId}/close` | 관리자 |
 | 9.10 | 회원 비밀번호 변경 | `PATCH /admin/users/{userId}/password` | 관리자 |
+| 9.11 | 문의 사진 업로드 주소 | `POST /inquiries/attachments/upload-url` | - |
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
 
@@ -808,16 +809,20 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 **문의 상태** `WAITING`(답변 대기) → 관리자 답변(9.8) `ANSWERED` → 이어서 쓰기(9.4) `WAITING`. 종료(9.5·9.9)하면 `CLOSED`이고 더 쓸 수 없다. 문의 id가 곧 문의번호다. 제목·본문은 암호화해 저장한다.
 
-**회원 · 비회원** 9.1·9.3·9.4·9.5는 토큰 없이 부를 수 있다. 토큰을 보내면 회원 문의로 그 회원만 볼 수 있고, 보내지 않으면 비회원 문의로 `X-Inquiry-Password` 헤더(9.1에서 정한 조회 비밀번호)가 맞을 때만 볼 수 있다. 없는 문의·남의 문의·틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다. 9.6~9.10은 관리자 토큰으로 부른다(8장).
+**회원 · 비회원** 9.1·9.3·9.4·9.5·9.11은 토큰 없이 부를 수 있다. 토큰을 보내면 회원 문의로 그 회원만 볼 수 있고, 보내지 않으면 비회원 문의로 `X-Inquiry-Password` 헤더(9.1에서 정한 조회 비밀번호)가 맞을 때만 볼 수 있다. 없는 문의·남의 문의·틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다. 9.6~9.10은 관리자 토큰으로 부른다(8장).
 
 목록(9.2·9.6)은 `page` 0부터(기본 0), `size` 1~20(기본 10), 최근 작성 순이며 메시지는 빼고 준다.
 
+**사진** 질문(9.1·9.4)에 사진을 5장까지 붙인다. 9.11로 업로드 주소를 받아 S3에 올린 뒤 `attachmentKeys`에 `objectKey`를 보낸다. 첫 문의는 문의번호가 없고 비회원은 회원 id도 없어, 키를 누구에게 묶지 않는다. 대신 키는 받은 사람만 알고(추측할 수 없음) 1시간 안에 한 번만 쓸 수 있다. 메시지마다 `attachments`(붙인 순, 없으면 빈 목록)에 사진 id와 받는 주소(1시간)를 준다. 관리자 답변에는 사진을 붙이지 않는다.
+
 #### 9.1 문의 작성
 
-제목(최대 100자)과 첫 질문으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다.
+제목(최대 100자)과 첫 질문으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 저장. 메시지는 첫 질문 하나
 - **400 / VALIDATION_FAILED**: 비회원인데 `email`·`accessPassword` 없음, 형식·길이 오류
+- **400 / VALIDATION_FAILED**(`attachmentKeys`): 발급되지 않았거나 이미 쓴 키, 같은 키를 두 번 보냄, 6장 이상
+- **404 / FILE_NOT_FOUND**: 키는 맞지만 S3에 사진이 없음(키는 쓰지 않아 올린 뒤 다시 보낼 수 있다)
 
 #### 9.2 내 문의 목록
 
@@ -834,11 +839,13 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 #### 9.4 문의 이어서 쓰기
 
-같은 문의에 질문을 하나 더 단다. 상태는 `WAITING`이 된다.
+같은 문의에 질문을 하나 더 단다. 상태는 `WAITING`이 된다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 단 메시지
+- **400 / VALIDATION_FAILED**(`attachmentKeys`): 발급되지 않았거나 이미 쓴 키, 같은 키를 두 번 보냄, 6장 이상
 - **404 / INQUIRY_NOT_FOUND**: 9.3과 같음
-- **409 / INQUIRY_CLOSED**: 종료한 문의
+- **404 / FILE_NOT_FOUND**: 키는 맞지만 S3에 사진이 없음(키는 쓰지 않아 올린 뒤 다시 보낼 수 있다)
+- **409 / INQUIRY_CLOSED**: 종료한 문의(키는 쓰지 않는다)
 
 #### 9.5 문의 종료
 
@@ -881,6 +888,13 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / INQUIRY_NOT_FOUND**: 보낸 `inquiryId`의 문의가 없음
 - **409 / PASSWORD_NOT_SET**: 비밀번호가 없는 소셜 회원(비밀번호 로그인 방법을 만들지 않는다)
 
+#### 9.11 문의 사진 업로드 주소
+
+토큰 없이 부를 수 있다. `files`에 사진마다 형식(JPG·PNG)과 크기(1바이트~5MB)를 1~5개 보내면 요청한 순서대로 `uploadUrl`·`objectKey`·`expiresAt`을 준다. 받은 `uploadUrl`로 말한 형식(Content-Type)과 크기의 파일을 PUT한다(`expiresAt`까지, 10분). `objectKey`는 1시간 안에 9.1·9.4에서 한 번만 쓸 수 있다.
+
+- **200**: 사진마다 주소
+- **400 / VALIDATION_FAILED**: 0장·6장 이상, 형식·크기 오류
+
 ## 3. 오류 코드
 
 | code | 상태 | API |
@@ -896,7 +910,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `SOCIAL_LINK_FAILED` · `SOCIAL_ALREADY_LINKED` · `SOCIAL_ACCOUNT_IN_USE` | 400 · 409 · 409 | 2.12 (`SOCIAL_LOGIN_UNAVAILABLE`도 2.12) |
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
 | `PASSWORD_NOT_SET` | 409 | 2.3, 2.13, 9.10 |
-| `FILE_NOT_FOUND` | 404 | 2.5 |
+| `FILE_NOT_FOUND` | 404 | 2.5, 9.1, 9.4 |
 | `KAKAO_CONSENT_FAILED` · `KAKAO_ACCOUNT_MISMATCH` · `KAKAO_MESSAGE_CONSENT_REQUIRED` | 400 | 2.9 |
 | `PRACTICE_ALARM_UNAVAILABLE` | 409 | 2.9, 2.10 |
 | `KAKAO_UNAVAILABLE` | 503 | 2.9 |
