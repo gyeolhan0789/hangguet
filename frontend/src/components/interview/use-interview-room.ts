@@ -365,7 +365,7 @@ export function useInterviewRoom(
 
   // [답변 완료]를 에이전트에 보낸다(answer.submit). 방에 들어가 있지 않거나 에이전트가 없으면 보내지 못한다.
   const submitAnswer = useCallback(
-    async (seq: number): Promise<SubmitAnswerResult> => {
+    async (seq: number, content: string | null = null): Promise<SubmitAnswerResult> => {
       const room = connected.current;
       const agent = room && [...room.remoteParticipants.values()].find((p) => p.isAgent);
       setListening(null);
@@ -376,7 +376,7 @@ export function useInterviewRoom(
         const response = await room.localParticipant.performRpc({
           destinationIdentity: agent.identity,
           method: ANSWER_SUBMIT_METHOD,
-          payload: answerSubmitPayload(sessionId, seq),
+          payload: answerSubmitPayload(sessionId, seq, content),
         });
         if (connected.current !== room) return "failed";
         if (!accepted(response)) return "rejected";

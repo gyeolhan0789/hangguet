@@ -809,14 +809,30 @@ describe("답변 상태(answer.state) 받기 · [답변 완료](answer.submit) �
     expect(second).toHaveBeenCalledTimes(1);
   });
 
-  it("[답변 완료]를 에이전트에 보내고, 받으면 accepted", async () => {
+  it("[답변 완료]를 에이전트에 보내고, 받으면 accepted. 화상은 답변 글이 없다(null)", async () => {
     const { result, room } = await joined();
 
     expect(await result.current.submitAnswer(2)).toBe("accepted");
     expect(room.localParticipant.performRpc).toHaveBeenCalledExactlyOnceWith({
       destinationIdentity: "agent",
       method: "interview.answerSubmit",
-      payload: JSON.stringify({ type: "answer.submit", sessionId: 55, seq: 2 }),
+      payload: JSON.stringify({ type: "answer.submit", sessionId: 55, seq: 2, content: null }),
+    });
+  });
+
+  it("채팅은 낸 답변 글을 [답변 완료]에 싣는다", async () => {
+    const { result, room } = await joined();
+
+    expect(await result.current.submitAnswer(2, "캐시를 바꿨어요")).toBe("accepted");
+    expect(room.localParticipant.performRpc).toHaveBeenCalledExactlyOnceWith({
+      destinationIdentity: "agent",
+      method: "interview.answerSubmit",
+      payload: JSON.stringify({
+        type: "answer.submit",
+        sessionId: 55,
+        seq: 2,
+        content: "캐시를 바꿨어요",
+      }),
     });
   });
 
