@@ -20,8 +20,14 @@ vi.mock("next/navigation", () => ({
 const refresh = vi.fn();
 vi.mock("next/cache", () => ({ refresh: () => refresh() }));
 
-const { addInquiryMessage, closeInquiry, createGuestInquiry, createInquiry, openGuestInquiry } =
-  await import("./actions");
+const {
+  addInquiryMessage,
+  closeInquiry,
+  createGuestInquiry,
+  createInquiry,
+  createInquiryPhotoUploadUrls,
+  openGuestInquiry,
+} = await import("./actions");
 
 // Swagger 9.1 · 9.3 응답 예시
 const INQUIRY = {
@@ -68,6 +74,49 @@ describe("createInquiry (9.1 회원)", () => {
     expect(api.post).toHaveBeenCalledWith("/inquiries", { title: "제목", content: "내용" });
   });
 
+  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
+    api.post.mockResolvedValue({ data: INQUIRY });
+
+    await expect(
+      createInquiry({ title: "제목", content: "내용" }, ["inquiry/a.png", "inquiry/b.jpg"]),
+    ).rejects.toThrow("/inquiries/7");
+    expect(api.post).toHaveBeenCalledWith("/inquiries", {
+      title: "제목",
+      content: "내용",
+      attachmentKeys: ["inquiry/a.png", "inquiry/b.jpg"],
+    });
+  });
+
+  it("사진 키 오류(400 attachmentKeys)는 서버가 준 이유를 문구로 돌려준다", async () => {
+    api.post.mockRejectedValue(
+      axiosProblem({
+        status: 400,
+        detail: "입력값을 확인해 주세요.",
+        code: "VALIDATION_FAILED",
+        errors: [{ field: "attachmentKeys", reason: "발급되지 않았거나 이미 쓴 키입니다." }],
+      }),
+    );
+
+    expect(await createInquiry({ title: "제목", content: "내용" }, ["inquiry/a.png"])).toEqual({
+      formError: "발급되지 않았거나 이미 쓴 키입니다.",
+    });
+    expect(await createGuestInquiry(GUEST, ["inquiry/a.png"])).toEqual({
+      formError: "발급되지 않았거나 이미 쓴 키입니다.",
+    });
+    expect(
+      await addInquiryMessage(7, { content: "확인", attachmentKeys: ["inquiry/a.png"] }),
+    ).toEqual({ error: "발급되지 않았거나 이미 쓴 키입니다." });
+  });
+
+  it("사진 키가 6개 이상이면 보내지 않는다", async () => {
+    const keys = Array.from({ length: 6 }, (_, i) => `inquiry/${i}.png`);
+
+    expect(await createInquiry({ title: "제목", content: "내용" }, keys)).toEqual({
+      formError: "입력값을 확인해 주세요.",
+    });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
   it("칸 오류(400)는 그 칸에 서버 문구로 돌려준다", async () => {
     api.post.mockRejectedValue(
       axiosProblem({
@@ -92,6 +141,16 @@ describe("createInquiry (9.1 회원)", () => {
 });
 
 describe("createGuestInquiry (9.1 비회원)", () => {
+  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
+    api.post.mockResolvedValue({ data: INQUIRY });
+
+    expect(await createGuestInquiry(GUEST, ["inquiry/a.png"])).toEqual({ inquiryId: 7 });
+    expect(api.post).toHaveBeenCalledWith("/inquiries", {
+      ...GUEST,
+      attachmentKeys: ["inquiry/a.png"],
+    });
+  });
+
   it("이메일 · 조회 비밀번호까지 보내고 문의번호를 돌려준다", async () => {
     api.post.mockResolvedValue({ data: INQUIRY });
 
@@ -158,11 +217,26 @@ describe("addInquiryMessage (9.4)", () => {
       data: { id: 23, authorType: "USER", content: "확인", createdAt: "" },
     });
 
-    const result = await addInquiryMessage(7, "확인");
+    // 화면은 사진이 없으면 빈 목록을 넘긴다. 그때는 attachmentKeys를 보내지 않는다
+    const result = await addInquiryMessage(7, { content: "확인", attachmentKeys: [] });
 
     expect(result.message?.id).toBe(23);
     expect(api.post).toHaveBeenCalledWith("/inquiries/7/messages", { content: "확인" }, {});
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
+    api.post.mockResolvedValue({
+      data: { id: 23, authorType: "USER", content: "확인", createdAt: "", attachments: [] },
+    });
+
+    await addInquiryMessage(7, { content: "확인", attachmentKeys: ["inquiry/a.png"] }, "1234");
+
+    expect(api.post).toHaveBeenCalledWith(
+      "/inquiries/7/messages",
+      { content: "확인", attachmentKeys: ["inquiry/a.png"] },
+      { headers: { "X-Inquiry-Password": "1234" } },
+    );
   });
 
   it("비회원은 조회 비밀번호를 헤더로 보내고 다시 그리지 않는다(화면이 9.3을 다시 부른다)", async () => {
@@ -170,7 +244,7 @@ describe("addInquiryMessage (9.4)", () => {
       data: { id: 23, authorType: "USER", content: "확인", createdAt: "" },
     });
 
-    await addInquiryMessage(7, "확인", "1234");
+    await addInquiryMessage(7, { content: "확인" }, "1234");
 
     expect(api.post).toHaveBeenCalledWith(
       "/inquiries/7/messages",
@@ -182,11 +256,14 @@ describe("addInquiryMessage (9.4)", () => {
 
   it("종료한 문의(409)는 closed와 서버 문구를 돌려주고 회원 I03을 다시 그린다", async () => {
     api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_CLOSED));
-    expect(await addInquiryMessage(7, "확인")).toEqual({ error: "종료한 문의예요.", closed: true });
+    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
+      error: "종료한 문의예요.",
+      closed: true,
+    });
     expect(refresh).toHaveBeenCalledTimes(1);
 
     api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_CLOSED));
-    expect(await addInquiryMessage(7, "확인", "1234")).toEqual({
+    expect(await addInquiryMessage(7, { content: "확인" }, "1234")).toEqual({
       error: "종료한 문의예요.",
       closed: true,
     });
@@ -195,7 +272,7 @@ describe("addInquiryMessage (9.4)", () => {
 
   it("없는 문의(404)는 notFound를 함께 돌려준다", async () => {
     api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_NOT_FOUND));
-    expect(await addInquiryMessage(7, "확인")).toEqual({
+    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
       error: "문의를 찾을 수 없어요.",
       notFound: true,
     });
@@ -204,14 +281,75 @@ describe("addInquiryMessage (9.4)", () => {
   it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
     api.post.mockRejectedValue(axiosNoResponse());
 
-    expect(await addInquiryMessage(7, "확인")).toEqual({ error: "잠시 후 다시 시도해 주세요." });
+    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
+      error: "잠시 후 다시 시도해 주세요.",
+    });
     expect(await closeInquiry(7)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
   });
 
   it("빈 내용 · 잘못된 문의 id면 보내지 않는다", async () => {
-    expect(await addInquiryMessage(7, "  ")).toEqual({ error: "입력값을 확인해 주세요." });
-    expect(await addInquiryMessage(0, "확인")).toEqual({ error: "입력값을 확인해 주세요." });
+    expect(await addInquiryMessage(7, { content: "  " })).toEqual({
+      error: "입력값을 확인해 주세요.",
+    });
+    expect(await addInquiryMessage(0, { content: "확인" })).toEqual({
+      error: "입력값을 확인해 주세요.",
+    });
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe("createInquiryPhotoUploadUrls (9.11)", () => {
+  const PNG = { contentType: "image/png", size: 204800 } as const;
+
+  it("사진마다 업로드 주소를 받아 요청한 순서대로 돌려준다", async () => {
+    const files = [
+      { uploadUrl: "https://s3.test/a", objectKey: "inquiry/a.png", expiresAt: "" },
+      { uploadUrl: "https://s3.test/b", objectKey: "inquiry/b.jpg", expiresAt: "" },
+    ];
+    api.post.mockResolvedValue({ data: { files } });
+
+    expect(
+      await createInquiryPhotoUploadUrls([PNG, { contentType: "image/jpeg", size: 1 }]),
+    ).toEqual({ uploads: files });
+    expect(api.post).toHaveBeenCalledWith("/inquiries/attachments/upload-url", {
+      files: [PNG, { contentType: "image/jpeg", size: 1 }],
+    });
+  });
+
+  it("형식 · 크기 · 장수가 맞지 않으면 보내지 않고 서버와 같은 문구를 돌려준다", async () => {
+    expect(
+      await createInquiryPhotoUploadUrls([{ contentType: "image/gif" as "image/png", size: 1 }]),
+    ).toEqual({ error: "JPG·PNG만 올릴 수 있습니다." });
+    expect(await createInquiryPhotoUploadUrls([{ ...PNG, size: 5_242_881 }])).toEqual({
+      error: "5MB 이하만 올릴 수 있습니다.",
+    });
+    expect(await createInquiryPhotoUploadUrls(Array(6).fill(PNG))).toEqual({
+      error: "사진은 5장까지 붙일 수 있습니다.",
+    });
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it("서버가 거절하면(400) 이유를 그대로 돌려준다", async () => {
+    api.post.mockRejectedValue(
+      axiosProblem({
+        status: 400,
+        detail: "입력값을 확인해 주세요.",
+        code: "VALIDATION_FAILED",
+        errors: [{ field: "files[0].size", reason: "5MB 이하만 올릴 수 있습니다." }],
+      }),
+    );
+
+    expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({
+      error: "5MB 이하만 올릴 수 있습니다.",
+    });
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
+    api.post.mockRejectedValue(axiosNoResponse());
+
+    expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({
+      error: "잠시 후 다시 시도해 주세요.",
+    });
   });
 });
 

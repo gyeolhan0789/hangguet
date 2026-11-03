@@ -19,7 +19,7 @@ export function MemberInquiryThread({ inquiry }: { inquiry: InquiryResponse }) {
     <InquiryThread
       inquiry={inquiry}
       back={{ label: "내 문의", href: ROUTES.inquiries }}
-      onSend={async (content) => leaveIfGone(await addInquiryMessage(inquiry.id, content))}
+      onSend={async (question) => leaveIfGone(await addInquiryMessage(inquiry.id, question))}
       onClose={async () => leaveIfGone(await closeInquiry(inquiry.id))}
     />
   );

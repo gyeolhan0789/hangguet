@@ -95,8 +95,8 @@ export function GuestInquiryView() {
         <InquiryThread
           inquiry={inquiry}
           back={{ label: "내 문의", onClick: leave }}
-          onSend={async (content) =>
-            reload(await addInquiryMessage(inquiry.id, content, storedPassword))
+          onSend={async (question) =>
+            reload(await addInquiryMessage(inquiry.id, question, storedPassword))
           }
           onClose={async () => reload(await closeInquiry(inquiry.id, storedPassword))}
         />
