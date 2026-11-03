@@ -243,7 +243,7 @@ test.describe("회원 문의(I02 · I01 · I03)", () => {
     await fakeS3(page, 403);
     await page.goto("/inquiries/new");
 
-    await page.getByLabel("사진 파일").setInputFiles(picture("a.png", 3));
+    await page.getByRole("main").getByLabel("사진 파일").setInputFiles(picture("a.png", 3));
     await fillAndSend(page, "녹화가 안 돼요", "화면이 까매요");
 
     await expect(page.getByText("잠시 후 다시 시도해 주세요.")).toBeVisible();
@@ -427,6 +427,7 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
     await page.goto("/inquiries/guest/new");
 
     await page
+      .getByRole("main")
       .getByLabel("사진 파일")
       .setInputFiles([picture("a.png", 3), picture("b.jpg", 4, "image/jpeg")]);
     await expect(page.getByRole("img", { name: /고른 사진/ })).toHaveCount(2);
@@ -455,7 +456,7 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
     await expect(photos).toHaveCount(2);
     await expect(photos.first()).toHaveAttribute("href", `${S3}/inquiry/3.png`);
 
-    await page.getByLabel("붙일 사진 파일").setInputFiles(picture("c.png", 5));
+    await page.getByRole("main").getByLabel("사진 파일").setInputFiles(picture("c.png", 5));
     await page.getByLabel("이어서 쓰기").fill("하나 더요");
     await page.getByRole("button", { name: "보내기" }).click();
 

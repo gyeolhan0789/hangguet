@@ -44,7 +44,7 @@ const photo = (name: string, type = "image/png", size = 1024) =>
   new File([new Uint8Array(size)], name, { type });
 
 function pickPhotos(...files: File[]) {
-  fireEvent.change(screen.getByLabelText("붙일 사진 파일"), { target: { files } });
+  fireEvent.change(screen.getByLabelText("사진 파일"), { target: { files } });
 }
 
 const ANSWERED = {
