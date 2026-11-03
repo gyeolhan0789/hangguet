@@ -162,7 +162,7 @@ com.ssafy.a301
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭, 다시보기 타임라인용 `trailingOffAtMs`·`impressions`)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
-| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
+| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE. 합친 mp4 행에 `recording.merged`의 `recordingStartedAt`(합친 영상의 0초에 해당하는 시각, AI 명세 7장)을 저장한다 |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `Company` · `CompanyAlias` · `CompanyCard` · `CompanyCardImport` | `companies` · `company_aliases` · `company_cards` · `company_card_imports` | Alias · Card N:1 Company | 회사 카드(V15). 카드 JSON은 해석하지 않고 JSONB로 두며 회사당 최신 카드(`is_current`)는 하나다. 적재 · 보관 규칙은 [회사 카드 ERD](ERD-회사카드.md) |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 면접 끝내기(API 명세 5.8)로 받고, 나머지는 답변 음성에서 |
@@ -269,7 +269,7 @@ com.ssafy.a301
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
-11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
+11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경하고 `recordingStartedAt`(null 가능)을 저장한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
 12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`가 아니거나 `occurredAt`이 없으면 실패 목록
 
 ### 5.6 면접방 (LiveKit)
@@ -315,6 +315,7 @@ com.ssafy.a301
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
 - 6.4 `videoStatus`(화상만): 합친 녹화 행(`SESSION_VIDEO`, `recordings/{sessionId}.mp4`)이 `READY`이면 `READY`이고 `videoUrl`은 Presigned GET이다. 행이 `FAILED`이거나, `MERGING`이거나 행이 없는데 면접 종료(`ended_at`) 후 15분(`ResultService.MERGE_WAIT`, 임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. 15분 판정은 저장하지 않고 조회할 때 계산하므로 늦게 온 `recording.merged`로 `READY`가 된다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
+- 6.4 `recordingStartedAt`(화상만): 합친 녹화 행에 저장한 `recording.merged`의 `recordingStartedAt`이다. AI가 녹화 시작 시각 없이 이어 붙여 합쳤거나(값 null) 채팅이면 null이다
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
