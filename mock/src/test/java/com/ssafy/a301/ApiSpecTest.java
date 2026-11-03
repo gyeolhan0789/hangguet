@@ -362,4 +362,46 @@ class ApiSpecTest {
                                 .content("{ \"password\": \"abcd1234\" }"))
                 .hasStatus(HttpStatus.NO_CONTENT);
     }
+
+    @Test
+    void inquiryPhotoUploadUrlsMatchRequestedCountAndStubKeysFail() {
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/inquiries/attachments/upload-url")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{ \"files\": [ { \"contentType\": \"image/png\","
+                                                + " \"size\": 10 }, { \"contentType\":"
+                                                + " \"image/jpeg\", \"size\": 10 } ] }"))
+                .hasStatusOk()
+                .bodyJson()
+                .extractingPath("$.files.length()")
+                .isEqualTo(2);
+        assertThat(inquiryWithPhoto("inquiry/used.png"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.errors[0].field")
+                .isEqualTo("attachmentKeys");
+        assertThat(inquiryWithPhoto("inquiry/missing.png"))
+                .hasStatus(HttpStatus.NOT_FOUND)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("FILE_NOT_FOUND");
+        assertThat(inquiryWithPhoto("inquiry/7f3c.png"))
+                .hasStatus(HttpStatus.CREATED)
+                .bodyJson()
+                .extractingPath("$.messages[0].attachments.length()")
+                .isEqualTo(1);
+    }
+
+    private MockMvcTester.MockMvcRequestBuilder inquiryWithPhoto(String key) {
+        return mockMvc.post()
+                .uri("/api/v1/inquiries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                        ("{ \"title\": \"사진 문의\", \"content\": \"내용\", \"email\":"
+                                        + " \"a@ssafy.com\", \"accessPassword\": \"1234\","
+                                        + " \"attachmentKeys\": [ \"%s\" ] }")
+                                .formatted(key));
+    }
 }

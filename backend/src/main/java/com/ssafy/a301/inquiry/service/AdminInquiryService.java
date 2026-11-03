@@ -17,6 +17,7 @@ import com.ssafy.a301.inquiry.repository.InquiryMessageRepository;
 import com.ssafy.a301.inquiry.repository.InquiryRepository;
 import com.ssafy.a301.user.repository.UserRepository;
 import com.ssafy.a301.user.service.PasswordChangeService;
+import java.util.List;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -36,6 +37,7 @@ public class AdminInquiryService {
     private final AdminRepository admins;
     private final UserRepository users;
     private final PasswordChangeService passwordChanges;
+    private final InquiryAttachments attachments;
     private final TransactionTemplate transactions;
 
     public AdminInquiryService(
@@ -44,12 +46,14 @@ public class AdminInquiryService {
             AdminRepository admins,
             UserRepository users,
             PasswordChangeService passwordChanges,
+            InquiryAttachments attachments,
             TransactionTemplate transactions) {
         this.inquiries = inquiries;
         this.messages = messages;
         this.admins = admins;
         this.users = users;
         this.passwordChanges = passwordChanges;
+        this.attachments = attachments;
         this.transactions = transactions;
     }
 
@@ -69,7 +73,8 @@ public class AdminInquiryService {
                 inquiries
                         .findWithUser(inquiryId)
                         .orElseThrow(() -> new ApiException(ErrorCode.INQUIRY_NOT_FOUND));
-        return InquiryMapper.toAdminInquiry(inquiry, messages.findThread(inquiryId));
+        List<InquiryMessage> thread = messages.findThread(inquiryId);
+        return InquiryMapper.toAdminInquiry(inquiry, thread, attachments.of(thread));
     }
 
     /** 9.8. 종료한 문의면 409 INQUIRY_CLOSED */
@@ -83,7 +88,8 @@ public class AdminInquiryService {
                                 messages.save(
                                         locked(inquiryId)
                                                 .addAnswer(admin, content, KoreaTime.now())));
-        return InquiryMapper.toAdminMessage(saved);
+        // 관리자 답변에는 사진을 붙이지 않는다
+        return InquiryMapper.toAdminMessage(saved, List.of());
     }
 
     /** 9.9. 이미 종료했어도 그대로 성공 */
