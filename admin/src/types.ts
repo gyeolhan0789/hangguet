@@ -19,7 +19,7 @@ export type AdminTokenResponse = {
 
 export type Criterion = 'JOB_FIT' | 'COVER_LETTER' | 'LOGIC' | 'DELIVERY'
 
-export type Persona = 'DEVIL' | 'COFFEE_CHAT'
+export type Persona = 'DEVIL' | 'COFFEE_CHAT' | 'DUCK'
 
 export type AdminMetricsResponse = {
   date: string

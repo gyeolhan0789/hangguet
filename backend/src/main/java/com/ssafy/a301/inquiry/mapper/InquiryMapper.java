@@ -9,27 +9,35 @@ import com.ssafy.a301.inquiry.dto.InquiryDtos.AdminInquiryResponse;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryListItem;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryResponse;
 import java.util.List;
+import java.util.Map;
 
 /** 문의 엔티티 → 응답. 제목 · 본문은 엔티티를 읽을 때 이미 풀려 있다(EncryptedTextConverter). */
 public final class InquiryMapper {
     private InquiryMapper() {}
 
-    public static InquiryDtos.InquiryMessage toMessage(InquiryMessage message) {
+    public static InquiryDtos.InquiryMessage toMessage(
+            InquiryMessage message, List<InquiryDtos.InquiryAttachment> attachments) {
         return new InquiryDtos.InquiryMessage(
                 message.getId(),
                 message.getAuthorType(),
                 message.getContent(),
-                message.getCreatedAt());
+                message.getCreatedAt(),
+                attachments);
     }
 
-    public static InquiryResponse toInquiry(Inquiry inquiry, List<InquiryMessage> messages) {
+    public static InquiryResponse toInquiry(
+            Inquiry inquiry,
+            List<InquiryMessage> messages,
+            Map<Long, List<InquiryDtos.InquiryAttachment>> attachments) {
         return new InquiryResponse(
                 inquiry.getId(),
                 inquiry.getTitle(),
                 inquiry.getStatus(),
                 inquiry.getCreatedAt(),
                 inquiry.getUpdatedAt(),
-                messages.stream().map(InquiryMapper::toMessage).toList());
+                messages.stream()
+                        .map(message -> toMessage(message, of(attachments, message)))
+                        .toList());
     }
 
     public static InquiryListItem toListItem(Inquiry inquiry) {
@@ -41,13 +49,15 @@ public final class InquiryMapper {
                 inquiry.getUpdatedAt());
     }
 
-    public static AdminInquiryMessage toAdminMessage(InquiryMessage message) {
+    public static AdminInquiryMessage toAdminMessage(
+            InquiryMessage message, List<InquiryDtos.InquiryAttachment> attachments) {
         return new AdminInquiryMessage(
                 message.getId(),
                 message.getAuthorType(),
                 message.getAdmin() == null ? null : message.getAdmin().getName(),
                 message.getContent(),
-                message.getCreatedAt());
+                message.getCreatedAt(),
+                attachments);
     }
 
     /** 회원 문의면 회원 id를 함께 준다(지연 로딩 프록시라도 id만 읽어 쿼리가 나가지 않는다) */
@@ -64,7 +74,9 @@ public final class InquiryMapper {
 
     /** 회원은 fetch join한 user로 닉네임을 준다(InquiryRepository.findWithUser) */
     public static AdminInquiryResponse toAdminInquiry(
-            Inquiry inquiry, List<InquiryMessage> messages) {
+            Inquiry inquiry,
+            List<InquiryMessage> messages,
+            Map<Long, List<InquiryDtos.InquiryAttachment>> attachments) {
         return new AdminInquiryResponse(
                 inquiry.getId(),
                 inquiry.getTitle(),
@@ -74,6 +86,13 @@ public final class InquiryMapper {
                 inquiry.getEmail(),
                 inquiry.getCreatedAt(),
                 inquiry.getUpdatedAt(),
-                messages.stream().map(InquiryMapper::toAdminMessage).toList());
+                messages.stream()
+                        .map(message -> toAdminMessage(message, of(attachments, message)))
+                        .toList());
+    }
+
+    private static List<InquiryDtos.InquiryAttachment> of(
+            Map<Long, List<InquiryDtos.InquiryAttachment>> attachments, InquiryMessage message) {
+        return attachments.getOrDefault(message.getId(), List.of());
     }
 }

@@ -2,6 +2,7 @@ package com.ssafy.a301.storage.s3;
 
 import com.ssafy.a301.common.time.KoreaTime;
 import java.time.OffsetDateTime;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -57,13 +58,18 @@ public class S3FileStorage {
     }
 
     public boolean exists(String objectKey) {
+        return find(objectKey).isPresent();
+    }
+
+    /** 올린 파일의 형식 · 크기. 파일이 없으면 빈 값 */
+    public Optional<StoredFile> find(String objectKey) {
         try {
-            s3.headObject(request -> request.bucket(properties.bucket()).key(objectKey));
-            return true;
+            var head = s3.headObject(request -> request.bucket(properties.bucket()).key(objectKey));
+            return Optional.of(new StoredFile(head.contentType(), head.contentLength()));
         } catch (S3Exception ex) {
             // 버킷 목록 권한(s3:ListBucket)이 없으면 없는 파일도 404 대신 403이 온다
             if (ex.statusCode() == HttpStatus.NOT_FOUND.value()) {
-                return false;
+                return Optional.empty();
             }
             throw ex;
         }

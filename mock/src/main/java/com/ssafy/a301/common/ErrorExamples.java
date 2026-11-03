@@ -134,6 +134,17 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "다른 회원이 쓰고 있는 카카오 계정이에요.",
               "instance": "/api/v1/users/me/social-accounts/kakao", "code": "SOCIAL_ACCOUNT_IN_USE" }\
             """;
+    public static final String ATTACHMENT_KEY_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "입력값을 확인해 주세요.",
+              "instance": "/api/v1/inquiries", "code": "VALIDATION_FAILED",
+              "errors": [ { "field": "attachmentKeys", "reason": "발급되지 않았거나 이미 쓴 키입니다." } ] }\
+            """;
+    public static final String INQUIRY_FILE_NOT_FOUND =
+            """
+            { "title": "Not Found", "status": 404, "detail": "업로드한 파일을 찾을 수 없어요.",
+              "instance": "/api/v1/inquiries", "code": "FILE_NOT_FOUND" }\
+            """;
     public static final String FILE_NOT_FOUND =
             """
             { "title": "Not Found", "status": 404, "detail": "업로드한 파일을 찾을 수 없어요.",

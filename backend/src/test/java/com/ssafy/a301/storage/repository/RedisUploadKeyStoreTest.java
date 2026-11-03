@@ -46,4 +46,29 @@ class RedisUploadKeyStoreTest {
 
         assertThat(store.isIssuedTo("profile/7/a.png", 7L, UploadPurpose.PROFILE_IMAGE)).isFalse();
     }
+
+    @Test
+    void issueOnceStoresOnlyPurpose() {
+        store.issueOnce("inquiry/a.png", UploadPurpose.INQUIRY_ATTACHMENT, Duration.ofHours(1));
+
+        verify(values).set("upload:inquiry/a.png", "INQUIRY_ATTACHMENT", Duration.ofHours(1));
+    }
+
+    @Test
+    void keyIssuedOnceIsUsedOnlyOnce() {
+        when(values.get("upload:inquiry/a.png")).thenReturn("INQUIRY_ATTACHMENT");
+        when(values.getAndDelete("upload:inquiry/a.png"))
+                .thenReturn("INQUIRY_ATTACHMENT", (String) null);
+
+        assertThat(store.isIssued("inquiry/a.png", UploadPurpose.INQUIRY_ATTACHMENT)).isTrue();
+        assertThat(store.use("inquiry/a.png", UploadPurpose.INQUIRY_ATTACHMENT)).isTrue();
+        assertThat(store.use("inquiry/a.png", UploadPurpose.INQUIRY_ATTACHMENT)).isFalse();
+    }
+
+    @Test
+    void keyIssuedToMemberIsNotAOnceKey() {
+        when(values.get("upload:profile/7/a.png")).thenReturn("7:PROFILE_IMAGE");
+
+        assertThat(store.isIssued("profile/7/a.png", UploadPurpose.INQUIRY_ATTACHMENT)).isFalse();
+    }
 }

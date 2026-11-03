@@ -176,6 +176,7 @@ com.ssafy.a301
 | `AdminDailyMetric` | `admin_daily_metrics` | - | 관리자 일별 메트릭(8.16). PK `metric_date`. 매일 0시(한국 시간)에 전날 8.15 집계를 한 행으로 남기고, 같은 날을 다시 남기면 덮어쓴다. 날짜로 정해지는 값(가입 · 연습 · 재방문)은 그날 기준, 상태가 바뀌는 값(회원 · 면접 · 문의 · 유지권 수)은 `recorded_at` 기준. 비율 대신 분자 · 분모를 둔다 |
 | `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
 | `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
+| `InquiryAttachment` | `inquiry_attachments` | N:1 InquiryMessage | 질문에 붙인 사진 한 장(V17). S3 키(UNIQUE)와 S3에 올라간 형식 · 크기 |
 | `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 회원 직접 변경(2.3, USER)과 관리자 변경(9.10, ADMIN)을 남긴다 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
@@ -345,7 +346,7 @@ com.ssafy.a301
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `social-signup:{SHA-256(token)}` | `SocialProfile` JSON(제공자 · 제공자 회원 번호 · 이메일 · 닉네임) | `oauth.signup-token-ttl`(10분) | 1.6에서 처음 온 사람에게 가입 토큰을 줄 때 넣고, 1.7에서 읽은 뒤 가입에 성공하면 지운다(실패하면 남겨 다시 보낼 수 있게) |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
-| `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
+| `upload:{objectKey}` | userId · 용도(문의 사진은 용도만) | Presigned 만료와 같게(문의 사진은 1시간) | 2.5에서 "본인에게 발급된 키"인지, 9.1 · 9.4에서 "발급했고 아직 안 쓴 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
 ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제외라 지금은 쓰지 않는다.
@@ -418,6 +419,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 | 용도 | 키 규칙 | 업로드 | 조회 |
 |---|---|---|---|
 | 프로필 사진 | `profile/{userId}/{uuid}.{ext}` | 2.4 Presigned PUT(JPG·PNG, 5MB) | 응답마다 Presigned GET |
+| 문의 사진 | `inquiry/{uuid}.{ext}` | 9.11 Presigned PUT(JPG·PNG, 5MB, 한 번에 5장) | 9.3 · 9.7 응답마다 Presigned GET |
 | 면접 녹화 원본 | `recordings/raw/{sessionId}/…`(트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
 | 면접 녹화 | `recordings/{sessionId}.mp4` | AI 분석 작업자가 합쳐 올림(`recording.merged`) | 6.4 Presigned GET |
 | 답변 음성 | **[미정]**(트랙에서 잘라 쓸지 따로 저장할지, API 명세 B-19) | - | 분석에서만 사용 |
@@ -425,6 +427,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 키 규칙은 [운영 배포 계획](../이해준/deploy_plan/README.md) 6.1을 따른다. Egress와 AI는 BE와 다른 IAM 키를 쓴다(같은 문서 6.2)
 - 업로드 주소(2.4)는 형식(Content-Type)과 크기를 서명에 넣는다. 발급 때와 다른 파일은 S3가 거절한다
 - 업로드 주소를 발급하면 `upload:{objectKey}`(7장)에 회원 id와 용도를 남긴다. 등록 API(2.5)는 본인에게 같은 용도로 발급된 키가 아니면 400 `VALIDATION_FAILED`(`objectKey`)
+- 문의 사진(9.11)은 첫 문의에 문의번호가 없고 비회원은 회원 id도 없어 받는 사람을 남기지 않는다. `upload:{objectKey}`에 용도만 남기고, 9.1 · 9.4는 모든 키가 발급됐고 S3에 있는지 확인한 뒤 읽고 지우기(GETDEL)로 한 번만 쓴다. 하나라도 틀리면 어떤 키도 쓰지 않아 다시 시도할 수 있다. 형식 · 크기는 S3에 올라간 값(HEAD)을 저장한다
+- 붙이지 않은 문의 사진은 S3에 남는다. 지우는 규칙(수명 주기 등)은 아직 없다 **[미정]**
 - 등록 API(2.5)는 S3에 실제 파일이 있는지 확인한다. 없으면 404 `FILE_NOT_FOUND`. 버킷 목록 권한(`s3:ListBucket`)이 없으면 S3가 없는 파일에도 403을 주므로 BE 권한에 포함한다
 - 프로필 사진을 바꾸거나(2.5) 지우면(2.6) 회원 정보를 저장한 뒤 이전 파일을 지운다. 파일 삭제가 실패해도 요청은 성공으로 두고 경고 로그만 남긴다
 - 탈퇴는 soft delete **[결정]**: 회원 행의 개인정보(이메일·닉네임·비밀번호 해시)와 프로필 사진·녹화·답변 음성 파일을 지우지 않는다

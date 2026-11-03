@@ -1,0 +1,18 @@
+# 부하 테스트 서버 LiveKit 설정. 운영(deploy/prod/livekit.yaml)과 TURN 도메인 · 인증서만 다르다.
+# API 키는 파일에 쓰지 않고 환경 변수 LIVEKIT_KEYS("키: 시크릿")로 넣는다.
+port: 7880 # 시그널링(WebSocket). Cloudflare Tunnel(rtc-lt.hangguet.co.kr)로만 받는다
+log_level: info
+rtc:
+  tcp_port: 7881 # UDP가 막힌 네트워크용 예비 경로
+  udp_port: 7882 # 단일 포트 모드: 모든 미디어를 포트 하나로 받는다(Docker 브리지 그대로 쓸 수 있다)
+  use_external_ip: true # EC2 공인 IP(탄력적 IP)를 알아내 브라우저에 알려 준다. 못 찾으면 node_ip에 공인 IP를 직접 적는다
+turn:
+  enabled: true
+  domain: turn-lt.hangguet.co.kr # 프록시 끈 DNS로 탄력적 IP를 바로 가리킨다
+  udp_port: 3478 # TURN/UDP
+  tls_port: 443 # TURN/TLS: SSAFY 와이파이처럼 바깥 TCP를 443만 허용하는 곳용
+  cert_file: /etc/letsencrypt/live/turn-lt.hangguet.co.kr/fullchain.pem
+  key_file: /etc/letsencrypt/live/turn-lt.hangguet.co.kr/privkey.pem
+redis:
+  address: a301-prod-redis:6379 # Egress와 주고받는 데 필요하다
+prometheus_port: 6789 # 지표(내부 전용, Prometheus가 수집)

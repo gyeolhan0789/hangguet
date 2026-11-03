@@ -14,6 +14,7 @@ const CRITERION_NAMES: Record<Criterion, string> = {
 const PERSONA_NAMES: Record<Persona, string> = {
   DEVIL: '악마 면접관',
   COFFEE_CHAT: '개발자 커피챗',
+  DUCK: '오리 면접관',
 }
 type SpeechKey = Exclude<keyof AdminMetricsResponse['speech'], 'sessions'>
 const SPEECH_ITEMS: { key: SpeechKey; label: string; unit: string }[] = [

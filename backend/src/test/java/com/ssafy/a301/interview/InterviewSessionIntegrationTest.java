@@ -169,6 +169,28 @@ class InterviewSessionIntegrationTest {
                 .andExpect(jsonPath("$.companyName").value("○○전자"));
     }
 
+    // 기준: AI 명세 1.3 persona(오리 면접관 DUCK도 면접을 만들 때 고르고 PLAN에 담는다)
+    @Test
+    void createAcceptsDuckPersonaAndSendsItWithPlan() throws Exception {
+        long user = newUser();
+
+        String body =
+                mvc.perform(createRequest(user, newApplication(user), "CHAT", "DUCK"))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.persona").value("DUCK"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        long sessionId = json.readTree(body).path("id").asLong();
+
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        Long.valueOf(sessionId).equals(job.get("sessionId"))
+                                                && "DUCK".equals(job.get("persona"))));
+    }
+
     // 기준: ERD 회사카드(면접을 만들 때 지원서 회사명으로 찾은 최신 카드를 면접에 남기고 PLAN에 담는다), AI 명세 8장
     @Test
     void createKeepsCompanyCardAndSendsItWithPlan() throws Exception {
@@ -938,13 +960,18 @@ class InterviewSessionIntegrationTest {
 
     private MockHttpServletRequestBuilder createRequest(
             long userId, long applicationId, String mode) {
+        return createRequest(userId, applicationId, mode, "DEVIL");
+    }
+
+    private MockHttpServletRequestBuilder createRequest(
+            long userId, long applicationId, String mode, String persona) {
         return as(userId, idempotent(post("/api/v1/interview-sessions")))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
                         json.writeValueAsString(
                                 Map.of(
                                         "applicationId", applicationId,
-                                        "persona", "DEVIL",
+                                        "persona", persona,
                                         "mode", mode)));
     }
 

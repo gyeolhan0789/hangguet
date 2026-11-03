@@ -95,9 +95,12 @@ public class SecurityConfig {
                                                 "/api/v1/auth/token/refresh",
                                                 "/api/v1/auth/oauth/*")
                                         .permitAll()
-                                        // 9. 문의: 비회원도 작성 · 조회 · 이어서 쓰기 · 종료한다(토큰을 보내면 회원 문의). 9.2
-                                        // 목록은 회원만
-                                        .requestMatchers(HttpMethod.POST, "/api/v1/inquiries")
+                                        // 9. 문의: 비회원도 작성 · 조회 · 이어서 쓰기 · 종료 · 사진 올리기를 한다(토큰을 보내면 회원
+                                        // 문의). 9.2 목록은 회원만
+                                        .requestMatchers(
+                                                HttpMethod.POST,
+                                                "/api/v1/inquiries",
+                                                "/api/v1/inquiries/attachments/upload-url")
                                         .permitAll()
                                         .requestMatchers(HttpMethod.GET, "/api/v1/inquiries/*")
                                         .permitAll()

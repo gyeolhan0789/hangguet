@@ -46,12 +46,14 @@ public class AdminInquiryController {
               "messages": [
                 { "id": 21, "authorType": "USER", "adminName": null,
                   "content": "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
-                  "createdAt": "2026-10-26T10:00:00+09:00" } ] }\
+                  "createdAt": "2026-10-26T10:00:00+09:00",
+                  "attachments": [ { "id": 3, "url": "https://…s3…/inquiry/7f3c….png?X-Amz-Signature=…" } ] } ] }\
             """;
     private static final String MESSAGE =
             """
             { "id": 22, "authorType": "ADMIN", "adminName": "운영자",
-              "content": "요청하신 비밀번호로 바꿨어요. 다시 로그인해 주세요.", "createdAt": "2026-10-26T11:30:00+09:00" }\
+              "content": "요청하신 비밀번호로 바꿨어요. 다시 로그인해 주세요.", "createdAt": "2026-10-26T11:30:00+09:00",
+              "attachments": [] }\
             """;
     private static final String LIST_ITEMS =
             """

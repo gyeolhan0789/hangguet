@@ -404,7 +404,11 @@ class FrontendContractTest {
 
     private static InquiryCreateRequest inquiryRequest(String email, String accessPassword) {
         return new InquiryCreateRequest(
-                "비밀번호를 잊어버렸어요", "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.", email, accessPassword);
+                "비밀번호를 잊어버렸어요",
+                "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+                email,
+                accessPassword,
+                null);
     }
 
     private static Map<String, Object> planCompleted(long sessionId) {
