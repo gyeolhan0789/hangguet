@@ -199,7 +199,8 @@ services:
       a301-prod-livekit:
         condition: service_started
     environment:
-      <<: *livekit-env
+      # 꼬리질문 생성(GMS)
+      <<: [*livekit-env, *gms-env]
       LIVEKIT_AGENT_NAME: a301-interviewer
       SONIOX_API_KEY: ${SONIOX_API_KEY:?SONIOX_API_KEY CI/CD variable is required}
       SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
