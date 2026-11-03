@@ -271,7 +271,11 @@ class FrontendContractTest {
                         "seq",
                         1,
                         "startedAt",
-                        OffsetDateTime.now().toString()));
+                        OffsetDateTime.now().toString(),
+                        "content",
+                        "질문1",
+                        "criteria",
+                        "기준"));
         long questionId =
                 questions.findFirstBySessionIdOrderBySeqDesc(sessionId).orElseThrow().getId();
         values.put("questionId", questionId);

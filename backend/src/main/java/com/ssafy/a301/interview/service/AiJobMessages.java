@@ -8,7 +8,6 @@ import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
-import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -93,11 +92,10 @@ public class AiJobMessages {
     // AI 명세 3장
     private void putScoreAnswer(Map<String, Object> message, AiJob job, InterviewSession session) {
         Answer answer = answers.findById(job.getAnswerId()).orElseThrow(() -> missing(job, "답변"));
-        InterviewPlan plan = plan(job);
         message.put("answerId", answer.getId());
         message.put("mode", session.getMode().name());
         message.put("persona", session.getPersona().name());
-        message.putAll(answerContent(answer, plan));
+        message.putAll(answerContent(answer));
     }
 
     // AI 명세 4장. 답이 없는 질문은 넣지 않는다
@@ -113,7 +111,7 @@ public class AiJobMessages {
                                 answer -> {
                                     Map<String, Object> item = new LinkedHashMap<>();
                                     item.put("answerId", answer.getId());
-                                    item.putAll(answerContent(answer, plan));
+                                    item.putAll(answerContent(answer));
                                     putTimelineInput(item, answer);
                                     item.put("evaluation", answer.getEvaluation());
                                     return item;
@@ -157,15 +155,14 @@ public class AiJobMessages {
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }
 
-    // seq·question·criteria·content와 화상이면 tokens·speech. speech는 채점에 쓰는 지표 2개만 보낸다(AI 명세 3장)
-    private static Map<String, Object> answerContent(Answer answer, InterviewPlan plan) {
+    // seq·question·criteria·content와 화상이면 tokens·speech. speech는 채점에 쓰는 지표 2개만 보낸다(AI 명세 3장).
+    // 질문 글·채점 기준은 실제로 출제한 질문 행의 값이다(꼬리질문은 플랜과 다르다, AI 명세 2.2)
+    private static Map<String, Object> answerContent(Answer answer) {
         InterviewQuestion question = answer.getQuestion();
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("seq", question.getSeq());
         content.put("question", question.getContent());
-        content.put(
-                "criteria",
-                plan.question(question.getSeq()).map(PlanQuestion::criteria).orElse(null));
+        content.put("criteria", question.getCriteria());
         content.put("content", answer.getContent());
         if (answer.getTokens() != null) {
             content.put("tokens", answer.getTokens());

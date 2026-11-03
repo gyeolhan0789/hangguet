@@ -112,6 +112,34 @@ class AiJobMessagesTest {
                 .containsEntry("tokens", tokens);
     }
 
+    // 기준: AI 명세 2.2·3·4장, BE 설계 3장 InterviewQuestion(꼬리질문은 플랜과 달라 질문 행의 글·채점 기준을 보낸다)
+    @Test
+    void followUpQuestionIsSentWithItsOwnContentAndCriteria() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT);
+        InterviewQuestion followUp =
+                new InterviewQuestion(
+                        session,
+                        2,
+                        "꼬리질문2",
+                        "꼬리기준2",
+                        "followup-v1",
+                        "gms-test",
+                        OffsetDateTime.now());
+        em.persist(followUp);
+        Answer answer = answer(followUp, "답", null);
+
+        assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
+                .containsEntry("question", "꼬리질문2")
+                .containsEntry("criteria", "꼬리기준2");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> answered =
+                (List<Map<String, Object>>)
+                        messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
+        assertThat(answered.getFirst())
+                .containsEntry("question", "꼬리질문2")
+                .containsEntry("criteria", "꼬리기준2");
+    }
+
     @Test
     void videoAnswerSpeechIsSentWithScoreAnswerAndEvaluate() {
         InterviewSession session = plannedSession(InterviewMode.VIDEO);
@@ -407,10 +435,17 @@ class AiJobMessagesTest {
         return session;
     }
 
+    // 플랜 질문을 그대로 낸 질문 행(예비 질문)과 그 답변
     private Answer answer(
             InterviewSession session, int seq, String content, List<AnswerToken> tokens) {
-        InterviewQuestion question = new InterviewQuestion(session, seq, "질문" + seq);
+        InterviewQuestion question =
+                new InterviewQuestion(
+                        session, seq, "질문" + seq, "기준" + seq, null, null, OffsetDateTime.now());
         em.persist(question);
+        return answer(question, content, tokens);
+    }
+
+    private Answer answer(InterviewQuestion question, String content, List<AnswerToken> tokens) {
         Answer answer =
                 new Answer(
                         question,
