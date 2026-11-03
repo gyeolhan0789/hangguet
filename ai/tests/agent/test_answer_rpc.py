@@ -7,7 +7,9 @@ from livekit import rtc
 from app.agent.answer_rpc import (
     ANSWER_STATE_METHOD,
     ANSWER_SUBMIT_METHOD,
+    MAX_SUBMIT_CONTENT_LENGTH,
     AnswerState,
+    AnswerSubmit,
     InvalidAnswerSubmitError,
     answer_state_payload,
     answer_submit_reply,
@@ -32,7 +34,14 @@ def test_method_names_follow_spec() -> None:
 
 
 def test_parses_seq_of_answer_submit() -> None:
-    assert parse_answer_submit(submit(), SESSION_ID) == 3
+    assert parse_answer_submit(submit(), SESSION_ID) == AnswerSubmit(3, None)
+
+
+# 기준: AI 명세 6.3 interview.answerSubmit content(채팅만, 1,000자 이하, 화상은 null)
+def test_parses_chat_answer_content_up_to_limit() -> None:
+    content = "가" * MAX_SUBMIT_CONTENT_LENGTH
+    assert parse_answer_submit(submit(content=content), SESSION_ID) == AnswerSubmit(3, content)
+    assert parse_answer_submit(submit(content=None), SESSION_ID) == AnswerSubmit(3, None)
 
 
 @pytest.mark.parametrize(
@@ -48,6 +57,9 @@ def test_parses_seq_of_answer_submit() -> None:
         pytest.param(submit(seq=True), id="seq-bool"),
         pytest.param(submit(seq="3"), id="seq-text"),
         pytest.param(json.dumps({"type": "answer.submit", "sessionId": SESSION_ID}), id="no-seq"),
+        pytest.param(submit(content=1), id="content-number"),
+        pytest.param(submit(content=["답변"]), id="content-list"),
+        pytest.param(submit(content="가" * 1001), id="content-over"),
     ],
 )
 def test_rejects_invalid_answer_submit(payload: str) -> None:

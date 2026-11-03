@@ -69,6 +69,7 @@
 | 4.3 | 지원서 목록 | `GET /applications` | 지원 관리 목록(`/applications`), S03 |
 | 4.5 | 지원서 삭제 | `DELETE /applications/{applicationId}` | 지원 관리 상세(`/applications/{id}`) |
 | 4.6 | 지원서의 연습 면접 목록 | `GET /applications/{applicationId}/interview-sessions` | 지원 관리 상세(`/applications/{id}`) |
+| 4.7 | 회사 목록 | `GET /companies` | 지원서 쓰기(`/applications/new`) |
 | 5.1 | 면접 만들기 | `POST /interview-sessions` | S05-1 |
 | 5.2 | 면접 조회 | `GET /interview-sessions/{sessionId}` | S05, S06 · S06-B, S06-F, S06-1 |
 | 5.3 | 면접 플랜 재생성 | `POST /interview-sessions/{sessionId}/plan/retry` | S05 |
@@ -110,6 +111,7 @@
 | 9.8 | 문의 답변 | `POST /admin/inquiries/{inquiryId}/messages` | 관리자 |
 | 9.9 | 문의 종료(관리) | `POST /admin/inquiries/{inquiryId}/close` | 관리자 |
 | 9.10 | 회원 비밀번호 변경 | `PATCH /admin/users/{userId}/password` | 관리자 |
+| 9.11 | 문의 사진 업로드 주소 | `POST /inquiries/attachments/upload-url` | - |
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
 
@@ -407,6 +409,14 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 - **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
 - **500 / INTERNAL_ERROR**: 5.13과 같다. 완료 상태인데 기준별 평가 4개가 모두 저장되지 않은 경우. 불완전한 결과를 정상 평가로 표시하지 않는다
 
+#### 4.7 회사 목록
+
+**화면 — 지원서 쓰기 › 회사명 자동 완성**
+
+회사 카드를 적재한 회사 전체를 별칭과 함께 준다. 영문 다음 한글 가나다순이고 페이지는 없다. 별칭은 회사명 · 영문명 · 기사 검색어 등을 띄어쓰기 · (주) 등을 빼고 소문자로 맞춘 값이다(회사 카드 매칭과 같은 규칙). 화면은 입력한 글을 같은 규칙으로 맞춰 회사명이나 별칭에 든 회사를 보여 준다. 목록에 없는 회사도 지원서에 쓸 수 있다.
+
+- **200**: 항상. 회사가 없으면 빈 `content`
+
 ### 5. 면접 진행
 
 **면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(동시 면접 상한 초과·배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다. `START_FAILED`는 연습 면접이 아니다(스트릭·목록·달력에 들어가지 않음).
@@ -656,14 +666,15 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 화상은 녹화 영상과 질문별 시점(마커), 채팅은 같은 목록을 대화 기록으로 준다(`mode: CHAT`, `videoUrl: null`). 재생 중 자막은 재생 위치가 속한 질문(`questionCreatedAt` ≤ 위치 < 다음 질문)의 `answer`.
 
 - `videoUrl`: 합친 mp4(`recordings/{면접 id}.mp4`)의 Presigned URL. 브라우저가 S3에서 바로 재생한다
-- `questionCreatedAt`: 에이전트가 그 질문을 말하기 시작한 시각(녹화 시작 기준으로 마커 위치를 구한다)
+- `questionCreatedAt`: 에이전트가 그 질문을 말하기 시작한 시각(영상 0초 `recordingStartedAt`, null이면 `startedAt` 기준으로 마커 위치를 구한다)
+- `recordingStartedAt`: 합친 영상의 0초에 해당하는 시각(녹화 합치기에 사용한 트랙 중 가장 먼저 시작한 트랙의 시작 시각). 녹화 시작 시각을 얻지 못해 트랙을 이어 붙여 합쳤거나 채팅이면 null이고, 이때 화면은 `startedAt`을 기준으로 사용한다
 - `videoStatus`: 녹화 영상 상태. `READY`(재생 가능) · `MERGING`(녹화 합치기 중) · `FAILED`(합치기 실패). 채팅이면 null이고, `READY`일 때만 `videoUrl`이 있다
 - 화면은 `MERGING`이면 플레이어 자리에 녹화를 처리하는 중임을 안내하고 10초마다(임시 값) 6.4를 다시 조회한다. `FAILED`면 녹화를 불러오지 못했다고 안내한다. 두 경우 모두 질문 목록과 답변은 보여 준다
 - 면접 종료 후 15분(임시 값)이 지나도 합치기 결과가 없으면 `FAILED`로 응답한다. 작업자 장애로 결과가 오지 않아도 `MERGING`에 계속 남지 않게 하기 위함이다
 - `items[].timeline` **[제안]**: 다시보기 타임라인(화상만). 그 답변 동안의 면접 흐름 곡선과 평소보다 유난히 낮은 지점(체크포인트)이다. 계산은 [AI 명세](AI-명세.md) 4장 다시보기 타임라인. 채팅, 답하지 않은 질문, 타임라인을 만들지 못한 답변은 null
   - `points[]`: `at`(영상 위치, 초, 소수 셋째 자리) · `value`(그 면접 평균이 0인 표준화 값, 음수면 평소보다 아쉬움). 1초 간격
   - `checkpoints[]`: `at`(가장 낮은 지점) · `start` · `end`(이어진 낮은 구간, 영상 위치 초) · `value` · `reasons[]`(`metric`: `STABILITY`·`CONFIDENCE`·`EXPRESSION`·`EMOTION`·`LIKEABILITY`·`TRUST`·`TRAILING_OFF`·`FILLER`·`LONG_PAUSE`, `count`: 음성 이유의 횟수, 인상이면 null, `text`: 보완할 점)
-  - 영상 위치 = (`answers.started_at` − 면접 `startedAt`) + 답변 기준 밀리초. 질문 마커(`questionCreatedAt`)와 같은 기준이다
+  - 영상 위치 = (`answers.started_at` − `recordingStartedAt`(null이면 면접 `startedAt`)) + 답변 기준 밀리초. 질문 마커(`questionCreatedAt`)와 같은 기준이다
 
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
@@ -808,16 +819,20 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 **문의 상태** `WAITING`(답변 대기) → 관리자 답변(9.8) `ANSWERED` → 이어서 쓰기(9.4) `WAITING`. 종료(9.5·9.9)하면 `CLOSED`이고 더 쓸 수 없다. 문의 id가 곧 문의번호다. 제목·본문은 암호화해 저장한다.
 
-**회원 · 비회원** 9.1·9.3·9.4·9.5는 토큰 없이 부를 수 있다. 토큰을 보내면 회원 문의로 그 회원만 볼 수 있고, 보내지 않으면 비회원 문의로 `X-Inquiry-Password` 헤더(9.1에서 정한 조회 비밀번호)가 맞을 때만 볼 수 있다. 없는 문의·남의 문의·틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다. 9.6~9.10은 관리자 토큰으로 부른다(8장).
+**회원 · 비회원** 9.1·9.3·9.4·9.5·9.11은 토큰 없이 부를 수 있다. 토큰을 보내면 회원 문의로 그 회원만 볼 수 있고, 보내지 않으면 비회원 문의로 `X-Inquiry-Password` 헤더(9.1에서 정한 조회 비밀번호)가 맞을 때만 볼 수 있다. 없는 문의·남의 문의·틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다. 9.6~9.10은 관리자 토큰으로 부른다(8장).
 
 목록(9.2·9.6)은 `page` 0부터(기본 0), `size` 1~20(기본 10), 최근 작성 순이며 메시지는 빼고 준다.
 
+**사진** 질문(9.1·9.4)에 사진을 5장까지 붙인다. 9.11로 업로드 주소를 받아 S3에 올린 뒤 `attachmentKeys`에 `objectKey`를 보낸다. 첫 문의는 문의번호가 없고 비회원은 회원 id도 없어, 키를 누구에게 묶지 않는다. 대신 키는 받은 사람만 알고(추측할 수 없음) 1시간 안에 한 번만 쓸 수 있다. 메시지마다 `attachments`(붙인 순, 없으면 빈 목록)에 사진 id와 받는 주소(1시간)를 준다. 관리자 답변에는 사진을 붙이지 않는다.
+
 #### 9.1 문의 작성
 
-제목(최대 100자)과 첫 질문으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다.
+제목(최대 100자)과 첫 질문으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 저장. 메시지는 첫 질문 하나
 - **400 / VALIDATION_FAILED**: 비회원인데 `email`·`accessPassword` 없음, 형식·길이 오류
+- **400 / VALIDATION_FAILED**(`attachmentKeys`): 발급되지 않았거나 이미 쓴 키, 같은 키를 두 번 보냄, 6장 이상
+- **404 / FILE_NOT_FOUND**: 키는 맞지만 S3에 사진이 없음(키는 쓰지 않아 올린 뒤 다시 보낼 수 있다)
 
 #### 9.2 내 문의 목록
 
@@ -834,11 +849,13 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 #### 9.4 문의 이어서 쓰기
 
-같은 문의에 질문을 하나 더 단다. 상태는 `WAITING`이 된다.
+같은 문의에 질문을 하나 더 단다. 상태는 `WAITING`이 된다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 단 메시지
+- **400 / VALIDATION_FAILED**(`attachmentKeys`): 발급되지 않았거나 이미 쓴 키, 같은 키를 두 번 보냄, 6장 이상
 - **404 / INQUIRY_NOT_FOUND**: 9.3과 같음
-- **409 / INQUIRY_CLOSED**: 종료한 문의
+- **404 / FILE_NOT_FOUND**: 키는 맞지만 S3에 사진이 없음(키는 쓰지 않아 올린 뒤 다시 보낼 수 있다)
+- **409 / INQUIRY_CLOSED**: 종료한 문의(키는 쓰지 않는다)
 
 #### 9.5 문의 종료
 
@@ -881,6 +898,13 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / INQUIRY_NOT_FOUND**: 보낸 `inquiryId`의 문의가 없음
 - **409 / PASSWORD_NOT_SET**: 비밀번호가 없는 소셜 회원(비밀번호 로그인 방법을 만들지 않는다)
 
+#### 9.11 문의 사진 업로드 주소
+
+토큰 없이 부를 수 있다. `files`에 사진마다 형식(JPG·PNG)과 크기(1바이트~5MB)를 1~5개 보내면 요청한 순서대로 `uploadUrl`·`objectKey`·`expiresAt`을 준다. 받은 `uploadUrl`로 말한 형식(Content-Type)과 크기의 파일을 PUT한다(`expiresAt`까지, 10분). `objectKey`는 1시간 안에 9.1·9.4에서 한 번만 쓸 수 있다.
+
+- **200**: 사진마다 주소
+- **400 / VALIDATION_FAILED**: 0장·6장 이상, 형식·크기 오류
+
 ## 3. 오류 코드
 
 | code | 상태 | API |
@@ -896,7 +920,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `SOCIAL_LINK_FAILED` · `SOCIAL_ALREADY_LINKED` · `SOCIAL_ACCOUNT_IN_USE` | 400 · 409 · 409 | 2.12 (`SOCIAL_LOGIN_UNAVAILABLE`도 2.12) |
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
 | `PASSWORD_NOT_SET` | 409 | 2.3, 2.13, 9.10 |
-| `FILE_NOT_FOUND` | 404 | 2.5 |
+| `FILE_NOT_FOUND` | 404 | 2.5, 9.1, 9.4 |
 | `KAKAO_CONSENT_FAILED` · `KAKAO_ACCOUNT_MISMATCH` · `KAKAO_MESSAGE_CONSENT_REQUIRED` | 400 | 2.9 |
 | `PRACTICE_ALARM_UNAVAILABLE` | 409 | 2.9, 2.10 |
 | `KAKAO_UNAVAILABLE` | 503 | 2.9 |

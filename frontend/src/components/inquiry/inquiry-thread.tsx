@@ -4,12 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 
-import { Field } from "@/components/form";
 import type { InquiryWriteResult } from "@/lib/inquiry/actions";
 import { inquiryMessageSchema, type InquiryMessageValues } from "@/lib/inquiry/schemas";
-import type { InquiryResponse } from "@/types/api";
+import { uploadInquiryPhotos } from "@/lib/inquiry/upload-photos";
+import type { InquiryAttachment, InquiryQuestionRequest, InquiryResponse } from "@/types/api";
 
-import { InquiryButton, InquiryHead, InquiryModal, StatusChip, TextArea } from "./inquiry-ui";
+import { InquiryButton, InquiryHead, InquiryModal, StatusChip } from "./inquiry-ui";
+import { PhotoComposer, usePhotoPicks } from "./photo-picker";
 
 // 기준: Figma I03 문의 상세 · I03-1 문의 종료 확인(화이트 · 다크) · 기획 메모 I03 · I03-1
 // · Swagger 9.3 문의 조회(InquiryResponse: 메시지 오래된 순) · 9.4 이어서 쓰기(201 · 409 INQUIRY_CLOSED) · 9.5 종료(204)
@@ -19,8 +20,40 @@ import { InquiryButton, InquiryHead, InquiryModal, StatusChip, TextArea } from "
 // · 이어서 쓰기: '이어서 쓰기' 칸(높이 96) + [보내기](주 버튼 104, 아래 맞춤, 간격 8)
 // · 종료한 문의면 입력칸 · [문의 종료] 대신 '종료한 문의예요'(409 INQUIRY_CLOSED도 같은 문구)
 // · 회원 · 비회원이 같이 쓴다. 쓰기 · 종료는 부모가 넘긴 서버 액션으로 하고, 비회원은 부모가 9.3을 다시 불러 그린다.
+// · 사진(Swagger 9.3 attachments · 9.11 → 9.4 attachmentKeys) · 사용자 결정(2026-11-03: 말풍선 아래 사진 칸,
+//   이어서 쓰기는 사진을 붙이는 입력 상자(photo-picker))
 
 const CLOSED_TEXT = "종료한 문의예요.";
+
+/** 말풍선 아래 붙인 사진. 누르면 원본을 새 탭에서 연다 */
+function MessagePhotos({
+  attachments,
+  align,
+}: {
+  attachments: InquiryAttachment[];
+  align: "start" | "end";
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <ul
+      aria-label="붙인 사진"
+      className={`flex max-w-[480px] flex-wrap gap-1.5 ${align === "end" ? "justify-end" : ""}`}
+    >
+      {attachments.map((photo, index) => (
+        <li key={photo.id}>
+          <a
+            href={photo.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`붙인 사진 ${index + 1} 원본 보기(새 탭)`}
+            className="block size-24 rounded-xl border border-line bg-surface bg-cover bg-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            style={{ backgroundImage: `url("${photo.url}")` }}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 /** 2026-10-26T10:00:00+09:00 → 10.26 10:00(서버 일시는 +09:00이라 그대로 자른다) */
 function stamp(dateTime: string) {
@@ -35,7 +68,7 @@ export function InquiryThread({
 }: {
   inquiry: InquiryResponse;
   back: { label: string; href?: string; onClick?: () => void };
-  onSend: (content: string) => Promise<InquiryWriteResult>;
+  onSend: (question: InquiryQuestionRequest) => Promise<InquiryWriteResult>;
   onClose: () => Promise<InquiryWriteResult>;
 }) {
   const closed = inquiry.status === "CLOSED";
@@ -44,6 +77,7 @@ export function InquiryThread({
   const [closeError, setCloseError] = useState<string>();
   const [sending, startSending] = useTransition();
   const [closing, startClosing] = useTransition();
+  const picks = usePhotoPicks();
   const {
     register,
     handleSubmit,
@@ -67,9 +101,18 @@ export function InquiryThread({
   const send = handleSubmit(({ content }) => {
     setSendError(undefined);
     startSending(async () => {
-      const result = await onSend(content);
-      if (result.error) setSendError(result.error);
-      else reset();
+      const uploaded = await uploadInquiryPhotos(picks.files);
+      if (!uploaded.keys) {
+        setSendError(uploaded.error);
+        return;
+      }
+      const result = await onSend({ content, attachmentKeys: uploaded.keys });
+      if (result.error) {
+        setSendError(result.error);
+        return;
+      }
+      reset();
+      picks.clear();
     });
   });
 
@@ -82,7 +125,9 @@ export function InquiryThread({
     });
   };
 
-  const fieldMessage = errors.content?.message ?? sendError;
+  // 사진 오류는 입력칸 탓이 아니라 문구만 보인다
+  const contentError = errors.content?.message ?? sendError;
+  const fieldMessage = contentError ?? picks.error;
 
   return (
     <>
@@ -114,6 +159,7 @@ export function InquiryThread({
               <p className="max-w-[480px] rounded-2xl bg-brand-soft px-[18px] py-3.5 text-[15px] leading-normal font-medium break-words whitespace-pre-wrap text-text-1 dark:bg-brand-soft/8">
                 {m.content}
               </p>
+              <MessagePhotos attachments={m.attachments} align="end" />
               <span className="text-xs leading-normal font-medium text-text-3">
                 {stamp(m.createdAt)}
               </span>
@@ -124,6 +170,7 @@ export function InquiryThread({
               <p className="max-w-[480px] rounded-2xl border border-line bg-bg-sub px-[18px] py-3.5 text-[15px] leading-normal font-medium break-words whitespace-pre-wrap text-text-1">
                 {m.content}
               </p>
+              <MessagePhotos attachments={m.attachments} align="start" />
               <span className="text-xs leading-normal font-medium text-text-3">
                 {stamp(m.createdAt)}
               </span>
@@ -138,21 +185,27 @@ export function InquiryThread({
         </p>
       ) : (
         <form onSubmit={send} noValidate className="flex w-full items-end gap-2">
-          <div className="min-w-0 flex-1">
-            <Field
-              label="이어서 쓰기"
-              htmlFor="inquiry-message"
-              variant="md"
-              message={fieldMessage ? { text: fieldMessage, tone: "error" } : undefined}
-            >
-              <TextArea
-                id="inquiry-message"
-                heightClass="h-24"
-                placeholder="더 궁금한 점을 적어 주세요"
-                invalid={!!fieldMessage}
-                {...register("content")}
-              />
-            </Field>
+          {/* 라벨 글자는 보이지 않게 두고(사용자 결정 2026-11-03) 입력 상자 이름으로만 쓴다 */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <PhotoComposer
+              id="inquiry-message"
+              aria-label="이어서 쓰기"
+              heightClass="h-14"
+              placeholder="더 궁금한 점을 적어 주세요"
+              picks={picks}
+              disabled={sending}
+              invalid={!!contentError}
+              {...register("content")}
+            />
+            {fieldMessage && (
+              <p
+                id="inquiry-message-message"
+                role="alert"
+                className="text-xs leading-normal font-semibold text-danger"
+              >
+                {fieldMessage}
+              </p>
+            )}
           </div>
           <InquiryButton
             type="submit"

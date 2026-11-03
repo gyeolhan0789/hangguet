@@ -999,7 +999,9 @@ class InterviewSessionIntegrationTest {
     // 5.7이 할 일(다음 질문 내기·답변 저장)을 직접 한다
     private void ask(long sessionId, int seq) {
         InterviewSession session = sessions.findById(sessionId).orElseThrow();
-        questions.saveAndFlush(new InterviewQuestion(session, seq, "질문" + seq));
+        questions.saveAndFlush(
+                new InterviewQuestion(
+                        session, seq, "질문" + seq, "기준" + seq, null, null, OffsetDateTime.now()));
     }
 
     private void answer(long sessionId, int seq) {

@@ -668,22 +668,28 @@ function ChatLive({
     return () => clearTimeout(timer);
   }, [status, retries, retry]);
 
-  // 보내지 못한 [답변 완료]. attempt는 같은 질문을 다시 보낼 때마다 늘려 다시 예약하게 한다.
-  const [unsent, setUnsent] = useState<{ seq: number; attempt: number } | null>(null);
+  // 보내지 못한 [답변 완료]. 꼬리질문은 이 글로 만들므로 다시 보낼 때도 싣는다.
+  // attempt는 같은 질문을 다시 보낼 때마다 늘려 다시 예약하게 한다.
+  const [unsent, setUnsent] = useState<{ seq: number; content: string; attempt: number } | null>(
+    null,
+  );
   // 가장 최근에 보낸 질문 순서. 지난 질문의 늦은 결과가 다음 질문의 재전송 예약을 지우지 않게 한다.
   const latest = useRef(0);
   const send = useCallback(
-    async (seq: number, attempt: number) => {
+    async (seq: number, content: string, attempt: number) => {
       latest.current = Math.max(latest.current, seq);
-      const result = await submitAnswer(seq);
+      const result = await submitAnswer(seq, content);
       if (seq < latest.current) return;
-      setUnsent(result === "failed" ? { seq, attempt: attempt + 1 } : null);
+      setUnsent(result === "failed" ? { seq, content, attempt: attempt + 1 } : null);
     },
     [submitAnswer],
   );
   useEffect(() => {
     if (!unsent) return;
-    const timer = setTimeout(() => void send(unsent.seq, unsent.attempt), CHAT_ROOM_RETRY_MS);
+    const timer = setTimeout(
+      () => void send(unsent.seq, unsent.content, unsent.attempt),
+      CHAT_ROOM_RETRY_MS,
+    );
     return () => clearTimeout(timer);
   }, [unsent, send]);
 
@@ -696,9 +702,9 @@ function ChatLive({
         submissionLocked={submissionLocked}
         onChatInput={sendInput}
         inputQuestionSeq={inputQuestionSeq}
-        onAnswered={(seq) => {
+        onAnswered={(seq, content) => {
           setCompletedSeq(seq);
-          void send(seq, 0);
+          void send(seq, content, 0);
         }}
       />
     </>

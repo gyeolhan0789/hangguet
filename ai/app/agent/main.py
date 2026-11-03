@@ -19,6 +19,7 @@ from app.agent.answer_capture import AnswerCapture, CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.followup import followup_generator
 from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
 from app.agent.interview import InterviewRunner
 from app.agent.jev import JevJudge
@@ -271,8 +272,9 @@ async def run_interview(
             lambda destination, payload: send_room_message(
                 room.local_participant, destination, REACTION_METHOD, payload
             ),
-            question=assignment.question,
-            criteria=assignment.criteria,
+            # 꼬리질문이면 배정 정보의 예비 질문이 아니라 실제로 출제한 질문으로 판단한다
+            question=lambda seq: runner.question(seq),
+            criteria=lambda seq: runner.criteria(seq),
             latest_only=not video,
             persona=assignment.persona if video else None,
         )
@@ -288,6 +290,7 @@ async def run_interview(
         ),
         on_answer=delivery.deliver,
         reactions=reactions,
+        followups=followup_generator(common),
     )
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:

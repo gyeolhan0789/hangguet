@@ -25,7 +25,10 @@ import java.util.Map;
  * @param seq question.started·answer.completed 질문 순서
  * @param startedAt question.started 질문을 말하기 시작한 시각
  * @param answerStartedAt answer.completed 답변을 듣기 시작한 시각(tokens 시각의 0ms)
- * @param content answer.completed 인식한 답변 글
+ * @param promptVersion plan.completed 플랜, question.started 꼬리질문의 프롬프트 버전(예비 질문은 null)
+ * @param modelVersion plan.completed 플랜, question.started 꼬리질문의 모델 버전(예비 질문은 null)
+ * @param content question.started 실제로 출제한 질문 글, answer.completed 인식한 답변 글
+ * @param criteria question.started 실제로 출제한 질문의 채점 기준
  * @param tokens answer.completed 확정 토큰과 말한 시각
  * @param speech answer.completed 말끝 흐림·억양 폭
  * @param endReason answer.completed AUTO_SUBMIT · MANUAL_SUBMIT
@@ -55,6 +58,7 @@ public record AiResultMessage(
         OffsetDateTime startedAt,
         OffsetDateTime answerStartedAt,
         String content,
+        String criteria,
         List<AnswerToken> tokens,
         AnswerSpeech speech,
         String endReason,

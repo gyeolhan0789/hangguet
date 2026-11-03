@@ -14,8 +14,8 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
   지금 질문이 아닌 seq의 [답변 완료]도 지금 답할 수 있는 질문이 아니므로 2002로 거절한다.
 - 지원자가 퇴장하면 진행 중인 답변을 폐기하고 재입장을 기다린다.
   재입장하면 같은 질문의 답변을 처음부터 다시 듣는다.
-  질문 음성 재생 중에 퇴장했으면 질문을 다시 말하고,
-  BE에 전송하는 question.started는 다시 전송하지 않는다.
+  질문 음성 재생 중에 퇴장했으면 질문을 다시 말한다.
+  BE에 전송하는 question.started는 질문 음성 담당(QuestionSpeaker)이 질문마다 한 번만 전송한다.
 - 면접방이 닫히면 진행 중인 답변은 전달하지 않는다(AI 명세 6.1).
 - 다음 질문 음성은 답변을 듣는 동안 미리 합성한다(AI 명세 6장 머리말).
   ElevenLabs 동시 요청 상한(요금제)을 넘지 않도록 질문은 앞 질문 합성이 끝난 뒤 하나씩 합성한다.
@@ -36,6 +36,14 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
 - 오리 면접관의 호응 효과음은 화면이 재생하므로(API 명세 면접방 메시지),
   답변을 전달한 뒤 NEXT_QUESTION_DELAYS만큼 기다리고 다음 질문으로 진행한다(AI 명세 6.2).
   마지막 답변 뒤에는 기다리지 않는다.
+- 꼬리질문(AI 명세 2.2)은 1·3번 답변이 끝나면 생성을 시작하고, 기다리지 않고 답변 전달로 넘어간다.
+  다음 질문 음성을 준비하는 작업이 생성 결과를 기다리므로,
+  답변 전달과 오리 면접관의 효과음 대기가 생성 시간과 겹쳐 계산된다.
+  답변이 끝난 시점부터 FOLLOWUP_TIMEOUT 안에 생성하지 못하거나 실패하면
+  예비 질문을 출제한다. 미리 합성하지 않은 5번 예비 질문은 이때 합성한다.
+  4·5번은 한 번에 생성하므로 함께 대체한다.
+  화상 답변을 BE에 전송하지 않았으면(저장할 수 없는 답변) 생성한 질문도 출제하지 않는다.
+  채팅은 [답변 완료]에 담긴 답변 글로 생성하고, 글이 없으면 생성하지 않는다.
 """
 
 from __future__ import annotations
@@ -54,7 +62,8 @@ from app.agent.answer_rpc import (
     answer_submit_reply,
     parse_answer_submit,
 )
-from app.agent.assignment import Assignment
+from app.agent.assignment import AssignedQuestion, Assignment
+from app.agent.followup import FollowupError
 from app.agent.reaction import ReactionStream, chat_input_reply, parse_chat_input
 from app.agent.tts import SpeechAudio
 from app.common.answer import SpeechToken
@@ -76,6 +85,7 @@ from app.interview.realtime.answer_end import (
     next_answer_end,
     next_deadline,
 )
+from app.interview.realtime.followup import FOLLOWUP_SEQS, FOLLOWUP_TIMEOUT
 from app.interview.realtime.interrupt import INTERRUPT_PHRASES, Interrupt, InterruptReason
 from app.interview.realtime.progress import EndReason
 from app.interview.realtime.sentence import Sentence, last_sentence
@@ -92,15 +102,27 @@ NEXT_QUESTION_DELAYS: Mapping[Persona, float] = {Persona.DUCK: 1.0}
 
 
 class QuestionAsker(Protocol):
-    async def prepare(self, seq: int) -> SpeechAudio | None: ...
+    async def prepare(self, seq: int, question: AssignedQuestion) -> SpeechAudio | None: ...
 
     async def prepare_notice(self, text: str) -> SpeechAudio | None: ...
 
     async def say(self, audio: SpeechAudio) -> None: ...
 
     async def ask(
-        self, seq: int, destination: str, audio: SpeechAudio | None, *, announce: bool = True
+        self,
+        seq: int,
+        question: AssignedQuestion,
+        destination: str,
+        audio: SpeechAudio | None,
     ) -> None: ...
+
+
+class FollowupGenerator(Protocol):
+    """꼬리질문 생성기다. 생성하지 못하면 FollowupError를 발생시킨다."""
+
+    async def generate(
+        self, persona: Persona, question: AssignedQuestion, answer: str, count: int
+    ) -> tuple[AssignedQuestion, ...]: ...
 
 
 class CaptureSession(Protocol):
@@ -124,6 +146,9 @@ class CaptureSession(Protocol):
 
 CaptureOpener = Callable[[str, Callable[[], None], Callable[[Sentence, str], None]], CaptureSession]
 StateSender = Callable[[str, str], Coroutine[Any, Any, None]]
+# 출제할 질문과 미리 합성한 음성. 합성에 실패했으면 음성은 None이다
+Prepared = tuple[AssignedQuestion, SpeechAudio | None]
+Followups = tuple[AssignedQuestion, ...]
 
 
 @dataclass(frozen=True)
@@ -147,6 +172,7 @@ class InterviewRunner:
         *,
         on_answer: Callable[[FinishedAnswer], Awaitable[bool]] | None = None,
         reactions: ReactionStream | None = None,
+        followups: FollowupGenerator | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -175,8 +201,15 @@ class InterviewRunner:
         self._left = asyncio.Event()
         self._wake = asyncio.Event()
         self._finish: EndReason | None = None
-        self._prepared: dict[int, asyncio.Task[SpeechAudio | None]] = {}
+        self._prepared: dict[int, asyncio.Task[Prepared]] = {}
         self._notifications: set[asyncio.Task[None]] = set()
+        self._followups = followups
+        # 실제로 출제한 질문. 꼬리질문이면 배정 정보의 예비 질문과 다르다
+        self._asked: dict[int, AssignedQuestion] = {}
+        # 채팅 [답변 완료]로 수신한 답변 글
+        self._submitted_content: str | None = None
+        # 꼬리질문 생성과 꼬리질문으로 교체한 예비 질문 합성. 면접이 끝날 때 정리한다
+        self._background: list[asyncio.Task[Any]] = []
 
     def candidate_joined(self, identity: str) -> None:
         # 퇴장 표시는 진행 중인 질문·답변이 확인한 뒤 지운다.
@@ -199,7 +232,8 @@ class InterviewRunner:
 
         거절은 RPC 오류로 발생시킨다.
         """
-        seq = parse_answer_submit(payload, self._assignment.session_id)
+        message = parse_answer_submit(payload, self._assignment.session_id)
+        seq = message.seq
         if seq == self._seq:
             decision = self._apply(SubmitRequested())
         elif self._chat and self._seq is not None and seq < self._seq:
@@ -209,8 +243,20 @@ class InterviewRunner:
             decision = Decision.NOT_ANSWERING
         if decision is Decision.ACCEPT:
             self._finish = EndReason.MANUAL_SUBMIT
+            self._submitted_content = message.content
             self._wake.set()
         return answer_submit_reply(decision)
+
+    def question(self, seq: int) -> str:
+        """seq번으로 출제한 질문 글이다. 아직 출제하지 않았으면 배정 정보의 질문 글이다."""
+        return self._issued(seq).content
+
+    def criteria(self, seq: int) -> str:
+        """seq번으로 출제한 질문의 채점 기준이다."""
+        return self._issued(seq).criteria
+
+    def _issued(self, seq: int) -> AssignedQuestion:
+        return self._asked.get(seq) or self._assignment.questions[seq]
 
     def chat_input_received(self, payload: str) -> str:
         """채팅 입력(chat.input) 처리 함수다.
@@ -245,7 +291,12 @@ class InterviewRunner:
             await asyncio.gather(*self._notifications, return_exceptions=True)
             log.info("마지막 질문까지 진행했다", extra={"session": self._assignment.session_id})
         finally:
-            pending = [*self._prepared.values(), *self._notifications, *self._notices.values()]
+            pending = [
+                *self._prepared.values(),
+                *self._notifications,
+                *self._notices.values(),
+                *self._background,
+            ]
             if self._notice is not None:
                 pending.append(self._notice)
             for task in pending:
@@ -257,16 +308,14 @@ class InterviewRunner:
         self._chat_input_seq = 0
         self._prepare(seq)
         self._prepare(seq + 1)
-        announce = True
         while True:
             destination = await self._wait_candidate()
             if self._chat and self._reactions is not None:
                 self._reactions.start(seq, destination)
             # 질문 음성 재생 중에는 답변 중이 아니므로 [답변 완료]를 거절한다
             self._state = INITIAL_STATE
-            if await self._speak(seq, destination, announce):
+            if await self._speak(seq, destination):
                 break
-            announce = False
         while not await self._answer(seq):
             await self._wait_candidate()
         self._prepared.pop(seq, None)
@@ -279,13 +328,81 @@ class InterviewRunner:
             previous = self._prepared.get(seq - 1)
             self._prepared[seq] = asyncio.create_task(self._prepare_after(previous, seq))
 
-    async def _prepare_after(
-        self, previous: asyncio.Task[SpeechAudio | None] | None, seq: int
-    ) -> SpeechAudio | None:
+    async def _prepare_after(self, previous: asyncio.Task[Prepared] | None, seq: int) -> Prepared:
         # 앞 질문 합성이 끝난 뒤 합성해 동시 요청을 하나로 둔다. 앞 질문의 성공 여부와는 상관없다
         if previous is not None:
             await asyncio.wait((previous,))
-        return await self._asker.prepare(seq)
+        question = self._assignment.questions[seq]
+        return question, await self._asker.prepare(seq, question)
+
+    def _start_followup(self, seq: int, answer: str | None, ended: float) -> asyncio.Future[bool]:
+        """seq번 답변으로 꼬리질문 생성을 시작하고 기다리지 않고 반환한다.
+
+        ended는 답변이 끝난 이벤트 루프 시각이다.
+        반환한 Future에는 답변을 BE에 전송했는지를 설정한다.
+        전송하지 않은 답변의 꼬리질문은 출제하지 않는다.
+        꼬리질문 순서의 음성 준비는
+        생성 결과를 기다려 꼬리질문이나 예비 질문을 합성하는 작업으로 교체한다.
+        """
+        saved: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        targets = FOLLOWUP_SEQS.get(seq)
+        if targets is None or self._followups is None or answer is None or not answer.strip():
+            return saved
+        generation = asyncio.create_task(
+            self._generate(seq, answer, len(targets), ended + FOLLOWUP_TIMEOUT, saved)
+        )
+        self._background.append(generation)
+        for index, target in enumerate(targets):
+            planned = self._prepared.get(target)
+            if planned is not None:
+                self._background.append(planned)
+            # 예비 질문 합성이 없으면(5번) 앞 질문 합성 뒤에 합성해 동시 요청을 하나로 둔다
+            after = planned or self._prepared.get(target - 1)
+            self._prepared[target] = asyncio.create_task(
+                self._prepare_followup(generation, index, target, planned, after)
+            )
+        return saved
+
+    async def _generate(
+        self, seq: int, answer: str, count: int, deadline: float, saved: asyncio.Future[bool]
+    ) -> Followups | None:
+        assert self._followups is not None
+        question = self._issued(seq)
+        try:
+            async with asyncio.timeout_at(deadline):
+                followups = await self._followups.generate(
+                    self._assignment.persona, question, answer, count
+                )
+        except (TimeoutError, FollowupError) as e:
+            log.warning("꼬리질문을 생성하지 못해 예비 질문을 출제한다: %r", e, extra={"seq": seq})
+            return None
+        except Exception:
+            # 생성 실패는 면접 진행에 영향을 주지 않아야 하므로(AI 명세 6.5)
+            # 예상하지 못한 오류도 예비 질문으로 진행하고, 원인을 찾도록 호출 경로를 남긴다
+            log.exception("꼬리질문 생성 중 예상하지 못한 오류", extra={"seq": seq})
+            return None
+        # BE에 전송하지 않은 답변을 파고드는 질문은 출제하지 않는다(AI 명세 2.2)
+        return followups if await saved else None
+
+    async def _prepare_followup(
+        self,
+        generation: asyncio.Task[Followups | None],
+        index: int,
+        seq: int,
+        planned: asyncio.Task[Prepared] | None,
+        after: asyncio.Task[Prepared] | None,
+    ) -> Prepared:
+        await asyncio.wait((generation,))
+        followups = None if generation.cancelled() else generation.result()
+        if after is not None:
+            await asyncio.wait((after,))
+        if followups is not None:
+            question = followups[index]
+        elif planned is not None:
+            return planned.result()
+        else:
+            question = self._assignment.questions[seq]
+        return question, await self._asker.prepare(seq, question)
 
     async def _wait_candidate(self) -> str:
         await self._present.wait()
@@ -293,13 +410,14 @@ class InterviewRunner:
         assert self._candidate is not None
         return self._candidate
 
-    async def _speak(self, seq: int, destination: str, announce: bool) -> bool:
+    async def _speak(self, seq: int, destination: str) -> bool:
         """질문을 말한다.
 
         말하는 도중 지원자가 퇴장하면 False다.
         """
-        audio = await self._prepared[seq]
-        asking = asyncio.create_task(self._asker.ask(seq, destination, audio, announce=announce))
+        question, audio = await self._prepared[seq]
+        self._asked[seq] = question
+        asking = asyncio.create_task(self._asker.ask(seq, question, destination, audio))
         left = asyncio.create_task(self._left.wait())
         try:
             done, _ = await asyncio.wait((asking, left), return_when=asyncio.FIRST_COMPLETED)
@@ -319,6 +437,9 @@ class InterviewRunner:
         """
         if self._chat:
             await self._chat_answer()
+            # 채팅 답변은 화면이 답변 제출 API(5.7)로 이미 저장했다
+            ended = asyncio.get_running_loop().time()
+            self._start_followup(seq, self._submitted_content, ended).set_result(True)
             if self._reactions is not None:
                 await self._reactions.stop()
             return True
@@ -345,6 +466,7 @@ class InterviewRunner:
                 deadline = next_deadline(self._state)
                 if deadline is not None and self._ms() >= deadline:
                     self._tick(seq, destination)
+            ended = asyncio.get_running_loop().time()
             session.stop()
             answer = await self._collect(capturing, session)
             finished = True
@@ -358,22 +480,27 @@ class InterviewRunner:
             if self._reactions is not None:
                 await self._reactions.stop()
             await session.aclose()
-        await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
+        saved = self._start_followup(seq, answer.content, ended)
+        saved.set_result(
+            await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
+        )
         return True
 
     async def _chat_answer(self) -> None:
         # 질문을 마친 즉시 답변 중으로 전환한다.
         # 지원자를 기다리는 동안 수신한 [답변 완료]를 2002로 거절하지 않기 위함이다
         self._finish = None
+        self._submitted_content = None
         self._state = INITIAL_STATE
         self._apply(AnswerStarted(self._ms(), self._assignment.mode))
         while self._finish is None:
             self._wake.clear()
             await self._wake.wait()
 
-    async def _deliver(self, finished: FinishedAnswer, destination: str) -> None:
+    async def _deliver(self, finished: FinishedAnswer, destination: str) -> bool:
+        """답변을 BE에 전송했으면 True, 저장할 수 없는 답변이라 전송하지 않았으면 False다."""
         if self._on_answer is None:
-            return
+            return True
         while True:
             try:
                 saved = await self._on_answer(finished)
@@ -385,7 +512,7 @@ class InterviewRunner:
                 continue
             if saved:
                 self._notify(destination, finished.seq, AnswerState.SUBMITTED)
-            return
+            return saved
 
     async def _resubmit_requested(self) -> None:
         while self._state.phase is Phase.SUBMIT_FAILED:

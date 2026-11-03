@@ -55,6 +55,8 @@ export const applicationEndpoints = {
   detail: (applicationId: Id) => `/applications/${applicationId}`,
   /** 4.6 GET 지원서의 연습 면접 목록(page · size) */
   sessions: (applicationId: Id) => `/applications/${applicationId}/interview-sessions`,
+  /** 4.7 GET 회사 목록 */
+  companies: "/companies",
 } as const;
 
 /** 5. 면접 진행 */
@@ -123,6 +125,8 @@ export const inquiryEndpoints = {
   messages: (inquiryId: Id) => `/inquiries/${inquiryId}/messages`,
   /** 9.5 POST 문의 종료(토큰 없이도) */
   close: (inquiryId: Id) => `/inquiries/${inquiryId}/close`,
+  /** 9.11 POST 문의 사진 업로드 주소(토큰 없이도) */
+  attachmentUploadUrl: "/inquiries/attachments/upload-url",
 } as const;
 
 export const endpoints = {

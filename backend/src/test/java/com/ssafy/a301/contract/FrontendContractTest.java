@@ -31,6 +31,9 @@ import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.service.AuthService;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.company.service.CompanyCardManifest;
+import com.ssafy.a301.company.service.CompanyCardWriter;
+import com.ssafy.a301.inquiry.dto.InquiryDtos.AttachmentFile;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.service.InquiryService;
 import com.ssafy.a301.interview.domain.Criterion;
@@ -49,14 +52,21 @@ import com.ssafy.a301.interview.service.AnswerService;
 import com.ssafy.a301.interview.service.InterviewSessionService;
 import com.ssafy.a301.storage.s3.PresignedUrl;
 import com.ssafy.a301.storage.s3.S3FileStorage;
+import com.ssafy.a301.storage.s3.StoredFile;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.service.UserService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
@@ -98,6 +108,7 @@ class FrontendContractTest {
     @Autowired private SessionRuntimeStore runtimes;
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private InquiryService inquiries;
+    @Autowired private CompanyCardWriter companyCards;
     @Autowired private AdminRepository admins;
     @Autowired private AdminNoticeService notices;
     @Autowired private StreakFreezeGrantService grants;
@@ -130,6 +141,9 @@ class FrontendContractTest {
                         new PresignedUrl(
                                 "https://s3.test/upload", OffsetDateTime.now().plusMinutes(10)));
         when(storage.exists(anyString())).thenReturn(true);
+        when(storage.find(anyString()))
+                .thenReturn(Optional.of(new StoredFile("image/png", 204800L)));
+        when(storage.presignDownload(anyString())).thenReturn("https://s3.test/download");
     }
 
     @TestTemplate
@@ -265,7 +279,11 @@ class FrontendContractTest {
                         "seq",
                         1,
                         "startedAt",
-                        OffsetDateTime.now().toString()));
+                        OffsetDateTime.now().toString(),
+                        "content",
+                        "질문1",
+                        "criteria",
+                        "기준"));
         long questionId =
                 questions.findFirstBySessionIdOrderBySeqDesc(sessionId).orElseThrow().getId();
         values.put("questionId", questionId);
@@ -358,9 +376,16 @@ class FrontendContractTest {
         return values;
     }
 
+    @State("업로드한 문의 사진")
+    Map<String, Object> uploadedInquiryPhoto() {
+        values.put("objectKey", inquiryPhotoKey());
+        return values;
+    }
+
+    /** photo면 첫 질문에 사진을 하나 붙인다 */
     @State("문의")
     Map<String, Object> inquiry(Map<String, Object> params) {
-        long id = inquiries.create(userId(), inquiryRequest(null, null)).id();
+        long id = inquiries.create(userId(), inquiryRequest(null, null, photos(params))).id();
         if (Boolean.TRUE.equals(params.get("closed"))) {
             inquiries.close(userId(), id, null);
         }
@@ -370,9 +395,40 @@ class FrontendContractTest {
 
     @State("비회원 문의")
     Map<String, Object> guestInquiry() {
-        long id = inquiries.create(null, inquiryRequest(ContractData.GUEST_EMAIL, "1234")).id();
+        long id =
+                inquiries.create(null, inquiryRequest(ContractData.GUEST_EMAIL, "1234", null)).id();
         values.put("inquiryId", id);
         return values;
+    }
+
+    /** 회사는 파이프라인이 올린 manifest로만 생기므로 적재기(CompanyCardWriter)로 하나 넣는다 */
+    @State("적재한 회사")
+    Map<String, Object> company() throws NoSuchAlgorithmException {
+        byte[] card = "{}".getBytes(StandardCharsets.UTF_8);
+        companyCards.apply(
+                new CompanyCardManifest.Entry(
+                        ContractData.CORP_CODE,
+                        "계약검증회사",
+                        true,
+                        List.of("계약검증회사"),
+                        LocalDate.of(2026, 10, 20),
+                        "contract/card.json",
+                        HexFormat.of()
+                                .formatHex(MessageDigest.getInstance("SHA-256").digest(card))),
+                key -> card);
+        return values;
+    }
+
+    private String inquiryPhotoKey() {
+        return inquiries
+                .attachmentUploadUrls(List.of(new AttachmentFile("image/png", 204800L)))
+                .files()
+                .get(0)
+                .objectKey();
+    }
+
+    private List<String> photos(Map<String, Object> params) {
+        return Boolean.TRUE.equals(params.get("photo")) ? List.of(inquiryPhotoKey()) : null;
     }
 
     private long userId() {
@@ -402,9 +458,14 @@ class FrontendContractTest {
                         new AgreementRequest(TermsType.RECORDING, "1.0")));
     }
 
-    private static InquiryCreateRequest inquiryRequest(String email, String accessPassword) {
+    private static InquiryCreateRequest inquiryRequest(
+            String email, String accessPassword, List<String> attachmentKeys) {
         return new InquiryCreateRequest(
-                "비밀번호를 잊어버렸어요", "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.", email, accessPassword);
+                "비밀번호를 잊어버렸어요",
+                "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+                email,
+                accessPassword,
+                attachmentKeys);
     }
 
     private static Map<String, Object> planCompleted(long sessionId) {

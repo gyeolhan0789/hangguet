@@ -3,10 +3,12 @@ package com.ssafy.a301.inquiry;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.inquiry.InquiryDtos.AttachmentUploadUrlRequest;
+import com.ssafy.a301.inquiry.InquiryDtos.AttachmentUploadUrlResponse;
 import com.ssafy.a301.inquiry.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.InquiryDtos.InquiryListItem;
 import com.ssafy.a301.inquiry.InquiryDtos.InquiryMessage;
-import com.ssafy.a301.inquiry.InquiryDtos.InquiryMessageRequest;
+import com.ssafy.a301.inquiry.InquiryDtos.InquiryQuestionRequest;
 import com.ssafy.a301.inquiry.InquiryDtos.InquiryResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -44,9 +46,10 @@ public class InquiryController {
               "createdAt": "2026-10-26T10:00:00+09:00", "updatedAt": "2026-10-26T11:30:00+09:00",
               "messages": [
                 { "id": 21, "authorType": "USER", "content": "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
-                  "createdAt": "2026-10-26T10:00:00+09:00" },
+                  "createdAt": "2026-10-26T10:00:00+09:00",
+                  "attachments": [ { "id": 3, "url": "https://…s3…/inquiry/7f3c….png?X-Amz-Signature=…" } ] },
                 { "id": 22, "authorType": "ADMIN", "content": "요청하신 비밀번호로 바꿨어요. 다시 로그인해 주세요.",
-                  "createdAt": "2026-10-26T11:30:00+09:00" } ] }\
+                  "createdAt": "2026-10-26T11:30:00+09:00", "attachments": [] } ] }\
             """;
     private static final String CREATED =
             """
@@ -54,11 +57,19 @@ public class InquiryController {
               "createdAt": "2026-10-26T10:00:00+09:00", "updatedAt": "2026-10-26T10:00:00+09:00",
               "messages": [
                 { "id": 21, "authorType": "USER", "content": "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
-                  "createdAt": "2026-10-26T10:00:00+09:00" } ] }\
+                  "createdAt": "2026-10-26T10:00:00+09:00",
+                  "attachments": [ { "id": 3, "url": "https://…s3…/inquiry/7f3c….png?X-Amz-Signature=…" } ] } ] }\
             """;
     private static final String MESSAGE =
             """
-            { "id": 23, "authorType": "USER", "content": "확인 부탁드려요.", "createdAt": "2026-10-26T12:00:00+09:00" }\
+            { "id": 23, "authorType": "USER", "content": "확인 부탁드려요.", "createdAt": "2026-10-26T12:00:00+09:00",
+              "attachments": [] }\
+            """;
+    private static final String UPLOAD_URLS =
+            """
+            { "files": [
+                { "uploadUrl": "https://…s3…?X-Amz-Signature=…", "objectKey": "inquiry/7f3c….png",
+                  "expiresAt": "2026-10-26T10:10:00+09:00" } ] }\
             """;
     private static final String LIST_ITEMS =
             """
@@ -79,6 +90,9 @@ public class InquiryController {
     private static final String ID = "문의 id(문의번호). `0`이면 404(뼈대 서버)";
     private static final String CLOSED_ID = "문의 id(문의번호). `0`이면 404, `4`면 종료한 문의라 409(뼈대 서버)";
     private static final String ACCESS = "비회원 문의만: 9.1에서 정한 조회 비밀번호. 회원은 보내지 않고 로그인 토큰으로 부른다";
+    private static final String KEY_RULE =
+            " 뼈대 서버: attachmentKeys에 `inquiry/used.png`가 있으면 400(이미 쓴 키), `inquiry/missing.png`가"
+                    + " 있으면 404 FILE_NOT_FOUND.";
     private static final String NOT_FOUND_RULE =
             " 없는 문의, 다른 회원의 문의, 비회원 문의인데 조회 비밀번호가 틀리면 모두 404 INQUIRY_NOT_FOUND다.";
 
@@ -93,13 +107,34 @@ public class InquiryController {
             description =
                     "제목과 첫 질문으로 문의를 남긴다(상태 WAITING). 로그인했으면 회원 문의, 로그인하지 않았으면 비회원 문의이고"
                             + " 비회원은 email · accessPassword가 필수다. 응답의 id가 문의번호이며, 비회원은 문의번호와 조회"
-                            + " 비밀번호로 9.3 ~ 9.5를 부른다. 제목 · 본문은 암호화해 저장한다.")
+                            + " 비밀번호로 9.3 ~ 9.5를 부른다. 제목 · 본문은 암호화해 저장한다. 사진은 9.11로 올린 뒤"
+                            + " attachmentKeys로 붙인다(5장까지)."
+                            + KEY_RULE)
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = CREATED)))
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "VALIDATION_FAILED",
+                                            value = ErrorExamples.ATTACHMENT_KEY_INVALID)))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "FILE_NOT_FOUND",
+                                            value = ErrorExamples.INQUIRY_FILE_NOT_FOUND)))
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public InquiryResponse create(@Valid @RequestBody InquiryCreateRequest request) {
+        InquiryStubs.attachmentKeys(request.attachmentKeys());
         return stub.read(CREATED, InquiryResponse.class);
     }
 
@@ -149,19 +184,34 @@ public class InquiryController {
             summary = "9.4 문의 이어서 쓰기",
             description =
                     "같은 문의에 질문을 하나 더 단다. 상태는 WAITING(답변 대기)이 된다. 종료한 문의면 409 INQUIRY_CLOSED다."
-                            + NOT_FOUND_RULE)
+                            + " 사진은 9.1과 같이 attachmentKeys로 붙인다."
+                            + NOT_FOUND_RULE
+                            + KEY_RULE)
     @ApiResponse(
             responseCode = "201",
             content = @Content(examples = @ExampleObject(value = MESSAGE)))
     @ApiResponse(
-            responseCode = "404",
+            responseCode = "400",
             content =
                     @Content(
                             mediaType = ErrorExamples.PROBLEM,
                             examples =
                                     @ExampleObject(
-                                            name = "INQUIRY_NOT_FOUND",
-                                            value = ErrorExamples.INQUIRY_NOT_FOUND)))
+                                            name = "VALIDATION_FAILED",
+                                            value = ErrorExamples.ATTACHMENT_KEY_INVALID)))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "INQUIRY_NOT_FOUND",
+                                        value = ErrorExamples.INQUIRY_NOT_FOUND),
+                                @ExampleObject(
+                                        name = "FILE_NOT_FOUND",
+                                        value = ErrorExamples.INQUIRY_FILE_NOT_FOUND)
+                            }))
     @ApiResponse(
             responseCode = "409",
             content =
@@ -178,8 +228,9 @@ public class InquiryController {
             @Parameter(description = ACCESS, example = "1234")
                     @RequestHeader(value = "X-Inquiry-Password", required = false)
                     String accessPassword,
-            @Valid @RequestBody InquiryMessageRequest request) {
+            @Valid @RequestBody InquiryQuestionRequest request) {
         InquiryStubs.closedOr404(inquiryId);
+        InquiryStubs.attachmentKeys(request.attachmentKeys());
         return stub.read(MESSAGE, InquiryMessage.class);
     }
 
@@ -204,5 +255,22 @@ public class InquiryController {
                     @RequestHeader(value = "X-Inquiry-Password", required = false)
                     String accessPassword) {
         Stub.notFoundIfZero(inquiryId, ErrorCode.INQUIRY_NOT_FOUND);
+    }
+
+    @Operation(
+            summary = "9.11 문의 사진 업로드 주소",
+            description =
+                    "사진마다 받은 uploadUrl로 요청한 형식(Content-Type)과 크기의 파일을 PUT한 뒤, 9.1 · 9.4의"
+                        + " attachmentKeys에 objectKey를 보낸다. 로그인하지 않아도 부를 수 있다. objectKey는 받은 사람만 알며"
+                        + " 1시간 안에 한 번만 쓸 수 있다(uploadUrl은 expiresAt까지). 뼈대 서버는 요청한 장수만큼 같은 예시를 준다.")
+    @ApiResponse(
+            responseCode = "200",
+            content = @Content(examples = @ExampleObject(value = UPLOAD_URLS)))
+    @PostMapping("/attachments/upload-url")
+    public AttachmentUploadUrlResponse attachmentUploadUrls(
+            @Valid @RequestBody AttachmentUploadUrlRequest request) {
+        var example = stub.read(UPLOAD_URLS, AttachmentUploadUrlResponse.class).files().get(0);
+        return new AttachmentUploadUrlResponse(
+                request.files().stream().map(file -> example).toList());
     }
 }

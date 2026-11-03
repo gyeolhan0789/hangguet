@@ -101,6 +101,7 @@ export type AnswerStateMessage = z.infer<typeof answerStateSchema>;
 
 export const answerSubmitResponseSchema = z.object({ accepted: z.boolean() });
 
-export function answerSubmitPayload(sessionId: number, seq: number) {
-  return JSON.stringify({ type: "answer.submit", sessionId, seq });
+/** content는 채팅이 5.7로 낸 답변 글(꼬리질문 생성용), 화상은 null */
+export function answerSubmitPayload(sessionId: number, seq: number, content: string | null) {
+  return JSON.stringify({ type: "answer.submit", sessionId, seq, content });
 }

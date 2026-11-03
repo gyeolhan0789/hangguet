@@ -32,8 +32,6 @@ log = logging.getLogger(__name__)
 # 해소될 때까지 대기할 수 있는 값으로 두었고, 측정 뒤 조정한다
 BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 REQUEST_TIMEOUT_SECONDS = 60.0
-# 재시도마다 간격이 하나씩 필요하므로 횟수를 간격 목록에서 계산해 두 값이 어긋나지 않게 한다
-MAX_RETRIES = len(BACKOFF_SECONDS)
 # Retry-After 상한(초).
 # 서버가 긴 대기를 지정해도 작업자가 장시간 정지하지 않도록 한다
 MAX_RETRY_AFTER_SECONDS = 60.0
@@ -155,22 +153,36 @@ class GmsClient:
         transport: Transport,
         sleep: Callable[[float], None] = time.sleep,
         timer: Callable[[], float] = time.monotonic,
+        retry_delays: Sequence[float] = BACKOFF_SECONDS,
     ) -> None:
+        """retry_delays는 재시도마다 기다리는 시간(초)이고, 비어 있으면 재시도하지 않는다."""
         self._model = model
         self._transport = transport
         self._sleep = sleep
         self._timer = timer
+        self._retry_delays = tuple(retry_delays)
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "GmsClient":
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
+        retry_delays: Sequence[float] = BACKOFF_SECONDS,
+    ) -> "GmsClient":
         """GMS를 처음 사용하는 시점에 접속 값과 모델을 검사한다.
 
         접속 값이 없으면 SettingsError를, LLM_MODEL이 등록된 Model 버전이 아니면
         UnregisteredVersionError를 발생시킨다(AI 명세 9장).
+        면접 중 꼬리질문처럼 기다릴 수 있는 시간이 짧은 호출은 timeout·retry_delays를 줄여 생성한다.
         """
         llm = settings.llm()
         REGISTRY.require(VersionKind.MODEL, llm.model)
-        return cls(model=llm.model, transport=urllib_transport(llm.chat_url, llm.api_key))
+        return cls(
+            model=llm.model,
+            transport=urllib_transport(llm.chat_url, llm.api_key, timeout),
+            retry_delays=retry_delays,
+        )
 
     def chat_json(self, messages: Sequence[Mapping[str, str]]) -> GmsResult:
         # gpt-5.6-terra는 temperature 0과 logprobs 요청을 400으로 거절하므로
@@ -194,7 +206,9 @@ class GmsClient:
     def _send_with_retry(self, payload: dict[str, Any]) -> HttpResponse:
         # 재시도 대기를 포함한 전체 시간이 BE 대기 상한에 영향을 주므로 호출 전체를 잰다
         started = self._timer()
-        for attempt in range(MAX_RETRIES + 1):
+        # 재시도마다 간격이 하나씩 필요하므로 횟수를 간격 목록에서 계산해 두 값이 어긋나지 않게 한다
+        retries = len(self._retry_delays)
+        for attempt in range(retries + 1):
             try:
                 response = self._transport(payload)
             except TimeoutError:
@@ -208,21 +222,23 @@ class GmsClient:
                     self._log_failure(started, attempt + 1)
                     raise GmsUnavailableError(f"GMS 오류 응답 {response.status}")
                 reason, wait = str(response.status), _retry_after(response.headers)
-            if attempt == MAX_RETRIES:
+            if attempt == retries:
                 break
             # 서버가 대기 시간을 지정하면 그 값이 처리량 제한 해제 시점이므로 우선한다
-            delay = wait if wait is not None else BACKOFF_SECONDS[attempt]
-            log.warning("GMS 재시도 %d/%d (%s)", attempt + 1, MAX_RETRIES, reason)
+            delay = wait if wait is not None else self._retry_delays[attempt]
+            log.warning("GMS 재시도 %d/%d (%s)", attempt + 1, retries, reason)
             self._sleep(delay)
-        self._log_failure(started, MAX_RETRIES + 1)
-        raise GmsUnavailableError(f"GMS 호출 {MAX_RETRIES + 1}회 실패")
+        self._log_failure(started, retries + 1)
+        raise GmsUnavailableError(f"GMS 호출 {retries + 1}회 실패")
 
     def _log_failure(self, started: float, attempts: int) -> None:
         ms = elapsed_ms(started, self._timer())
         log.warning("GMS 호출 실패 ms=%d attempts=%d", ms, attempts)
 
 
-def urllib_transport(url: str, api_key: str | None) -> Transport:
+def urllib_transport(
+    url: str, api_key: str | None, timeout: float = REQUEST_TIMEOUT_SECONDS
+) -> Transport:
     """urllib로 전송한다.
 
     company-pipeline/pipeline/card.py와 같은 방식이라 HTTP 의존성을 추가하지 않는다.
@@ -234,7 +250,7 @@ def urllib_transport(url: str, api_key: str | None) -> Transport:
             headers["Authorization"] = f"Bearer {api_key}"
         req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as res:
+            with urllib.request.urlopen(req, timeout=timeout) as res:
                 return HttpResponse(res.status, dict(res.headers.items()), res.read())
         except urllib.error.HTTPError as e:
             return HttpResponse(e.code, dict(e.headers.items()), e.read())

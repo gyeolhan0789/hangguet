@@ -68,7 +68,7 @@ com.ssafy.a301
 │  ├─ mapper       ApplicationMapper
 │  ├─ repository   ApplicationRepository
 │  └─ domain       Application, CoverLetterItem
-├─ company         회사 카드(docs/ERD-회사카드.md). 파이프라인이 공용 버킷에 올린 카드를 적재하고, 면접을 만들 때 지원서 회사명으로 찾는다
+├─ company         회사 카드(docs/ERD-회사카드.md). 파이프라인이 공용 버킷에 올린 카드를 적재하고, 면접을 만들 때 지원서 회사명으로 찾는다. 회사 목록(4.7)도 준다
 │  ├─ service      CompanyCardImporter · CompanyCardImportScheduler(1시간마다 manifest 적재), CompanyCardWriter(회사마다 DB 반영),
 │  │               CompanyCardSource(공용 버킷 읽기), CompanyCardFinder(회사명 정규화 → 별칭 → 최신 카드)
 │  ├─ repository   CompanyRepository, CompanyAliasRepository, CompanyCardRepository, CompanyCardImportRepository
@@ -158,11 +158,11 @@ com.ssafy.a301
 | `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 회원마다 탈퇴하지 않은 연결은 하나다: 소셜 회원은 가입한 계정, 이메일 회원은 직접 연결한 계정(2.12). DB도 부분 UNIQUE 인덱스(`user_id`, V16)로 막는다. 이메일 회원이 연결을 끊으면(2.13) 행을 지운다. 로그인에 쓴 제공자 토큰은 저장하지 않는다 **[결정]** |
 | `PracticeAlarm` | `practice_alarms` | 1:1 User(PK `user_id`) | 카카오톡 연습 알림(V14). 알림 시각(`alarm_time`, 분 단위, 기본 21:00)은 끈 뒤에도 남고, 켜져 있을 때만 카카오 토큰(액세스 · 리프레시, 암호화)과 만료 시각이 있다(넷이 함께 있거나 함께 없음, CHECK). `last_sent_on`(한국 날짜)으로 하루 한 번만 보낸다. 회원이 탈퇴하면 행을 지운다 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application, N:1 CompanyCard(null 가능) | 상태 전이는 엔티티 메서드로만(4장). `company_card_id`(V15)는 면접을 만들 때 지원서 회사명으로 찾은 회사 카드이고 바꾸지 않는다(5.1). 못 찾으면 null. `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
-| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE. `content`·`criteria`·`prompt_version`·`model_version`은 `question.started`로 받은 실제 출제 질문의 값이다. 2·4·5번은 꼬리질문이라 플랜과 다를 수 있으므로 채점·결과·다시보기는 플랜이 아니라 이 행의 글과 채점 기준을 사용한다(AI 명세 2.2). 버전은 꼬리질문만 있고 그 밖에는 null |
+| `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE. `content`·`criteria`·`prompt_version`·`model_version`은 `question.started`로 받은 실제 출제 질문의 값이다. 채점 기준 · 버전 컬럼은 V18에서 더했고, V18 전 행의 `criteria`는 그 면접 플랜의 같은 seq 기준으로 채웠다. 2·4·5번은 꼬리질문이라 플랜과 다를 수 있으므로 채점·결과·다시보기는 플랜이 아니라 이 행의 글과 채점 기준을 사용한다(AI 명세 2.2). 버전은 꼬리질문만 있고 그 밖에는 null |
 | `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·주장(JSONB)·버전. BE가 결과 메시지 `plan.completed`를 받아 면접당 한 번 저장하고 바꾸지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭, 다시보기 타임라인용 `trailingOffAtMs`·`impressions`)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
-| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE |
+| `Recording` | `recordings` | N:1 Session, N:1 Answer(null 가능) | 화상만. Egress 원본 트랙(BE가 녹화를 시작할 때 위치를 정함)과 합친 mp4(`SESSION_VIDEO`). 합친 mp4 행은 5.8에서 `status` `MERGING`으로 만들고 `recording.merged`로 `READY`, `recording.mergeFailed`로 `FAILED`가 된다(V10). 위치는 원본 `recordings/raw/{sessionId}/`, 합친 mp4 `recordings/{sessionId}.mp4`(`Recording.rawPrefix`·`sessionVideoKey`, AI 명세 7장). 원본 트랙을 행으로 남길지 **[제안]**, 답변별 음성 **[미정]**(API 명세 B-19). `object_key` UNIQUE. 합친 mp4 행에 `recording.merged`의 `recordingStartedAt`(합친 영상의 0초에 해당하는 시각, AI 명세 7장)을 저장한다 |
 | `SessionScore` | `session_scores` | N:1 Session | `(session_id, criterion)` UNIQUE. 기준 4개 |
 | `Company` · `CompanyAlias` · `CompanyCard` · `CompanyCardImport` | `companies` · `company_aliases` · `company_cards` · `company_card_imports` | Alias · Card N:1 Company | 회사 카드(V15). 카드 JSON은 해석하지 않고 JSONB로 두며 회사당 최신 카드(`is_current`)는 하나다. 적재 · 보관 규칙은 [회사 카드 ERD](ERD-회사카드.md) |
 | `SpeechMetric` | `speech_metrics` | 1:1 Session(PK 공유) | 화상만. `gaze_ratio`는 면접 끝내기(API 명세 5.8)로 받고, 나머지는 답변 음성에서 |
@@ -176,6 +176,7 @@ com.ssafy.a301
 | `AdminDailyMetric` | `admin_daily_metrics` | - | 관리자 일별 메트릭(8.16). PK `metric_date`. 매일 0시(한국 시간)에 전날 8.15 집계를 한 행으로 남기고, 같은 날을 다시 남기면 덮어쓴다. 날짜로 정해지는 값(가입 · 연습 · 재방문)은 그날 기준, 상태가 바뀌는 값(회원 · 면접 · 문의 · 유지권 수)은 `recorded_at` 기준. 비율 대신 분자 · 분모를 둔다 |
 | `Inquiry` | `inquiries` | N:1 User(null 가능) | 문의. id가 문의번호. 회원 문의는 `user_id`(이메일은 그 회원 것을 남김), 비회원 문의는 `access_password_hash`(조회 비밀번호를 회원 비밀번호와 같은 방식으로 해시). 제목은 암호화(V6). 상태 전이는 엔티티 메서드로만: 만들면 WAITING, 문의한 사람이 쓰면 WAITING, 관리자가 쓰면 ANSWERED, 누구든 종료하면 CLOSED(이후 쓰기는 409 `INQUIRY_CLOSED`, 다시 종료는 그대로 성공). `updated_at`은 마지막 질문 · 답변 · 종료 일시 |
 | `InquiryMessage` | `inquiry_messages` | N:1 Inquiry, N:1 Admin(null 가능) | 질문(USER) 또는 답변(ADMIN) 하나. 본문은 암호화 |
+| `InquiryAttachment` | `inquiry_attachments` | N:1 InquiryMessage | 질문에 붙인 사진 한 장(V17). S3 키(UNIQUE)와 S3에 올라간 형식 · 크기 |
 | `PasswordChange` | `password_changes` | user_id · admin_id · inquiry_id(id만) | 비밀번호 변경 기록. 비밀번호 값은 남기지 않는다. 회원 직접 변경(2.3, USER)과 관리자 변경(9.10, ADMIN)을 남긴다 |
 
 - 회원 정보 변경(2.2·2.3·2.5·2.6)과 탈퇴(2.7)는 회원 행을 잠그고(`SELECT … FOR UPDATE`) 트랜잭션 안에서 바꾼다. 같은 회원의 요청이 겹쳐도 서로 덮어쓰지 않고, 탈퇴 뒤에 처리되는 변경은 401이 된다. S3 파일 삭제·토큰 폐기는 커밋 뒤에 한다
@@ -184,6 +185,7 @@ com.ssafy.a301
 - 문의 쓰기 · 종료(9.4 · 9.5 · 9.8 · 9.9)는 문의 행을 잠그고 한다. 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(`X-Inquiry-Password`)가 맞을 때만 볼 수 있고, 없는 문의 · 남의 문의 · 틀린 조회 비밀번호는 모두 404 `INQUIRY_NOT_FOUND`로 같게 답한다
 - 문의 제목 · 본문은 AES-256-GCM으로 암호화해 저장한다(`EncryptedTextConverter`). 키는 환경 변수 `INQUIRY_ENCRYPTION_KEY`(Base64, 32바이트)로만 받고 없으면 기동하지 않는다. 키를 잃거나 바꾸면 저장한 문의를 풀 수 없다
 - 지원서 목록(4.3)은 최근 작성 순(같은 시각이면 id 역순)이고 문항은 넣지 않는다. 지원서의 연습 면접 목록(4.6)은 5.13과 같은 기준 · 항목(`InterviewSessionListService`)을 지원서로 거른다
+- 회사 목록(4.7)은 회사 전체와 별칭을 한 번씩 읽어 `Collator`(한국어)로 정렬한다. 영문이 한글보다 먼저 오고, 이름이 같으면 id 순이다
 - 모든 연관은 `LAZY`. 응답에 회사명·직무가 필요한 조회(5.2, 6.3, 6.4, 7.2)는 `application`을 fetch join한다 **[제안]**
 - 다른 회원의 리소스는 404로 응답한다 **[결정]**. 조회 조건에 항상 `user_id`를 넣어 "없음"과 "남의 것"을 같은 결과로 만든다 **[제안]**
 - ERD에 없고 DDL에만 추가한 것 **[제안]**: `ix_applications_user_created`(지원서 목록), `ix_interview_sessions_user_ended`(회원별 종료 면접), `ix_interview_sessions_user_started`(V9. 홈·통계·달력·목록·성장 리뷰의 한국 시간 시작일 범위 조회), `ix_interview_sessions_application`(4.6 지원서의 연습 면접 목록), `uk_interview_questions_session_seq`(질문 순서 중복 방지), `ck_cover_letter_items_item_order`(V13. 문항 순서 1~5)
@@ -268,7 +270,7 @@ com.ssafy.a301
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
-11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
+11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경하고 `recordingStartedAt`(null 가능)을 저장한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
 12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`가 아니거나 `occurredAt`이 없으면 실패 목록
 
 ### 5.6 면접방 (LiveKit)
@@ -314,6 +316,7 @@ com.ssafy.a301
 - 결과가 완전한지 = 기준 4개가 하나씩 있는지(`Criterion.coversAllOnce`). 결과 저장 검사·5.13·6.3·7.x가 같은 확인을 쓴다
 - 6.3·6.4는 `COMPLETED`만 준다. 없거나 남의 면접 404 `SESSION_NOT_FOUND`, `ABORTED` 409 `NO_RESULT`, 그 밖(`ANALYZING`·`FAILED`, 아직 끝나지 않은 면접) 409 `RESULT_NOT_READY`. 기준 점수가 4개가 아니면 500 `INTERNAL_ERROR`(5.13과 같음)
 - 6.4 `videoStatus`(화상만): 합친 녹화 행(`SESSION_VIDEO`, `recordings/{sessionId}.mp4`)이 `READY`이면 `READY`이고 `videoUrl`은 Presigned GET이다. 행이 `FAILED`이거나, `MERGING`이거나 행이 없는데 면접 종료(`ended_at`) 후 15분(`ResultService.MERGE_WAIT`, 임시 값)이 지났으면 `FAILED`, 그 밖에는 `MERGING`이다. 15분 판정은 저장하지 않고 조회할 때 계산하므로 늦게 온 `recording.merged`로 `READY`가 된다. `READY`가 아니면 `videoUrl`은 null이고 질문 목록은 그대로 준다
+- 6.4 `recordingStartedAt`(화상만): 합친 녹화 행에 저장한 `recording.merged`의 `recordingStartedAt`이다. AI가 녹화 시작 시각 없이 이어 붙여 합쳤거나(값 null) 채팅이면 null이다
 - `elapsedSeconds` = (`ended_at` 또는 지금) − `started_at` − 멈춘 시간(Redis). `SessionRuntime.elapsedSeconds()`
 
 ### 6.4 연습 면접 목록 (5.13)
@@ -345,7 +348,7 @@ com.ssafy.a301
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `social-signup:{SHA-256(token)}` | `SocialProfile` JSON(제공자 · 제공자 회원 번호 · 이메일 · 닉네임) | `oauth.signup-token-ttl`(10분) | 1.6에서 처음 온 사람에게 가입 토큰을 줄 때 넣고, 1.7에서 읽은 뒤 가입에 성공하면 지운다(실패하면 남겨 다시 보낼 수 있게) |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
-| `upload:{objectKey}` | userId · 용도 | Presigned 만료와 같게 | 2.5에서 "본인에게 발급된 키"인지 확인 |
+| `upload:{objectKey}` | userId · 용도(문의 사진은 용도만) | Presigned 만료와 같게(문의 사진은 1시간) | 2.5에서 "본인에게 발급된 키"인지, 9.1 · 9.4에서 "발급했고 아직 안 쓴 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
 ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제외라 지금은 쓰지 않는다.
@@ -418,6 +421,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 | 용도 | 키 규칙 | 업로드 | 조회 |
 |---|---|---|---|
 | 프로필 사진 | `profile/{userId}/{uuid}.{ext}` | 2.4 Presigned PUT(JPG·PNG, 5MB) | 응답마다 Presigned GET |
+| 문의 사진 | `inquiry/{uuid}.{ext}` | 9.11 Presigned PUT(JPG·PNG, 5MB, 한 번에 5장) | 9.3 · 9.7 응답마다 Presigned GET |
 | 면접 녹화 원본 | `recordings/raw/{sessionId}/…`(트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
 | 면접 녹화 | `recordings/{sessionId}.mp4` | AI 분석 작업자가 합쳐 올림(`recording.merged`) | 6.4 Presigned GET |
 | 답변 음성 | **[미정]**(트랙에서 잘라 쓸지 따로 저장할지, API 명세 B-19) | - | 분석에서만 사용 |
@@ -425,6 +429,8 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 키 규칙은 [운영 배포 계획](../이해준/deploy_plan/README.md) 6.1을 따른다. Egress와 AI는 BE와 다른 IAM 키를 쓴다(같은 문서 6.2)
 - 업로드 주소(2.4)는 형식(Content-Type)과 크기를 서명에 넣는다. 발급 때와 다른 파일은 S3가 거절한다
 - 업로드 주소를 발급하면 `upload:{objectKey}`(7장)에 회원 id와 용도를 남긴다. 등록 API(2.5)는 본인에게 같은 용도로 발급된 키가 아니면 400 `VALIDATION_FAILED`(`objectKey`)
+- 문의 사진(9.11)은 첫 문의에 문의번호가 없고 비회원은 회원 id도 없어 받는 사람을 남기지 않는다. `upload:{objectKey}`에 용도만 남기고, 9.1 · 9.4는 모든 키가 발급됐고 S3에 있는지 확인한 뒤 읽고 지우기(GETDEL)로 한 번만 쓴다. 하나라도 틀리면 어떤 키도 쓰지 않아 다시 시도할 수 있다. 형식 · 크기는 S3에 올라간 값(HEAD)을 저장한다
+- 붙이지 않은 문의 사진은 S3에 남는다. 지우는 규칙(수명 주기 등)은 아직 없다 **[미정]**
 - 등록 API(2.5)는 S3에 실제 파일이 있는지 확인한다. 없으면 404 `FILE_NOT_FOUND`. 버킷 목록 권한(`s3:ListBucket`)이 없으면 S3가 없는 파일에도 403을 주므로 BE 권한에 포함한다
 - 프로필 사진을 바꾸거나(2.5) 지우면(2.6) 회원 정보를 저장한 뒤 이전 파일을 지운다. 파일 삭제가 실패해도 요청은 성공으로 두고 경고 로그만 남긴다
 - 탈퇴는 soft delete **[결정]**: 회원 행의 개인정보(이메일·닉네임·비밀번호 해시)와 프로필 사진·녹화·답변 음성 파일을 지우지 않는다

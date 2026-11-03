@@ -24,9 +24,14 @@ class AssignmentError(ValueError):
 
 @dataclass(frozen=True)
 class AssignedQuestion:
+    """출제하는 질문이다. 배정 정보의 미리 만든 질문이거나 면접 중 생성한 꼬리질문이다."""
+
     content: str
     # AI 명세 6.4: 리액션 판단의 입력이다
     criteria: str
+    # AI 명세 6.2: 꼬리질문이면 생성한 프롬프트·모델 버전이고, 미리 만든 질문이면 None이다
+    prompt_version: str | None = None
+    model_version: str | None = None
 
 
 @dataclass(frozen=True)

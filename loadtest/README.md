@@ -141,7 +141,7 @@ N=3 bash loadtest/run.sh scenarios/s5-interview-browser.js  # 한 단계만
 - 실패는 `interview_failed`(면접 자체)와 `replay_failed`(면접은 끝났지만 녹화 실패)로 나눠 세고, 실패해도 그 전까지 잰 값은 남긴다. 다시보기 화면에 "녹화를 불러오지 못했어요"가 나오면 바로 실패로 본다
 - Chromium은 WebGL을 끈다(면접관 3D 화면은 정지 이미지로 대신 나온다). 켜면 Chromium 1개가 노트북 CPU를 약 9코어 쓴다. 끄면 약 1.5코어 · 430MB. `BROWSER_3D=1`이면 켠다
 - 노트북 여러 대: 노트북마다 `ACCOUNT_OFFSET`(0 · 10 …)과 같은 `START_AT`(유닉스 초)을 주고 `s5-interview-browser.js`를 돌린다
-- 테스트 서버 Egress는 운영과 달리 `track_cpu_cost: 0.1`이다(`server/compose.loadtest.yml`). 운영 기본값(0.5)이면 15초 안에 트랙 녹화 약 6개(면접 2건)만 받아 동시 5건부터 녹화가 빠진다([S5 보고서](report/s5-2026-11-02.md) 7 · 9장). 운영과 같은 조건으로 재려면 그 덮어쓰기를 빼고 Egress를 다시 띄운다
+- 테스트 서버 Egress는 운영과 같이 `track_cpu_cost: 0.1`이다(`server/compose.loadtest.yml`, 운영은 `deploy/prod/compose.yml`). Egress 기본값(0.5)이면 15초 안에 트랙 녹화 약 6개(면접 2건)만 받아 동시 5건부터 녹화가 빠진다([S5 보고서](report/s5-2026-11-02.md) 7 · 9장). S5 첫 회차처럼 기본값으로 재려면 덮어쓰기의 `EGRESS_CONFIG_BODY`에서 `cpu_cost`를 빼고 Egress를 다시 띄운다
 
 ## S6 피크 혼합 (계획 6장, 실제 외부 API)
 

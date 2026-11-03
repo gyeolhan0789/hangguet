@@ -9,6 +9,8 @@
 - S3_BUCKET·AWS_REGION: BE와 같은 이름이다(deploy/dev/compose.yml).
   녹화 합치기가 같은 버킷에서 원본 트랙을 다운로드하고 합친 녹화를 업로드한다.
   자격 증명은 BE와 같이 AWS 기본 공급자(AWS_ACCESS_KEY_ID 등)에서 읽으므로 이 모듈에 두지 않는다.
+- LIVEKIT_URL·LIVEKIT_API_KEY·LIVEKIT_API_SECRET: LiveKit SDK가 기본으로 읽는 이름이다.
+  녹화 합치기가 녹화 목록 조회로 트랙별 녹화 시작 시각을 얻는다(AI 명세 7장).
 - AI_WORKER_QUEUE: 분석 작업자가 수신할 큐(AI 명세 1.3). 값 검사는 app.worker.queue가 한다.
 AI는 DB에 접속하지 않으므로(AI 명세 1장) DB 접속 변수는 두지 않는다.
 기본값은 BE application.yml의 기본값(로컬 docker-compose 기준)과 같다.
@@ -46,6 +48,9 @@ class Settings:
     elevenlabs_api_key: str | None = field(repr=False)
     s3_bucket: str | None = None
     aws_region: str | None = None
+    livekit_url: str | None = None
+    livekit_api_key: str | None = field(default=None, repr=False)
+    livekit_api_secret: str | None = field(default=None, repr=False)
     worker_queue: str | None = None
 
     def llm(self) -> LlmSettings:
@@ -97,5 +102,8 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         elevenlabs_api_key=_optional(env, "ELEVENLABS_API_KEY"),
         s3_bucket=_optional(env, "S3_BUCKET"),
         aws_region=_optional(env, "AWS_REGION"),
+        livekit_url=_optional(env, "LIVEKIT_URL"),
+        livekit_api_key=_optional(env, "LIVEKIT_API_KEY"),
+        livekit_api_secret=_optional(env, "LIVEKIT_API_SECRET"),
         worker_queue=_optional(env, WORKER_QUEUE_ENV),
     )

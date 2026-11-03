@@ -25,7 +25,7 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
-# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
+# BE(입장 토큰 서명 · 녹화 요청)와 AI(면접방 에이전트 · 녹화 작업자의 녹화 목록 조회)가 같이 쓰는 LiveKit 설정. 이름은 개발 서버와 같다.
 # 운영은 서버가 붙는 내부 주소(LIVEKIT_URL)와 브라우저에 알려 줄 주소(LIVEKIT_PUBLIC_URL)가 다르다(배포 계획 4.0).
 x-livekit-env: &livekit-env
   LIVEKIT_URL: ws://a301-prod-livekit:7880
@@ -64,7 +64,7 @@ x-ai-worker-redis-env: &ai-worker-redis-env
 # GMS 접속 값. 개발 서버와 같다
 x-gms-env: &gms-env
   LLM_CHAT_URL: https://gms.ssafy.io/gmsapi/api.openai.com/v1/chat/completions
-  LLM_MODEL: gpt-4.1-mini
+  LLM_MODEL: gpt-5.6-terra
   LLM_API_KEY: ${LLM_API_KEY:?LLM_API_KEY CI/CD variable is required}
 
 # 녹화 합치기: BE와 같은 버킷 · 앱 키(IAM a301-prod-app, 배포 계획 6.2)로 원본 트랙을 받고 합친 mp4를 올린다
@@ -199,7 +199,8 @@ services:
       a301-prod-livekit:
         condition: service_started
     environment:
-      <<: *livekit-env
+      # 꼬리질문 생성(GMS)
+      <<: [*livekit-env, *gms-env]
       LIVEKIT_AGENT_NAME: a301-interviewer
       SONIOX_API_KEY: ${SONIOX_API_KEY:?SONIOX_API_KEY CI/CD variable is required}
       SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
@@ -255,7 +256,8 @@ services:
     <<: *ai-worker
     container_name: a301-prod-ai-recording
     environment:
-      <<: [*ai-worker-redis-env, *recording-s3-env]
+      # 녹화 시작 시각 조회(LiveKit)
+      <<: [*ai-worker-redis-env, *recording-s3-env, *livekit-env]
       AI_WORKER_QUEUE: recording
     mem_limit: 256m
     cpus: 1
@@ -369,6 +371,10 @@ services:
           address: a301-prod-redis:6379
         health_port: 8080
         prometheus_port: 9090
+        # 기본값 0.5면 트랙 녹화 1개를 0.5코어로 15초 예약해 4코어 × 0.8 기준 15초에 약 6개만 받는다.
+        # 실제 사용은 1개 약 0.03코어라 0.1로 낮춘다(loadtest/report/s5-2026-11-02.md 7 · 9장)
+        cpu_cost:
+          track_cpu_cost: 0.1
     # 트랙 녹화는 인코딩하지 않지만 동시 녹화 수에 따라 실측 후 조정한다(배포 계획 3.2)
     mem_limit: 1g
     networks:

@@ -45,8 +45,8 @@ export function ChatPanel({
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
-  /** 답변이 저장됐을 때(이미 낸 답변 포함) 그 질문 순서. 에이전트에 [답변 완료]를 보낸다 */
-  onAnswered?: (seq: number) => void;
+  /** 답변이 저장됐을 때(이미 낸 답변 포함) 그 질문 순서와 낸 글. 에이전트에 [답변 완료]를 보낸다 */
+  onAnswered?: (seq: number, content: string) => void;
   /** 질문 음성 재생 중에는 입력을 유지하고 제출만 차단한다. */
   submissionLocked?: boolean;
   onChatInput?: (questionSeq: number, seq: number, text: string, pauseMs: number) => void;
@@ -134,7 +134,7 @@ export function ChatPanel({
       reset({ content: "" });
       requestAnimationFrame(fit);
       setAnsweredQuestion(question.id);
-      onAnswered?.(question.seq);
+      onAnswered?.(question.seq, values.content);
       if (result.isLastQuestion || (already && question.seq === TOTAL_QUESTIONS)) {
         endKey.current ??= crypto.randomUUID();
         const ended = await endSession(sessionId, endKey.current);

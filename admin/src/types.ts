@@ -154,6 +154,9 @@ export type AdminInquiryListItem = {
   updatedAt: string
 }
 
+/** 메시지에 붙인 사진. url은 1시간 동안 쓰는 원본 주소 */
+export type InquiryAttachment = { id: number; url: string }
+
 export type AdminInquiryMessage = {
   id: number
   authorType: AuthorType
@@ -161,6 +164,8 @@ export type AdminInquiryMessage = {
   adminName: string | null
   content: string
   createdAt: string
+  /** 붙인 순. 없으면 빈 목록 */
+  attachments: InquiryAttachment[]
 }
 
 export type AdminInquiryResponse = AdminInquiryListItem & {

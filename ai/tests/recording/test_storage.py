@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -11,8 +12,11 @@ from app.recording.storage import (
     MP4_CONTENT_TYPE,
     S3RecordingStorage,
     StorageError,
+    StoredObject,
     create_s3_storage,
 )
+
+AT = datetime(2026, 11, 3, 10, 0, tzinfo=UTC)
 
 
 def client_error(code: str) -> ClientError:
@@ -22,14 +26,19 @@ def client_error(code: str) -> ClientError:
 def pages(*keys_per_page: list[str]) -> MagicMock:
     client = MagicMock()
     client.get_paginator.return_value.paginate.return_value = [
-        {"Contents": [{"Key": key} for key in keys]} if keys else {} for keys in keys_per_page
+        {"Contents": [{"Key": key, "LastModified": AT} for key in keys]} if keys else {}
+        for keys in keys_per_page
     ]
     return client
 
 
 def test_list_reads_every_page() -> None:
     client = pages(["a", "b"], ["c"], [])
-    assert S3RecordingStorage(client, "bucket").list("recordings/raw/55/") == ["a", "b", "c"]
+    assert S3RecordingStorage(client, "bucket").list("recordings/raw/55/") == [
+        StoredObject("a", AT),
+        StoredObject("b", AT),
+        StoredObject("c", AT),
+    ]
     client.get_paginator.assert_called_once_with("list_objects_v2")
     client.get_paginator.return_value.paginate.assert_called_once_with(
         Bucket="bucket", Prefix="recordings/raw/55/"

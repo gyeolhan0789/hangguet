@@ -3,19 +3,34 @@ import { describe, expect, it } from "vitest";
 
 import { getNotices } from "@/lib/notice/queries";
 import { readNotice } from "@/lib/notice/actions";
-import { asGuest, asMember, bearer, contract, problem, providerPath, shape } from "@/test/pact";
-import type { InquiryListItem, InquiryMessage, InquiryResponse } from "@/types/api";
+import {
+  asGuest,
+  asMember,
+  bearer,
+  contract,
+  problem,
+  providerPath,
+  providerValue,
+  shape,
+} from "@/test/pact";
+import type {
+  InquiryAttachment,
+  InquiryListItem,
+  InquiryMessage,
+  InquiryResponse,
+} from "@/types/api";
 
 import {
   addInquiryMessage,
   closeInquiry,
   createGuestInquiry,
   createInquiry,
+  createInquiryPhotoUploadUrls,
   openGuestInquiry,
 } from "./actions";
 import { getInquiry, getMyInquiries } from "./queries";
 
-// 기준: Swagger 9.1~9.5 문의 · 8.8~8.9 공지 예시
+// 기준: Swagger 9.1~9.5 · 9.11 문의 · 8.8~8.9 공지 예시
 const { like, eachLike, equal } = MatchersV3;
 const pact = contract();
 
@@ -23,12 +38,15 @@ const values = {
   title: "비밀번호를 잊어버렸어요",
   content: "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
 };
-const message = {
+// 상세 화면은 사진 칸(id · 원본 주소)을 그린다. "사진" 상황이 첫 질문에 사진을 하나 붙인다
+const photo = { id: 3, url: "https://s3.test/download" } satisfies InquiryAttachment;
+const messageFields = {
   id: 21,
   authorType: "USER",
   content: values.content,
   createdAt: "2026-10-26T10:00:00+09:00",
-} satisfies InquiryMessage;
+} satisfies Omit<InquiryMessage, "attachments">;
+const message = { ...messageFields, attachments: [photo] } satisfies InquiryMessage;
 // 상세 화면은 id · 제목 · 상태 · 메시지만, 목록은 여기에 작성일을 더 읽는다
 const detailFields = {
   id: 7,
@@ -45,7 +63,16 @@ const inquiry = { ...detailFields, messages: [message] } satisfies Pick<
 >;
 const inquiryBody = {
   ...shape(detailFields, "status"),
-  messages: eachLike(shape(message, "authorType")),
+  messages: eachLike({
+    ...shape(messageFields, "authorType"),
+    attachments: eachLike(shape(photo)),
+  }),
+};
+// 사진이 없으면 빈 목록이 온다(화면이 길이를 바로 읽는다)
+const noPhotoInquiry = { ...inquiry, messages: [{ ...messageFields, attachments: [] }] };
+const noPhotoBody = {
+  ...shape(detailFields, "status"),
+  messages: eachLike({ ...shape(messageFields, "authorType"), attachments: equal([]) }),
 };
 const detail = (path: string) =>
   providerPath(`/inquiries/\${inquiryId}${path}`, `/inquiries/7${path}`);
@@ -84,7 +111,7 @@ describe("문의(회원)", () => {
     pact
       .addInteraction()
       .given("회원")
-      .given("문의")
+      .given("문의", { photo: true })
       .uponReceiving("9.3 문의 조회(회원)")
       .withRequest("GET", detail(""), (b) => b.headers(bearer))
       .willRespondWith(200, (b) => b.jsonBody(inquiryBody))
@@ -118,7 +145,34 @@ describe("문의(회원)", () => {
       .willRespondWith(201)
       .executeTest(
         asMember(async () =>
-          expect(await addInquiryMessage(7, "확인 부탁드려요.")).not.toHaveProperty("error"),
+          expect(await addInquiryMessage(7, { content: "확인 부탁드려요." })).not.toHaveProperty(
+            "error",
+          ),
+        ),
+      ));
+
+  it("9.4 사진을 붙여 이어서 쓴다", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("문의")
+      .given("업로드한 문의 사진")
+      .uponReceiving("9.4 사진을 붙여 문의 이어서 쓰기(회원)")
+      .withRequest("POST", detail("/messages"), (b) =>
+        b.headers(bearer).jsonBody({
+          content: "확인 부탁드려요.",
+          attachmentKeys: [providerValue("objectKey", "inquiry/7f3c.png")],
+        }),
+      )
+      .willRespondWith(201)
+      .executeTest(
+        asMember(async () =>
+          expect(
+            await addInquiryMessage(7, {
+              content: "확인 부탁드려요.",
+              attachmentKeys: ["inquiry/7f3c.png"],
+            }),
+          ).not.toHaveProperty("error"),
         ),
       ));
 
@@ -139,7 +193,9 @@ describe("문의(회원)", () => {
       )
       .executeTest(
         asMember(async () =>
-          expect(await addInquiryMessage(7, "확인 부탁드려요.")).toMatchObject({ closed: true }),
+          expect(await addInquiryMessage(7, { content: "확인 부탁드려요." })).toMatchObject({
+            closed: true,
+          }),
         ),
       ));
 
@@ -156,7 +212,7 @@ describe("문의(회원)", () => {
     {
       name: "9.4 문의 이어서 쓰기",
       path: "/messages",
-      call: () => addInquiryMessage(999999999, "확인 부탁드려요."),
+      call: () => addInquiryMessage(999999999, { content: "확인 부탁드려요." }),
     },
     { name: "9.5 문의 종료", path: "/close", call: () => closeInquiry(999999999) },
   ])("$name: 없는 문의면 알린다(404 INQUIRY_NOT_FOUND)", ({ name, path, call }) =>
@@ -188,17 +244,59 @@ describe("문의(비회원)", () => {
         asGuest(async () => expect(await createGuestInquiry(guest)).toEqual({ inquiryId: 7 })),
       ));
 
+  it("9.11 사진 업로드 주소를 로그인 없이 받는다", () =>
+    pact
+      .addInteraction()
+      .uponReceiving("9.11 문의 사진 업로드 주소")
+      .withRequest("POST", "/api/v1/inquiries/attachments/upload-url", (b) =>
+        b.jsonBody({ files: [{ contentType: "image/png", size: 204800 }] }),
+      )
+      .willRespondWith(200, (b) =>
+        b.jsonBody({
+          files: eachLike(
+            shape({ uploadUrl: "https://s3.test/upload", objectKey: "inquiry/7f3c.png" }),
+          ),
+        }),
+      )
+      .executeTest(
+        asGuest(async () =>
+          expect(
+            await createInquiryPhotoUploadUrls([{ contentType: "image/png", size: 204800 }]),
+          ).toEqual({
+            uploads: [{ uploadUrl: "https://s3.test/upload", objectKey: "inquiry/7f3c.png" }],
+          }),
+        ),
+      ));
+
+  it("9.1 사진을 붙여 비회원 문의를 쓴다", () =>
+    pact
+      .addInteraction()
+      .given("업로드한 문의 사진")
+      .uponReceiving("9.1 사진을 붙인 문의 작성(비회원)")
+      .withRequest("POST", "/api/v1/inquiries", (b) =>
+        b.jsonBody({
+          ...guest,
+          attachmentKeys: [providerValue("objectKey", "inquiry/7f3c.png")],
+        }),
+      )
+      .willRespondWith(201, (b) => b.jsonBody(like({ id: 7 })))
+      .executeTest(
+        asGuest(async () =>
+          expect(await createGuestInquiry(guest, ["inquiry/7f3c.png"])).toEqual({ inquiryId: 7 }),
+        ),
+      ));
+
   it("9.3 문의번호와 조회 비밀번호로 연다", () =>
     pact
       .addInteraction()
       .given("비회원 문의")
       .uponReceiving("9.3 문의 조회(비회원)")
       .withRequest("GET", detail(""), (b) => b.headers(guestPassword))
-      .willRespondWith(200, (b) => b.jsonBody(inquiryBody))
+      .willRespondWith(200, (b) => b.jsonBody(noPhotoBody))
       .executeTest(
         asGuest(async () =>
           expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "1234" })).toEqual({
-            inquiry,
+            inquiry: noPhotoInquiry,
           }),
         ),
       ));
@@ -214,9 +312,9 @@ describe("문의(비회원)", () => {
       .willRespondWith(201)
       .executeTest(
         asGuest(async () =>
-          expect(await addInquiryMessage(7, "확인 부탁드려요.", "1234")).not.toHaveProperty(
-            "error",
-          ),
+          expect(
+            await addInquiryMessage(7, { content: "확인 부탁드려요." }, "1234"),
+          ).not.toHaveProperty("error"),
         ),
       ));
 

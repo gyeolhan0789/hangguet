@@ -72,9 +72,9 @@ REGISTRY = VersionRegistry(
             "timeline-feedback-v1",
             "cover-letter-check-v1",
             "cover-letter-check-v2",
+            "followup-v1",
         }
     ),
-    # 배포 설정의 LLM_MODEL을 gpt-5.6-terra로 전환하는 동안 기존 모델도 허용하고, 전환 후 삭제한다
-    models=frozenset({"gpt-4.1-mini", "gpt-5.6-terra", "jev-1.14.0"}),
+    models=frozenset({"gpt-5.6-terra", "jev-1.14.0"}),
     rubrics=frozenset(),
 )

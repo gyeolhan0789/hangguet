@@ -193,9 +193,15 @@ public class AiResultService {
         return Outcome.SAVED;
     }
 
-    // 질문 행은 에이전트가 말하기 시작할 때 만든다. 같은 seq가 있거나 면접 중이 아니면 버린다
+    // 질문 행은 에이전트가 말하기 시작할 때 실제로 출제한 질문으로 만든다(꼬리질문은 플랜과 다르다, AI 명세 2.2).
+    // 같은 seq가 있거나 면접 중이 아니면 버린다
     private Outcome questionStarted(long sessionId, AiResultMessage message) {
         int seq = requiredSeq(message);
+        OffsetDateTime startedAt = required(message.startedAt(), "startedAt");
+        if (isBlank(message.content()) || isBlank(message.criteria())) {
+            throw new InvalidAiResultException(
+                    "질문 글·채점 기준이 비었다: session=" + sessionId + ", seq=" + seq);
+        }
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
@@ -203,23 +209,15 @@ public class AiResultService {
                             || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()) {
                         return Outcome.DISCARDED;
                     }
-                    String content =
-                            plans.findById(sessionId)
-                                    .flatMap(plan -> plan.question(seq))
-                                    .map(PlanQuestion::content)
-                                    .orElseThrow(
-                                            () ->
-                                                    new InvalidAiResultException(
-                                                            "플랜에 "
-                                                                    + seq
-                                                                    + "번 질문이 없다: session="
-                                                                    + sessionId));
                     questions.save(
                             new InterviewQuestion(
                                     session,
                                     seq,
-                                    content,
-                                    required(message.startedAt(), "startedAt")));
+                                    message.content(),
+                                    message.criteria(),
+                                    message.promptVersion(),
+                                    message.modelVersion(),
+                                    startedAt));
                     return Outcome.SAVED;
                 });
     }

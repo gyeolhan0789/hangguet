@@ -9,9 +9,11 @@ import { useForm, useWatch } from "react-hook-form";
 import { Checkbox, Field, SubmitButton, TextInput } from "@/components/form";
 import { inquiryButtonClass } from "@/components/inquiry/inquiry-button-class";
 import { InquiryButton, InquiryModal, TextArea } from "@/components/inquiry/inquiry-ui";
+import { PhotoField, usePhotoPicks } from "@/components/inquiry/photo-picker";
 import { LegalModal } from "@/components/legal/legal-modal";
 import { LegalViewButton } from "@/components/legal/legal-view-button";
 import { createGuestInquiry } from "@/lib/inquiry/actions";
+import { uploadInquiryPhotos } from "@/lib/inquiry/upload-photos";
 import {
   INQUIRY_TITLE_MAX,
   guestInquiryFormSchema,
@@ -29,6 +31,7 @@ import { useGuestInquiryStore } from "@/stores/guest-inquiry-store";
 // · 기획 메모 I01-B(이메일 형식 · 조회 비밀번호 4~20자 · 제목 1~100자 · 내용 필수 → 9.1(201) → I01-1, [취소] → I04)
 // · 기획 메모 I01-1(9.1 응답 id를 문의번호로, [확인] → I03 그 문의(방금 정한 조회 비밀번호로 9.3)) · Swagger 9.1(InquiryCreateRequest)
 // · 사용자 결정(2026-10-30: 비회원 문의에 [필수] 개인정보 수집 · 이용 동의를 더한다. Figma에 없어 가입 화면(S01-1)의 동의 줄 모양을 따른다)
+// · Swagger 9.11 → 9.1 attachmentKeys · 사용자 결정(2026-11-03: 내용 아래 '사진' 칸(photo-picker), 비회원도 붙인다)
 
 export function GuestInquiryForm() {
   const router = useRouter();
@@ -39,6 +42,7 @@ export function GuestInquiryForm() {
   const [formError, setFormError] = useState<string>();
   const [viewingConsent, setViewingConsent] = useState(false);
   const [pending, startTransition] = useTransition();
+  const picks = usePhotoPicks();
   const {
     register,
     handleSubmit,
@@ -57,7 +61,12 @@ export function GuestInquiryForm() {
     // 동의(agreed)는 9.1이 받지 않으므로 보내지 않는다.
     const values: GuestInquiryValues = { email, accessPassword, title, content };
     startTransition(async () => {
-      const result = await createGuestInquiry(values);
+      const uploaded = await uploadInquiryPhotos(picks.files);
+      if (!uploaded.keys) {
+        setFormError(uploaded.error);
+        return;
+      }
+      const result = await createGuestInquiry(values, uploaded.keys);
       if (result.inquiryId) {
         setCreated({ inquiryId: result.inquiryId, accessPassword: values.accessPassword });
         return;
@@ -159,6 +168,7 @@ export function GuestInquiryForm() {
             {...register("content")}
           />
         </Field>
+        <PhotoField picks={picks} disabled={pending} />
         <div className="flex flex-col gap-2 rounded-xl bg-bg-sub p-4">
           <div className="flex items-center gap-2.5">
             <Checkbox
