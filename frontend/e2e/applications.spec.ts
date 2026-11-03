@@ -7,13 +7,15 @@ import {
   APPLICATION_LIST,
   APPLICATION_NO_SESSIONS,
   APPLICATION_SESSIONS,
+  COMPANIES,
   PROBLEM,
 } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import { api, expect, http, HttpResponse, hydrated, problemResponse, test } from "./test";
 
 // 지원 관리 목록 · 상세 · 삭제 확인 · 지원서 쓰기
 // 근거: Figma 지원 관리 · 목록 · 상세 · 상세 · 면접에 씀 · 삭제 확인 · 지원서 쓰기(화이트 · 다크) · 기획 메모 지원 관리 · 지원서 쓰기
 //   · Swagger 4.1 지원서 작성(coverLetterItems) · 4.2 지원서 조회 · 4.3 지원서 목록 · 4.5 지원서 삭제 · 4.6 지원서의 연습 면접 목록
+//   · 4.7 회사 목록 · 사용자 결정(2026-11-03: 회사명 자동 완성, 목록을 못 불러오면 일반 입력칸)
 //   · 사용자 결정(2026-10-29: 수정 기능 없음, 면접에 쓴 지원서도 지우고 실패하면 모달에 서버 문구, 204 · 404면 목록으로,
 //   [이 지원서로 면접 보기] → S04, 저장 뒤 지원 관리에서 열었으면 새 지원서 상세로, 면접 기록이 한 쪽을 넘으면 '‹ 1 / N ›')
 // 문항 추가 · 빼기 · 글자 수 · 모달 버튼 상태는 컴포넌트 테스트가, 여기서는 실제 API 요청 · 서버 컴포넌트 · 주소 이동을 본다.
@@ -545,6 +547,51 @@ test.describe("지원서 쓰기 (4.1)", () => {
       reason,
     );
     await expect(page).toHaveURL("/applications/new");
+  });
+
+  test("회사명을 4.7 회사 목록에서 별칭(네이버)으로 찾아 고르면 그 회사명(NAVER)으로 저장한다", async ({
+    page,
+    msw,
+  }) => {
+    let body: ApplicationCreateRequest | undefined;
+    msw.use(
+      http.post(api("/applications"), async ({ request }) => {
+        body = (await request.json()) as ApplicationCreateRequest;
+        return HttpResponse.json(APPLICATION, { status: 201 });
+      }),
+    );
+    await page.goto("/applications/new");
+    const company = page.getByRole("combobox", { name: "회사명" });
+    // 목록은 포커스로 열리므로 React가 붙은 뒤에 누른다
+    await hydrated(company);
+
+    await company.click();
+    await expect(page.getByRole("option")).toHaveText(COMPANIES.content.map((c) => c.name));
+    await company.fill("네이버");
+    await page.getByRole("option", { name: /^NAVER/ }).click();
+    await expect(company).toHaveValue("NAVER");
+    await expect(page.getByRole("listbox")).toBeHidden();
+    await page.getByLabel("직무").fill("백엔드 개발자");
+    await page.getByLabel("문항 1", { exact: true }).fill("지원 동기");
+    await page.getByLabel("문항 1 답변").fill("저는…");
+    await page.getByRole("button", { name: "저장하기" }).click();
+
+    await expect(page).toHaveURL(`/applications/${APPLICATION.id}`);
+    expect(body?.companyName).toBe("NAVER");
+  });
+
+  test("회사 목록을 받지 못하면(4.7 500) 회사명은 목록 없는 일반 입력칸이다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(http.get(api("/companies"), () => problemResponse(PROBLEM.INTERNAL_ERROR)));
+    await page.goto("/applications/new");
+
+    await page.getByLabel("회사명").fill("네이버");
+
+    await expect(page.getByRole("combobox", { name: "회사명" })).toHaveCount(0);
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(page.getByLabel("회사명")).toHaveValue("네이버");
   });
 
   test("[← 뒤로]는 지원 관리 목록으로 간다", async ({ page }) => {

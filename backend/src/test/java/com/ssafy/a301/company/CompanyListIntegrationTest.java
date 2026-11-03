@@ -1,7 +1,7 @@
 package com.ssafy.a301.company;
 
 import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -46,7 +46,10 @@ class CompanyListIntegrationTest {
                 .andExpect(
                         jsonPath(MINE + "[?(@.id == " + gana.getId() + ")].aliases[*]")
                                 .value(contains("가나테스트363", "ganatest363")))
-                .andExpect(jsonPath("$.content[?(@.name == '하테스트363')].aliases[*]").value(empty()));
+                // 별칭이 없어도 null이 아니라 빈 배열이다
+                .andExpect(
+                        jsonPath("$.content[?(@.name == '하테스트363' && @.aliases empty true)]")
+                                .value(hasSize(1)));
     }
 
     @Test
