@@ -9,7 +9,10 @@ import type { Persona } from "@/types/api";
 import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
 import { LIP_SYNC_DELAY_MS, mouthAt, mouthCues, mouthEndMs } from "@/lib/interviewer/lip-sync";
 import { NEUTRAL_FACE } from "@/lib/interviewer/face-rules";
+import { useInterviewStore } from "@/stores/interview-store";
 import {
+  gentleReaction,
+  isNodReaction,
   reactionFrame,
   listeningNodPitch,
   LISTENING_PAUSE_MS,
@@ -29,11 +32,17 @@ import { ThinkingAvatar } from "./thinking-avatar";
 // · 사용자 요청(2026-10-21: 면접관 로딩 화면 — Figma에 없어 S06-1 Thinking Avatar를 면접관 얼굴 자리에 둔다)
 // · AI 명세 6.3 interview.question(started의 alignment.chars) · 사용자 결정(2026-10-27: 발음 시각으로 입 모양을 바꾸고 150ms 늦춘다.
 //   동작 줄이기를 켰으면 입을 움직이지 않는다. 질문 도중에 들어오면 다음 started부터 움직인다)
+// · 오리 면접관(동작 클립 면접관): 오리 모델 안내(public/interview/duck/README.md: 사람의 A/I/U/E/O 입 모양을 쓰지 않음)
+//   · API 명세 면접방 메시지(오리는 smile · small_nod · nod만 표시, attitude를 부정적인 표정으로 반영하지 않음)
+//   · 사용자 결정(2026-11-04: 질문 음성이 나오는 동안 말하기 동작, 끄덕임 반응 · 듣는 중 끄덕임은 끄덕임 동작 한 번,
+//   답변을 내면 감탄 소리와 함께 놀람 동작 한 번)
 
 /** 눈 깜빡임 간격(ms). 이 범위에서 매번 다르게 고른다. */
 const BLINK_GAP_MS = [2500, 5500] as const;
 /** 눈을 감았다 뜨는 데 걸리는 시간(ms) */
 const BLINK_MS = 160;
+/** 동작 클립 면접관이 끄덕임 반응 · 놀람을 시작하는 기한(ms). 받고 이만큼 지나 다시 그리면 하지 않는다 */
+const NOD_START_MS = 300;
 
 type StageState = "loading" | "ready" | "failed";
 
@@ -53,6 +62,8 @@ export function InterviewerStage({
   question?: QuestionMessage | null;
 }) {
   const look = interviewerLook(persona);
+  // 동작 클립 면접관(오리)은 고개를 직접 돌리지 않고 동작(말하기 · 끄덕임)을 재생한다
+  const clipped = !!look?.model.clips;
   const container = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<StageState>("loading");
   const reduce = useReducedMotion();
@@ -125,23 +136,30 @@ export function InterviewerStage({
       current.setHead(0, 0);
     };
     reset();
-    const duration = feedback?.message.reaction?.durationMs ?? 0;
-    const reacting =
-      !!feedback?.message.reaction && feedback.receivedAt + duration > performance.now();
-    if (!speaking && feedback?.message.reaction) {
-      const remaining = feedback.receivedAt + duration - performance.now();
+    const shown = clipped ? gentleReaction(feedback) : feedback;
+    const duration = shown?.message.reaction?.durationMs ?? 0;
+    const reacting = !!shown?.message.reaction && shown.receivedAt + duration > performance.now();
+    if (!speaking && shown?.message.reaction) {
+      const remaining = shown.receivedAt + duration - performance.now();
       if (remaining > 0) {
         if (reduce) {
-          const target = reactionFrame(feedback, feedback.receivedAt + duration / 2);
+          const target = reactionFrame(shown, shown.receivedAt + duration / 2);
           current.setFace({ emotion: target.emotion, emotionWeight: target.emotionWeight });
           timer = setTimeout(reset, remaining);
         } else {
+          // 끄덕임은 반응을 받은 직후 한 번만 한다(반응 도중 효과가 다시 실행돼도 또 끄덕이지 않게)
+          if (
+            clipped &&
+            isNodReaction(shown) &&
+            performance.now() - shown.receivedAt < NOD_START_MS
+          )
+            current.nod();
           const draw = () => {
             const now = performance.now();
-            const next = reactionFrame(feedback, now);
+            const next = reactionFrame(shown, now);
             current.setFace({ emotion: next.emotion, emotionWeight: next.emotionWeight });
-            current.setHead(next.pitch, next.roll);
-            if (now < feedback.receivedAt + duration) frame = requestAnimationFrame(draw);
+            if (!clipped) current.setHead(next.pitch, next.roll);
+            if (now < shown.receivedAt + duration) frame = requestAnimationFrame(draw);
           };
           frame = requestAnimationFrame(draw);
         }
@@ -150,11 +168,14 @@ export function InterviewerStage({
     if (!speaking && !reduce && listening && !reacting) {
       const startAt = listening.speechAt + LISTENING_PAUSE_MS;
       const endAt = startAt + LISTENING_NOD_DURATION_MS;
-      const draw = () => {
-        const now = performance.now();
-        current.setHead(listeningNodPitch(listening, now), 0);
-        if (now < endAt) frame = requestAnimationFrame(draw);
-      };
+      // 동작 클립 면접관은 끄덕임 동작을 한 번 하고, 자세 면접관은 고개를 직접 끄덕인다
+      const draw = clipped
+        ? () => current.nod()
+        : () => {
+            const now = performance.now();
+            current.setHead(listeningNodPitch(listening, now), 0);
+            if (now < endAt) frame = requestAnimationFrame(draw);
+          };
       if (performance.now() < endAt) {
         const remaining = startAt - performance.now();
         if (remaining > 0)
@@ -169,11 +190,12 @@ export function InterviewerStage({
       clearTimeout(timer);
       reset();
     };
-  }, [state, feedback, speaking, listening, reduce]);
+  }, [state, feedback, speaking, listening, reduce, clipped]);
 
   // 립싱크. 질문 음성이 시작되면 받은 때부터 LIP_SYNC_DELAY_MS 뒤를 0으로 글자별 입 모양을 바꾸고, 끝나면 입을 닫는다.
   // 음성이 끝나거나(ended · failed) 다른 질문이 오면 효과를 다시 실행해 입을 닫는다.
   const alignment = question?.speech === "started" ? question.alignment : null;
+  // 동작 클립 면접관(오리)은 입 모양 대신 같은 구간 동안 말하기 동작을 반복한다.
   useEffect(() => {
     if (state !== "ready" || !scene.current || reduce || !alignment) return;
     const current = scene.current;
@@ -181,17 +203,30 @@ export function InterviewerStage({
     const end = mouthEndMs(cues);
     const start = performance.now() + LIP_SYNC_DELAY_MS;
     let frame = 0;
+    let talking = false;
     const draw = () => {
       const at = performance.now() - start;
-      current.setFace({ mouth: mouthAt(cues, at) });
+      const speakingNow = at >= 0 && at < end;
+      if (clipped) {
+        if (speakingNow !== talking) current.setTalking(speakingNow);
+        talking = speakingNow;
+      } else current.setFace({ mouth: mouthAt(cues, at) });
       if (at < end) frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => {
       cancelAnimationFrame(frame);
-      current.setFace({ mouth: NEUTRAL_FACE.mouth });
+      if (clipped) current.setTalking(false);
+      else current.setFace({ mouth: NEUTRAL_FACE.mouth });
     };
-  }, [state, alignment, reduce]);
+  }, [state, alignment, reduce, clipped]);
+
+  // 오리 면접관의 감탄(답변 제출 시작): 놀람 동작을 한 번 한다. 감탄한 직후에만 한다(화면을 다시 그려도 또 놀라지 않게).
+  const exclaimedAt = useInterviewStore((state) => state.exclaimedAt);
+  useEffect(() => {
+    if (state !== "ready" || !scene.current || !clipped || reduce || exclaimedAt === null) return;
+    if (performance.now() - exclaimedAt < NOD_START_MS) scene.current.surprise();
+  }, [state, clipped, reduce, exclaimedAt]);
 
   // 눈 깜빡임. 동작 줄이기를 켰으면 깜빡이지 않는다.
   useEffect(() => {

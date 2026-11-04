@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="오리의 표정과 움직임을 직접 조절하는 로컬 3D 테스트 화면">
+  <title>오리 모션 테스트</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/vendor/three/build/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}</script>
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="오리 테스트 홈"><span class="brand-mark">d.</span><span>DUCK STUDIO</span></a>
+    <span class="local-tag"><i></i>로컬 미리보기</span>
+    <a class="download" href="/interview/duck/interviewer.glb" download>모델 다운로드 <span aria-hidden="true">↗</span></a>
+  </header>
+  <main>
+    <div class="page-heading"><p class="eyebrow">표정도, 움직임도, 직접.</p><h1>오리 모션 테스트<span> / 01</span></h1></div>
+    <div class="workspace">
+      <section class="viewer" aria-label="오리 3D 미리보기">
+        <div class="viewer-top"><span class="status" id="status" role="status">모델을 불러오는 중…</span><span class="view-hint">드래그로 회전 · 휠로 확대</span></div>
+        <div id="stage"><canvas id="canvas" aria-label="회전하고 확대할 수 있는 오리 모델" tabindex="0"></canvas></div>
+        <div class="loading" id="loading"><span class="spinner"></span><strong id="load-text">오리를 데려오는 중</strong><button id="retry" hidden>다시 불러오기</button></div>
+        <div class="view-buttons" aria-label="보기 방향">
+          <button data-view="front" type="button">정면</button><button data-view="side" type="button">측면</button><button data-view="back" type="button">뒷면</button><button data-view="diagonal" type="button">대각</button>
+        </div>
+        <div class="playback">
+          <div class="transport"><button id="play" type="button" aria-label="일시정지" disabled>Ⅱ</button><button id="replay" type="button" aria-label="처음부터 재생" disabled>↺</button></div>
+          <label class="timeline-label" for="timeline">재생 위치</label><input id="timeline" type="range" min="0" max="1000" value="0" aria-label="재생 위치" disabled>
+          <output id="time">0.00 / 0.00</output>
+        </div>
+      </section>
+      <aside class="controls" aria-label="표정 및 동작 조절">
+        <section class="control-section"><div class="section-title"><h2>표정</h2><span>01</span></div>
+          <div class="faces" role="group" aria-label="표정 선택">
+            <button type="button" data-face="neutral" aria-pressed="true" disabled><span class="face-symbol">● ●</span>기본</button>
+            <button type="button" data-face="smile" aria-pressed="false" disabled><span class="face-symbol smile">⌃ ⌃</span>웃음</button>
+            <button type="button" data-face="angry" aria-pressed="false" disabled><span class="face-symbol">╲ ╱</span>화남</button>
+          </div>
+        </section>
+        <section class="control-section"><div class="section-title"><h2>움직임</h2><span>02</span></div>
+          <div class="motions" role="group" aria-label="동작 선택">
+            <button type="button" data-motion="idle" aria-pressed="false" disabled><span class="motion-icon">○</span><span><strong>기본 자세</strong><small>날개를 접고 편안하게</small></span><span class="motion-check">✓</span></button>
+            <button type="button" data-motion="nod" aria-pressed="false" disabled><span class="motion-icon">↕</span><span><strong>끄덕끄덕</strong><small>박자를 달리한 두 번의 끄덕임</small></span><span class="motion-check">✓</span></button>
+            <button type="button" data-motion="talk" aria-pressed="true" disabled><span class="motion-icon">≈</span><span><strong>말하기</strong><small>재잘재잘, 몸과 고개를 들썩</small></span><span class="motion-check">✓</span></button>
+            <button type="button" data-motion="surprise" aria-pressed="false" disabled><span class="motion-icon">!</span><span><strong>놀람</strong><small>날개를 활짝, 고개를 갸우뚱</small></span><span class="motion-check">✓</span></button>
+          </div>
+          <button class="blink-button" id="blink" type="button" disabled>눈 깜빡이기 <span>한 번</span></button>
+        </section>
+        <section class="control-section options"><div class="section-title"><h2>재생 설정</h2><span>03</span></div>
+          <label for="speed">속도<select id="speed"><option value="0.5">0.5배</option><option value="1" selected>1배 · 원래 속도</option><option value="1.5">1.5배</option><option value="2">2배</option></select></label>
+          <label for="loop">반복 재생<input id="loop" type="checkbox" checked></label>
+        </section>
+        <div class="note"><span class="note-dot"></span><p>말하기는 샘플 리듬으로 재생됩니다.<br>표정과 움직임을 함께 바꿔보세요.</p></div>
+      </aside>
+    </div>
+    <footer><span id="detail">모델 준비 중</span><span>Blender의 원본 파일과 화면 구도는 유지됩니다.</span></footer>
+  </main>
+</body>
+</html>

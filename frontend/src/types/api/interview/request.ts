@@ -1,7 +1,7 @@
 // 5. 면접 진행 요청. 기준: 웹 Swagger 5.1 ~ 5.15.
 
-/** 면접관. DEVIL 악마 면접관 · COFFEE_CHAT 개발자 커피챗 */
-export type Persona = "DEVIL" | "COFFEE_CHAT";
+/** 면접관. DEVIL 악마 면접관 · COFFEE_CHAT 개발자 커피챗 · DUCK 오리 면접관 */
+export type Persona = "DEVIL" | "COFFEE_CHAT" | "DUCK";
 
 /** 면접 방식. VIDEO 화상 · CHAT 채팅 */
 export type Mode = "VIDEO" | "CHAT";

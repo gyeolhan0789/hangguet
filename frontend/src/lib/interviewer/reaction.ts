@@ -25,6 +25,33 @@ export function listeningNodPitch(activity: ListeningActivity | null, now: numbe
   return Math.sin(progress * Math.PI * 2) * Math.sin(progress * Math.PI) * (MAX_NOD / 2);
 }
 
+/**
+ * 오리 면접관이 보여 주는 반응만 남긴다. 기준: API 명세 면접방 메시지(오리 면접관은 자신감 향상이 목적이라 expression은 smile,
+ * gesture는 small_nod · nod만 표시하고 frown · smirk · tilt는 표시하지 않는다. attitude도 부정적인 표정으로 반영하지 않는다).
+ * 표시하지 않는 반응이면 null, attitude의 신뢰는 중립(0.5) 아래로 내려가지 않게 한다.
+ */
+export function gentleReaction(snapshot: ReactionSnapshot | null): ReactionSnapshot | null {
+  const reaction = snapshot?.message.reaction;
+  if (!snapshot || !reaction) return null;
+  const shown =
+    reaction.type === "expression" ? reaction.expression === "smile" : reaction.gesture !== "tilt";
+  if (!shown) return null;
+  const { attitude } = snapshot.message;
+  return {
+    ...snapshot,
+    message: {
+      ...snapshot.message,
+      attitude: { ...attitude, trust: Math.max(attitude.trust, 0.5) },
+    },
+  };
+}
+
+/** 끄덕이는 반응(small_nod · nod)인지. 동작 클립 면접관은 고개를 직접 돌리지 않고 끄덕임 동작을 한 번 한다 */
+export function isNodReaction(snapshot: ReactionSnapshot | null): boolean {
+  const reaction = snapshot?.message.reaction;
+  return reaction?.type === "gesture" && reaction.gesture !== "tilt";
+}
+
 export function reactionFrame(snapshot: ReactionSnapshot | null, now: number) {
   const neutral = { emotion: "neutral" as Emotion, emotionWeight: 0, pitch: 0, roll: 0 };
   if (!snapshot || !snapshot.message.reaction) return neutral;

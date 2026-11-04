@@ -84,7 +84,7 @@ describe("면접관별 3D 모델 · 배경", () => {
   });
 
   // 받은 비율을 이 크기로 센다(gzip 응답은 전체 크기를 알려 주지 않는다). 모델 파일을 바꾸면 크기도 같이 바꿔야 한다.
-  it.each(["DEVIL", "COFFEE_CHAT"] as const)(
+  it.each(["DEVIL", "COFFEE_CHAT", "DUCK"] as const)(
     "%s 모델의 원본 크기(glbBytes)가 public의 실제 파일 크기와 같다",
     (persona) => {
       const { model } = interviewerLook(persona)!;
