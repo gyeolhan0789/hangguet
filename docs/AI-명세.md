@@ -93,7 +93,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 - 큐는 Redis List `ai:results`다. AI가 `LPUSH`하고, BE는 `BLMOVE ai:results ai:results:processing RIGHT LEFT`로 꺼내 저장한 뒤 처리 중 리스트에서 지운다(BE가 멈춰도 메시지가 남음)
 - BE가 저장할 수 없는 메시지(JSON 아님, 모르는 `type`, 필수 필드 없음, 질문이 5개가 아님 등)는 `ai:results:failed`에 원문 그대로 모아 둔다. 결과가 반영되지 않으면 여기를 확인한다
-- 공통 필드: `type`, `sessionId`, `jobId`(작업에서 나온 결과만. 받은 작업의 `jobId`를 그대로 담는다), `occurredAt`(ISO 8601)
+- 공통 필드: `type`, `sessionId`, `jobId`(작업에서 나온 결과만. 받은 작업의 `jobId`를 그대로 담는다), `occurredAt`(ISO 8601, 밀리초까지. 배정 거절은 면접 시작 직후에 전송되어 BE가 면접 시작 시각과 비교하므로 초 단위로 자르지 않는다)
 
 | `type` | 보내는 쪽 | 내용 | BE가 하는 일 |
 |---|---|---|---|
@@ -108,7 +108,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
-| `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
+| `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
 
 **실패 이유(`reason`)** 실패 결과 메시지는 아래 값 중 하나를 담는다. BE가 값으로 처리를 나눌 수 있도록 자유 문장을 사용하지 않는다.
 
@@ -122,7 +122,6 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `MERGE_ERROR` | `recording.mergeFailed` | ffmpeg가 트랙을 합치지 못함 |
 | `INVALID_JOB` | 세 작업 실패 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
 | `INVALID_ASSIGNMENT` | `assignment.rejected` | 배정 정보 형식이 틀림(6.1) |
-| `CAPACITY_EXCEEDED` | `assignment.rejected` | 동시 면접 상한을 넘음(6.5) |
 | `INTERNAL_ERROR` | 세 작업 실패 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
 
 **중복 · 늦은 결과는 BE가 거른다**
@@ -427,7 +426,7 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
               "impressions": { "promptVersion": "impression-v1", "modelVersion": "jev-1.14.0",
                                "items": [ { "atMs": 1500, "face": 0.98, "stability": 62.5, "confidence": 70.1,
                                             "expression": 55.0, "emotion": 48.3, "likeability": 66.0, "trust": 71.2 } ] } },
-  "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12+09:00" }
+  "endReason": "AUTO_SUBMIT", "occurredAt": "2026-10-22T14:03:12.418+09:00" }
 ```
 
 - `answerStartedAt`: 에이전트가 그 답변을 듣기 시작한 시각(밀리초까지). `tokens` 시각의 0ms이고, 다시보기에서 영상 0초(API 명세 6.4 `recordingStartedAt`)와의 차이로 답변 위치를 구한다
@@ -508,8 +507,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | 저장할 수 없는 답변 | 답변 글·토큰이 `answer.completed`의 범위(6.2)를 벗어나면 다시 전송해도 BE가 저장하지 못하므로, `answer.completed`를 전송하지 않고 다음 질문으로 진행한다. `answer.state`(`submitted`·`submitFailed`)는 전송하지 않으며, 그 답변은 저장되지 않는다 |
 | 꼬리질문 생성 실패·시간 초과 | 같은 순서의 예비 질문을 출제한다(2.2). 면접 진행에는 영향이 없다 |
 | 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]**. 이미 출제한 꼬리질문은 질문 행에만 남으므로, 다시 배정할 때 그 질문 글을 넘길지도 함께 정한다 |
-| 동시 면접 상한 초과 | 배정을 거절하고 결과 메시지 `assignment.rejected`(`CAPACITY_EXCEEDED`)를 전송한다. BE는 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다(1.4) |
-| 배정 정보 형식 오류 | LiveKit이 배정을 에이전트에 전달할 때 방에 들어가지 않고 거절한다. 틀린 배정 정보로는 질문을 진행할 수 없고, 같은 배정 정보로는 어느 에이전트 서버도 진행할 수 없으므로 다른 에이전트 서버에 다시 넘기지 않는다. 결과 메시지 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송하고, BE·화면 처리는 동시 면접 상한 초과와 같다 |
+| 배정 정보 형식 오류 | LiveKit이 배정을 에이전트에 전달할 때 방에 들어가지 않고 거절한다. 틀린 배정 정보로는 질문을 진행할 수 없고, 같은 배정 정보로는 어느 에이전트 서버도 진행할 수 없으므로 다른 에이전트 서버에 다시 넘기지 않는다. 결과 메시지 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송한다. 배정 정보에서 면접 id(`sessionId`)를 읽지 못하면 방 이름(`interview-{sessionId}`, 6.1)에서 읽고, 방 이름으로도 알 수 없으면 전송하지 않는다. BE는 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다(1.4) |
 
 ### 6.6 인상 판단 (Jev 이미지) **[제안]**
 

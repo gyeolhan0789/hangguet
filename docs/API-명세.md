@@ -419,7 +419,7 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 
 ### 5. 면접 진행
 
-**면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(동시 면접 상한 초과·배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다. `START_FAILED`는 연습 면접이 아니다(스트릭·목록·달력에 들어가지 않음).
+**면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다. `START_FAILED`는 연습 면접이 아니다(스트릭·목록·달력에 들어가지 않음).
 
 **면접 플랜 상태** `planStatus`: `GENERATING` · `READY` · `FAILED`. **분석 단계** `analysisStep`: `ORGANIZING_ANSWERS` → `SCORING` → `WRITING_FEEDBACK`.
 
@@ -468,7 +468,7 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 - **409 / PLAN_NOT_READY**: 플랜 생성 중이거나 실패
 - **409 / INVALID_SESSION_STATE**: `READY`·`START_FAILED`가 아님
 - **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정·녹화 설정이 실패함. 면접은 이전 상태(`READY`·`START_FAILED`) 그대로라 화면은 다시 시도한다 **[결정]**
-- 배정 요청은 에이전트가 수락하기 전에 성공하므로, 에이전트의 배정 거절(동시 면접 상한 초과·배정 정보 형식 오류)은 5.4 응답으로 알 수 없다. 거절하면 BE가 면접방을 닫고 면접을 `START_FAILED`로 변경한다([AI 명세](AI-명세.md) 1.4). 화면은 면접방 연결이 끊기면 5.2로 상태를 확인하고, `START_FAILED`면 면접관을 연결하지 못했다고 안내한 뒤 5.4로 다시 시작한다
+- 배정 요청은 에이전트가 수락하기 전에 성공하므로, 에이전트의 배정 거절(배정 정보 형식 오류)은 5.4 응답으로 알 수 없다. 거절하면 BE가 면접방을 닫고 면접을 `START_FAILED`로 변경한다([AI 명세](AI-명세.md) 1.4). 화면은 면접방 연결이 끊기면 5.2로 상태를 확인하고, `START_FAILED`면 면접관을 연결하지 못했다고 안내한 뒤 5.4로 다시 시작한다
 
 #### 5.5 지금 질문
 
