@@ -50,6 +50,13 @@ class EgressLookupError(Exception):
     """LiveKit 녹화 목록을 조회하지 못했다."""
 
 
+def _file_infos(item: api.EgressInfo) -> Sequence[api.FileInfo]:
+    # 자체 Egress(v1.15.0)는 트랙 녹화 결과를 file_results와 file에 모두 기록하지만,
+    # LiveKit Cloud는 file에만 기록하므로 file_results가 비어 있으면 file을 사용한다.
+    # file이 없으면 길이가 0인 기본값이 반환되어 호출한 쪽에서 제외된다
+    return item.file_results or [item.file]
+
+
 def finished_files(items: Sequence[api.EgressInfo]) -> TrackStarts | None:
     """녹화가 모두 끝났으면 사용할 파일의 (저장소 키, 녹화 시작 시각) 목록이다.
 
@@ -62,7 +69,7 @@ def finished_files(items: Sequence[api.EgressInfo]) -> TrackStarts | None:
         (file.filename, _EPOCH + timedelta(microseconds=file.started_at // 1000))
         for item in items
         if item.status == api.EgressStatus.EGRESS_COMPLETE
-        for file in item.file_results
+        for file in _file_infos(item)
         if file.duration > 0 and file.started_at > 0
     ]
 

@@ -76,6 +76,35 @@ def test_finished_files_excludes_file_without_start_time() -> None:
     assert finished_files(items) == []
 
 
+def cloud_info(status: int, key: str, started: int, duration: int) -> api.EgressInfo:
+    """LiveKit Cloud처럼 file_results 없이 file에만 결과를 기록한 녹화 정보."""
+    return api.EgressInfo(
+        status=status,  # type: ignore[arg-type]
+        file=api.FileInfo(filename=key, started_at=started, duration=duration),
+    )
+
+
+def test_finished_files_reads_file_when_file_results_is_empty() -> None:
+    items = [cloud_info(Status.EGRESS_COMPLETE, KEY, STARTED_NS, 5_000_000_000)]
+    assert finished_files(items) == [(KEY, STARTED)]
+
+
+def test_finished_files_does_not_duplicate_file_recorded_in_both_fields() -> None:
+    """자체 Egress는 같은 파일을 file_results와 file에 모두 기록한다."""
+    item = info(Status.EGRESS_COMPLETE, (KEY, STARTED_NS, 5_000_000_000))
+    item.file.CopyFrom(item.file_results[0])
+    assert finished_files([item]) == [(KEY, STARTED)]
+
+
+def test_finished_files_excludes_empty_file_recorded_only_in_file() -> None:
+    items = [cloud_info(Status.EGRESS_COMPLETE, KEY, STARTED_NS, 0)]
+    assert finished_files(items) == []
+
+
+def test_finished_files_ignores_completed_recording_without_file() -> None:
+    assert finished_files([api.EgressInfo(status=Status.EGRESS_COMPLETE)]) == []
+
+
 class FakeEgress:
     """조회마다 다음 응답을 반환하고, 마지막 응답은 계속 반환한다. 예외는 발생시킨다."""
 
