@@ -1220,6 +1220,11 @@
           "refId": "C",
           "expr": "hikaricp_connections_max{job=\"a301-be\"}",
           "legendFormat": "최대"
+        },
+        {
+          "refId": "D",
+          "expr": "increase(hikaricp_connections_timeout_total{job=\"a301-be\"}[5m])",
+          "legendFormat": "획득 실패 (5분)"
         }
       ],
       "fieldConfig": {
@@ -1258,6 +1263,11 @@
           "refId": "A",
           "expr": "sum(jvm_memory_used_bytes{job=\"a301-be\",area=\"heap\"})",
           "legendFormat": "힙 사용량"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(jvm_memory_max_bytes{job=\"a301-be\",area=\"heap\"} > 0)",
+          "legendFormat": "상한"
         }
       ],
       "fieldConfig": {
@@ -1398,6 +1408,605 @@
       }
     },
     {
+      "id": 200,
+      "type": "row",
+      "title": "BE 상세 (엔드포인트 · 주기 작업 · DB · Redis · JVM)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "panels": []
+    },
+    {
+      "id": 201,
+      "title": "BE 엔드포인트별 p95 응답 시간 (5분, 상위 10)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, method, uri) (rate(http_server_requests_seconds_bucket{job=\"a301-be\",uri!~\"UNKNOWN|/\\\\*\\\\*\"}[5m]))))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 67
+      },
+      "description": "Slowest 10 endpoints by p95 over 5 minutes. Requests rejected before routing (UNKNOWN, /**) are excluded"
+    },
+    {
+      "id": 202,
+      "title": "BE 엔드포인트별 요청 수 / 초 (상위 10)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (method, uri) (rate(http_server_requests_seconds_count{job=\"a301-be\",uri!~\"UNKNOWN|/\\\\*\\\\*\"}[5m])))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 67
+      }
+    },
+    {
+      "id": 203,
+      "title": "BE 응답 결과별 요청 수 / 초",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(http_server_requests_seconds_count{job=\"a301-be\"}[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "fillOpacity": 20,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 75
+      },
+      "description": "CLIENT_ERROR = 4xx, SERVER_ERROR = 5xx. A rise in 4xx often means expired logins or a client bug"
+    },
+    {
+      "id": 204,
+      "title": "BE 5xx · 예외 (엔드포인트별, 5분)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (method, uri, exception) (increase(http_server_requests_seconds_count{job=\"a301-be\",status=~\"5..\"}[5m])) > 0",
+          "legendFormat": "{{method}} {{uri}} {{exception}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 75
+      }
+    },
+    {
+      "id": 205,
+      "title": "BE 최대 응답 시간 (엔드포인트별 상위 5)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(5, max by (method, uri) (http_server_requests_seconds_max{job=\"a301-be\",uri!~\"UNKNOWN|/\\\\*\\\\*\"}))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "description": "Slowest single request per endpoint in the recent window (resets every 2 minutes)"
+    },
+    {
+      "id": 206,
+      "title": "BE 로그 ERROR · WARN (5분)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (increase(logback_events_total{job=\"a301-be\",level=~\"error|warn\"}[5m]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 82
+      },
+      "description": "Count of ERROR and WARN log lines. Open the logs dashboard to see the lines"
+    },
+    {
+      "id": 207,
+      "title": "BE 주기 작업 최대 실행 시간",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (code_function) (tasks_scheduled_execution_seconds_max{job=\"a301-be\"})",
+          "legendFormat": "{{code_function}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 82
+      },
+      "description": "@Scheduled jobs (AI job republish every 5s, practice alarms, company card import, daily metrics)"
+    },
+    {
+      "id": 208,
+      "title": "BE 주기 작업 실패 · 스케줄러 사용 중",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (code_function) (increase(tasks_scheduled_execution_seconds_count{job=\"a301-be\",outcome!=\"SUCCESS\"}[5m])) > 0",
+          "legendFormat": "실패 {{code_function}}"
+        },
+        {
+          "refId": "B",
+          "expr": "executor_active_threads{job=\"a301-be\",name=\"taskScheduler\"}",
+          "legendFormat": "사용 중 스레드"
+        },
+        {
+          "refId": "C",
+          "expr": "executor_pool_max_threads{job=\"a301-be\",name=\"taskScheduler\"}",
+          "legendFormat": "풀 크기"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 82
+      },
+      "description": "Failures per job in 5 minutes and busy scheduler threads (pool size 4). Busy = pool size means jobs are delayed"
+    },
+    {
+      "id": 209,
+      "title": "BE DB 연결 획득 대기 시간",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(hikaricp_connections_acquire_seconds_sum{job=\"a301-be\"}[5m])) / sum(rate(hikaricp_connections_acquire_seconds_count{job=\"a301-be\"}[5m]))",
+          "legendFormat": "평균"
+        },
+        {
+          "refId": "B",
+          "expr": "max(hikaricp_connections_acquire_seconds_max{job=\"a301-be\"})",
+          "legendFormat": "최대"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 89
+      },
+      "description": "Time to borrow a connection from the pool. Grows when the pool is exhausted"
+    },
+    {
+      "id": 210,
+      "title": "BE 리포지토리 메서드 최대 실행 시간 (상위 10)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, max by (repository, method) (spring_data_repository_invocations_seconds_max{job=\"a301-be\"}))",
+          "legendFormat": "{{repository}}.{{method}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 89
+      },
+      "description": "Slowest Spring Data repository methods. Use it to find slow queries"
+    },
+    {
+      "id": 211,
+      "title": "BE → Redis 명령 평균 지연",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (db_operation) (rate(lettuce_seconds_sum{job=\"a301-be\",db_operation!=\"BLMOVE\"}[5m])) / sum by (db_operation) (rate(lettuce_seconds_count{job=\"a301-be\",db_operation!=\"BLMOVE\"}[5m]))",
+          "legendFormat": "{{db_operation}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 89
+      },
+      "description": "Excludes BLMOVE, the blocking wait for AI results, which would dominate the average. Errors are listed separately"
+    },
+    {
+      "id": 212,
+      "title": "BE GC 부담 · GC 후 힙",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jvm_gc_overhead{job=\"a301-be\"}",
+          "legendFormat": "GC 부담"
+        },
+        {
+          "refId": "B",
+          "expr": "jvm_memory_usage_after_gc{job=\"a301-be\",area=\"heap\"}",
+          "legendFormat": "GC 후 힙 (상한 대비)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 96
+      },
+      "description": "GC overhead = share of CPU time spent in GC. Heap after GC that keeps rising means a leak"
+    },
+    {
+      "id": 213,
+      "title": "BE 스레드 상태",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (state) (jvm_threads_states_threads{job=\"a301-be\"})",
+          "legendFormat": "{{state}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 96
+      },
+      "description": "Rising blocked threads mean lock contention"
+    },
+    {
+      "id": 214,
+      "title": "BE 처리 중인 요청",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(http_server_requests_active_seconds_gcount{job=\"a301-be\"})",
+          "legendFormat": "처리 중"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 96
+      }
+    },
+    {
       "id": 119,
       "type": "row",
       "title": "AI",
@@ -1406,7 +2015,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 103
       },
       "panels": []
     },
@@ -1450,7 +2059,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 104
       }
     },
     {
@@ -1493,8 +2102,497 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 104
       }
+    },
+    {
+      "id": 220,
+      "type": "row",
+      "title": "AI 면접 에이전트",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 110
+      },
+      "panels": []
+    },
+    {
+      "id": 221,
+      "title": "에이전트 지표 수집",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"a301-ai-agent\"}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 111
+      },
+      "description": "1 = Prometheus can read the agent's /metrics (port 9464)"
+    },
+    {
+      "id": 222,
+      "title": "진행 중인 면접 (에이전트)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(a301_agent_active_interviews) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 111
+      },
+      "description": "Interviews the agent is running now"
+    },
+    {
+      "id": 223,
+      "title": "Soniox 음성 (선택 기간)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(a301_agent_soniox_audio_seconds_total[$__range])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 111
+      },
+      "description": "Audio sent to Soniox STT in the selected time range. Billed by length"
+    },
+    {
+      "id": 224,
+      "title": "ElevenLabs 글자 (선택 기간)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(a301_agent_elevenlabs_characters_total[$__range])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 111
+      },
+      "description": "Characters synthesized successfully in the selected range. Billed by characters"
+    },
+    {
+      "id": 225,
+      "title": "Jev 리액션 판단 (선택 기간)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(a301_agent_jev_requests_total[$__range])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 111
+      },
+      "description": "Reaction requests per sentence, all results"
+    },
+    {
+      "id": 226,
+      "title": "Jev 인상 판단 (선택 기간)",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(a301_agent_jev_image_requests_total[$__range])) or vector(0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 111
+      },
+      "description": "Camera snapshot requests, about one per second while answering"
+    },
+    {
+      "id": 227,
+      "title": "진행 중인 면접",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(a301_agent_active_interviews) or vector(0)",
+          "legendFormat": "에이전트 진행 중 면접"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(livekit_room_total{job=\"a301-livekit\"}) or vector(0)",
+          "legendFormat": "LiveKit 면접방"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 115
+      },
+      "description": "Agent count vs LiveKit rooms. Rooms without an agent mean the interview did not start"
+    },
+    {
+      "id": 228,
+      "title": "음성 API 사용량 (5분)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(a301_agent_soniox_audio_seconds_total[5m])) or vector(0)",
+          "legendFormat": "Soniox 음성"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(increase(a301_agent_elevenlabs_characters_total[5m])) or vector(0)",
+          "legendFormat": "ElevenLabs 글자"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ElevenLabs 글자"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 115
+      },
+      "description": "Soniox seconds on the left axis, ElevenLabs characters on the right"
+    },
+    {
+      "id": 229,
+      "title": "Jev 요청 결과 (5분)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (increase(a301_agent_jev_requests_total[5m]))",
+          "legendFormat": "리액션 {{result}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (increase(a301_agent_jev_image_requests_total[5m]))",
+          "legendFormat": "인상 {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 115
+      },
+      "description": "Reaction timeout is 0.8s, impression timeout is 5s"
+    },
+    {
+      "id": 230,
+      "title": "Jev 실패 비율 (timeout + error, 5분)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "a301-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(a301_agent_jev_requests_total{result!=\"ok\"}[5m])) / clamp_min(sum(rate(a301_agent_jev_requests_total[5m])), 0.000000001)",
+          "legendFormat": "리액션"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(a301_agent_jev_image_requests_total{result!=\"ok\"}[5m])) / clamp_min(sum(rate(a301_agent_jev_image_requests_total[5m])), 0.000000001)",
+          "legendFormat": "인상"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 115
+      },
+      "description": "On failure the interview continues without a reaction"
     },
     {
       "id": 120,
@@ -1505,7 +2603,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 73
+        "y": 122
       },
       "panels": []
     },
@@ -1555,7 +2653,7 @@
         "h": 7,
         "w": 6,
         "x": 0,
-        "y": 74
+        "y": 123
       },
       "id": 121
     },
@@ -1596,7 +2694,7 @@
         "h": 7,
         "w": 6,
         "x": 6,
-        "y": 74
+        "y": 123
       },
       "id": 122
     },
@@ -1641,7 +2739,7 @@
         "h": 7,
         "w": 6,
         "x": 12,
-        "y": 74
+        "y": 123
       },
       "id": 123
     },
@@ -1688,7 +2786,7 @@
         "h": 7,
         "w": 6,
         "x": 18,
-        "y": 74
+        "y": 123
       },
       "id": 124
     },
@@ -1701,7 +2799,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 81
+        "y": 130
       },
       "panels": []
     },
@@ -1746,7 +2844,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 82
+        "y": 131
       },
       "id": 126
     },
@@ -1795,7 +2893,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 82
+        "y": 131
       },
       "id": 127
     },
@@ -1834,7 +2932,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 82
+        "y": 131
       },
       "id": 128
     },
@@ -1880,7 +2978,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 89
+        "y": 138
       },
       "id": 129
     },
@@ -1921,7 +3019,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 89
+        "y": 138
       },
       "id": 130
     },
@@ -1967,7 +3065,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 89
+        "y": 138
       },
       "id": 131
     },
@@ -1980,7 +3078,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 96
+        "y": 145
       },
       "panels": []
     },
@@ -2025,7 +3123,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 97
+        "y": 146
       },
       "id": 133
     },
@@ -2069,7 +3167,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 97
+        "y": 146
       },
       "id": 134
     },
@@ -2107,7 +3205,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 97
+        "y": 146
       },
       "id": 135
     },
@@ -2148,7 +3246,7 @@
         "h": 7,
         "w": 8,
         "x": 0,
-        "y": 104
+        "y": 153
       },
       "id": 136
     },
@@ -2188,7 +3286,7 @@
         "h": 7,
         "w": 8,
         "x": 8,
-        "y": 104
+        "y": 153
       },
       "id": 137
     },
@@ -2233,7 +3331,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 104
+        "y": 153
       },
       "id": 138
     },
@@ -2246,7 +3344,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 111
+        "y": 160
       },
       "panels": []
     },
@@ -2285,7 +3383,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 112
+        "y": 161
       }
     },
     {
@@ -2323,7 +3421,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 112
+        "y": 161
       }
     },
     {
@@ -2335,7 +3433,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 118
+        "y": 167
       },
       "panels": []
     },
@@ -2380,7 +3478,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 119
+        "y": 168
       },
       "id": 141
     },
@@ -2443,7 +3541,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 119
+        "y": 168
       },
       "id": 142
     },
@@ -2487,7 +3585,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 128
+        "y": 177
       },
       "id": 143
     },
@@ -2532,7 +3630,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 128
+        "y": 177
       },
       "id": 144
     },
@@ -2590,7 +3688,7 @@
         "h": 9,
         "w": 12,
         "x": 0,
-        "y": 137
+        "y": 186
       },
       "id": 145
     },
@@ -2637,7 +3735,7 @@
         "h": 9,
         "w": 12,
         "x": 12,
-        "y": 137
+        "y": 186
       },
       "id": 146
     }

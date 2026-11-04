@@ -739,6 +739,49 @@ monitoring-deploy:
       done
     - docker compose -f deploy/dev/monitoring/compose.yml config --quiet
     - docker compose -f deploy/dev/monitoring/compose.yml up -d
+    # 설정 파일만 바뀌면 compose 설정은 그대로라 up -d가 컨테이너를 다시 만들지 않는다.
+    # Prometheus · blackbox · Loki · Alloy는 기동할 때만 설정을 읽고, 컨테이너가 붙인 경로가 지금 체크아웃과 다르면 Grafana도 예전 대시보드를 본다.
+    # 컨테이너 안에서 보이는 설정이 저장소와 다른 서비스만 다시 만든다. 지표 · 로그 · Grafana 계정은 볼륨에 있어 남는다
+    - |
+      DIR=deploy/dev/monitoring
+      # same <컨테이너> <저장소 경로> <컨테이너 경로>: 컨테이너가 보는 내용이 저장소와 같으면 성공
+      same() {
+        TMP=$(mktemp -d)
+        docker cp "$1:$3" "$TMP/in" >/dev/null 2>&1 && diff -rq "$DIR/$2" "$TMP/in" >/dev/null 2>&1
+        RC=$?
+        rm -rf "$TMP"
+        return $RC
+      }
+      MOUNTS="a301-dev-prometheus prometheus.yml /etc/prometheus/prometheus.yml
+      a301-dev-blackbox blackbox.yml /etc/blackbox/blackbox.yml
+      a301-dev-loki loki.yml /etc/loki/loki.yml
+      a301-dev-alloy alloy.alloy /etc/alloy/config.alloy
+      a301-dev-grafana grafana/provisioning /etc/grafana/provisioning
+      a301-dev-grafana grafana/dashboards /var/lib/grafana/dashboards"
+      STALE=""
+      while read -r SERVICE SRC DST; do
+        if ! same "$SERVICE" "$SRC" "$DST"; then
+          case " $STALE " in *" $SERVICE "*) ;; *) STALE="$STALE $SERVICE" ;; esac
+        fi
+      done <<EOF
+      $MOUNTS
+      EOF
+      if [ -n "$STALE" ]; then
+        echo "설정이 바뀐 서비스를 다시 만듭니다:$STALE"
+        docker compose -f "$DIR/compose.yml" up -d --force-recreate --no-deps $STALE
+      else
+        echo "설정이 바뀐 서비스가 없습니다."
+      fi
+      FAILED=0
+      while read -r SERVICE SRC DST; do
+        if ! same "$SERVICE" "$SRC" "$DST"; then
+          echo "FAIL: ${SERVICE}의 ${DST}가 저장소 ${DIR}/${SRC}와 다릅니다."
+          FAILED=1
+        fi
+      done <<EOF
+      $MOUNTS
+      EOF
+      [ "$FAILED" -eq 0 ]
     - |
       HEALTH_URL="http://127.0.0.1:${DEV_GRAFANA_HOST_PORT}/api/health"
       HEALTHY=0

@@ -16,6 +16,12 @@ scrape_configs:
       - targets:
           - a301-dev-fe:3000
 
+  # AI 면접 에이전트: 진행 중 면접 수, Soniox · ElevenLabs · Jev 사용량(ai/app/agent/metrics.py)
+  - job_name: a301-ai-agent
+    static_configs:
+      - targets:
+          - a301-dev-ai-agent:9464
+
   - job_name: a301-health
     metrics_path: /probe
     params:
