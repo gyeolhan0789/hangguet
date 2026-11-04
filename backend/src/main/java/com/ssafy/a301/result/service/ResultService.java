@@ -89,7 +89,7 @@ public class ResultService {
                 session.isVideo() ? speechMetrics.findById(sessionId).orElse(null) : null);
     }
 
-    /** 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화의 상태를 주고, READY일 때만 주소를 준다 */
+    /** 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화의 상태·영상 0초 시각을 주고, READY일 때만 주소를 준다 */
     @Transactional(readOnly = true)
     public ReplayResponse replay(long userId, long sessionId) {
         InterviewSession session = completedSession(userId, sessionId);
@@ -103,16 +103,22 @@ public class ResultService {
                         .map(q -> new QuestionAndAnswer(q, answerByQuestion.get(q.getId())))
                         .toList();
         if (!session.isVideo()) {
-            return ResultMapper.toReplay(session, items, null, null);
+            return ResultMapper.toReplay(session, items, null, null, null);
         }
         String key = Recording.sessionVideoKey(session.getId());
+        Recording recording = recordings.findByObjectKey(key).orElse(null);
         VideoStatus videoStatus =
                 videoStatus(
                         session,
-                        recordings.findByObjectKey(key).map(Recording::getStatus).orElse(null),
+                        recording == null ? null : recording.getStatus(),
                         OffsetDateTime.now());
         String videoUrl = videoStatus == VideoStatus.READY ? storage.presignDownload(key) : null;
-        return ResultMapper.toReplay(session, items, videoStatus, videoUrl);
+        return ResultMapper.toReplay(
+                session,
+                items,
+                videoStatus,
+                videoUrl,
+                recording == null ? null : recording.getRecordingStartedAt());
     }
 
     // 합치는 중(행이 없는 녹화 상태 추가 이전 면접 포함)이어도 종료 후 MERGE_WAIT가 지나면 실패로 본다.

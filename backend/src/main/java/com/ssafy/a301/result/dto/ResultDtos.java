@@ -78,7 +78,10 @@ public final class ResultDtos {
             @Schema(description = "질문 id", example = "301") long questionId,
             @Schema(description = "질문 순서", example = "1") int seq,
             @Schema(description = "질문 내용") String question,
-            @Schema(description = "질문을 낸 일시. startedAt과의 차이(초)가 영상 속 질문 위치(마커). 1~2초 오차")
+            @Schema(
+                            description =
+                                    "질문 음성을 송출하기 시작한 일시. recordingStartedAt(null이면 startedAt)과의"
+                                            + " 차이(초)가 영상 속 질문 위치(마커)")
                     OffsetDateTime questionCreatedAt,
             @Schema(description = "답변 글. 재생 중 자막(답변 단위)", nullable = true) String answer,
             @Schema(description = "답변 제출 일시", nullable = true) OffsetDateTime answerCreatedAt,
@@ -125,7 +128,14 @@ public final class ResultDtos {
             @Schema(description = "VIDEO면 영상, CHAT이면 대화 기록") InterviewMode mode,
             @Schema(description = "지원 회사명", example = "○○전자") String companyName,
             @Schema(description = "지원 직무", example = "백엔드 개발자") String jobTitle,
-            @Schema(description = "녹화 기준 시각(면접 시작 일시). 상단 날짜도 이 값") OffsetDateTime startedAt,
+            @Schema(description = "면접 시작 일시. 상단 날짜") OffsetDateTime startedAt,
+            @Schema(
+                            description =
+                                    "합친 영상의 0초에 해당하는 시각(녹화 합치기에 사용한 트랙 중 가장 먼저 시작한 트랙의 시작 시각). 녹화"
+                                            + " 시작 시각을 얻지 못해 트랙을 이어 붙여 합쳤거나 채팅이면 null이고, 이때 화면은"
+                                            + " startedAt을 기준으로 사용한다",
+                            nullable = true)
+                    OffsetDateTime recordingStartedAt,
             @Schema(
                             description =
                                     "녹화 영상 상태. READY 재생 가능, MERGING 녹화 합치기 중(10초마다 다시 조회), FAILED"
