@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from livekit import rtc
 from livekit.agents import AutoSubscribe
 
+from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
 from app.agent.jev import JevJudge
 from app.agent.main import (
@@ -140,9 +142,10 @@ def test_answer_capture_reads_candidate_mic_in_100ms_chunks() -> None:
             patch("app.agent.main.TranscriptPublisher"),
             patch("app.agent.main.AnswerCapture") as capture,
         ):
-            capture.return_value.run = AsyncMock(return_value="answer")
+            captured = CapturedAnswer(datetime(2026, 11, 4, tzinfo=UTC), "답변", None, b"")
+            capture.return_value.run = AsyncMock(return_value=captured)
             answer = await RoomCapture(room, "candidate", SttSettings("test"), Mock(), Mock()).run()
-        assert answer == "answer"
+        assert answer == captured
         assert streams.call_args.kwargs["sample_rate"] == 16000
         assert streams.call_args.kwargs["frame_size_ms"] == 100
         stream.aclose.assert_awaited_once()
