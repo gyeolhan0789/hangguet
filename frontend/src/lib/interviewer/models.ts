@@ -33,11 +33,11 @@ export interface InterviewerLook {
 /** 면접관별 배경 효과(기획 메모 S06: 배경 씬은 페르소나별 — 악마 = 번개 폭풍, 커피챗 = 카페, 오리 = 호수 물가) */
 export type InterviewerBackdrop = "storm" | "cafe" | "lake" | null;
 
-/** 호수 물가 배경(왼쪽 위 햇살, 맑은 낮)에 맞춘 오리 조명. 발밑 풀밭에 그림자가 진다 */
+/** 호수 물가 배경(lake.webp: 왼쪽 위 따뜻한 햇살, 노란빛 풀밭)에 맞춘 오리 조명. 발밑 풀밭에 그림자가 진다 */
 const DUCK_LIGHTS: SceneLights = {
   exposure: 1.1,
-  hemi: { sky: 0xdcecff, ground: 0x7d8f5a, intensity: 1.5 },
-  key: { color: 0xfff0d6, intensity: 2.8, position: [-1.6, 2.4, 1.4] },
+  hemi: { sky: 0xe8f0ff, ground: 0x9aa64a, intensity: 1.5 },
+  key: { color: 0xffdcaa, intensity: 3, position: [-1.6, 2.4, 1.4] },
   fill: { color: 0xd6e8ff, intensity: 0.8, position: [1.6, 1, 2] },
   shadow: { color: 0x2f4a22, opacity: 0.35 },
 };
