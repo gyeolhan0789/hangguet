@@ -16,7 +16,9 @@
 
 모니터링 Compose·Prometheus·blackbox·Loki(`loki.yml`)·Alloy(`alloy.alloy`) 설정 또는 Grafana 프로비저닝·대시보드가 `develop`에서 바뀌면 `monitoring-deploy` 잡이 미니PC의 배포 전용 Runner에서 자동 실행된다. README나 Nginx 설정 예시만 바뀌면 자동 실행되지 않는다. 다른 `develop` push 파이프라인과 수동 파이프라인에는 `monitoring-deploy` 수동 실행 버튼이 생긴다. 버튼을 누르지 않으면 앱 변경만으로 Grafana를 다시 배포하지 않는다.
 
-잡은 아래 명령을 실행하고 `http://127.0.0.1:18090/api/health`로 기동을 확인한다. Loki · Alloy는 20초 뒤에도 실행 중이고 재시작이 없는지 본다(설정이 틀리면 재시작을 반복한다). 설정이 그대로라면 `up -d`는 컨테이너를 다시 만들지 않는다.
+잡은 아래 명령을 실행하고 `http://127.0.0.1:18090/api/health`로 기동을 확인한다. Loki · Alloy는 20초 뒤에도 실행 중이고 재시작이 없는지 본다(설정이 틀리면 재시작을 반복한다). Compose 설정이 그대로라면 `up -d`는 컨테이너를 다시 만들지 않는다.
+
+설정 파일(`prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)만 바뀐 경우에는 `up -d`가 컨테이너를 그대로 두고, Prometheus · blackbox · Loki · Alloy는 기동할 때만 설정을 읽는다. 그래서 잡은 `up -d` 뒤에 컨테이너 안에서 보이는 설정을 저장소와 비교해, 다른 서비스만 `--force-recreate`로 다시 만들고 다시 비교한다(그래도 다르면 잡 실패). 지표 · 로그 · Grafana 계정은 볼륨에 있어 남는다.
 
 ```sh
 docker compose -f deploy/dev/monitoring/compose.yml config --quiet
