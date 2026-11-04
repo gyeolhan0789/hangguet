@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from livekit import rtc
-from livekit.agents import AutoSubscribe
+from livekit.agents import AgentServer, AutoSubscribe
 
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
@@ -16,7 +16,9 @@ from app.agent.main import (
     RoomCapture,
     accept_request,
     audio_chunks,
+    create_server,
     entrypoint,
+    idle_process_options,
     job_assignment,
     main,
     question_speaker,
@@ -323,6 +325,44 @@ def test_request_without_be_assignment_is_accepted(metadata: str | None) -> None
     asyncio.run(accept_request(request))
     request.accept.assert_awaited_once_with(name="interviewer", identity="interviewer")
     request.reject.assert_not_awaited()
+
+
+def test_server_keeps_library_default_idle_processes() -> None:
+    """환경 변수가 없으면 미리 실행해 두는 프로세스 수를 지정하지 않는다.
+
+    0이면 라이브러리가 진행 중인 면접이 없을 때 준비 중인 면접 하나를 70% 부하로 추정해,
+    빈 서버에서 동시에 시작한 두 번째 면접의 배정을 거절한다.
+    """
+    assert server._num_idle_processes == AgentServer._default_num_idle_processes
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        pytest.param({}, {}, id="unset"),
+        pytest.param({"AGENT_IDLE_PROCESSES": ""}, {}, id="empty"),
+        pytest.param({"AGENT_IDLE_PROCESSES": "2"}, {"num_idle_processes": 2}, id="two"),
+        pytest.param({"AGENT_IDLE_PROCESSES": " 4 "}, {"num_idle_processes": 4}, id="spaces"),
+        pytest.param({"AGENT_IDLE_PROCESSES": "0"}, {"num_idle_processes": 0}, id="zero"),
+    ],
+)
+def test_idle_processes_come_from_environment(
+    env: dict[str, str], expected: dict[str, int]
+) -> None:
+    assert idle_process_options(env) == expected
+
+
+def test_server_uses_idle_processes_from_environment() -> None:
+    created = create_server({"AGENT_IDLE_PROCESSES": "2"})
+    assert created._num_idle_processes == 2
+
+
+@pytest.mark.parametrize("value", ["-1", "1.5", "two", "２"])
+def test_invalid_idle_processes_stop_agent(value: str) -> None:
+    """잘못된 값으로 라이브러리 기본값을 조용히 사용하지 않도록 시작 단계에서 실패한다."""
+    env = {"AGENT_IDLE_PROCESSES": value}
+    with pytest.raises(ValueError, match="AGENT_IDLE_PROCESSES"):
+        idle_process_options(env)
 
 
 def test_request_with_valid_assignment_is_accepted() -> None:

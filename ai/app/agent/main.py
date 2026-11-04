@@ -8,7 +8,7 @@ import asyncio
 import functools
 import logging
 import os
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import replace
 from typing import Any
@@ -39,11 +39,38 @@ from app.common.settings import Settings, load_settings
 from app.interview.realtime.sentence import Sentence
 
 log = logging.getLogger(__name__)
-server = AgentServer(
-    num_idle_processes=0,
-    prometheus_port=METRICS_PORT,
-    prometheus_multiproc_dir=METRICS_DIR,
-)
+# 미리 실행해 두는 프로세스 수를 정하는 환경 변수. Infra가 서버 사양에 맞춰 조정한다
+IDLE_PROCESSES_ENV = "AGENT_IDLE_PROCESSES"
+
+
+def idle_process_options(env: Mapping[str, str]) -> dict[str, Any]:
+    """AgentServer에 전달할 미리 실행해 두는 프로세스 수 인자를 반환한다.
+
+    환경 변수가 없으면 빈 딕셔너리를 반환해 라이브러리 기본값(운영 모드: CPU 수)을 사용한다.
+    0 이상의 정수가 아니면 ValueError를 발생시켜 에이전트를 시작하지 않는다.
+    """
+    raw = env.get(IDLE_PROCESSES_ENV, "").strip()
+    if not raw:
+        return {}
+    if not (raw.isascii() and raw.isdigit()):
+        raise ValueError(f"{IDLE_PROCESSES_ENV}는 0 이상의 정수여야 한다: {raw!r}")
+    return {"num_idle_processes": int(raw)}
+
+
+def create_server(env: Mapping[str, str]) -> AgentServer:
+    """면접 에이전트 서버를 생성한다. 미리 실행해 두는 프로세스 수는 env에서 읽는다.
+
+    0이면 첫 면접을 준비하는 동안 다음 배정을 거절하고, LiveKit은 그 배정을 다시 시도하지 않는다.
+    진행 중인 면접이 없으면 라이브러리가 준비 중인 면접의 부하를 70% ÷ 이 값으로 추정하기 때문이다.
+    """
+    return AgentServer(
+        **idle_process_options(env),
+        prometheus_port=METRICS_PORT,
+        prometheus_multiproc_dir=METRICS_DIR,
+    )
+
+
+server = create_server(os.environ)
 # AI 명세 6.1: 화상 녹화 파일 이름이 참가자 이름으로 시작하므로(7장) 이 이름으로 들어온다
 AGENT_IDENTITY = "interviewer"
 # AI 명세 6.1: 지원자 참가자 이름(BE가 발급하는 입장 토큰의 identity)

@@ -12,6 +12,7 @@ LiveKit에 등록하고 배정받은 면접방에서 질문 5개를 진행한다
 | `LIVEKIT_API_KEY` | 해당 서버 API 키 |
 | `LIVEKIT_API_SECRET` | 해당 서버 API 시크릿 |
 | `LIVEKIT_AGENT_NAME` | 선택. 기본 `a301-interviewer` |
+| `AGENT_IDLE_PROCESSES` | 선택. 미리 실행해 두는 프로세스 수(0 이상의 정수). 없으면 라이브러리 기본값(운영 모드는 CPU 수, `dev`는 0) |
 | `SONIOX_API_KEY` | Soniox API 키. 없으면 에이전트 실행 실패 |
 | `SONIOX_STT_MODEL` | 선택. 기본 `stt-rt-v5` |
 | `ELEVENLABS_API_KEY` | 질문 음성 합성 키. 없으면 질문 음성 없이 `question`에 `failed`를 보낸다 |
@@ -26,6 +27,8 @@ uv run python -m app.agent.main dev
 ```
 
 배포 시에는 같은 명령의 `dev`를 `start`로 바꾼다. FastAPI와 별도 프로세스로 실행한다.
+
+미리 실행해 두는 프로세스 수를 0으로 두면 빈 서버에서 동시에 시작한 두 번째 면접의 배정을 거절한다(이유는 `main.py` 주석).
 
 등록만 하면 방에 자동 입장하지 않는다. LiveKit의 명시적 배정 기능으로 위 에이전트 이름과 방 이름을 지정해야 한다. 배정 후 `LiveKit 방 참가 완료` 로그를 확인한다. 방을 닫으면 연결이 정리된다.
 
