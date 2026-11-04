@@ -1,6 +1,6 @@
 """질문을 면접관 음성으로 말하고, 시작·끝을 BE와 지원자 화면에 알린다.
 
-기준: AI 명세 6.2 질문 단계, 6.3 interview.question, 6.5 TTS 실패.
+기준: AI 명세 6.2 질문 단계, 6.3 interview.question, 6.5 TTS 실패·질문 시작 전송 실패.
 - 질문 음성은 에이전트가 올린 마이크 트랙 하나로 내보낸다.
   녹화 파일 이름이 참가자 이름(interviewer)과 트랙 종류로 정해지므로(AI 명세 7장)
   트랙은 하나만 올린다.
@@ -11,6 +11,10 @@
   알림 전에 기록하면 다시보기 마커가 실제 음성보다 앞에 찍히기 때문이다.
   BE가 이 메시지로 질문 행을 생성해야 화면의 지금 질문(5.5)이 이 질문을 반환한다.
   꼬리질문은 플랜에 없으므로 질문 글은 배정 정보가 아니라 출제한 질문에서 읽는다(AI 명세 6.2).
+- question.started 전송이 재시도 후에도 실패해도 질문은 그대로 진행한다(AI 명세 6.5).
+  질문 행이 없으면 BE가 그 질문의 답변을 저장하지 못하므로,
+  같은 메시지를 보관하고 전송에 성공하거나 면접이 끝날 때까지 일정 간격으로 다시 전송한다.
+  답변 전달은 ensure_started로 전송 여부를 확인한 뒤 answer.completed를 전송한다.
 - 화면에는 interview.question RPC로 started(글자별 발음 시각 포함) → ended를 보낸다.
   합성하지 못하면 failed를 보내고, 화면은 질문 글로 진행한다.
 - 화면이 RPC를 받지 못해도(처리 함수 미등록·응답 지연) 질문 음성은 계속 내보낸다.
@@ -25,7 +29,7 @@ import asyncio
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -36,7 +40,7 @@ from app.agent.assignment import AssignedQuestion, Assignment
 from app.agent.tts import BYTES_PER_SAMPLE, SAMPLE_RATE, ElevenLabsTTS, SpeechAudio, TtsError
 from app.common.results import KST, ResultPublisher, ResultPublishError
 from app.common.timing import elapsed_ms
-from app.interview.realtime.progress import question_started
+from app.interview.realtime.progress import ProgressMessage, question_started
 
 log = logging.getLogger(__name__)
 QUESTION_METHOD = "interview.question"
@@ -44,6 +48,8 @@ QUESTION_METHOD = "interview.question"
 MAX_RPC_PAYLOAD_BYTES = 15 * 1024
 # 화면이 응답하지 않아도 질문 음성이 늦어지지 않도록 기다리는 상한(초)
 RPC_TIMEOUT = 3.0
+# AI 명세 6.5: 재시도 후에도 전송하지 못한 question.started를 다시 전송하는 간격(초)
+STARTED_RETRY_SECONDS = 4.0
 FRAME_MS = 10
 TRACK_NAME = "interviewer-voice"
 
@@ -115,6 +121,7 @@ class QuestionSpeaker:
         *,
         clock: Callable[[], datetime] = _now,
         timer: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._participant = participant
         self._assignment = assignment
@@ -122,9 +129,15 @@ class QuestionSpeaker:
         self._results = results
         self._clock = clock
         self._timer = timer
+        self._sleep = sleep
         self._source: rtc.AudioSource | None = None
-        # question.started를 전송한 질문 순서. 같은 질문을 다시 말해도 한 번만 전송한다
-        self._announced: set[int] = set()
+        # 기록한 question.started. 같은 질문을 다시 말해도 처음 기록한 메시지만 전송한다
+        self._started: dict[int, ProgressMessage] = {}
+        # 결과 큐에 추가한 질문 순서
+        self._sent: set[int] = set()
+        self._resending: dict[int, asyncio.Task[None]] = {}
+        # 다시 전송과 답변 전달 전 확인이 같은 메시지를 동시에 전송하지 않게 한다
+        self._sending = asyncio.Lock()
 
     async def publish_track(self) -> None:
         source = rtc.AudioSource(SAMPLE_RATE, 1)
@@ -183,40 +196,58 @@ class QuestionSpeaker:
         """질문을 말한다.
 
         question.started는 그 질문의 음성 송출을 처음 시작할 때,
-        음성이 없으면 failed를 처음 전송할 때 한 번만 전송한다.
-        재입장 뒤 같은 질문을 다시 말할 때 이미 전송했으면 다시 전송하지 않는다.
-        BE가 질문 행을 처음 시작 시각으로 이미 저장했기 때문이다(AI 명세 6.5).
-        음성을 송출하기 전에 퇴장했으면 아직 전송하지 않았으므로 다시 말할 때 전송한다.
+        음성이 없으면 failed를 처음 전송할 때 시각을 기록해 전송한다.
+        전송을 기다리지 않고 질문을 진행하며,
+        실패하면 면접이 끝날 때까지 다시 전송한다(AI 명세 6.5).
+        재입장 뒤 같은 질문을 다시 말할 때 이미 기록했으면 다시 기록하지 않는다.
+        BE가 질문 행을 처음 시작 시각으로 저장하기 때문이다(AI 명세 6.5).
+        음성을 송출하기 전에 퇴장했으면 아직 기록하지 않았으므로 다시 말할 때 기록한다.
         """
         content = question.content
-        started: asyncio.Task[None] | None = None
 
         def mark_started() -> None:
-            nonlocal started
-            if seq in self._announced:
-                return
-            self._announced.add(seq)
-            started = asyncio.create_task(self._publish_started(seq, question, self._clock()))
+            if seq not in self._started:
+                self._start_sending(seq, question, self._clock())
 
+        if audio is None or self._source is None:
+            # 화면 응답을 기다린 뒤 기록하면 최대 3초 늦어지므로 failed를 전송하기 전에 기록한다
+            mark_started()
+            await self._notify(destination, seq, content, SpeechState.FAILED)
+            return
+        await self._notify(destination, seq, content, SpeechState.STARTED, audio)
         try:
-            if audio is None or self._source is None:
-                # 화면 응답을 기다린 뒤 기록하면 최대 3초 늦어지므로 failed를 전송하기 전에 기록한다
-                mark_started()
-                await self._notify(destination, seq, content, SpeechState.FAILED)
-                return
-            await self._notify(destination, seq, content, SpeechState.STARTED, audio)
-            try:
-                await self._play(audio, on_start=mark_started)
-            except Exception:
-                log.exception("질문 음성 송출 실패", extra={"seq": seq})
-                await self._notify(destination, seq, content, SpeechState.FAILED)
-                return
-            await self._notify(destination, seq, content, SpeechState.ENDED)
-        finally:
-            if started is not None:
-                await started
+            await self._play(audio, on_start=mark_started)
+        except Exception:
+            log.exception("질문 음성 송출 실패", extra={"seq": seq})
+            await self._notify(destination, seq, content, SpeechState.FAILED)
+            return
+        await self._notify(destination, seq, content, SpeechState.ENDED)
+
+    async def ensure_started(self, seq: int) -> bool:
+        """그 질문의 question.started가 결과 큐에 추가되었는지 확인한다.
+
+        아직이고 다시 전송 중이 아니면 한 번 더 전송하며, 결과 큐에 추가되었으면 True다.
+        답변 전달은 True일 때만 answer.completed를 전송한다.
+        질문 행이 없으면 BE가 답변을 저장하지 못하기 때문이다(AI 명세 6.5).
+        기록한 적이 없는 질문은 전송할 메시지가 없으므로 True다.
+        """
+        if seq in self._sent or seq not in self._started:
+            return True
+        if self._sending.locked():
+            # 다시 전송 중이면 그 결과만 확인하고 새로 전송하지 않는다.
+            # Redis 응답이 끊긴 장애에서
+            # submitFailed 안내가 전송 두 번만큼 늦어지지 않게 하기 위함이다
+            async with self._sending:
+                return seq in self._sent
+        async with self._sending:
+            return await self._send(seq)
 
     async def aclose(self) -> None:
+        """면접이 끝나면 question.started 다시 전송을 멈추고 음성 트랙을 닫는다."""
+        for task in self._resending.values():
+            task.cancel()
+        await asyncio.gather(*self._resending.values(), return_exceptions=True)
+        self._resending.clear()
         if self._source is not None:
             self._source.clear_queue()
             await self._source.aclose()
@@ -238,26 +269,39 @@ class QuestionSpeaker:
             source.clear_queue()
             raise
 
-    async def _publish_started(
-        self, seq: int, question: AssignedQuestion, started_at: datetime
-    ) -> None:
-        if self._results is None:
-            return
-        try:
-            # 결과 큐 전송기는 동기 Redis 클라이언트이고 재시도 중 대기하므로
-            # 별도 스레드에서 실행한다
-            message = question_started(
-                self._assignment.session_id,
-                seq,
-                started_at,
-                question.content,
-                question.criteria,
-                prompt_version=question.prompt_version,
-                model_version=question.model_version,
-            )
-            await asyncio.to_thread(message.publish, self._results)
-        except ResultPublishError:
-            log.error("question.started 전송 실패", extra={"seq": seq})
+    def _start_sending(self, seq: int, question: AssignedQuestion, started_at: datetime) -> None:
+        self._started[seq] = question_started(
+            self._assignment.session_id,
+            seq,
+            started_at,
+            question.content,
+            question.criteria,
+            prompt_version=question.prompt_version,
+            model_version=question.model_version,
+        )
+        self._resending[seq] = asyncio.create_task(self._send_until_sent(seq))
+
+    async def _send_until_sent(self, seq: int) -> None:
+        while True:
+            async with self._sending:
+                if await self._send(seq):
+                    return
+            await self._sleep(STARTED_RETRY_SECONDS)
+
+    async def _send(self, seq: int) -> bool:
+        """question.started를 전송한다. 결과 큐에 추가했거나 이미 추가되어 있으면 True다."""
+        if seq in self._sent:
+            return True
+        if self._results is not None:
+            try:
+                # 결과 큐 전송기는 동기 Redis 클라이언트이고 재시도 중 대기하므로
+                # 별도 스레드에서 실행한다
+                await asyncio.to_thread(self._started[seq].publish, self._results)
+            except ResultPublishError:
+                log.error("question.started 전송 실패", extra={"seq": seq})
+                return False
+        self._sent.add(seq)
+        return True
 
     async def _notify(
         self,

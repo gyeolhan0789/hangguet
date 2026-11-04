@@ -32,7 +32,7 @@ from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
-from app.common.redis import create_redis
+from app.common.redis import create_publisher_redis
 from app.common.results import FailureReason, ResultPublisher
 from app.common.session import InterviewMode
 from app.common.settings import Settings, load_settings
@@ -55,7 +55,7 @@ STATE_RPC_TIMEOUT = 3.0
 @functools.cache
 def rejection_results() -> ResultPublisher:
     """배정 거절을 전송하는 결과 전송기다. 거절할 때 처음 생성한다."""
-    return ResultPublisher(create_redis(load_settings(os.environ)))
+    return ResultPublisher(create_publisher_redis(load_settings(os.environ)))
 
 
 async def accept_request(
@@ -266,7 +266,7 @@ async def run_interview(
     room = ctx.room
     video = assignment.mode is InterviewMode.VIDEO
     common = load_settings(os.environ)
-    results = ResultPublisher(create_redis(common))
+    results = ResultPublisher(create_publisher_redis(common))
     impressions = impression_recorder(common) if video else None
     delivery = AnswerDelivery(
         assignment.session_id,
@@ -383,7 +383,7 @@ def question_speaker(ctx: JobContext, assignment: Assignment) -> QuestionSpeaker
         # STT와 달리 실행을 막지 않는다. 질문 음성이 없어도 화면은 질문 글로 진행한다(AI 명세 6.5)
         log.warning("ELEVENLABS_API_KEY가 없어 질문 음성 없이 진행한다")
     return QuestionSpeaker(
-        ctx.room.local_participant, assignment, tts, ResultPublisher(create_redis(common))
+        ctx.room.local_participant, assignment, tts, ResultPublisher(create_publisher_redis(common))
     )
 
 

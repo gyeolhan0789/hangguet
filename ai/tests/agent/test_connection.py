@@ -437,7 +437,7 @@ def test_question_speaker_uses_elevenlabs_key_and_result_queue(
     assignment = parse_assignment(ASSIGNMENT_JSON)
     with (
         patch("app.agent.main.QuestionSpeaker") as speaker,
-        patch("app.agent.main.create_redis") as redis,
+        patch("app.agent.main.create_publisher_redis") as redis,
     ):
         question_speaker(ctx, assignment)
     participant, given, tts, results = speaker.call_args.args
