@@ -6,6 +6,8 @@ import type { Persona } from "@/types/api";
 // 화면에서만 재생하므로 녹화 · 다시보기에 들어가지 않는다) · 효과음 출처 public/interview/duck/CREDITS.txt
 
 export const DUCK_CALL_URL = "/interview/duck/duck-call.mp3";
+/** 감탄 소리 음량(0~1). 원본이 커서 질문 음성 · 배경음보다 튀지 않게 줄인다(사용자 요청 2026-11-04: 살짝 줄인 뒤 좀 더 줄이기) */
+export const DUCK_CALL_VOLUME = 0.4;
 
 /** 효과음을 내는 면접관인지 */
 export function hasDuckCall(persona: Persona): boolean {
@@ -15,7 +17,10 @@ export function hasDuckCall(persona: Persona): boolean {
 let audio: HTMLAudioElement | null = null;
 
 function duckCall(): HTMLAudioElement {
-  audio ??= new Audio(DUCK_CALL_URL);
+  if (!audio) {
+    audio = new Audio(DUCK_CALL_URL);
+    audio.volume = DUCK_CALL_VOLUME;
+  }
   return audio;
 }
 

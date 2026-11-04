@@ -9,6 +9,7 @@ import type { Persona } from "@/types/api";
 import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
 import { LIP_SYNC_DELAY_MS, mouthAt, mouthCues, mouthEndMs } from "@/lib/interviewer/lip-sync";
 import { NEUTRAL_FACE } from "@/lib/interviewer/face-rules";
+import { useInterviewStore } from "@/stores/interview-store";
 import {
   gentleReaction,
   isNodReaction,
@@ -33,13 +34,14 @@ import { ThinkingAvatar } from "./thinking-avatar";
 //   동작 줄이기를 켰으면 입을 움직이지 않는다. 질문 도중에 들어오면 다음 started부터 움직인다)
 // · 오리 면접관(동작 클립 면접관): 오리 모델 안내(public/interview/duck/README.md: 사람의 A/I/U/E/O 입 모양을 쓰지 않음)
 //   · API 명세 면접방 메시지(오리는 smile · small_nod · nod만 표시, attitude를 부정적인 표정으로 반영하지 않음)
-//   · 사용자 결정(2026-11-04: 질문 음성이 나오는 동안 말하기 동작, 끄덕임 반응 · 듣는 중 끄덕임은 끄덕임 동작 한 번)
+//   · 사용자 결정(2026-11-04: 질문 음성이 나오는 동안 말하기 동작, 끄덕임 반응 · 듣는 중 끄덕임은 끄덕임 동작 한 번,
+//   답변을 내면 감탄 소리와 함께 놀람 동작 한 번)
 
 /** 눈 깜빡임 간격(ms). 이 범위에서 매번 다르게 고른다. */
 const BLINK_GAP_MS = [2500, 5500] as const;
 /** 눈을 감았다 뜨는 데 걸리는 시간(ms) */
 const BLINK_MS = 160;
-/** 동작 클립 면접관이 끄덕임 반응을 시작하는 기한(ms). 반응을 받고 이만큼 지나 다시 그리면 끄덕이지 않는다 */
+/** 동작 클립 면접관이 끄덕임 반응 · 놀람을 시작하는 기한(ms). 받고 이만큼 지나 다시 그리면 하지 않는다 */
 const NOD_START_MS = 300;
 
 type StageState = "loading" | "ready" | "failed";
@@ -218,6 +220,13 @@ export function InterviewerStage({
       else current.setFace({ mouth: NEUTRAL_FACE.mouth });
     };
   }, [state, alignment, reduce, clipped]);
+
+  // 오리 면접관의 감탄(답변 제출 시작): 놀람 동작을 한 번 한다. 감탄한 직후에만 한다(화면을 다시 그려도 또 놀라지 않게).
+  const exclaimedAt = useInterviewStore((state) => state.exclaimedAt);
+  useEffect(() => {
+    if (state !== "ready" || !scene.current || !clipped || reduce || exclaimedAt === null) return;
+    if (performance.now() - exclaimedAt < NOD_START_MS) scene.current.surprise();
+  }, [state, clipped, reduce, exclaimedAt]);
 
   // 눈 깜빡임. 동작 줄이기를 켰으면 깜빡이지 않는다.
   useEffect(() => {

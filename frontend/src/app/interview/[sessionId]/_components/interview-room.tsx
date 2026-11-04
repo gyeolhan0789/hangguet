@@ -10,6 +10,7 @@ import { useInterviewRoom, type RoomPresentation } from "@/components/interview/
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
+import { useDuckAmbience } from "@/lib/interview/duck-ambience";
 import { hasDuckCall, playDuckCall, preloadDuckCall } from "@/lib/interview/duck-call";
 import { gazeRatio } from "@/lib/interview/gaze";
 import { ROUTES } from "@/lib/routes";
@@ -83,6 +84,8 @@ export function InterviewRoom({
   const interviewer = PERSONAS.find((info) => info.persona === session.persona)?.name ?? "";
 
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
+  // 오리 면접관은 면접하는 동안 배경음(풀벌레 · 강물)을 작게 틀고, 결과 분석으로 넘어가면 줄이며 멈춘다
+  useDuckAmbience(hasDuckCall(session.persona) && !analyzing);
   // 방금 답한 질문이 그대로 오거나 질문이 없으면 다음 질문을 기다리는 중이다.
   const question: CurrentQuestion | null =
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
@@ -385,6 +388,12 @@ function VideoInterview({
 }) {
   const router = useRouter();
   const duckCall = hasDuckCall(persona);
+  const exclaim = useInterviewStore((state) => state.exclaim);
+  /** 오리 면접관의 감탄: 감탄 소리와 놀람 동작 */
+  const duckExclaim = () => {
+    playDuckCall();
+    exclaim();
+  };
   useEffect(() => {
     if (duckCall) preloadDuckCall();
   }, [duckCall]);
@@ -422,7 +431,7 @@ function VideoInterview({
     setAnswerNotice(message);
     if (message.state === "autoSubmitted") {
       startSubmitting(question.id);
-      if (duckCall) playDuckCall();
+      if (duckCall) duckExclaim();
     }
     if (message.state === "submitted") {
       setSubmittedSeq(message.seq);
@@ -467,7 +476,7 @@ function VideoInterview({
     setRequesting(false);
     if (result !== "accepted") return;
     startSubmitting(question.id);
-    if (duckCall && !retry) playDuckCall();
+    if (duckCall && !retry) duckExclaim();
   }
 
   // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
@@ -639,6 +648,7 @@ function ChatLive({
   });
   const [completedSeq, setCompletedSeq] = useState(0);
   const duckCall = hasDuckCall(persona);
+  const exclaim = useInterviewStore((state) => state.exclaim);
   useEffect(() => {
     if (duckCall) preloadDuckCall();
   }, [duckCall]);
@@ -725,7 +735,14 @@ function ChatLive({
         submissionLocked={submissionLocked}
         onChatInput={sendInput}
         inputQuestionSeq={inputQuestionSeq}
-        onSubmitStart={duckCall ? playDuckCall : undefined}
+        onSubmitStart={
+          duckCall
+            ? () => {
+                playDuckCall();
+                exclaim();
+              }
+            : undefined
+        }
         onAnswered={(seq, content) => {
           setCompletedSeq(seq);
           void send(seq, content, 0);

@@ -26,7 +26,7 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 import { setupBackdrop, type Backdrop } from "./backdrop";
-import { createClipPlayer, type ClipMotions, type ClipPlayer } from "./clips";
+import { createClipPlayer, createHeadLift, type ClipMotions, type ClipPlayer } from "./clips";
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
 import { LoadError, withRetry } from "./retry";
@@ -112,6 +112,8 @@ export interface InterviewerScene {
   setTalking: (talking: boolean) => void;
   /** 끄덕임 동작을 한 번 한다(동작 클립 면접관만. 자세 면접관은 setHead로 고개를 움직인다) */
   nod: () => void;
+  /** 놀람 동작을 한 번 한다(동작 클립 면접관만) */
+  surprise: () => void;
   /** 표정을 바꾼다. 다음 프레임에 그린다. */
   setFace: (face: Partial<FaceControls>) => void;
   /** 화면 크기가 바뀌었을 때 캔버스 크기에 맞춘다. */
@@ -301,6 +303,8 @@ export async function createInterviewerScene({
     scene.add(gltf.scene);
 
     mixer = new AnimationMixer(gltf.scene);
+    // 동작 클립 면접관이 늘 들어 두는 고개(믹서를 움직일 때마다 클립이 정한 머리 회전 위에 한 번만 더한다)
+    const moveWithLift = createHeadLift(gltf.scene, model.clips?.headLift);
     if (model.clips) {
       // 동작 클립 면접관: 기본 자세 클립을 걸어 두고, 말하기 · 끄덕임 때만 움직인다.
       clips = createClipPlayer(mixer, gltf.animations, model.clips);
@@ -320,7 +324,8 @@ export async function createInterviewerScene({
       const readSegment = pose.segments[readRoute];
       action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
     }
-    mixer.update(0);
+    const startMixer = mixer;
+    moveWithLift(() => startMixer.update(0));
     const moveHead = createHeadControl(gltf.scene, headBone);
 
     // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
@@ -455,7 +460,7 @@ export async function createInterviewerScene({
       storm?.update(delta, now);
       if (clips?.active) {
         // 클립이 표정 셰이프 키를 함께 움직여도 바로 뒤 표정 규칙(applyFace)이 덮어쓴다(깜빡임 · 웃음은 표정 규칙으로만).
-        animator.update(delta);
+        moveWithLift(() => animator.update(delta));
         dirty = true;
       }
       if (dirty) applyFace();
@@ -475,6 +480,10 @@ export async function createInterviewerScene({
       },
       nod() {
         clips?.nod();
+        dirty = true;
+      },
+      surprise() {
+        clips?.surprise();
         dirty = true;
       },
       setFace(next) {

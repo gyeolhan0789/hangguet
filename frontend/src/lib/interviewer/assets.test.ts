@@ -42,9 +42,11 @@ describe.each(PERSONAS)("%s 면접관 자산", (persona) => {
     expect(gltfJson(model.glb).nodes.some((node) => node.name === headBone)).toBe(true);
   });
 
-  it.runIf(clips)("재생하는 동작 클립(대기 · 끄덕임 · 말하기)이 모두 모델에 있다", () => {
+  it.runIf(clips)("재생하는 동작 클립(대기 · 끄덕임 · 말하기 · 놀람)이 모두 모델에 있다", () => {
     const names = gltfJson(model.glb).animations?.map((clip) => clip.name) ?? [];
-    expect(names).toEqual(expect.arrayContaining([clips!.idle, clips!.nod, clips!.talk]));
+    expect(names).toEqual(
+      expect.arrayContaining([clips!.idle, clips!.nod, clips!.talk, clips!.surprise]),
+    );
   });
 
   it.runIf(animation)(

@@ -40,7 +40,7 @@ test.describe("S04 면접관 선택 · 화면", () => {
       main.getByText(`${APPLICATION.companyName} · ${APPLICATION.jobTitle} 면접`),
     ).toBeVisible();
 
-    await expect(personaGroup(page).getByRole("radio")).toHaveCount(2);
+    await expect(personaGroup(page).getByRole("radio")).toHaveCount(3);
     await expect(personaGroup(page).getByRole("radio", { checked: true })).toHaveCount(0);
     await expect(comingSoon(page)).toBeVisible();
     await expect(main.getByRole("link", { name: "지원서 선택" })).toBeVisible();

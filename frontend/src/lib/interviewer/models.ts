@@ -92,10 +92,20 @@ const LOOKS = {
     model: {
       glb: "/interview/duck/interviewer.glb",
       faceRules: "/interview/duck/face-rules.json",
-      clips: { idle: "Duck_Folded_Idle", nod: "Duck_Nod_Double", talk: "Duck_Talk" },
+      clips: {
+        idle: "Duck_Folded_Idle",
+        nod: "Duck_Nod_Double",
+        talk: "Duck_Talk",
+        surprise: "Duck_Surprise",
+        // 위에서 내려다보는 카메라를 올려다보게 고개를 든다(28도: 얼굴이 카메라를 향하고 목 이음새가 드러나지 않는 각도)
+        headLift: { node: "Duck_Head", degrees: 28 },
+        // 놀랄 때 날개 · 고개를 절반만 움직인다(사용자 요청 2026-11-04: 날개를 덜 펴고 고개를 덜 돌리고 덜 올리기)
+        surpriseScale: { Duck_Wing: 0.25, Duck_Head: 0.25 },
+      },
     },
-    // 키 0.56m 오리를 2m 앞 · 눈보다 조금 위에서 내려다본다. 1440×900에서 눈이 화면 위 27%, 발이 63%(대사창 바로 위)
-    frame: { position: [0, 0.3, 2.05], target: [0, 0.16, 0], fov: 34 },
+    // 키 0.56m 오리를 1.35m 앞 · 1.3m 높이에서 내려다본다(사용자 요청 2026-11-04: 위에서 내려다보는 구도, 높이 1.3m).
+    // 1440×900에서 머리 꼭대기가 화면 위 11%, 발이 63%(대사창 바로 위)
+    frame: { position: [0, 1.3, 1.35], target: [0, 0.103, 0], fov: 34 },
     still: "/interview/duck/still.webp",
     background: "/interview/duck/lake.webp",
     lights: DUCK_LIGHTS,
