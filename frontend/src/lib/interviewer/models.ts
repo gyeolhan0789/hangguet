@@ -48,6 +48,7 @@ const LOOKS = {
     headBone: "DEF-spine.006",
     model: {
       glb: "/interview/devil/interviewer.glb",
+      glbBytes: 31_580_308,
       faceRules: "/interview/devil/face-rules.json",
       animation: "/interview/devil/animation.json",
     },
@@ -62,6 +63,7 @@ const LOOKS = {
     headBone: "Head",
     model: {
       glb: "/interview/coffee-chat/interviewer.glb",
+      glbBytes: 413_868,
       faceRules: "/interview/coffee-chat/face-rules.json",
       animation: "/interview/coffee-chat/animation.json",
     },
@@ -91,6 +93,7 @@ const LOOKS = {
     // 머리는 동작 클립(끄덕임 · 말하기)이 움직이므로 고개 제어를 쓰지 않는다
     model: {
       glb: "/interview/duck/interviewer.glb",
+      glbBytes: 7_168_564,
       faceRules: "/interview/duck/face-rules.json",
       clips: {
         idle: "Duck_Folded_Idle",

@@ -4,6 +4,7 @@ import {
   BASE_DELAY_MS,
   LoadError,
   MAX_RETRIES,
+  StalledError,
   backoffDelay,
   classifyFailure,
   withRetry,
@@ -28,8 +29,6 @@ function fakeEnv(online: () => boolean = () => true) {
   return { env, slept };
 }
 
-const httpError = (status: number) => Object.assign(new Error("http"), { response: { status } });
-
 describe("classifyFailure", () => {
   it("오프라인이면 오류 종류와 상관없이 offline", () => {
     expect(classifyFailure(new LoadError("x", 404), false)).toBe("offline");
@@ -37,17 +36,20 @@ describe("classifyFailure", () => {
 
   it.each([429, 500, 503])("상태 %i는 다시 한다", (status) => {
     expect(classifyFailure(new LoadError("x", status), true)).toBe("retryable");
-    expect(classifyFailure(httpError(status), true)).toBe("retryable");
   });
 
   it.each([400, 403, 404])("상태 %i는 다시 해도 같아 바로 실패", (status) => {
     expect(classifyFailure(new LoadError("x", status), true)).toBe("fatal");
-    expect(classifyFailure(httpError(status), true)).toBe("fatal");
   });
 
   it("응답 없이 실패한 요청(TypeError)은 다시 하고, 해석 실패 같은 그 밖의 오류는 바로 실패", () => {
     expect(classifyFailure(new TypeError("Failed to fetch"), true)).toBe("retryable");
     expect(classifyFailure(new SyntaxError("Unexpected token"), true)).toBe("fatal");
+  });
+
+  it("받다가 멈춰 끊은 받기(StalledError)는 다시 하고, 오프라인이면 다시 연결될 때까지 기다린다", () => {
+    expect(classifyFailure(new StalledError("멈춤"), true)).toBe("retryable");
+    expect(classifyFailure(new StalledError("멈춤"), false)).toBe("offline");
   });
 });
 

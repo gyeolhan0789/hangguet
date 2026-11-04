@@ -4,6 +4,7 @@ import {
   Box3,
   DirectionalLight,
   HemisphereLight,
+  LoaderUtils,
   LoopOnce,
   MathUtils,
   Mesh,
@@ -27,16 +28,18 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 import { setupBackdrop, type Backdrop } from "./backdrop";
 import { createClipPlayer, createHeadLift, type ClipMotions, type ClipPlayer } from "./clips";
+import { download } from "./download";
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
-import { LoadError, withRetry } from "./retry";
+import { withRetry } from "./retry";
 import { createHeadControl } from "./head";
 import { setupStorm, type Storm } from "./storm";
 
 // 면접관 3D 장면(three.js). 모델 · 표정 규칙 · 자세 구간을 불러와 캔버스에 그린다. 화면(React)과 따로 두어 브라우저에서만 불러온다.
 // 기준: 면접관 3D 모델 웹 미리보기(office_animation/web app.js: 조명 · 톤 매핑 · 표정 · 자세 진행도 · 최종 검증 FINAL_PREVIEW_REPORT.json)
 // · 면접관 표현 모듈 결정 ③-3(박연수/interviewer-avatar decisions.md: 렌더 크기 = 표시 크기 × 기기 배율, 실패 시 정지 이미지)
-// · 사용자 결정(2026-10-22: 모델 받기는 시간 제한 없이 상태로 판단, 실패 상태에 따라 자동 재시도)
+// · 사용자 결정(2026-10-22: 모델 받기는 시간 제한 없이 상태로 판단, 실패 상태에 따라 자동 재시도
+//   → 2026-11-04: 받는 도중 멈추면 다시 받기, 진행률은 모델 원본 크기 기준 — download.ts)
 // · 사용자 요청(2026-10-22: 승인된 three_pose_final/web의 모델 · 표정 규칙 · 세 자세/여섯 전환 데이터로 교체)
 // · three.js 매뉴얼 How to dispose of objects · WebGLRenderer.setAnimationLoop(정리할 때 루프를 멈춘 뒤 dispose)
 // · 오리 모델 안내(public/interview/duck/README.md: 동작 클립을 이름으로 골라 재생, 사람의 A/I/U/E/O 입 모양은 쓰지 않음)
@@ -48,6 +51,8 @@ import { setupStorm, type Storm } from "./storm";
 export type InterviewerModel = {
   /** 몸 · 얼굴(악마 · 커피챗은 책상 · 의자 · 종이까지)이 든 GLB */
   glb: string;
+  /** GLB 원본 크기(바이트). 받은 비율을 셀 때 쓴다(models.test.ts가 실제 파일 크기와 같은지 본다) */
+  glbBytes: number;
   /** 표정 규칙(face-rules.json) */
   faceRules: string;
 } & (
@@ -137,26 +142,22 @@ export type LoadProgress = (ratio: number) => void;
 
 /**
  * 모델 · 표정 규칙 · 자세 구간을 내려받아 해석한다(meshopt 압축 풀기 포함).
- * 파일마다 실패 상태에 따라 다시 받는다(withRetry: 오프라인이면 다시 연결될 때까지 기다리고, 네트워크 오류 · 5xx는 최대 5번).
+ * 파일마다 실패 상태에 따라 다시 받는다(withRetry: 오프라인이면 다시 연결될 때까지 기다리고, 네트워크 오류 · 5xx · 받다가 멈춤은 최대 5번).
+ * 받은 비율은 모델 원본 크기(glbBytes) 기준이다. gzip 응답은 전체 크기를 알려 주지 않기 때문이다.
  */
 function loadAssets(
   model: InterviewerModel,
   onProgress?: LoadProgress,
 ): Promise<InterviewerAssets> {
   const fetchJson = <T>(url: string) =>
-    withRetry(() =>
-      fetch(url).then((response) => {
-        if (!response.ok) throw new LoadError(`${url} ${response.status}`, response.status);
-        return response.json() as Promise<T>;
-      }),
+    withRetry(() => download(url)).then(
+      (buffer) => JSON.parse(new TextDecoder().decode(buffer)) as T,
     );
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   return Promise.all([
     withRetry(() =>
-      loader.loadAsync(model.glb, (event) => {
-        if (event.total > 0) onProgress?.(event.loaded / event.total);
-      }),
-    ),
+      download(model.glb, (bytes) => onProgress?.(Math.min(1, bytes / model.glbBytes))),
+    ).then((buffer) => loader.parseAsync(buffer, LoaderUtils.extractUrlBase(model.glb))),
     fetchJson<FaceRules>(model.faceRules),
     model.animation ? fetchJson<PoseSegments>(model.animation) : null,
   ]).then(([gltf, rules, pose]) => ({ gltf, rules, pose }));
