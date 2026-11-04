@@ -41,6 +41,7 @@ export function ChatPanel({
   submissionLocked = false,
   onChatInput,
   inputQuestionSeq,
+  onSubmitStart,
 }: {
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
@@ -52,6 +53,8 @@ export function ChatPanel({
   onChatInput?: (questionSeq: number, seq: number, text: string, pauseMs: number) => void;
   /** 표시 중인 질문의 순서(면접방 메시지). BE 질문 ID보다 먼저 오면 쓰기를 열고, 입력 신호를 이 질문으로 보낸다. */
   inputQuestionSeq?: number;
+  /** [답변 완료]로 5.7을 요청하는 때(오리 면접관은 이때 호응 효과음을 낸다, API 명세 면접방 메시지) */
+  onSubmitStart?: () => void;
 }) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
@@ -116,6 +119,7 @@ export function ChatPanel({
         ? saved.key
         : crypto.randomUUID();
     answerKey.current = { questionId: question.id, content: values.content, key };
+    onSubmitStart?.();
 
     startSubmit(async () => {
       const result = await submitTextAnswer(sessionId, question.id, values, key);

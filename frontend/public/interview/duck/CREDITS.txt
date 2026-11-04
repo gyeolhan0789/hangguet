@@ -1,4 +1,5 @@
-오리 면접관 호응 효과음(duck-call.mp3) 출처. 아래 「화면 표기 문구」를 화면의 출처 고지에 그대로 표시한다(CC BY-SA 4.0).
+오리 면접관 소리 출처: 호응 효과음(duck-call.mp3, CC BY-SA 4.0) · 배경음(ambience.mp3, CC BY 4.0).
+아래 「화면 표기 문구」를 화면의 출처 고지에 그대로 표시한다.
 
 [화면 표기 문구]
 오리 면접관 효과음
@@ -11,12 +12,24 @@ https://commons.wikimedia.org/wiki/File:Common_Eider_(Somateria_mollissima)_(W1C
 라이선스: 크리에이티브 커먼즈 저작자표시-동일조건변경허락 4.0 국제 (CC BY-SA 4.0)
 https://creativecommons.org/licenses/by-sa/4.0/deed.ko
 
-변경 사항: 원본 녹음의 5.6~6.5초 구간을 잘라 배경 잡음을 줄이고 음량을 높였으며, 앞뒤를 부드럽게 처리한 뒤 mp3로 변환했습니다.
+변경 사항: 원본 녹음의 일부 구간을 잘라 감탄 소리를 만들고, 1초로 줄여 앞뒤를 부드럽게 처리한 뒤 mp3로 변환했습니다.
 이 효과음도 CC BY-SA 4.0에 따라 제공됩니다.
 
 원저작물은 라이선스에 따라 별도의 보증 없이 제공됩니다.
 이 서비스는 영국도서관(The British Library) 및 원저작자와 제휴하거나 그로부터 후원·보증을 받지 않습니다.
 
+오리 면접관 배경음
+
+원본: Crickets and river in China (Songpan)
+https://freesound.org/people/EduFigueres/sounds/454662/
+
+녹음: EduFigueres (Freesound)
+라이선스: 크리에이티브 커먼즈 저작자표시 4.0 국제 (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/deed.ko
+
+변경 사항: 원본 녹음을 110초로 편집하고 mp3로 변환했습니다.
+
 [개발 참고]
-- 면접 에이전트가 다음 질문 전에 1초 대기하므로(AI 명세 6.2) 파일을 변경할 때는 1초 이내로 유지한다.
+- 면접 에이전트가 다음 질문 전에 1초 대기하므로(AI 명세 6.2) 호응 효과음을 변경할 때는 1초 이내로 유지한다.
+- 배경음은 Let it drift(https://github.com/JBL28/Let_it_drift) front/resources/sound/ambience.mp3를 128kbps로 다시 인코딩했다(노래 song.mp3는 쓰지 않는다).
 - 파일을 변경하면 위 「변경 사항」도 실제 편집에 맞춰 수정한다.

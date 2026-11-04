@@ -21,6 +21,9 @@ interface InterviewState {
   /** 화면 숨기기(눈 버튼): 실제 면접처럼 면접관 음성만 듣고 답하도록 면접관 · [면접 종료] · [화면 보이기]만 남기고 상단 바 나머지 · 질문 · 내 답변 · 파형 · 내 카메라 · 토스트를 숨긴다(사용자 요청 2026-10-27) */
   uiHidden: boolean;
   toggleUiHidden: () => void;
+  /** 오리 면접관이 감탄한(답변 제출이 시작된) 시각(performance.now). 면접관 장면이 놀람 동작을 한다. 없으면 null */
+  exclaimedAt: number | null;
+  exclaim: () => void;
   openEnd: () => void;
   closeEnd: () => void;
   setAnsweredQuestion: (questionId: number | null) => void;
@@ -39,6 +42,7 @@ const initial = {
   leveledUp: null,
   collapsed: false,
   uiHidden: false,
+  exclaimedAt: null,
 };
 
 // 레벨업은 S06-1 · S07 · S08에서 새로고침해도 S08까지 남아야 해서 sessionStorage에 둔다(탭을 닫으면 지워진다).
@@ -49,6 +53,7 @@ export const useInterviewStore = create<InterviewState>()(
       ...initial,
       toggleCollapsed: () => set((state) => ({ collapsed: !state.collapsed })),
       toggleUiHidden: () => set((state) => ({ uiHidden: !state.uiHidden })),
+      exclaim: () => set({ exclaimedAt: performance.now() }),
       openEnd: () => set({ endOpen: true }),
       closeEnd: () => set({ endOpen: false }),
       setAnsweredQuestion: (answeredQuestionId) => set({ answeredQuestionId }),
@@ -65,6 +70,7 @@ export const useInterviewStore = create<InterviewState>()(
                 confirmingSave: initial.confirmingSave,
                 collapsed: initial.collapsed,
                 uiHidden: initial.uiHidden,
+                exclaimedAt: initial.exclaimedAt,
               }
             : initial,
         ),

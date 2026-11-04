@@ -8,9 +8,13 @@ import type { CameraFrame, InterviewerModel, SceneLights } from "./scene";
 // · 사용자 결정(2026-10-26: 커피챗도 같은 코드 · 같은 자산 형식으로 그린다. 카메라는 S06과 같은 구도(얼굴 가운데 화면 위 약 32%),
 //   배경은 카페 실내 그림 1장(낮 창가 햇빛), 조명은 커피챗만 배경에 맞춘다) · 커피챗 모델(coffeechat-avatar v4, 소품 출처는
 //   public/interview/coffee-chat/CREDITS.txt)
+// · 오리 모델(public/interview/duck/README.md · manifest.json: 동작 클립 idle · nod · talk, 표정 규칙 face-rules.json)
+// · 사용자 결정(2026-11-04: 오리는 Figma에 없어 기존 면접관과 같은 방식으로 — 카메라는 얼굴이 화면 위쪽 · 발이 대사창 위에 오게,
+//   배경은 Codex로 만든 호수 물가 그림 1장, 조명은 배경에 맞춘다)
 
 export interface InterviewerLook {
-  headBone: string;
+  /** 고개 제어에 쓰는 머리 뼈대. 동작 클립이 머리를 움직이는 면접관은 비워 둔다 */
+  headBone?: string;
   model: InterviewerModel;
   /** Figma 장면과 같은 구도의 카메라 */
   frame: CameraFrame;
@@ -26,8 +30,17 @@ export interface InterviewerLook {
   lights?: SceneLights;
 }
 
-/** 면접관별 배경 효과(기획 메모 S06: 배경 씬은 페르소나별 — 악마 = 번개 폭풍, 커피챗 = 카페 등) */
-export type InterviewerBackdrop = "storm" | "cafe" | null;
+/** 면접관별 배경 효과(기획 메모 S06: 배경 씬은 페르소나별 — 악마 = 번개 폭풍, 커피챗 = 카페, 오리 = 호수 물가) */
+export type InterviewerBackdrop = "storm" | "cafe" | "lake" | null;
+
+/** 호수 물가 배경(왼쪽 위 햇살, 맑은 낮)에 맞춘 오리 조명. 발밑 풀밭에 그림자가 진다 */
+const DUCK_LIGHTS: SceneLights = {
+  exposure: 1.1,
+  hemi: { sky: 0xdcecff, ground: 0x7d8f5a, intensity: 1.5 },
+  key: { color: 0xfff0d6, intensity: 2.8, position: [-1.6, 2.4, 1.4] },
+  fill: { color: 0xd6e8ff, intensity: 0.8, position: [1.6, 1, 2] },
+  shadow: { color: 0x2f4a22, opacity: 0.35 },
+};
 
 // Record<Persona, …>라서 Persona가 늘거나 줄면 여기서 컴파일 오류가 난다.
 const LOOKS = {
@@ -74,11 +87,35 @@ const LOOKS = {
       face: { color: 0xffe2c4, intensity: 3, position: [-0.2, 0.45, 1.8] },
     },
   },
+  DUCK: {
+    // 머리는 동작 클립(끄덕임 · 말하기)이 움직이므로 고개 제어를 쓰지 않는다
+    model: {
+      glb: "/interview/duck/interviewer.glb",
+      faceRules: "/interview/duck/face-rules.json",
+      clips: {
+        idle: "Duck_Folded_Idle",
+        nod: "Duck_Nod_Double",
+        talk: "Duck_Talk",
+        surprise: "Duck_Surprise",
+        // 위에서 내려다보는 카메라를 올려다보게 고개를 든다(28도: 얼굴이 카메라를 향하고 목 이음새가 드러나지 않는 각도)
+        headLift: { node: "Duck_Head", degrees: 28 },
+        // 놀랄 때 날개 · 고개를 절반만 움직인다(사용자 요청 2026-11-04: 날개를 덜 펴고 고개를 덜 돌리고 덜 올리기)
+        surpriseScale: { Duck_Wing: 0.25, Duck_Head: 0.25 },
+      },
+    },
+    // 키 0.56m 오리를 1.35m 앞 · 1.3m 높이에서 내려다본다(사용자 요청 2026-11-04: 위에서 내려다보는 구도, 높이 1.3m).
+    // 1440×900에서 머리 꼭대기가 화면 위 11%, 발이 63%(대사창 바로 위)
+    frame: { position: [0, 1.3, 1.35], target: [0, 0.103, 0], fov: 34 },
+    still: "/interview/duck/still.webp",
+    background: "/interview/duck/lake.webp",
+    lights: DUCK_LIGHTS,
+  },
 } satisfies Record<Persona, InterviewerLook | null>;
 
 const BACKDROPS = {
   DEVIL: "storm",
   COFFEE_CHAT: "cafe",
+  DUCK: "lake",
 } satisfies Record<Persona, InterviewerBackdrop>;
 
 /** 면접관의 배경 효과. 아직 없으면 null */

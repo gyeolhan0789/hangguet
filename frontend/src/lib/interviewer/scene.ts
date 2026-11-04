@@ -26,6 +26,7 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 
 import { setupBackdrop, type Backdrop } from "./backdrop";
+import { createClipPlayer, createHeadLift, type ClipMotions, type ClipPlayer } from "./clips";
 import { faceWeights, NEUTRAL_FACE, type FaceControls, type FaceRules } from "./face-rules";
 import { createFaceSurface } from "./face-surface";
 import { LoadError, withRetry } from "./retry";
@@ -38,16 +39,29 @@ import { setupStorm, type Storm } from "./storm";
 // · 사용자 결정(2026-10-22: 모델 받기는 시간 제한 없이 상태로 판단, 실패 상태에 따라 자동 재시도)
 // · 사용자 요청(2026-10-22: 승인된 three_pose_final/web의 모델 · 표정 규칙 · 세 자세/여섯 전환 데이터로 교체)
 // · three.js 매뉴얼 How to dispose of objects · WebGLRenderer.setAnimationLoop(정리할 때 루프를 멈춘 뒤 dispose)
+// · 오리 모델 안내(public/interview/duck/README.md: 동작 클립을 이름으로 골라 재생, 사람의 A/I/U/E/O 입 모양은 쓰지 않음)
 
-/** 모델 파일 묶음 */
-export interface InterviewerModel {
-  /** 몸 · 얼굴 · 책상 · 의자 · 종이가 든 GLB(meshopt 압축) */
+/**
+ * 모델 파일 묶음. 자세 구간(animation.json)으로 한 자세에 멈춰 두는 면접관(악마 · 커피챗)과
+ * 동작 클립을 이름으로 골라 재생하는 면접관(오리)이 있다.
+ */
+export type InterviewerModel = {
+  /** 몸 · 얼굴(악마 · 커피챗은 책상 · 의자 · 종이까지)이 든 GLB */
   glb: string;
   /** 표정 규칙(face-rules.json) */
   faceRules: string;
-  /** 자세 전환 구간(animation.json) */
-  animation: string;
-}
+} & (
+  | {
+      /** 자세 전환 구간(animation.json) */
+      animation: string;
+      clips?: never;
+    }
+  | {
+      /** 이름으로 골라 재생하는 동작 클립 */
+      clips: ClipMotions;
+      animation?: never;
+    }
+);
 
 interface PoseSegments {
   poses: ("read" | "rest" | "tilt")[];
@@ -94,6 +108,12 @@ export const DEFAULT_LIGHTS: SceneLights = {
 
 export interface InterviewerScene {
   setHead: (pitch: number, roll: number) => void;
+  /** 말하는 동안 말하기 동작을 반복한다(동작 클립 면접관만. 자세 면접관은 입 모양으로 말한다) */
+  setTalking: (talking: boolean) => void;
+  /** 끄덕임 동작을 한 번 한다(동작 클립 면접관만. 자세 면접관은 setHead로 고개를 움직인다) */
+  nod: () => void;
+  /** 놀람 동작을 한 번 한다(동작 클립 면접관만) */
+  surprise: () => void;
   /** 표정을 바꾼다. 다음 프레임에 그린다. */
   setFace: (face: Partial<FaceControls>) => void;
   /** 화면 크기가 바뀌었을 때 캔버스 크기에 맞춘다. */
@@ -105,7 +125,8 @@ export interface InterviewerScene {
 interface InterviewerAssets {
   gltf: GLTF;
   rules: FaceRules;
-  pose: PoseSegments;
+  /** 자세 구간. 동작 클립 면접관은 없다 */
+  pose: PoseSegments | null;
 }
 
 /** 미리 불러 둔 모델(GLB 주소 → 불러오는 중이거나 다 불러온 결과). 장면을 만들 때 꺼내 쓰고 지운다. */
@@ -137,7 +158,7 @@ function loadAssets(
       }),
     ),
     fetchJson<FaceRules>(model.faceRules),
-    fetchJson<PoseSegments>(model.animation),
+    model.animation ? fetchJson<PoseSegments>(model.animation) : null,
   ]).then(([gltf, rules, pose]) => ({ gltf, rules, pose }));
 }
 
@@ -244,6 +265,7 @@ export async function createInterviewerScene({
   scene.add(fill);
 
   let mixer: AnimationMixer | null = null;
+  let clips: ClipPlayer | null = null;
   let storm: Storm | null = null;
   let backdrop: Backdrop | null = null;
   /** 이 장면이 꺼내 쓴 모델. 정리할 때 GPU 자원만 놓고 캐시에 되돌려 둔다 */
@@ -252,6 +274,7 @@ export async function createInterviewerScene({
     renderer.setAnimationLoop(null);
     storm?.dispose();
     backdrop?.dispose();
+    clips?.dispose();
     mixer?.stopAllAction();
     scene.traverse((object: Object3D) => {
       const mesh = object as Mesh;
@@ -279,21 +302,30 @@ export async function createInterviewerScene({
     const { gltf, rules, pose } = assets;
     scene.add(gltf.scene);
 
-    // 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점에 멈춰 둔다.
-    const tracks = gltf.animations.flatMap((clip) => clip.tracks);
-    if (tracks.length === 0) throw new Error("모델에 동작이 없다");
-    const start = Math.min(...tracks.map((track) => track.times[0]));
-    const end = Math.max(...tracks.map((track) => track.times[track.times.length - 1]));
     mixer = new AnimationMixer(gltf.scene);
-    const action: AnimationAction = mixer.clipAction(new AnimationClip("Pose", end, tracks));
-    action.setLoop(LoopOnce, 1);
-    action.clampWhenFinished = true;
-    action.play();
-    action.paused = true;
-    const [readRoute, readProgress] = pose.poseEndpoints.read;
-    const readSegment = pose.segments[readRoute];
-    action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
-    mixer.update(0);
+    // 동작 클립 면접관이 늘 들어 두는 고개(믹서를 움직일 때마다 클립이 정한 머리 회전 위에 한 번만 더한다)
+    const moveWithLift = createHeadLift(gltf.scene, model.clips?.headLift);
+    if (model.clips) {
+      // 동작 클립 면접관: 기본 자세 클립을 걸어 두고, 말하기 · 끄덕임 때만 움직인다.
+      clips = createClipPlayer(mixer, gltf.animations, model.clips);
+    } else {
+      // 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점에 멈춰 둔다.
+      if (!pose) throw new Error("모델에 자세 구간이 없다");
+      const tracks = gltf.animations.flatMap((clip) => clip.tracks);
+      if (tracks.length === 0) throw new Error("모델에 동작이 없다");
+      const start = Math.min(...tracks.map((track) => track.times[0]));
+      const end = Math.max(...tracks.map((track) => track.times[track.times.length - 1]));
+      const action: AnimationAction = mixer.clipAction(new AnimationClip("Pose", end, tracks));
+      action.setLoop(LoopOnce, 1);
+      action.clampWhenFinished = true;
+      action.play();
+      action.paused = true;
+      const [readRoute, readProgress] = pose.poseEndpoints.read;
+      const readSegment = pose.segments[readRoute];
+      action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
+    }
+    const startMixer = mixer;
+    moveWithLift(() => startMixer.update(0));
     const moveHead = createHeadControl(gltf.scene, headBone);
 
     // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
@@ -416,14 +448,20 @@ export async function createInterviewerScene({
     };
     resize();
 
-    // 폭풍 배경은 매 프레임 움직여 계속 그린다. 폭풍 배경이 아니면(멈춘 그림 배경 포함) 표정이나 크기가 바뀐 프레임에만 다시 그린다.
+    // 폭풍 배경 · 움직이는 동작 클립(말하기 · 끄덕임)은 매 프레임 움직여 계속 그린다. 그 밖에는(멈춘 그림 배경 포함)
+    // 표정이나 크기가 바뀐 프레임에만 다시 그린다.
     let last = performance.now();
     // 그림자 지도는 첫 프레임에 비어 그려질 수 있어, 처음에는 한 프레임 더 그린다.
     let warmup = shadow ? 1 : 0;
+    const animator = mixer;
     renderer.setAnimationLoop((now: number) => {
-      if (storm) {
-        storm.update(Math.min((now - last) / 1000, 0.25), now);
-        last = now;
+      const delta = Math.min((now - last) / 1000, 0.25);
+      last = now;
+      storm?.update(delta, now);
+      if (clips?.active) {
+        // 클립이 표정 셰이프 키를 함께 움직여도 바로 뒤 표정 규칙(applyFace)이 덮어쓴다(깜빡임 · 웃음은 표정 규칙으로만).
+        moveWithLift(() => animator.update(delta));
+        dirty = true;
       }
       if (dirty) applyFace();
       if (storm) storm.render();
@@ -434,6 +472,18 @@ export async function createInterviewerScene({
     return {
       setHead(pitch, roll) {
         moveHead(pitch, roll);
+        dirty = true;
+      },
+      setTalking(talking) {
+        clips?.setTalking(talking);
+        dirty = true;
+      },
+      nod() {
+        clips?.nod();
+        dirty = true;
+      },
+      surprise() {
+        clips?.surprise();
         dirty = true;
       },
       setFace(next) {

@@ -22,6 +22,8 @@ const TOAST_MS = 2000;
 const AVATAR_REACTION: Record<Persona, { rotate: number[] } | { y: number[] }> = {
   DEVIL: { rotate: [-6, 6, 0] },
   COFFEE_CHAT: { y: [0, 4, 0] },
+  // 오리는 Figma에 없어 커피챗처럼 위아래로 한 번 들썩인다(사용자 결정 2026-11-04: 오리 면접관은 기본안대로)
+  DUCK: { y: [0, -4, 0] },
 };
 
 function PersonaRow({
