@@ -10,10 +10,16 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+# 설정 파일만 바뀌면 compose 설정은 그대로라 up -d가 컨테이너를 그대로 두고, 프로세스는 예전 설정을 계속 쓴다.
+# monitoring-deploy가 설정 파일 해시를 환경 변수로 넣어 라벨에 붙인다. 해시가 바뀐 서비스만 compose가 다시 만든다.
+# 지표 · 로그 · Grafana 계정은 볼륨에 있어 남는다. 로컬에서 변수 없이 띄우면 라벨은 비어 있다
+
 services:
   a301-dev-prometheus:
     image: prom/prometheus:v3.13.3
     container_name: a301-dev-prometheus
+    labels:
+      a301.config-hash: ${A301_PROMETHEUS_CONFIG_HASH:-}
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -33,6 +39,8 @@ services:
   a301-dev-blackbox:
     image: quay.io/prometheus/blackbox-exporter:v0.28.0
     container_name: a301-dev-blackbox
+    labels:
+      a301.config-hash: ${A301_BLACKBOX_CONFIG_HASH:-}
     restart: unless-stopped
     command:
       - --config.file=/etc/blackbox/blackbox.yml
@@ -49,6 +57,8 @@ services:
   a301-dev-loki:
     image: grafana/loki:3.7.8
     container_name: a301-dev-loki
+    labels:
+      a301.config-hash: ${A301_LOKI_CONFIG_HASH:-}
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
@@ -65,6 +75,8 @@ services:
   a301-dev-alloy:
     image: grafana/alloy:v1.20.1
     container_name: a301-dev-alloy
+    labels:
+      a301.config-hash: ${A301_ALLOY_CONFIG_HASH:-}
     restart: unless-stopped
     depends_on:
       - a301-dev-loki
@@ -87,6 +99,8 @@ services:
   a301-dev-grafana:
     image: grafana/grafana:13.1.7
     container_name: a301-dev-grafana
+    labels:
+      a301.config-hash: ${A301_GRAFANA_CONFIG_HASH:-}
     restart: unless-stopped
     depends_on:
       - a301-dev-prometheus
