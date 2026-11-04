@@ -50,6 +50,12 @@ scrape_configs:
       - target_label: __address__
         replacement: a301-prod-blackbox:9115
 
+  # AI 면접 에이전트: 진행 중 면접 수, Soniox · ElevenLabs · Jev 사용량(ai/app/agent/metrics.py)
+  # 에이전트를 ASG로 떼어 내면 에이전트 쪽 Alloy가 원격 쓰기로 보낸다(이해준/agent_autoscale_plan 8장). 그때 이 job을 지운다
+  - job_name: a301-ai-agent
+    static_configs:
+      - targets: [a301-prod-ai-agent:9464]
+
   # 서버 CPU · 메모리 · 디스크 · 네트워크
   - job_name: a301-node
     static_configs:
