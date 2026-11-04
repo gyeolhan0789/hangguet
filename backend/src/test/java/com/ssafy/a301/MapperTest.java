@@ -147,12 +147,14 @@ class MapperTest {
         assertThat(result.speechMetrics()).isNull();
 
         ReplayResponse replay =
-                ResultMapper.toReplay(s, items, ResultDtos.VideoStatus.READY, "https://video");
+                ResultMapper.toReplay(
+                        s, items, ResultDtos.VideoStatus.READY, "https://video", T0.plusSeconds(3));
         assertThat(replay.items()).extracting(ResultDtos.ReplayItem::seq).containsExactly(1, 2);
         assertThat(replay.items().get(1).answer()).isNull();
         // 채팅은 녹화가 없다
         assertThat(replay.videoStatus()).isNull();
         assertThat(replay.videoUrl()).isNull();
+        assertThat(replay.recordingStartedAt()).isNull();
     }
 
     @Test
@@ -167,9 +169,16 @@ class MapperTest {
         assertThat(result.speechMetrics().longPauseCount()).isEqualTo(3);
         assertThat(result.speechMetrics().gazeRatio()).isNull();
         ReplayResponse replay =
-                ResultMapper.toReplay(s, List.of(), ResultDtos.VideoStatus.READY, "https://video");
+                ResultMapper.toReplay(
+                        s,
+                        List.of(),
+                        ResultDtos.VideoStatus.READY,
+                        "https://video",
+                        T0.plusSeconds(3));
         assertThat(replay.videoStatus()).isEqualTo(ResultDtos.VideoStatus.READY);
         assertThat(replay.videoUrl()).isEqualTo("https://video");
+        assertThat(replay.startedAt()).isEqualTo(T0);
+        assertThat(replay.recordingStartedAt()).isEqualTo(T0.plusSeconds(3));
     }
 
     // AI 명세 4장 answers[].evaluation.timeline(답변 기준 밀리초)
@@ -198,7 +207,7 @@ class MapperTest {
 
     @Test
     void videoReplayTimelineIsMovedToVideoSeconds() {
-        // 영상 위치 = (답변을 듣기 시작한 일시 - 면접 시작 일시) + 답변 기준 밀리초(API 명세 6.4)
+        // 영상 0초 시각이 없으면(이어 붙여 합침 · V19 전 녹화) 면접 시작 일시가 0초다(API 명세 6.4)
         InterviewSession s = session(InterviewMode.VIDEO);
         s.start(T0);
         var q1 = withId(new InterviewQuestion(s, 1, "자기소개"), 301);
@@ -210,7 +219,7 @@ class MapperTest {
         a1.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
 
         ResultDtos.ReplayTimeline timeline =
-                ResultMapper.toReplay(s, List.of(new QuestionAndAnswer(q1, a1)), null, null)
+                ResultMapper.toReplay(s, List.of(new QuestionAndAnswer(q1, a1)), null, null, null)
                         .items()
                         .getFirst()
                         .timeline();
@@ -230,6 +239,43 @@ class MapperTest {
                                         new ResultDtos.TimelineReason(
                                                 "CONFIDENCE", null, "고개를 드세요."),
                                         new ResultDtos.TimelineReason("FILLER", 3, "멈춰도 돼요."))));
+    }
+
+    @Test
+    void videoReplayTimelineStartsAtRecordingStartedAt() {
+        // 영상 위치 = (답변을 듣기 시작한 일시 - 영상 0초 시각) + 답변 기준 밀리초(API 명세 6.4)
+        InterviewSession s = session(InterviewMode.VIDEO);
+        s.start(T0);
+        var q1 = withId(new InterviewQuestion(s, 1, "자기소개"), 301);
+        var a1 =
+                withId(
+                        Answer.voice(
+                                q1, "안녕하세요", null, null, T0.plusSeconds(84).plusNanos(250_000_000)),
+                        901);
+        a1.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
+
+        ResultDtos.ReplayTimeline timeline =
+                ResultMapper.toReplay(
+                                s,
+                                List.of(new QuestionAndAnswer(q1, a1)),
+                                ResultDtos.VideoStatus.READY,
+                                "https://video",
+                                T0.plusSeconds(3).plusNanos(120_000_000))
+                        .items()
+                        .getFirst()
+                        .timeline();
+
+        assertThat(timeline.points())
+                .extracting(ResultDtos.TimelinePoint::at)
+                .containsExactly(81.13, 82.13);
+        assertThat(timeline.checkpoints())
+                .singleElement()
+                .satisfies(
+                        c -> {
+                            assertThat(c.at()).isEqualTo(82.13);
+                            assertThat(c.start()).isEqualTo(82.13);
+                            assertThat(c.end()).isEqualTo(82.13);
+                        });
     }
 
     @Test
@@ -253,6 +299,7 @@ class MapperTest {
                                 new QuestionAndAnswer(q2, noTimeline),
                                 new QuestionAndAnswer(q3, null)),
                         null,
+                        null,
                         null);
         assertThat(replay.items()).allSatisfy(item -> assertThat(item.timeline()).isNull());
 
@@ -263,7 +310,11 @@ class MapperTest {
         ca.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
         assertThat(
                         ResultMapper.toReplay(
-                                        chat, List.of(new QuestionAndAnswer(cq, ca)), null, null)
+                                        chat,
+                                        List.of(new QuestionAndAnswer(cq, ca)),
+                                        null,
+                                        null,
+                                        null)
                                 .items()
                                 .getFirst()
                                 .timeline())

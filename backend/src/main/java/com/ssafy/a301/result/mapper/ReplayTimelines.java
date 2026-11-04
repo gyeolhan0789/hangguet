@@ -17,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * 결과 생성이 answers.evaluation.timeline에 남긴 다시보기 타임라인(AI 명세 4장)을 6.4 응답으로 바꾼다. 답변 기준 밀리초를 영상 위치(초)로
- * 옮긴다. 영상 위치는 질문 마커와 같이 면접 시작 일시가 0초다(API 명세 6.4).
+ * 옮긴다. 영상 위치는 질문 마커와 같이 합친 영상의 0초 시각(recordingStartedAt, 없으면 면접 시작 일시)이 0초다(API 명세 6.4).
  *
  * <p>저장만 하고 채점에 쓰지 않는 부가 값이라, 형식이 틀리면 그 답변의 타임라인만 null로 둔다.
  */
@@ -41,15 +41,15 @@ final class ReplayTimelines {
     private ReplayTimelines() {}
 
     /** 형식이 틀렸거나 시각을 알 수 없으면 null */
-    static ReplayTimeline of(Answer answer, OffsetDateTime sessionStartedAt) {
+    static ReplayTimeline of(Answer answer, OffsetDateTime videoZero) {
         Map<String, Object> evaluation = answer.getEvaluation();
         Object raw = evaluation == null ? null : evaluation.get("timeline");
-        if (raw == null || sessionStartedAt == null || answer.getStartedAt() == null) {
+        if (raw == null || videoZero == null || answer.getStartedAt() == null) {
             return null;
         }
         try {
             AiTimeline timeline = JSON.convertValue(raw, AiTimeline.class);
-            long offsetMs = Duration.between(sessionStartedAt, answer.getStartedAt()).toMillis();
+            long offsetMs = Duration.between(videoZero, answer.getStartedAt()).toMillis();
             return new ReplayTimeline(
                     present(timeline.points()).stream()
                             .map(
