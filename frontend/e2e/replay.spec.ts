@@ -71,10 +71,10 @@ test.describe("S07-1 면접 다시보기", () => {
     await card(page, "가장 큰 기술적 문제는").click();
 
     // 화면 숫자만이 아니라 실제 영상이 그 위치로 옮겨 갔는지 본다.
-    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 372);
-    await expect(page.getByText("06:12 / 18:00")).toBeVisible();
+    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 368.88);
+    await expect(page.getByText("06:08 / 18:00")).toBeVisible();
     await expect(page.getByLabel("자막")).toHaveText(
-      "자막 · 06:12저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…",
+      "자막 · 06:08저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…",
     );
     await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
     // 다른 질문 카드와 '질문 N개'는 빠지고, 펼친 카드 아래에 답변이 펼쳐진다.
@@ -382,7 +382,7 @@ test.describe("S07-1 면접 다시보기 · 모바일", () => {
 
     await card(page, "가장 큰 기술적 문제는").click();
 
-    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 372);
+    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 368.88);
     await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
     await expect(
       questions(page).getByText("저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…"),

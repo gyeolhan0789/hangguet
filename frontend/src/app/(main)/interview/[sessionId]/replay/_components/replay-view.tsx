@@ -21,7 +21,7 @@ import { PLAYBACK_RATES, PlayerControls, VideoScreen, type PlayerState } from ".
 // 기준: Figma S07-1 면접 다시보기(18:4478: Body 좌우 80 · 위 24 · 간격 20, Head — '‹ 결과로' 14 SemiBold text-3 · chevron-left 16
 // · '면접 다시보기' 30 ExtraBold 행간 1.3 · 오른쪽 메타 14 SemiBold text-3, Main — 플레이어 860 · 간격 24 · 질문 목록 396)
 // · Swagger 6.4 ReplayResponse(persona · companyName · jobTitle · startedAt(상단 날짜) · videoUrl · items)
-// · ReplayItem.questionCreatedAt(startedAt과의 차이(초)가 영상 속 질문 위치) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당
+// · ReplayItem.questionCreatedAt(recordingStartedAt(null이면 startedAt)과의 차이(초)가 영상 속 질문 위치) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당
 // 질문 시점으로 점프, 재생 중인 질문이 오른쪽 목록에서 강조 + 자막 동기화)
 // · 사용자 결정(2026-10-22: 질문 목록은 맨 위 카드부터 자막 상자 맨 아래까지의 높이에 맞추고 넘치면 스크롤)
 // · 사용자 결정(2026-10-26, 모바일(sm 미만)): 영상 아래 자막 상자는 빼고 질문 목록(펼치면 답변)으로 본다.
@@ -36,7 +36,9 @@ export const REPLAY_POLL_MS = 10_000;
 /** S07-1 면접 다시보기 화면 */
 export function ReplayView({ replay }: { replay: ReplayResponse }) {
   const persona = PERSONAS.find((info) => info.persona === replay.persona);
-  const offsets = replay.items.map((item) => questionOffset(replay.startedAt, item));
+  // 영상 0초 기준. 녹화 시작 시각이 없으면(채팅 · 이전 면접) 면접 시작 시각을 쓴다(API 명세 6.4)
+  const recordingStart = replay.recordingStartedAt ?? replay.startedAt;
+  const offsets = replay.items.map((item) => questionOffset(recordingStart, item));
   const video = useRef<HTMLVideoElement>(null);
   const [player, setPlayer] = useState<PlayerState>({
     time: 0,

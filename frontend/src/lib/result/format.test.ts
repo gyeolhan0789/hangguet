@@ -47,9 +47,9 @@ describe("S07 · S07-1 표시 규칙", () => {
     expect(firstOpenQuestion([])).toBeNull();
   });
 
-  it("질문 위치(초)는 녹화 시작과 질문을 낸 시각의 차이다(예시 마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30)", () => {
-    expect(REPLAY.items.map((item) => questionOffset(REPLAY.startedAt, item))).toEqual([
-      42, 190, 372, 605, 870,
+  it("질문 위치(초)는 녹화 시작과 질문을 낸 시각의 차이다(예시 마커 00:38 · 03:06 · 06:08 · 10:01 · 14:26)", () => {
+    expect(REPLAY.items.map((item) => questionOffset(REPLAY.recordingStartedAt, item))).toEqual([
+      38.88, 186.88, 368.88, 601.88, 866.88,
     ]);
   });
 
