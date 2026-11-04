@@ -147,24 +147,31 @@ public class AiResultService {
         return Outcome.SAVED;
     }
 
-    // 이미 플랜이 있거나 GENERATING이 아니면(재생성 전 늦게 온 결과, 시간 초과로 실패 처리됨) 버린다
+    // 이미 플랜이 있거나 GENERATING이 아니면(재생성 전 늦게 온 결과, 시간 초과로 실패 처리됨) 버린다.
+    // 질문 수는 개인 면접 5개, 그룹 면접 2개다(AI 명세 2장 questionCount)
     private Outcome planCompleted(long sessionId, AiResultMessage message) {
         List<PlanQuestion> planQuestions = required(message.questions(), "questions");
-        boolean seqOneToFive =
-                planQuestions.size() == InterviewPlan.QUESTION_COUNT
-                        && IntStream.rangeClosed(1, InterviewPlan.QUESTION_COUNT)
+        InterviewSession session = sessions.findById(sessionId).orElse(null);
+        if (session == null) {
+            return Outcome.DISCARDED;
+        }
+        int count = InterviewPlan.questionCount(session);
+        boolean seqOneToCount =
+                planQuestions.size() == count
+                        && IntStream.rangeClosed(1, count)
                                 .allMatch(
                                         seq ->
                                                 planQuestions.stream()
                                                         .anyMatch(q -> q.seq() == seq));
-        if (!seqOneToFive) {
-            throw new InvalidAiResultException("질문은 seq 1~5로 5개여야 한다: session=" + sessionId);
+        if (!seqOneToCount) {
+            throw new InvalidAiResultException(
+                    "질문은 seq 1~%d로 %d개여야 한다: session=%d".formatted(count, count, sessionId));
         }
         // 질문 글·채점 기준이 비면 저장은 되지만 질문을 낼 때(question.started) 저장할 수 없다
         if (planQuestions.stream().anyMatch(q -> isBlank(q.content()) || isBlank(q.criteria()))) {
             throw new InvalidAiResultException("질문 글·채점 기준이 비었다: session=" + sessionId);
         }
-        if (!isPlanGenerating(sessionId) || !sessions.existsById(sessionId)) {
+        if (!isPlanGenerating(sessionId)) {
             return Outcome.DISCARDED;
         }
         if (plans.existsById(sessionId)) {

@@ -27,6 +27,9 @@ public class InterviewPlan implements Persistable<Long> {
     // 면접 질문 수는 5개로 고정이다(API 명세 5.2, AI 명세 2장)
     public static final int QUESTION_COUNT = 5;
 
+    // 그룹 면접은 개인 맞춤 질문 2개만 만든다(API 명세 10장, AI 명세 2장 questionCount)
+    public static final int GROUP_QUESTION_COUNT = 2;
+
     @Id
     @Column(name = "session_id")
     private Long sessionId;
@@ -35,7 +38,7 @@ public class InterviewPlan implements Persistable<Long> {
     @Column(nullable = false, columnDefinition = "jsonb")
     private List<PlanClaim> claims;
 
-    // seq 1~5로 정확히 5개(AI 명세 2장)
+    // seq 1~5로 정확히 5개, 그룹 면접은 seq 1~2로 2개(AI 명세 2장)
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "jsonb")
     private List<PlanQuestion> questions;
@@ -61,6 +64,11 @@ public class InterviewPlan implements Persistable<Long> {
         this.questions = questions;
         this.promptVersion = promptVersion;
         this.modelVersion = modelVersion;
+    }
+
+    /** 플랜에 담을 질문 수 */
+    public static int questionCount(InterviewSession session) {
+        return session.isGroup() ? GROUP_QUESTION_COUNT : QUESTION_COUNT;
     }
 
     public Optional<PlanQuestion> question(int seq) {

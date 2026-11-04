@@ -116,6 +116,13 @@ ai-result:
   consumer-enabled: true
   retry-delay: 5s
 
+# 그룹 면접(docs/그룹면접-설계.md). 모두 임시 값이다
+group:
+  # 대기 중인 그룹을 만든 지 이 시간이 지나면 조회 때 취소한다
+  waiting-expiry: 1h
+  # 방장이 대기실 조회(10.4)를 이 시간 넘게 멈추면 다른 참가자의 조회 때 방장을 넘긴다
+  lobby-host-timeout: 10s
+
 # 회사 카드 적재(docs/ERD-회사카드.md). 파이프라인이 카드를 올리는 공용 버킷(개발·운영 같은 버킷)의 manifest를 매시 정각에 확인한다.
 # 버킷이 없으면(로컬·테스트) 적재하지 않는다. 읽기는 storage.s3와 같은 앱 키·리전을 쓴다
 company-card:

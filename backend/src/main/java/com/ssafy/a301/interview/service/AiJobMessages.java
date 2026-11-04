@@ -74,6 +74,10 @@ public class AiJobMessages {
         if (session.getCompanyCard() != null) {
             message.put("companyCard", session.getCompanyCard().getCard());
         }
+        // 그룹 면접만 보낸다. 없으면 AI가 5개를 만든다(개인 면접은 지금과 같다)
+        if (session.isGroup()) {
+            message.put("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
+        }
     }
 
     // 자기소개서 문항을 순서대로(AI 명세 2장 · 4장)

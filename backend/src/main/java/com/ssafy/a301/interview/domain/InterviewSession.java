@@ -66,6 +66,10 @@ public class InterviewSession {
     @Column(length = 255)
     private String summary;
 
+    // 그룹 면접 참가자의 면접이면 그룹 id, 개인 면접은 null(docs/그룹면접-설계.md 4.3)
+    @Column(name = "group_id")
+    private Long groupId;
+
     @Column(name = "started_at")
     private OffsetDateTime startedAt;
 
@@ -93,6 +97,20 @@ public class InterviewSession {
         this.persona = persona;
         this.mode = mode;
         this.status = SessionStatus.READY;
+    }
+
+    // 그룹 면접 참가자의 면접(API 명세 10.1 · 10.3). 면접 방식 · 면접관은 그룹 값이다
+    public static InterviewSession ofGroup(
+            User user,
+            Application application,
+            CompanyCard companyCard,
+            Persona persona,
+            InterviewMode mode,
+            long groupId) {
+        InterviewSession session =
+                new InterviewSession(user, application, companyCard, persona, mode);
+        session.groupId = groupId;
+        return session;
     }
 
     // 5.4. 면접 플랜 준비 여부(Redis)는 서비스가 먼저 확인한다. 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다
@@ -140,6 +158,10 @@ public class InterviewSession {
     public void retryAnalysis() {
         requireStatus(SessionStatus.FAILED);
         this.status = SessionStatus.ANALYZING;
+    }
+
+    public boolean isGroup() {
+        return groupId != null;
     }
 
     public boolean isVideo() {

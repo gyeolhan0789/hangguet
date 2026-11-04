@@ -1,7 +1,7 @@
 # A301 API 명세
 
 > API별 요청·응답 형식과 예시는 백엔드 Swagger에서 본다(1.x~9.x 모두 구현). 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
-> 그룹 면접(10장, 6.5)은 아직 구현 전이라 Swagger에 없다. 구현할 때까지 이 문서의 10장이 요청·응답 기준이고, 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
+> 그룹 면접은 10.1~10.6만 구현해 Swagger에 있다. 10.7~10.11과 6.5는 아직 구현 전이라 Swagger에 없고, 구현할 때까지 이 문서가 요청·응답 기준이다. 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
 >
 > - Swagger: https://hangguet.yobistory.com/be/docs (로컬: `backend/`에서 `./gradlew bootRun` → http://localhost:8080/docs). 목 서버 https://hangguet.yobistory.com/mock/be/docs 는 같은 계약의 예시 응답만 준다
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
@@ -115,12 +115,12 @@
 | 9.9 | 문의 종료(관리) | `POST /admin/inquiries/{inquiryId}/close` | 관리자 |
 | 9.10 | 회원 비밀번호 변경 | `PATCH /admin/users/{userId}/password` | 관리자 |
 | 9.11 | 문의 사진 업로드 주소 | `POST /inquiries/attachments/upload-url` | - |
-| 10.1 | 그룹 만들기 **[예정]** | `POST /interview-groups` | 그룹 면접(화면 번호 미정) |
-| 10.2 | 초대 확인 **[예정]** | `GET /interview-groups/invites/{inviteCode}` | 그룹 면접 |
-| 10.3 | 그룹 참가 **[예정]** | `POST /interview-groups/join` | 그룹 면접 |
-| 10.4 | 그룹 조회 **[예정]** | `GET /interview-groups/{groupId}` | 그룹 면접 대기실·진행 |
-| 10.5 | 준비·준비 취소 **[예정]** | `PUT /interview-groups/{groupId}/ready` | 그룹 면접 대기실 |
-| 10.6 | 그룹 나가기 **[예정]** | `DELETE /interview-groups/{groupId}/participants/me` | 그룹 면접 대기실 |
+| 10.1 | 그룹 만들기 | `POST /interview-groups` | 그룹 면접(화면 번호 미정) |
+| 10.2 | 초대 확인 | `GET /interview-groups/invites/{inviteCode}` | 그룹 면접 |
+| 10.3 | 그룹 참가 | `POST /interview-groups/join` | 그룹 면접 |
+| 10.4 | 그룹 조회 | `GET /interview-groups/{groupId}` | 그룹 면접 대기실·진행 |
+| 10.5 | 준비·준비 취소 | `PUT /interview-groups/{groupId}/ready` | 그룹 면접 대기실 |
+| 10.6 | 그룹 나가기 | `DELETE /interview-groups/{groupId}/participants/me` | 그룹 면접 대기실 |
 | 10.7 | 그룹 면접 시작 **[예정]** | `POST /interview-groups/{groupId}/start` | 그룹 면접 대기실 |
 | 10.8 | 답변 시간 연장 **[예정]** | `POST /interview-groups/{groupId}/turn/extend` | 그룹 화상 면접 |
 | 10.9 | 작성 중인 답변 저장 **[예정]** | `PUT /interview-sessions/{sessionId}/questions/{questionId}/draft` | 그룹 채팅 면접 |
@@ -932,9 +932,9 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **200**: 사진마다 주소
 - **400 / VALIDATION_FAILED**: 0장·6장 이상, 형식·크기 오류
 
-### 10. 그룹 면접 **[예정]**
+### 10. 그룹 면접
 
-초대한 지원자 2~3명이 AI 면접관 1명과 같은 면접방에서 차례로 답한다. 참가자마다 개인 면접(5장의 면접)이 하나씩 생기고 그룹이 그 면접들을 묶는다. 답변·결과·다시보기·연습 기록은 지금처럼 면접마다 따로이고, 결과는 본인만 본다. 설계 배경과 BE 처리는 [그룹 면접 설계](그룹면접-설계.md). 구현 전이라 Swagger에 없다.
+초대한 지원자 2~3명이 AI 면접관 1명과 같은 면접방에서 차례로 답한다. 참가자마다 개인 면접(5장의 면접)이 하나씩 생기고 그룹이 그 면접들을 묶는다. 답변·결과·다시보기·연습 기록은 지금처럼 면접마다 따로이고, 결과는 본인만 본다. 설계 배경과 BE 처리는 [그룹 면접 설계](그룹면접-설계.md). 10.1~10.6은 구현했고, 10.7~10.11은 **[예정]**이다(Swagger에 없음).
 
 **그룹 상태** `status`: `WAITING`(대기실) → (10.7) `IN_PROGRESS` → (모든 참가자 면접 종료) `ENDED`. 대기실에서 모두 나가거나 만든 지 1시간(임시 값)이 지나면 `CANCELLED`. 시작 뒤 첫 질문 전에 AI 면접관을 연결하지 못하면 `START_FAILED`이고 방장이 다시 시작(10.7)한다.
 
@@ -965,7 +965,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `hostUserId` | 지금 방장 |
 | `mySessionId` | 내 면접 id. 5.2·5.3·5.8·5.14·6.x에 쓴다 |
 | `participants[]` | `userId` · `nickname` · `profileImageUrl` · `jobCategory` · `sessionId` · `planStatus` · `ready` · `turnOrder`(시작 전 null) · `state`(`WAITING` · `PRESENT` · `ABSENT` · `DONE` · `ENDED`) |
-| `turn` | 진행 중이면 면접방 정보(10.11)와 같은 차례 정보, 그 밖에는 null |
+| `turn` | 진행 중이면 면접방 정보(10.11)와 같은 차례 정보, 그 밖에는 null. 10.7과 함께 추가한다 **[예정]** |
 
 #### 10.1 그룹 만들기
 
@@ -1026,7 +1026,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / GROUP_NOT_FOUND**
 - **409 / INVALID_GROUP_STATE**: 진행 중이거나 끝남
 
-#### 10.7 그룹 면접 시작
+#### 10.7 그룹 면접 시작 **[예정]**
 
 방장만 부른다. 처음에는 인원이 정원과 같고 모두 준비했으며 모든 참가자의 질문 생성이 끝나야 한다. `START_FAILED`에서 다시 시작할 때는 남은 인원이 2명 이상이면 된다. 참가자 면접을 모두 `IN_PROGRESS`로 바꾸고 면접방을 연다(5.4와 같은 방식).
 
@@ -1038,7 +1038,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **409 / IDEMPOTENCY_KEY_REUSED**
 - **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정 실패. 그룹은 이전 상태 그대로
 
-#### 10.8 답변 시간 연장
+#### 10.8 답변 시간 연장 **[예정]**
 
 화상 그룹 면접에서 지금 답변자가 부른다. 마감을 1분 늦추고 면접방 정보로 모두에게 알린다.
 
@@ -1046,7 +1046,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / GROUP_NOT_FOUND**
 - **409 / EXTEND_NOT_ALLOWED**: 채팅, 지금 답변자가 아님, 답변 중이 아님, 남은 시간이 30초 초과, 이미 연장함
 
-#### 10.9 작성 중인 답변 저장
+#### 10.9 작성 중인 답변 저장 **[예정]**
 
 채팅 그룹 면접에서 입력 칸의 글 전체를 저장한다. 화면은 입력이 0.8초 멈출 때마다(최소 5초 간격) 그리고 창을 벗어날 때 부르고, 같은 글을 브라우저 `sessionStorage`에도 둔다(새로고침 복구용). 저장한 글은 최종 답변이 아니다. 최종 답변은 5.7로 내거나, 마감 때 BE가 마지막으로 저장된 글로 확정한다. 리액션용 `chat.input`(면접방 메시지)은 지금처럼 따로 보낸다.
 
@@ -1056,7 +1056,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**
 - **409 / QUESTION_CLOSED**: 지금 답할 질문이 아님, 마감이 지남, 이미 답함
 
-#### 10.10 그룹 세션의 기존 API 규칙
+#### 10.10 그룹 세션의 기존 API 규칙 **[예정]**
 
 그룹에 속한 면접에서 달라지는 점만 적는다. 그 밖에는 5.x·6.x 그대로다.
 
@@ -1075,7 +1075,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | 6.4 다시보기 | 본인 답변 구간만 이어 붙인 영상과 `segments` |
 | 연습 기록 · 스트릭 · 통계 · 성장 리뷰 | 개인 면접과 같이 면접마다 반영한다. 연습 시간에 다른 사람이 답하는 시간도 넣을지는 **[미정]**(B-25) |
 
-#### 10.11 그룹 면접방 정보 · 메시지
+#### 10.11 그룹 면접방 정보 · 메시지 **[예정]**
 
 **면접방 정보(LiveKit room metadata)** BE만 쓰고 화면·에이전트는 읽는다. 차례·단계가 바뀔 때마다 BE가 바꾸고, 화면·에이전트는 `RoomMetadataChanged` 이벤트로 바로 받는다(접속할 때도 받는다). 폴링하지 않는다.
 
@@ -1145,13 +1145,14 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INQUIRY_CLOSED` | 409 | 9.4, 9.8 |
 | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
 | `RECORDING_NOT_FAILED` · `RETRY_LIMIT_EXCEEDED` | 409 | 6.5 **[예정]** |
-| `GROUP_NOT_FOUND` | 404 | 10.2~10.8 **[예정]** |
-| `GROUP_FULL` · `ALREADY_IN_GROUP` | 409 | 10.3(`ALREADY_IN_GROUP`는 10.1도) **[예정]** |
-| `INVALID_GROUP_STATE` · `GROUP_NOT_READY` | 409 | 10.5~10.7 **[예정]** |
+| `GROUP_NOT_FOUND` | 404 | 10.2~10.6, 10.7 · 10.8 **[예정]** |
+| `GROUP_FULL` · `ALREADY_IN_GROUP` | 409 | 10.3(`ALREADY_IN_GROUP`는 10.1도) |
+| `INVALID_GROUP_STATE` | 409 | 10.5 · 10.6, 10.7 **[예정]** |
+| `GROUP_NOT_READY` | 409 | 10.7 **[예정]** |
 | `NOT_GROUP_HOST` | 403 | 10.7 **[예정]** |
 | `EXTEND_NOT_ALLOWED` | 409 | 10.8 **[예정]** |
 | `QUESTION_CLOSED` | 409 | 5.7(그룹), 10.9 **[예정]** |
-| `GROUP_SESSION` | 409 | 5.4(그룹 면접) **[예정]** |
+| `GROUP_SESSION` | 409 | 5.4(그룹 면접) |
 
 ## 4. 보류 · 확인 필요 (B)
 

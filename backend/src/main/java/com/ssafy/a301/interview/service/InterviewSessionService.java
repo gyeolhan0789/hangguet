@@ -7,9 +7,11 @@ import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.interview.domain.AiJob;
+import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.Recording;
@@ -43,8 +45,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 5.1~5.5 면접 만들기부터 시작까지, 5.8·5.9 끝내기·결과 재생성. 회원은 토큰의 회원 id로만 찾고, 없거나 남의 면접은 404다. 플랜 생성 상태(Redis)는
- * 작업이 큐로 나가기 전, 트랜잭션 안에서 기록한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴 수 있다(BE 설계 5.1).
+ * 5.1~5.5 면접 만들기부터 시작까지(그룹 면접 참가자의 면접 만들기 포함), 5.8·5.9 끝내기·결과 재생성. 회원은 토큰의 회원 id로만 찾고, 없거나 남의 면접은
+ * 404다. 플랜 생성 상태(Redis)는 작업이 큐로 나가기 전, 트랜잭션 안에서 기록한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴
+ * 수 있다(BE 설계 5.1).
  */
 @Service
 public class InterviewSessionService {
@@ -128,6 +131,34 @@ public class InterviewSessionService {
     }
 
     /**
+     * 그룹 면접 참가자의 면접을 만든다(API 명세 10.1 · 10.3). 5.1과 같이 지원서 행을 잠그고 회사 카드를 남긴 뒤 그룹용 플랜(질문 2개) 생성을
+     * 시작한다. 그룹 행을 잠근 트랜잭션 안에서 부른다(잠금 순서: 회원 → 그룹 → 지원서 · 면접, docs/그룹면접-설계.md 9장).
+     */
+    public InterviewSession createForGroup(
+            long userId,
+            long applicationId,
+            Persona persona,
+            InterviewMode mode,
+            long groupId,
+            OffsetDateTime now) {
+        Application application =
+                applications
+                        .findForUpdate(applicationId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.APPLICATION_NOT_FOUND));
+        InterviewSession session =
+                sessions.save(
+                        InterviewSession.ofGroup(
+                                users.getReferenceById(userId),
+                                application,
+                                companyCards.findCurrent(application.getCompanyName()).orElse(null),
+                                persona,
+                                mode,
+                                groupId));
+        startPlan(session.getId(), now);
+        return session;
+    }
+
+    /**
      * 5.2. 결과 생성이 최대 대기 시간을 넘겼으면 FAILED로 바꿔 화면이 5.9로 다시 시도하게 한다(AI 명세 5장). 면접 행을 잠가 확인하므로 그 사이 작업자가
      * 결과를 저장했으면 그대로 둔다.
      */
@@ -168,6 +199,10 @@ public class InterviewSessionService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
+                    // 그룹 면접은 방장이 그룹으로 시작한다(API 명세 10.10)
+                    if (session.isGroup()) {
+                        throw new ApiException(ErrorCode.GROUP_SESSION);
+                    }
                     if (!session.canStart()) {
                         throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
                     }
