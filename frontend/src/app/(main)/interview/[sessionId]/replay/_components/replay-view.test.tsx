@@ -7,7 +7,7 @@ import { REPLAY } from "@/test/result-examples";
 import { REPLAY_POLL_MS, ReplayView } from "./replay-view";
 
 // 기준: Figma S07-1 면접 다시보기(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프,
-// 재생 중인 질문 강조 + 자막 동기화, 채팅은 영상 대신 대화 기록) · Swagger 6.4 200 예시(마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30)
+// 재생 중인 질문 강조 + 자막 동기화, 채팅은 영상 대신 대화 기록) · Swagger 6.4 200 예시(마커 00:38 · 03:06 · 06:08 · 10:01 · 14:26)
 // · Figma S07-1 Timeline(18:4519: 지난 질문 · 지금 질문 · 앞 질문 마커) · 웹 Swagger 6.4(화상은 녹화 영상과 질문별 시점) · 자막은 재생 위치가 속한 질문의 answer
 // · 사용자 결정(2026-10-22: 영상이 없으면 플레이어 없이 질문 목록과 답변 칸, 질문 카드를 누르면 펼쳐 답변을 보여 주고
 //   다시 누르면 답변 칸 접기 → 카드 흔들기 → 제자리(펼칠 때보다 두 배 빠르게), 배속 1x → 1.5x → 2x → 1x)
@@ -130,11 +130,11 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
     expect(screen.getByText("5개")).toBeDefined();
     const cards = screen.getAllByRole("button", { expanded: false });
     expect(cards.map((button) => button.textContent)).toEqual([
-      "Q100:42좋아요1분 자기소개",
-      "Q203:10좋아요○○ 프로젝트에서 맡은 역할은?",
-      "Q306:12보통가장 큰 기술적 문제는?",
-      "Q410:05아쉬워요백엔드 직무에 지원한 이유는?",
-      "Q514:30좋아요대용량 트래픽 처리 방법은?",
+      "Q100:38좋아요1분 자기소개",
+      "Q203:06좋아요○○ 프로젝트에서 맡은 역할은?",
+      "Q306:08보통가장 큰 기술적 문제는?",
+      "Q410:01아쉬워요백엔드 직무에 지원한 이유는?",
+      "Q514:26좋아요대용량 트래픽 처리 방법은?",
     ]);
   });
 
@@ -145,11 +145,11 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
 
       fireEvent.click(card("기술적 문제는"));
 
-      expect(state.currentTime).toBe(372);
+      expect(state.currentTime).toBe(368.88);
       expect(card("기술적 문제는").getAttribute("aria-expanded")).toBe("true");
       expect(overlay()).toBe("Q3가장 큰 기술적 문제는?");
       expect(screen.getByRole("region", { name: "자막" }).textContent).toBe(
-        "자막 · 06:12저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…",
+        "자막 · 06:08저는 그때 캐시 일관성 문제를 해결하려고 TTL 전략을 바꿨고…",
       );
       const answerId = card("기술적 문제는").getAttribute("aria-controls")!;
       expect(document.getElementById(answerId)?.textContent).toBe(
@@ -157,25 +157,35 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       );
     });
 
+    it("녹화 시작 시각이 없으면(이전 면접) 면접 시작 시각을 영상 0초로 보고 질문 위치를 잡는다", () => {
+      render(<ReplayView replay={{ ...REPLAY, recordingStartedAt: null }} />);
+      const { state } = fakeVideo();
+
+      expect(card("1분 자기소개").textContent).toContain("00:42");
+      fireEvent.click(card("기술적 문제는"));
+
+      expect(state.currentTime).toBe(372);
+    });
+
     it("재생 위치가 바뀌면 그 위치가 속한 질문(질문 시각 ≤ 위치 < 다음 질문)을 영상 위 · 자막 · 목록 강조로 보여 준다", () => {
       render(<ReplayView replay={REPLAY} />);
       const { video, state } = fakeVideo();
 
-      state.currentTime = 41;
+      state.currentTime = 38;
       fireEvent.timeUpdate(video);
       expect(overlay()).toBeNull();
       expect(screen.queryByRole("region", { name: "자막" })).toBeNull();
       expect(highlighted()).toEqual([]);
 
-      state.currentTime = 189.9;
+      state.currentTime = 186.8;
       fireEvent.timeUpdate(video);
       expect(overlay()).toBe("Q11분 자기소개");
       expect(highlighted()).toEqual(["Q1"]);
 
-      state.currentTime = 190;
+      state.currentTime = 186.88;
       fireEvent.timeUpdate(video);
       expect(overlay()).toBe("Q2○○ 프로젝트에서 맡은 역할은?");
-      expect(screen.getByRole("region", { name: "자막" }).textContent).toContain("자막 · 03:10");
+      expect(screen.getByRole("region", { name: "자막" }).textContent).toContain("자막 · 03:06");
       expect(highlighted()).toEqual(["Q2"]);
     });
 
@@ -187,11 +197,11 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       render(<ReplayView replay={replay} />);
       const { video, state } = fakeVideo();
 
-      state.currentTime = 190;
+      state.currentTime = 186.88;
       fireEvent.timeUpdate(video);
 
       expect(screen.getByRole("region", { name: "자막" }).textContent).toBe(
-        `자막 · 03:10${NO_ANSWER}`,
+        `자막 · 03:06${NO_ANSWER}`,
       );
     });
 
@@ -202,11 +212,11 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
 
       state.duration = 1080;
       fireEvent.loadedMetadata(video);
-      state.currentTime = 372;
+      state.currentTime = 368.88;
       fireEvent.timeUpdate(video);
 
       expect(markers().map((marker) => marker.style.left)).toEqual(
-        [42, 190, 372, 605, 870].map((offset) => `${(offset / 1080) * 100}%`),
+        [38.88, 186.88, 368.88, 601.88, 866.88].map((offset) => `${(offset / 1080) * 100}%`),
       );
       expect(markers().map((marker) => marker.dataset.marker)).toEqual([
         "past",

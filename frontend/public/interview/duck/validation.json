@@ -1,0 +1,58 @@
+{
+  "bytes": 7168564,
+  "meshCount": 15,
+  "images": 6,
+  "clips": [
+    {
+      "clip": "Duck_Talk",
+      "duration": 4.199999809265137,
+      "maxFootDrift": 0,
+      "bodyMoves": true,
+      "headMoves": true,
+      "jawMoves": true,
+      "wingsMove": false,
+      "eyeClosed": true
+    },
+    {
+      "clip": "Duck_Folded_Idle",
+      "duration": 2.200000047683716,
+      "maxFootDrift": 0,
+      "bodyMoves": false,
+      "headMoves": false,
+      "jawMoves": false,
+      "wingsMove": false,
+      "eyeClosed": false
+    },
+    {
+      "clip": "Duck_Nod_Double",
+      "duration": 2.200000047683716,
+      "maxFootDrift": 0,
+      "bodyMoves": false,
+      "headMoves": true,
+      "jawMoves": false,
+      "wingsMove": false,
+      "eyeClosed": false
+    },
+    {
+      "clip": "Duck_Surprise",
+      "duration": 1.5,
+      "maxFootDrift": 0,
+      "bodyMoves": false,
+      "headMoves": true,
+      "jawMoves": true,
+      "wingsMove": true,
+      "eyeClosed": false
+    },
+    {
+      "clip": "Duck_Blink",
+      "duration": 1,
+      "maxFootDrift": 0,
+      "bodyMoves": false,
+      "headMoves": false,
+      "jawMoves": false,
+      "wingsMove": false,
+      "eyeClosed": true
+    }
+  ],
+  "passed": true
+}

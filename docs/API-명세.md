@@ -1,6 +1,7 @@
 # A301 API 명세
 
 > API별 요청·응답 형식과 예시는 백엔드 Swagger에서 본다(1.x~9.x 모두 구현). 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
+> 그룹 면접(10장, 6.5)은 아직 구현 전이라 Swagger에 없다. 구현할 때까지 이 문서의 10장이 요청·응답 기준이고, 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
 >
 > - Swagger: https://hangguet.yobistory.com/be/docs (로컬: `backend/`에서 `./gradlew bootRun` → http://localhost:8080/docs). 목 서버 https://hangguet.yobistory.com/mock/be/docs 는 같은 계약의 예시 응답만 준다
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
@@ -26,12 +27,13 @@
 - **성공 응답** 래퍼 없이 리소스 그대로. 본문 없는 성공은 204. 페이지 목록은 `{ content, page: { size, number(0부터), totalElements, totalPages } }`. 5.13 연습 면접 목록은 페이지와 무관한 집계를 담는 `summary`를 추가한다
 - **실패 응답** RFC 9457 ProblemDetail(`title`·`status`·`detail`·`instance`, `type`은 기본값 `about:blank`라 생략) + `code`. 화면 분기는 `code`로 한다. 400 `VALIDATION_FAILED`는 `errors[{ field, reason }]` 추가. Nginx가 직접 주는 502·504는 본문 형식을 보장하지 않아 상태 코드로 판단한다
 - **모든 API 공통 오류** 401 `UNAUTHORIZED`(토큰 없음·위조·탈퇴) · 401 `TOKEN_EXPIRED`(만료 → 토큰 재발급 후 재요청) · 400 `VALIDATION_FAILED` · 500 `INTERNAL_ERROR`(문구 고정 "잠시 후 다시 시도해 주세요.")
-- **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)는 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
+- **멱등성** 면접 만들기·시작·답변 제출·끝내기(5.1, 5.4, 5.7, 5.8)와 그룹 만들기·참가·시작(10.1, 10.3, 10.7)은 `Idempotency-Key: {UUID}` 필수. 같은 키·같은 본문 = 처음 결과 반환, 같은 키·다른 본문 = 409 `IDEMPOTENCY_KEY_REUSED`, 헤더 없음 = 400
 - **파일** 프로필 사진은 Presigned URL로 브라우저가 S3에 직접 올리고 받는다. 면접 녹화는 서버(LiveKit Egress)가 저장하고, 다시보기는 Presigned URL로 받는다. API로 파일을 보내지 않음
 - **상태 확인** WebSocket을 쓰지 않는다. 서버 작업이 끝났는지는 화면이 **2초마다(임시 값, B-11)** API를 다시 불러 확인한다
   - 질문 준비(S05): 5.2. `planStatus`가 `READY` 또는 `FAILED`가 되면 멈춘다
   - 결과 분석(S06-1): 5.2. `status`가 `COMPLETED` 또는 `FAILED`가 되면 멈춘다
   - 면접 중 다음 질문은 AI 에이전트가 면접방 메시지(`question`)로 알리므로 다시 불러 확인하지 않는다
+  - 그룹 면접 대기실: 10.4. 그룹이 `WAITING`이 아니게 되면 멈춘다. 진행 중 차례·남은 시간은 면접방 정보(10.11)로 받고 다시 불러 확인하지 않는다
 - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
 - **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일(카카오톡 알림 2.8~2.11로 대신함), 개발자 콘솔
 
@@ -83,6 +85,7 @@
 | 5.15 | 월별 연습 면접 횟수 | `GET /interview-sessions/calendar` | 연습 기록(`/records`) 달력 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
 | 6.4 | 다시보기 | `GET /interview-sessions/{sessionId}/replay` | S07-1 |
+| 6.5 | 녹화 다시 합치기 **[예정]** | `POST /interview-sessions/{sessionId}/recording/retry` | S07-1 |
 | 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S09, S02 |
 | 7.2 | 최근 성장 리뷰 | `GET /growth-reviews` | S02 |
 | 8.1 | 관리자 로그인 | `POST /admin/auth/login` | 관리자 |
@@ -112,6 +115,15 @@
 | 9.9 | 문의 종료(관리) | `POST /admin/inquiries/{inquiryId}/close` | 관리자 |
 | 9.10 | 회원 비밀번호 변경 | `PATCH /admin/users/{userId}/password` | 관리자 |
 | 9.11 | 문의 사진 업로드 주소 | `POST /inquiries/attachments/upload-url` | - |
+| 10.1 | 그룹 만들기 **[예정]** | `POST /interview-groups` | 그룹 면접(화면 번호 미정) |
+| 10.2 | 초대 확인 **[예정]** | `GET /interview-groups/invites/{inviteCode}` | 그룹 면접 |
+| 10.3 | 그룹 참가 **[예정]** | `POST /interview-groups/join` | 그룹 면접 |
+| 10.4 | 그룹 조회 **[예정]** | `GET /interview-groups/{groupId}` | 그룹 면접 대기실·진행 |
+| 10.5 | 준비·준비 취소 **[예정]** | `PUT /interview-groups/{groupId}/ready` | 그룹 면접 대기실 |
+| 10.6 | 그룹 나가기 **[예정]** | `DELETE /interview-groups/{groupId}/participants/me` | 그룹 면접 대기실 |
+| 10.7 | 그룹 면접 시작 **[예정]** | `POST /interview-groups/{groupId}/start` | 그룹 면접 대기실 |
+| 10.8 | 답변 시간 연장 **[예정]** | `POST /interview-groups/{groupId}/turn/extend` | 그룹 화상 면접 |
+| 10.9 | 작성 중인 답변 저장 **[예정]** | `PUT /interview-sessions/{sessionId}/questions/{questionId}/draft` | 그룹 채팅 면접 |
 
 경로는 모두 `/api/v1` 뒤에 붙는다. 아래 응답 목록의 공통 오류(401·400 `VALIDATION_FAILED`·500)는 1장 기준이라 따로 적지 않은 곳이 있다.
 
@@ -421,6 +433,8 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 
 **면접 상태** `READY` → (시작) `IN_PROGRESS` → (끝내기, 답변 ≥1) `ANALYZING` → `COMPLETED` / `FAILED`(결과 재생성으로 `ANALYZING`). 답변 0개로 끝내면 `ABORTED`. 시작 뒤 에이전트가 배정을 거절하면(배정 정보 형식 오류) `START_FAILED`이고, 다시 시작(5.4)하면 같은 질문으로 `IN_PROGRESS`가 된다. `START_FAILED`는 연습 면접이 아니다(스트릭·목록·달력에 들어가지 않음).
 
+**그룹 면접** 그룹에 속한 면접(`group`이 있는 면접)은 일부 규칙이 다르다. 차이는 [10.10](#1010-그룹-세션의-기존-api-규칙)에 모아 두고, 아래 5.x는 개인 면접 기준이다.
+
 **면접 플랜 상태** `planStatus`: `GENERATING` · `READY` · `FAILED`. **분석 단계** `analysisStep`: `ORGANIZING_ANSWERS` → `SCORING` → `WRITING_FEEDBACK`.
 
 #### 5.1 면접 만들기
@@ -652,6 +666,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 화면 표시: 기준 이름(`JOB_FIT` → 직무 적합성, `COVER_LETTER` → 자소서 검증, `LOGIC` → 논리성, `DELIVERY` → 전달력)과 `grade` 문구는 화면이 바꾼다. 질문별 피드백은 첫 번째 `WEAK`·`NORMAL` 질문만 펼친다.
 
 - `summary`: 맨 위 한 줄 총평. 30자 이내이고, 없으면 null(화면은 그 줄을 그리지 않는다)
+- `partial` **[예정]**: 그룹 면접이 AI 면접관 장애로 중간에 끝나 일부 답변으로 만든 결과면 true. 그 밖에는 false. 화면은 true면 부분 결과임을 표시한다. 스트릭·연습 기록·성장 리뷰·통계는 다른 결과와 똑같이 반영한다
 
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
@@ -669,6 +684,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 - `questionCreatedAt`: 에이전트가 그 질문을 말하기 시작한 시각(영상 0초 `recordingStartedAt`, null이면 `startedAt` 기준으로 마커 위치를 구한다)
 - `recordingStartedAt`: 합친 영상의 0초에 해당하는 시각(녹화 합치기에 사용한 트랙 중 가장 먼저 시작한 트랙의 시작 시각). 녹화 시작 시각을 얻지 못해 트랙을 이어 붙여 합쳤거나 채팅이면 null이고, 이때 화면은 `startedAt`을 기준으로 사용한다
 - `videoStatus`: 녹화 영상 상태. `READY`(재생 가능) · `MERGING`(녹화 합치기 중) · `FAILED`(합치기 실패). 채팅이면 null이고, `READY`일 때만 `videoUrl`이 있다
+- **그룹 면접** **[예정]**: 영상은 본인 답변 구간만 이어 붙인 파일이다. `segments[]`(`seq`, `videoStart`·`videoEnd` 영상 위치 초, `startedAt` 원래 시각)를 더하고, 질문 마커·타임라인 위치는 이어 붙인 영상 기준으로 BE가 계산해 준다. 그룹이 끝난 뒤 합치므로 먼저 끝난 사람은 그룹이 끝날 때까지 `MERGING`이고, 아래 15분 규칙은 그룹 종료 시각부터 센다. 개인 면접은 `segments: null`
 - 화면은 `MERGING`이면 플레이어 자리에 녹화를 처리하는 중임을 안내하고 10초마다(임시 값) 6.4를 다시 조회한다. `FAILED`면 녹화를 불러오지 못했다고 안내한다. 두 경우 모두 질문 목록과 답변은 보여 준다
 - 면접 종료 후 15분(임시 값)이 지나도 합치기 결과가 없으면 `FAILED`로 응답한다. 작업자 장애로 결과가 오지 않아도 `MERGING`에 계속 남지 않게 하기 위함이다
 - `items[].timeline` **[제안]**: 다시보기 타임라인(화상만). 그 답변 동안의 면접 흐름 곡선과 평소보다 유난히 낮은 지점(체크포인트)이다. 계산은 [AI 명세](AI-명세.md) 4장 다시보기 타임라인. 채팅, 답하지 않은 질문, 타임라인을 만들지 못한 답변은 null
@@ -679,6 +695,17 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 - **200**: `COMPLETED`
 - **404 / SESSION_NOT_FOUND**
 - **409 / RESULT_NOT_READY** · **NO_RESULT**: 6.3과 같음
+
+#### 6.5 녹화 다시 합치기 **[예정]**
+
+**화면 — S07-1 녹화를 불러오지 못함 › [다시 시도]**
+
+`videoStatus`가 `FAILED`인 화상 면접의 녹화 합치기를 다시 요청한다. 원본 트랙은 지우지 않으므로 같은 원본으로 다시 합친다. 성공하면 `videoStatus`가 `MERGING`이 되고, 화면은 6.4를 10초마다(임시 값) 다시 조회한다. 그룹 면접에서 먼저 만들지만 개인 면접에도 쓸 수 있다. 개인 면접 화면에 붙일지는 **[미정]**(B-24).
+
+- **202**: 다시 합치기 시작(`videoStatus: MERGING`)
+- **404 / SESSION_NOT_FOUND**
+- **409 / RECORDING_NOT_FAILED**: 채팅이거나 `videoStatus`가 `FAILED`가 아님
+- **409 / RETRY_LIMIT_EXCEEDED**: 한 면접에서 3번(임시 값) 다시 시도함
 
 ### 7. 성장 리뷰
 
@@ -905,6 +932,182 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **200**: 사진마다 주소
 - **400 / VALIDATION_FAILED**: 0장·6장 이상, 형식·크기 오류
 
+### 10. 그룹 면접 **[예정]**
+
+초대한 지원자 2~3명이 AI 면접관 1명과 같은 면접방에서 차례로 답한다. 참가자마다 개인 면접(5장의 면접)이 하나씩 생기고 그룹이 그 면접들을 묶는다. 답변·결과·다시보기·연습 기록은 지금처럼 면접마다 따로이고, 결과는 본인만 본다. 설계 배경과 BE 처리는 [그룹 면접 설계](그룹면접-설계.md). 구현 전이라 Swagger에 없다.
+
+**그룹 상태** `status`: `WAITING`(대기실) → (10.7) `IN_PROGRESS` → (모든 참가자 면접 종료) `ENDED`. 대기실에서 모두 나가거나 만든 지 1시간(임시 값)이 지나면 `CANCELLED`. 시작 뒤 첫 질문 전에 AI 면접관을 연결하지 못하면 `START_FAILED`이고 방장이 다시 시작(10.7)한다.
+
+**질문** 한 사람이 받는 기본 질문은 4개다: 공통 질문 2개(자기소개 1개, 협업·갈등 해결 같은 인성 질문 1개, 모두 같은 질문) + 자기 지원서로 만든 개인 맞춤 질문 2개. 공통 질문 → 개인 질문 → 공통 질문 → 개인 질문 순서로 라운드마다 참가자가 돌아가며 답한다. 답변 순서는 시작할 때 무작위로 정하고 바뀌지 않는다. AI가 답변을 보고 필요하다고 판단하면 꼬리질문을 그 사람에게 바로 이어서 묻는다(한 사람당 0~2개). 그래서 한 면접의 질문 순서(`seq`)는 1~6이다.
+
+**답변 시간** 질문 음성이 끝난 뒤부터 센다. 마감은 BE가 정하고 면접방 정보(10.11)의 `deadlineAt`으로 알린다.
+
+| | 화상 | 채팅 |
+|---|---|---|
+| 질문마다 | 2분 | 5분 |
+| 연장 | 남은 시간 30초 이하일 때 1분, 질문마다 1번(10.8) | 없음 |
+| 카운트다운 | 마감 10초 전부터 화면이 표시 | 같음 |
+| 마감 | 에이전트가 그때까지 인식한 글로 자동 제출. 한마디도 안 했으면 답 없이 넘어감 | BE가 마지막으로 저장된 작성 중인 글(10.9)로 자동 제출. 비었으면 답 없이 넘어감 |
+
+**진행 중 이탈** 면접방에서 나가면 그 사람 차례는 건너뛴다. 2분 안에 5.14로 다시 들어오면 지금 답변자의 차례가 끝난 뒤 답하지 못한 질문부터 이어서 답한다. 2분이 지나면 그 사람의 면접은 끝난다(답변 1개 이상이면 결과가 나온다).
+
+**종료** 한 사람의 질문이 모두 끝나면 면접방 정보로 알리고, 화면은 5.8을 부른다(60초 안에 부르지 않으면 BE가 끝낸다). [끝내기]로 먼저 끝낼 수도 있다. 모든 참가자의 면접이 끝나면 그룹이 `ENDED`가 된다. AI 면접관이 멈추면 BE가 남은 면접을 모두 끝내고, 답변이 1개 이상이면 부분 결과(6.3 `partial`)를 만든다.
+
+**그룹 응답** 10.1·10.3·10.4·10.7이 같은 형식으로 준다.
+
+| 필드 | 설명 |
+|---|---|
+| `groupId` · `status` | 그룹 id · 상태 |
+| `mode` · `persona` | 면접 방식(`VIDEO` · `CHAT`) · 면접관. 참가자 모두 같다 |
+| `jobCategory` | 그룹 직군 대분류(B-21) |
+| `capacity` | 정원 2 · 3 |
+| `inviteCode` | 초대 코드 6자리. `WAITING`일 때만, 그 밖에는 null |
+| `hostUserId` | 지금 방장 |
+| `mySessionId` | 내 면접 id. 5.2·5.3·5.8·5.14·6.x에 쓴다 |
+| `participants[]` | `userId` · `nickname` · `profileImageUrl` · `jobCategory` · `sessionId` · `planStatus` · `ready` · `turnOrder`(시작 전 null) · `state`(`WAITING` · `PRESENT` · `ABSENT` · `DONE` · `ENDED`) |
+| `turn` | 진행 중이면 면접방 정보(10.11)와 같은 차례 정보, 그 밖에는 null |
+
+#### 10.1 그룹 만들기
+
+방장이 그룹을 만든다. 방장의 면접도 함께 만들고 개인 맞춤 질문 생성을 시작한다(5.1과 같은 방식, 질문 2개).
+
+```json
+{ "mode": "VIDEO", "persona": "COFFEE_CHAT", "capacity": 3, "jobCategory": "DEVELOPMENT", "applicationId": 12 }
+```
+
+- **201**: 그룹 응답(`status: WAITING`, `inviteCode` 포함)
+- **404 / APPLICATION_NOT_FOUND**: 없거나 남의 지원서 · 지운 지원서
+- **409 / ALREADY_IN_GROUP**: 대기 중이거나 진행 중인 다른 그룹에 있음
+- **409 / IDEMPOTENCY_KEY_REUSED**
+
+초대 링크는 화면 주소에 초대 코드를 담는다. 주소 모양은 **[미정]**(B-22).
+
+#### 10.2 초대 확인
+
+초대 코드로 들어가기 전에 그룹을 보여 준다. 화면은 내 직군이 그룹 직군과 다르면 안내한 뒤 진행하게 한다(입장은 막지 않는다).
+
+- **200**: `groupId` · `hostNickname` · `mode` · `persona` · `jobCategory` · `capacity` · `participantCount`
+- **404 / GROUP_NOT_FOUND**: 없는 코드, 이미 시작했거나 취소된 그룹
+
+#### 10.3 그룹 참가
+
+```json
+{ "inviteCode": "K7Q2ZP", "applicationId": 15, "jobCategory": "DATA_AI" }
+```
+
+참가자의 면접을 만들고 개인 맞춤 질문 생성을 시작한다. 면접 방식·면접관은 그룹 값이다.
+
+- **201**: 그룹 응답 + `jobCategoryMismatch`(그룹 직군과 다르면 true)
+- **404 / GROUP_NOT_FOUND** · **APPLICATION_NOT_FOUND**
+- **409 / GROUP_FULL**: 정원이 참
+- **409 / ALREADY_IN_GROUP**: 이미 이 그룹이나 다른 그룹에 있음
+- **409 / IDEMPOTENCY_KEY_REUSED**
+
+#### 10.4 그룹 조회
+
+대기실은 이 API를 2초마다(임시 값, B-11) 부른다. 진행 중에는 면접방 정보(10.11)를 쓰고, 면접방 정보를 3초(임시 값) 넘게 받지 못했을 때만 한 번 불러 차례를 맞춘다. 방장이 대기실 조회를 10초(임시 값) 넘게 멈추면 남은 참가자 중 가장 먼저 들어온 사람이 방장이 된다.
+
+- **200**: 그룹 응답
+- **404 / GROUP_NOT_FOUND**: 없거나 참가자가 아님
+
+#### 10.5 준비·준비 취소
+
+본문 `{ "ready": true }`. 화상은 장치 점검을 마친 뒤 부른다.
+
+- **200**: 그룹 응답
+- **404 / GROUP_NOT_FOUND**
+- **409 / INVALID_GROUP_STATE**: `WAITING`·`START_FAILED`가 아님
+
+#### 10.6 그룹 나가기
+
+대기실이나 시작 실패 상태에서 나간다. 내 면접은 시작하지 않은 채 남고 연습 기록에 들어가지 않는다. 방장이 나가면 남은 참가자 중 가장 먼저 들어온 사람이 방장이 된다. 진행 중에는 이 API 대신 5.8로 끝낸다.
+
+- **204**: 나감
+- **404 / GROUP_NOT_FOUND**
+- **409 / INVALID_GROUP_STATE**: 진행 중이거나 끝남
+
+#### 10.7 그룹 면접 시작
+
+방장만 부른다. 처음에는 인원이 정원과 같고 모두 준비했으며 모든 참가자의 질문 생성이 끝나야 한다. `START_FAILED`에서 다시 시작할 때는 남은 인원이 2명 이상이면 된다. 참가자 면접을 모두 `IN_PROGRESS`로 바꾸고 면접방을 연다(5.4와 같은 방식).
+
+- **200**: 그룹 응답(`status: IN_PROGRESS`) + 방장의 `room`(5.14와 같은 형식). 다른 참가자는 10.4에서 `IN_PROGRESS`를 보고 5.14로 입장 정보를 받는다
+- **403 / NOT_GROUP_HOST**: 방장이 아님(409로 통일할지 **[미정]**, B-23)
+- **404 / GROUP_NOT_FOUND**
+- **409 / INVALID_GROUP_STATE**: `WAITING`·`START_FAILED`가 아님
+- **409 / GROUP_NOT_READY**: 인원 부족·준비 안 한 참가자·질문 생성 중이거나 실패한 참가자가 있음
+- **409 / IDEMPOTENCY_KEY_REUSED**
+- **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정 실패. 그룹은 이전 상태 그대로
+
+#### 10.8 답변 시간 연장
+
+화상 그룹 면접에서 지금 답변자가 부른다. 마감을 1분 늦추고 면접방 정보로 모두에게 알린다.
+
+- **200**: `deadlineAt`(새 마감)
+- **404 / GROUP_NOT_FOUND**
+- **409 / EXTEND_NOT_ALLOWED**: 채팅, 지금 답변자가 아님, 답변 중이 아님, 남은 시간이 30초 초과, 이미 연장함
+
+#### 10.9 작성 중인 답변 저장
+
+채팅 그룹 면접에서 입력 칸의 글 전체를 저장한다. 화면은 입력이 0.8초 멈출 때마다(최소 5초 간격) 그리고 창을 벗어날 때 부르고, 같은 글을 브라우저 `sessionStorage`에도 둔다(새로고침 복구용). 저장한 글은 최종 답변이 아니다. 최종 답변은 5.7로 내거나, 마감 때 BE가 마지막으로 저장된 글로 확정한다. 리액션용 `chat.input`(면접방 메시지)은 지금처럼 따로 보낸다.
+
+본문 `{ "content": "…" }`(0~1,000자).
+
+- **204**: 저장
+- **404 / SESSION_NOT_FOUND** · **QUESTION_NOT_FOUND**
+- **409 / QUESTION_CLOSED**: 지금 답할 질문이 아님, 마감이 지남, 이미 답함
+
+#### 10.10 그룹 세션의 기존 API 규칙
+
+그룹에 속한 면접에서 달라지는 점만 적는다. 그 밖에는 5.x·6.x 그대로다.
+
+| API | 그룹 면접에서 |
+|---|---|
+| 5.1 면접 만들기 | 쓰지 않는다(10.1·10.3이 만든다) |
+| 5.2 면접 조회 | `group`(`groupId` · `status`) 추가(개인 면접은 null). "질문 n / 5" 대신 기본 질문 4개 기준으로 표시한다 |
+| 5.3 플랜 재생성 | 그대로(대기실에서 질문 생성이 실패했을 때) |
+| 5.4 면접 시작 | 409 `GROUP_SESSION`. 10.7을 쓴다 |
+| 5.5 지금 질문 | 답하지 않았고 마감되지 않은 마지막 질문. 내 질문이 모두 끝났으면 409 `INVALID_SESSION_STATE` |
+| 5.7 답변 제출(채팅) | 지금 내 차례이고 마감 전인 질문만. 아니면 409 `QUESTION_CLOSED`. 마감 자동 제출과 겹치면 하나만 저장되고 늦은 쪽은 409 `ANSWER_ALREADY_SUBMITTED`(화면은 지금처럼 성공으로 본다). `isLastQuestion`은 항상 false(끝은 면접방 정보로 안다). 그룹 채팅에서는 `answer.submit`을 보내지 않는다 |
+| 5.8 면접 끝내기 | 내 면접만 끝내고 나머지는 계속한다. 답변 저장을 기다릴 필요가 없다(BE가 저장한 뒤 다음 차례로 넘어가므로) |
+| 5.13 · 4.6 목록 | 항목에 `groupId`(개인 면접은 null) |
+| 5.14 입장 토큰 | 방 이름 `group-{groupId}`, 참가자 이름 `candidate-{sessionId}`. 진행 중 이탈 뒤 2분 안에만 다시 받을 수 있고, 내 면접이 끝났으면 409 `INVALID_SESSION_STATE` |
+| 6.3 결과 | `partial` |
+| 6.4 다시보기 | 본인 답변 구간만 이어 붙인 영상과 `segments` |
+| 연습 기록 · 스트릭 · 통계 · 성장 리뷰 | 개인 면접과 같이 면접마다 반영한다. 연습 시간에 다른 사람이 답하는 시간도 넣을지는 **[미정]**(B-25) |
+
+#### 10.11 그룹 면접방 정보 · 메시지
+
+**면접방 정보(LiveKit room metadata)** BE만 쓰고 화면·에이전트는 읽는다. 차례·단계가 바뀔 때마다 BE가 바꾸고, 화면·에이전트는 `RoomMetadataChanged` 이벤트로 바로 받는다(접속할 때도 받는다). 폴링하지 않는다.
+
+```json
+{ "turnVersion": 17, "serverTime": "2026-11-04T14:03:00.120+09:00",
+  "groupStatus": "IN_PROGRESS", "round": 2, "phase": "ANSWERING",
+  "turn": { "sessionId": 55, "seq": 3, "kind": "PERSONAL", "baseIndex": 2, "announce": "FULL",
+            "deadlineAt": "2026-11-04T14:05:02.000+09:00", "extended": false, "followupsLeft": 2 },
+  "participants": [ { "sessionId": 55, "turnOrder": 1, "state": "PRESENT", "absentUntil": null, "endReason": null } ],
+  "upcoming": [ 56, 57 ] }
+```
+
+- `turnVersion`: 바뀔 때마다 1씩 는다. 가지고 있는 값보다 작거나 같으면 버린다
+- `serverTime`: 이 정보를 만든 BE 시각. 화면은 받은 순간 자기 시계와의 차이로 `deadlineAt`을 보정해 남은 시간을 그린다
+- `phase`: `ASKING`(질문 준비) · `SPEAKING`(질문 음성 중, 입력 잠금) · `ANSWERING`(답변 중) · `DECIDING`(꼬리질문 판단 중, 최대 7초) · `WAITING`(이탈한 참가자 재접속 대기)
+- `turn.kind`: `COMMON` · `PERSONAL` · `FOLLOWUP`. `baseIndex`: 몇 번째 기본 질문인지(1 공통 · 2 개인 · 3 공통 · 4 개인, 꼬리질문은 null). 재접속한 사람이 밀린 질문을 답할 때는 라운드(`round`)와 다를 수 있다. `announce`: `FULL`(질문 전체를 말함) · `CALL`(같은 공통 질문의 다음 답변자 호명만). `deadlineAt`은 `ANSWERING`에서만 있다
+- `participants[].state`: `PRESENT` · `ABSENT`(`absentUntil`까지 재접속 가능) · `DONE`(질문을 모두 마침, 5.8을 부를 차례) · `ENDED`(`endReason`: `ALL_ANSWERED` · `USER_ENDED` · `DISCONNECTED` · `AI_FAILURE` · `CLEANUP`)
+- `groupStatus`가 `ENDED`면 남은 사람도 결과 대기로 넘어간다. `AI_FAILURE`면 화면은 면접관 연결이 끊겨 면접을 마쳤다고 안내한다
+
+**면접방 메시지** [면접방 메시지](#면접방-메시지-livekit)를 그대로 쓰고 아래만 다르다.
+
+| 메시지 | 그룹 면접에서 |
+|---|---|
+| `question` · `reaction` | 모두에게 보내고 `sessionId`(누구 차례인지)를 더한다 |
+| `interview.stt` · `answer.state` | 지금 답변자에게만. `answer.state`의 60초 무응답(`timedOut`)은 보내지 않는다(답변 시간이 대신함) |
+| `answer.submit` | 화상만. 지금 답변자가 아니면 거절된다 |
+| `chat.input` | 리액션용으로 그대로 쓴다. 지금 답변자의 것만 판단한다 **[미정]**(AI 명세 6.7) |
+| `interview.frame` | 그대로 보내고, 에이전트가 지금 답변자 것만 판단한다 |
+
+- 질문 음성이 나오는 동안(`SPEAKING`) 화면은 남은 시간을 표시하지 않고 입력을 잠근다(지금 규칙과 같음)
+- 화면은 자기 차례가 아니면 마이크를 꺼 달라고 안내한다. 서버가 강제로 끄지는 않는다. 다른 참가자 목소리가 답변자 마이크에 섞일 수 있어 입장 전에 이어폰 사용을 안내한다
+
 ## 3. 오류 코드
 
 | code | 상태 | API |
@@ -941,6 +1144,14 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INQUIRY_NOT_FOUND` | 404 | 9.3·9.4·9.5, 9.7·9.8·9.9·9.10 |
 | `INQUIRY_CLOSED` | 409 | 9.4, 9.8 |
 | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
+| `RECORDING_NOT_FAILED` · `RETRY_LIMIT_EXCEEDED` | 409 | 6.5 **[예정]** |
+| `GROUP_NOT_FOUND` | 404 | 10.2~10.8 **[예정]** |
+| `GROUP_FULL` · `ALREADY_IN_GROUP` | 409 | 10.3(`ALREADY_IN_GROUP`는 10.1도) **[예정]** |
+| `INVALID_GROUP_STATE` · `GROUP_NOT_READY` | 409 | 10.5~10.7 **[예정]** |
+| `NOT_GROUP_HOST` | 403 | 10.7 **[예정]** |
+| `EXTEND_NOT_ALLOWED` | 409 | 10.8 **[예정]** |
+| `QUESTION_CLOSED` | 409 | 5.7(그룹), 10.9 **[예정]** |
+| `GROUP_SESSION` | 409 | 5.4(그룹 면접) **[예정]** |
 
 ## 4. 보류 · 확인 필요 (B)
 
@@ -953,3 +1164,8 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | B-9 | ERD 반영 대기: 회사 요약 Table(`interview_plans`·`answers.tokens`·`answers.evaluation`은 V2에 반영됨). 형식은 [AI 명세](AI-명세.md) | 6.3 | ERD |
 | B-11 | 상태 확인 간격(지금 임시 2초), 최대 대기 시간과 넘었을 때 화면 | 5.2 | 화면 · BE |
 | B-19 | 채점용 답변별 음성(녹화 트랙에서 잘라 쓸지 따로 저장할지) | 6.3 | BE · 면접 AI 모듈 |
+| B-21 | 그룹 면접 직군 대분류 값 목록 | 10.1~10.4 | 화면 · BE |
+| B-22 | 그룹 초대 링크 화면 주소 | 10.1 | 화면 |
+| B-23 | 방장이 아닌 사람의 시작을 403으로 줄지 409로 통일할지 | 10.7 | 화면 · BE |
+| B-24 | 녹화 다시 합치기를 개인 면접 화면에도 붙일지 | 6.5 | 화면 |
+| B-25 | 그룹 면접 연습 시간에 다른 사람이 답하는 시간을 넣을지, 시선 비율을 자기 차례에만 잴지 | 3.x, 5.8, 5.13 | 화면 · BE |

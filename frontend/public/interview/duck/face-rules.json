@@ -1,0 +1,558 @@
+{
+  "defaults": {
+    "Joy": 0,
+    "Fun": 0,
+    "Angry": 0,
+    "Sorrow": 0,
+    "Smile": 0,
+    "Surprised": 0,
+    "Blink": 0,
+    "A": 0,
+    "I": 0,
+    "U": 0,
+    "E": 0,
+    "O": 0
+  },
+  "rules": {
+    "Eye_L": {
+      "Smile": {
+        "expr": [
+          "max",
+          [
+            "max",
+            [
+              "v",
+              "Smile"
+            ],
+            [
+              "v",
+              "Joy"
+            ]
+          ],
+          [
+            "v",
+            "Fun"
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Angry": {
+        "expr": [
+          "v",
+          "Angry"
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Blink": {
+        "expr": [
+          "*",
+          [
+            "v",
+            "Blink"
+          ],
+          [
+            "-",
+            [
+              "n",
+              1
+            ],
+            [
+              "max",
+              [
+                "max",
+                [
+                  "max",
+                  [
+                    "v",
+                    "Smile"
+                  ],
+                  [
+                    "v",
+                    "Joy"
+                  ]
+                ],
+                [
+                  "v",
+                  "Fun"
+                ]
+              ],
+              [
+                "v",
+                "Angry"
+              ]
+            ]
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      }
+    },
+    "Eye_R": {
+      "Smile": {
+        "expr": [
+          "max",
+          [
+            "max",
+            [
+              "v",
+              "Smile"
+            ],
+            [
+              "v",
+              "Joy"
+            ]
+          ],
+          [
+            "v",
+            "Fun"
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Angry": {
+        "expr": [
+          "v",
+          "Angry"
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Blink": {
+        "expr": [
+          "*",
+          [
+            "v",
+            "Blink"
+          ],
+          [
+            "-",
+            [
+              "n",
+              1
+            ],
+            [
+              "max",
+              [
+                "max",
+                [
+                  "max",
+                  [
+                    "v",
+                    "Smile"
+                  ],
+                  [
+                    "v",
+                    "Joy"
+                  ]
+                ],
+                [
+                  "v",
+                  "Fun"
+                ]
+              ],
+              [
+                "v",
+                "Angry"
+              ]
+            ]
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      }
+    },
+    "Eye_L_Catchlight": {
+      "Smile": {
+        "expr": [
+          "max",
+          [
+            "max",
+            [
+              "v",
+              "Smile"
+            ],
+            [
+              "v",
+              "Joy"
+            ]
+          ],
+          [
+            "v",
+            "Fun"
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Angry": {
+        "expr": [
+          "v",
+          "Angry"
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Blink": {
+        "expr": [
+          "*",
+          [
+            "v",
+            "Blink"
+          ],
+          [
+            "-",
+            [
+              "n",
+              1
+            ],
+            [
+              "max",
+              [
+                "max",
+                [
+                  "max",
+                  [
+                    "v",
+                    "Smile"
+                  ],
+                  [
+                    "v",
+                    "Joy"
+                  ]
+                ],
+                [
+                  "v",
+                  "Fun"
+                ]
+              ],
+              [
+                "v",
+                "Angry"
+              ]
+            ]
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      }
+    },
+    "Eye_R_Catchlight": {
+      "Smile": {
+        "expr": [
+          "max",
+          [
+            "max",
+            [
+              "v",
+              "Smile"
+            ],
+            [
+              "v",
+              "Joy"
+            ]
+          ],
+          [
+            "v",
+            "Fun"
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Angry": {
+        "expr": [
+          "v",
+          "Angry"
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      },
+      "Blink": {
+        "expr": [
+          "*",
+          [
+            "v",
+            "Blink"
+          ],
+          [
+            "-",
+            [
+              "n",
+              1
+            ],
+            [
+              "max",
+              [
+                "max",
+                [
+                  "max",
+                  [
+                    "v",
+                    "Smile"
+                  ],
+                  [
+                    "v",
+                    "Joy"
+                  ]
+                ],
+                [
+                  "v",
+                  "Fun"
+                ]
+              ],
+              [
+                "v",
+                "Angry"
+              ]
+            ]
+          ]
+        ],
+        "vars": {
+          "Smile": [
+            "control",
+            "Smile"
+          ],
+          "Joy": [
+            "control",
+            "Joy"
+          ],
+          "Fun": [
+            "control",
+            "Fun"
+          ],
+          "Angry": [
+            "control",
+            "Angry"
+          ],
+          "Blink": [
+            "control",
+            "Blink"
+          ]
+        }
+      }
+    }
+  }
+}

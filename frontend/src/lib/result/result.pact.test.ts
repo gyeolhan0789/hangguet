@@ -186,6 +186,8 @@ describe("결과 · 다시보기", () => {
       companyName: "○○전자",
       jobTitle: "백엔드 개발자",
       startedAt: "2026-10-15T12:00:00+09:00",
+      // 채팅 면접은 녹화가 없어 null이다(API 명세 6.4)
+      recordingStartedAt: null,
       videoStatus: null,
       videoUrl: null,
       items: [
@@ -211,7 +213,7 @@ describe("결과 · 다시보기", () => {
       .withRequest("GET", sessionPath("/replay"), (b) => b.headers(bearer))
       .willRespondWith(200, (b) =>
         b.jsonBody({
-          ...shape(replay, "videoStatus", "videoUrl", "persona"),
+          ...shape(replay, "recordingStartedAt", "videoStatus", "videoUrl", "persona"),
           items: eachLike(shape(replay.items[0], "grade", "timeline")),
         }),
       )

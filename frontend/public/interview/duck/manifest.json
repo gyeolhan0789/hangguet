@@ -1,0 +1,24 @@
+{
+  "name": "Duck",
+  "version": 1,
+  "glb": "/interview/duck/interviewer.glb",
+  "faceRules": "/interview/duck/face-rules.json",
+  "headNode": "Duck_Head",
+  "frontAxis": "+Z",
+  "upAxis": "+Y",
+  "meters": true,
+  "motions": {
+    "idle": "Duck_Folded_Idle",
+    "nod": "Duck_Nod_Double",
+    "talk": "Duck_Talk",
+    "surprise": "Duck_Surprise",
+    "blink": "Duck_Blink"
+  },
+  "expressions": [
+    "neutral",
+    "smile",
+    "angry"
+  ],
+  "preview": "http://127.0.0.1:4173",
+  "source": "penguin_talking.blend"
+}

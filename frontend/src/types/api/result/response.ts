@@ -159,8 +159,10 @@ export interface ReplayResponse {
   companyName: string;
   /** 지원 직무 */
   jobTitle: string;
-  /** 녹화 기준 시각(면접 시작 일시). 상단 날짜도 이 값 */
+  /** 면접 시작 일시. 상단 날짜 */
   startedAt: OffsetDateTime;
+  /** 녹화 영상의 0초에 해당하는 시각. 채팅이거나 이전 면접 · 녹화 시작 시각을 얻지 못했으면 null(이때는 startedAt이 기준) */
+  recordingStartedAt: OffsetDateTime | null;
   /** 녹화 영상 상태. READY 재생 가능, MERGING 녹화 합치기 중(10초마다 다시 조회), FAILED 합치기 실패. 채팅이면 null */
   videoStatus: VideoStatus | null;
   /** 녹화 영상 주소. videoStatus가 READY일 때만 값이 있다(웹 Swagger 6.4) */

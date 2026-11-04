@@ -1,6 +1,8 @@
 import type { Persona } from "@/types/api";
 
-// 기준: Swagger 5.1 SessionCreateRequest.persona(DEVIL · COFFEE_CHAT) · Figma S04 Persona List(18:2171)
+// 기준: Swagger 5.1 SessionCreateRequest.persona(DEVIL · COFFEE_CHAT · DUCK) · Figma S04 Persona List(18:2171)
+// · 오리 면접관은 Figma에 없어 사용자 결정(2026-11-04: 이름 · 태그 · 설명은 기본안, 순서는 악마 → 커피챗 → 오리)을 따른다.
+//   설명은 AI 명세 2장(오리 면접관 = 자신감 연습 면접, 경험을 편하게 설명하는 말투)에 맞췄다.
 
 export interface PersonaInfo {
   persona: Persona;
@@ -25,6 +27,13 @@ const PERSONA_INFO = {
     difficulty: "난이도 낮음",
     description: "편안한 대화로 실무 이야기",
     avatar: "/practice/avatar-coffeechat.webp",
+  },
+  DUCK: {
+    name: "오리 면접관",
+    difficulty: "난이도 낮음",
+    description: "칭찬 위주로 자신감 키우는 연습",
+    // 오리 3D 모델(public/interview/duck/interviewer.glb)을 S04 썸네일 구도로 렌더한 그림
+    avatar: "/practice/avatar-duck.webp",
   },
 } satisfies Record<Persona, Omit<PersonaInfo, "persona">>;
 
