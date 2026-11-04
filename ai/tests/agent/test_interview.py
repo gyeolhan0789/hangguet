@@ -74,6 +74,16 @@ class FakeAsker:
         # 안내 음성 재생을 끝낼 시점을 시험이 정한다
         self.notice_hold = asyncio.Event()
         self.saying = asyncio.Event()
+        # question.started 전송 확인이 실패할 남은 횟수와 확인한 질문 순서
+        self.started_failures = 0
+        self.ensured: list[int] = []
+
+    async def ensure_started(self, seq: int) -> bool:
+        self.ensured.append(seq)
+        if self.started_failures > 0:
+            self.started_failures -= 1
+            return False
+        return True
 
     async def prepare(self, seq: int, question: AssignedQuestion) -> Any:
         self.prepared.append(seq)
@@ -572,6 +582,29 @@ def test_submit_failure_waits_for_resubmit_of_same_answer() -> None:
         (1, "submitFailed"),
         (1, "submitted"),
     ]
+
+
+# 기준: AI 명세 6.5 질문 시작 전송 실패(question.started 전송 뒤에만 answer.completed)
+def test_answer_waits_until_question_started_is_sent() -> None:
+    """질문 행이 없으면 BE가 답변을 저장하지 않으므로,
+    question.started를 전송하지 못했으면 답변을 전달하지 않고 submitFailed를 알린다.
+
+    [답변 완료]를 수신하면 question.started부터 다시 확인한 뒤 같은 답변을 전달한다.
+    """
+
+    async def scenario(h: Harness) -> None:
+        h.asker.started_failures = 1
+        (await h.next_session()).speak()
+        await until(lambda: (1, "submitFailed") in h.states)
+        await asyncio.sleep(0.1)
+        assert h.deliveries == []
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: (1, "submitted") in h.states)
+
+    h = run_async(scenario)
+    assert h.asker.ensured[:2] == [1, 1]
+    assert h.deliveries == [1]
+    assert h.states == [(1, "autoSubmitted"), (1, "submitFailed"), (1, "submitted")]
 
 
 def test_submit_while_resubmitting_is_not_accepted() -> None:

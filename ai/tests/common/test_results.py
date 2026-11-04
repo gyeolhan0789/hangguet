@@ -78,7 +78,7 @@ def test_job_result_carries_common_fields_and_received_job_id() -> None:
             "sessionId": 55,
             "jobId": JOB_ID,
             "progress": 50,
-            "occurredAt": "2026-10-22T14:03:12+09:00",
+            "occurredAt": "2026-10-22T14:03:12.987+09:00",
         }
     ]
 
@@ -120,8 +120,34 @@ def test_agent_result_has_no_job_id() -> None:
         "sessionId": 55,
         "seq": 3,
         "startedAt": "2026-10-22T14:02:10+09:00",
-        "occurredAt": "2026-10-22T14:03:12+09:00",
+        "occurredAt": "2026-10-22T14:03:12.987+09:00",
     }
+
+
+def test_assignment_rejected_is_agent_result_with_reason() -> None:
+    """배정 거절은 작업 결과가 아니므로 jobId가 없고, BE가 reason으로 처리한다(AI 명세 1.4)."""
+    redis = FakeRedis()
+
+    make(redis).publish(ResultType.ASSIGNMENT_REJECTED, 55, {"reason": "INVALID_ASSIGNMENT"})
+
+    assert pushed(redis) == [
+        {
+            "type": "assignment.rejected",
+            "sessionId": 55,
+            "reason": "INVALID_ASSIGNMENT",
+            "occurredAt": "2026-10-22T14:03:12.987+09:00",
+        }
+    ]
+
+
+@pytest.mark.parametrize("fields", [{}, {"reason": "배정 거절"}])
+def test_assignment_rejected_rejects_reason_outside_list(fields: dict[str, Any]) -> None:
+    redis = FakeRedis()
+
+    with pytest.raises(ValueError, match="reason"):
+        make(redis).publish(ResultType.ASSIGNMENT_REJECTED, 55, fields)
+
+    assert redis.calls == 0
 
 
 def test_keeps_korean_text_as_is() -> None:
@@ -180,7 +206,7 @@ def test_retried_message_is_identical() -> None:
 
     publisher.publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {"progress": 50})
 
-    assert pushed(redis)[0]["occurredAt"] == "2026-10-22T14:03:12+09:00"
+    assert pushed(redis)[0]["occurredAt"] == "2026-10-22T14:03:12.987+09:00"
 
 
 @pytest.mark.parametrize("key", ["type", "sessionId", "jobId", "occurredAt"])
@@ -237,6 +263,7 @@ def test_result_type_values_match_spec() -> None:
         "recording.mergeFailed",
         "question.started",
         "answer.completed",
+        "assignment.rejected",
     }
 
 
@@ -246,6 +273,7 @@ def test_failed_result_types_match_spec() -> None:
         "plan.failed",
         "evaluation.failed",
         "recording.mergeFailed",
+        "assignment.rejected",
     }
 
 
@@ -258,7 +286,7 @@ def test_failed_result_accepts_listed_reason(reason: FailureReason) -> None:
     assert pushed(redis)[0]["reason"] == reason.value
 
 
-@pytest.mark.parametrize("result_type", sorted(FAILED_RESULT_TYPES))
+@pytest.mark.parametrize("result_type", sorted(FAILED_RESULT_TYPES - AGENT_RESULT_TYPES))
 @pytest.mark.parametrize(
     "fields",
     [{}, {"reason": "자소서 분석 실패"}, {"reason": None}, {"reason": ["GMS_UNAVAILABLE"]}],
@@ -276,7 +304,7 @@ def test_failed_result_rejects_reason_outside_list(
 
 
 def test_failure_reasons_match_spec_table() -> None:
-    """reason은 AI 명세 1.4 실패 이유 표의 값 8개만 정의한다.
+    """reason은 AI 명세 1.4 실패 이유 표의 값 10개만 정의한다.
 
     BE가 값으로 처리를 나누기 때문이다.
     """
@@ -291,5 +319,6 @@ def test_failure_reasons_match_spec_table() -> None:
         "MERGE_ERROR",
         "INVALID_JOB",
         "INTERNAL_ERROR",
+        "INVALID_ASSIGNMENT",
     ]
     assert all(value == reason.name for value, reason in zip(values, FailureReason, strict=True))

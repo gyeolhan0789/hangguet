@@ -1,6 +1,6 @@
 """작업 결과와 진행 상태를 Redis 결과 큐(ai:results)에 전송한다(AI 명세 1.4).
 
-분석 작업자의 작업 결과와 면접 에이전트의 질문 시작·답변 완료를 같은 전송기로 전송하므로,
+분석 작업자의 작업 결과와 면접 에이전트의 질문 시작·답변 완료·배정 거절을 같은 전송기로 전송하므로,
 어느 실행 진입점에도 의존하지 않도록 공용 모듈에 둔다.
 AI는 DB와 진행 상태 Hash(session:{sessionId}:runtime)에 쓰지 않는다.
 BE가 결과 큐에서 메시지를 꺼내 검증한 뒤 저장하므로, BE가 저장할 내용을 결과 메시지 하나에 담는다.
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 RESULT_QUEUE_KEY = "ai:results"
 # AI 명세 5장: 결과 큐 전송은 1·2·4초 간격으로 3회 재시도한다
 BACKOFF_SECONDS = (1.0, 2.0, 4.0)
-# 명세 예시(2026-10-22T14:03:12+09:00)와 같이 한국 시간으로 기록한다.
+# 명세 예시(2026-10-22T14:03:12.418+09:00)와 같이 한국 시간으로 기록한다.
 # 한국은 서머타임이 없어 고정 오프셋과 지역 시간대가 같고, 컨테이너에 시간대 자료가 없어도 동작한다
 KST = timezone(timedelta(hours=9))
 
@@ -53,10 +53,13 @@ class ResultType(StrEnum):
     RECORDING_MERGE_FAILED = "recording.mergeFailed"
     QUESTION_STARTED = "question.started"
     ANSWER_COMPLETED = "answer.completed"
+    ASSIGNMENT_REJECTED = "assignment.rejected"
 
 
-# 면접 에이전트가 전송하는 두 종류는 작업 결과가 아니므로 jobId가 없다
-AGENT_RESULT_TYPES = frozenset({ResultType.QUESTION_STARTED, ResultType.ANSWER_COMPLETED})
+# 면접 에이전트가 전송하는 종류는 작업 결과가 아니므로 jobId가 없다
+AGENT_RESULT_TYPES = frozenset(
+    {ResultType.QUESTION_STARTED, ResultType.ANSWER_COMPLETED, ResultType.ASSIGNMENT_REJECTED}
+)
 
 REASON = "reason"
 
@@ -76,13 +79,19 @@ class FailureReason(StrEnum):
     MERGE_ERROR = "MERGE_ERROR"
     INVALID_JOB = "INVALID_JOB"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    INVALID_ASSIGNMENT = "INVALID_ASSIGNMENT"
 
 
 _REASON_VALUES = frozenset(reason.value for reason in FailureReason)
 # 실패 결과 메시지는 BE가 reason으로 처리를 나누므로 목록의 값을 반드시 담는다.
 # 작업 종류별 대응은 분석 작업자(app.worker.failures)가 이 목록의 값으로 정한다
 FAILED_RESULT_TYPES = frozenset(
-    {ResultType.PLAN_FAILED, ResultType.EVALUATION_FAILED, ResultType.RECORDING_MERGE_FAILED}
+    {
+        ResultType.PLAN_FAILED,
+        ResultType.EVALUATION_FAILED,
+        ResultType.RECORDING_MERGE_FAILED,
+        ResultType.ASSIGNMENT_REJECTED,
+    }
 )
 
 
@@ -183,6 +192,7 @@ class ResultPublisher:
         if job_id is not None:
             message[JOB_ID] = job_id
         message.update(fields)
-        message[OCCURRED_AT] = self._clock().isoformat(timespec="seconds")
+        # BE가 배정 거절 시각을 면접 시작 시각과 비교하므로 초 단위로 자르지 않는다(AI 명세 1.4)
+        message[OCCURRED_AT] = self._clock().isoformat(timespec="milliseconds")
         # NaN·Infinity는 JSON 표준이 아니어서 BE가 해석하지 못하므로 거부한다
         return json.dumps(message, ensure_ascii=False, allow_nan=False, separators=(",", ":"))

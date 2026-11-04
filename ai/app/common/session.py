@@ -12,6 +12,8 @@ from enum import StrEnum
 MIN_SEQ = 1
 MAX_SEQ = 5
 QUESTION_COUNT = MAX_SEQ - MIN_SEQ + 1
+# AI 명세 6.1: 면접방 이름은 interview-{sessionId}다
+ROOM_NAME_PREFIX = "interview-"
 
 
 class InterviewMode(StrEnum):
@@ -27,3 +29,8 @@ class Persona(StrEnum):
     DEVIL = "DEVIL"
     COFFEE_CHAT = "COFFEE_CHAT"
     DUCK = "DUCK"
+
+
+def room_name(session_id: int) -> str:
+    """면접방 이름(AI 명세 6.1)."""
+    return f"{ROOM_NAME_PREFIX}{session_id}"

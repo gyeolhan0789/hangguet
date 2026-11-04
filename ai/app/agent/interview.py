@@ -15,13 +15,16 @@ API 명세 면접방 메시지의 화상 답변 끝 판단.
 - 지원자가 퇴장하면 진행 중인 답변을 폐기하고 재입장을 기다린다.
   재입장하면 같은 질문의 답변을 처음부터 다시 듣는다.
   질문 음성 재생 중에 퇴장했으면 질문을 다시 말한다.
-  BE에 전송하는 question.started는 질문 음성 담당(QuestionSpeaker)이 질문마다 한 번만 전송한다.
+  BE에 전송하는 question.started는 질문 음성 담당(QuestionSpeaker)이 질문마다 한 번만 기록하고,
+  전송하지 못하면 다시 전송한다.
 - 면접방이 닫히면 진행 중인 답변은 전달하지 않는다(AI 명세 6.1).
 - 다음 질문 음성은 답변을 듣는 동안 미리 합성한다(AI 명세 6장 머리말).
   ElevenLabs 동시 요청 상한(요금제)을 넘지 않도록 질문은 앞 질문 합성이 끝난 뒤 하나씩 합성한다.
 - 답변 결과 전달은 on_answer가 담당한다.
   결과 큐 전송이 재시도 후에도 실패하면 submitFailed를 알리고 다음 질문으로 진행하지 않는다.
-  [답변 완료]를 수신하면 보관한 같은 답변을 다시 전달한다(AI 명세 6.5).
+  화상 답변은 그 질문의 question.started를 전송한 뒤에만 전달하고,
+  전송하지 못했으면 같은 방식으로 submitFailed를 알린다(AI 명세 6.5).
+  [답변 완료]를 수신하면 question.started부터 확인해 보관한 같은 답변을 다시 전달한다(AI 명세 6.5).
   그동안 지원자가 재입장하면 화면이 실패 상태를 모르므로 submitFailed를 다시 알린다.
 - 화상 답변은 문장이 끝날 때마다 리액션을 판단한다(AI 명세 6.2 3번).
   답변이 끝나거나 지원자가 퇴장하면 판단 중이던 리액션을 전송하지 않는다(AI 명세 6.5).
@@ -115,6 +118,8 @@ class QuestionAsker(Protocol):
         destination: str,
         audio: SpeechAudio | None,
     ) -> None: ...
+
+    async def ensure_started(self, seq: int) -> bool: ...
 
 
 class FollowupGenerator(Protocol):
@@ -503,9 +508,13 @@ class InterviewRunner:
             return True
         while True:
             try:
+                # 질문 행이 없으면 BE가 답변을 저장하지 않으므로
+                # 질문 시작 전송을 먼저 확인한다(AI 명세 6.5)
+                if not await self._asker.ensure_started(finished.seq):
+                    raise ResultPublishError("question.started를 전송하지 못했다")
                 saved = await self._on_answer(finished)
-            except ResultPublishError:
-                log.error("answer.completed 전송 실패", extra={"seq": finished.seq})
+            except ResultPublishError as e:
+                log.error("답변 전달 실패: %s", e, extra={"seq": finished.seq})
                 self._apply(SubmitFailed())
                 self._notify(destination, finished.seq, AnswerState.SUBMIT_FAILED)
                 await self._resubmit_requested()
