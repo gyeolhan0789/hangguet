@@ -149,7 +149,9 @@ check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
 # 바깥 주소로 한 바퀴. Tunnel 호스트 이름 3개를 모두 본다(배포 계획 5.1). 터널 연결도 이 확인으로 본다.
 # cloudflared 로그의 「Registered tunnel connection」은 컨테이너를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고,
-# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 또 pipefail에서 `docker logs | grep -q`는 로그가 길면
+# grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어, 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패).
+# 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
 # check_public <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
 check_public() {
   local name="$1" url="$2" pattern="$3"
