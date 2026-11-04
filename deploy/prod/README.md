@@ -56,14 +56,14 @@ develop → Release MR → master 병합
 
 1. 설정 해시: 설정 파일(`nginx.conf` · `livekit.yaml` · `prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)마다 내용 해시를 `A301_*_CONFIG_HASH`로 넘긴다. compose가 이 값을 그 서비스의 라벨 `a301.config-hash`로 붙인다
 2. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로 하고, 끝나면 성공 · 실패와 관계없이 로그아웃하고 지운다
-3. 배포 파일 복사: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다)
+3. 설정 검사 · 이미지 받기: 체크아웃의 `deploy/prod/compose.yml`로 `config --quiet` → `pull`. 서버의 배포 파일은 아직 바꾸지 않으므로, 여기서 실패하면 설정 파일 · 컨테이너가 모두 예전 그대로 남는다(먼저 복사해 두면 예전 컨테이너가 재시작될 때 새 설정 파일을 읽어 예전 이미지와 섞인다)
 4. 백업 준비: `backup.sh`를 `/opt/a301/backup.sh`로 복사하고, `/opt/a301/backup.env`(권한 600)에 S3 키를 쓴다
-5. `pull` → `up -d --remove-orphans`. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다. 설정이 그대로면 LiveKit을 다시 띄우지 않는다
+5. 배포 파일 복사 → `up -d --remove-orphans`: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다. 설정이 그대로면 LiveKit을 다시 띄우지 않는다
 6. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
    - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
    - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`
-   - Cloudflare Tunnel 연결(`Registered tunnel connection`)
-   - 바깥 주소 `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE 한 바퀴)
+   - 바깥 주소 `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE 한 바퀴, 120초). 터널 연결도 이것으로 본다. 실패하면 cloudflared · Nginx 로그를 남긴다
+   - cloudflared 로그의 `Registered tunnel connection`은 기준으로 쓰지 않는다. cloudflared를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고, 로그가 회전되면 연결이 멀쩡해도 사라진다
 7. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
 
 서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`. 설정 해시가 필수라 `docker compose`를 직접 치지 않는다
