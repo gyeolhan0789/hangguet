@@ -18,7 +18,7 @@
 
 잡은 아래 명령을 실행하고 `http://127.0.0.1:18090/api/health`로 기동을 확인한다. Loki · Alloy는 20초 뒤에도 실행 중이고 재시작이 없는지 본다(설정이 틀리면 재시작을 반복한다). Compose 설정이 그대로라면 `up -d`는 컨테이너를 다시 만들지 않는다.
 
-설정 파일(`prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)만 바뀐 경우에는 `up -d`가 컨테이너를 그대로 두고, Prometheus · blackbox · Loki · Alloy는 기동할 때만 설정을 읽는다. 그래서 잡은 `up -d` 뒤에 컨테이너 안에서 보이는 설정을 저장소와 비교해, 다른 서비스만 `--force-recreate`로 다시 만들고 다시 비교한다(그래도 다르면 잡 실패). 지표 · 로그 · Grafana 계정은 볼륨에 있어 남는다.
+설정 파일(`prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)만 바뀌면 `up -d`가 컨테이너를 그대로 두고, 컨테이너 안의 파일은 새 내용이어도 프로세스는 예전 설정을 계속 쓴다(Grafana 대시보드 포함). 그래서 잡은 `up -d` 전에 설정 파일 해시를 `A301_*_CONFIG_HASH` 환경 변수로 넘기고, compose가 이를 라벨 `a301.config-hash`로 붙인다. 해시가 바뀐 서비스만 다시 만들어진다. 지표 · 로그 · Grafana 계정은 볼륨에 있어 남는다. 로컬에서 변수 없이 띄우면 라벨이 비어 있어, 그다음 잡이 한 번 모두 다시 만든다.
 
 ```sh
 docker compose -f deploy/dev/monitoring/compose.yml config --quiet
