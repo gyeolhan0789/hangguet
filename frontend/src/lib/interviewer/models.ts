@@ -35,6 +35,7 @@ const LOOKS = {
     headBone: "DEF-spine.006",
     model: {
       glb: "/interview/devil/interviewer.glb",
+      glbBytes: 31_580_308,
       faceRules: "/interview/devil/face-rules.json",
       animation: "/interview/devil/animation.json",
     },
@@ -49,6 +50,7 @@ const LOOKS = {
     headBone: "Head",
     model: {
       glb: "/interview/coffee-chat/interviewer.glb",
+      glbBytes: 413_868,
       faceRules: "/interview/coffee-chat/face-rules.json",
       animation: "/interview/coffee-chat/animation.json",
     },

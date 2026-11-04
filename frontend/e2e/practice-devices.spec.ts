@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
 import type { SessionCreateRequest } from "../src/types/api";
@@ -273,6 +273,56 @@ test.describe("S05 장치 점검 · 면접관 모델 받기", () => {
     await expect(main.getByText("면접관이 질문을 준비했어요")).toBeVisible({ timeout: 15_000 });
     expect(models).toHaveLength(2);
     await expect(main.getByText("면접 준비에 실패했어요")).toHaveCount(0);
+  });
+
+  // 사용자 결정(2026-11-04: 받는 도중 10초(download.ts STALL_MS) 동안 데이터가 없으면 끊고 다시 받는다)
+  test("모델 응답이 10초 동안 오지 않으면 끊고 다시 받아, 받으면 준비를 마친다", async ({
+    page,
+    msw,
+  }) => {
+    planIs(msw, "READY");
+    // Playwright 시계 문서 권장 순서: install → 페이지가 실제 시간으로 떠서 모델을 받기 시작하게 둔다 → pauseAt으로 멈춘 뒤 runFor로 넘긴다.
+    // (처음부터 멈춰 두면 화면이 모델 받기를 시작하지 못한다.)
+    await page.clock.install();
+    // 첫 요청은 답하지 않고 붙잡아 둔다(멈춘 연결). 테스트가 끝나면 정리한다.
+    const held: Route[] = [];
+    const models: string[] = [];
+    await page.route("**/interview/devil/interviewer.glb", (route) => {
+      models.push(route.request().url());
+      if (models.length === 1) {
+        held.push(route);
+        return;
+      }
+      return route.fulfill(EMPTY_GLTF);
+    });
+    try {
+      await page.goto(S05);
+      const main = page.getByRole("main");
+      await expect.poll(() => models.length).toBe(1);
+      // 요청을 본 직후 1초 앞으로 건너뛰어 멈춘다. 요청부터 여기까지 실제로 흐른 시간(보통 1초 미만)이 더해진다.
+      await page.clock.pauseAt(new Date(Date.now() + 1_000));
+
+      // 10초 전(요청 뒤 약 6초)에는 끊지 않는다.
+      await page.clock.runFor(5_000);
+      await expect(main.getByText("면접관이 질문을 준비하고 있어요")).toBeVisible();
+      expect(models).toHaveLength(1);
+
+      // 10초가 지나면 끊고, 재시도 간격(2초 미만, retry.ts)이 지나면 다시 받는다.
+      // 끊긴 요청의 실패가 처리된 뒤에야 재시도 타이머가 걸리므로, 다시 받을 때까지 1초씩 진행한다.
+      await expect
+        .poll(
+          async () => {
+            await page.clock.runFor(1_000);
+            return models.length;
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(2);
+      await expect(main.getByText("면접관이 질문을 준비했어요")).toBeVisible();
+      await expect(main.getByText("면접 준비에 실패했어요")).toHaveCount(0);
+    } finally {
+      await held[0]?.abort().catch(() => {});
+    }
   });
 });
 
