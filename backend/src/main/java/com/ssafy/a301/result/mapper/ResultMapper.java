@@ -13,6 +13,7 @@ import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
 import com.ssafy.a301.result.dto.ResultDtos.SpeechMetrics;
 import com.ssafy.a301.result.dto.ResultDtos.VideoStatus;
+import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 
@@ -70,12 +71,16 @@ public final class ResultMapper {
                 session.isVideo() ? toSpeechMetrics(metric) : null);
     }
 
-    // 6.4. 낸 질문은 답변이 없어도 넣는다(대화 기록·마커). 녹화 상태·주소는 채팅이면 null이다
+    // 6.4. 낸 질문은 답변이 없어도 넣는다(대화 기록·마커). 녹화 상태·주소·영상 0초 시각은 채팅이면 null이다.
+    // 타임라인 영상 위치는 영상 0초 시각(없으면 면접 시작 일시) 기준이다
     public static ReplayResponse toReplay(
             InterviewSession session,
             List<QuestionAndAnswer> items,
             VideoStatus videoStatus,
-            String videoUrl) {
+            String videoUrl,
+            OffsetDateTime recordingStartedAt) {
+        OffsetDateTime videoZero =
+                recordingStartedAt != null ? recordingStartedAt : session.getStartedAt();
         List<ReplayItem> replayItems =
                 items.stream()
                         .sorted(Comparator.comparingInt(i -> i.question().getSeq()))
@@ -96,8 +101,7 @@ public final class ResultMapper {
                                                 i.answer() == null || !session.isVideo()
                                                         ? null
                                                         : ReplayTimelines.of(
-                                                                i.answer(),
-                                                                session.getStartedAt())))
+                                                                i.answer(), videoZero)))
                         .toList();
         return new ReplayResponse(
                 session.getId(),
@@ -106,6 +110,7 @@ public final class ResultMapper {
                 session.getApplication().getCompanyName(),
                 session.getApplication().getJobTitle(),
                 session.getStartedAt(),
+                session.isVideo() ? recordingStartedAt : null,
                 session.isVideo() ? videoStatus : null,
                 session.isVideo() ? videoUrl : null,
                 replayItems);

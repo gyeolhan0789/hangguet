@@ -116,6 +116,7 @@ class ResultIntegrationTest {
                 .andExpect(jsonPath("$.mode").value("CHAT"))
                 .andExpect(jsonPath("$.videoStatus").isEmpty())
                 .andExpect(jsonPath("$.videoUrl").isEmpty())
+                .andExpect(jsonPath("$.recordingStartedAt").isEmpty())
                 .andExpect(jsonPath("$.items.length()").value(3));
     }
 
@@ -124,7 +125,9 @@ class ResultIntegrationTest {
         User user = user("replay");
         InterviewSession session = completed(user, InterviewMode.VIDEO);
         String key = Recording.sessionVideoKey(session.getId());
-        em.persist(Recording.mergedSessionVideo(session, null));
+        em.persist(
+                Recording.mergedSessionVideo(
+                        session, OffsetDateTime.parse("2026-10-21T10:00:03+09:00")));
         when(storage.presignDownload(key)).thenReturn("https://s3.test/video.mp4");
         em.flush();
         em.clear();
@@ -134,6 +137,8 @@ class ResultIntegrationTest {
                 .andExpect(jsonPath("$.videoStatus").value("READY"))
                 .andExpect(jsonPath("$.videoUrl").value("https://s3.test/video.mp4"))
                 .andExpect(jsonPath("$.startedAt").value("2026-10-21T10:00:00+09:00"))
+                // 영상 0초 시각(recording.merged). 질문 마커 · 타임라인의 기준이다(API 명세 6.4)
+                .andExpect(jsonPath("$.recordingStartedAt").value("2026-10-21T10:00:03+09:00"))
                 .andExpect(jsonPath("$.items.length()").value(3))
                 .andExpect(jsonPath("$.items[0].seq").value(1))
                 .andExpect(
@@ -159,6 +164,7 @@ class ResultIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.videoStatus").value("MERGING"))
                 .andExpect(jsonPath("$.videoUrl").isEmpty())
+                .andExpect(jsonPath("$.recordingStartedAt").isEmpty())
                 .andExpect(jsonPath("$.items.length()").value(3));
         verify(storage, never()).presignDownload(anyString());
     }
