@@ -4,12 +4,13 @@
 # 비밀값은 CI/CD Variables가 환경 변수로 넣는다(배포 계획 7장). compose가 빠진 값을 이름과 함께 알려 주고 멈춘다.
 #
 # 순서
-# 1. Docker Hub 로그인(pull 토큰, 임시 폴더. 끝나면 로그아웃하고 지운다)
-# 2. 배포 파일을 /opt/a301/prod로 복사. 설정 파일이 바뀐 서비스는 기억해 둔다
-# 3. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
-# 4. pull → up -d. 설정 파일만 바뀐 서비스는 다시 시작한다
-# 5. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 터널 연결, 바깥 주소
-# 6. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
+# 1. 설정 파일 해시를 A301_*_CONFIG_HASH로 넘긴다(compose가 라벨 a301.config-hash로 붙인다)
+# 2. Docker Hub 로그인(pull 토큰, 임시 폴더. 끝나면 로그아웃하고 지운다)
+# 3. 배포 파일을 /opt/a301/prod로 복사
+# 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
+# 5. pull → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
+# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 터널 연결, 바깥 주소
+# 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
 set -euo pipefail
 
 : "${IMAGE_TAG:?IMAGE_TAG가 필요합니다}"
@@ -18,6 +19,7 @@ export IMAGE_TAG
 
 DOCKERHUB_USER="${DOCKERHUB_USER:-hanggeut}"
 DOCKERHUB_REPO="${DOCKERHUB_REPO:-hanggeut/a301}"
+SRC_DIR="deploy/prod"
 PROD_DIR="${PROD_DIR:-/opt/a301/prod}"
 BACKUP_HOME="/opt/a301"
 KEEP_IMAGES="${KEEP_IMAGES:-3}"
@@ -26,6 +28,34 @@ COMPOSE=(docker compose -f "${PROD_DIR}/compose.yml")
 
 log() { echo "== $*"; }
 fail() { echo "FAIL: $*"; exit 1; }
+
+# 설정 파일(폴더) → 그 파일을 붙인 서비스의 해시 변수 이름(A301_<이름>_CONFIG_HASH, compose.yml 라벨 a301.config-hash).
+# 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose 설정이 그대로라 up -d가 다시 만들지 않고, 프로세스는 기동할 때 읽은 설정을 계속 쓴다.
+# 해시를 라벨로 붙이면 바뀐 서비스만 up -d가 다시 만든다(LiveKit을 매번 다시 띄우면 진행 중인 면접이 끊기기 때문).
+# 비교 기준이 컨테이너 라벨이라, 배포가 중간에 실패해도 다음 배포에서 맞춰진다.
+# 해시에는 파일 경로도 들어가므로 SRC_DIR 기준 상대 경로로 계산한다. 계산 방식을 바꾸면 7개가 한 번 다시 만들어진다
+declare -A CONFIG_HASH_FILE=(
+  [NGINX]=nginx.conf
+  [LIVEKIT]=livekit.yaml
+  [PROMETHEUS]=prometheus.yml
+  [BLACKBOX]=blackbox.yml
+  [LOKI]=loki.yml
+  [ALLOY]=alloy.alloy
+  [GRAFANA]=grafana
+)
+config_hash() {
+  (cd "$SRC_DIR" && find "$1" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
+}
+
+# compose 호출(실패 때 on_exit의 ps 포함)보다 먼저 넘긴다. 복사할 파일(SRC_DIR)로 계산하므로 /opt/a301/prod에 놓일 내용과 같다
+log "설정 해시"
+for name in "${!CONFIG_HASH_FILE[@]}"; do
+  file="${CONFIG_HASH_FILE[$name]}"
+  [ -e "${SRC_DIR}/${file}" ] || fail "설정 파일이 없습니다: ${SRC_DIR}/${file}(레포 루트에서 실행했는지 확인)"
+  value="$(config_hash "$file")"
+  export "A301_${name}_CONFIG_HASH=${value}"
+  echo "${file}: ${value}"
+done
 
 # 실패하면 상태와 로그를 남긴다. 로그인 정보는 성공 · 실패와 관계없이 지운다
 DOCKER_CONFIG="$(mktemp -d)"
@@ -44,33 +74,9 @@ trap on_exit EXIT
 log "Docker Hub 로그인 (${DOCKERHUB_USER})"
 printf '%s' "$DOCKERHUB_PULL_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin >/dev/null
 
-# 설정 파일 → 그 파일을 쓰는 서비스. 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose가 다시 만들지 않으므로
-# 바뀐 서비스만 직접 다시 시작한다(LiveKit을 매번 다시 시작하면 진행 중인 면접이 끊기기 때문)
-declare -A CONFIG_SERVICE=(
-  [livekit.yaml]=a301-prod-livekit
-  [nginx.conf]=a301-prod-nginx
-  [prometheus.yml]=a301-prod-prometheus
-  [blackbox.yml]=a301-prod-blackbox
-  [loki.yml]=a301-prod-loki
-  [alloy.alloy]=a301-prod-alloy
-  [grafana]=a301-prod-grafana
-)
-checksum() {
-  # 파일이나 폴더 내용의 해시. 없으면 빈 문자열
-  if [ -e "$1" ]; then find "$1" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1; fi
-}
-
 log "배포 파일 복사 → ${PROD_DIR}"
-declare -A BEFORE=()
-for path in "${!CONFIG_SERVICE[@]}"; do BEFORE[$path]="$(checksum "${PROD_DIR}/${path}")"; done
 mkdir -p "$PROD_DIR"
-rsync -a --delete deploy/prod/ "${PROD_DIR}/"
-CHANGED=()
-for path in "${!CONFIG_SERVICE[@]}"; do
-  if [ -n "${BEFORE[$path]}" ] && [ "${BEFORE[$path]}" != "$(checksum "${PROD_DIR}/${path}")" ]; then
-    CHANGED+=("${CONFIG_SERVICE[$path]}")
-  fi
-done
+rsync -a --delete "${SRC_DIR}/" "${PROD_DIR}/"
 
 log "백업 준비"
 install -m 750 "${PROD_DIR}/backup.sh" "${BACKUP_HOME}/backup.sh"
@@ -88,11 +94,8 @@ log "이미지 받기 (${IMAGE_TAG})"
 "${COMPOSE[@]}" pull --quiet
 
 log "서비스 띄우기"
+# 이미지 · 환경 변수 · 설정 해시 라벨이 바뀐 서비스만 다시 만든다(compose가 Recreate로 출력한다)
 "${COMPOSE[@]}" up -d --remove-orphans
-if [ "${#CHANGED[@]}" -gt 0 ]; then
-  log "설정이 바뀐 서비스 다시 시작: ${CHANGED[*]}"
-  "${COMPOSE[@]}" restart "${CHANGED[@]}"
-fi
 
 log "상태 확인"
 EXPECTED="$("${COMPOSE[@]}" config --services | sort)"
