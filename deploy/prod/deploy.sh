@@ -9,7 +9,7 @@
 # 3. 체크아웃의 compose로 설정 검사 · pull. 여기까지 실패하면 서버는 예전 그대로다
 # 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
 # 5. 배포 파일을 /opt/a301/prod로 복사 → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
-# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소(Cloudflare Tunnel → Nginx → FE)
+# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana), 20초 동안 재시작 없음
 # 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
 set -euo pipefail
 
@@ -24,6 +24,9 @@ PROD_DIR="${PROD_DIR:-/opt/a301/prod}"
 BACKUP_HOME="/opt/a301"
 KEEP_IMAGES="${KEEP_IMAGES:-3}"
 PUBLIC_URL="${PUBLIC_URL:-https://hangguet.co.kr}"
+RTC_URL="${RTC_URL:-https://rtc.hangguet.co.kr}"
+GRAFANA_URL="${GRAFANA_URL:-https://grafana.hangguet.co.kr}"
+STABLE_WAIT="${STABLE_WAIT:-20}"
 COMPOSE=(docker compose -f "${PROD_DIR}/compose.yml")
 SRC_COMPOSE=(docker compose -f "${SRC_DIR}/compose.yml")
 
@@ -120,6 +123,16 @@ if [ "$healthy" -ne 1 ]; then
   fail "180초 안에 모든 서비스가 준비되지 않았습니다."
 fi
 
+# 재시작 반복 확인의 기준. healthcheck가 없는 서비스(livekit · egress · prometheus · loki · alloy · grafana · cloudflared · exporter 등)는
+# 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 위 확인이 running인 순간을 보면 통과한다.
+# 여기서 재시작 수를 적어 두고, 아래 HTTP 확인이 끝난 뒤 STABLE_WAIT초가 지났을 때 다시 본다(개발 모니터링 잡과 같은 확인)
+restart_counts() {
+  # <컨테이너> <실행 중> <재시작 수>
+  "${COMPOSE[@]}" ps -a -q | xargs -r docker inspect -f '{{.Name}} {{.State.Running}} {{.RestartCount}}' | sed 's#^/##' | sort
+}
+STABLE_FROM=$SECONDS
+BASELINE="$(restart_counts)"
+
 # 상태 확인 포트는 루프백에만 열려 있다(compose.yml)
 check_http() {
   local name="$1" url="$2"
@@ -134,20 +147,45 @@ check_http "BE" "http://127.0.0.1:18084/actuator/health" a301-prod-be
 check_http "FE" "http://127.0.0.1:18082/api/health" a301-prod-fe
 check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
-# 바깥 주소로 한 바퀴(Cloudflare → Tunnel → Nginx → FE). 터널 연결은 이 확인으로 본다.
+# 바깥 주소로 한 바퀴. Tunnel 호스트 이름 3개를 모두 본다(배포 계획 5.1). 터널 연결도 이 확인으로 본다.
 # cloudflared 로그의 「Registered tunnel connection」은 컨테이너를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고,
-# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 실패하면 cloudflared · Nginx 로그를 남긴다
-public_ok=0
-for _ in $(seq 1 60); do
-  if curl -fsS --max-time 10 "${PUBLIC_URL}/api/health" 2>/dev/null | grep -q '"UP"'; then public_ok=1; break; fi
-  sleep 2
-done
-if [ "$public_ok" -ne 1 ]; then
-  echo "---- a301-prod-cloudflared 로그"; docker logs --tail 40 a301-prod-cloudflared 2>&1 || true
-  echo "---- a301-prod-nginx 로그"; "${COMPOSE[@]}" logs --tail 40 a301-prod-nginx || true
-  fail "${PUBLIC_URL}/api/health가 UP이 아닙니다(터널 연결 · CLOUDFLARE_TUNNEL_TOKEN · Nginx 확인)."
+# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+# check_public <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
+check_public() {
+  local name="$1" url="$2" pattern="$3"
+  shift 3
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 10 "$url" 2>/dev/null | grep -Eq "$pattern"; then echo "OK: ${name} (${url})"; return 0; fi
+    sleep 2
+  done
+  for svc in a301-prod-cloudflared "$@"; do
+    echo "---- ${svc} 로그"; "${COMPOSE[@]}" logs --tail 40 "$svc" || true
+  done
+  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). 터널 연결 · CLOUDFLARE_TUNNEL_TOKEN · 해당 서비스를 확인하세요."
+}
+# 앱: Cloudflare → Tunnel → Nginx → FE
+check_public "바깥 주소" "${PUBLIC_URL}/api/health" '"UP"' a301-prod-nginx
+# 면접방 시그널링: 브라우저가 LiveKit에 붙는 경로. LiveKit은 /에 OK로 답한다
+check_public "LiveKit 바깥 주소" "${RTC_URL}/" '^OK$' a301-prod-livekit
+# 대시보드: 장애를 보려면 떠 있어야 한다
+check_public "Grafana 바깥 주소" "${GRAFANA_URL}/api/health" '"database": *"ok"' a301-prod-grafana
+
+log "재시작 반복 확인 (${STABLE_WAIT}초)"
+left=$((STABLE_WAIT - (SECONDS - STABLE_FROM)))
+if [ "$left" -gt 0 ]; then sleep "$left"; fi
+NOW="$(restart_counts)"
+# 기준과 달라졌거나(재시작 수 증가 · 멈춤) 지금 실행 중이 아닌 컨테이너
+unstable="$( { comm -13 <(echo "$BASELINE") <(echo "$NOW"); echo "$NOW" | awk '$2 != "true"'; } | awk '{ print $1 }' | sort -u)"
+if [ -n "$unstable" ]; then
+  echo "---- 컨테이너 상태(이름 · 실행 중 · 재시작 수)"
+  echo "기준: ${BASELINE//$'\n'/, }"
+  echo "지금: ${NOW//$'\n'/, }"
+  for name in $unstable; do
+    echo "---- ${name} 로그"; docker logs --tail 60 "$name" 2>&1 || true
+  done
+  fail "다시 시작을 반복하거나 멈춘 컨테이너가 있습니다: ${unstable//$'\n'/ } (설정 파일 · 환경 변수 확인)"
 fi
-echo "OK: ${PUBLIC_URL} (Cloudflare Tunnel · Nginx)"
+echo "OK: 모든 컨테이너가 ${STABLE_WAIT}초 넘게 재시작 없이 실행 중"
 
 log "이미지 정리 (서비스마다 최신 ${KEEP_IMAGES}개)"
 # docker image ls는 만든 시각이 최신인 것부터 보여 준다. 돌고 있는 컨테이너의 이미지는 docker rmi가 거부해 남는다

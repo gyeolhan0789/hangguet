@@ -62,8 +62,12 @@ develop → Release MR → master 병합
 6. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
    - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
    - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`
-   - 바깥 주소 `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE 한 바퀴, 120초). 터널 연결도 이것으로 본다. 실패하면 cloudflared · Nginx 로그를 남긴다
+   - 바깥 주소 3개(Tunnel 호스트 이름 전부, 각 120초). 터널 연결도 이것으로 본다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+     - `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE)
+     - `https://rtc.hangguet.co.kr/`가 `OK`(면접방 시그널링, LiveKit)
+     - `https://grafana.hangguet.co.kr/api/health`가 `"database": "ok"`(대시보드)
    - cloudflared 로그의 `Registered tunnel connection`은 기준으로 쓰지 않는다. cloudflared를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고, 로그가 회전되면 연결이 멀쩡해도 사라진다
+   - 재시작 반복: 위 healthy 확인 때 적어 둔 컨테이너별 재시작 수가 20초 뒤(HTTP 확인 시간 포함)에도 그대로이고 모두 실행 중이어야 한다. healthcheck가 없는 서비스(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보면 통과하기 때문이다(개발 모니터링 잡과 같은 확인)
 7. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
 
 서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`. 설정 해시가 필수라 `docker compose`를 직접 치지 않는다
