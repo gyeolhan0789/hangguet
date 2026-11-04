@@ -913,8 +913,10 @@ admin-deploy:
 # - master 병합(Release MR) → prod-build가 자동으로 이미지 4개(be · fe · ai · admin)를 빌드해 Docker Hub에 올립니다.
 #   태그: hanggeut/a301:<서비스>-<커밋 짧은 SHA>. AI 이미지 하나를 HTTP · 에이전트 · 분석 작업자가 같이 씁니다.
 # - prod-deploy는 ▶ 버튼으로 돕니다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어
-#   시점을 사람이 고릅니다. 하는 일은 deploy/prod/deploy.sh(로그인 → 파일 복사 → 백업 준비 → pull · up → 상태 확인 → 이미지 정리)
-# - 롤백: Deployments > Environments > prod/app에서 이전 배포를 Re-deploy 합니다(그 커밋의 이미지로 다시 띄움).
+#   시점을 사람이 고릅니다. 하는 일은 deploy/prod/deploy.sh
+#   (설정 해시 → 로그인 → 설정 검사 · pull → 백업 준비 → 파일 복사 · up → 상태 · 바깥 주소 · 재시작 확인 → 이미지 정리)
+# - 롤백: Deployments > Environments > prod/app에서 이전 배포를 Re-deploy 합니다(그 커밋의 이미지 · 설정 · deploy.sh로 다시 띄움).
+#   master 수동 실행(Run pipeline)은 workflow에서 막혀 있어 Re-deploy만 씁니다. 주의할 점은 deploy/prod/README.md 「배포」
 # - 비밀값은 CI/CD Variables(prod/* · All)에서 받습니다. Protected라 master 파이프라인에서만 읽힙니다.
 # - Docker Hub 로그인은 잡마다 임시 폴더에서 하고 끝나면 지웁니다. 계정 · 저장소 이름은 비밀이 아니라 여기에 적습니다.
 .prod:

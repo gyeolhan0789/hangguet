@@ -51,6 +51,8 @@ develop → Release MR → master 병합
 
 - 배포 시점을 사람이 고른다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있다
 - 롤백: GitLab Deployments > Environments > `prod/app`에서 이전 배포를 Re-deploy 한다. 그 커밋의 이미지 · `deploy/prod/` 설정 · `deploy.sh`로 다시 띄운다(이미지는 서버에 최근 3개, Docker Hub에 전부 있음). DB 스키마(Flyway)는 되돌아가지 않으므로, 그 사이에 마이그레이션이 있었으면 예전 BE가 뜨는지 먼저 확인한다
+  - master 수동 실행(Run pipeline)으로 `IMAGE_TAG`를 넘기는 방법은 쓸 수 없다. `workflow.rules`가 수동 실행을 develop에서만 만든다
+  - S15P31A301-391(설정 해시 · 순서 · 확인 보강) 이전 커밋으로 롤백하면 그 커밋의 예전 `deploy.sh`가 돈다. 예전 스크립트의 터널 확인(`docker logs | grep -q`)은 cloudflared가 오래 떠 있으면 SIGPIPE로 실패해, 컨테이너는 바뀌었는데 잡만 실패로 끝날 수 있다(아래 「배포」 6번). 이때는 서버에서 `docker ps --filter name=a301-prod`(compose 명령은 비밀값이 필요하다)로 이미지 태그 · 상태를 보고, 바깥 주소 3개로 직접 확인한다. 라벨이 사라져 7개 서비스가 다시 만들어지는 것도 같다(아래 「설정 파일 반영」)
 
 `deploy.sh`가 하는 일:
 
