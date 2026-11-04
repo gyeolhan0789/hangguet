@@ -124,7 +124,7 @@ class ResultIntegrationTest {
         User user = user("replay");
         InterviewSession session = completed(user, InterviewMode.VIDEO);
         String key = Recording.sessionVideoKey(session.getId());
-        em.persist(Recording.mergedSessionVideo(session));
+        em.persist(Recording.mergedSessionVideo(session, null));
         when(storage.presignDownload(key)).thenReturn("https://s3.test/video.mp4");
         em.flush();
         em.clear();

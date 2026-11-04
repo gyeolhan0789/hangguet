@@ -390,7 +390,8 @@ public class AiResultService {
     }
 
     // 합친 mp4는 면접마다 하나다. 화상 면접이 아니거나 이미 READY이면 버린다.
-    // MERGING 행이 없는 면접(V10 이전에 끝남)은 READY 행을 새로 만든다
+    // MERGING 행이 없는 면접(V10 이전에 끝남)은 READY 행을 새로 만든다.
+    // 영상 0초 시각(recordingStartedAt)은 READY로 바꿀 때 함께 저장하고, 이어 붙여 합쳤으면 null이다
     private Outcome recordingMerged(long sessionId, AiResultMessage message) {
         String objectKey = required(message.objectKey(), "objectKey");
         if (!objectKey.equals(Recording.sessionVideoKey(sessionId))) {
@@ -405,13 +406,15 @@ public class AiResultService {
                     }
                     Recording recording = recordings.findByObjectKey(objectKey).orElse(null);
                     if (recording == null) {
-                        recordings.save(Recording.mergedSessionVideo(session));
+                        recordings.save(
+                                Recording.mergedSessionVideo(
+                                        session, message.recordingStartedAt()));
                         return Outcome.SAVED;
                     }
                     if (recording.getStatus() == RecordingStatus.READY) {
                         return Outcome.DISCARDED;
                     }
-                    recording.markMerged();
+                    recording.markMerged(message.recordingStartedAt());
                     return Outcome.SAVED;
                 });
     }
