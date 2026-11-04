@@ -1,6 +1,6 @@
 import type { ReplayResponse, ResultResponse } from "@/types/api";
 
-// Swagger 6.3 · 6.4 200 예시(4번 질문 다시보기 타임라인 포함, S07 화상 면접 결과 · S07-1 화상 — 마커 00:42 · 03:10 · 06:12 · 10:05 · 14:30). S07 · S07-1 단위 테스트가 함께 쓴다.
+// Swagger 6.3 · 6.4 200 예시(4번 질문 다시보기 타임라인 포함, S07 화상 면접 결과 · S07-1 화상 — 마커 00:38 · 03:06 · 06:08 · 10:01 · 14:26). S07 · S07-1 단위 테스트가 함께 쓴다.
 
 /** 6.3 면접 결과 200 — Swagger 예시 'S07 화상 면접 결과' */
 export const RESULT = {
@@ -89,6 +89,7 @@ export const REPLAY = {
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
   startedAt: "2026-10-15T12:00:00+09:00",
+  recordingStartedAt: "2026-10-15T12:00:03.120+09:00",
   videoStatus: "READY",
   videoUrl: "https://…s3…/sessions/55/session.webm?X-Amz-Signature=…",
   items: [
