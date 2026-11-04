@@ -42,6 +42,7 @@ import java.util.Map;
  * @param headline evaluation.completed 결과 화면 맨 위의 한 줄 총평(30자 이내)
  * @param summary evaluation.completed 그날 이 면접까지를 반영한 다음에 해볼 것
  * @param objectKey recording.merged 합친 mp4 위치
+ * @param recordingStartedAt recording.merged 합친 영상의 0초에 해당하는 시각. 이어 붙여 합쳤으면 null(AI 명세 7장)
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record AiResultMessage(
@@ -71,7 +72,8 @@ public record AiResultMessage(
         SpeechMetrics speechMetrics,
         String headline,
         String summary,
-        String objectKey) {
+        String objectKey,
+        OffsetDateTime recordingStartedAt) {
 
     /** evaluation.completed 답변 하나. evaluation은 COVER_LETTER를 확정한 채점 결과 */
     @JsonIgnoreProperties(ignoreUnknown = true)

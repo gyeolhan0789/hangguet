@@ -55,6 +55,10 @@ public class Recording {
     @Column(name = "status", nullable = false, length = 10)
     private RecordingStatus status;
 
+    // 합친 녹화의 0초에 해당하는 시각(recording.merged). 이어 붙여 합쳤거나 V19 전에 합친 녹화는 null
+    @Column(name = "recording_started_at")
+    private OffsetDateTime recordingStartedAt;
+
     // 행을 만든 일시. 합친 녹화는 면접을 끝낸 일시다
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -86,8 +90,11 @@ public class Recording {
     }
 
     /** 합친 녹화가 이미 저장소에 있는 경우. V10 이전에 끝나 MERGING 행이 없는 면접의 recording.merged에 쓴다 */
-    public static Recording mergedSessionVideo(InterviewSession session) {
-        return sessionVideo(session, RecordingStatus.READY);
+    public static Recording mergedSessionVideo(
+            InterviewSession session, OffsetDateTime recordingStartedAt) {
+        Recording r = sessionVideo(session, RecordingStatus.READY);
+        r.recordingStartedAt = recordingStartedAt;
+        return r;
     }
 
     private static Recording sessionVideo(InterviewSession session, RecordingStatus status) {
@@ -99,9 +106,10 @@ public class Recording {
         return r;
     }
 
-    /** recording.merged. 파일이 올라왔으므로 앞서 실패로 기록했어도 READY로 변경한다 */
-    public void markMerged() {
+    /** recording.merged. 파일이 올라왔으므로 앞서 실패로 기록했어도 READY로 변경하고, 영상 0초 시각(null 가능)을 함께 저장한다 */
+    public void markMerged(OffsetDateTime recordingStartedAt) {
         this.status = RecordingStatus.READY;
+        this.recordingStartedAt = recordingStartedAt;
     }
 
     /** recording.mergeFailed. 이미 READY이면 파일이 있으므로 변경하지 않고 false */

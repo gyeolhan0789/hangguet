@@ -263,6 +263,66 @@ class AiEvaluationResultTest {
                 .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.READY));
     }
 
+    // 기준: AI 명세 7장 · BE 설계 처리 순서 11(READY로 바꿀 때 영상 0초 시각을 저장한다. 이어 붙여 합쳤으면 null)
+    @Test
+    void mergedRecordingKeepsRecordingStartedAt() {
+        InterviewSession merging = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(merging));
+        InterviewSession withoutRow = analyzing(InterviewMode.VIDEO, 1);
+        InterviewSession appended = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(appended));
+
+        assertThat(results.handle(merged(merging, "2026-11-04T10:00:03.250+09:00")))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(merged(withoutRow, "2026-11-04T10:00:04.500+09:00")))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(merged(appended, null))).isEqualTo(Outcome.SAVED);
+        // DB에 저장한 값을 읽는다
+        em.flush();
+        em.clear();
+
+        assertThat(sessionVideos(merging))
+                .singleElement()
+                .satisfies(
+                        r ->
+                                assertThat(r.getRecordingStartedAt())
+                                        .isAtSameInstantAs(
+                                                OffsetDateTime.parse(
+                                                        "2026-11-04T10:00:03.250+09:00")));
+        assertThat(sessionVideos(withoutRow))
+                .singleElement()
+                .satisfies(
+                        r ->
+                                assertThat(r.getRecordingStartedAt())
+                                        .isAtSameInstantAs(
+                                                OffsetDateTime.parse(
+                                                        "2026-11-04T10:00:04.500+09:00")));
+        assertThat(sessionVideos(appended))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getRecordingStartedAt()).isNull());
+    }
+
+    @Test
+    void mergedAgainAfterReadyKeepsFirstRecordingStartedAt() {
+        // 이미 READY이면 버리므로 늦게 온 같은 결과가 0초 시각을 바꾸지 않는다
+        InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+        em.persist(Recording.mergingSessionVideo(session));
+        results.handle(merged(session, "2026-11-04T10:00:03.250+09:00"));
+
+        assertThat(results.handle(merged(session, "2026-11-04T10:09:00.000+09:00")))
+                .isEqualTo(Outcome.DISCARDED);
+        em.flush();
+        em.clear();
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(
+                        r ->
+                                assertThat(r.getRecordingStartedAt())
+                                        .isAtSameInstantAs(
+                                                OffsetDateTime.parse(
+                                                        "2026-11-04T10:00:03.250+09:00")));
+    }
+
     @Test
     void mergeFailedChangesMergingToFailed() {
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
@@ -462,7 +522,18 @@ class AiEvaluationResultTest {
     }
 
     private static String merged(long sessionId, String objectKey) {
-        return json(
+        return json(mergedMessage(sessionId, objectKey));
+    }
+
+    private static String merged(InterviewSession session, String recordingStartedAt) {
+        Map<String, Object> message =
+                mergedMessage(session.getId(), Recording.sessionVideoKey(session.getId()));
+        message.put("recordingStartedAt", recordingStartedAt);
+        return json(message);
+    }
+
+    private static Map<String, Object> mergedMessage(long sessionId, String objectKey) {
+        return new LinkedHashMap<>(
                 Map.of(
                         "type",
                         "recording.merged",
