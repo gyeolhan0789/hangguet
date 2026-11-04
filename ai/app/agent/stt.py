@@ -22,6 +22,10 @@ from app.interview.realtime.transcript import Transcript, soniox_tokens
 log = logging.getLogger(__name__)
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
 SAMPLE_RATE = 16000
+# 지원자 음성을 이 길이씩 받아 보낸다. 10ms씩이면 조각마다 SDK와 파이썬을 오가는 비용으로
+# CPU를 더 쓴다(loadtest/report/agent-audio-2026-11-04.md).
+# Soniox 예제도 약 128ms(4096바이트)씩 보낸다
+CHUNK_MS = 100
 # audio_format pcm_s16le: 표본 하나가 2바이트(16비트)다
 BYTES_PER_SAMPLE = 2
 

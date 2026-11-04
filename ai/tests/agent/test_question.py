@@ -25,7 +25,8 @@ from app.common.session import InterviewMode, Persona
 
 STARTED_AT = datetime(2026, 10, 22, 14, 2, 18, 250000, tzinfo=KST)
 QUESTION = AssignedQuestion("질문", "기준")
-AUDIO = SpeechAudio(b"\x01\x00" * 600, (AlignedChar("질", 0, 10), AlignedChar("문", 10, 25)))
+# 250ms: 100ms 프레임 3개로 나뉜다
+AUDIO = SpeechAudio(b"\x01\x00" * 6000, (AlignedChar("질", 0, 10), AlignedChar("문", 10, 25)))
 ASSIGNMENT = Assignment(
     session_id=55,
     mode=InterviewMode.VIDEO,
@@ -63,10 +64,10 @@ def test_oversized_alignment_is_dropped_to_fit_rpc_limit() -> None:
     assert json.loads(payload)["alignment"] is None
 
 
-def test_pcm_is_split_into_10ms_frames_with_silent_padding() -> None:
-    frames = audio_frames(b"\x01\x00" * 300)  # 240 + 60 표본
-    assert [frame.samples_per_channel for frame in frames] == [240, 240]
-    assert bytes(frames[1].data)[120:] == b"\0" * 360
+def test_pcm_is_split_into_100ms_frames_with_silent_padding() -> None:
+    frames = audio_frames(b"\x01\x00" * 3000)  # 2400 + 600 표본
+    assert [frame.samples_per_channel for frame in frames] == [2400, 2400]
+    assert bytes(frames[1].data)[1200:] == b"\0" * 3600
 
 
 def speaker(

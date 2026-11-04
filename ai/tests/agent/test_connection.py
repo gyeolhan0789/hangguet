@@ -11,6 +11,7 @@ from livekit.agents import AutoSubscribe
 from app.agent.assignment import parse_assignment
 from app.agent.jev import JevJudge
 from app.agent.main import (
+    RoomCapture,
     accept_request,
     audio_chunks,
     entrypoint,
@@ -109,16 +110,42 @@ def test_only_selected_participants_microphone_is_subscribed() -> None:
             assert not closed.is_set()
 
         with (
-            patch("app.agent.main.rtc.AudioStream.from_participant", return_value=stream),
+            patch(
+                "app.agent.main.rtc.AudioStream.from_participant", return_value=stream
+            ) as streams,
             patch("app.agent.main.SonioxSTT") as factory,
         ):
             factory.return_value.run = AsyncMock(side_effect=recognizing)
             factory.return_value.transcript.final_count = 0
             await transcribe_participant(ctx, closed, SttSettings(api_key="test"))
+        # 음성은 16kHz · 모노를 100ms 조각으로 받는다
+        assert streams.call_args.kwargs["sample_rate"] == 16000
+        assert streams.call_args.kwargs["frame_size_ms"] == 100
         assert mic.set_subscribed.call_count == 2
         camera.set_subscribed.assert_not_called()
         stream.aclose.assert_awaited_once()
         assert ctx.room.off.call_count == 2
+
+    asyncio.run(run())
+
+
+def test_answer_capture_reads_candidate_mic_in_100ms_chunks() -> None:
+    async def run() -> None:
+        room = Mock(remote_participants={"candidate": Mock()})
+        stream = Mock(aclose=AsyncMock())
+        with (
+            patch(
+                "app.agent.main.rtc.AudioStream.from_participant", return_value=stream
+            ) as streams,
+            patch("app.agent.main.TranscriptPublisher"),
+            patch("app.agent.main.AnswerCapture") as capture,
+        ):
+            capture.return_value.run = AsyncMock(return_value="answer")
+            answer = await RoomCapture(room, "candidate", SttSettings("test"), Mock(), Mock()).run()
+        assert answer == "answer"
+        assert streams.call_args.kwargs["sample_rate"] == 16000
+        assert streams.call_args.kwargs["frame_size_ms"] == 100
+        stream.aclose.assert_awaited_once()
 
     asyncio.run(run())
 
