@@ -6,10 +6,13 @@ import { useEffect, useState } from "react";
 
 import { useOnline } from "@/components/use-online";
 
+import { hasDuckCall } from "@/lib/interview/duck-call";
 import { PERSONAS } from "@/lib/interview/personas";
 import { formatElapsed, TOTAL_QUESTIONS } from "@/lib/interview/questions";
 import { useInterviewStore } from "@/stores/interview-store";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
+
+import { DuckSoundCredit } from "./duck-sound-credit";
 
 // 기준: Figma S06 · S06-B 위 막대(18:2502 Persona Pill: 위 20 · 왼 24 · 반투명 rgba(14,16,22,.8) · blur 8 · 테두리 흰색 10%
 // · Mark 24(brand-strong · 둥글기 7 · flame 14) · 면접관 15 Bold 흰색 · '○○전자 백엔드' 15 Medium 흰색 60%)
@@ -48,18 +51,22 @@ export function TopBar({
   return (
     // 좁은 화면에서는 진행 표시가 두 번째 줄로 내려간다(Figma는 1440 폭 한 장뿐이다).
     <div className="relative z-10 flex flex-wrap items-start justify-between gap-3 px-4 pt-5 md:px-6">
-      <div className={`${pill} min-w-0 gap-2.5 px-4 py-2.5 ${uiHidden ? "invisible" : ""}`}>
-        {mark && (
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-brand-strong">
-            <Image src={mark} alt="" width={14} height={14} />
+      <div className={`flex min-w-0 flex-col items-start gap-2 ${uiHidden ? "invisible" : ""}`}>
+        <div className={`${pill} min-w-0 gap-2.5 px-4 py-2.5`}>
+          {mark && (
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-[7px] bg-brand-strong">
+              <Image src={mark} alt="" width={14} height={14} />
+            </span>
+          )}
+          <span className="text-[15px] leading-normal font-bold whitespace-nowrap text-white">
+            {persona?.name}
           </span>
-        )}
-        <span className="text-[15px] leading-normal font-bold whitespace-nowrap text-white">
-          {persona?.name}
-        </span>
-        <span className="hidden truncate text-[15px] leading-normal font-medium text-white/60 sm:inline">
-          {session.companyName} {session.jobTitle}
-        </span>
+          <span className="hidden truncate text-[15px] leading-normal font-medium text-white/60 sm:inline">
+            {session.companyName} {session.jobTitle}
+          </span>
+        </div>
+        {/* 오리 면접관 효과음(CC BY-SA 4.0) 출처 고지 */}
+        {hasDuckCall(session.persona) && <DuckSoundCredit />}
       </div>
 
       <div

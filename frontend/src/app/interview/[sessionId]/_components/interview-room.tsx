@@ -10,6 +10,7 @@ import { useInterviewRoom, type RoomPresentation } from "@/components/interview/
 import { useOnline } from "@/components/use-online";
 import { MaskIcon } from "@/components/mask-icon";
 import { endSession, retryPlan, startSession } from "@/lib/interview/actions";
+import { hasDuckCall, playDuckCall, preloadDuckCall } from "@/lib/interview/duck-call";
 import { gazeRatio } from "@/lib/interview/gaze";
 import { ROUTES } from "@/lib/routes";
 import { PERSONAS } from "@/lib/interview/personas";
@@ -18,7 +19,7 @@ import type { AnswerStateMessage } from "@/lib/interview/room-messages";
 import { interviewerBackdrop } from "@/lib/interviewer/models";
 import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
-import type { CurrentQuestion, SessionResponse } from "@/types/api";
+import type { CurrentQuestion, Persona, SessionResponse } from "@/types/api";
 
 import { AnalyzingView } from "./analyzing-view";
 import { AnswerCaption } from "./answer-caption";
@@ -224,6 +225,7 @@ export function InterviewRoom({
                   // 답변 5개가 저장된 것이 보여 끝내는 중(5.8)이면 BE가 방을 닫아도 끊김으로 보지 않는다(10초가 지나 끝내는 경우는 VideoInterview가 본다)
                   live={session.status === "IN_PROGRESS" && session.answeredCount < TOTAL_QUESTIONS}
                   sessionId={session.id}
+                  persona={session.persona}
                   interviewer={interviewer}
                   question={question}
                   answeredCount={session.answeredCount}
@@ -241,6 +243,7 @@ export function InterviewRoom({
                     <ChatLive
                       key={restart.count}
                       sessionId={session.id}
+                      persona={session.persona}
                       question={question}
                       interviewer={interviewer}
                       onPresentation={setPresentation}
@@ -360,6 +363,7 @@ function VideoInterview({
   startFailed,
   live,
   sessionId,
+  persona,
   interviewer,
   question,
   answeredCount,
@@ -372,12 +376,18 @@ function VideoInterview({
   /** 면접 중(5.2 IN_PROGRESS). 끝낸 뒤에는 BE가 면접방을 닫아 연결이 끊기므로 끊김으로 보지 않는다 */
   live: boolean;
   sessionId: number;
+  /** 오리 면접관이면 답변 제출이 시작될 때 호응 효과음을 낸다(API 명세 면접방 메시지) */
+  persona: Persona;
   interviewer: string;
   question: CurrentQuestion | null;
   answeredCount: number;
   onPresentation: (value: RoomPresentation | null) => void;
 }) {
   const router = useRouter();
+  const duckCall = hasDuckCall(persona);
+  useEffect(() => {
+    if (duckCall) preloadDuckCall();
+  }, [duckCall]);
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
   const { stream, level } = useInterviewMedia();
@@ -410,7 +420,10 @@ function VideoInterview({
   function onAnswerState(message: AnswerStateMessage) {
     if (question?.seq !== message.seq) return;
     setAnswerNotice(message);
-    if (message.state === "autoSubmitted") startSubmitting(question.id);
+    if (message.state === "autoSubmitted") {
+      startSubmitting(question.id);
+      if (duckCall) playDuckCall();
+    }
     if (message.state === "submitted") {
       setSubmittedSeq(message.seq);
       setCompletedSeq(message.seq);
@@ -446,12 +459,15 @@ function VideoInterview({
   const notice = answerNotice?.seq === (liveQuestion?.seq ?? question?.seq) ? answerNotice : null;
   const submissionFailed = notice?.state === "submitFailed";
 
-  async function submit() {
+  /** [답변 완료] · [다시 시도](retry). 오리 면접관은 [답변 완료]가 받아들여지면 호응 효과음을 낸다([다시 시도]는 내지 않는다) */
+  async function submit(retry = false) {
     if (!question || speechLocked || (liveQuestion && liveQuestion.seq !== question.seq)) return;
     setRequesting(true);
     const result = await stt.submitAnswer(question.seq);
     setRequesting(false);
-    if (result === "accepted") startSubmitting(question.id);
+    if (result !== "accepted") return;
+    startSubmitting(question.id);
+    if (duckCall && !retry) playDuckCall();
   }
 
   // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
@@ -518,7 +534,7 @@ function VideoInterview({
             message={noticeMessage}
             action={
               submissionFailed
-                ? { label: "다시 시도", onClick: () => void submit(), disabled: !canSubmit }
+                ? { label: "다시 시도", onClick: () => void submit(true), disabled: !canSubmit }
                 : undefined
             }
           />
@@ -598,11 +614,14 @@ function useFinishAfterLastAnswer(
  */
 function ChatLive({
   sessionId,
+  persona,
   question,
   interviewer,
   onPresentation,
 }: {
   sessionId: number;
+  /** 오리 면접관이면 [답변 완료]로 5.7을 요청할 때 호응 효과음을 낸다(API 명세 면접방 메시지) */
+  persona: Persona;
   question: CurrentQuestion | null;
   interviewer: string;
   onPresentation: (value: RoomPresentation | null) => void;
@@ -619,6 +638,10 @@ function ChatLive({
     onPresentation,
   });
   const [completedSeq, setCompletedSeq] = useState(0);
+  const duckCall = hasDuckCall(persona);
+  useEffect(() => {
+    if (duckCall) preloadDuckCall();
+  }, [duckCall]);
   const liveQuestion =
     message && message.seq > completedSeq && (!question || message.seq >= question.seq)
       ? message
@@ -702,6 +725,7 @@ function ChatLive({
         submissionLocked={submissionLocked}
         onChatInput={sendInput}
         inputQuestionSeq={inputQuestionSeq}
+        onSubmitStart={duckCall ? playDuckCall : undefined}
         onAnswered={(seq, content) => {
           setCompletedSeq(seq);
           void send(seq, content, 0);
