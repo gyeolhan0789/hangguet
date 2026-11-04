@@ -1,7 +1,7 @@
 {
   "uid": "a301-dev-logs",
   "title": "A301 개발 서버 로그",
-  "description": "a301-dev-* 컨테이너 로그(Loki, 3일 보관). 서비스를 고르고 검색어를 넣어 찾는다.",
+  "description": "Logs from a301-dev-* containers (Loki, kept 3 days). Pick a service and enter a search term.",
   "tags": ["a301", "logs"],
   "timezone": "browser",
   "editable": false,
@@ -14,16 +14,102 @@
       {
         "name": "service",
         "label": "서비스",
-        "type": "query",
-        "datasource": { "type": "loki", "uid": "a301-loki" },
-        "query": "label_values(service)",
-        "definition": "label_values(service)",
-        "refresh": 2,
-        "sort": 1,
+        "type": "custom",
+        "description": "Fixed list of a301-dev-* compose services. All also matches services not listed here",
+        "query": "a301-dev-be,a301-dev-fe,a301-dev-admin,a301-dev-ai,a301-dev-ai-agent,a301-dev-ai-analysis,a301-dev-ai-plan,a301-dev-ai-recording,a301-dev-postgres,a301-dev-redis,a301-dev-prometheus,a301-dev-blackbox,a301-dev-loki,a301-dev-alloy,a301-dev-grafana",
         "includeAll": true,
         "multi": true,
         "allValue": ".+",
-        "current": { "text": ["All"], "value": ["$__all"] }
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "a301-dev-be",
+            "value": "a301-dev-be",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-fe",
+            "value": "a301-dev-fe",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-admin",
+            "value": "a301-dev-admin",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai",
+            "value": "a301-dev-ai",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-agent",
+            "value": "a301-dev-ai-agent",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-analysis",
+            "value": "a301-dev-ai-analysis",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-plan",
+            "value": "a301-dev-ai-plan",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-recording",
+            "value": "a301-dev-ai-recording",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-postgres",
+            "value": "a301-dev-postgres",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-redis",
+            "value": "a301-dev-redis",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-prometheus",
+            "value": "a301-dev-prometheus",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-blackbox",
+            "value": "a301-dev-blackbox",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-loki",
+            "value": "a301-dev-loki",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-alloy",
+            "value": "a301-dev-alloy",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-grafana",
+            "value": "a301-dev-grafana",
+            "selected": false
+          }
+        ]
       },
       {
         "name": "search",
@@ -39,7 +125,7 @@
       "id": 1,
       "type": "timeseries",
       "title": "오류 · 예외 줄 수 (서비스별)",
-      "description": "error · exception · traceback이 들어간 줄 수. 언제부터 문제가 생겼는지 찾을 때 본다",
+      "description": "Lines containing error, exception or traceback. Use it to find when a problem started",
       "gridPos": { "h": 7, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "loki", "uid": "a301-loki" },
       "targets": [
@@ -60,11 +146,430 @@
       "options": { "legend": { "displayMode": "list", "placement": "right", "showLegend": true }, "tooltip": { "mode": "multi" } }
     },
     {
+      "id": 250,
+      "type": "row",
+      "title": "소요 시간 · 사용량 (로그에서 계산)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "panels": []
+    },
+    {
+      "id": 251,
+      "title": "에이전트 외부 호출 소요 시간 p95",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "quantile_over_time(0.95, {env=\"dev\", service=\"a301-dev-ai-agent\"} |~ `ms=\\d+` | regexp `(?P<call>Jev 인상 판단|Jev 판단|발화 중단 안내 음성 합성|질문 음성 합성|꼬리질문 생성)[^\"]*?ms=(?P<ms>\\d+)` | call != \"\" | unwrap ms | __error__=\"\" [$__interval]) by (call)",
+          "legendFormat": "{{call}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "description": "From the agent's ms= log lines: Jev reaction and impression, question and interruption TTS, follow-up question generation",
+      "interval": "1m"
+    },
+    {
+      "id": 252,
+      "title": "GMS 호출 소요 시간 p95 (서비스별)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "quantile_over_time(0.95, {env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 호출 (완료|실패) ms=` | regexp `GMS 호출 (?P<status>완료|실패) ms=(?P<ms>\\d+)` | unwrap ms | __error__=\"\" [$__interval]) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "description": "Includes retries. agent = follow-up questions, plan = question generation, analysis = scoring and results",
+      "interval": "1m"
+    },
+    {
+      "id": 253,
+      "title": "GMS 실패 · 재시도 후 성공 (건수)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "sum by (service) (count_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 호출 실패 ms=` [$__interval]))",
+          "legendFormat": "실패 {{service}}"
+        },
+        {
+          "refId": "B",
+          "queryType": "range",
+          "expr": "sum by (service) (count_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 호출 완료 ms=\\d+ attempts=([2-9]|\\d{2,})` [$__interval]))",
+          "legendFormat": "재시도 후 성공 {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 16
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 254,
+      "title": "분석 작업 처리 시간 p95 (작업 종류별)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "quantile_over_time(0.95, {env=\"dev\", service=~\"a301-dev-ai-(analysis|plan|recording)\"} |~ `작업 끝 jobType=` | regexp `작업 끝 jobType=(?P<jobType>\\S+) jobId=\\S+ result=(?P<result>\\S+) ms=(?P<ms>\\d+)` | unwrap ms | __error__=\"\" [$__interval]) by (jobType)",
+          "legendFormat": "{{jobType}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 16
+      },
+      "description": "From 'job end' lines of the three workers",
+      "interval": "1m"
+    },
+    {
+      "id": 255,
+      "title": "분석 작업 큐 대기 시간 p95 (작업 종류별)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "quantile_over_time(0.95, {env=\"dev\", service=~\"a301-dev-ai-(analysis|plan|recording)\"} |~ `작업 시작 jobType=` | regexp `작업 시작 jobType=(?P<jobType>\\S+) .*waitMs=(?P<waitMs>-?\\d+)` | unwrap waitMs | __error__=\"\" [$__interval]) by (jobType)",
+          "legendFormat": "{{jobType}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "description": "Time from the BE request until a worker picked the job up. BE waits up to its own limit from the request time",
+      "interval": "1m"
+    },
+    {
+      "id": 256,
+      "title": "분석 작업 결과 (건수)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "sum by (jobType, result) (count_over_time({env=\"dev\", service=~\"a301-dev-ai-(analysis|plan|recording)\"} |~ `작업 끝 jobType=` | regexp `작업 끝 jobType=(?P<jobType>\\S+) jobId=\\S+ result=(?P<result>\\S+)` [$__interval]))",
+          "legendFormat": "{{jobType}} {{result}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "interval": "1m"
+    },
+    {
+      "id": 257,
+      "title": "GMS 토큰 사용량 (서비스별)",
+      "type": "timeseries",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "sum by (service) (sum_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 사용량` | regexp `promptTokens=(?P<prompt>\\d+)` | unwrap prompt | __error__=\"\" [$__interval]))",
+          "legendFormat": "입력 {{service}}"
+        },
+        {
+          "refId": "B",
+          "queryType": "range",
+          "expr": "sum by (service) (sum_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 사용량` | regexp `completionTokens=(?P<completion>\\d+)` | unwrap completion | __error__=\"\" [$__interval]))",
+          "legendFormat": "출력 {{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "lineWidth": 1,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 8,
+        "y": 24
+      },
+      "description": "Logged only when the GMS response includes usage",
+      "interval": "1m"
+    },
+    {
+      "id": 258,
+      "title": "GMS 토큰 (선택 기간)",
+      "type": "stat",
+      "datasource": {
+        "type": "loki",
+        "uid": "a301-loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(sum_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 사용량` | regexp `promptTokens=(?P<prompt>\\d+)` | unwrap prompt | __error__=\"\" [$__range]))",
+          "legendFormat": "입력"
+        },
+        {
+          "refId": "B",
+          "queryType": "instant",
+          "expr": "sum(sum_over_time({env=\"dev\", service=~\"a301-dev-ai-(agent|plan|analysis|recording)\"} |~ `GMS 사용량` | regexp `completionTokens=(?P<completion>\\d+)` | unwrap completion | __error__=\"\" [$__range]))",
+          "legendFormat": "출력"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "입력 토큰"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "출력 토큰"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 20,
+        "y": 24
+      }
+    },
+    {
+      "id": 259,
+      "type": "row",
+      "title": "로그",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "panels": []
+    },
+    {
       "id": 2,
       "type": "logs",
       "title": "로그",
-      "description": "최근 로그가 위에 온다. 줄을 누르면 컨테이너 · 서비스 라벨을 볼 수 있다",
-      "gridPos": { "h": 24, "w": 24, "x": 0, "y": 7 },
+      "description": "Newest first. Click a line to see its container and service labels",
+      "gridPos": { "h": 24, "w": 24, "x": 0, "y": 33 },
       "datasource": { "type": "loki", "uid": "a301-loki" },
       "targets": [
         {
