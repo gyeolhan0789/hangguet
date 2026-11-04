@@ -28,7 +28,7 @@ from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.rejection import rejected_session_id, send_rejection
-from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
+from app.agent.stt import CHUNK_MS, SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
@@ -187,6 +187,7 @@ class RoomCapture:
             track_source=rtc.TrackSource.SOURCE_MICROPHONE,
             sample_rate=SAMPLE_RATE,
             num_channels=1,
+            frame_size_ms=CHUNK_MS,
         )
         chunks = audio_chunks(stream, self._stop)
         if self._impressions is not None:
@@ -468,6 +469,7 @@ async def transcribe_participant(
                 track_source=rtc.TrackSource.SOURCE_MICROPHONE,
                 sample_rate=SAMPLE_RATE,
                 num_channels=1,
+                frame_size_ms=CHUNK_MS,
             )
             cleanup.push_async_callback(stream.aclose)
             chunks = audio_chunks(stream, capture_closed)

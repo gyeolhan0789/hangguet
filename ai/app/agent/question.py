@@ -50,7 +50,10 @@ MAX_RPC_PAYLOAD_BYTES = 15 * 1024
 RPC_TIMEOUT = 3.0
 # AI 명세 6.5: 재시도 후에도 전송하지 못한 question.started를 다시 전송하는 간격(초)
 STARTED_RETRY_SECONDS = 4.0
-FRAME_MS = 10
+# 질문 음성을 이 길이씩 내보낸다. 10ms씩이면 조각마다 SDK와 파이썬을 오가는 비용으로
+# CPU를 더 쓴다(loadtest/report/agent-audio-2026-11-04.md).
+# 마지막 조각은 무음으로 채우므로 끝이 최대 이만큼 늦는다
+FRAME_MS = 100
 TRACK_NAME = "interviewer-voice"
 
 
@@ -101,7 +104,7 @@ def _dumps(message: dict[str, Any]) -> str:
 
 
 def audio_frames(pcm: bytes) -> list[rtc.AudioFrame]:
-    """24kHz·모노 PCM을 10ms 프레임으로 나눈다. 마지막 프레임은 무음으로 채운다."""
+    """24kHz·모노 PCM을 FRAME_MS 프레임으로 나눈다. 마지막 프레임은 무음으로 채운다."""
     samples = SAMPLE_RATE * FRAME_MS // 1000
     size = samples * BYTES_PER_SAMPLE
     frames = []

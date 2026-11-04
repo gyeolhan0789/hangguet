@@ -15,6 +15,7 @@
 | `media/make-media.ps1` | 브라우저 시나리오의 가짜 마이크 · 카메라 파일(`answer.wav` · `camera.y4m`, 커밋하지 않는다) |
 | `server/` | 테스트 서버 구성 · 접속 스크립트(에이전트 분리용 덮어쓰기 `compose.agent-split.yml` 포함) |
 | `agent/` | 에이전트 분리 · scale out: 시작 템플릿 user data, 인스턴스 역할 정책, 콘솔 작업 순서([agent/README.md](agent/README.md)) |
+| `agent-audio/` | 면접 에이전트 음성 처리 CPU를 로컬 LiveKit 방에서 재는 스크립트([보고서](report/agent-audio-2026-11-04.md)) |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
 | `results/` | k6 원본 출력 · 실패 화면 캡처(커밋하지 않는다) |
 
