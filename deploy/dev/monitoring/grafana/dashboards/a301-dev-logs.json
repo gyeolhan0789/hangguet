@@ -14,16 +14,102 @@
       {
         "name": "service",
         "label": "서비스",
-        "type": "query",
-        "datasource": { "type": "loki", "uid": "a301-loki" },
-        "query": "label_values(service)",
-        "definition": "label_values(service)",
-        "refresh": 2,
-        "sort": 1,
+        "type": "custom",
+        "description": "Fixed list of a301-dev-* compose services. All also matches services not listed here",
+        "query": "a301-dev-be,a301-dev-fe,a301-dev-admin,a301-dev-ai,a301-dev-ai-agent,a301-dev-ai-analysis,a301-dev-ai-plan,a301-dev-ai-recording,a301-dev-postgres,a301-dev-redis,a301-dev-prometheus,a301-dev-blackbox,a301-dev-loki,a301-dev-alloy,a301-dev-grafana",
         "includeAll": true,
         "multi": true,
         "allValue": ".+",
-        "current": { "text": ["All"], "value": ["$__all"] }
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "a301-dev-be",
+            "value": "a301-dev-be",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-fe",
+            "value": "a301-dev-fe",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-admin",
+            "value": "a301-dev-admin",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai",
+            "value": "a301-dev-ai",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-agent",
+            "value": "a301-dev-ai-agent",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-analysis",
+            "value": "a301-dev-ai-analysis",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-plan",
+            "value": "a301-dev-ai-plan",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-ai-recording",
+            "value": "a301-dev-ai-recording",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-postgres",
+            "value": "a301-dev-postgres",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-redis",
+            "value": "a301-dev-redis",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-prometheus",
+            "value": "a301-dev-prometheus",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-blackbox",
+            "value": "a301-dev-blackbox",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-loki",
+            "value": "a301-dev-loki",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-alloy",
+            "value": "a301-dev-alloy",
+            "selected": false
+          },
+          {
+            "text": "a301-dev-grafana",
+            "value": "a301-dev-grafana",
+            "selected": false
+          }
+        ]
       },
       {
         "name": "search",

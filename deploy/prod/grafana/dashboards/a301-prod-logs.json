@@ -20,15 +20,9 @@
       {
         "name": "service",
         "label": "서비스",
-        "type": "query",
-        "datasource": {
-          "type": "loki",
-          "uid": "a301-loki"
-        },
-        "query": "label_values(service)",
-        "definition": "label_values(service)",
-        "refresh": 2,
-        "sort": 1,
+        "type": "custom",
+        "description": "Fixed list of a301-prod-* compose services. All also matches services not listed here",
+        "query": "a301-prod-be,a301-prod-fe,a301-prod-admin,a301-prod-ai,a301-prod-ai-agent,a301-prod-ai-analysis,a301-prod-ai-plan,a301-prod-ai-recording,a301-prod-nginx,a301-prod-cloudflared,a301-prod-livekit,a301-prod-egress,a301-prod-postgres,a301-prod-redis,a301-prod-prometheus,a301-prod-blackbox,a301-prod-node-exporter,a301-prod-cadvisor,a301-prod-redis-exporter,a301-prod-postgres-exporter,a301-prod-loki,a301-prod-alloy,a301-prod-grafana",
         "includeAll": true,
         "multi": true,
         "allValue": ".+",
@@ -39,7 +33,129 @@
           "value": [
             "$__all"
           ]
-        }
+        },
+        "options": [
+          {
+            "text": "All",
+            "value": "$__all",
+            "selected": true
+          },
+          {
+            "text": "a301-prod-be",
+            "value": "a301-prod-be",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-fe",
+            "value": "a301-prod-fe",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-admin",
+            "value": "a301-prod-admin",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-ai",
+            "value": "a301-prod-ai",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-ai-agent",
+            "value": "a301-prod-ai-agent",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-ai-analysis",
+            "value": "a301-prod-ai-analysis",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-ai-plan",
+            "value": "a301-prod-ai-plan",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-ai-recording",
+            "value": "a301-prod-ai-recording",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-nginx",
+            "value": "a301-prod-nginx",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-cloudflared",
+            "value": "a301-prod-cloudflared",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-livekit",
+            "value": "a301-prod-livekit",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-egress",
+            "value": "a301-prod-egress",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-postgres",
+            "value": "a301-prod-postgres",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-redis",
+            "value": "a301-prod-redis",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-prometheus",
+            "value": "a301-prod-prometheus",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-blackbox",
+            "value": "a301-prod-blackbox",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-node-exporter",
+            "value": "a301-prod-node-exporter",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-cadvisor",
+            "value": "a301-prod-cadvisor",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-redis-exporter",
+            "value": "a301-prod-redis-exporter",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-postgres-exporter",
+            "value": "a301-prod-postgres-exporter",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-loki",
+            "value": "a301-prod-loki",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-alloy",
+            "value": "a301-prod-alloy",
+            "selected": false
+          },
+          {
+            "text": "a301-prod-grafana",
+            "value": "a301-prod-grafana",
+            "selected": false
+          }
+        ]
       },
       {
         "name": "level",
