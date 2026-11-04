@@ -24,6 +24,7 @@ from app.agent.main import (
     transcribe_room,
 )
 from app.agent.stt import SttSettings
+from app.common.results import ResultPublishError, ResultType
 from app.common.settings import load_settings
 
 
@@ -303,20 +304,61 @@ def test_request_with_valid_assignment_is_accepted() -> None:
 
 
 @pytest.mark.parametrize(
-    "metadata",
+    ("metadata", "room", "session_id"),
     [
-        pytest.param("{broken", id="not json"),
-        pytest.param(json.dumps({"sessionId": 55}), id="missing fields"),
+        pytest.param("{broken", "interview-55", 55, id="not json"),
+        pytest.param(json.dumps({"sessionId": 56}), "interview-55", 56, id="missing fields"),
+        pytest.param(json.dumps({"sessionId": True}), "interview-55", 55, id="bool session id"),
     ],
 )
-def test_request_with_malformed_assignment_is_rejected_without_joining(metadata: str) -> None:
-    # 틀린 배정 정보로는 질문을 진행할 수 없으므로 방에 들어가지 않고,
-    # 같은 배정 정보로 다른 작업자가 다시 받지 않게 한다
+def test_request_with_malformed_assignment_is_rejected_and_reported(
+    metadata: str, room: str, session_id: int
+) -> None:
+    """틀린 배정 정보로는 질문을 진행할 수 없으므로 방에 들어가지 않고,
+    같은 배정 정보로 다른 작업자가 다시 받지 않게 하며 BE가 시작 실패로 처리하도록 알린다.
+
+    면접 id는 배정 정보에서 읽고, 읽지 못하면 방 이름에서 읽는다(AI 명세 6.5).
+    """
     request = Mock(accept=AsyncMock(), reject=AsyncMock())
     request.job.metadata = metadata
-    asyncio.run(accept_request(request))
+    request.room.name = room
+    results = Mock()
+    asyncio.run(accept_request(request, results=lambda: results))
     request.reject.assert_awaited_once_with(terminate=True)
     request.accept.assert_not_awaited()
+    results.publish.assert_called_once_with(
+        ResultType.ASSIGNMENT_REJECTED, session_id, {"reason": "INVALID_ASSIGNMENT"}
+    )
+
+
+def test_rejection_without_session_id_is_not_reported() -> None:
+    """어느 면접인지 알 수 없으면 전송할 수 없으므로 배정만 거절한다."""
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = "{broken"
+    request.room.name = "test-room"
+    results = Mock()
+    asyncio.run(accept_request(request, results=lambda: results))
+    request.reject.assert_awaited_once_with(terminate=True)
+    results.publish.assert_not_called()
+
+
+def test_rejection_report_failure_does_not_raise() -> None:
+    """결과 큐 전송이 재시도 후에도 실패해도 배정 거절은 끝난다."""
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = "{broken"
+    request.room.name = "interview-55"
+    results = Mock()
+    results.publish.side_effect = ResultPublishError("결과 메시지 전송 4회 실패")
+    asyncio.run(accept_request(request, results=lambda: results))
+    request.reject.assert_awaited_once_with(terminate=True)
+
+
+def test_valid_request_does_not_create_result_publisher() -> None:
+    request = Mock(accept=AsyncMock(), reject=AsyncMock())
+    request.job.metadata = ASSIGNMENT_JSON
+    results = Mock()
+    asyncio.run(accept_request(request, results=results))
+    results.assert_not_called()
 
 
 def test_room_without_be_assignment_does_not_ask_questions() -> None:

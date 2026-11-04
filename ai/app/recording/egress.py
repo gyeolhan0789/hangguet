@@ -22,6 +22,7 @@ import aiohttp
 from google.protobuf.message import DecodeError
 from livekit import api
 
+from app.common.session import room_name
 from app.common.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -47,11 +48,6 @@ type TrackStarts = list[tuple[str, datetime]]
 
 class EgressLookupError(Exception):
     """LiveKit 녹화 목록을 조회하지 못했다."""
-
-
-def room_name(session_id: int) -> str:
-    """면접방 이름(AI 명세 6장 방 이름)."""
-    return f"interview-{session_id}"
 
 
 def finished_files(items: Sequence[api.EgressInfo]) -> TrackStarts | None:

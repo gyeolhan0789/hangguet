@@ -63,7 +63,7 @@ def test_question_started_has_spec_fields_and_millisecond_started_at() -> None:
     )
 
     # 필드는 AI 명세 6.2 question.started(seq, startedAt, content, criteria, 버전)와 같다.
-    # startedAt은 다시보기 기준이므로 같은 메시지의 occurredAt(초 단위)과 달리 밀리초까지 기록한다.
+    # startedAt은 다시보기 기준이므로 밀리초까지 기록한다.
     # 미리 만든 질문은 생성 버전이 없으므로 promptVersion·modelVersion이 null이다
     assert sent(redis) == [
         {
@@ -75,7 +75,7 @@ def test_question_started_has_spec_fields_and_millisecond_started_at() -> None:
             "criteria": "기준",
             "promptVersion": None,
             "modelVersion": None,
-            "occurredAt": "2026-10-22T14:03:12+09:00",
+            "occurredAt": "2026-10-22T14:03:12.000+09:00",
         }
     ]
 
@@ -146,7 +146,7 @@ def test_answer_completed_matches_spec_example_without_job_id() -> None:
                 "impressions": IMPRESSIONS,
             },
             "endReason": "AUTO_SUBMIT",
-            "occurredAt": "2026-10-22T14:03:12+09:00",
+            "occurredAt": "2026-10-22T14:03:12.000+09:00",
         }
     ]
 

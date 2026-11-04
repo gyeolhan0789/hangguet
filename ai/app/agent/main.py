@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import functools
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
@@ -26,12 +27,13 @@ from app.agent.jev import JevJudge
 from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
+from app.agent.rejection import rejected_session_id, send_rejection
 from app.agent.stt import SAMPLE_RATE, SonioxSTT, SttSettings
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
 from app.common.redis import create_redis
-from app.common.results import ResultPublisher
+from app.common.results import FailureReason, ResultPublisher
 from app.common.session import InterviewMode
 from app.common.settings import Settings, load_settings
 from app.interview.realtime.sentence import Sentence
@@ -50,8 +52,16 @@ CANDIDATE_IDENTITY = "candidate"
 STATE_RPC_TIMEOUT = 3.0
 
 
-async def accept_request(request: JobRequest) -> None:
-    """형식이 틀린 배정 정보로 온 배정은 방에 들어가기 전에 거절한다.
+@functools.cache
+def rejection_results() -> ResultPublisher:
+    """배정 거절을 전송하는 결과 전송기다. 거절할 때 처음 생성한다."""
+    return ResultPublisher(create_redis(load_settings(os.environ)))
+
+
+async def accept_request(
+    request: JobRequest, *, results: Callable[[], ResultPublisher] = rejection_results
+) -> None:
+    """형식이 틀린 배정 정보로 온 배정은 방에 들어가기 전에 거절하고 BE에 알린다.
 
     배정 정보가 있으면 BE가 연 실제 면접이고(AI 명세 6.1), 틀린 배정 정보로는 질문을 진행할 수 없다.
     방에 들어가 자막만 보내면 지원자는 오지 않을 질문을 기다리게 된다.
@@ -64,6 +74,8 @@ async def accept_request(request: JobRequest) -> None:
         except AssignmentError as e:
             log.error("배정 정보가 올바르지 않아 배정을 거절한다: %s", e)
             await request.reject(terminate=True)
+            session_id = rejected_session_id(metadata, request.room.name)
+            await send_rejection(results(), session_id, FailureReason.INVALID_ASSIGNMENT)
             return
     await request.accept(name=AGENT_IDENTITY, identity=AGENT_IDENTITY)
 

@@ -66,7 +66,7 @@ def common(result_type: str) -> dict[str, Any]:
         "type": result_type,
         "sessionId": 55,
         "jobId": JOB_ID,
-        "occurredAt": "2026-10-22T14:03:12+09:00",
+        "occurredAt": "2026-10-22T14:03:12.000+09:00",
     }
 
 

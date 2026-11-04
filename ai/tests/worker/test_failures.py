@@ -1,4 +1,4 @@
-from app.common.results import FAILED_RESULT_TYPES, ResultType
+from app.common.results import AGENT_RESULT_TYPES, FAILED_RESULT_TYPES, ResultType
 from app.worker.failures import FAILED_RESULT_OF_JOB
 from app.worker.messages import JobType
 
@@ -16,5 +16,6 @@ def test_failed_results_match_reason_check() -> None:
     """작업 실패 결과는 모두 전송기가 reason을 검사하는 종류여야 한다.
 
     빠지면 실패 결과가 reason 없이 전송돼 BE가 처리를 나누지 못한다.
+    배정 거절도 reason을 검사하지만 작업이 아니라 면접 에이전트의 결과이므로 제외한다.
     """
-    assert set(FAILED_RESULT_OF_JOB.values()) == FAILED_RESULT_TYPES
+    assert set(FAILED_RESULT_OF_JOB.values()) == FAILED_RESULT_TYPES - AGENT_RESULT_TYPES

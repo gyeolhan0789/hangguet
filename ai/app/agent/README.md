@@ -51,7 +51,7 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 ## 질문 음성(TTS)
 
 - 에이전트 참가자 이름은 AI 명세 6.1의 `interviewer`다.
-- BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문과 다음 질문을, 앞 질문의 합성이 끝난 뒤 하나씩 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다. 배정 정보 형식이 틀리면 방에 들어가지 않고 배정을 거절한다. AI 명세 6.5의 `assignment.rejected` 전송은 아직 구현하지 않았다.
+- BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문과 다음 질문을, 앞 질문의 합성이 끝난 뒤 하나씩 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다. 배정 정보 형식이 틀리면 방에 들어가지 않고 배정을 거절하며, BE가 면접을 시작 실패로 처리하도록 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송한다(AI 명세 6.5).
 - 질문 시작(`question.started`)과 화면 메시지(`interview.question`)는 AI 명세 6.2·6.3대로 전송한다. `question.started`는 음성 송출을 시작하는 시점(음성이 없으면 `failed`를 전송하기 직전)에 질문마다 한 번 별도 작업으로 전송하고, 음성은 마이크 트랙(`interviewer-voice`)으로 송출한다.
 - 질문 시작(`question.started`) 전송이 재시도 후에도 실패하면 AI 명세 6.5와 달리 오류 로그만 남긴다. 재전송은 아직 구현하지 않았다.
 
