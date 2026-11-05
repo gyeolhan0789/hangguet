@@ -306,6 +306,40 @@ test.describe("S07-1 면접 다시보기", () => {
     expect(Math.abs(time - 623.25)).toBeLessThan(2);
   });
 
+  // Next.js는 다른 화면으로 가도 이 화면을 없애지 않고 숨긴다(Preserving UI State). 숨겨도 영상은 저절로 멈추지 않는다.
+  test("화상: 재생 중에 헤더 [홈]으로 가면 숨겨진 다시보기 영상이 멈추고, 뒤로 돌아오면 멈춘 위치에 그대로 있다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+    await page.getByRole("button", { name: "재생", exact: true }).click();
+    const video = page.locator('video[aria-label="녹화 영상"]');
+    await expect(video).toHaveJSProperty("paused", false);
+
+    await page.getByRole("banner").getByRole("link", { name: "홈", exact: true }).click();
+
+    await expect(page).toHaveURL("/home");
+    // 숨겨진 채 남아 있는 영상이 멈춰 있다.
+    await expect(video).toBeHidden();
+    await expect(video).toHaveJSProperty("paused", true);
+    const stoppedAt = await video.evaluate((element: HTMLVideoElement) => element.currentTime);
+    expect(stoppedAt).toBeGreaterThan(0);
+
+    await page.goBack();
+
+    await expect(page).toHaveURL(S07_1);
+    await expect(video).toBeVisible();
+    await expect(video).toHaveJSProperty("currentTime", stoppedAt);
+    await expect(video).toHaveJSProperty("paused", true);
+  });
+
   test("'‹ 결과로'를 누르면 S07 피드백 결과로 돌아간다", async ({ page, msw }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/replay"), () =>

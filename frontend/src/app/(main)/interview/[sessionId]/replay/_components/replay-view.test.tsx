@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NO_ANSWER } from "@/lib/result/format";
@@ -285,6 +286,25 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       state.paused = true;
       fireEvent.pause(video);
       expect(screen.getByRole("button", { name: "재생" })).toBeDefined();
+    });
+
+    // Next.js는 다른 화면으로 가면 이 화면을 <Activity>로 숨긴다(Preserving UI State). 숨겨도 영상은 저절로 멈추지 않는다.
+    // 돌아왔을 때 보던 위치가 남는지는 실제 영상이 있어야 해서 E2E가 본다.
+    it("다른 화면으로 가 숨겨지면 영상을 멈춘다", () => {
+      const { rerender } = render(
+        <Activity mode="visible">
+          <ReplayView replay={REPLAY} />
+        </Activity>,
+      );
+      const { pause } = fakeVideo();
+
+      rerender(
+        <Activity mode="hidden">
+          <ReplayView replay={REPLAY} />
+        </Activity>,
+      );
+
+      expect(pause).toHaveBeenCalledTimes(1);
     });
 
     it("배속 칩은 누를 때마다 1x → 1.5x → 2x → 1x로 바꾼다", () => {
