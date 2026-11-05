@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from app.agent.answer_capture import AnswerCapture
-from app.agent.stt import SonioxSTT, SttError, SttSettings
+from app.agent.stt import SonioxSTT, SttError, SttSettings, SttState
+from app.common.answer import SttGap
 from app.common.results import KST
 from tests.interview.realtime.replay import FIRST_SENTENCE, FIXTURE, SECOND_SENTENCE
 
@@ -53,7 +54,7 @@ def capture(
     speeches: list[int] = []
     updates: list[tuple[str, str]] = []
     made = AnswerCapture(
-        lambda on_update: ReplaySTT(on_update, responses, fail_after=fail_after),
+        lambda on_update, _on_state: ReplaySTT(on_update, responses, fail_after=fail_after),
         on_speech=lambda: speeches.append(len(updates)),
         on_update=lambda confirmed, interim: updates.append((confirmed, interim)),
         clock=lambda: STARTED_AT,
@@ -118,7 +119,7 @@ def test_started_at_is_taken_when_listening_begins() -> None:
     """answerStartedAt은 음성 전송을 시작한 시각이다(답변을 마친 시각이 아님)."""
     times = iter([STARTED_AT, datetime(2026, 10, 26, 14, 3, 0, tzinfo=KST)])
     made = AnswerCapture(
-        lambda on_update: ReplaySTT(on_update, RESPONSES),
+        lambda on_update, _on_state: ReplaySTT(on_update, RESPONSES),
         on_speech=lambda: None,
         clock=lambda: next(times),
     )
@@ -131,7 +132,7 @@ def test_sentences_are_reported_with_answer_so_far() -> None:
     """실제 Soniox 응답에서 두 문장이 각각 끝 감지와 함께 문장 끝으로 판단된다."""
     sentences: list[tuple[str, float, str]] = []
     made = AnswerCapture(
-        lambda on_update: ReplaySTT(on_update, RESPONSES),
+        lambda on_update, _on_state: ReplaySTT(on_update, RESPONSES),
         on_speech=lambda: None,
         on_sentence=lambda sentence, answer: sentences.append(
             (sentence.text, sentence.pause_ms, answer)
@@ -144,3 +145,45 @@ def test_sentences_are_reported_with_answer_so_far() -> None:
         (SECOND_SENTENCE, f"{FIRST_SENTENCE} {SECOND_SENTENCE}"),
     ]
     assert all(pause >= 0 for _, pause, _ in sentences)
+
+
+class ReconnectingSTT(SonioxSTT):
+    """첫 연결에서 900ms까지 말한 뒤 끊기고, 2초 지점부터 새 연결로 이어 듣는 STT 대역.
+
+    새 연결의 Soniox 시각은 0부터 다시 시작한다.
+    """
+
+    def __init__(
+        self, on_update: Callable[[str, str], None], on_state: Callable[[SttState], None]
+    ) -> None:
+        super().__init__(SttSettings("test-key"), on_update=on_update, on_state=on_state)
+
+    async def run(self, audio: AsyncIterable[bytes]) -> None:
+        async for _chunk in audio:
+            pass
+        token = {"is_final": True, "start_ms": 0}
+        self.accept_response({"tokens": [{**token, "text": "앞", "end_ms": 900}]})
+        self._outage_start_ms = 900
+        self._notify(SttState.RECONNECTING)
+        self.transcript.begin_connection(2000)
+        self._reconnected(2000)
+        self.accept_response({"tokens": [{**token, "text": " 뒤", "end_ms": 300}]})
+
+
+def test_speech_after_reconnect_is_detected_and_gap_is_reported() -> None:
+    """새 연결의 토큰 끝 시각(300ms)이 이전 연결(900ms)보다 작아도 발화로 감지한다."""
+    speeches: list[int] = []
+    states: list[SttState] = []
+    made = AnswerCapture(
+        lambda on_update, on_state: ReconnectingSTT(on_update, on_state),
+        on_speech=lambda: speeches.append(len(speeches)),
+        on_stt_state=states.append,
+        clock=lambda: STARTED_AT,
+    )
+
+    answer = asyncio.run(made.run(chunks(1)))
+
+    assert len(speeches) == 2
+    assert states == [SttState.RECONNECTING, SttState.RECONNECTED]
+    assert answer.stt_gaps == (SttGap(900, 2000),)
+    assert answer.content == "앞 뒤"

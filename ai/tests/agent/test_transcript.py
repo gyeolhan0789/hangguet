@@ -82,3 +82,22 @@ def test_close_cancels_a_stuck_delivery_without_leaking_send_task() -> None:
         assert not [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
 
     asyncio.run(asyncio.wait_for(run(), timeout=2))
+
+
+def test_reconnected_resends_confirmed_text_without_interim() -> None:
+    """화면은 재연결 안내 중에 새 스냅샷을 수신하면 안내를 제거하므로 재연결 직후 바로 전송한다."""
+
+    async def run() -> None:
+        participant = Mock(send_text=AsyncMock())
+        publisher = TranscriptPublisher(participant, "candidate")
+        publisher.update("확정", " 끊기 전 미확정")
+        publisher.reconnected()
+        await publisher.aclose()
+        last = json.loads(participant.send_text.await_args.args[0])
+        assert (last["confirmedText"], last["interimText"], last["state"]) == (
+            "확정",
+            "",
+            "listening",
+        )
+
+    asyncio.run(asyncio.wait_for(run(), timeout=2))

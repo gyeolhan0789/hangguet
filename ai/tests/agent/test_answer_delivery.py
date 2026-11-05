@@ -10,7 +10,7 @@ import pytest
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.interview import FinishedAnswer
-from app.common.answer import SpeechToken, VoiceMetrics
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics
 from app.common.results import KST, ResultPublisher, ResultPublishError, ResultType
 from app.interview.realtime.impression import (
     IMPRESSION_CRITERIA,
@@ -57,9 +57,32 @@ def test_delivers_answer_completed_with_voice_metrics() -> None:
                 "trailingOffAtMs": [280],
                 "impressions": None,
             },
+            "sttGaps": None,
             "endReason": "MANUAL_SUBMIT",
         },
     )
+
+
+def test_stt_gaps_and_failure_reason_are_delivered() -> None:
+    results = Mock(spec=ResultPublisher)
+    answer = replace(finished().answer, stt_gaps=(SttGap(1200, 4800),))
+    asyncio.run(
+        AnswerDelivery(55, results, 16_000).deliver(FinishedAnswer(3, answer, EndReason.STT_FAILED))
+    )
+    fields = results.publish.call_args.args[2]
+    assert fields["sttGaps"] == [{"startMs": 1200, "endMs": 4800}]
+    assert fields["endReason"] == "STT_FAILED"
+
+
+def test_stt_failure_without_recognized_text_is_not_delivered() -> None:
+    """AI 명세 6.5: 다시 연결하지 못했고 인식된 글이 없으면 answer.completed를 전송하지 않는다."""
+    results = Mock(spec=ResultPublisher)
+    answer = replace(finished("").answer, stt_gaps=(SttGap(0, 9000),))
+    saved = asyncio.run(
+        AnswerDelivery(55, results, 16_000).deliver(FinishedAnswer(3, answer, EndReason.STT_FAILED))
+    )
+    assert not saved
+    results.publish.assert_not_called()
 
 
 def impression(face: float = 0.9) -> Impression:

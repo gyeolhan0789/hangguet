@@ -11,7 +11,7 @@ import pytest
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
-from app.common.answer import SpeechToken, VoiceMetrics
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics
 from app.common.results import KST, RESULT_QUEUE_KEY, ResultPublisher, ResultPublishError
 from app.interview.realtime.progress import (
     MAX_CONTENT_LENGTH,
@@ -127,6 +127,7 @@ def test_answer_completed_matches_spec_example_without_job_id() -> None:
         EndReason.AUTO_SUBMIT,
         trailing_off_at_ms=(9120,),
         impressions=IMPRESSIONS,
+        stt_gaps=(SttGap(21400, 23950),),
     ).publish(publisher(redis))
 
     # AI 명세 6.2 answer.completed 예시와 같다.
@@ -145,6 +146,7 @@ def test_answer_completed_matches_spec_example_without_job_id() -> None:
                 "trailingOffAtMs": [9120],
                 "impressions": IMPRESSIONS,
             },
+            "sttGaps": [{"startMs": 21400, "endMs": 23950}],
             "endReason": "AUTO_SUBMIT",
             "occurredAt": "2026-10-22T14:03:12.000+09:00",
         }
@@ -170,6 +172,24 @@ def test_real_soniox_answer_becomes_answer_completed() -> None:
     assert message.fields["content"] == f"{FIRST_SENTENCE} {SECOND_SENTENCE}"
     assert len(message.fields["tokens"]) == 48
     assert message.fields["endReason"] == "MANUAL_SUBMIT"
+    # 끊긴 적이 없으면 null이다(AI 명세 6.2)
+    assert message.fields["sttGaps"] is None
+
+
+def test_stt_failed_answer_is_reported_with_reason_and_gap() -> None:
+    message = answer_completed(
+        55,
+        2,
+        STARTED,
+        "인식된 앞부분",
+        None,
+        None,
+        EndReason.STT_FAILED,
+        stt_gaps=(SttGap(3000, 9400),),
+    )
+
+    assert message.fields["endReason"] == "STT_FAILED"
+    assert message.fields["sttGaps"] == [{"startMs": 3000, "endMs": 9400}]
 
 
 def test_answer_with_only_non_breaking_space_is_created_like_be() -> None:
