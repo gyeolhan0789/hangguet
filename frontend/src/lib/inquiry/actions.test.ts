@@ -7,11 +7,14 @@ import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
 const api = { get: vi.fn(), post: vi.fn() };
 vi.mock("@/lib/api/client", () => ({ api }));
 
+// 두 번째 인자(RedirectType)는 toHaveBeenCalledWith로 확인한다.
 class RedirectSignal extends Error {}
+const redirect = vi.fn<(url: string, type?: string) => never>((url) => {
+  throw new RedirectSignal(url);
+});
 vi.mock("next/navigation", () => ({
-  redirect: (url: string) => {
-    throw new RedirectSignal(url);
-  },
+  RedirectType: { push: "push", replace: "replace" },
+  redirect: (url: string, type?: string) => redirect(url, type),
   unstable_rethrow: (error: unknown) => {
     if (error instanceof RedirectSignal) throw error;
   },
@@ -67,11 +70,12 @@ beforeEach(() => {
 });
 
 describe("createInquiry (9.1 회원)", () => {
-  it("제목 · 내용만 보내고 만든 문의(I03)로 간다", async () => {
+  it("제목 · 내용만 보내고 만든 문의(I03)로 기록을 바꿔치기해 간다(뒤로 가기로 보낸 폼에 돌아가지 않게)", async () => {
     api.post.mockResolvedValue({ data: INQUIRY });
 
     await expect(createInquiry({ title: "제목", content: "내용" })).rejects.toThrow("/inquiries/7");
     expect(api.post).toHaveBeenCalledWith("/inquiries", { title: "제목", content: "내용" });
+    expect(redirect).toHaveBeenCalledWith("/inquiries/7", "replace");
   });
 
   it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
