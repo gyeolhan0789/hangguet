@@ -100,6 +100,40 @@ test.describe("S04 면접관 선택 · 고르기", () => {
     await expect(nextButton(page)).toBeEnabled();
   });
 
+  // 사용자 결정(2026-11-05): Next.js는 본 화면을 숨겨 두었다가 다시 보여 주므로(Activity) 새로 들어올 때마다 새로 그린다.
+  // 고른 면접관은 주소(persona)로만 미리 고른다.
+  test("면접관을 고른 뒤 [← 지원서 선택]으로 나갔다가 다시 들어오면 아무도 골라져 있지 않다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/applications"), () =>
+        HttpResponse.json({
+          content: [
+            {
+              id: APPLICATION.id,
+              companyName: APPLICATION.companyName,
+              jobTitle: APPLICATION.jobTitle,
+              createdAt: APPLICATION.createdAt,
+            },
+          ],
+          page: { size: 20, number: 0, totalElements: 1, totalPages: 1 },
+        }),
+      ),
+    );
+    await page.goto(S04);
+    await choose(page, "개발자 커피챗");
+    await expect(persona(page, "개발자 커피챗")).toBeChecked();
+    await page.getByRole("link", { name: "지원서 선택" }).click();
+    await expect(page).toHaveURL(S03_SELECTED);
+
+    await page.getByRole("button", { name: "다음: 면접관 선택" }).click();
+
+    await expect(page).toHaveURL(S04);
+    await expect(personaGroup(page).getByRole("radio", { checked: true })).toHaveCount(0);
+    await expect(nextButton(page)).toBeDisabled();
+  });
+
   test("다음 단계에서 돌아오면(주소에 persona) 고른 면접관이 그대로 골라져 있다", async ({
     page,
   }) => {
