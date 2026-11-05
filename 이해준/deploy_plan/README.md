@@ -495,7 +495,7 @@ develop → Release MR → master
 | Lightsail에 **protected** GitLab 러너(shell executor)를 둔다. master 파이프라인만 실행한다 | 아무 브랜치에서나 운영 서버 명령이 돌면 안 된다. 러너가 GitLab에 먼저 접속하므로 포트를 열 필요가 없다 |
 | 배포 작업은 `resource_group`(`prod-deploy`)으로 한 번에 하나만, 헬스 체크는 루프백 포트로 한다 **[결정]** | 배포가 겹치면 컨테이너 상태가 꼬인다. 헬스 체크 포트는 바깥에 열지 않는다 |
 | master 병합 시 **이미지 빌드는 자동, 운영 배포는 ▶ 버튼** **[결정]**(처음 안은 자동 배포) | 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어 시점을 사람이 고른다. 이미지를 미리 만들어 두어 버튼을 누르면 빨리 끝나고, 실패하면 배포만 다시 시도하기 쉽다. 안정되면 규칙 한 줄로 자동으로 바꿀 수 있다 |
-| 배포 파일은 `/opt/a301/prod`로 복사해 그 자리에서 compose를 실행한다. 설정 파일이 바뀐 서비스만 다시 시작한다 | 설정 파일 경로가 체크아웃 위치와 관계없이 같다. 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose가 다시 만들지 않는다. LiveKit을 매번 다시 시작하면 면접이 끊긴다 |
+| 배포 파일은 `/opt/a301/prod`로 복사해 그 자리에서 compose를 실행한다. 설정 파일 해시를 라벨(`a301.config-hash`)로 붙여, 설정이 바뀐 서비스만 `up -d`가 다시 만든다(개발 모니터링과 같은 방식) | 설정 파일 경로가 체크아웃 위치와 관계없이 같다. 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose가 다시 만들지 않는다. LiveKit을 매번 다시 시작하면 면접이 끊긴다. 비교 기준을 컨테이너 라벨로 두어 배포가 중간에 실패해도 다음 배포에서 맞춰지고, 이미지와 설정이 함께 바뀌어도 한 번만 다시 만든다 |
 
 ### 8.2 이미지 정리 **[결정]**
 
@@ -518,7 +518,9 @@ LiveKit · Egress · PostgreSQL · Redis · cloudflared · Prometheus · Grafana
 
 ### 8.3 롤백 **[제안]**
 
-- master에서 Run pipeline에 `IMAGE_TAG=<이전 커밋 SHA>`를 넘겨 배포 작업만 다시 돌린다
+- GitLab Deployments > Environments > `prod/app`에서 되돌릴 배포를 Re-deploy 한다. 그 커밋의 `prod-deploy`가 그 커밋의 이미지 · `deploy/prod/` 설정 · `deploy.sh`로 다시 돈다. 왜: 이미지 태그가 커밋 SHA라 Docker Hub에 모두 남아 있고, 설정까지 그 시점과 맞게 되돌아간다
+  - master에서 Run pipeline에 `IMAGE_TAG`를 넘기는 방법(처음 안)은 쓸 수 없다. `workflow.rules`가 수동 실행 파이프라인을 develop에서만 만든다
+  - S15P31A301-391 이전 커밋으로 되돌리면 예전 `deploy.sh`의 터널 확인이 SIGPIPE로 실패할 수 있다(14장). 컨테이너는 바뀌므로 잡 결과 대신 서버 상태 · 바깥 주소로 확인한다([`deploy/prod/README.md`](../../deploy/prod/README.md) 「배포」)
 - BE는 기동할 때 Flyway 마이그레이션을 적용하므로 DB는 되돌아가지 않는다. 마이그레이션은 이전 버전 코드와도 맞게(추가 먼저, 삭제는 나중에) 만든다. 왜: 그래야 이미지만 되돌려도 이전 코드가 새 DB에서 동작한다
 
 ## 9. 백업
@@ -677,3 +679,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | BE · 인프라 | 7 | BE의 브라우저용 LiveKit 주소 설정 이름을 `livekit.url` → `livekit.public-url`로 바꿈(hotfix, S15P31A301-285). 운영과 같이 두 주소를 다르게 넣는 재현 시험(`LiveKitInterviewRoomTest`) 추가. 환경 변수 이름(`LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL`)과 compose는 그대로 | 첫 운영 배포에서 면접방에 들어갈 수 없었다. Spring이 환경 변수 `LIVEKIT_URL`(내부 주소)을 같은 이름의 설정 `livekit.url`로 읽어 `application.yml`의 `LIVEKIT_PUBLIC_URL` 값을 덮어써서, 브라우저가 `ws://a301-prod-livekit:7880`으로 접속하려다 막혔다. 개발 서버는 두 값이 같아 드러나지 않았다. compose로 덮는 임시 우회 대신 설정 이름을 환경 변수와 겹치지 않게 바꿔, 두 주소가 다른 어느 환경에서도 다시 생기지 않게 했다 |
 | 인프라 | 3.2 | 운영 Grafana 상한 384m → 768m, `GOMEMLIMIT=512MiB` 추가. 3.2 합계 약 11.8GB → 12.2GB | 10/28 운영 Grafana가 프로세스 메모리 약 380MB로 상한에 걸려 두 번 강제 종료됐다(dmesg `Memory cgroup out of memory`). 다시 뜬 뒤에도 실행 파일(약 195MB)이 메모리에서 밀려나 디스크를 계속 다시 읽었다 |
 | 인프라 | 3.1 · 11 · 13 | CPU 기준치를 vCPU당 40%로 확인(Linux $84 플랜, 2026-10-21 생성), 13장에서 뺌 | AWS 문서의 플랜별 기준치 표와 서버 첫 부팅 날짜(`cloud-init.log`)로 확인했다. 2023-06-29 이전 서버면 22.5%라 생성 날짜까지 확인했다. 부하 테스트 서버(t3.xlarge)도 vCPU당 40%라 결과를 운영에 옮길 수 있다 |
+| 인프라 | 8.1 | 운영 설정 파일 반영을 「배포 전후 서버 파일 해시 비교 → 바뀐 서비스 `restart`」에서 「설정 해시 라벨 → `up -d`가 바뀐 서비스만 다시 만듦」으로 바꿈(S15P31A301-391). 해시 변수 `A301_*_CONFIG_HASH` 7개는 `deploy.sh`가 넣고 compose에서 필수. 부하 테스트 `.env.example`에 고정값 추가 | 이전 방식은 바뀐 서비스를 스크립트 변수로만 기억해, 파일 복사 뒤 배포가 실패하면 다음 배포에서 그 서비스를 다시 시작하지 않았다. 또 이미지와 설정이 함께 바뀌면 `up -d`로 다시 만든 뒤 `restart`로 한 번 더 내려 LiveKit이면 면접이 두 번 끊겼다. 개발 모니터링(S15P31A301-381)과 방식을 맞췄다. 이 방식 뒤 첫 배포와 이전 커밋으로의 롤백은 7개 서비스가 한 번 다시 만들어진다 |
+| 인프라 | 8.1 | 운영 `deploy.sh` 순서를 「복사 → 백업 준비 → 검사 · pull → up」에서 「검사 · pull(체크아웃의 compose) → 백업 준비 → 복사 → up」으로 바꿈. cloudflared 로그(`Registered tunnel connection`) 확인을 빼고 바깥 주소 확인(120초)으로 터널까지 보며, 실패하면 cloudflared · Nginx 로그를 남김(S15P31A301-391) | 복사 뒤 pull이 실패하면 서버에 새 설정 파일과 예전 컨테이너가 남아, 컨테이너가 재시작될 때 예전 이미지와 새 설정이 섞였다. cloudflared는 버전 고정이라 대부분의 배포에서 다시 만들지 않아, 로그 확인이 예전 기동 때 줄로 통과했고 로그가 회전되면 연결이 멀쩡해도 실패할 수 있었다. 실제로 10/29 무렵 `e9874c74` 배포가 이 확인에서 실패했다. 터널은 연결돼 있었고, `set -o pipefail`에서 `docker logs | grep -q`가 맨 앞의 기동 줄을 찾자마자 끝나 42시간치 로그를 쓰던 `docker logs`가 SIGPIPE(141)로 죽어 파이프 전체가 실패로 처리됐다(로그가 파이프 버퍼 약 64KB보다 길면 매번 실패, 로컬에서 재현). 앱 컨테이너는 이미 새 이미지로 떠 있었지만 바깥 주소 확인 · 이미지 정리가 돌지 않았고 GitLab에는 실패한 배포로 남았다. 로그에 보인 Grafana 연결 실패(ERR)는 10/28 Grafana 강제 종료 때 줄로 원인이 아니다 |
+| 인프라 | 8.3 | 롤백 방법을 「master Run pipeline에 `IMAGE_TAG` 넘기기」에서 「Environments `prod/app`에서 Re-deploy」로 고침. 391 이전 커밋으로 되돌릴 때 예전 `deploy.sh`의 터널 확인이 실패할 수 있음을 적음(S15P31A301-391) | `workflow.rules`가 수동 실행 파이프라인을 develop에서만 만들어 처음 안은 쓸 수 없었다. 운영 README · `.gitlab-ci.yml`은 이미 Re-deploy를 적고 있어 문서끼리 달랐다 |
+| 인프라 | 8.1 | 운영 배포 확인에 바깥 주소 `rtc.hangguet.co.kr`(LiveKit `OK`) · `grafana.hangguet.co.kr/api/health`를 더하고, healthy 확인 뒤 20초 동안 모든 컨테이너의 재시작 수가 그대로인지 보는 확인을 더함(S15P31A301-391) | healthcheck가 없는 서비스 12개(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보는 확인을 통과했다. 바깥 주소는 앱만 봐서 LiveKit이 요청을 받지 못해도 배포가 성공할 수 있었다. 설정 해시로 설정이 바뀐 서비스가 다시 만들어지므로, 설정 오류는 이 확인에서 드러나야 한다 |

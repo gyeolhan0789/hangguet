@@ -39,6 +39,7 @@ GitLab CI/CD Variables(배포 계획 7장). compose가 파일 전체를 읽으�
 - 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행), `JEV_API_KEY`(없으면 리액션 없이 진행), `KAKAO_CLIENT_ID` · `KAKAO_CLIENT_SECRET` · `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(없으면 그 소셜 로그인만 503, `KAKAO_CLIENT_ID`는 FE에도 넘긴다)
 - GMS 주소 · 모델(`LLM_CHAT_URL` · `LLM_MODEL`)은 비밀이 아니라 compose에 적었다(개발과 같은 값)
 - 배포 작업이 넣는 값: `IMAGE_TAG`(커밋 짧은 SHA, 필수), `DOCKERHUB_PULL_TOKEN`(범위 `prod/*`). 빌드 잡은 `DOCKERHUB_PUSH_TOKEN`
+- `deploy.sh`가 계산해 넣는 값: `A301_{NGINX,LIVEKIT,PROMETHEUS,BLACKBOX,LOKI,ALLOY,GRAFANA}_CONFIG_HASH`(필수, 아래 「배포」 1번). GitLab 변수에 두지 않는다
 
 ## 배포 (CI, `.gitlab-ci.yml`의 「운영 서버」)
 
@@ -49,26 +50,43 @@ develop → Release MR → master 병합
 ```
 
 - 배포 시점을 사람이 고른다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있다
-- 롤백: GitLab Deployments > Environments > `prod/app`에서 이전 배포를 Re-deploy 한다. 그 커밋의 이미지로 다시 띄운다(서버에 최근 3개, Docker Hub에 전부 있음)
+- 롤백: GitLab Deployments > Environments > `prod/app`에서 이전 배포를 Re-deploy 한다. 그 커밋의 이미지 · `deploy/prod/` 설정 · `deploy.sh`로 다시 띄운다(이미지는 서버에 최근 3개, Docker Hub에 전부 있음). DB 스키마(Flyway)는 되돌아가지 않으므로, 그 사이에 마이그레이션이 있었으면 예전 BE가 뜨는지 먼저 확인한다
+  - master 수동 실행(Run pipeline)으로 `IMAGE_TAG`를 넘기는 방법은 쓸 수 없다. `workflow.rules`가 수동 실행을 develop에서만 만든다
+  - S15P31A301-391(설정 해시 · 순서 · 확인 보강) 이전 커밋으로 롤백하면 그 커밋의 예전 `deploy.sh`가 돈다. 예전 스크립트의 터널 확인(`docker logs | grep -q`)은 cloudflared가 오래 떠 있으면 SIGPIPE로 실패해, 컨테이너는 바뀌었는데 잡만 실패로 끝날 수 있다(아래 「배포」 6번). 이때는 서버에서 `docker ps --filter name=a301-prod`(compose 명령은 비밀값이 필요하다)로 이미지 태그 · 상태를 보고, 바깥 주소 3개로 직접 확인한다. 라벨이 사라져 7개 서비스가 다시 만들어지는 것도 같다(아래 「설정 파일 반영」)
 
 `deploy.sh`가 하는 일:
 
-1. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로 하고, 끝나면 성공 · 실패와 관계없이 로그아웃하고 지운다
-2. 배포 파일 복사: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 설정 파일(`livekit.yaml` · `nginx.conf` · `prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)이 바뀐 서비스는 기억해 둔다
-3. 백업 준비: `backup.sh`를 `/opt/a301/backup.sh`로 복사하고, `/opt/a301/backup.env`(권한 600)에 S3 키를 쓴다
-4. `pull` → `up -d --remove-orphans`. 설정 파일만 바뀐 서비스는 다시 시작한다(파일 하나를 붙인 컨테이너는 compose가 다시 만들지 않으므로). 바뀌지 않았으면 LiveKit을 다시 시작하지 않는다
-5. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
+1. 설정 해시: 설정 파일(`nginx.conf` · `livekit.yaml` · `prometheus.yml` · `blackbox.yml` · `loki.yml` · `alloy.alloy` · `grafana/`)마다 내용 해시를 `A301_*_CONFIG_HASH`로 넘긴다. compose가 이 값을 그 서비스의 라벨 `a301.config-hash`로 붙인다
+2. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로 하고, 끝나면 성공 · 실패와 관계없이 로그아웃하고 지운다
+3. 설정 검사 · 이미지 받기: 체크아웃의 `deploy/prod/compose.yml`로 `config --quiet` → `pull`. 서버의 배포 파일은 아직 바꾸지 않으므로, 여기서 실패하면 설정 파일 · 컨테이너가 모두 예전 그대로 남는다(먼저 복사해 두면 예전 컨테이너가 재시작될 때 새 설정 파일을 읽어 예전 이미지와 섞인다)
+4. 백업 준비: `backup.sh`를 `/opt/a301/backup.sh`로 복사하고, `/opt/a301/backup.env`(권한 600)에 S3 키를 쓴다
+5. 배포 파일 복사 → `up -d --remove-orphans`: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다. 설정이 그대로면 LiveKit을 다시 띄우지 않는다
+6. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
    - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
    - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`
-   - Cloudflare Tunnel 연결(`Registered tunnel connection`)
-   - 바깥 주소 `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE 한 바퀴)
-6. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
+   - 바깥 주소 3개(Tunnel 호스트 이름 전부, 각 120초). 터널 연결도 이것으로 본다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+     - `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE)
+     - `https://rtc.hangguet.co.kr/`가 `OK`(면접방 시그널링, LiveKit)
+     - `https://grafana.hangguet.co.kr/api/health`가 `"database": "ok"`(대시보드)
+   - cloudflared 로그의 `Registered tunnel connection`은 기준으로 쓰지 않는다. cloudflared를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고, 로그가 회전되면 연결이 멀쩡해도 사라진다. 또 `pipefail`에서 `docker logs | grep -q`는 로그가 길면(약 64KB 이상) 줄을 찾고도 `docker logs`가 SIGPIPE로 죽어 실패로 판정된다. 10/29 무렵 배포가 터널이 멀쩡한데 이것으로 실패했다(배포 계획 14장)
+   - 재시작 반복: 위 healthy 확인 때 적어 둔 컨테이너별 재시작 수가 20초 뒤(HTTP 확인 시간 포함)에도 그대로이고 모두 실행 중이어야 한다. healthcheck가 없는 서비스(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보면 통과하기 때문이다(개발 모니터링 잡과 같은 확인)
+7. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
 
-서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`
+서버에서 직접 돌릴 때(비밀값을 환경 변수로 넣은 뒤, 레포 루트에서): `IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh`. 설정 해시가 필수라 `docker compose`를 직접 치지 않는다
+
+### 설정 파일 반영(설정 해시)
+
+설정 파일만 바뀌면 compose 설정은 그대로라 `up -d`가 컨테이너를 그대로 두고, 프로세스는 기동할 때 읽은 예전 설정을 계속 쓴다. 그래서 파일 내용 해시를 라벨로 붙여, 해시가 바뀐 서비스만 `up -d`가 다시 만들게 한다(개발 서버 [`deploy/dev/monitoring`](../dev/monitoring/README.md)과 같은 방식).
+
+- 비교 기준이 실행 중인 컨테이너의 라벨이라, 배포가 중간에 실패해도 다음 배포에서 맞춰진다. 이미지 버전과 설정을 함께 바꿔도 한 번만 다시 만든다
+- 다시 만들어도 데이터는 볼륨(`prometheus-data` · `loki-data` · `alloy-data` · `grafana-data`)에 있어 남는다. 이전 컨테이너의 `docker logs`는 사라지므로 Loki에서 본다
+- 해시에는 `deploy/prod/` 기준 파일 경로도 들어간다. 계산 방식(`deploy.sh`의 `config_hash`)이나 파일 이름을 바꾸면 내용이 같아도 그 서비스가 다시 만들어진다
+- **라벨이 처음 붙는 배포**(이 방식으로 바꾼 뒤 첫 배포)와 **이 방식 이전 커밋으로 롤백하는 배포**는 라벨이 생기거나 사라져 7개 서비스(LiveKit · Nginx 포함)가 한 번 다시 만들어진다. 진행 중인 면접이 끊기므로 대시보드에서 면접방이 0인지 보고 누른다
+- LiveKit에 기대는 Egress, Loki · Prometheus에 기대는 Alloy · Grafana는 함께 다시 시작될 수 있다
 
 ## 대시보드
 
-https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(배포 계획 3.3). 대시보드는 `grafana/dashboards/` 파일에서 자동 등록되고 화면에서는 고칠 수 없다. 파일을 고쳐 배포하면 Grafana가 다시 시작되며 반영된다.
+https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(배포 계획 3.3). 대시보드는 `grafana/dashboards/` 파일에서 자동 등록되고 화면에서는 고칠 수 없다. 파일을 고쳐 배포하면 설정 해시가 바뀌어 Grafana가 다시 만들어지며 반영된다.
 
 **A301 운영 서버**(지표, 30초마다 새로 고침). 위에서부터 줄(row) 단위로 본다.
 
