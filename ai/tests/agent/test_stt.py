@@ -385,7 +385,7 @@ def test_reconnects_drops_audio_meanwhile_and_continues_timing() -> None:
     asyncio.run(run())
 
 
-def test_no_response_while_sending_audio_reconnects() -> None:
+def test_no_response_while_sending_audio_reconnects(caplog: pytest.LogCaptureFixture) -> None:
     """음성을 전송했는데 응답이 없으면 연결이 멈춘 것으로 간주한다."""
 
     async def run() -> None:
@@ -408,12 +408,22 @@ def test_no_response_while_sending_audio_reconnects() -> None:
             pytest.raises(SttError) as error,
         ):
             await asyncio.wait_for(stt.run(audio()), timeout=2)
-        assert "응답 없음" in str(error.value.__cause__)
+        assert str(error.value.__cause__) == "no_response"
         assert states == [SttState.RECONNECTING]
         assert len(stt.gaps) == 1
         assert silent.exited
 
-    asyncio.run(run())
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    # 음성은 전송했으나 응답이 없었다(Soniox 무응답)
+    assert record["levelno"] == logging.WARNING
+    assert (record["result"], record["responses"], record["failures"]) == (
+        "reconnect_failed",
+        0,
+        ["no_response"],
+    )
+    assert record["sent_ms"] > 0
 
 
 def test_no_audio_is_not_counted_as_no_response() -> None:
@@ -630,3 +640,170 @@ def test_interim_text_is_kept_when_closed_before_final_response() -> None:
         assert stt.transcript.content() == "마지막 말"
 
     asyncio.run(run())
+
+
+def summary(caplog: pytest.LogCaptureFixture) -> dict[str, Any]:
+    """답변이 끝날 때 남기는 요약 로그 한 줄의 필드."""
+    [record] = [r for r in caplog.records if r.getMessage().startswith("Soniox STT 답변 종료")]
+    return vars(record)
+
+
+def test_summary_log_reports_audio_read_sent_and_responses(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """답변이 끝나면 읽은·전송한 음성 길이와 응답 수를 요약 로그에 남긴다."""
+
+    async def run() -> None:
+        ws = answering_socket("말")
+
+        async def audio() -> AsyncIterator[bytes]:
+            for _ in range(3):
+                yield CHUNK
+
+        stt = SonioxSTT(SttSettings("secret"))
+        with patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    assert record["levelno"] == logging.INFO
+    assert record["result"] == "completed"
+    # 음성 조각 3개(각 100ms)를 모두 전송했고, 조각마다 한 번과 종료 응답 한 번을 수신했다
+    assert (record["audio_ms"], record["sent_ms"], record["responses"]) == (300, 300, 4)
+    assert record["final_tokens"] == 4
+    assert (record["reconnects"], record["gap_ms"], record["failures"]) == (0, 0, [])
+    assert record["first_audio_ms"] is not None
+    assert record["first_response_ms"] is not None
+    assert "error" not in record
+
+
+def test_reconnect_reasons_are_classified(caplog: pytest.LogCaptureFixture) -> None:
+    """같은 끊김이라도 Soniox 오류 응답·서버의 연결 종료·연결 실패를 구분해 남긴다."""
+
+    async def run() -> None:
+        rejecting = FakeWebSocket()
+
+        async def error_reply(_chunk: bytes) -> None:
+            rejecting.messages.put_nowait(
+                Mock(
+                    type=aiohttp.WSMsgType.TEXT,
+                    json=Mock(return_value={"error_code": 503, "error_message": "busy"}),
+                )
+            )
+
+        rejecting.send_bytes = AsyncMock(side_effect=error_reply)
+        closing = FakeWebSocket()
+        closing.messages.put_nowait(None)
+        refused = AsyncMock()
+        refused.__aenter__.side_effect = aiohttp.ClientConnectionError("refused")
+        healthy = answering_socket("뒤")
+        states: list[SttState] = []
+
+        async def audio() -> AsyncIterator[bytes]:
+            while SttState.RECONNECTED not in states:
+                yield CHUNK
+                await asyncio.sleep(0.01)
+
+        stt = SonioxSTT(
+            SttSettings("secret"), on_state=states.append, reconnect_delays=(0.0, 0.0, 0.0)
+        )
+        sessions = [*contexts(rejecting, closing), refused, *contexts(healthy)]
+        with patch("app.agent.stt.aiohttp.ClientSession", side_effect=sessions):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    reconnects = [vars(r) for r in caplog.records if hasattr(r, "reason")]
+    assert [(r["reason"], r["detail"]) for r in reconnects] == [
+        ("soniox_error", "code=503"),
+        ("closed", ""),
+        ("connect_failed", "ClientConnectionError"),
+    ]
+    record = summary(caplog)
+    assert record["result"] == "completed"
+    assert record["failures"] == ["soniox_error", "closed", "connect_failed"]
+    assert record["reconnects"] == 3
+
+
+def test_send_failure_is_classified(caplog: pytest.LogCaptureFixture) -> None:
+    async def run() -> None:
+        ws = FakeWebSocket()
+        ws.send_bytes = AsyncMock(side_effect=aiohttp.ClientConnectionError("reset"))
+
+        async def audio() -> AsyncIterator[bytes]:
+            while True:
+                yield CHUNK
+                await asyncio.sleep(0.01)
+
+        stt = SonioxSTT(SttSettings("secret"), reconnect_delays=())
+        with (
+            patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)),
+            pytest.raises(SttError),
+        ):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    assert (record["result"], record["failures"], record["sent_ms"]) == (
+        "reconnect_failed",
+        ["send_failed"],
+        0,
+    )
+
+
+def test_audio_failure_is_reported_apart_from_stt_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """지원자 음성을 읽지 못한 실패는 Soniox 실패와 구분한다."""
+
+    async def run() -> None:
+        ws = answering_socket("말")
+
+        async def audio() -> AsyncIterator[bytes]:
+            yield CHUNK
+            await asyncio.sleep(0.05)
+            raise RuntimeError("track ended")
+
+        stt = SonioxSTT(SttSettings("secret"))
+        with (
+            patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)),
+            pytest.raises(RuntimeError),
+        ):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    assert record["levelno"] == logging.WARNING
+    assert (record["result"], record["error"], record["audio_ms"]) == (
+        "audio_failed",
+        "RuntimeError",
+        100,
+    )
+
+
+def test_cancelled_listening_is_not_reported_as_failure(caplog: pytest.LogCaptureFixture) -> None:
+    """듣기를 취소하면 경고가 아닌 INFO로 남긴다."""
+
+    async def run() -> None:
+        ws = answering_socket("말")
+        opened_event = asyncio.Event()
+
+        async def audio() -> AsyncIterator[bytes]:
+            yield CHUNK
+            await asyncio.Event().wait()
+
+        stt = SonioxSTT(SttSettings("secret"))
+        with patch("app.agent.stt.aiohttp.ClientSession", side_effect=[opened(ws, opened_event)]):
+            task = asyncio.create_task(stt.run(audio()))
+            await opened_event.wait()
+            await asyncio.sleep(0.05)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    assert (record["levelno"], record["result"]) == (logging.INFO, "cancelled")
