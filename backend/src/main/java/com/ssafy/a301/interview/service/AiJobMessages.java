@@ -159,7 +159,8 @@ public class AiJobMessages {
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }
 
-    // seq·question·criteria·content와 화상이면 tokens·speech. speech는 채점에 쓰는 지표 2개만 보낸다(AI 명세 3장).
+    // seq·question·criteria·content와 화상이면 tokens·speech·sttGaps(AI 명세 3 · 4장).
+    // speech는 채점에 쓰는 지표 2개만 보낸다. sttGaps는 끊긴 적이 있을 때만 담는다.
     // 질문 글·채점 기준은 실제로 출제한 질문 행의 값이다(꼬리질문은 플랜과 다르다, AI 명세 2.2)
     private static Map<String, Object> answerContent(Answer answer) {
         InterviewQuestion question = answer.getQuestion();
@@ -173,6 +174,9 @@ public class AiJobMessages {
         }
         if (answer.getSpeech() != null) {
             content.put("speech", answer.getSpeech().metrics());
+        }
+        if (answer.getSttGaps() != null) {
+            content.put("sttGaps", answer.getSttGaps());
         }
         return content;
     }

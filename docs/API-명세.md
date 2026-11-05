@@ -1,7 +1,7 @@
 # A301 API 명세
 
 > API별 요청·응답 형식과 예시는 백엔드 Swagger에서 본다(1.x~9.x 모두 구현). 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
-> 그룹 면접은 10.1~10.6만 구현해 Swagger에 있다. 10.7~10.11과 6.5는 아직 구현 전이라 Swagger에 없고, 구현할 때까지 이 문서가 요청·응답 기준이다. 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
+> 그룹 면접은 10.1~10.7만 구현해 Swagger에 있다. 10.8~10.11과 6.5는 아직 구현 전이라 Swagger에 없고, 구현할 때까지 이 문서가 요청·응답 기준이다. 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
 >
 > - Swagger: https://hangguet.yobistory.com/be/docs (로컬: `backend/`에서 `./gradlew bootRun` → http://localhost:8080/docs). 목 서버 https://hangguet.yobistory.com/mock/be/docs 는 같은 계약의 예시 응답만 준다
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
@@ -121,7 +121,7 @@
 | 10.4 | 그룹 조회 | `GET /interview-groups/{groupId}` | 그룹 면접 대기실·진행 |
 | 10.5 | 준비·준비 취소 | `PUT /interview-groups/{groupId}/ready` | 그룹 면접 대기실 |
 | 10.6 | 그룹 나가기 | `DELETE /interview-groups/{groupId}/participants/me` | 그룹 면접 대기실 |
-| 10.7 | 그룹 면접 시작 **[예정]** | `POST /interview-groups/{groupId}/start` | 그룹 면접 대기실 |
+| 10.7 | 그룹 면접 시작 | `POST /interview-groups/{groupId}/start` | 그룹 면접 대기실 |
 | 10.8 | 답변 시간 연장 **[예정]** | `POST /interview-groups/{groupId}/turn/extend` | 그룹 화상 면접 |
 | 10.9 | 작성 중인 답변 저장 **[예정]** | `PUT /interview-sessions/{sessionId}/questions/{questionId}/draft` | 그룹 채팅 면접 |
 
@@ -934,7 +934,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 ### 10. 그룹 면접
 
-초대한 지원자 2~3명이 AI 면접관 1명과 같은 면접방에서 차례로 답한다. 참가자마다 개인 면접(5장의 면접)이 하나씩 생기고 그룹이 그 면접들을 묶는다. 답변·결과·다시보기·연습 기록은 지금처럼 면접마다 따로이고, 결과는 본인만 본다. 설계 배경과 BE 처리는 [그룹 면접 설계](그룹면접-설계.md). 10.1~10.6은 구현했고, 10.7~10.11은 **[예정]**이다(Swagger에 없음).
+초대한 지원자 2~3명이 AI 면접관 1명과 같은 면접방에서 차례로 답한다. 참가자마다 개인 면접(5장의 면접)이 하나씩 생기고 그룹이 그 면접들을 묶는다. 답변·결과·다시보기·연습 기록은 지금처럼 면접마다 따로이고, 결과는 본인만 본다. 설계 배경과 BE 처리는 [그룹 면접 설계](그룹면접-설계.md). 10.1~10.7은 구현했고, 10.8~10.11은 **[예정]**이다(Swagger에 없음). 10.10 중 5.4 · 5.14는 구현했고, 10.11 면접방 정보는 시작할 때의 첫 차례까지 담는다(차례 전환은 **[예정]**).
 
 **그룹 상태** `status`: `WAITING`(대기실) → (10.7) `IN_PROGRESS` → (모든 참가자 면접 종료) `ENDED`. 대기실에서 모두 나가거나 만든 지 1시간(임시 값)이 지나면 `CANCELLED`. 시작 뒤 첫 질문 전에 AI 면접관을 연결하지 못하면 `START_FAILED`이고 방장이 다시 시작(10.7)한다.
 
@@ -965,7 +965,8 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `hostUserId` | 지금 방장 |
 | `mySessionId` | 내 면접 id. 5.2·5.3·5.8·5.14·6.x에 쓴다 |
 | `participants[]` | `userId` · `nickname` · `profileImageUrl` · `jobCategory` · `sessionId` · `planStatus` · `ready` · `turnOrder`(시작 전 null) · `state`(`WAITING` · `PRESENT` · `ABSENT` · `DONE` · `ENDED`) |
-| `turn` | 진행 중이면 면접방 정보(10.11)와 같은 차례 정보, 그 밖에는 null. 10.7과 함께 추가한다 **[예정]** |
+| `turn` | 진행 중이면 면접방 정보(10.11)와 같은 형식, 그 밖에는 null |
+| `room` | 방장의 면접방 입장 정보(5.14와 같은 형식). 10.7 응답에만 있고 그 밖에는 null |
 
 #### 10.1 그룹 만들기
 
@@ -1026,7 +1027,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **404 / GROUP_NOT_FOUND**
 - **409 / INVALID_GROUP_STATE**: 진행 중이거나 끝남
 
-#### 10.7 그룹 면접 시작 **[예정]**
+#### 10.7 그룹 면접 시작
 
 방장만 부른다. 처음에는 인원이 정원과 같고 모두 준비했으며 모든 참가자의 질문 생성이 끝나야 한다. `START_FAILED`에서 다시 시작할 때는 남은 인원이 2명 이상이면 된다. 참가자 면접을 모두 `IN_PROGRESS`로 바꾸고 면접방을 연다(5.4와 같은 방식).
 
@@ -1129,10 +1130,10 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `KAKAO_UNAVAILABLE` | 503 | 2.9 |
 | `APPLICATION_NOT_FOUND` | 404 | 4.2·4.5·4.6·5.1 |
 | `SESSION_NOT_FOUND` · `QUESTION_NOT_FOUND` | 404 | 5.x·6.x (`QUESTION_NOT_FOUND`는 5.7) |
-| `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8 |
+| `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8, 10.1, 10.3, 10.7 |
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
-| `ROOM_UNAVAILABLE` | 503 | 5.4 |
+| `ROOM_UNAVAILABLE` | 503 | 5.4, 10.7 |
 | `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
@@ -1145,11 +1146,11 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INQUIRY_CLOSED` | 409 | 9.4, 9.8 |
 | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
 | `RECORDING_NOT_FAILED` · `RETRY_LIMIT_EXCEEDED` | 409 | 6.5 **[예정]** |
-| `GROUP_NOT_FOUND` | 404 | 10.2~10.6, 10.7 · 10.8 **[예정]** |
+| `GROUP_NOT_FOUND` | 404 | 10.2~10.7, 10.8 **[예정]** |
 | `GROUP_FULL` · `ALREADY_IN_GROUP` | 409 | 10.3(`ALREADY_IN_GROUP`는 10.1도) |
-| `INVALID_GROUP_STATE` | 409 | 10.5 · 10.6, 10.7 **[예정]** |
-| `GROUP_NOT_READY` | 409 | 10.7 **[예정]** |
-| `NOT_GROUP_HOST` | 403 | 10.7 **[예정]** |
+| `INVALID_GROUP_STATE` | 409 | 10.5~10.7 |
+| `GROUP_NOT_READY` | 409 | 10.7 |
+| `NOT_GROUP_HOST` | 403 | 10.7 |
 | `EXTEND_NOT_ALLOWED` | 409 | 10.8 **[예정]** |
 | `QUESTION_CLOSED` | 409 | 5.7(그룹), 10.9 **[예정]** |
 | `GROUP_SESSION` | 409 | 5.4(그룹 면접) |

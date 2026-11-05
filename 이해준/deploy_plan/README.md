@@ -460,6 +460,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | 계정 `hanggeut` · 저장소 `hanggeut/a301` | X | 빌드 · 배포 작업. 비밀이 아니라 GitLab 변수가 아니라 `.gitlab-ci.yml`에 적는다 |
 | `LLM_CHAT_URL` · `LLM_MODEL` | X | AI 분석 작업자. compose에 적는다(개발 · 운영 같은 값, `gpt-4.1-mini`는 AI에 등록된 모델) |
 | `SONIOX_STT_MODEL` | X | AI 에이전트. 현재 기본값 `stt-rt-v5` |
+| `AGENT_IDLE_PROCESSES` | X | AI 에이전트가 미리 실행해 두는 프로세스 수(선택, 0 이상의 정수). 없으면 CPU 수(지금 서버 4). 개발과 다른 값을 쓰려고 범위 `prod/*` · `dev/*`로 따로 등록한다. 정수가 아니면 에이전트가 뜨지 않는다 |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |
 
@@ -469,6 +470,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 |---|---|---|
 | `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | O | LiveKit Cloud 프로젝트에서 발급한 키 |
 | `SONIOX_API_KEY` | O | `dev/*` 범위에서 `dev/ai-agent`에 전달. 없으면 에이전트 배포 잡이 실패한다 |
+| `AGENT_IDLE_PROCESSES` | X | 선택. 개발 에이전트가 미리 실행해 두는 프로세스 수. 없으면 미니PC CPU 수 |
 | `LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL` | X | `wss://a301-dev-gdbmpfm5.livekit.cloud` (브라우저 · 서버 모두 이 주소). 비밀이 아니라 `deploy/dev/compose.yml`에 적는다 |
 
 ## 8. 빌드 · 배포 (CI/CD)

@@ -2,8 +2,16 @@ package com.ssafy.a301.group;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -14,12 +22,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.group.repository.GroupPresenceStore;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
+import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
@@ -29,6 +41,7 @@ import com.ssafy.a301.interview.service.InvalidAiResultException;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -41,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -86,6 +100,12 @@ class InterviewGroupIntegrationTest {
 
     @AfterEach
     void cleanup() {
+        for (long id : userIds) {
+            // 그룹의 현재 차례가 면접을 가리키므로 면접보다 먼저 푼다
+            jdbc.update(
+                    "UPDATE interview_groups SET turn_session_id = NULL WHERE host_user_id = ?",
+                    id);
+        }
         for (long id : userIds) {
             String sessionsOfUser = "SELECT id FROM interview_sessions WHERE user_id = " + id;
             jdbc.update("DELETE FROM interview_group_participants WHERE user_id = ?", id);
@@ -510,6 +530,281 @@ class InterviewGroupIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].field").value("capacity"));
         mvc.perform(createRequest(host, newApplication(host), 1))
                 .andExpect(status().isBadRequest());
+    }
+
+    // 기준: API 명세 10.7 · 10.10(5.14) · 10.11, AI 명세 6.7, docs/그룹면접-설계.md 6.2
+    @Test
+    void startOpensOneRoomForAllSessionsWithFirstTurn() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        long hostSession = group.sessionIds().get(0);
+        long guestSession = group.sessionIds().get(1);
+        when(rooms.issueGroupAccess(anyLong(), anyLong(), anyBoolean()))
+                .thenReturn(new RoomResponse("wss://rtc.test", "token", OffsetDateTime.now()));
+
+        JsonNode started =
+                read(
+                        mvc.perform(startRequest(group.host(), group.groupId()))
+                                .andExpect(status().isOk())
+                                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                                .andExpect(jsonPath("$.inviteCode").doesNotExist())
+                                .andExpect(jsonPath("$.room.token").value("token"))
+                                .andExpect(jsonPath("$.turn.turnVersion").value(1))
+                                .andExpect(jsonPath("$.turn.groupStatus").value("IN_PROGRESS"))
+                                .andExpect(jsonPath("$.turn.round").value(1))
+                                .andExpect(jsonPath("$.turn.phase").value("ASKING"))
+                                .andExpect(jsonPath("$.turn.turn.seq").value(1))
+                                .andExpect(jsonPath("$.turn.turn.kind").value("COMMON"))
+                                .andExpect(jsonPath("$.turn.turn.baseIndex").value(1))
+                                .andExpect(jsonPath("$.turn.turn.announce").value("FULL"))
+                                .andExpect(jsonPath("$.turn.turn.deadlineAt").doesNotExist())
+                                .andExpect(jsonPath("$.turn.turn.followupsLeft").value(2))
+                                .andExpect(jsonPath("$.turn.participants.length()").value(2))
+                                .andExpect(jsonPath("$.participants[0].state").value("PRESENT")));
+        // 답변 순서는 1 · 2를 하나씩 나눠 갖고, 첫 차례는 1번이다
+        JsonNode turn = started.path("turn");
+        long first = turn.path("turn").path("sessionId").asLong();
+        assertThat(turn.path("participants").get(0).path("turnOrder").asInt()).isEqualTo(1);
+        assertThat(turn.path("participants").get(0).path("sessionId").asLong()).isEqualTo(first);
+        assertThat(turn.path("upcoming").get(0).asLong())
+                .isEqualTo(first == hostSession ? guestSession : hostSession);
+        assertThat(sessions.findById(hostSession).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+        assertThat(sessions.findById(guestSession).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+
+        // 방 하나에 에이전트 하나. 공통 질문 2개와 참가자별 개인 질문 2개를 답변 순서대로 넘긴다
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> assignment = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<String> metadata = ArgumentCaptor.forClass(String.class);
+        verify(rooms)
+                .openGroup(eq(group.groupId()), eq(true), assignment.capture(), metadata.capture());
+        verify(rooms, never()).open(anyLong(), anyBoolean(), anyMap());
+        JsonNode dispatched = json.valueToTree(assignment.getValue());
+        assertThat(dispatched.path("kind").asString()).isEqualTo("GROUP");
+        assertThat(dispatched.path("groupId").asLong()).isEqualTo(group.groupId());
+        assertThat(dispatched.path("commonQuestions").size()).isEqualTo(2);
+        assertThat(dispatched.path("commonQuestions").get(0).path("content").asString())
+                .contains("자기소개");
+        JsonNode firstParticipant = dispatched.path("participants").get(0);
+        assertThat(firstParticipant.path("sessionId").asLong()).isEqualTo(first);
+        assertThat(firstParticipant.path("identity").asString()).isEqualTo("candidate-" + first);
+        assertThat(firstParticipant.path("personalQuestions").size()).isEqualTo(2);
+        assertThat(firstParticipant.path("personalQuestions").get(0).path("content").asString())
+                .isEqualTo("질문1");
+        // 면접방 정보는 응답의 turn과 같은 형식이다
+        JsonNode roomInfo = json.readTree(metadata.getValue());
+        assertThat(roomInfo.path("turnVersion").asInt()).isEqualTo(1);
+        assertThat(roomInfo.path("turn").path("sessionId").asLong()).isEqualTo(first);
+        assertThat(roomInfo.path("serverTime").isString()).isTrue();
+        verify(rooms).issueGroupAccess(group.groupId(), hostSession, true);
+
+        // 다른 참가자는 10.4로 시작을 보고 5.14로 같은 방의 자기 입장 정보를 받는다
+        mvc.perform(as(group.guests().get(0), get("/api/v1/interview-groups/" + group.groupId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.turn.turnVersion").value(1));
+        mvc.perform(
+                        as(
+                                group.guests().get(0),
+                                post("/api/v1/interview-sessions/" + guestSession + "/room-token")))
+                .andExpect(status().isOk());
+        verify(rooms).issueGroupAccess(group.groupId(), guestSession, true);
+        verify(rooms, never()).issueAccess(anyLong(), anyBoolean());
+
+        // 두 번 시작하지 않는다
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+    }
+
+    @Test
+    void startNeedsHostFullGroupReadyParticipantsAndPlans() throws Exception {
+        long host = newUser("방장");
+        JsonNode group = create(host, 3);
+        long groupId = group.path("groupId").asLong();
+        long guest = newUser("손님");
+        join(guest, group.path("inviteCode").asString());
+
+        mvc.perform(startRequest(guest, groupId))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_GROUP_HOST"));
+        mvc.perform(startRequest(newUser("남"), groupId))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+        // 정원 3명 중 2명
+        mvc.perform(startRequest(host, groupId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_READY"));
+
+        long third = newUser("셋째");
+        join(third, group.path("inviteCode").asString());
+        for (long user : List.of(host, guest, third)) {
+            mvc.perform(readyRequest(user, groupId, true)).andExpect(status().isOk());
+        }
+        // 모두 준비했지만 질문 생성 중
+        mvc.perform(startRequest(host, groupId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_READY"));
+        for (long sessionId : sessionIds(groupId)) {
+            results.handle(planCompleted(sessionId, 2));
+        }
+        // 한 명이 준비를 취소함
+        mvc.perform(readyRequest(third, groupId, false)).andExpect(status().isOk());
+        mvc.perform(startRequest(host, groupId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("GROUP_NOT_READY"));
+        assertThat(groupStatus(groupId)).isEqualTo("WAITING");
+        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+    }
+
+    @Test
+    void roomFailureLeavesGroupAndSessionsAsBefore() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        doThrow(new ApiException(ErrorCode.ROOM_UNAVAILABLE))
+                .when(rooms)
+                .openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("ROOM_UNAVAILABLE"));
+
+        assertThat(groupStatus(group.groupId())).isEqualTo("WAITING");
+        for (long sessionId : group.sessionIds()) {
+            assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                    .isEqualTo(SessionStatus.READY);
+        }
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM interview_group_participants WHERE group_id"
+                                        + " = ? AND turn_order IS NOT NULL",
+                                Long.class,
+                                group.groupId()))
+                .isZero();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT common_questions IS NULL FROM interview_groups WHERE id"
+                                        + " = ?",
+                                Boolean.class,
+                                group.groupId()))
+                .isTrue();
+    }
+
+    @Test
+    void startFailingAfterRoomOpenedClosesRoom() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        // 방은 열었는데 입장 정보를 만들다 실패해 시작이 되돌려진다
+        when(rooms.issueGroupAccess(anyLong(), anyLong(), anyBoolean()))
+                .thenThrow(new IllegalStateException("입장 토큰 서명 실패"));
+
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isInternalServerError());
+
+        verify(rooms).closeGroup(group.groupId());
+        assertThat(groupStatus(group.groupId())).isEqualTo("WAITING");
+    }
+
+    @Test
+    void restartAfterStartFailureKeepsOrderAndCommonQuestions() throws Exception {
+        ReadyGroup group = readyGroup(3);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        String commonQuestions = commonQuestionsOf(group.groupId());
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        // 에이전트가 배정을 거절했다고 본다(배정 거절 처리는 진행 구현에서 더한다)
+        jdbc.update(
+                "UPDATE interview_groups SET status = 'START_FAILED' WHERE id = ?",
+                group.groupId());
+        jdbc.update(
+                "UPDATE interview_sessions SET status = 'START_FAILED' WHERE group_id = ?",
+                group.groupId());
+        // 방장이 아닌 사람 중 답변 순서가 앞선 사람이 나간다
+        long hostSession = group.sessionIds().get(0);
+        long leaving = order.stream().filter(id -> id != hostSession).findFirst().orElseThrow();
+        long leavingUser =
+                jdbc.queryForObject(
+                        "SELECT user_id FROM interview_sessions WHERE id = ?", Long.class, leaving);
+        mvc.perform(
+                        as(
+                                leavingUser,
+                                delete(
+                                        "/api/v1/interview-groups/"
+                                                + group.groupId()
+                                                + "/participants/me")))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.turn.turnVersion").value(2))
+                .andExpect(jsonPath("$.turn.participants.length()").value(2));
+
+        // 남은 사람끼리 이전 순서대로 1 · 2. 공통 질문은 그대로
+        List<Long> remaining = new ArrayList<>(order);
+        remaining.remove(Long.valueOf(leaving));
+        assertThat(sessionIdsByTurnOrder(group.groupId())).isEqualTo(remaining);
+        assertThat(
+                        jdbc.queryForList(
+                                "SELECT turn_order FROM interview_group_participants WHERE"
+                                        + " group_id = ? AND left_at IS NULL ORDER BY turn_order",
+                                Integer.class,
+                                group.groupId()))
+                .containsExactly(1, 2);
+        assertThat(commonQuestionsOf(group.groupId())).isEqualTo(commonQuestions);
+        assertThat(sessions.findById(leaving).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.START_FAILED);
+    }
+
+    // 방장과 손님들이 모두 준비했고 모든 그룹용 플랜이 끝난 그룹
+    private ReadyGroup readyGroup(int capacity) throws Exception {
+        long host = newUser("방장");
+        JsonNode group = create(host, capacity);
+        long groupId = group.path("groupId").asLong();
+        List<Long> guests = new ArrayList<>();
+        for (int i = 1; i < capacity; i++) {
+            long guest = newUser("손님" + i);
+            join(guest, group.path("inviteCode").asString());
+            guests.add(guest);
+        }
+        List<Long> ids = sessionIds(groupId);
+        for (long sessionId : ids) {
+            results.handle(planCompleted(sessionId, 2));
+        }
+        mvc.perform(readyRequest(host, groupId, true)).andExpect(status().isOk());
+        for (long guest : guests) {
+            mvc.perform(readyRequest(guest, groupId, true)).andExpect(status().isOk());
+        }
+        return new ReadyGroup(groupId, host, guests, ids);
+    }
+
+    /**
+     * @param sessionIds 들어온 순서(방장이 처음)
+     */
+    private record ReadyGroup(long groupId, long host, List<Long> guests, List<Long> sessionIds) {}
+
+    // 들어온 순서(방장이 처음)
+    private List<Long> sessionIds(long groupId) {
+        return jdbc.queryForList(
+                "SELECT session_id FROM interview_group_participants WHERE group_id = ? AND"
+                        + " left_at IS NULL ORDER BY joined_at, id",
+                Long.class,
+                groupId);
+    }
+
+    private List<Long> sessionIdsByTurnOrder(long groupId) {
+        return jdbc.queryForList(
+                "SELECT session_id FROM interview_group_participants WHERE group_id = ? AND"
+                        + " left_at IS NULL ORDER BY turn_order",
+                Long.class,
+                groupId);
+    }
+
+    private String commonQuestionsOf(long groupId) {
+        return jdbc.queryForObject(
+                "SELECT common_questions::text FROM interview_groups WHERE id = ?",
+                String.class,
+                groupId);
+    }
+
+    private MockHttpServletRequestBuilder startRequest(long userId, long groupId) {
+        return as(userId, idempotent(post("/api/v1/interview-groups/" + groupId + "/start")));
     }
 
     private JsonNode create(long userId, int capacity) throws Exception {

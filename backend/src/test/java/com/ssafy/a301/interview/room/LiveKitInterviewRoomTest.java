@@ -144,6 +144,52 @@ class LiveKitInterviewRoomTest {
                 .isEqualTo("interview-55");
     }
 
+    // 기준: API 명세 10.10 5.14 · 10.11, AI 명세 6.7, docs/그룹면접-설계.md 6.12
+    @Test
+    void groupTokenUsesGroupRoomAndSessionIdentity() {
+        JsonNode claims = claims(room(apiUrl).issueGroupAccess(7L, 55L, true).token());
+
+        assertThat(claims.path("sub").asString()).isEqualTo("candidate-55");
+        assertThat(claims.path("video").path("room").asString()).isEqualTo("group-7");
+        assertThat(claims.path("video").path("canPublish").asBoolean()).isTrue();
+    }
+
+    @Test
+    void openGroupCreatesRoomWithMetadataAndGroupRecordingPath() throws Exception {
+        room(apiUrl).openGroup(7L, true, Map.of("kind", "GROUP"), "{\"turnVersion\":1}");
+
+        CreateRoomRequest created =
+                CreateRoomRequest.parseFrom(requests.get("/twirp/livekit.RoomService/CreateRoom"));
+        assertThat(created.getName()).isEqualTo("group-7");
+        assertThat(created.getMetadata()).isEqualTo("{\"turnVersion\":1}");
+        assertThat(created.getEgress().getTracks().getFilepath())
+                .isEqualTo("recordings/raw/group-7/{publisher_identity}-{track_type}");
+        CreateAgentDispatchRequest dispatch =
+                CreateAgentDispatchRequest.parseFrom(
+                        requests.get("/twirp/livekit.AgentDispatchService/CreateDispatch"));
+        assertThat(dispatch.getRoom()).isEqualTo("group-7");
+        assertThat(
+                        JsonMapper.builder()
+                                .build()
+                                .readTree(dispatch.getMetadata())
+                                .path("kind")
+                                .asString())
+                .isEqualTo("GROUP");
+    }
+
+    @Test
+    void failedGroupDispatchDeletesGroupRoom() throws Exception {
+        statuses.put("/twirp/livekit.AgentDispatchService/CreateDispatch", 500);
+
+        assertThatThrownBy(() -> room(apiUrl).openGroup(7L, false, Map.of(), "{}"))
+                .isInstanceOf(ApiException.class);
+        assertThat(
+                        DeleteRoomRequest.parseFrom(
+                                        requests.get("/twirp/livekit.RoomService/DeleteRoom"))
+                                .getRoom())
+                .isEqualTo("group-7");
+    }
+
     @Test
     void closeIgnoresFailures() {
         statuses.put("/twirp/livekit.RoomService/DeleteRoom", 500);

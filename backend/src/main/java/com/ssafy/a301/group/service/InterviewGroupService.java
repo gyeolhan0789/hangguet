@@ -10,7 +10,6 @@ import com.ssafy.a301.group.dto.GroupDtos.GroupCreateRequest;
 import com.ssafy.a301.group.dto.GroupDtos.GroupJoinRequest;
 import com.ssafy.a301.group.dto.GroupDtos.GroupResponse;
 import com.ssafy.a301.group.dto.GroupDtos.InviteResponse;
-import com.ssafy.a301.group.dto.GroupDtos.ParticipantResponse;
 import com.ssafy.a301.group.mapper.GroupMapper;
 import com.ssafy.a301.group.repository.GroupPresenceStore;
 import com.ssafy.a301.group.repository.InterviewGroupParticipantRepository;
@@ -18,8 +17,6 @@ import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.service.InterviewSessionService;
-import com.ssafy.a301.interview.service.SessionRuntimeService;
-import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
@@ -52,10 +49,9 @@ public class InterviewGroupService {
     private final InterviewGroupParticipantRepository participants;
     private final UserRepository users;
     private final InterviewSessionService sessions;
-    private final SessionRuntimeService runtimes;
     private final GroupPresenceStore presence;
     private final InviteCodes inviteCodes;
-    private final S3FileStorage storage;
+    private final GroupResponses responses;
     private final TransactionTemplate transactions;
     private final Duration waitingExpiry;
     private final Duration hostTimeout;
@@ -65,10 +61,9 @@ public class InterviewGroupService {
             InterviewGroupParticipantRepository participants,
             UserRepository users,
             InterviewSessionService sessions,
-            SessionRuntimeService runtimes,
             GroupPresenceStore presence,
             InviteCodes inviteCodes,
-            S3FileStorage storage,
+            GroupResponses responses,
             TransactionTemplate transactions,
             @Value("${group.waiting-expiry:1h}") Duration waitingExpiry,
             @Value("${group.lobby-host-timeout:10s}") Duration hostTimeout) {
@@ -76,10 +71,9 @@ public class InterviewGroupService {
         this.participants = participants;
         this.users = users;
         this.sessions = sessions;
-        this.runtimes = runtimes;
         this.presence = presence;
         this.inviteCodes = inviteCodes;
-        this.storage = storage;
+        this.responses = responses;
         this.transactions = transactions;
         this.waitingExpiry = waitingExpiry;
         this.hostTimeout = hostTimeout;
@@ -342,13 +336,9 @@ public class InterviewGroupService {
                 .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
     }
 
-    // 참가자가 아니면 그룹이 없는 것처럼 404
     private static InterviewGroupParticipant requireParticipant(
             List<InterviewGroupParticipant> active, long userId) {
-        return active.stream()
-                .filter(p -> p.getUser().getId() == userId)
-                .findFirst()
-                .orElseThrow(() -> new ApiException(ErrorCode.GROUP_NOT_FOUND));
+        return GroupResponses.participant(active, userId);
     }
 
     // 트랜잭션 안에서 부른다
@@ -368,25 +358,6 @@ public class InterviewGroupService {
             long userId,
             Boolean jobCategoryMismatch,
             OffsetDateTime now) {
-        List<ParticipantResponse> items =
-                active.stream()
-                        .filter(p -> p.getLeftAt() == null)
-                        .map(
-                                p ->
-                                        GroupMapper.toParticipantResponse(
-                                                p,
-                                                group.getStatus(),
-                                                runtimes.current(
-                                                                p.getSession().getId(),
-                                                                now.toInstant())
-                                                        .planStatus(),
-                                                storage.presignDownload(
-                                                        p.getUser().getProfileImageKey())))
-                        .toList();
-        return GroupMapper.toGroupResponse(
-                group,
-                requireParticipant(active, userId).getSession().getId(),
-                items,
-                jobCategoryMismatch);
+        return responses.of(group, active, userId, jobCategoryMismatch, null, now);
     }
 }
