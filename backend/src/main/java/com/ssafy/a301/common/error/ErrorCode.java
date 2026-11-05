@@ -49,6 +49,13 @@ public enum ErrorCode {
     ANSWER_ALREADY_SUBMITTED(HttpStatus.CONFLICT, "이미 답변한 질문이에요."),
     ROOM_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요."),
 
+    // 그룹 면접
+    GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "그룹을 찾을 수 없어요."),
+    GROUP_FULL(HttpStatus.CONFLICT, "그룹 인원이 다 찼어요."),
+    ALREADY_IN_GROUP(HttpStatus.CONFLICT, "이미 참가 중인 그룹 면접이 있어요."),
+    INVALID_GROUP_STATE(HttpStatus.CONFLICT, "지금은 할 수 없는 요청이에요."),
+    GROUP_SESSION(HttpStatus.CONFLICT, "그룹 면접은 방장이 그룹에서 시작해요."),
+
     // 결과·성장 리뷰
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),
     NO_RESULT(HttpStatus.CONFLICT, "답변 없이 끝난 면접은 결과가 없어요."),
