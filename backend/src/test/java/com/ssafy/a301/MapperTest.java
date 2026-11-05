@@ -214,7 +214,12 @@ class MapperTest {
         var a1 =
                 withId(
                         Answer.voice(
-                                q1, "안녕하세요", null, null, T0.plusSeconds(84).plusNanos(250_000_000)),
+                                q1,
+                                "안녕하세요",
+                                null,
+                                null,
+                                null,
+                                T0.plusSeconds(84).plusNanos(250_000_000)),
                         901);
         a1.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
 
@@ -250,7 +255,12 @@ class MapperTest {
         var a1 =
                 withId(
                         Answer.voice(
-                                q1, "안녕하세요", null, null, T0.plusSeconds(84).plusNanos(250_000_000)),
+                                q1,
+                                "안녕하세요",
+                                null,
+                                null,
+                                null,
+                                T0.plusSeconds(84).plusNanos(250_000_000)),
                         901);
         a1.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
 
@@ -284,10 +294,10 @@ class MapperTest {
         InterviewSession s = session(InterviewMode.VIDEO);
         s.start(T0);
         var q1 = withId(new InterviewQuestion(s, 1, "자기소개"), 301);
-        var broken = withId(Answer.voice(q1, "답", null, null, T0.plusSeconds(5)), 901);
+        var broken = withId(Answer.voice(q1, "답", null, null, null, T0.plusSeconds(5)), 901);
         broken.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("UNKNOWN"));
         var q2 = withId(new InterviewQuestion(s, 2, "역할은?"), 302);
-        var noTimeline = withId(Answer.voice(q2, "답", null, null, T0.plusSeconds(60)), 902);
+        var noTimeline = withId(Answer.voice(q2, "답", null, null, null, T0.plusSeconds(60)), 902);
         noTimeline.completeEvaluation(85, "좋음", "아쉬움", Map.of());
         var q3 = withId(new InterviewQuestion(s, 3, "장점은?"), 303);
 

@@ -417,6 +417,7 @@ class AiEvaluationResultTest {
                                     "답" + seq,
                                     List.of(new AnswerToken("답", 0, 200)),
                                     new AnswerSpeech(10.0, 5.0),
+                                    null,
                                     OffsetDateTime.now())
                             : new Answer(question, InputType.TEXT, "답" + seq));
         }
