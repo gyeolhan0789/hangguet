@@ -1,16 +1,17 @@
 """평가 항목별 판정과 점수 계산 방식을 검증한다(AI 명세 3장·5장)."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from app.common.answer import SttGap
 from app.common.gms import GmsResult
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.scoring.score import LEVEL_SCORES, ScoreMethod, fixed_score
 from app.interview.speech import LONG_PAUSE_MS
 
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "score-answer-v1")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "score-answer-v2")
 SPEECH_LABELS = {
     "fillerCount": "군말 수",
     "longPauseCount": f"문장 중간 {LONG_PAUSE_MS / 1000:g}초 이상 멈춤 수",
@@ -52,11 +53,33 @@ _SYSTEM = (
 )
 
 
+# 끊긴 구간이 있는 답변에만 추가한다.
+# 지침에 항상 포함하면 끊김이 없는 답변의 판정 이유에도 끊김 여부를 언급했다(GMS 실측)
+GAP_NOTE = (
+    "이 구간의 말은 답변 글에 없다. "
+    "지원자가 일으킨 것이 아니므로 그 앞뒤의 말 중단·반복을 감점 근거로 삼지 않는다."
+)
+
+
+def gap_lines(gaps: Sequence[SttGap]) -> str:
+    """음성 인식이 끊긴 구간을 답변 시작 기준 초로 표시한다."""
+    return "\n".join(f"- {gap.start_ms / 1000:.1f}~{gap.end_ms / 1000:.1f}초" for gap in gaps)
+
+
 def build_judge_messages(
-    question: str, criteria: str, content: str, speech: Mapping[str, object] | None
+    question: str,
+    criteria: str,
+    content: str,
+    speech: Mapping[str, object] | None,
+    gaps: Sequence[SttGap] = (),
 ) -> list[dict[str, str]]:
-    """값이 있는 판정용 지표만 포함하고 발화 시간은 제외한다."""
+    """값이 있는 판정용 지표만 포함하고 발화 시간은 제외한다.
+
+    STT가 끊긴 구간이 있으면 그 위치를 함께 전달한다(AI 명세 3장 판정 입력).
+    """
     parts = [f"[질문]\n{question}", f"[채점 기준]\n{criteria}", f"[답변]\n{content}"]
+    if gaps:
+        parts.append(f"[음성 인식이 끊긴 구간(답변 시작 기준)]\n{gap_lines(gaps)}\n{GAP_NOTE}")
     metrics = [
         f"- {label}: {speech[key]}"
         for key, label in SPEECH_LABELS.items()

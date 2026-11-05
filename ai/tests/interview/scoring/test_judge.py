@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from app.common.answer import SttGap
 from app.common.gms import GmsResult
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.scoring.judge import (
@@ -23,7 +24,7 @@ def result(content: Mapping[str, Any] | None = None) -> GmsResult:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "score-answer-v1"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "score-answer-v2"
 
 
 def test_prompt_uses_supplied_evidence_without_new_graduate_restriction() -> None:
@@ -97,3 +98,23 @@ def test_every_criterion_uses_fixed_level_score(level: int, score: int) -> None:
         }
         for criterion in Criterion
     }
+
+
+def test_prompt_marks_stt_gaps_and_does_not_penalize_them() -> None:
+    """AI 명세 3장 판정 입력: 끊긴 위치를 추가하고,
+    그 앞뒤의 말 중단·반복은 감점 근거로 삼지 않는다.
+    """
+    system, user = (
+        m["content"]
+        for m in build_judge_messages("질문", "기준", "답변", None, (SttGap(1200, 4000),))
+    )
+    assert "[음성 인식이 끊긴 구간(답변 시작 기준)]\n- 1.2~4.0초" in user
+    assert "그 앞뒤의 말 중단·반복을 감점 근거로 삼지 않는다" in user
+    assert "음성 인식" not in system
+
+
+def test_prompt_without_stt_gaps_has_no_gap_section() -> None:
+    """끊김이 없으면 끊김을 언급하지 않는다."""
+    messages = build_judge_messages("질문", "기준", "답변", None)
+    assert all("음성 인식" not in m["content"] for m in messages)
+    assert all("앞뒤의 말 중단·반복" not in m["content"] for m in messages)

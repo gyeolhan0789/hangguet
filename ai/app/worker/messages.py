@@ -23,6 +23,7 @@ from typing import Any, ClassVar
 from app.common.answer import (
     ImpressionSample,
     SpeechToken,
+    SttGap,
     TimelineInput,
     VoiceMetrics,
     is_java_blank,
@@ -78,6 +79,9 @@ class EvaluateAnswer:
     evaluation: Mapping[str, Any] | None
     # 다시보기 타임라인 입력(AI 명세 4장). 채팅이거나 이전 BE 메시지면 None이다
     timeline: TimelineInput | None = None
+    # STT가 끊겨 인식하지 못한 구간(AI 명세 4장 sttGaps).
+    # 끊긴 적이 없거나 이전 BE 메시지면 비어 있다
+    stt_gaps: tuple[SttGap, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -117,6 +121,9 @@ class ScoreAnswerJob(Job):
     tokens: tuple[SpeechToken, ...] | None
     # 채팅 답변과 음성 지표를 계산하지 못한 화상 답변은 None이다
     speech: VoiceMetrics | None
+    # STT가 끊겨 인식하지 못한 구간(AI 명세 3장 sttGaps).
+    # 끊긴 적이 없거나 이전 BE 메시지면 비어 있다
+    stt_gaps: tuple[SttGap, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -316,6 +323,33 @@ def _timeline(data: Mapping[str, Any], path: str = "") -> TimelineInput | None:
         return None
 
 
+def _stt_gaps(data: Mapping[str, Any], path: str = "") -> tuple[SttGap, ...]:
+    """STT가 끊겨 인식하지 못한 구간(AI 명세 3·4장 sttGaps).
+
+    없거나 형식이 틀리면 빈 목록이다.
+    끊긴 구간은 채점을 보정하는 데만 사용하므로, 형식이 틀려도 채점·결과 생성을 실패시키지 않는다.
+    """
+    value = data.get("sttGaps")
+    if value is None:
+        return ()
+    try:
+        if not isinstance(value, list):
+            raise ValueError("목록이 아니다")
+        gaps = []
+        for item in value:
+            if not isinstance(item, Mapping):
+                raise ValueError("구간이 JSON 객체가 아니다")
+            start, end = item.get("startMs"), item.get("endMs")
+            # bool은 int의 하위 형식이므로 형식을 정확히 비교한다
+            if type(start) is not int or type(end) is not int or not 0 <= start <= end:
+                raise ValueError("startMs·endMs가 0 ≤ startMs ≤ endMs인 정수가 아니다")
+            gaps.append(SttGap(start, end))
+        return tuple(gaps)
+    except ValueError as e:
+        log.warning("%ssttGaps 형식이 틀려 끊긴 구간 없이 진행한다: %s", path, e)
+        return ()
+
+
 def _claims(data: Mapping[str, Any]) -> tuple[Claim, ...]:
     claims = []
     for i, item in enumerate(_list(data, "claims")):
@@ -372,6 +406,7 @@ def _evaluate_answers(data: Mapping[str, Any]) -> tuple[EvaluateAnswer, ...]:
                 speech=_speech(answer, path),
                 evaluation=evaluation,
                 timeline=_timeline(answer, path),
+                stt_gaps=_stt_gaps(answer, path),
             )
         )
     # 질문 하나에 답변 하나이므로(answers.question_id UNIQUE)
@@ -495,6 +530,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
                 content=_text(data, "content"),
                 tokens=_tokens(data),
                 speech=_speech(data),
+                stt_gaps=_stt_gaps(data),
             )
         case JobType.EVALUATE:
             return EvaluateJob(

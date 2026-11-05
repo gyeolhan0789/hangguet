@@ -8,7 +8,7 @@ import pytest
 from redis import ConnectionError as RedisConnectionError
 from redis import Redis
 
-from app.common.answer import SpeechToken, VoiceMetrics
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics
 from app.common.gms import (
     GmsBadOutputError,
     GmsClient,
@@ -95,7 +95,7 @@ def test_video_result_contains_only_contract_fields() -> None:
     )
     evaluation = message["evaluation"]
     assert set(evaluation) == {"criteria", "speech", "promptVersion", "modelVersion"}
-    assert evaluation["promptVersion"] == "score-answer-v1"
+    assert evaluation["promptVersion"] == "score-answer-v2"
     assert evaluation["modelVersion"] == "served-model"
     assert evaluation["criteria"]["LOGIC"] == {
         "level": 3,
@@ -274,3 +274,17 @@ def test_result_queue_failure_preserves_job_until_recovery() -> None:
     assert redis.items(PROCESSING_KEY) == [raw]
     assert queue.recover() == 1
     assert redis.items(QUEUE_KEY) == [raw]
+
+
+def test_pause_inside_stt_gap_is_not_counted_and_gap_is_given_to_judge() -> None:
+    """AI 명세 3장: 끊긴 구간과 겹치는 쉼은 긴 멈춤으로 집계하지 않고 발화 시간에서도 제외한다."""
+    tokens = (SpeechToken("캐시를", 0, 500), SpeechToken(" 도입한", 9_500, 10_000))
+    job = replace(JOB, tokens=tokens, stt_gaps=(SttGap(800, 9_000),))
+    chat = FakeChat(good())
+    handler, redis = make(chat)
+    handler(job)
+    [message] = pushed(redis)
+    speech = message["evaluation"]["speech"]
+    assert speech["longPauseCount"] == 0
+    assert speech["speakingMs"] == 1_000
+    assert "[음성 인식이 끊긴 구간(답변 시작 기준)]\n- 0.8~9.0초" in chat.calls[0][1]["content"]
