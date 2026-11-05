@@ -2,6 +2,8 @@
 
 변수 이름은 같은 값을 사용하는 쪽과 일치시킨다.
 - REDIS_HOST·REDIS_PORT: BE application.yml(같은 Redis의 작업 큐·결과 큐를 공유한다)
+- REDIS_PASSWORD: Redis requirepass 비밀번호(선택). 없으면 비밀번호 없이 연결한다.
+  값은 인프라가 CI/CD 변수(메인 서버 compose)와 SSM(에이전트 ASG)으로 넣는다.
 - SONIOX_API_KEY·ELEVENLABS_API_KEY: BE application.yml에서 사용하던 이름이다. 키는 AI 서버에만 둔다
   (AI 명세 1장).
 - LLM_*: company-pipeline/pipeline/card.py
@@ -52,6 +54,7 @@ class Settings:
     livekit_api_key: str | None = field(default=None, repr=False)
     livekit_api_secret: str | None = field(default=None, repr=False)
     worker_queue: str | None = None
+    redis_password: str | None = field(default=None, repr=False)
 
     def llm(self) -> LlmSettings:
         """GMS 접속 값을 반환한다. LLM_CHAT_URL·LLM_MODEL이 없으면 누락된 이름을 포함해 실패한다.
@@ -106,4 +109,5 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         livekit_api_key=_optional(env, "LIVEKIT_API_KEY"),
         livekit_api_secret=_optional(env, "LIVEKIT_API_SECRET"),
         worker_queue=_optional(env, WORKER_QUEUE_ENV),
+        redis_password=_optional(env, "REDIS_PASSWORD"),
     )

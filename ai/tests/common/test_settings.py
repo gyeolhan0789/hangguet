@@ -26,6 +26,7 @@ def test_starts_without_any_variable() -> None:
     assert settings.livekit_api_key is None
     assert settings.livekit_api_secret is None
     assert settings.worker_queue is None
+    assert settings.redis_password is None
 
 
 def test_llm_reports_every_missing_name_without_values() -> None:
@@ -88,6 +89,7 @@ def test_reads_every_variable() -> None:
         "LIVEKIT_API_KEY": "livekit-key",
         "LIVEKIT_API_SECRET": "livekit-secret",
         "AI_WORKER_QUEUE": "plan",
+        "REDIS_PASSWORD": "redis-password",
     }
 
     settings = load_settings(env)
@@ -107,6 +109,7 @@ def test_reads_every_variable() -> None:
         livekit_api_key="livekit-key",
         livekit_api_secret="livekit-secret",
         worker_queue="plan",
+        redis_password="redis-password",
     )
 
 
@@ -141,6 +144,7 @@ def test_repr_hides_secret_values() -> None:
         "ELEVENLABS_API_KEY": "elevenlabs-key-value",
         "LIVEKIT_API_KEY": "livekit-key-value",
         "LIVEKIT_API_SECRET": "livekit-secret-value",
+        "REDIS_PASSWORD": "redis-password-value",
     }
     settings = load_settings({**LLM, **secrets})
 

@@ -1,0 +1,235 @@
+# ASG 인스턴스 시작 스크립트 본문(이해준/agent_autoscale_plan 4 · 5 · 7장). 혼자 실행하지 않는다.
+# build.sh가 ROLE(agent · egress) · A301_ENV(prod · loadtest)와 watcher.sh · alloy.alloy를 앞에 붙여 user data 한 파일로 만든다.
+#
+# 1. Docker 설치
+# 2. Tailscale 설치 · 가입(SSM tailscale-auth-key가 있을 때만. 테스트 환경은 같은 VPC 사설망이라 쓰지 않는다)
+# 3. SSM /a301/<환경>/<역할>/*에서 주소 · 비밀값을 읽어 root만 읽는 파일로 컨테이너에 넘긴다(시작 템플릿에 비밀값을 적지 않는다)
+# 4. 역할 컨테이너 실행: agent = a301-ai-agent(AI 이미지), egress = a301-egress(livekit/egress)
+# 5. Alloy 실행(SSM metrics-url · loki-url이 둘 다 있을 때만): 지표 → 메인 Prometheus 원격 쓰기, 로그 → 메인 Loki
+# 6. 감시 스크립트(a301-watcher) 실행
+# 기록: /var/log/a301-userdata.log. 접속은 Session Manager
+set -euo pipefail
+exec > >(tee -a /var/log/a301-userdata.log) 2>&1
+echo "== $(date -Is) a301 ${A301_ENV} ${ROLE} 시작"
+
+REGION="ap-northeast-2"
+PREFIX="/a301/${A301_ENV}/${ROLE}"
+ALLOY_IMAGE="grafana/alloy:v1.20.1"
+# 줄일 때 진행 중 면접 · 녹화를 기다리는 상한(초). 수명 주기 훅 제한 시간(1800초)과 같다(계획 6.3)
+DRAIN_SECONDS=1800
+
+case "$ROLE" in
+  agent)
+    CONTAINER="a301-ai-agent"
+    HEALTH_URL="http://127.0.0.1:8081/"
+    METRICS_URL="http://127.0.0.1:9464/metrics"
+    METRIC_NAME="a301_agent_active_interviews"
+    JOB="a301-ai-agent"
+    ;;
+  egress)
+    CONTAINER="a301-egress"
+    HEALTH_URL="http://127.0.0.1:8080/"
+    METRICS_URL="http://127.0.0.1:9090/metrics"
+    METRIC_NAME="livekit_egress_requests"
+    JOB="a301-egress"
+    ;;
+  *)
+    echo "FAIL: 모르는 역할 ${ROLE}"
+    exit 1
+    ;;
+esac
+
+param() {
+  aws ssm get-parameter --region "$REGION" --name "${PREFIX}/$1" --with-decryption \
+    --query Parameter.Value --output text
+}
+# 없어도 되는 값. 없으면 빈 문자열
+param_opt() { param "$1" 2>/dev/null || true; }
+
+TOKEN=$(curl -sf -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')
+md() { curl -sf -H "X-aws-ec2-metadata-token: ${TOKEN}" "http://169.254.169.254/latest/meta-data/$1"; }
+INSTANCE_ID=$(md instance-id)
+AZ=$(md placement/availability-zone)
+
+dnf install -y docker
+systemctl enable --now docker
+
+TS_KEY=$(param_opt tailscale-auth-key)
+if [ -n "$TS_KEY" ]; then
+  curl -fsSL https://tailscale.com/install.sh | sh
+  systemctl enable --now tailscaled
+  # OAuth 클라이언트 비밀값으로 1회용(꺼지면 tailnet에서 빠짐) · 미리 승인 · 역할 태그로 가입한다(계획 5.4)
+  tailscale up --auth-key="${TS_KEY}?ephemeral=true&preauthorized=true" \
+    --advertise-tags="tag:a301-${ROLE}" --hostname="a301-${A301_ENV}-${ROLE}-${INSTANCE_ID}"
+  TAILSCALE=yes
+else
+  TAILSCALE=no
+fi
+unset TS_KEY
+
+# 값을 먼저 변수로 읽는다. heredoc · printf 안의 $(...)는 실패해도 set -e가 멈추지 않는다
+LIVEKIT_URL=$(param livekit-url)
+LIVEKIT_API_KEY=$(param livekit-api-key)
+LIVEKIT_API_SECRET=$(param livekit-api-secret)
+REDIS_HOST=$(param redis-host)
+REDIS_PASSWORD=$(param_opt redis-password)
+METRICS_WRITE_URL=$(param_opt metrics-url)
+LOKI_URL=$(param_opt loki-url)
+LIVEKIT_HOSTPORT=${LIVEKIT_URL#*://}
+LIVEKIT_HOSTPORT=${LIVEKIT_HOSTPORT%%/*}
+LIVEKIT_HOST=${LIVEKIT_HOSTPORT%:*}
+LIVEKIT_PORT=${LIVEKIT_HOSTPORT##*:}
+
+install -d -m 700 /etc/a301
+install_files
+
+ENV_FILE="/etc/a301/${ROLE}.env"
+install -m 600 /dev/null "$ENV_FILE"
+put() { [ -z "$2" ] || printf '%s=%s\n' "$1" "$2" >>"$ENV_FILE"; }
+
+run_agent() {
+  local image
+  image="hanggeut/a301:ai-$(param image-tag)"
+  # Docker Hub 로그인 정보를 디스크에 남기지 않는다(배포 계획 8.1과 같은 방식)
+  DOCKER_CONFIG=$(mktemp -d)
+  export DOCKER_CONFIG
+  param dockerhub-token | docker login -u "$(param dockerhub-user)" --password-stdin
+  docker pull "$image"
+  docker logout
+  rm -rf "$DOCKER_CONFIG"
+  unset DOCKER_CONFIG
+
+  local soniox elevenlabs jev llm_url llm_model llm_key idle stt_model
+  soniox=$(param soniox-api-key)
+  elevenlabs=$(param_opt elevenlabs-api-key)
+  jev=$(param_opt jev-api-key)
+  llm_url=$(param_opt llm-chat-url)
+  llm_model=$(param_opt llm-model)
+  llm_key=$(param_opt llm-api-key)
+  idle=$(param_opt idle-processes)
+  stt_model=$(param_opt soniox-stt-model)
+  put LIVEKIT_URL "$LIVEKIT_URL"
+  put LIVEKIT_API_KEY "$LIVEKIT_API_KEY"
+  put LIVEKIT_API_SECRET "$LIVEKIT_API_SECRET"
+  put LIVEKIT_AGENT_NAME a301-interviewer
+  put REDIS_HOST "$REDIS_HOST"
+  put REDIS_PORT 6379
+  put REDIS_PASSWORD "$REDIS_PASSWORD"
+  put SONIOX_API_KEY "$soniox"
+  put SONIOX_STT_MODEL "${stt_model:-stt-rt-v5}"
+  put ELEVENLABS_API_KEY "$elevenlabs"
+  put JEV_API_KEY "$jev"
+  # 꼬리질문(GMS). 빠지면 오류 없이 미리 만든 질문으로 진행하므로 첫 면접 로그로 확인한다(계획 7장)
+  put LLM_CHAT_URL "$llm_url"
+  put LLM_MODEL "$llm_model"
+  put LLM_API_KEY "$llm_key"
+  put AGENT_IDLE_PROCESSES "$idle"
+
+  # - 메모리 1536m: t3.small(2GB)에서 OS · Docker · Tailscale · Alloy 몫(약 0.5GB)을 남긴다(계획 4.1)
+  # - 8081(상태) · 9464(지표)는 루프백에만 연다. 감시 스크립트와 Alloy(host 네트워크)가 읽는다
+  docker run -d --name "$CONTAINER" \
+    --restart unless-stopped \
+    --env-file "$ENV_FILE" \
+    --memory 1536m \
+    --stop-timeout "$DRAIN_SECONDS" \
+    -p 127.0.0.1:8081:8081 -p 127.0.0.1:9464:9464 \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+    --health-cmd "python -c \"import urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8081/', timeout=3); assert r.read() == b'OK'\"" \
+    --health-interval 10s --health-timeout 5s --health-start-period 30s --health-retries 3 \
+    "$image" python -m app.agent.main start
+  echo "== $(date -Is) 에이전트 시작: ${image}"
+}
+
+run_egress() {
+  local image
+  image=$(param egress-image)
+  docker pull "$image"
+
+  # 설정 본문은 한 줄 JSON(YAML로도 읽힌다)으로 env 파일에 넣는다. 여러 줄 YAML은 env 파일에 넣을 수 없다
+  # - S3 키는 넣지 않는다. BE가 녹화 요청에 담아 보낸다(배포 계획 4.3)
+  # - track_cpu_cost 0.05: 2코어 한 대가 15초 안에 받는 녹화를 늘린다(계획 2.3 [제안], 9장에서 확정)
+  # - max_memory 3: 컨테이너 상한(3g)이 차기 전에 새 녹화를 거절한다(계획 4.2)
+  local redis_json body
+  redis_json="\"address\":\"${REDIS_HOST}:6379\""
+  [ -z "$REDIS_PASSWORD" ] || redis_json="${redis_json},\"password\":\"${REDIS_PASSWORD}\""
+  body="{\"log_level\":\"info\",\"api_key\":\"${LIVEKIT_API_KEY}\",\"api_secret\":\"${LIVEKIT_API_SECRET}\""
+  body="${body},\"ws_url\":\"${LIVEKIT_URL}\",\"redis\":{${redis_json}},\"health_port\":8080,\"prometheus_port\":9090"
+  body="${body},\"cpu_cost\":{\"track_cpu_cost\":0.05,\"max_memory\":3}}"
+  put EGRESS_CONFIG_BODY "$body"
+  unset body redis_json
+
+  # - --stop-signal SIGTERM: Egress는 SIGTERM이면 진행 중 녹화를 마치고 종료하고, SIGINT면 바로 멈춘다(계획 6.5)
+  # - 8080(상태) · 9090(지표)는 루프백에만 연다
+  docker run -d --name "$CONTAINER" \
+    --restart unless-stopped \
+    --env-file "$ENV_FILE" \
+    --memory 3g \
+    --stop-signal SIGTERM \
+    --stop-timeout "$DRAIN_SECONDS" \
+    -p 127.0.0.1:8080:8080 -p 127.0.0.1:9090:9090 \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+    "$image"
+  echo "== $(date -Is) Egress 시작: ${image}"
+}
+
+"run_${ROLE}"
+unset LIVEKIT_API_SECRET
+
+if [ -n "$METRICS_WRITE_URL" ] && [ -n "$LOKI_URL" ]; then
+  metrics_target=${METRICS_URL#http://}
+  metrics_target=${metrics_target%%/*}
+  sed -e "s|@@JOB@@|${JOB}|g" -e "s|@@METRICS_TARGET@@|${metrics_target}|g" \
+    -e "s|@@METRICS_WRITE_URL@@|${METRICS_WRITE_URL}|g" -e "s|@@LOKI_URL@@|${LOKI_URL}|g" \
+    -e "s|@@CONTAINER@@|${CONTAINER}|g" -e "s|@@ENV@@|${A301_ENV}|g" -e "s|@@ROLE@@|${ROLE}|g" \
+    -e "s|@@INSTANCE_ID@@|${INSTANCE_ID}|g" -e "s|@@AZ@@|${AZ}|g" \
+    /etc/a301/alloy.alloy.tmpl >/etc/a301/alloy.alloy
+  docker run -d --name a301-alloy \
+    --restart unless-stopped \
+    --network host \
+    --memory 192m \
+    -v /etc/a301/alloy.alloy:/etc/alloy/config.alloy:ro \
+    -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v a301-alloy-data:/var/lib/alloy/data \
+    --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
+    "$ALLOY_IMAGE" run --storage.path=/var/lib/alloy/data --disable-reporting /etc/alloy/config.alloy
+  echo "== $(date -Is) Alloy 시작"
+fi
+
+install -m 600 /dev/null /etc/a301/redis-password
+printf '%s' "$REDIS_PASSWORD" >/etc/a301/redis-password
+cat >/etc/a301/watcher.env <<EOF
+ROLE=${ROLE}
+CONTAINER=${CONTAINER}
+REGION=${REGION}
+INSTANCE_ID=${INSTANCE_ID}
+HOOK_NAME=a301-${A301_ENV}-${ROLE}-drain
+DRAIN_SECONDS=${DRAIN_SECONDS}
+HEALTH_URL=${HEALTH_URL}
+METRICS_URL=${METRICS_URL}
+METRIC_NAME=${METRIC_NAME}
+TAILSCALE=${TAILSCALE}
+LIVEKIT_HOST=${LIVEKIT_HOST}
+LIVEKIT_PORT=${LIVEKIT_PORT}
+REDIS_HOST=${REDIS_HOST}
+REDIS_PORT=6379
+EOF
+chmod 600 /etc/a301/watcher.env
+unset REDIS_PASSWORD
+
+cat >/etc/systemd/system/a301-watcher.service <<'EOF'
+[Unit]
+Description=A301 ASG 인스턴스 감시(축소 보호 · 수명 주기 훅 · 준비 확인)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/a301-watcher
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable --now a301-watcher
+echo "== $(date -Is) 감시 시작. 끝"

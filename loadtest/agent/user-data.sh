@@ -54,14 +54,15 @@ JEV_API_KEY=${JEV_API_KEY}
 EOF
 unset LIVEKIT_API_SECRET SONIOX_API_KEY ELEVENLABS_API_KEY JEV_API_KEY
 
-# - 메모리 3g: t3.medium(4GB)에서 OS · Docker 몫을 남긴다. 대당 약 9건이면 약 0.9GB를 쓴다(agent_autoscale_plan 4장)
+# - 메모리 1536m: t3.small(2GB)에서 OS · Docker · SSM 에이전트 몫(약 0.5GB)을 남긴다. 대당 약 13건이면 약 1.0GB를 쓴다(agent_autoscale_plan 4.1).
+#   11/03 1 · 2단계는 t3.medium · 3g로 했다
 # - --stop-timeout 1800: 줄일 때 SIGTERM을 받고 진행 중인 면접이 끝날 때까지 기다린다(drain, 6.3). 지금 단계(고정 대수)에서는 수동 시험에만 쓴다
 # - 헬스체크는 운영 compose와 같다(에이전트 서버 8081). 지표 포트 9464는 다음 단계(CloudWatch 지표)에서 쓴다
 docker rm -f "$CONTAINER" 2>/dev/null || true
 docker run -d --name "$CONTAINER" \
   --restart unless-stopped \
   --env-file "$ENV_FILE" \
-  --memory 3g \
+  --memory 1536m \
   --stop-timeout 1800 \
   --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
   --health-cmd "python -c \"import urllib.request; r = urllib.request.urlopen('http://127.0.0.1:8081/', timeout=3); assert r.read() == b'OK'\"" \

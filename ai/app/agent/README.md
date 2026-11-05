@@ -18,6 +18,7 @@ LiveKit에 등록하고 배정받은 면접방에서 질문 5개를 진행한다
 | `ELEVENLABS_API_KEY` | 질문 음성 합성 키. 없으면 질문 음성 없이 `question`에 `failed`를 보낸다 |
 | `JEV_API_KEY` | 리액션·인상 판단(Jev) 키. 없으면 리액션·인상 판단 없이 진행한다 |
 | `REDIS_HOST`·`REDIS_PORT` | `question.started`·`answer.completed`를 전송할 결과 큐(BE와 같은 Redis). 기본 `localhost:6379` |
+| `REDIS_PASSWORD` | 선택. Redis `requirepass` 비밀번호. 없으면 비밀번호 없이 연결한다 |
 | `LLM_CHAT_URL`·`LLM_MODEL` | 꼬리질문을 생성할 GMS 주소와 모델 ID(분석 작업자와 같은 값). 하나라도 없거나 등록되지 않은 모델이면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
 | `LLM_API_KEY` | GMS 키. 없으면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
 

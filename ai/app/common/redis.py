@@ -24,6 +24,7 @@ def create_redis(settings: Settings) -> Redis:
     return Redis(
         host=settings.redis_host,
         port=settings.redis_port,
+        password=settings.redis_password,
         decode_responses=True,
         socket_timeout=SOCKET_TIMEOUT_SECONDS,
     )
@@ -38,6 +39,7 @@ def create_publisher_redis(settings: Settings) -> Redis:
     return Redis(
         host=settings.redis_host,
         port=settings.redis_port,
+        password=settings.redis_password,
         decode_responses=True,
         socket_timeout=PUBLISH_TIMEOUT_SECONDS,
         socket_connect_timeout=PUBLISH_TIMEOUT_SECONDS,

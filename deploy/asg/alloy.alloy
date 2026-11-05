@@ -1,0 +1,71 @@
+// ASG 인스턴스 지표 · 로그 수집(Grafana Alloy, 이해준/agent_autoscale_plan 8장). bootstrap.sh가 @@…@@를 채워 /etc/a301/alloy.alloy로 쓴다.
+// 메인 서버가 늘고 주는 인스턴스 목록을 알 필요가 없도록, 인스턴스가 메인 서버로 보낸다(push).
+// 메인 Prometheus는 --web.enable-remote-write-receiver, Loki는 3100을 Tailscale IP에만 연다(main-override.yml).
+
+// 역할 컨테이너의 지표. job은 메인 서버가 직접 긁던 이름(a301-ai-agent · a301-egress)과 같게 해 기존 패널을 그대로 쓴다
+prometheus.scrape "role" {
+  targets         = [{"__address__" = "@@METRICS_TARGET@@"}]
+  job_name        = "@@JOB@@"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.main.receiver]
+}
+
+// 어느 인스턴스의 값인지 구분한다. 인스턴스마다 instance 라벨(127.0.0.1:…)이 같으므로 instance_id로 나눈다
+prometheus.remote_write "main" {
+  endpoint {
+    url = "@@METRICS_WRITE_URL@@"
+  }
+
+  external_labels = {
+    env         = "@@ENV@@",
+    role        = "@@ROLE@@",
+    instance_id = "@@INSTANCE_ID@@",
+    az          = "@@AZ@@",
+  }
+}
+
+discovery.docker "role" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "name"
+    values = ["@@CONTAINER@@"]
+  }
+}
+
+// 메인 서버 로그와 같은 라벨(container · service)을 붙여 같은 로그 대시보드에서 본다
+discovery.relabel "role" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    target_label = "service"
+    replacement  = "@@CONTAINER@@"
+  }
+}
+
+loki.source.docker "role" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.role.targets
+  relabel_rules    = discovery.relabel.role.rules
+  refresh_interval = "15s"
+  forward_to       = [loki.write.main.receiver]
+}
+
+loki.write "main" {
+  endpoint {
+    url = "@@LOKI_URL@@"
+  }
+
+  external_labels = {
+    env         = "@@ENV@@",
+    role        = "@@ROLE@@",
+    instance_id = "@@INSTANCE_ID@@",
+  }
+}
