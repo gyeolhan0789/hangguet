@@ -230,13 +230,19 @@ public class InterviewSessionService {
                 });
     }
 
-    /** 5.14. 새로고침·연결 끊김 뒤 면접방에 다시 들어갈 입장 정보 */
+    /**
+     * 5.14. 새로고침·연결 끊김 뒤 면접방에 다시 들어갈 입장 정보. 그룹 면접은 그룹 면접방(group-{groupId})에 자기 참가자 이름으로 들어간다(API 명세
+     * 10.10). 그룹 면접 참가자는 처음 입장도 이 API로 받는다(10.7 응답에는 방장 것만 있다).
+     */
     public RoomResponse roomAccess(long userId, long sessionId) {
         InterviewSession session =
                 sessions.findWithApplication(sessionId, userId)
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.getStatus() != SessionStatus.IN_PROGRESS) {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        if (session.isGroup()) {
+            return rooms.issueGroupAccess(session.getGroupId(), sessionId, session.isVideo());
         }
         return rooms.issueAccess(sessionId, session.isVideo());
     }

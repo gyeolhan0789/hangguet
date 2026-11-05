@@ -55,6 +55,8 @@ public enum ErrorCode {
     ALREADY_IN_GROUP(HttpStatus.CONFLICT, "이미 참가 중인 그룹 면접이 있어요."),
     INVALID_GROUP_STATE(HttpStatus.CONFLICT, "지금은 할 수 없는 요청이에요."),
     GROUP_SESSION(HttpStatus.CONFLICT, "그룹 면접은 방장이 그룹에서 시작해요."),
+    GROUP_NOT_READY(HttpStatus.CONFLICT, "모든 참가자가 준비하고 질문 준비가 끝나야 시작할 수 있어요."),
+    NOT_GROUP_HOST(HttpStatus.FORBIDDEN, "방장만 시작할 수 있어요."),
 
     // 결과·성장 리뷰
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),

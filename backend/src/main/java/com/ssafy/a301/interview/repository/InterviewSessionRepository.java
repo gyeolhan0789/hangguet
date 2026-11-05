@@ -242,4 +242,9 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from InterviewSession s where s.id = :id")
     Optional<InterviewSession> findByIdForUpdate(@Param("id") long id);
+
+    /** 그룹 면접 참가자들의 면접을 id 순서로 잠근다(잠금 순서: 그룹 → 면접, docs/그룹면접-설계.md 9장) */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from InterviewSession s where s.id in :ids order by s.id")
+    List<InterviewSession> findAllForUpdate(@Param("ids") Collection<Long> ids);
 }
