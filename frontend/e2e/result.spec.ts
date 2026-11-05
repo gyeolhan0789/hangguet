@@ -1,10 +1,11 @@
 import { PROBLEM, REPLAY, RESULT, SESSION_INTERVIEW } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import { api, expect, http, HttpResponse, hydrated, problemResponse, test } from "./test";
 
 // S07 피드백 결과
 // 근거: Figma S07(18:2620) · 기획 메모 S07(18:762) · 모션 메모 S07(18:2705) · Swagger 6.3 면접 결과(200 · 404 · 409 예시)
 //   · 웹 Swagger 6.3 · RESULT_NOT_READY면 S06-1로, 첫 번째 WEAK · NORMAL 질문만 펼친다
 //   · 사용자 결정(2026-10-22: 404 · NO_RESULT면 S03으로, 펼친 질문의 [자세히 보기] → S07-1)
+//   · 사용자 결정(2026-11-05: [자세히 보기]는 다시보기에서 그 질문을 펼친 채로 연다)
 // 화면 부품의 경계는 컴포넌트 테스트(result-view.test.tsx)가 맡고, 여기서는 6.3 응답에 따른 화면과 이동을 본다.
 
 const S07 = `/interview/${RESULT.id}/result`;
@@ -44,7 +45,10 @@ test.describe("S07 피드백 결과", () => {
     );
   });
 
-  test("펼친 질문의 [자세히 보기]를 누르면 S07-1 다시보기로 간다", async ({ page, msw }) => {
+  test("펼친 질문의 [자세히 보기]를 누르면 S07-1 다시보기에서 그 질문을 펼친다", async ({
+    page,
+    msw,
+  }) => {
     msw.use(
       http.get(api("/interview-sessions/:sessionId/result"), () => HttpResponse.json(RESULT)),
       http.get(api("/interview-sessions/:sessionId/replay"), () =>
@@ -55,8 +59,56 @@ test.describe("S07 피드백 결과", () => {
 
     await page.getByRole("link", { name: "자세히 보기" }).click();
 
-    await expect(page).toHaveURL(`/interview/${RESULT.id}/replay`);
+    await expect(page).toHaveURL(`/interview/${RESULT.id}/replay?q=3`);
     await expect(page.getByRole("heading", { level: 1, name: "면접 다시보기" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /가장 큰 기술적 문제는/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  // Next.js는 한 번 본 화면을 숨겨 두었다가 다시 보여 준다(Activity). 다시보기에서 다른 질문을 펼쳐 둔 채 나가도
+  // 다음 [자세히 보기]는 누른 질문을 펼친다(사용자 결정 2026-11-05).
+  test("다시보기에서 다른 질문을 펼쳐 두고 결과로 돌아가도, 다른 질문의 [자세히 보기]는 그 질문을 펼친다", async ({
+    page,
+    msw,
+  }) => {
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/result"), () => HttpResponse.json(RESULT)),
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: null }),
+      ),
+    );
+    await page.goto(S07);
+    await page.getByRole("link", { name: "자세히 보기" }).click();
+    await expect(page.getByRole("button", { name: /가장 큰 기술적 문제는/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    // 펼친 Q3을 접고 Q1을 펼쳐 둔다(서버가 그린 펼친 카드는 하이드레이션 전에 누르면 클릭이 사라진다)
+    await hydrated(page.getByRole("button", { name: /가장 큰 기술적 문제는/ }));
+    await page.getByRole("button", { name: /가장 큰 기술적 문제는/ }).click();
+    await page.getByRole("button", { name: /1분 자기소개/ }).click();
+    await expect(page.getByRole("button", { name: /1분 자기소개/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+
+    await page.getByRole("link", { name: "결과로" }).click();
+    await expect(page).toHaveURL(S07);
+    await page.getByRole("button", { name: /지원한 이유는/ }).click();
+    await page
+      .getByRole("listitem")
+      .filter({ hasText: "백엔드 직무에 지원한 이유는?" })
+      .getByRole("link", { name: "자세히 보기" })
+      .click();
+
+    await expect(page).toHaveURL(`/interview/${RESULT.id}/replay?q=4`);
+    await expect(page.getByRole("button", { name: /지원한 이유는/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: /1분 자기소개/ })).toHaveCount(0);
   });
   test("아직 분석 중이면(409 RESULT_NOT_READY) S06-1 결과 분석 중으로 보낸다", async ({
     page,

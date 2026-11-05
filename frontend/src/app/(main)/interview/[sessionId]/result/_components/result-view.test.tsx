@@ -157,11 +157,12 @@ describe("ResultView (S07 피드백 결과)", () => {
     expect(screen.getByRole("button", { name: "전체 접기" })).toBeDefined();
   });
 
-  it("펼친 질문의 [자세히 보기] · 아래 [면접 다시보기]는 S07-1로, [오늘의 성장 리뷰 보기]는 면접을 시작한 날(한국 시간)의 S08로 간다", () => {
+  it("펼친 질문의 [자세히 보기]는 그 질문을 펼친 S07-1로, 아래 [면접 다시보기]는 S07-1로, [오늘의 성장 리뷰 보기]는 면접을 시작한 날(한국 시간)의 S08로 간다", () => {
     render(<ResultView result={RESULT} />);
 
+    // 처음에 펼친 질문은 첫 번째 '보통' 질문(Q3)이다
     expect(screen.getByRole("link", { name: "자세히 보기" }).getAttribute("href")).toBe(
-      "/interview/55/replay",
+      "/interview/55/replay?q=3",
     );
     expect(screen.getByRole("link", { name: "면접 다시보기" }).getAttribute("href")).toBe(
       "/interview/55/replay",
