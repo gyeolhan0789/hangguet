@@ -69,8 +69,12 @@ export const interviewPath = (sessionId: number) => `/interview/${sessionId}`;
 /** S07 피드백 결과(6.3). 결과가 나오면(COMPLETED) S06-1에서 넘어온다. */
 export const resultPath = (sessionId: number) => `/interview/${sessionId}/result`;
 
-/** S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. */
-export const replayPath = (sessionId: number) => `/interview/${sessionId}/replay`;
+/**
+ * S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. S07 질문별 피드백의 [자세히 보기]는 그 질문 순서(seq)를 q로 붙여
+ * 그 질문을 펼친 채로 연다.
+ */
+export const replayPath = (sessionId: number, seq?: number) =>
+  `/interview/${sessionId}/replay${seq === undefined ? "" : `?q=${seq}`}`;
 
 /**
  * S03 지원서 선택을 그 지원서를 골라 둔 채로 연다. S04 [← 지원서 선택] · 지원서 쓰기(S03에서 온 경우) 저장 뒤에 쓴다.

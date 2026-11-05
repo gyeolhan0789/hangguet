@@ -90,6 +90,23 @@ test.describe("S07-1 면접 다시보기", () => {
     await expect(page.getByRole("heading", { name: "질문" })).toBeVisible();
     await expect(questions.getByRole("button")).toHaveCount(5);
   });
+  // 사용자 결정(2026-11-05: S07 [자세히 보기](q = 질문 순서)로 들어오면 그 질문을 펼치고 영상도 그 시점에서 시작한다)
+  test("화상: 주소에 질문(q)이 있으면 그 질문을 펼치고 영상도 그 질문 시점에서 시작한다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(`${S07_1}?q=3`);
+
+    await expect(page.getByText("06:08 / 18:00")).toBeVisible();
+    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 368.88);
+    await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
+  });
   test("화상: [재생]으로 재생하고 [일시정지]로 멈추며, 배속 칩은 1x → 1.5x로 바꾼다", async ({
     page,
     msw,
