@@ -210,12 +210,13 @@ export function ChatPanel({
               {ANSWER_TEXT_MAX.toLocaleString()}
             </p>
           )}
+          {/* 보낼 수 없을 때(질문 음성 재생 중 · 내는 중 · 다음 질문 대기)는 흐리게 둔다(Figma S06-B-P 345:1799 Send 불투명도 40%) */}
           <button
             type="submit"
             aria-label="답변 보내기"
             disabled={disabled || !question || submissionLocked}
             aria-busy={pending || undefined}
-            className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed"
+            className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Image src="/interview/icon-send.svg" alt="" width={20} height={20} />
           </button>
