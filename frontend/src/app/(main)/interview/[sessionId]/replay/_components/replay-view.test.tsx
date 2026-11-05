@@ -50,11 +50,18 @@ vi.mock("motion/react", async (importOriginal) => {
 });
 
 // 다시 그리기(6.4 다시 조회)는 경계다. 부른 횟수만 본다.
+// 주소의 질문(q)과 bfcacheId(새로 들어올 때마다 바뀌고 뒤로 · 앞으로 가기에는 그대로)는 테스트가 정한다.
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+const nav = vi.hoisted(() => ({ bfcacheId: "entry-1", query: "" }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, bfcacheId: nav.bfcacheId }),
+  useSearchParams: () => new URLSearchParams(nav.query),
+}));
 
 beforeEach(() => {
   refresh.mockReset();
+  nav.bfcacheId = "entry-1";
+  nav.query = "";
   motion.reduced = true;
   // 흔들기(animate) 기록과 남은 once 구현을 테스트마다 비우고 실제 animate로 되돌린다.
   motion.animate
@@ -137,6 +144,48 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       "Q410:01아쉬워요백엔드 직무에 지원한 이유는?",
       "Q514:26좋아요대용량 트래픽 처리 방법은?",
     ]);
+  });
+
+  // 기준: 사용자 결정(2026-11-05: S07 [자세히 보기](q = 질문 순서)로 들어오면 그 질문을 펼치고 영상도 그 시점에서 시작)
+  describe("S07 [자세히 보기]로 들어올 때(q)", () => {
+    it("그 질문을 펼치고, 영상도 그 질문 시점에서 시작한다", () => {
+      nav.query = "q=3";
+      render(<ReplayView replay={REPLAY} />);
+
+      expect(card("기술적 문제는").getAttribute("aria-expanded")).toBe("true");
+      expect((screen.getByLabelText("녹화 영상") as HTMLVideoElement).currentTime).toBe(368.88);
+      expect(overlay()).toBe("Q3가장 큰 기술적 문제는?");
+    });
+
+    it("영상이 없으면(채팅) 그 질문만 펼친다", () => {
+      nav.query = "q=5";
+      render(<ReplayView replay={{ ...REPLAY, videoStatus: null, videoUrl: null }} />);
+
+      expect(card("트래픽 처리").getAttribute("aria-expanded")).toBe("true");
+      expect(highlighted()).toEqual(["Q5"]);
+    });
+
+    it("없는 질문 순서면 아무것도 펼치지 않는다", () => {
+      nav.query = "q=9";
+      render(<ReplayView replay={REPLAY} />);
+
+      expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(5);
+    });
+
+    // Next.js는 한 번 본 화면을 숨겨 두었다가 다시 보여 주므로(Activity) 펼친 질문이 남는다.
+    it("새로 들어오면(bfcacheId가 바뀜) 주소의 질문을 펼치고, 뒤로 가기로 돌아오면(같은 bfcacheId) 펼쳐 둔 질문을 그대로 둔다", () => {
+      const { rerender } = render(<ReplayView replay={REPLAY} />);
+      fireEvent.click(card("1분 자기소개"));
+
+      rerender(<ReplayView replay={REPLAY} />);
+      expect(card("1분 자기소개").getAttribute("aria-expanded")).toBe("true");
+
+      nav.bfcacheId = "entry-2";
+      nav.query = "q=4";
+      rerender(<ReplayView replay={REPLAY} />);
+      expect(card("지원한 이유는").getAttribute("aria-expanded")).toBe("true");
+      expect(screen.queryByRole("button", { name: /1분 자기소개/ })).toBeNull();
+    });
   });
 
   describe("영상이 있을 때(화상)", () => {
