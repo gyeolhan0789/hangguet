@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 
 import { PROBLEM, REPLAY, RESULT, SESSION_INTERVIEW } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import { api, expect, http, HttpResponse, hydrated, problemResponse, test } from "./test";
 
 // S07-1 면접 다시보기
 // 근거: Figma S07-1(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프, 재생 중인 질문 강조
@@ -106,6 +106,27 @@ test.describe("S07-1 면접 다시보기", () => {
     await expect(page.getByText("06:08 / 18:00")).toBeVisible();
     await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 368.88);
     await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
+  });
+  // 사용자 결정(2026-11-05): 받는 중이라 멈췄으면(버퍼링) 멈춘 것과 구분되게 영상 가운데에 로딩을 보인다.
+  // 영상이 오지 않게 붙잡아 두면 [재생]을 눌러도 브라우저는 데이터를 기다린다(waiting).
+  test("화상: 재생하려는데 영상을 받는 중이면 로딩을 보이고, [일시정지]는 그대로다", async ({
+    page,
+    msw,
+  }) => {
+    await page.route(VIDEO_URL, () => {});
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    const play = page.getByRole("button", { name: "재생", exact: true });
+    await hydrated(play);
+
+    await play.click();
+
+    await expect(page.getByRole("status", { name: "영상을 불러오는 중" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "일시정지" })).toBeVisible();
   });
   test("화상: [재생]으로 재생하고 [일시정지]로 멈추며, 배속 칩은 1x → 1.5x로 바꾼다", async ({
     page,

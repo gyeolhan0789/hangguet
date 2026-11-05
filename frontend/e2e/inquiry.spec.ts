@@ -234,6 +234,29 @@ test.describe("회원 문의(I02 · I01 · I03)", () => {
     await expect(page).toHaveURL("/inquiries/7");
   });
 
+  // 사용자 결정(2026-11-05): 보낸 뒤 뒤로 가기로 보낸 폼에 돌아가지 않고(기록 바꿔치기), 다시 들어온 I01은 빈 폼이다.
+  // Next.js는 본 화면을 숨겨 두었다가 다시 보여 주므로(Activity) 새로 들어올 때마다 새로 그린다.
+  test("I01로 보낸 뒤 뒤로 가기는 I02로 가고, 다시 [+ 문의하기]로 들어가면 빈 폼이다", async ({
+    page,
+    msw,
+  }) => {
+    const server = inquiryServer();
+    msw.use(...server.handlers);
+    await page.goto("/inquiries");
+    await page.getByRole("link", { name: "+ 문의하기" }).click();
+    await expect(page).toHaveURL("/inquiries/new");
+    await fillAndSend(page, "질문이 반복돼요", "확인해 주세요");
+    await expect(page).toHaveURL("/inquiries/7");
+
+    await page.goBack();
+    await expect(page).toHaveURL("/inquiries");
+    await page.getByRole("link", { name: "+ 문의하기" }).click();
+
+    await expect(page).toHaveURL("/inquiries/new");
+    await expect(page.getByLabel("제목")).toHaveValue("");
+    await expect(page.getByLabel("내용")).toHaveValue("");
+  });
+
   test("I01에서 사진을 올리지 못하면 9.1을 부르지 않고 문구를 보이며, 다시 보내면 사진을 붙여 남긴다", async ({
     page,
     msw,
@@ -348,6 +371,41 @@ test.describe("비회원 문의(I04 · I01-B · I01-1 · I03)", () => {
     await page.reload();
     await expect(page.getByRole("heading", { level: 1, name: "문의 확인" })).toBeVisible();
     await expect(page.getByLabel("문의번호")).toBeVisible();
+  });
+
+  // 사용자 결정(2026-11-05): Next.js는 본 화면을 숨겨 두었다가 다시 보여 주므로(Activity) 새로 들어올 때마다 새로 그린다.
+  test("남긴 뒤 다시 [+ 문의하기]로 들어가면 지난 완료 창 없이 빈 폼이고, 두 번째로 남긴 문의도 [확인]하면 바로 연다", async ({
+    page,
+    msw,
+  }) => {
+    const server = inquiryServer("1234");
+    msw.use(...server.handlers);
+    await page.goto("/inquiries/guest");
+    await page.getByRole("link", { name: "+ 문의하기" }).click();
+    await writeGuestInquiry(page);
+    await page
+      .getByRole("dialog", { name: "문의를 남겼어요" })
+      .getByRole("button", { name: "확인" })
+      .click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "비밀번호를 잊어버렸어요" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "내 문의" }).click();
+    await page.getByRole("link", { name: "+ 문의하기" }).click();
+
+    await expect(page).toHaveURL("/inquiries/guest/new");
+    await expect(page.getByRole("dialog", { name: "문의를 남겼어요" })).toHaveCount(0);
+    await expect(page.getByLabel("제목")).toHaveValue("");
+    await page.getByLabel("이메일").fill("a@ssafy.com");
+    await page.getByLabel("조회 비밀번호").fill("1234");
+    await page.getByText("[필수] 개인정보 수집 · 이용 동의").click();
+    await fillAndSend(page, "두 번째 문의예요", "다시 확인해 주세요");
+    await page
+      .getByRole("dialog", { name: "문의를 남겼어요" })
+      .getByRole("button", { name: "확인" })
+      .click();
+
+    await expect(page.getByRole("heading", { level: 1, name: "두 번째 문의예요" })).toBeVisible();
   });
 
   test("I01-B: 개인정보 수집 · 이용에 동의하지 않으면 보내지 않고, [보기]는 동의 본문을 모달로 보여 준다", async ({

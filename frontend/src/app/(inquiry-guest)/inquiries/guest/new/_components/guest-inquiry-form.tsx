@@ -33,7 +33,16 @@ import { useGuestInquiryStore } from "@/stores/guest-inquiry-store";
 // · 사용자 결정(2026-10-30: 비회원 문의에 [필수] 개인정보 수집 · 이용 동의를 더한다. Figma에 없어 가입 화면(S01-1)의 동의 줄 모양을 따른다)
 // · Swagger 9.11 → 9.1 attachmentKeys · 사용자 결정(2026-11-03: 내용 아래 '사진' 칸(photo-picker), 비회원도 붙인다)
 
+/**
+ * I01-B 비회원 문의하기. 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 문의를 남긴 뒤 다시 들어와도
+ * 지난 완료 모달 · 입력값이 남지 않게 새로 들어올 때마다(push · replace) 새로 그리고, 뒤로 · 앞으로 가기로 돌아오면 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식).
+ */
 export function GuestInquiryForm() {
+  const { bfcacheId } = useRouter();
+  return <GuestInquiry key={bfcacheId} />;
+}
+
+function GuestInquiry() {
   const router = useRouter();
   const openStored = useGuestInquiryStore((s) => s.open);
   const [created, setCreated] = useState<{ inquiryId: number; accessPassword: string } | null>(
@@ -82,7 +91,8 @@ export function GuestInquiryForm() {
   const goToInquiry = () => {
     if (!created) return;
     openStored(created.inquiryId, created.accessPassword);
-    router.push(ROUTES.guestInquiry);
+    // 기록을 바꿔치기해, 뒤로 가기로 보낸 내용이 든 문의하기에 돌아가지 않게 한다(회원 문의와 같음)
+    router.replace(ROUTES.guestInquiry);
   };
 
   const message = (text?: string) => (text ? { text, tone: "error" as const } : undefined);
