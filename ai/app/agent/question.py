@@ -1,6 +1,7 @@
 """질문을 면접관 음성으로 말하고, 시작·끝을 BE와 지원자 화면에 알린다.
 
-기준: AI 명세 6.2 질문 단계, 6.3 interview.question, 6.5 TTS 실패·질문 시작 전송 실패.
+기준: AI 명세 6.2 질문 단계, 6.3 interview.question,
+6.5 TTS 실패·면접관 음성 송출 실패·재생 멈춤·질문 시작 전송 실패.
 - 질문 음성은 에이전트가 올린 마이크 트랙 하나로 내보낸다.
   녹화 파일 이름이 참가자 이름(interviewer)과 트랙 종류로 정해지므로(AI 명세 7장)
   트랙은 하나만 올린다.
@@ -19,7 +20,11 @@
   합성하지 못하면 failed를 보내고, 화면은 질문 글로 진행한다.
 - 화면이 RPC를 받지 못해도(처리 함수 미등록·응답 지연) 질문 음성은 계속 내보낸다.
   알림 실패로 면접이 멈추지 않게 하기 위함이다.
-- 발화 중단 안내(AI 명세 6.3 interrupt.text)도 같은 트랙으로 말한다.
+- 송출이 막히면 재생이 끝나지 않아 면접이 그 자리에서 멈추므로,
+  송출에 실패하거나 음성 길이에 여유(PLAYOUT_MARGIN_SECONDS)를 더한 시간 안에
+  재생이 끝나지 않으면 남은 음성을 폐기한다.
+  질문이면 failed를 전송하고 답변 듣기로 진행한다(AI 명세 6.5).
+- 발화 중단 안내(AI 명세 6.3 interrupt.text)와 칭찬(AI 명세 6.2 호응)도 같은 트랙으로 말한다.
   안내 글은 리액션 메시지로 화면에 전달되므로 question 알림과 question.started는 보내지 않는다.
 """
 
@@ -55,6 +60,8 @@ STARTED_RETRY_SECONDS = 4.0
 # 마지막 조각은 무음으로 채우므로 끝이 최대 이만큼 늦는다
 FRAME_MS = 100
 TRACK_NAME = "interviewer-voice"
+# AI 명세 6.5: 재생이 음성 길이보다 이만큼(초, 임시 값) 더 걸리면 송출이 멈춘 것으로 간주한다
+PLAYOUT_MARGIN_SECONDS = 10.0
 
 
 class SpeechState(StrEnum):
@@ -112,6 +119,11 @@ def audio_frames(pcm: bytes) -> list[rtc.AudioFrame]:
         chunk = pcm[offset : offset + size]
         frames.append(rtc.AudioFrame(chunk.ljust(size, b"\0"), SAMPLE_RATE, 1, samples))
     return frames
+
+
+def playout_limit_ms(audio: SpeechAudio) -> int:
+    """음성 재생을 기다리는 상한(밀리초). 음성 길이에 PLAYOUT_MARGIN_SECONDS를 더한다."""
+    return audio.duration_ms + round(PLAYOUT_MARGIN_SECONDS * 1000)
 
 
 class QuestionSpeaker:
@@ -182,12 +194,19 @@ class QuestionSpeaker:
         return audio
 
     async def say(self, audio: SpeechAudio) -> None:
-        """발화 중단 안내 음성을 재생한다.
+        """발화 중단 안내·칭찬 음성을 재생한다.
 
-        취소하면 남은 음성을 버린다.
+        송출에 실패하거나 재생 상한을 넘기면 남은 음성을 폐기하고 반환한다.
+        취소하면 남은 음성을 폐기하고 취소를 전파한다.
         """
-        if self._source is not None:
+        if self._source is None:
+            return
+        try:
             await self._play(audio)
+        except TimeoutError:
+            log.warning("안내·칭찬 음성 재생 상한 초과 limit_ms=%d", playout_limit_ms(audio))
+        except Exception:
+            log.exception("안내·칭찬 음성 송출 실패")
 
     async def ask(
         self,
@@ -220,6 +239,12 @@ class QuestionSpeaker:
         await self._notify(destination, seq, content, SpeechState.STARTED, audio)
         try:
             await self._play(audio, on_start=mark_started)
+        except TimeoutError:
+            log.warning(
+                "질문 음성 재생 상한 초과 limit_ms=%d", playout_limit_ms(audio), extra={"seq": seq}
+            )
+            await self._notify(destination, seq, content, SpeechState.FAILED)
+            return
         except Exception:
             log.exception("질문 음성 송출 실패", extra={"seq": seq})
             await self._notify(destination, seq, content, SpeechState.FAILED)
@@ -264,11 +289,14 @@ class QuestionSpeaker:
         try:
             if on_start is not None:
                 on_start()
-            for frame in audio_frames(audio.pcm):
-                await source.capture_frame(frame)
-            await source.wait_for_playout()
-        except asyncio.CancelledError:
-            # 면접방이 닫히거나 안내를 멈추면 남은 음성을 버린다
+            # 대기열이 가득 차 프레임을 전송하는 단계에서도 멈출 수 있으므로,
+            # 재생 완료 대기와 함께 제한한다
+            async with asyncio.timeout(playout_limit_ms(audio) / 1000):
+                for frame in audio_frames(audio.pcm):
+                    await source.capture_frame(frame)
+                await source.wait_for_playout()
+        except (asyncio.CancelledError, Exception):
+            # 면접방이 닫히거나, 안내를 멈추거나, 송출이 실패·멈추면 남은 음성을 폐기한다
             source.clear_queue()
             raise
 
