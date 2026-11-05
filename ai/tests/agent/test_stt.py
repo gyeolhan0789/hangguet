@@ -531,6 +531,96 @@ def test_gives_up_after_three_reconnects() -> None:
     asyncio.run(run())
 
 
+def error_message(code: int) -> Any:
+    return Mock(
+        type=aiohttp.WSMsgType.TEXT,
+        json=Mock(return_value={"error_code": code, "error_message": "rejected"}),
+    )
+
+
+def error_socket(code: int) -> FakeWebSocket:
+    """음성 조각을 수신할 때마다 Soniox 오류를 응답하는 연결."""
+    ws = FakeWebSocket()
+
+    async def reply(_chunk: bytes) -> None:
+        ws.messages.put_nowait(error_message(code))
+
+    ws.send_bytes = AsyncMock(side_effect=reply)
+    return ws
+
+
+def test_gives_up_when_soniox_keeps_answering_with_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """잘못된 키처럼 Soniox가 계속 오류를 응답하면 3회 다시 연결한 뒤 포기한다."""
+
+    async def run() -> None:
+        sockets = [error_socket(401) for _ in range(4)]
+        states: list[SttState] = []
+
+        async def audio() -> AsyncIterator[bytes]:
+            while True:
+                yield CHUNK
+                await asyncio.sleep(0.01)
+
+        stt = SonioxSTT(
+            SttSettings("secret"), on_state=states.append, reconnect_delays=(0.0, 0.0, 0.0)
+        )
+        with (
+            patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(*sockets)),
+            pytest.raises(SttError, match="다시 연결하지 못했습니다"),
+        ):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+        assert all(ws.exited for ws in sockets)
+        assert states == [SttState.RECONNECTING]
+        assert len(stt.gaps) == 1
+
+    with caplog.at_level(logging.INFO, logger="app.agent.stt"):
+        asyncio.run(run())
+    record = summary(caplog)
+    assert record["result"] == "reconnect_failed"
+    assert record["failures"] == ["soniox_error"] * 4
+    assert record["reconnects"] == 3
+
+
+def test_error_response_does_not_move_gap_start() -> None:
+    """인식하지 못한 구간은 오류 응답이 아니라 마지막 정상 응답부터 시작한다."""
+
+    async def run() -> None:
+        first = FakeWebSocket()
+        replies = [
+            text_message([{"text": "앞", "is_final": True, "start_ms": 0, "end_ms": 50}]),
+            error_message(503),
+        ]
+
+        async def reply(_chunk: bytes) -> None:
+            if replies:
+                first.messages.put_nowait(replies.pop(0))
+
+        first.send_bytes = AsyncMock(side_effect=reply)
+        healthy = answering_socket("뒤")
+        states: list[SttState] = []
+
+        async def audio() -> AsyncIterator[bytes]:
+            yield CHUNK
+            await asyncio.sleep(0.05)
+            yield CHUNK
+            while SttState.RECONNECTED not in states:
+                yield CHUNK
+                await asyncio.sleep(0.01)
+
+        stt = SonioxSTT(
+            SttSettings("secret"), on_state=states.append, reconnect_delays=(0.0, 0.0, 0.0)
+        )
+        with patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(first, healthy)):
+            await asyncio.wait_for(stt.run(audio()), timeout=2)
+        assert states == [SttState.RECONNECTING, SttState.RECONNECTED]
+        # 정상 응답은 첫 음성 조각(100ms)까지이고, 두 번째 조각에는 오류를 응답했다
+        assert stt.gaps[0].start_ms == 100
+
+    asyncio.run(run())
+
+
 def test_connection_dropping_before_first_response_counts_as_same_outage() -> None:
     async def run() -> None:
         first = FakeWebSocket()

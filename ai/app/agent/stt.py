@@ -235,9 +235,7 @@ class SonioxSTT:
 
     def accept_response(self, response: dict[str, Any]) -> bool:
         """중간 결과는 교체하고 확정 토큰만 누적한다. 종료 응답이면 True."""
-        if response.get("error_code") or response.get("error_message"):
-            # 공급자 메시지에는 입력값이 포함될 수 있어 원문을 로그에 남기지 않는다.
-            raise _SonioxResponseError(response.get("error_code", "unknown"))
+        _raise_for_error(response)
         before = self.transcript.final_count
         tokens = soniox_tokens(response)
         self.transcript.apply(tokens)
@@ -506,16 +504,20 @@ class SonioxSTT:
         loop = asyncio.get_running_loop()
         async for message in ws:
             if message.type == aiohttp.WSMsgType.TEXT:
+                response = message.json()
                 self._responses += 1
                 if self._first_response_at is None:
                     self._first_response_at = loop.time()
+                # 오류 응답은 인식 결과가 아니므로 연결이 회복된 것으로 간주하지 않는다
+                # 재시도 횟수를 초기화하면 Soniox가 계속 오류를 응답할 때 다시 연결을 멈추지 않는다
+                _raise_for_error(response)
                 self._last_response_at = loop.time()
                 self._last_response_ms = feed.position_ms
                 self._unanswered_since = None
                 self._attempts = 0
                 if self._resumed_ms is not None:
                     self._reconnected(self._resumed_ms)
-                if self.accept_response(message.json()):
+                if self.accept_response(response):
                     return
             elif message.type == aiohttp.WSMsgType.ERROR:
                 raise SttError("Soniox STT WebSocket 수신 오류")
@@ -541,6 +543,13 @@ class SonioxSTT:
             if since is not None and loop.time() - since >= self._no_response_seconds:
                 raise _ConnectionLostError(LostReason.NO_RESPONSE)
             await asyncio.sleep(interval)
+
+
+def _raise_for_error(response: dict[str, Any]) -> None:
+    """Soniox 오류 응답이면 _SonioxResponseError를 발생시킨다."""
+    if response.get("error_code") or response.get("error_message"):
+        # 공급자 메시지에는 입력값이 포함될 수 있어 원문을 로그에 남기지 않는다.
+        raise _SonioxResponseError(response.get("error_code", "unknown"))
 
 
 def _lost(role: LostReason | None, error: BaseException, ended: asyncio.Event) -> BaseException:
