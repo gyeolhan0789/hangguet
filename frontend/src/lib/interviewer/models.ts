@@ -93,7 +93,7 @@ const LOOKS = {
     // 머리는 동작 클립(끄덕임 · 말하기)이 움직이므로 고개 제어를 쓰지 않는다
     model: {
       glb: "/interview/duck/interviewer.glb",
-      glbBytes: 7_168_564,
+      glbBytes: 2_222_604,
       faceRules: "/interview/duck/face-rules.json",
       clips: {
         idle: "Duck_Folded_Idle",
