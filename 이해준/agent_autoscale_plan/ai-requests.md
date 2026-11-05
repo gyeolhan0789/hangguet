@@ -30,7 +30,7 @@
 **원인(코드)**: `main.py` `AgentServer(num_idle_processes=0)`. 면접마다 프로세스를 새로 띄운다(livekit-agents 운영 기본값은 4).
 
 **요청**
-- `num_idle_processes`를 1~2로(환경 변수로 바꿀 수 있게 하면 좋다). 대기 프로세스 1개 메모리(약 100~200MB 추정)를 실측해 대당 메모리 계획(`t3.medium` 4GB, 컨테이너 3g)에 반영한다
+- `num_idle_processes`를 1~2로(환경 변수로 바꿀 수 있게 하면 좋다). 대기 프로세스 1개 메모리(약 100~200MB 추정)를 실측해 대당 메모리 계획(`t3.small` 2GB, 컨테이너 1536m, 11/05 `t3.medium`에서 바꿈)에 반영한다
 - 0으로 둔 이유(메모리 절약 등)가 있으면 알려 주면 계획에 반영한다
 - 새 인스턴스 첫 면접의 0.97은 이걸로 없어진다: livekit-agents 1.8.8은 `num_idle_processes`가 1 이상이면 대기 프로세스가 준비될 때까지 기다린 **뒤에** LiveKit에 등록한다(`worker.py` `_proc_pool.start()` → 연결 작업 순서, `proc_pool.py` `start`). 첫 면접은 이미 떠 있는 프로세스로 시작한다
 - 남는 것: 대기 프로세스를 하나 쓰면 바로 다음 것을 띄우므로, 그 기동은 첫 질문 준비와 겹친다. 무거운 import(numpy 등)를 `prewarm_fnc`에서 미리 하면 면접 시작 때 할 일이 더 준다
