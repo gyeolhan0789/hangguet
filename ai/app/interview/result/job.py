@@ -101,6 +101,7 @@ def evaluate_answer_input(mode: InterviewMode, answer: EvaluateAnswer) -> Answer
         content=answer.content,
         tokens=answer.tokens,
         voice=answer.speech,
+        stt_gaps=answer.stt_gaps,
     )
 
 
@@ -229,7 +230,7 @@ def build_result(
     progress(AnalysisStep.WRITING_FEEDBACK)
     session = SessionForFeedback(
         answers=[
-            AnswerForFeedback(a.answer_id, a.seq, a.question, a.content, e["criteria"])
+            AnswerForFeedback(a.answer_id, a.seq, a.question, a.content, e["criteria"], a.stt_gaps)
             for a, e in zip(job.answers, evaluations, strict=True)
         ],
         scores=scores,
@@ -269,7 +270,7 @@ def _timelines(job: EvaluateJob, chat: Chat, models: set[str]) -> dict[int, dict
     """다시보기 타임라인(AI 명세 4장). 계산하지 못해도 결과 생성은 실패시키지 않는다."""
     try:
         timelines = build_timelines(
-            [TimelineAnswer(a.answer_id, a.tokens, a.timeline) for a in job.answers]
+            [TimelineAnswer(a.answer_id, a.tokens, a.timeline, a.stt_gaps) for a in job.answers]
         )
         by_id = {a.answer_id: a for a in job.answers}
         items = [

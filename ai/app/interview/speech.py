@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, TypedDict
 
+from app.common.answer import SttGap
 from app.common.rounding import round_half_up
 
 log = logging.getLogger(__name__)
@@ -101,17 +102,51 @@ def ends_sentence(word: str) -> bool:
     return body[-1:] in _SENTENCE_ENDINGS
 
 
-def speech_metrics(tokens: list[dict[str, Any]] | None) -> SpeechMetrics | None:
-    """tokens가 없거나 단어가 없으면 None(지표를 계산하지 않는다)."""
+def _touches_gap(start_ms: int, end_ms: int, gaps: Sequence[SttGap]) -> bool:
+    return any(gap.start_ms <= end_ms and start_ms <= gap.end_ms for gap in gaps)
+
+
+def long_pauses(words: Sequence[Word], gaps: Sequence[SttGap] = ()) -> list[tuple[Word, Word]]:
+    """문장 중간에서 앞 단어 끝부터 다음 단어 시작까지 2초 이상 멈춘 구간(AI 명세 3장 긴 멈춤)이다.
+
+    STT가 끊긴 구간(sttGaps)과 겹치는 쉼은 인식하지 못해 단어가 비어 있는 것이므로 제외한다.
+    """
+    return [
+        (cur, nxt)
+        for cur, nxt in zip(words, words[1:], strict=False)
+        if nxt.start_ms - cur.end_ms >= LONG_PAUSE_MS
+        and not ends_sentence(cur.text)
+        and not _touches_gap(cur.end_ms, nxt.start_ms, gaps)
+    ]
+
+
+def gap_pause_ms(words: Sequence[Word], gaps: Sequence[SttGap]) -> int:
+    """STT가 끊긴 구간과 겹치는 쉼의 합(밀리초)이다.
+
+    발화 시간에서 제외한다(AI 명세 3장).
+    """
+    return sum(
+        nxt.start_ms - cur.end_ms
+        for cur, nxt in zip(words, words[1:], strict=False)
+        if nxt.start_ms > cur.end_ms and _touches_gap(cur.end_ms, nxt.start_ms, gaps)
+    )
+
+
+def speech_metrics(
+    tokens: list[dict[str, Any]] | None, gaps: Sequence[SttGap] = ()
+) -> SpeechMetrics | None:
+    """tokens가 없거나 단어가 없으면 None(지표를 계산하지 않는다).
+
+    gaps는 STT가 끊긴 구간이고,
+    그 구간과 겹치는 쉼은 긴 멈춤으로 집계하지 않고 발화 시간에서도 제외한다.
+    """
     words = group_words(tokens or [])
     if not words:
         return None
-    pauses = [
-        nxt.start_ms - cur.end_ms
-        for cur, nxt in zip(words, words[1:], strict=False)
-        if nxt.start_ms - cur.end_ms >= LONG_PAUSE_MS and not ends_sentence(cur.text)
-    ]
-    speaking_ms = max(0, words[-1].end_ms - words[0].start_ms - sum(pauses))
+    pauses = [nxt.start_ms - cur.end_ms for cur, nxt in long_pauses(words, gaps)]
+    speaking_ms = max(
+        0, words[-1].end_ms - words[0].start_ms - sum(pauses) - gap_pause_ms(words, gaps)
+    )
     syllables = sum(len(_HANGUL_SYLLABLE.findall(w.text)) for w in words)
     return {
         "fillerCount": sum(1 for w in words if is_filler(w.text)),

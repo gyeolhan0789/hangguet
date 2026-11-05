@@ -7,10 +7,12 @@ from typing import Any, cast
 import pytest
 from redis import Redis
 
+from app.common.answer import SttGap
 from app.common.gms import GmsBadOutputError, GmsResult, GmsUnavailableError
 from app.common.results import RESULT_QUEUE_KEY, ResultPublisher, ResultPublishError
 from app.common.session import Persona
 from app.common.settings import load_settings
+from app.interview.result import timeline
 from app.interview.result.feedback import feedback_system, gms_feedback_chat
 from app.interview.result.job import (
     ANALYSIS_TIMEOUT_SECONDS,
@@ -245,7 +247,7 @@ def test_unscored_answer_is_scored_before_cover_letter() -> None:
     assert "자기소개서" not in score.calls[0][1]["content"]
     rescored = messages[-1]["answers"][1]["evaluation"]
     assert rescored["criteria"]["LOGIC"]["score"] == 90
-    assert rescored["promptVersion"] == "score-answer-v1"
+    assert rescored["promptVersion"] == "score-answer-v2"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(결과 생성은 작업의 면접관 기준으로 세부 피드백을 작성)
@@ -382,7 +384,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v1,evaluate-cover-letter-v1,evaluate-feedback-v6" in caplog.text
+    assert "prompt=score-answer-v2,evaluate-cover-letter-v1,evaluate-feedback-v7" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 
@@ -490,3 +492,32 @@ def test_answers_keep_job_order() -> None:
     target = replace(JOB, answers=tuple(reversed(JOB.answers)))
     completed = run(target)[0][-1]
     assert [a["answerId"] for a in completed["answers"]] == [904, 903]
+
+
+def test_stt_gaps_reach_rescoring_feedback_and_timeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AI 명세 4장: 결과 생성도 답변마다 sttGaps를 수신해 재채점·피드백·타임라인에 반영한다."""
+    item = answer(903, 1, None)
+    item["tokens"] = [
+        {"text": "캐시를", "startMs": 0, "endMs": 500},
+        {"text": " 도입한", "startMs": 9_500, "endMs": 10_000},
+    ]
+    item["sttGaps"] = [{"startMs": 800, "endMs": 9_000}]
+    target = job(item)
+    seen: list[Any] = []
+    original = timeline.build_timelines
+
+    def recorded(answers: Any) -> Any:
+        seen.extend(answers)
+        return original(answers)
+
+    monkeypatch.setattr("app.interview.result.job.build_timelines", recorded)
+    score = FakeChat(GOOD, COVER_LETTER)
+    written = FakeChat(feedback_reply(target))
+
+    messages, score, written = run(target, score, written)
+
+    rescored = messages[-1]["answers"][0]["evaluation"]
+    assert rescored["speech"]["longPauseCount"] == 0
+    assert "[음성 인식이 끊긴 구간(답변 시작 기준)]" in score.calls[0][1]["content"]
+    assert "[음성 인식이 끊긴 구간 1(답변 시작 기준)]" in written.calls[0][1]["content"]
+    assert [a.stt_gaps for a in seen] == [(SttGap(800, 9_000),)]
