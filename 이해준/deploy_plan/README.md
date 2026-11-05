@@ -178,7 +178,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 모든 컨테이너 상한의 합계는 약 12.2GB(에이전트 4g 포함)다. 나머지 약 2.8GB를 OS · Docker · 러너가 쓴다. 이 서버 한 대로 늘릴 수 있는 동시 면접 수는 메모리로 약 20~30건이 끝이고, CPU(하루 평균 40%) · 녹화(Egress) · AI 작업자(작업을 하나씩 처리)가 그보다 먼저 막을 수 있다. 그 이상은 에이전트 · Egress · 작업자를 다른 서버로 나눠야 한다(1.1). 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
-> **[결정] 에이전트(`a301-prod-ai-agent`)와 Egress(`a301-prod-egress`)를 우리 계정의 ASG 두 개로 따로 옮긴다**(에이전트 11/03, Egress 11/05). 설계 · 순서는 [에이전트 · Egress 오토스케일링 계획](../agent_autoscale_plan/README.md)(1장 · 10.1)이다. 옮긴 뒤 두 컨테이너는 이 서버에서 프로필(`agent-on-main` · `egress-on-main`)로 꺼 두고 되돌릴 때만 켠다. 이 표와 2장 구조는 운영에 반영한 뒤에 고친다(계획 10.1의 13)
+> **[결정] 에이전트(`a301-prod-ai-agent`)와 Egress(`a301-prod-egress`)를 우리 계정의 ASG 두 개로 따로 옮긴다**(에이전트 11/03, Egress 11/05). 설계 · 순서는 [에이전트 · Egress 오토스케일링 계획](../agent_autoscale_plan/README.md)(1장 · 10.1)이다. 옮긴 뒤 두 컨테이너는 이 서버에서 프로필(`agent-on-main` · `egress-on-main`)로 꺼 두고 되돌릴 때만 켠다. 이 표와 2장 구조는 운영에 반영한 뒤에 고친다(계획 10.1의 13). **다음 릴리즈에는 넣지 않는다**(11/05). 반영 뒤 master 배포를 ASG에 반영하는 방법은 계획 7.1이다
 
 - 왜 미리 적나: 위 표의 에이전트 4g · Egress 1g와 "동시 약 20~30건"은 두 컨테이너가 이 서버에 있다는 전제다. 지금 이 값을 바꾸려는 사람이 곧 옮겨 간다는 것을 알고 판단하게 한다
 
@@ -487,6 +487,8 @@ develop → Release MR → master
 → prod-build (자동, yobi 미니PC 배포 러너 a301-mock-deploy) be · fe · ai · admin 이미지 빌드 → Docker Hub push (태그: <서비스>-<커밋 짧은 SHA>) → 미니PC에서 지움
 → prod-deploy (▶ 버튼, Lightsail 러너 a301-prod) deploy/prod/deploy.sh: Docker Hub 로그인(pull 토큰) → 파일 복사 → 백업 준비 → pull → up -d → 상태 확인 → 이미지 정리
 ```
+
+- 이 흐름은 **메인 서버만** 바꾼다. 에이전트 · Egress를 ASG로 옮긴 뒤에는 ASG 쪽에 SSM 이미지 태그 변경 · 인스턴스 새로 고침이 따로 필요하다([오토스케일링 계획](../agent_autoscale_plan/README.md) 7.1). 다음 릴리즈에는 ASG를 넣지 않으므로(11/05) 지금은 이 흐름 그대로다
 
 구현: `.gitlab-ci.yml`의 「운영 서버」, [`deploy/prod/deploy.sh`](../../deploy/prod/deploy.sh). 하는 일 · 롤백은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포」(10/26 작성, 아직 실행 전).
 
