@@ -197,7 +197,7 @@ com.ssafy.a301
 |---|---|---|---|---|
 | `READY` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | 플랜 `READY`(Redis) 아니면 409 `PLAN_NOT_READY` |
 | `IN_PROGRESS` | 결과 메시지 `assignment.rejected` | `START_FAILED` | `failStart()` | 질문 행이 없고, 거절 시각(`occurredAt`)이 시작 시각 이후일 때만. 면접방을 닫는다(5.5) |
-| `IN_PROGRESS` | 시작 15초(임시 값) 뒤 면접방에 면접관(`interviewer`) 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 질문 행이 없을 때만. 면접관 여부는 LiveKit `ListParticipants`로 확인한다. 면접방을 닫는다(5.5) |
+| `IN_PROGRESS` | 배정 요청을 마친 뒤 15초(임시 값) 동안 면접방에 면접관(`interviewer`) 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 질문 행이 없을 때만. 기준 시각은 5.4에서 배정 요청(`CreateDispatch`)이 성공한 시각이다. 면접관 여부는 LiveKit `ListParticipants`로 확인한다. 면접방을 닫는다(5.5) |
 | `IN_PROGRESS` | 지원자(`candidate`) 입장 30초(임시 값) 뒤 질문 행 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 입장 시각은 LiveKit `ListParticipants`의 `joinedAt`. 지원자가 입장하지 않았으면 판단하지 않는다. 면접방을 닫는다(5.5) |
 | `START_FAILED` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 플랜으로 다시 배정하고 시작 시각을 새로 남긴다 |
 | `IN_PROGRESS` | 5.8 끝내기(답변 ≥1) | `ANALYZING` | `end(now, answeredCount)` → true | 연습 기록 남김(6.1) |
