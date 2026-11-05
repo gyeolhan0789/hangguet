@@ -9,7 +9,7 @@
 > 3. 비밀값의 실제 값은 적지 않는다
 > 4. 숫자는 출처를 구분한다: **[실측]** 부하 테스트에서 직접 잰 값 · **[추정]** 실측으로 계산한 예상 · **[설정]** 운영에 쓰기로 정한 값. 설정값(예: 최대 5대)은 그만큼 처리된다는 보장이 아니다
 >
-> 관련 문서: [부하 테스트 결과](../../loadtest/report/) · [운영 배포 계획](../deploy_plan/README.md) · [AI 명세](../../docs/AI-명세.md) · 파트 요청 [AI](ai-requests.md) · [BE](be-requests.md)
+> 관련 문서: [부하 테스트 결과](../../loadtest/report/) · [운영 배포 계획](../deploy_plan/README.md) · [AI 명세](../../docs/AI-명세.md) · 파트 요청 [AI](ai-requests.md) · [BE](be-requests.md) · 운영 ASG 키트 [`deploy/asg/`](../../deploy/asg/README.md)
 
 ## 목차
 
@@ -524,7 +524,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | 1 | **필수 코드 수정**: BE 면접관 입장 시간 초과 → `START_FAILED`(화면의 [다시 시작]이 방을 새로 열어 다시 배정, [BE 요청](be-requests.md) 1), AI 질문 재생 시간 상한 · `REDIS_PASSWORD` 읽기([AI 요청](ai-requests.md) 1 · 2). BE Redis 비밀번호는 코드 수정 없이 `SPRING_DATA_REDIS_PASSWORD`로 넣는다(인프라). 개발 서버에서 확인 | BE · AI |
 | 2 | **메인 서버 선행 변경**(분리와 상관없이 이득): Egress `cpu_cost.track_cpu_cost: 0.1`, `needrestart` 자동 재시작 끄기(S6 08:50 장애), Redis 비밀번호 | 인프라 |
 | 3 | 테스트 서버에서 운영 경로 재현: Tailscale(9장 운영 경로 · 끊김), 준비 확인 · 축소 보호 · 수명 주기 훅 · CPU 목표 추적(9장 한 대에 몰림 · 늘리기 · 줄이기 · 장애), 되돌리기 | 인프라 |
-| 4 | 운영 리소스 만들기(우리 계정): SSM `/a301/prod/agent/*`, 역할 · 보안 그룹 · 시작 템플릿 · ASG `a301-prod-agent*`(처음 원하는 대수 0), Tailscale 태그 · ACL · 가입 키 | 인프라 |
+| 4 | 운영 리소스 만들기(우리 계정, user data · 정책 · 덮어쓰기는 [`deploy/asg/`](../../deploy/asg/README.md)): SSM `/a301/prod/agent/*`, 역할 · 보안 그룹 · 시작 템플릿 · ASG `a301-prod-agent*`(처음 원하는 대수 0), Tailscale 태그 · ACL · 가입 키 | 인프라 |
 | 5 | 메인 서버 전환: Tailscale 설치 · 가입, compose에서 7880 · 6379를 Tailscale IP에 열기, `a301-prod-ai-agent`를 `agent-on-main` 프로필로 돌리기(평소 꺼짐). 운영 사용이 적은 오전, 진행 중 면접이 없을 때 | 인프라 |
 | 6 | ASG 원하는 대수 1 → 실제 면접 1건(화상)으로 확인(꼬리질문 생성 로그 포함, 질문 간격 · 에이전트 CPU가 부하 테스트 수치와 크게 다르지 않은지). 이 상태(고정 1대)로 운영한다 | 인프라 |
 | 7 | **확장 정책 켜기**(6.2, 평균 CPU 40%): 3단계로 목표값을 확정한 뒤 | 인프라 |

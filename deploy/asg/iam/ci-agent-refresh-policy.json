@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SetAgentImageTagOnly",
+      "Effect": "Allow",
+      "Action": "ssm:PutParameter",
+      "Resource": "arn:aws:ssm:ap-northeast-2:*:parameter/a301/prod/agent/image-tag"
+    },
+    {
+      "Sid": "StartAgentInstanceRefresh",
+      "Effect": "Allow",
+      "Action": "autoscaling:StartInstanceRefresh",
+      "Resource": "arn:aws:autoscaling:ap-northeast-2:*:autoScalingGroup:*:autoScalingGroupName/a301-prod-agent"
+    },
+    {
+      "Sid": "ReadInstanceRefreshStatus",
+      "Effect": "Allow",
+      "Action": "autoscaling:DescribeInstanceRefreshes",
+      "Resource": "*"
+    }
+  ]
+}
