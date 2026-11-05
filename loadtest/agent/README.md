@@ -4,7 +4,7 @@ AI 면접관(에이전트)을 테스트 서버에서 떼어 EC2 Auto Scaling Gro
 지금 단계는 **대수를 직접 정해 고정하는 scale out**(계획 9장 검증 1~3단계)이다. 확장 정책 · 수명 주기 훅 · CloudWatch 지표는 다음 단계에서 붙인다.
 
 ```
-메인(테스트) 서버 a301-loadtest ──(사설망) LiveKit 7880 · Redis 6379──▶ 에이전트 ASG(t3.medium, 고정 N대)
+메인(테스트) 서버 a301-loadtest ──(사설망) LiveKit 7880 · Redis 6379──▶ 에이전트 ASG(t3.small, 고정 N대)
       │                                                                  │ Soniox · ElevenLabs · Jev(인터넷)
       └── 사용자 · 에이전트 미디어: 공인 IP의 UDP 7882 ◀──────────────────┘
 ```
@@ -73,7 +73,7 @@ AI 면접관(에이전트)을 테스트 서버에서 떼어 EC2 Auto Scaling Gro
 | 항목 | 값 |
 |---|---|
 | AMI | Amazon Linux 2023 AMI(64비트 x86) |
-| 인스턴스 유형 | `t3.medium` |
+| 인스턴스 유형 | `t3.small`(운영과 같음, 계획 4.1). 11/03 1 · 2단계는 `t3.medium`으로 했다. 이미 만든 템플릿은 새 버전을 만들어 유형만 바꾼다 |
 | 키 페어 | 포함하지 않음(Session Manager로 접속) |
 | 네트워크 설정 | 서브넷은 **템플릿에 포함하지 않음**(ASG가 고른다), 보안 그룹 `a301-loadtest-agent` |
 | 스토리지 | 루트 볼륨 gp3 30GiB |
@@ -141,5 +141,5 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
 
 ## 정리 · 비용
 
-- 시험하지 않을 때는 ASG 원하는 · 최소를 **0**으로 둔다(`t3.medium` 시간당 약 $0.052 + IP · 디스크)
+- 시험하지 않을 때는 ASG 원하는 · 최소를 **0**으로 둔다(`t3.small` 시간당 약 $0.026 + IP · 디스크)
 - 다 쓰면 ASG → 시작 템플릿 → IAM 역할 → SSM 매개변수 → 보안 그룹(`a301-loadtest`의 7880 · 6379 규칙 포함) 순서로 지운다

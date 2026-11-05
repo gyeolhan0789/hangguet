@@ -178,6 +178,10 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 모든 컨테이너 상한의 합계는 약 12.2GB(에이전트 4g 포함)다. 나머지 약 2.8GB를 OS · Docker · 러너가 쓴다. 이 서버 한 대로 늘릴 수 있는 동시 면접 수는 메모리로 약 20~30건이 끝이고, CPU(하루 평균 40%) · 녹화(Egress) · AI 작업자(작업을 하나씩 처리)가 그보다 먼저 막을 수 있다. 그 이상은 에이전트 · Egress · 작업자를 다른 서버로 나눠야 한다(1.1). 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
+> **[결정] 에이전트(`a301-prod-ai-agent`)와 Egress(`a301-prod-egress`)를 우리 계정의 ASG 두 개로 따로 옮긴다**(에이전트 11/03, Egress 11/05). 설계 · 순서는 [에이전트 · Egress 오토스케일링 계획](../agent_autoscale_plan/README.md)(1장 · 10.1)이다. 옮긴 뒤 두 컨테이너는 이 서버에서 프로필(`agent-on-main` · `egress-on-main`)로 꺼 두고 되돌릴 때만 켠다. 이 표와 2장 구조는 운영에 반영한 뒤에 고친다(계획 10.1의 13). **다음 릴리즈에는 넣지 않는다**(11/05). 반영 뒤 master 배포를 ASG에 반영하는 방법은 계획 7.1이다
+
+- 왜 미리 적나: 위 표의 에이전트 4g · Egress 1g와 "동시 약 20~30건"은 두 컨테이너가 이 서버에 있다는 전제다. 지금 이 값을 바꾸려는 사람이 곧 옮겨 간다는 것을 알고 판단하게 한다
+
 - 왜 외부 노출을 LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Tunnel로만 들어온다
 - 왜 AI 메모리는 [미정]인가: 에이전트는 면접마다 프로세스가 늘고, 분석 작업자는 라이브러리가 정해지지 않았다. 추측으로 잡으면 강제 종료가 나거나 메모리를 낭비하므로 실측해서 정한다
 
@@ -412,6 +416,7 @@ IAM 역할을 못 쓰므로 IAM 사용자 키를 서버에 둔다. 키마다 권
 - 왜 녹화 정책이 개발과 같은가: 개발에서 이미 동작하는 정책을 버킷만 바꿔 옮겼다. 좁히면(예: `recordings/raw/` 쓰기만) 운영에서만 실패할 수 있어 개발과 다르게 두지 않는다
 - 왜 앱에 `ListBucket`을 주나: 없으면 없는 파일을 확인할 때 S3가 404 대신 403을 돌려 BE(`S3FileStorage.exists`)가 오류로 처리한다
 - 앱 키 이름은 AWS SDK 기본 공급자가 읽는 이름이다. BE 코드는 자격 증명을 따로 설정하지 않는다
+- **녹화 키(`a301-prod-egress`)에는 아래 IP 조건을 넣지 않는다**(11/05). Egress를 ASG로 옮기면 업로드하는 공인 IP가 매번 바뀌어 막힌다. 대신 S3 게이트웨이 엔드포인트를 거치게 하고 `aws:SourceVpc` 조건을 건다 **[제안]**([오토스케일링 계획](../agent_autoscale_plan/README.md) 5.5). 아래 정책 초안의 `Principal`에서 녹화 키를 빼고 넣는다
 - IP 조건은 첫 운영 배포에서 녹화 · 프로필 업로드를 확인한 뒤 버킷 정책에 넣는다 **[제안]**. 왜: 처음부터 넣으면 업로드 실패가 키 문제인지 IP 조건 문제인지 가려내기 어렵다. 넣을 정책(기존 HTTPS 정책에 문장 추가, `<계정 ID>`는 콘솔에서 확인)
 
 ```json
@@ -482,6 +487,8 @@ develop → Release MR → master
 → prod-build (자동, yobi 미니PC 배포 러너 a301-mock-deploy) be · fe · ai · admin 이미지 빌드 → Docker Hub push (태그: <서비스>-<커밋 짧은 SHA>) → 미니PC에서 지움
 → prod-deploy (▶ 버튼, Lightsail 러너 a301-prod) deploy/prod/deploy.sh: Docker Hub 로그인(pull 토큰) → 파일 복사 → 백업 준비 → pull → up -d → 상태 확인 → 이미지 정리
 ```
+
+- 이 흐름은 **메인 서버만** 바꾼다. 에이전트 · Egress를 ASG로 옮긴 뒤에는 ASG 쪽에 SSM 이미지 태그 변경 · 인스턴스 새로 고침이 따로 필요하다([오토스케일링 계획](../agent_autoscale_plan/README.md) 7.1). 다음 릴리즈에는 ASG를 넣지 않으므로(11/05) 지금은 이 흐름 그대로다
 
 구현: `.gitlab-ci.yml`의 「운영 서버」, [`deploy/prod/deploy.sh`](../../deploy/prod/deploy.sh). 하는 일 · 롤백은 [`deploy/prod/README.md`](../../deploy/prod/README.md)의 「배포」(10/26 작성, 아직 실행 전).
 
@@ -685,3 +692,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 8.1 | 운영 `deploy.sh` 순서를 「복사 → 백업 준비 → 검사 · pull → up」에서 「검사 · pull(체크아웃의 compose) → 백업 준비 → 복사 → up」으로 바꿈. cloudflared 로그(`Registered tunnel connection`) 확인을 빼고 바깥 주소 확인(120초)으로 터널까지 보며, 실패하면 cloudflared · Nginx 로그를 남김(S15P31A301-391) | 복사 뒤 pull이 실패하면 서버에 새 설정 파일과 예전 컨테이너가 남아, 컨테이너가 재시작될 때 예전 이미지와 새 설정이 섞였다. cloudflared는 버전 고정이라 대부분의 배포에서 다시 만들지 않아, 로그 확인이 예전 기동 때 줄로 통과했고 로그가 회전되면 연결이 멀쩡해도 실패할 수 있었다. 실제로 10/29 무렵 `e9874c74` 배포가 이 확인에서 실패했다. 터널은 연결돼 있었고, `set -o pipefail`에서 `docker logs | grep -q`가 맨 앞의 기동 줄을 찾자마자 끝나 42시간치 로그를 쓰던 `docker logs`가 SIGPIPE(141)로 죽어 파이프 전체가 실패로 처리됐다(로그가 파이프 버퍼 약 64KB보다 길면 매번 실패, 로컬에서 재현). 앱 컨테이너는 이미 새 이미지로 떠 있었지만 바깥 주소 확인 · 이미지 정리가 돌지 않았고 GitLab에는 실패한 배포로 남았다. 로그에 보인 Grafana 연결 실패(ERR)는 10/28 Grafana 강제 종료 때 줄로 원인이 아니다 |
 | 인프라 | 8.3 | 롤백 방법을 「master Run pipeline에 `IMAGE_TAG` 넘기기」에서 「Environments `prod/app`에서 Re-deploy」로 고침. 391 이전 커밋으로 되돌릴 때 예전 `deploy.sh`의 터널 확인이 실패할 수 있음을 적음(S15P31A301-391) | `workflow.rules`가 수동 실행 파이프라인을 develop에서만 만들어 처음 안은 쓸 수 없었다. 운영 README · `.gitlab-ci.yml`은 이미 Re-deploy를 적고 있어 문서끼리 달랐다 |
 | 인프라 | 8.1 | 운영 배포 확인에 바깥 주소 `rtc.hangguet.co.kr`(LiveKit `OK`) · `grafana.hangguet.co.kr/api/health`를 더하고, healthy 확인 뒤 20초 동안 모든 컨테이너의 재시작 수가 그대로인지 보는 확인을 더함(S15P31A301-391) | healthcheck가 없는 서비스 12개(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보는 확인을 통과했다. 바깥 주소는 앱만 봐서 LiveKit이 요청을 받지 못해도 배포가 성공할 수 있었다. 설정 해시로 설정이 바뀐 서비스가 다시 만들어지므로, 설정 오류는 이 확인에서 드러나야 한다 |
+| 인프라 | 3.2 · 6.2 | 에이전트 · Egress를 ASG 두 개로 따로 옮긴다는 결정과 계획 문서 링크를 3.2에 적음(표는 반영 뒤 고침). 6.2 버킷 IP 조건에서 녹화 키를 빼고 S3 게이트웨이 엔드포인트 + `aws:SourceVpc` 조건으로 바꾸는 안 **[제안]** | Egress를 ASG로 옮기면 업로드 공인 IP가 매번 바뀌어, 계획대로 IP 조건을 넣으면 녹화가 모두 막힌다. 왜 Egress를 따로 두는지는 [오토스케일링 계획](../agent_autoscale_plan/README.md) 1장 |
