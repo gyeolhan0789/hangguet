@@ -39,9 +39,7 @@ BYTES_PER_SAMPLE = 2
 VOICE_IDS: Mapping[Persona, str] = {
     Persona.DEVIL: "FXxhHa2cRkhRQpD1I1Ut",
     Persona.COFFEE_CHAT: "kv35JHV8eknIPqadZFol",
-    # 오리 면접관 전용 음성을 정하기 전까지 개발자 면접관 음성을 사용해, 오리 면접이 시작돼도
-    # 질문 음성 합성이 실패하지 않게 한다
-    Persona.DUCK: "kv35JHV8eknIPqadZFol",
+    Persona.DUCK: "HERgDqDuzwb5wIvxFuTw",
 }
 REQUEST_TIMEOUT = 15
 # 429를 받은 뒤 다시 요청하기 전에 기다리는 시간(초). 길이가 다시 요청하는 횟수다
