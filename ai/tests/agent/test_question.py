@@ -514,6 +514,123 @@ def test_cancel_during_playback_drops_queued_audio() -> None:
     asyncio.run(run())
 
 
+# 기준: AI 명세 6.5 면접관 음성 송출 실패·재생 멈춤
+
+
+@pytest.fixture
+def short_margin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """재생 상한의 여유를 0.1초로 줄인다.
+
+    AUDIO(250ms)의 상한은 350ms다.
+    """
+    monkeypatch.setattr("app.agent.question.PLAYOUT_MARGIN_SECONDS", 0.1)
+
+
+def never_ending() -> AsyncMock:
+    async def wait(*_args: Any) -> None:
+        await asyncio.Event().wait()
+
+    return AsyncMock(side_effect=wait)
+
+
+def stalled(caplog: pytest.LogCaptureFixture) -> logging.LogRecord:
+    [record] = [r for r in caplog.records if "재생 상한 초과" in r.getMessage()]
+    return record
+
+
+@pytest.mark.usefixtures("short_margin")
+def test_stalled_question_playback_is_dropped_and_reported_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    results = Mock()
+    clock = Mock(return_value=STARTED_AT)
+    talker, participant, source = speaker(results, clock=clock)
+    source.wait_for_playout = never_ending()
+    run = asyncio.wait_for(ask_and_send(talker, 1, QUESTION, AUDIO), timeout=2)
+    with caplog.at_level(logging.WARNING, logger="app.agent.question"):
+        asyncio.run(run)
+    assert speeches(participant) == ["started", "failed"]
+    source.clear_queue.assert_called_once()
+    # 재생을 시작할 때 이미 기록·전송했으므로 다시 기록하지 않는다
+    assert clock.call_count == 1
+    results.publish.assert_called_once()
+    record = stalled(caplog)
+    assert record.getMessage() == "질문 음성 재생 상한 초과 limit_ms=350"
+    assert vars(record)["seq"] == 1
+
+
+@pytest.mark.usefixtures("short_margin")
+def test_stalled_frame_capture_is_limited_too() -> None:
+    talker, participant, source = speaker()
+    source.capture_frame = never_ending()
+    asyncio.run(asyncio.wait_for(talker.ask(1, QUESTION, "candidate", AUDIO), timeout=2))
+    assert speeches(participant) == ["started", "failed"]
+    source.wait_for_playout.assert_not_awaited()
+    source.clear_queue.assert_called_once()
+
+
+@pytest.mark.usefixtures("short_margin")
+def test_playback_longer_than_margin_within_audio_length_is_not_cut() -> None:
+    """상한은 음성 길이에 여유를 더한 값이므로 여유보다 오래 걸려도 그 안에 끝나면 정상이다."""
+    talker, participant, source = speaker()
+
+    async def slow() -> None:
+        await asyncio.sleep(0.15)
+
+    source.wait_for_playout = AsyncMock(side_effect=slow)
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
+    assert speeches(participant) == ["started", "ended"]
+    source.clear_queue.assert_not_called()
+
+
+def test_failed_question_playback_drops_queued_audio() -> None:
+    talker, participant, source = speaker()
+    source.capture_frame.side_effect = RuntimeError("closed")
+    asyncio.run(talker.ask(1, QUESTION, "candidate", AUDIO))
+    assert speeches(participant) == ["started", "failed"]
+    source.clear_queue.assert_called_once()
+
+
+@pytest.mark.usefixtures("short_margin")
+def test_stalled_notice_is_dropped_and_returns(caplog: pytest.LogCaptureFixture) -> None:
+    """칭찬 뒤 다음 질문으로, 발화 중단 안내 뒤 답변 끝 판단으로 진행할 수 있어야 한다."""
+    talker, participant, source = speaker()
+    source.wait_for_playout = never_ending()
+    with caplog.at_level(logging.WARNING, logger="app.agent.question"):
+        asyncio.run(asyncio.wait_for(talker.say(AUDIO), timeout=2))
+    source.clear_queue.assert_called_once()
+    participant.perform_rpc.assert_not_awaited()
+    assert stalled(caplog).getMessage() == "안내·칭찬 음성 재생 상한 초과 limit_ms=350"
+
+
+def test_failed_notice_playback_is_dropped_and_returns() -> None:
+    talker, _, source = speaker()
+    source.capture_frame.side_effect = RuntimeError("closed")
+    asyncio.run(talker.say(AUDIO))
+    source.clear_queue.assert_called_once()
+
+
+def test_cancelled_notice_drops_audio_and_propagates() -> None:
+    talker, _, source = speaker()
+
+    async def run() -> None:
+        blocked = asyncio.Event()
+
+        async def wait(_frame: Any) -> None:
+            blocked.set()
+            await asyncio.Event().wait()
+
+        source.capture_frame.side_effect = wait
+        task = asyncio.create_task(talker.say(AUDIO))
+        await blocked.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        source.clear_queue.assert_called_once()
+
+    asyncio.run(run())
+
+
 def test_notice_is_spoken_on_same_track_without_question_messages() -> None:
     results = Mock()
     talker, participant, source = speaker(results)
