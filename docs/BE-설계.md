@@ -282,7 +282,7 @@ com.ssafy.a301
 - 방 만들기: `RoomService.CreateRoom`. 빈 방은 10분 뒤 닫힌다(`empty_timeout`·`departure_timeout`)
 - 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름 `a301-interviewer`·방 이름·배정 정보, AI 명세 6.1)
 - 면접 종료(5.8 커밋 뒤): `RoomService.DeleteRoom`. 에이전트가 나가고 녹화도 끝난다. 실패해도 5.8은 성공으로 두고 로그만 남긴다
-- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{publisher_identity}-{track_type}`이다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
+- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{startedAtMs}/{publisher_identity}-{track_type}`이고, `startedAtMs`는 면접 시작 시각(`started_at`)의 유닉스 밀리초다. 시작 실패 뒤 다시 시작(5.4)하면 시작 시각이 새로 기록되므로 이전 시도의 트랙과 다른 위치에 녹화되고, 합치기 작업에는 마지막 시도의 위치를 전달한다. 이 경로를 적용하기 전에 녹화한 원본(`recordings/raw/{sessionId}/` 바로 아래)은 새 경로를 쓰는 BE를 배포하기 전에 `recordings/raw/{sessionId}/{startedAtMs}/`로 한 번 복사한다. 그 면접의 `started_at`은 원본을 녹화한 마지막 시도의 시각이기 때문이다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
   - `{track_type}`은 `video`·`audio`(소문자, Egress `track_worker.go`)
   - S3 키는 `LIVEKIT_EGRESS_S3_ACCESS_KEY`·`LIVEKIT_EGRESS_S3_SECRET`(버킷·리전은 `S3_BUCKET`·`AWS_REGION`)로 요청에 담는다. LiveKit Cloud(개발)는 저장소가 없으면 방 만들기를 400 `egress request missing output`으로 거절한다(확인함). 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅, 운영 배포 계획 6.2)
 - LiveKit 웹훅은 쓰지 않는다 **[제안]**(팀원 안 「Egress 종료 웹훅으로 녹화 등록」과 다름). 원본 위치는 BE가 녹화를 시작할 때 정하므로 종료 알림 없이도 합치기 작업에 넣을 수 있다
@@ -425,7 +425,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 |---|---|---|---|
 | 프로필 사진 | `profile/{userId}/{uuid}.{ext}` | 2.4 Presigned PUT(JPG·PNG, 5MB) | 응답마다 Presigned GET |
 | 문의 사진 | `inquiry/{uuid}.{ext}` | 9.11 Presigned PUT(JPG·PNG, 5MB, 한 번에 5장) | 9.3 · 9.7 응답마다 Presigned GET |
-| 면접 녹화 원본 | `recordings/raw/{sessionId}/…`(트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
+| 면접 녹화 원본 | `recordings/raw/{sessionId}/{startedAtMs}/…`(시작 시도별·트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
 | 면접 녹화 | `recordings/{sessionId}.mp4` | AI 분석 작업자가 합쳐 올림(`recording.merged`) | 6.4 Presigned GET |
 | 답변 음성 | **[미정]**(트랙에서 잘라 쓸지 따로 저장할지, API 명세 B-19) | - | 분석에서만 사용 |
 
