@@ -24,6 +24,8 @@ import lombok.NoArgsConstructor;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InterviewGroupParticipant {
+    // 한 사람이 받을 수 있는 꼬리질문 수(API 명세 10장)
+    public static final int MAX_FOLLOWUPS = 2;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -59,6 +61,14 @@ public class InterviewGroupParticipant {
     @Column(name = "left_at")
     private OffsetDateTime leftAt;
 
+    // 끝낸 기본 질문 수 0~4(답했든 시간이 다 됐든)
+    @Column(name = "base_done", nullable = false)
+    private int baseDone;
+
+    // 받은 꼬리질문 수 0~2
+    @Column(name = "followups_used", nullable = false)
+    private int followupsUsed;
+
     public InterviewGroupParticipant(
             InterviewGroup group,
             User user,
@@ -83,6 +93,11 @@ public class InterviewGroupParticipant {
         } else if (readyAt == null) {
             this.readyAt = now;
         }
+    }
+
+    // 10.7. 처음 시작할 때 무작위로 정하고, 다시 시작하면 남은 참가자끼리 같은 순서로 다시 센다
+    public void assignTurnOrder(int turnOrder) {
+        this.turnOrder = turnOrder;
     }
 
     // 10.6. 면접은 시작하지 않은 채 남는다

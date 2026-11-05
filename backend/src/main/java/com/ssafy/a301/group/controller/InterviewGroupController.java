@@ -7,6 +7,7 @@ import com.ssafy.a301.group.dto.GroupDtos.GroupJoinRequest;
 import com.ssafy.a301.group.dto.GroupDtos.GroupResponse;
 import com.ssafy.a301.group.dto.GroupDtos.InviteResponse;
 import com.ssafy.a301.group.dto.GroupDtos.ReadyRequest;
+import com.ssafy.a301.group.service.GroupStartService;
 import com.ssafy.a301.group.service.InterviewGroupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,9 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/interview-groups")
 public class InterviewGroupController {
     private final InterviewGroupService groups;
+    private final GroupStartService starts;
 
-    public InterviewGroupController(InterviewGroupService groups) {
+    public InterviewGroupController(InterviewGroupService groups, GroupStartService starts) {
         this.groups = groups;
+        this.starts = starts;
     }
 
     @Operation(
@@ -122,5 +125,32 @@ public class InterviewGroupController {
             @CurrentUserId long userId,
             @Parameter(description = "그룹 id", example = "7") @PathVariable long groupId) {
         groups.leave(userId, groupId);
+    }
+
+    @Operation(
+            summary = "10.7 그룹 면접 시작",
+            description =
+                    "방장만 부른다. 처음에는 인원이 정원과 같고 모두 준비했으며 모든 참가자의 질문 생성이 끝나야 한다. START_FAILED에서 다시 시작할"
+                        + " 때는 남은 인원이 2명 이상이면 된다. 참가자 면접을 모두 IN_PROGRESS로 바꾸고 면접방을 연다(5.4와 같은 방식)."
+                        + " 다른 참가자는 10.4에서 IN_PROGRESS를 보고 5.14로 입장 정보를 받는다.")
+    @ApiResponse(
+            responseCode = "200",
+            description = "status IN_PROGRESS, turn(면접방 정보) + 방장의 room(5.14와 같은 형식)")
+    @ApiResponse(responseCode = "403", description = "NOT_GROUP_HOST: 방장이 아님")
+    @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND: 없거나 참가자가 아님")
+    @ApiResponse(
+            responseCode = "409",
+            description =
+                    "INVALID_GROUP_STATE: WAITING · START_FAILED가 아님 · GROUP_NOT_READY: 인원 부족 · 준비"
+                            + " 안 한 참가자 · 질문 생성 중이거나 실패한 참가자가 있음 · IDEMPOTENCY_KEY_REUSED")
+    @ApiResponse(
+            responseCode = "503",
+            description = "ROOM_UNAVAILABLE: 면접방 만들기 · 에이전트 배정 실패. 그룹은 이전 상태 그대로라 다시 시도한다")
+    @Idempotent
+    @PostMapping("/{groupId}/start")
+    public GroupResponse start(
+            @CurrentUserId long userId,
+            @Parameter(description = "그룹 id", example = "7") @PathVariable long groupId) {
+        return starts.start(userId, groupId);
     }
 }

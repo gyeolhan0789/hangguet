@@ -20,6 +20,12 @@ public interface InterviewGroupParticipantRepository
                 + " by p.joinedAt, p.id")
     List<InterviewGroupParticipant> findActiveByGroupId(@Param("groupId") long groupId);
 
+    /** 나가지 않은 참가자의 면접 id. 면접 행을 잠그기 전에 읽는다(먼저 면접을 읽어 두면 잠근 뒤에도 읽어 둔 상태를 볼 수 있다) */
+    @Query(
+            "select p.session.id from InterviewGroupParticipant p where p.group.id = :groupId and"
+                    + " p.leftAt is null and p.user.deletedAt is null")
+    List<Long> findActiveSessionIds(@Param("groupId") long groupId);
+
     @Query(
             "select count(p) from InterviewGroupParticipant p where p.group.id = :groupId and"
                     + " p.leftAt is null and p.user.deletedAt is null")

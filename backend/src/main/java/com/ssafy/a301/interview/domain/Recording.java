@@ -69,6 +69,11 @@ public class Recording {
         return "recordings/raw/" + sessionId + "/";
     }
 
+    /** 그룹 면접방의 녹화 원본 위치. 참가자마다 candidate-{sessionId}로 시작한다(docs/그룹면접-설계.md 6.12) */
+    public static String groupRawPrefix(long groupId) {
+        return "recordings/raw/group-" + groupId + "/";
+    }
+
     /** 원본 트랙을 합친 mp4 위치(AI 명세 7장) */
     public static String sessionVideoKey(long sessionId) {
         return "recordings/" + sessionId + ".mp4";

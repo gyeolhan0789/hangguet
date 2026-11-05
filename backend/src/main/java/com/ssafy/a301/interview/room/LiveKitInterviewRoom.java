@@ -45,7 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class LiveKitInterviewRoom implements InterviewRoom {
     private static final Logger LOG = LoggerFactory.getLogger(LiveKitInterviewRoom.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    // 호출 하나의 시간 제한(BE 설계 5.2). 5.4는 면접 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
+    // 호출 하나의 시간 제한(BE 설계 5.2). 5.4 · 10.7은 면접 · 그룹 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     static final String CANDIDATE = "candidate";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
@@ -95,13 +95,48 @@ public class LiveKitInterviewRoom implements InterviewRoom {
 
     @Override
     public RoomResponse issueAccess(long sessionId, boolean video) {
+        return access(roomName(sessionId), CANDIDATE, video);
+    }
+
+    @Override
+    public void open(long sessionId, boolean video, Map<String, Object> assignment) {
+        open(roomName(sessionId), Recording.rawPrefix(sessionId), video, assignment, null);
+    }
+
+    @Override
+    public void close(long sessionId) {
+        delete(roomName(sessionId));
+    }
+
+    @Override
+    public RoomResponse issueGroupAccess(long groupId, long sessionId, boolean video) {
+        return access(groupRoomName(groupId), InterviewRoom.groupCandidate(sessionId), video);
+    }
+
+    @Override
+    public void openGroup(
+            long groupId, boolean video, Map<String, Object> assignment, String metadata) {
+        open(
+                groupRoomName(groupId),
+                Recording.groupRawPrefix(groupId),
+                video,
+                assignment,
+                metadata);
+    }
+
+    @Override
+    public void closeGroup(long groupId) {
+        delete(groupRoomName(groupId));
+    }
+
+    private RoomResponse access(String room, String identity, boolean video) {
         requireConfigured();
         AccessToken token = new AccessToken(apiKey, apiSecret);
-        token.setIdentity(CANDIDATE);
+        token.setIdentity(identity);
         token.setTtl(tokenTtl.toMillis());
         token.addGrants(
                 new RoomJoin(true),
-                new RoomName(roomName(sessionId)),
+                new RoomName(room),
                 new CanSubscribe(true),
                 new CanPublishData(true),
                 new CanPublish(video));
@@ -112,18 +147,25 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         return new RoomResponse(url, token.toJwt(), expiresAt);
     }
 
-    @Override
-    public void open(long sessionId, boolean video, Map<String, Object> assignment) {
+    // metadata는 면접방 정보(그룹 면접만). 개인 면접은 null이다
+    private void open(
+            String room,
+            String rawPrefix,
+            boolean video,
+            Map<String, Object> assignment,
+            String metadata) {
         requireConfigured();
-        String room = roomName(sessionId);
         try {
             CreateRoomRequest.Builder request =
                     CreateRoomRequest.newBuilder()
                             .setName(room)
                             .setEmptyTimeout(EMPTY_TIMEOUT_SECONDS)
                             .setDepartureTimeout(EMPTY_TIMEOUT_SECONDS);
+            if (metadata != null) {
+                request.setMetadata(metadata);
+            }
             if (video) {
-                request.setEgress(RoomEgress.newBuilder().setTracks(trackEgress(sessionId)));
+                request.setEgress(RoomEgress.newBuilder().setTracks(trackEgress(rawPrefix)));
             }
             execute(rooms().createRoom(request.build(), adminAuth()));
             execute(
@@ -131,17 +173,15 @@ public class LiveKitInterviewRoom implements InterviewRoom {
                             .createDispatch(room, agentName, JSON.writeValueAsString(assignment)));
         } catch (IOException | RuntimeException ex) {
             LOG.warn("면접방을 열지 못했다: room={}", room, ex);
-            close(sessionId);
+            delete(room);
             throw new ApiException(ErrorCode.ROOM_UNAVAILABLE);
         }
     }
 
-    @Override
-    public void close(long sessionId) {
+    private void delete(String room) {
         if (!isConfigured()) {
             return;
         }
-        String room = roomName(sessionId);
         try {
             Response<Void> response =
                     rooms().deleteRoom(
@@ -157,15 +197,13 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         }
     }
 
-    // 트랙마다 recordings/raw/{sessionId}/{참가자}-{종류}-{트랙 id}.{확장자}로 올린다. 종류는 video·audio(소문자), 트랙 id는
-    // LiveKit 서버가
-    // 붙이고(같은 트랙을 다시 올려도 덮어쓰지 않음) 확장자는 Egress가 코덱에 맞춰 붙인다(H.264 mp4, Opus ogg)
-    private AutoTrackEgress trackEgress(long sessionId) {
+    // 트랙마다 {원본 위치}{참가자}-{종류}-{트랙 id}.{확장자}로 올린다. 원본 위치는 recordings/raw/{sessionId}/(그룹은
+    // recordings/raw/group-{groupId}/), 종류는 video·audio(소문자), 트랙 id는 LiveKit 서버가 붙이고(같은 트랙을 다시 올려도
+    // 덮어쓰지 않음) 확장자는 Egress가 코덱에 맞춰 붙인다(H.264 mp4, Opus ogg)
+    private AutoTrackEgress trackEgress(String rawPrefix) {
         AutoTrackEgress.Builder egress =
                 AutoTrackEgress.newBuilder()
-                        .setFilepath(
-                                Recording.rawPrefix(sessionId)
-                                        + "{publisher_identity}-{track_type}")
+                        .setFilepath(rawPrefix + "{publisher_identity}-{track_type}")
                         .setDisableManifest(true);
         if (egressS3 != null) {
             egress.setS3(egressS3);
@@ -175,6 +213,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
 
     static String roomName(long sessionId) {
         return "interview-" + sessionId;
+    }
+
+    static String groupRoomName(long groupId) {
+        return "group-" + groupId;
     }
 
     // 방 만들기·지우기 권한

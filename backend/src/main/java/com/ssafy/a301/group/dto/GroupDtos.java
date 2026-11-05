@@ -1,17 +1,22 @@
 package com.ssafy.a301.group.dto;
 
+import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.JobCategory;
 import com.ssafy.a301.group.domain.ParticipantState;
+import com.ssafy.a301.group.domain.TurnAnnounce;
+import com.ssafy.a301.group.domain.TurnKind;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import java.time.OffsetDateTime;
 import java.util.List;
 
 public final class GroupDtos {
@@ -94,5 +99,54 @@ public final class GroupDtos {
             @Schema(
                             description = "내 직군이 그룹 직군과 다르면 true. 10.3 응답에만 값이 있고, 그 외에는 null",
                             nullable = true)
-                    Boolean jobCategoryMismatch) {}
+                    Boolean jobCategoryMismatch,
+            @Schema(description = "진행 중이면 면접방 정보(10.11)와 같은 차례 정보, 그 밖에는 null", nullable = true)
+                    RoomInfo turn,
+            @Schema(
+                            description = "방장의 면접방 입장 정보(5.14와 같은 형식). 10.7 응답에만 값이 있고, 그 외에는 null",
+                            nullable = true)
+                    RoomResponse room) {}
+
+    /** 면접방 정보(LiveKit room metadata, API 명세 10.11). BE만 쓰고 화면 · 에이전트는 읽는다. 10.4 turn도 같은 형식이다 */
+    public record RoomInfo(
+            @Schema(description = "바뀔 때마다 1씩 는다. 가진 값보다 작거나 같으면 버린다", example = "17")
+                    int turnVersion,
+            @Schema(description = "이 정보를 만든 BE 시각. 화면은 자기 시계와의 차이로 deadlineAt을 보정한다")
+                    OffsetDateTime serverTime,
+            GroupStatus groupStatus,
+            @Schema(description = "현재 라운드 1~4", example = "2") int round,
+            GroupPhase phase,
+            TurnInfo turn,
+            List<RoomParticipant> participants,
+            @Schema(description = "이 라운드에서 지금 답변자 다음에 답할 면접 id 순서", example = "[56, 57]")
+                    List<Long> upcoming) {}
+
+    public record TurnInfo(
+            @Schema(description = "지금 답변자의 면접 id", example = "55") long sessionId,
+            @Schema(description = "그 면접 안의 질문 순서 1~6", example = "3") int seq,
+            TurnKind kind,
+            @Schema(
+                            description = "몇 번째 기본 질문인지(1 공통 · 2 개인 · 3 공통 · 4 개인). 꼬리질문은 null",
+                            nullable = true,
+                            example = "2")
+                    Integer baseIndex,
+            TurnAnnounce announce,
+            @Schema(description = "답변 마감. ANSWERING에서만, 그 밖에는 null", nullable = true)
+                    OffsetDateTime deadlineAt,
+            @Schema(description = "이 질문에서 답변 시간을 연장했는지", example = "false") boolean extended,
+            @Schema(description = "이 답변자가 더 받을 수 있는 꼬리질문 수 0~2", example = "2")
+                    int followupsLeft) {}
+
+    public record RoomParticipant(
+            @Schema(description = "면접 id", example = "55") long sessionId,
+            @Schema(description = "답변 순서(1부터)", example = "1") int turnOrder,
+            ParticipantState state,
+            @Schema(description = "ABSENT일 때 이 시각까지 다시 들어올 수 있다. 그 밖에는 null", nullable = true)
+                    OffsetDateTime absentUntil,
+            @Schema(
+                            description =
+                                    "ENDED일 때 끝난 이유 ALL_ANSWERED · USER_ENDED · DISCONNECTED ·"
+                                            + " AI_FAILURE · CLEANUP. 그 밖에는 null",
+                            nullable = true)
+                    String endReason) {}
 }
