@@ -60,12 +60,13 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - 에이전트 참가자 이름은 AI 명세 6.1의 `interviewer`다.
 - BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문과 다음 질문을, 앞 질문의 합성이 끝난 뒤 하나씩 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다. 배정 정보 형식이 틀리면 방에 들어가지 않고 배정을 거절하며, BE가 면접을 시작 실패로 처리하도록 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송한다(AI 명세 6.5).
 - 질문 시작(`question.started`)과 화면 메시지(`interview.question`)는 AI 명세 6.2·6.3대로 전송한다. `question.started`는 음성 송출을 시작하는 시점(음성이 없으면 `failed`를 전송하기 직전)에 질문마다 한 번 별도 작업으로 전송하고, 음성은 마이크 트랙(`interviewer-voice`)으로 송출한다.
+- 오리 면접관은 답변을 전달하고 효과음 길이(1초)만큼 기다린 뒤 칭찬 한 문장을 같은 트랙으로 송출하고 다음 질문으로 진행한다(AI 명세 6.2). 칭찬 음성은 `duck_praise/`에 미리 합성해 둔 PCM(오리 면접관 음성 id, `eleven_multilingual_v2`, `pcm_24000`)이며, 문장(`app/interview/realtime/praise.py`)을 변경하면 같은 설정으로 다시 합성해 교체한다. 선택한 칭찬은 `칭찬 praise=` 로그로 확인한다.
 - 질문 시작(`question.started`) 전송이 재시도 후에도 실패해도 질문은 그대로 진행하고, 전송에 성공하거나 면접이 끝날 때까지 4초 간격으로 다시 전송한다. 화상 답변은 그 질문의 `question.started`를 전송한 뒤에만 `answer.completed`로 전달하고, 전송하지 못했으면 `submitFailed`를 알린다(AI 명세 6.5).
 
 ## 꼬리질문
 
 - 출제 순서·입력·생성 지침·예비 질문·버전 규칙은 AI 명세 2.2를 따른다. 면접관별 지침은 질문 생성과 같은 `app/interview/interviewer.py`를, 생성 요청과 출력 검증은 `app/interview/realtime/followup.py`를 사용한다.
-- 생성은 답변 전달을 막지 않는다. 다음 질문 음성 준비가 생성 결과를 기다리므로 답변 전달과 오리 면접관의 효과음 1초 대기는 생성 시간과 겹쳐 계산된다. 생성한 질문은 앞 질문의 음성 합성이 끝난 뒤 합성한다(ElevenLabs 동시 요청을 하나로 유지).
+- 생성은 답변 전달을 막지 않는다. 다음 질문 음성 준비가 생성 결과를 기다리므로 답변 전달과 오리 면접관의 효과음 1초 대기·칭찬은 생성 시간과 겹쳐 계산된다. 생성한 질문은 앞 질문의 음성 합성이 끝난 뒤 합성한다(ElevenLabs 동시 요청을 하나로 유지).
 - 대기 상한은 `FOLLOWUP_TIMEOUT`에 두고, GMS 요청도 재시도 없이 같은 시간 제한으로 전송한다.
 - `currentSeq`로 이어 시작해 직전 답변이 없으면 예비 질문을 출제한다.
 - 요청에 답변이 담기므로 질문 글과 답변은 로그에 남기지 않는다. `꼬리질문 생성 완료 ms=…`와 실패 경고 로그로 소요 시간과 대체 여부를 확인한다.

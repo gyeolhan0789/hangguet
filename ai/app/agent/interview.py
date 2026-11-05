@@ -93,6 +93,7 @@ from app.interview.realtime.answer_end import (
 )
 from app.interview.realtime.followup import FOLLOWUP_SEQS, FOLLOWUP_TIMEOUT
 from app.interview.realtime.interrupt import INTERRUPT_PHRASES, Interrupt, InterruptReason
+from app.interview.realtime.praise import Praise, choose_praise
 from app.interview.realtime.progress import EndReason
 from app.interview.realtime.sentence import Sentence, last_sentence
 
@@ -102,7 +103,7 @@ log = logging.getLogger(__name__)
 SPEAK_NOTICES = False
 # AI 명세 6.2: 다음 질문 전에 기다리는 시간(초).
 # 오리 면접관의 호응 효과음은 화면이 제출을 시작할 때 재생하므로,
-# 제출 처리 뒤 효과음 길이만큼 기다리면 처리 시간과 관계없이 다음 질문 음성과 겹치지 않는다.
+# 제출 처리 뒤 효과음 길이만큼 기다리면 처리 시간과 관계없이 그 뒤의 칭찬 음성과 겹치지 않는다.
 # 화면의 효과음 파일 길이(1초 이내)와 맞춰야 한다
 NEXT_QUESTION_DELAYS: Mapping[Persona, float] = {Persona.DUCK: 1.0}
 
@@ -184,10 +185,13 @@ class InterviewRunner:
         on_answer: Callable[[FinishedAnswer], Awaitable[bool]] | None = None,
         reactions: ReactionStream | None = None,
         followups: FollowupGenerator | None = None,
+        praises: Mapping[Praise, SpeechAudio] | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
+        """praises는 오리 면접관이 답변 뒤에 발화할 칭찬 음성이며, None이면 칭찬하지 않는다."""
         self._assignment = assignment
+        self._praises = praises
         self._sleep = sleep
         self._chat = assignment.mode is InterviewMode.CHAT
         self._asker = asker
@@ -333,6 +337,18 @@ class InterviewRunner:
         delay = NEXT_QUESTION_DELAYS.get(self._assignment.persona, 0.0)
         if delay and seq < MAX_SEQ:
             await self._sleep(delay)
+            await self._praise()
+
+    async def _praise(self) -> None:
+        # 답변 중에 수신한 판단으로 선택하므로 Jev를 다시 호출하지 않는다(AI 명세 6.2 호응)
+        if self._praises is None:
+            return
+        judgment = self._reactions.last_judgment if self._reactions is not None else None
+        praise = choose_praise(judgment)
+        audio = self._praises.get(praise)
+        log.info("칭찬 praise=%s", praise.value)
+        if audio is not None:
+            await self._asker.say(audio)
 
     def _prepare(self, seq: int) -> None:
         if seq <= MAX_SEQ and seq not in self._prepared:
