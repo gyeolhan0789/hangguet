@@ -131,6 +131,8 @@ $COMPOSE up -d
 
 `IMAGE_TAG`는 **운영에 떠 있는 태그**를 쓴다. 운영 서버에서 `docker inspect a301-prod-be --format '{{.Config.Image}}'`로 보거나, GitLab Deployments → Environments → `prod/app`의 마지막 배포 커밋을 본다.
 
+설정 해시(`A301_*_CONFIG_HASH`)는 `.env.example`의 고정값(`loadtest`) 그대로 둔다. 운영 compose가 필수로 받는 값이라 비우면 `$COMPOSE` 명령이 모두 멈춘다. 운영은 `deploy.sh`가 설정 파일 해시를 넣어 바뀐 서비스만 다시 만들지만, 테스트 서버는 값이 고정이라 `livekit.yaml` 같은 설정 파일을 고쳐도 `up -d`가 컨테이너를 그대로 둔다. 고쳤으면 그 서비스를 `$COMPOSE up -d --force-recreate <서비스>`로 다시 만든다.
+
 ### 7. 확인
 
 ```bash

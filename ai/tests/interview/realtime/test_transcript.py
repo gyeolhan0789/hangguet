@@ -284,3 +284,36 @@ def test_confirmed_text_and_last_end_since_position() -> None:
     assert transcript.confirmed_since(1) == " 둘 "
     assert transcript.last_end_ms_since(1) == 200
     assert transcript.last_end_ms_since(3) is None
+
+
+def test_interim_is_kept_as_confirmed_when_connection_is_lost() -> None:
+    """끊긴 연결의 미확정 글은 더 변경되지 않으므로 답변에 남긴다."""
+    transcript = connected(200, [token("첫", 0, 100), token(" 미확정", 100, 300, is_final=False)])
+    transcript.keep_interim()
+    transcript.keep_interim()
+    transcript.begin_connection(5000)
+    transcript.apply([token(" 둘째", 0, 150)])
+
+    assert transcript.content() == "첫 미확정 둘째"
+    assert transcript.answer_tokens() == (
+        SpeechToken("첫", 200, 300),
+        SpeechToken(" 미확정", 300, 500),
+        SpeechToken(" 둘째", 5000, 5150),
+    )
+
+
+def test_first_word_after_reconnection_is_separated_from_previous_words() -> None:
+    """새 연결의 첫 토큰은 앞 연결의 말과 붙여 쓰지 않는다."""
+    transcript = connected(0, [token("캡스톤 프로젝트", 0, 900)])
+    transcript.begin_connection(5000)
+    transcript.apply([token("캐시를", 0, 300), token(" 도입", 300, 600)])
+
+    assert transcript.content() == "캡스톤 프로젝트 캐시를 도입"
+
+
+def test_space_is_not_doubled_after_reconnection() -> None:
+    transcript = connected(0, [token("캡스톤", 0, 900)])
+    transcript.begin_connection(5000)
+    transcript.apply([token(" 캐시를", 0, 300)])
+
+    assert transcript.content() == "캡스톤 캐시를"

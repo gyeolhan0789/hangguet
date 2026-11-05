@@ -18,7 +18,7 @@ from app.agent.assignment import AssignedQuestion, parse_assignment
 from app.agent.followup import FollowupError
 from app.agent.interview import FinishedAnswer, InterviewRunner
 from app.agent.reaction import InvalidChatInputError
-from app.agent.stt import SttError
+from app.agent.stt import SttError, SttState
 from app.common.results import KST, ResultPublishError
 from app.common.session import Persona
 from app.interview.realtime import answer_end
@@ -129,10 +129,14 @@ class FakeAsker:
 
 class FakeSession:
     def __init__(
-        self, on_speech: Callable[[], None], on_sentence: Callable[[Sentence, str], None]
+        self,
+        on_speech: Callable[[], None],
+        on_sentence: Callable[[Sentence, str], None],
+        on_stt_state: Callable[[SttState], None],
     ) -> None:
         self.on_speech = on_speech
         self.on_sentence = on_sentence
+        self.on_stt_state = on_stt_state
         self.stopped = asyncio.Event()
         self.failure: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self.closed = False
@@ -147,7 +151,7 @@ class FakeSession:
         self.on_sentence(Sentence(text, 300.0), f"앞 {text}")
 
     def break_stt(self) -> None:
-        self.failure.set_exception(SttError("Soniox STT 오류 (code=503)"))
+        self.failure.set_exception(SttError("Soniox STT에 다시 연결하지 못했습니다"))
 
     def answer(self) -> CapturedAnswer:
         content = "답변" * self.spoken
@@ -280,9 +284,10 @@ class Harness:
         identity: str,
         on_speech: Callable[[], None],
         on_sentence: Callable[[Sentence, str], None],
+        on_stt_state: Callable[[SttState], None],
     ) -> FakeSession:
         assert identity == CANDIDATE
-        session = FakeSession(on_speech, on_sentence)
+        session = FakeSession(on_speech, on_sentence, on_stt_state)
         self.sessions.append(session)
         self.session_opened.set()
         return session
@@ -479,30 +484,91 @@ def test_timed_out_once_then_answer_still_accepted() -> None:
     assert h.states == [(1, "timedOut"), (1, "autoSubmitted"), (1, "submitted")]
 
 
-def test_stt_failure_after_speech_submits_recognized_text() -> None:
+def test_stt_failure_after_speech_submits_recognized_text_and_moves_on() -> None:
+    """AI 명세 6.5: 다시 연결하지 못하면,
+    인식된 글을 STT_FAILED로 제출하고 다음 질문으로 진행한다.
+    """
+
     async def scenario(h: Harness) -> None:
         session = await h.next_session()
         session.speak()
         session.break_stt()
-        await until(lambda: (1, "sttFailed") in h.states)
-        await asyncio.sleep(0.1)
-        assert h.answers == []
-        assert json.loads(h.submit(1)) == {"accepted": True}
-        await until(lambda: len(h.answers) == 1)
+        await h.next_session()
         assert session.failed
 
     h = run_async(scenario)
-    assert h.answers[0].answer.content == "답변"
+    assert h.states == [(1, "sttFailed"), (1, "submitted")]
+    assert [(a.seq, a.answer.content, a.end_reason) for a in h.answers] == [
+        (1, "답변", EndReason.STT_FAILED)
+    ]
 
 
-def test_stt_failure_without_speech_times_out() -> None:
+def test_stt_failure_without_speech_moves_on_without_waiting() -> None:
+    """발화가 없으면 [답변 완료]도 수신할 수 없으므로,
+    60초를 기다리지 않고 다음 질문으로 진행한다.
+    """
+
     async def scenario(h: Harness) -> None:
+        # 빈 답변은 전달하지 않으므로(AnswerDelivery) 전달 결과를 저장하지 않음으로 둔다
+        h.saved = False
         session = await h.next_session()
         session.break_stt()
-        await until(lambda: h.states == [(1, "sttFailed"), (1, "timedOut")])
-        assert rpc_code(lambda: h.submit(1)) == 2001
+        await h.next_session()
 
-    run_async(scenario)
+    h = run_async(scenario)
+    assert h.states == [(1, "sttFailed")]
+    assert h.answers == []
+
+
+def test_stt_failure_with_publish_failure_waits_for_resubmit() -> None:
+    """STT 실패로 제출한 답변도 전달에 실패하면 [다시 시도]를 기다리고 반복 전송하지 않는다."""
+
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        h.publish_failures = 1
+        session.break_stt()
+        await until(lambda: (1, "submitFailed") in h.states)
+        await asyncio.sleep(0.1)
+        assert h.deliveries == [1]
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.deliveries == [1, 1]
+    assert h.answers[0].end_reason is EndReason.STT_FAILED
+
+
+def test_stt_reconnecting_pauses_auto_submit_until_reconnected() -> None:
+    """AI 명세 6.2: 다시 연결하는 동안은 7초 계산을 멈추고, 다시 연결된 시점부터 다시 계산한다."""
+
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.on_stt_state(SttState.RECONNECTING)
+        await until(lambda: (1, "sttReconnecting") in h.states)
+        # 자동 제출 시간(60ms)이 지나도 다시 연결하는 동안은 제출하지 않는다
+        await asyncio.sleep(0.2)
+        assert h.answers == []
+        session.on_stt_state(SttState.RECONNECTED)
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.states == [(1, "sttReconnecting"), (1, "autoSubmitted"), (1, "submitted")]
+    assert h.answers[0].end_reason is EndReason.AUTO_SUBMIT
+
+
+def test_submit_while_reconnecting_after_speech_is_accepted() -> None:
+    async def scenario(h: Harness) -> None:
+        session = await h.next_session()
+        session.speak()
+        session.on_stt_state(SttState.RECONNECTING)
+        await until(lambda: (1, "sttReconnecting") in h.states)
+        assert json.loads(h.submit(1)) == {"accepted": True}
+        await until(lambda: len(h.answers) == 1)
+
+    h = run_async(scenario)
+    assert h.answers[0].end_reason is EndReason.MANUAL_SUBMIT
 
 
 def test_leaving_during_answer_discards_it_and_restarts_same_question() -> None:

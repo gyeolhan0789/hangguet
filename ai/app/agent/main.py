@@ -28,7 +28,7 @@ from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.rejection import rejected_session_id, send_rejection
-from app.agent.stt import CHUNK_MS, SAMPLE_RATE, SonioxSTT, SttSettings
+from app.agent.stt import CHUNK_MS, SAMPLE_RATE, SonioxSTT, SttSettings, SttState
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
@@ -191,18 +191,21 @@ class RoomCapture:
         settings: SttSettings,
         on_speech: Callable[[], None],
         on_sentence: Callable[[Sentence, str], None],
+        on_stt_state: Callable[[SttState], None],
         impressions: ImpressionRecorder | None = None,
     ) -> None:
         self._room = room
         self._identity = identity
         self._impressions = impressions
+        self._on_stt_state = on_stt_state
         self._stop = asyncio.Event()
         self._publisher = TranscriptPublisher(room.local_participant, identity)
         self._capture = AnswerCapture(
-            lambda on_update: SonioxSTT(settings, on_update=on_update),
+            lambda on_update, on_state: SonioxSTT(settings, on_update=on_update, on_state=on_state),
             on_speech=on_speech,
             on_update=self._publisher.update,
             on_sentence=on_sentence,
+            on_stt_state=self._stt_state,
         )
 
     async def run(self) -> CapturedAnswer:
@@ -242,6 +245,11 @@ class RoomCapture:
 
     def fail(self) -> None:
         self._publisher.fail()
+
+    def _stt_state(self, state: SttState) -> None:
+        if state is SttState.RECONNECTED:
+            self._publisher.reconnected()
+        self._on_stt_state(state)
 
     async def aclose(self) -> None:
         self._stop.set()
@@ -322,8 +330,8 @@ async def run_interview(
     runner = InterviewRunner(
         assignment,
         speaker,
-        lambda identity, on_speech, on_sentence: RoomCapture(
-            room, identity, settings, on_speech, on_sentence, impressions
+        lambda identity, on_speech, on_sentence, on_stt_state: RoomCapture(
+            room, identity, settings, on_speech, on_sentence, on_stt_state, impressions
         ),
         lambda destination, payload: send_room_message(
             room.local_participant, destination, ANSWER_STATE_METHOD, payload

@@ -50,6 +50,15 @@ class TranscriptPublisher:
     def fail(self) -> None:
         self.update(self._confirmed, self._interim, "failed")
 
+    def reconnected(self) -> None:
+        """STT에 다시 연결하면 지금 확정 글을 바로 다시 전송한다.
+
+        화면은 재연결 안내 중에 새 스냅샷을 수신하면 안내를 제거하므로,
+        새 연결의 첫 응답을 기다리지 않게 하기 위함이다.
+        새 연결은 이전 연결의 미확정 글을 폐기하므로 미확정 글은 비운다.
+        """
+        self.update(self._confirmed, "")
+
     async def _send(self) -> None:
         while True:
             await self._ready.wait()

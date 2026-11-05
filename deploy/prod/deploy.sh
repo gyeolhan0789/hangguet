@@ -4,12 +4,13 @@
 # 비밀값은 CI/CD Variables가 환경 변수로 넣는다(배포 계획 7장). compose가 빠진 값을 이름과 함께 알려 주고 멈춘다.
 #
 # 순서
-# 1. Docker Hub 로그인(pull 토큰, 임시 폴더. 끝나면 로그아웃하고 지운다)
-# 2. 배포 파일을 /opt/a301/prod로 복사. 설정 파일이 바뀐 서비스는 기억해 둔다
-# 3. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
-# 4. pull → up -d. 설정 파일만 바뀐 서비스는 다시 시작한다
-# 5. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 터널 연결, 바깥 주소
-# 6. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
+# 1. 설정 파일 해시를 A301_*_CONFIG_HASH로 넘긴다(compose가 라벨 a301.config-hash로 붙인다)
+# 2. Docker Hub 로그인(pull 토큰, 임시 폴더. 끝나면 로그아웃하고 지운다)
+# 3. 체크아웃의 compose로 설정 검사 · pull. 여기까지 실패하면 서버는 예전 그대로다
+# 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
+# 5. 배포 파일을 /opt/a301/prod로 복사 → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
+# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana), 20초 동안 재시작 없음
+# 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
 set -euo pipefail
 
 : "${IMAGE_TAG:?IMAGE_TAG가 필요합니다}"
@@ -18,14 +19,47 @@ export IMAGE_TAG
 
 DOCKERHUB_USER="${DOCKERHUB_USER:-hanggeut}"
 DOCKERHUB_REPO="${DOCKERHUB_REPO:-hanggeut/a301}"
+SRC_DIR="deploy/prod"
 PROD_DIR="${PROD_DIR:-/opt/a301/prod}"
 BACKUP_HOME="/opt/a301"
 KEEP_IMAGES="${KEEP_IMAGES:-3}"
 PUBLIC_URL="${PUBLIC_URL:-https://hangguet.co.kr}"
+RTC_URL="${RTC_URL:-https://rtc.hangguet.co.kr}"
+GRAFANA_URL="${GRAFANA_URL:-https://grafana.hangguet.co.kr}"
+STABLE_WAIT="${STABLE_WAIT:-20}"
 COMPOSE=(docker compose -f "${PROD_DIR}/compose.yml")
+SRC_COMPOSE=(docker compose -f "${SRC_DIR}/compose.yml")
 
 log() { echo "== $*"; }
 fail() { echo "FAIL: $*"; exit 1; }
+
+# 설정 파일(폴더) → 그 파일을 붙인 서비스의 해시 변수 이름(A301_<이름>_CONFIG_HASH, compose.yml 라벨 a301.config-hash).
+# 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose 설정이 그대로라 up -d가 다시 만들지 않고, 프로세스는 기동할 때 읽은 설정을 계속 쓴다.
+# 해시를 라벨로 붙이면 바뀐 서비스만 up -d가 다시 만든다(LiveKit을 매번 다시 띄우면 진행 중인 면접이 끊기기 때문).
+# 비교 기준이 컨테이너 라벨이라, 배포가 중간에 실패해도 다음 배포에서 맞춰진다.
+# 해시에는 파일 경로도 들어가므로 SRC_DIR 기준 상대 경로로 계산한다. 계산 방식을 바꾸면 7개가 한 번 다시 만들어진다
+declare -A CONFIG_HASH_FILE=(
+  [NGINX]=nginx.conf
+  [LIVEKIT]=livekit.yaml
+  [PROMETHEUS]=prometheus.yml
+  [BLACKBOX]=blackbox.yml
+  [LOKI]=loki.yml
+  [ALLOY]=alloy.alloy
+  [GRAFANA]=grafana
+)
+config_hash() {
+  (cd "$SRC_DIR" && find "$1" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -c1-16)
+}
+
+# compose 호출(실패 때 on_exit의 ps 포함)보다 먼저 넘긴다. 복사할 파일(SRC_DIR)로 계산하므로 /opt/a301/prod에 놓일 내용과 같다
+log "설정 해시"
+for name in "${!CONFIG_HASH_FILE[@]}"; do
+  file="${CONFIG_HASH_FILE[$name]}"
+  [ -e "${SRC_DIR}/${file}" ] || fail "설정 파일이 없습니다: ${SRC_DIR}/${file}(레포 루트에서 실행했는지 확인)"
+  value="$(config_hash "$file")"
+  export "A301_${name}_CONFIG_HASH=${value}"
+  echo "${file}: ${value}"
+done
 
 # 실패하면 상태와 로그를 남긴다. 로그인 정보는 성공 · 실패와 관계없이 지운다
 DOCKER_CONFIG="$(mktemp -d)"
@@ -44,36 +78,15 @@ trap on_exit EXIT
 log "Docker Hub 로그인 (${DOCKERHUB_USER})"
 printf '%s' "$DOCKERHUB_PULL_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin >/dev/null
 
-# 설정 파일 → 그 파일을 쓰는 서비스. 파일 하나를 붙인 컨테이너는 파일이 바뀌어도 compose가 다시 만들지 않으므로
-# 바뀐 서비스만 직접 다시 시작한다(LiveKit을 매번 다시 시작하면 진행 중인 면접이 끊기기 때문)
-declare -A CONFIG_SERVICE=(
-  [livekit.yaml]=a301-prod-livekit
-  [nginx.conf]=a301-prod-nginx
-  [prometheus.yml]=a301-prod-prometheus
-  [blackbox.yml]=a301-prod-blackbox
-  [loki.yml]=a301-prod-loki
-  [alloy.alloy]=a301-prod-alloy
-  [grafana]=a301-prod-grafana
-)
-checksum() {
-  # 파일이나 폴더 내용의 해시. 없으면 빈 문자열
-  if [ -e "$1" ]; then find "$1" -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1; fi
-}
-
-log "배포 파일 복사 → ${PROD_DIR}"
-declare -A BEFORE=()
-for path in "${!CONFIG_SERVICE[@]}"; do BEFORE[$path]="$(checksum "${PROD_DIR}/${path}")"; done
-mkdir -p "$PROD_DIR"
-rsync -a --delete deploy/prod/ "${PROD_DIR}/"
-CHANGED=()
-for path in "${!CONFIG_SERVICE[@]}"; do
-  if [ -n "${BEFORE[$path]}" ] && [ "${BEFORE[$path]}" != "$(checksum "${PROD_DIR}/${path}")" ]; then
-    CHANGED+=("${CONFIG_SERVICE[$path]}")
-  fi
-done
+# 검사 · 이미지 받기 · 백업 준비는 체크아웃(SRC_DIR)의 파일로 먼저 한다. 서버의 배포 파일(PROD_DIR)은 그다음 바로 up -d 직전에 바꾼다.
+# 여기서 실패하면 서버의 설정 파일 · 컨테이너가 모두 예전 그대로 남는다. 먼저 복사해 두면 예전 컨테이너가 재시작될 때
+# 새 설정 파일을 읽어 예전 이미지와 새 설정이 섞인다. pull은 이미지만 받으므로 compose 파일 위치와 관계없다
+log "설정 검사 · 이미지 받기 (${IMAGE_TAG})"
+"${SRC_COMPOSE[@]}" config --quiet
+"${SRC_COMPOSE[@]}" pull --quiet
 
 log "백업 준비"
-install -m 750 "${PROD_DIR}/backup.sh" "${BACKUP_HOME}/backup.sh"
+install -m 750 "${SRC_DIR}/backup.sh" "${BACKUP_HOME}/backup.sh"
 (
   umask 077
   {
@@ -83,16 +96,13 @@ install -m 750 "${PROD_DIR}/backup.sh" "${BACKUP_HOME}/backup.sh"
   } > "${BACKUP_HOME}/backup.env"
 )
 
-log "이미지 받기 (${IMAGE_TAG})"
-"${COMPOSE[@]}" config --quiet
-"${COMPOSE[@]}" pull --quiet
+log "배포 파일 복사 → ${PROD_DIR}"
+mkdir -p "$PROD_DIR"
+rsync -a --delete "${SRC_DIR}/" "${PROD_DIR}/"
 
 log "서비스 띄우기"
+# 이미지 · 환경 변수 · 설정 해시 라벨이 바뀐 서비스만 다시 만든다(compose가 Recreate로 출력한다)
 "${COMPOSE[@]}" up -d --remove-orphans
-if [ "${#CHANGED[@]}" -gt 0 ]; then
-  log "설정이 바뀐 서비스 다시 시작: ${CHANGED[*]}"
-  "${COMPOSE[@]}" restart "${CHANGED[@]}"
-fi
 
 log "상태 확인"
 EXPECTED="$("${COMPOSE[@]}" config --services | sort)"
@@ -113,6 +123,16 @@ if [ "$healthy" -ne 1 ]; then
   fail "180초 안에 모든 서비스가 준비되지 않았습니다."
 fi
 
+# 재시작 반복 확인의 기준. healthcheck가 없는 서비스(livekit · egress · prometheus · loki · alloy · grafana · cloudflared · exporter 등)는
+# 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 위 확인이 running인 순간을 보면 통과한다.
+# 여기서 재시작 수를 적어 두고, 아래 HTTP 확인이 끝난 뒤 STABLE_WAIT초가 지났을 때 다시 본다(개발 모니터링 잡과 같은 확인)
+restart_counts() {
+  # <컨테이너> <실행 중> <재시작 수>
+  "${COMPOSE[@]}" ps -a -q | xargs -r docker inspect -f '{{.Name}} {{.State.Running}} {{.RestartCount}}' | sed 's#^/##' | sort
+}
+STABLE_FROM=$SECONDS
+BASELINE="$(restart_counts)"
+
 # 상태 확인 포트는 루프백에만 열려 있다(compose.yml)
 check_http() {
   local name="$1" url="$2"
@@ -127,21 +147,47 @@ check_http "BE" "http://127.0.0.1:18084/actuator/health" a301-prod-be
 check_http "FE" "http://127.0.0.1:18082/api/health" a301-prod-fe
 check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
-# Cloudflare Tunnel이 붙어야 바깥에서 들어온다
-for _ in $(seq 1 30); do
-  if docker logs a301-prod-cloudflared 2>&1 | grep -q 'Registered tunnel connection'; then echo "OK: Cloudflare Tunnel 연결"; break; fi
-  sleep 2
-done
-docker logs a301-prod-cloudflared 2>&1 | grep -q 'Registered tunnel connection' \
-  || { docker logs --tail 40 a301-prod-cloudflared || true; fail "Cloudflare Tunnel이 연결되지 않았습니다(CLOUDFLARE_TUNNEL_TOKEN 확인)."; }
+# 바깥 주소로 한 바퀴. Tunnel 호스트 이름 3개를 모두 본다(배포 계획 5.1). 터널 연결도 이 확인으로 본다.
+# cloudflared 로그의 「Registered tunnel connection」은 컨테이너를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고,
+# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 또 pipefail에서 `docker logs | grep -q`는 로그가 길면
+# grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어, 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패).
+# 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+# check_public <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
+check_public() {
+  local name="$1" url="$2" pattern="$3"
+  shift 3
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 10 "$url" 2>/dev/null | grep -Eq "$pattern"; then echo "OK: ${name} (${url})"; return 0; fi
+    sleep 2
+  done
+  for svc in a301-prod-cloudflared "$@"; do
+    echo "---- ${svc} 로그"; "${COMPOSE[@]}" logs --tail 40 "$svc" || true
+  done
+  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). 터널 연결 · CLOUDFLARE_TUNNEL_TOKEN · 해당 서비스를 확인하세요."
+}
+# 앱: Cloudflare → Tunnel → Nginx → FE
+check_public "바깥 주소" "${PUBLIC_URL}/api/health" '"UP"' a301-prod-nginx
+# 면접방 시그널링: 브라우저가 LiveKit에 붙는 경로. LiveKit은 /에 OK로 답한다
+check_public "LiveKit 바깥 주소" "${RTC_URL}/" '^OK$' a301-prod-livekit
+# 대시보드: 장애를 보려면 떠 있어야 한다
+check_public "Grafana 바깥 주소" "${GRAFANA_URL}/api/health" '"database": *"ok"' a301-prod-grafana
 
-# 바깥 주소로 한 바퀴(Cloudflare → Tunnel → Nginx → FE)
-for _ in $(seq 1 30); do
-  if curl -fsS --max-time 10 "${PUBLIC_URL}/api/health" 2>/dev/null | grep -q '"UP"'; then echo "OK: ${PUBLIC_URL}"; break; fi
-  sleep 2
-done
-curl -fsS --max-time 10 "${PUBLIC_URL}/api/health" 2>/dev/null | grep -q '"UP"' \
-  || fail "${PUBLIC_URL}/api/health가 UP이 아닙니다(터널 경로 · Nginx 확인)."
+log "재시작 반복 확인 (${STABLE_WAIT}초)"
+left=$((STABLE_WAIT - (SECONDS - STABLE_FROM)))
+if [ "$left" -gt 0 ]; then sleep "$left"; fi
+NOW="$(restart_counts)"
+# 기준과 달라졌거나(재시작 수 증가 · 멈춤) 지금 실행 중이 아닌 컨테이너
+unstable="$( { comm -13 <(echo "$BASELINE") <(echo "$NOW"); echo "$NOW" | awk '$2 != "true"'; } | awk '{ print $1 }' | sort -u)"
+if [ -n "$unstable" ]; then
+  echo "---- 컨테이너 상태(이름 · 실행 중 · 재시작 수)"
+  echo "기준: ${BASELINE//$'\n'/, }"
+  echo "지금: ${NOW//$'\n'/, }"
+  for name in $unstable; do
+    echo "---- ${name} 로그"; docker logs --tail 60 "$name" 2>&1 || true
+  done
+  fail "다시 시작을 반복하거나 멈춘 컨테이너가 있습니다: ${unstable//$'\n'/ } (설정 파일 · 환경 변수 확인)"
+fi
+echo "OK: 모든 컨테이너가 ${STABLE_WAIT}초 넘게 재시작 없이 실행 중"
 
 log "이미지 정리 (서비스마다 최신 ${KEEP_IMAGES}개)"
 # docker image ls는 만든 시각이 최신인 것부터 보여 준다. 돌고 있는 컨테이너의 이미지는 docker rmi가 거부해 남는다

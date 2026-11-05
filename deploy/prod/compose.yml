@@ -1,7 +1,8 @@
 # 운영 서버 Lightsail 배포 (이해준/deploy_plan)
 # 개발 서버(deploy/dev/compose.yml)와 같은 이름 · 같은 환경 변수로 띄우고, 이미지 출처와 키 값만 다르다.
 # CI(prod-deploy)가 Lightsail 러너에서 실행한다. 수동 실행: 레포 루트에서
-#   IMAGE_TAG=<커밋 SHA> <비밀값들> docker compose -f deploy/prod/compose.yml up -d
+#   IMAGE_TAG=<커밋 SHA> <비밀값들> <설정 해시들> docker compose -f deploy/prod/compose.yml up -d
+#   설정 해시까지 맞춰 넣어야 하므로 서버에서는 deploy.sh로 띄운다(deploy/prod/README.md 「배포」)
 # 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr
 # 외부 요청 경로: Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000
 #   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다(배포 계획 5.1). 컨테이너 이름을 바꾸면 거기도 바꾼다.
@@ -14,6 +15,9 @@
 # - 이미지: Docker Hub 비공개 저장소 hanggeut/a301, 태그 be-·fe-·ai-·admin-<커밋 SHA>(배포 계획 8.1). IMAGE_TAG는 필수다.
 # - 비밀이 아닌 설정은 이 파일에 적는다.
 # - POSTGRES 비밀번호와 관리자 · Grafana 계정은 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 각 서비스에서 직접 바꾼다.
+# - 설정 해시(A301_*_CONFIG_HASH): 설정 파일을 붙인 서비스 7개에 라벨 a301.config-hash로 붙인다. deploy.sh가 파일 내용으로 계산해 넣는다.
+#   파일만 바뀌면 compose 설정은 그대로라 up -d가 컨테이너를 그대로 두고, 프로세스는 기동할 때 읽은 예전 설정을 계속 쓴다.
+#   해시가 바뀐 서비스만 up -d가 다시 만든다(개발 서버 deploy/dev/monitoring과 같은 방식). 빠뜨리면 7개가 한꺼번에 다시 만들어지므로 필수로 둔다.
 #
 # 자원: 4코어 · 15GB 한 대에 모두 올리므로 컨테이너마다 상한을 둔다(배포 계획 3.2).
 # 헬스체크용 포트는 루프백에만 연다(BE 관리 18084, FE 18082, AI 18083). 나머지는 컨테이너 내부에서 확인한다.
@@ -299,6 +303,8 @@ services:
   a301-prod-nginx:
     image: nginx:1.30.6-alpine
     container_name: a301-prod-nginx
+    labels:
+      a301.config-hash: ${A301_NGINX_CONFIG_HASH:?A301_NGINX_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -329,6 +335,8 @@ services:
   a301-prod-livekit:
     image: livekit/livekit-server:v1.13.10
     container_name: a301-prod-livekit
+    labels:
+      a301.config-hash: ${A301_LIVEKIT_CONFIG_HASH:?A301_LIVEKIT_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     command: ["--config", "/etc/livekit.yaml"]
     depends_on:
@@ -385,6 +393,8 @@ services:
   a301-prod-prometheus:
     image: prom/prometheus:v3.13.3
     container_name: a301-prod-prometheus
+    labels:
+      a301.config-hash: ${A301_PROMETHEUS_CONFIG_HASH:?A301_PROMETHEUS_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -402,6 +412,8 @@ services:
   a301-prod-blackbox:
     image: quay.io/prometheus/blackbox-exporter:v0.28.0
     container_name: a301-prod-blackbox
+    labels:
+      a301.config-hash: ${A301_BLACKBOX_CONFIG_HASH:?A301_BLACKBOX_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     command:
       - --config.file=/etc/blackbox/blackbox.yml
@@ -484,6 +496,8 @@ services:
   a301-prod-loki:
     image: grafana/loki:3.7.8
     container_name: a301-prod-loki
+    labels:
+      a301.config-hash: ${A301_LOKI_CONFIG_HASH:?A301_LOKI_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yml"]
     volumes:
@@ -499,6 +513,8 @@ services:
   a301-prod-alloy:
     image: grafana/alloy:v1.20.1
     container_name: a301-prod-alloy
+    labels:
+      a301.config-hash: ${A301_ALLOY_CONFIG_HASH:?A301_ALLOY_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     depends_on:
       - a301-prod-loki
@@ -520,6 +536,8 @@ services:
   a301-prod-grafana:
     image: grafana/grafana:13.1.7
     container_name: a301-prod-grafana
+    labels:
+      a301.config-hash: ${A301_GRAFANA_CONFIG_HASH:?A301_GRAFANA_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
     depends_on:
       - a301-prod-prometheus
