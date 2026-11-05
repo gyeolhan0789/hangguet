@@ -25,6 +25,7 @@ from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorde
 from app.agent.interview import InterviewRunner
 from app.agent.jev import JevJudge
 from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
+from app.agent.praise import load_praises
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.rejection import rejected_session_id, send_rejection
@@ -34,7 +35,7 @@ from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
 from app.common.redis import create_publisher_redis
 from app.common.results import FailureReason, ResultPublisher
-from app.common.session import InterviewMode
+from app.common.session import InterviewMode, Persona
 from app.common.settings import Settings, load_settings
 from app.interview.realtime.sentence import Sentence
 
@@ -339,6 +340,7 @@ async def run_interview(
         on_answer=delivery.deliver,
         reactions=reactions,
         followups=followup_generator(common),
+        praises=load_praises() if assignment.persona is Persona.DUCK else None,
     )
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:

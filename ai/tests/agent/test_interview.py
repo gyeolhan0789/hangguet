@@ -5,7 +5,7 @@
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime
 from typing import Any
 
@@ -23,7 +23,9 @@ from app.common.results import KST, ResultPublishError
 from app.common.session import Persona
 from app.interview.realtime import answer_end
 from app.interview.realtime.interrupt import Interrupt, InterruptReason
+from app.interview.realtime.praise import Praise
 from app.interview.realtime.progress import EndReason
+from app.interview.realtime.reaction import Attitude, Judgment, Reaction
 from app.interview.realtime.sentence import Sentence
 
 STARTED_AT = datetime(2026, 10, 26, 14, 0, tzinfo=KST)
@@ -71,6 +73,8 @@ class FakeAsker:
         self.speaking = asyncio.Event()
         self.notices: list[str] = []
         self.said: list[Any] = []
+        # 질문 발화(ask)·음성 재생(say)·다음 질문 전 대기(sleep)의 순서
+        self.events: list[str] = []
         # 안내 음성 재생을 끝낼 시점을 시험이 정한다
         self.notice_hold = asyncio.Event()
         self.saying = asyncio.Event()
@@ -104,6 +108,7 @@ class FakeAsker:
 
     async def say(self, audio: Any) -> None:
         self.said.append(audio)
+        self.events.append("say")
         self.saying.set()
         try:
             await self.notice_hold.wait()
@@ -118,6 +123,7 @@ class FakeAsker:
         audio: Any,
     ) -> None:
         self.asked.append((seq, destination, audio))
+        self.events.append("ask")
         self.questions.append(question)
         self.speaking.set()
         try:
@@ -195,6 +201,8 @@ class FakeReactions:
         self.on_interrupt: Callable[[Interrupt], None] | None = None
         # 발화가 갱신될 때 전달된 답변 토큰
         self.speeches: list[Any] = []
+        # 칭찬을 선택할 때 진행기가 읽는 마지막 판단
+        self.last_judgment: Judgment | None = None
 
     def start(self, question_seq: int, destination: str) -> None:
         self.listening = True
@@ -248,6 +256,7 @@ class Harness:
         mode: str = "VIDEO",
         persona: str = "DEVIL",
         followups: FakeFollowups | None = None,
+        praises: Mapping[Praise, Any] | None = None,
     ) -> None:
         self.asker = FakeAsker()
         self.sessions: list[FakeSession] = []
@@ -272,11 +281,13 @@ class Harness:
             on_answer=self.on_answer,
             reactions=self.reactions,  # type: ignore[arg-type]
             followups=followups,
+            praises=praises,
             sleep=self.sleep,
         )
 
     async def sleep(self, seconds: float) -> None:
         self.sleeps.append((seconds, len(self.asker.asked)))
+        self.asker.events.append("sleep")
         await asyncio.sleep(self.sleep_seconds)
 
     def open_capture(
@@ -335,9 +346,10 @@ def run_async(
     mode: str = "VIDEO",
     persona: str = "DEVIL",
     followups: FakeFollowups | None = None,
+    praises: Mapping[Praise, Any] | None = None,
 ) -> Harness:
     async def main() -> Harness:
-        harness = Harness(current_seq, mode, persona, followups)
+        harness = Harness(current_seq, mode, persona, followups, praises)
         harness.runner.candidate_joined(CANDIDATE)
         running = asyncio.create_task(harness.runner.run())
         harness.running = running
@@ -394,6 +406,51 @@ def test_duck_waits_before_next_question_but_not_after_last_answer() -> None:
     h = run_async(auto_submit_every_question(), persona="DUCK")
 
     # 질문을 말하기 전에 기다리므로 n번 질문까지 말한 상태에서 n+1번 질문 전에 기다린다
+    assert h.sleeps == [(1.0, 1), (1.0, 2), (1.0, 3), (1.0, 4)]
+
+
+PRAISES = {praise: f"praise:{praise.value}" for praise in Praise}
+
+
+# 기준: AI 명세 6.2 호응(효과음 길이만큼 기다린 뒤 칭찬하고 다음 질문을 발화한다)
+def test_duck_praises_after_waiting_and_before_next_question() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.notice_hold.set()
+        h.reactions.last_judgment = Judgment(
+            Reaction("expression", "smile", 0.4), Attitude(0.5, 0.5)
+        )
+        await auto_submit_every_question()(h)
+
+    h = run_async(scenario, persona="DUCK", praises=PRAISES)
+
+    assert h.asker.said == ["praise:smile"] * 4
+    assert h.asker.events == ["ask", "sleep", "say"] * 4 + ["ask"]
+
+
+def test_chat_duck_praises_like_video() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.notice_hold.set()
+        for seq in range(1, 6):
+            await asked(h, seq)
+            await until(lambda: not h.asker.speaking.is_set())
+            assert json.loads(h.submit(seq)) == {"accepted": True}
+        await asyncio.sleep(0.05)
+
+    h = run_async(scenario, mode="CHAT", persona="DUCK", praises=PRAISES)
+
+    # 판단이 없으므로 「판단 없음」 칭찬을 발화한다
+    assert h.asker.said == ["praise:no_judgment"] * 4
+    assert h.asker.events == ["ask", "sleep", "say"] * 4 + ["ask"]
+
+
+def test_duck_without_praise_voices_only_waits() -> None:
+    async def scenario(h: Harness) -> None:
+        h.asker.notice_hold.set()
+        await auto_submit_every_question()(h)
+
+    h = run_async(scenario, persona="DUCK", praises={})
+
+    assert h.asker.said == []
     assert h.sleeps == [(1.0, 1), (1.0, 2), (1.0, 3), (1.0, 4)]
 
 
