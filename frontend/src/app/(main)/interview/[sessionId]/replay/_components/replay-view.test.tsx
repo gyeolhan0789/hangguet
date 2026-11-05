@@ -337,6 +337,35 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       expect(screen.getByRole("button", { name: "재생" })).toBeDefined();
     });
 
+    // 사용자 결정(2026-11-05): 받는 중이라 멈췄으면(버퍼링) 멈춘 것과 구분되게 로딩을 보인다
+    it("재생하다 데이터를 기다리면(waiting) 영상 위에 로딩을 보이고, 다시 재생되면(playing) 없앤다", () => {
+      render(<ReplayView replay={REPLAY} />);
+      const { video, state } = fakeVideo();
+      state.paused = false;
+      fireEvent.play(video);
+
+      fireEvent.waiting(video);
+      expect(screen.getByRole("status", { name: "영상을 불러오는 중" })).toBeDefined();
+      // 버퍼링은 멈춘 것이 아니라 [일시정지]가 그대로다
+      expect(screen.getByRole("button", { name: "일시정지" })).toBeDefined();
+
+      fireEvent.playing(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+    });
+
+    it("기다리는 중에 멈추거나(pause) 옮긴 위치를 받으면(seeked) 로딩을 없앤다", () => {
+      render(<ReplayView replay={REPLAY} />);
+      const { video } = fakeVideo();
+
+      fireEvent.waiting(video);
+      fireEvent.pause(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+
+      fireEvent.waiting(video);
+      fireEvent.seeked(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+    });
+
     // Next.js는 다른 화면으로 가면 이 화면을 <Activity>로 숨긴다(Preserving UI State). 숨겨도 영상은 저절로 멈추지 않는다.
     // 돌아왔을 때 보던 위치가 남는지는 실제 영상이 있어야 해서 E2E가 본다.
     it("다른 화면으로 가 숨겨지면 영상을 멈춘다", () => {
