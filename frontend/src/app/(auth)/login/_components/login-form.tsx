@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 
 import { Field, PasswordInput, SubmitButton, TextInput } from "@/components/form";
@@ -39,12 +39,16 @@ export function LoginForm({
     register,
     handleSubmit,
     setError,
+    reset,
     formState: { errors, isSubmitting },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     mode: "onTouched",
     defaultValues: { email: "", password: "" },
   });
+  // 한 번 본 화면은 입력값을 살려 다시 보여 주므로(cacheComponents · Activity), 로그아웃한 뒤 다시 와도 지난 이메일 · 비밀번호가
+  // 남는다. 화면을 떠날 때 비운다(뒤로 가기로 돌아와도 비밀번호를 남기지 않는다).
+  useLayoutEffect(() => () => reset(), [reset]);
 
   const onSubmit = handleSubmit(async (values) => {
     // 성공하면 서버 액션이 홈으로 보내고, 실패하면 오류를 돌려준다.

@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
+import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLoginNoticeStore } from "@/stores/login-notice-store";
@@ -133,6 +134,34 @@ describe("LoginForm (S01)", () => {
     unmount();
 
     expect(useLoginNoticeStore.getState().notice).toBeNull();
+  });
+
+  // Next.js는 다른 화면으로 가면 이 화면을 지우지 않고 <Activity>로 숨긴다(Preserving UI State). 로그아웃한 뒤 다시 와도
+  // 지난 이메일 · 비밀번호가 남지 않아야 한다(사용자 결정 2026-11-05).
+  it("화면이 숨겨지면 입력한 이메일 · 비밀번호를 비운다", () => {
+    const { rerender } = render(
+      <Activity mode="visible">
+        <LoginForm />
+      </Activity>,
+    );
+    const email = screen.getByLabelText("이메일") as HTMLInputElement;
+    const password = screen.getByLabelText("비밀번호", { selector: "input" }) as HTMLInputElement;
+    fireEvent.change(email, { target: { value: "a@ssafy.com" } });
+    fireEvent.change(password, { target: { value: "abcd1234" } });
+
+    rerender(
+      <Activity mode="hidden">
+        <LoginForm />
+      </Activity>,
+    );
+    rerender(
+      <Activity mode="visible">
+        <LoginForm />
+      </Activity>,
+    );
+
+    expect(email.value).toBe("");
+    expect(password.value).toBe("");
   });
 
   it("개발 모드(StrictMode)에서 효과가 두 번 돌아도 문구가 남는다", async () => {
