@@ -68,6 +68,7 @@ from app.agent.answer_rpc import (
 from app.agent.assignment import AssignedQuestion, Assignment
 from app.agent.followup import FollowupError
 from app.agent.reaction import ReactionStream, chat_input_reply, parse_chat_input
+from app.agent.stt import SttState
 from app.agent.tts import SpeechAudio
 from app.common.answer import SpeechToken
 from app.common.results import ResultPublishError
@@ -80,6 +81,8 @@ from app.interview.realtime.answer_end import (
     NoticeEnded,
     NoticeStarted,
     Phase,
+    Reconnected,
+    Reconnecting,
     Speech,
     SttError,
     SubmitFailed,
@@ -149,7 +152,10 @@ class CaptureSession(Protocol):
     async def aclose(self) -> None: ...
 
 
-CaptureOpener = Callable[[str, Callable[[], None], Callable[[Sentence, str], None]], CaptureSession]
+CaptureOpener = Callable[
+    [str, Callable[[], None], Callable[[Sentence, str], None], Callable[[SttState], None]],
+    CaptureSession,
+]
 StateSender = Callable[[str, str], Coroutine[Any, Any, None]]
 # 출제할 질문과 미리 합성한 음성. 합성에 실패했으면 음성은 None이다
 Prepared = tuple[AssignedQuestion, SpeechAudio | None]
@@ -454,20 +460,23 @@ class InterviewRunner:
         self._apply(AnswerStarted(self._ms(), self._assignment.mode))
         if self._reactions is not None:
             self._reactions.start(seq, destination)
-        session = self._open_capture(destination, self._speech, self._sentence)
+        session = self._open_capture(
+            destination,
+            self._speech,
+            self._sentence,
+            lambda state: self._stt_state(seq, destination, state),
+        )
         self._capture = session
         capturing = asyncio.create_task(session.run())
-        failed = False
         finished = False
         try:
             while self._finish is None:
                 if self._left.is_set():
                     return False
-                if capturing.done() and not failed:
-                    failed = True
+                if capturing.done():
                     self._stt_failed(capturing, session, seq, destination)
-                    continue
-                await self._wait_event(capturing, failed)
+                    break
+                await self._wait_event(capturing)
                 deadline = next_deadline(self._state)
                 if deadline is not None and self._ms() >= deadline:
                     self._tick(seq, destination)
@@ -485,6 +494,8 @@ class InterviewRunner:
             if self._reactions is not None:
                 await self._reactions.stop()
             await session.aclose()
+        # 답변 끝(7초·[답변 완료])이나 STT 실패로만 반복을 끝내므로 끝난 이유가 있다
+        assert self._finish is not None
         saved = self._start_followup(seq, answer.content, ended)
         saved.set_result(
             await self._deliver(FinishedAnswer(seq, answer, self._finish), destination)
@@ -528,14 +539,12 @@ class InterviewRunner:
             self._wake.clear()
             await self._wake.wait()
 
-    async def _wait_event(self, capturing: asyncio.Task[CapturedAnswer], failed: bool) -> None:
+    async def _wait_event(self, capturing: asyncio.Task[CapturedAnswer]) -> None:
         deadline = next_deadline(self._state)
         timeout = None if deadline is None else max(0, deadline - self._ms()) / 1000
         self._wake.clear()
         waking = asyncio.create_task(self._wake.wait())
-        waiters: list[asyncio.Future[Any]] = [waking]
-        if not failed:
-            waiters.append(capturing)
+        waiters: list[asyncio.Future[Any]] = [waking, capturing]
         try:
             await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
         finally:
@@ -608,15 +617,29 @@ class InterviewRunner:
         destination: str,
     ) -> None:
         error = capturing.exception() if not capturing.cancelled() else None
-        log.error("답변 음성 인식 실패: %r", error, extra={"seq": seq})
+        # 다시 연결한 시도의 실패 이유가 원인 연쇄에 남으므로 호출 경로까지 기록한다
+        log.error("답변 음성 인식 실패: %r", error, extra={"seq": seq}, exc_info=error)
         self._apply(SttError())
         session.fail()
         self._notify(destination, seq, AnswerState.STT_FAILED)
+        # 다시 연결하지 못했으면 같은 질문에서 기다리지 않고 다음 질문으로 진행한다(AI 명세 6.5).
+        # 발화가 있었으면 제출 단계로 전환해, 그때까지 인식된 글의 전달이 실패하면
+        # 다른 제출과 같이 [다시 시도]를 기다리게 한다. 발화가 없으면 전달할 글이 없다
+        self._apply(SubmitRequested())
+        self._finish = EndReason.STT_FAILED
+
+    def _stt_state(self, seq: int, destination: str, state: SttState) -> None:
+        if state is SttState.RECONNECTING:
+            self._apply(Reconnecting())
+            self._notify(destination, seq, AnswerState.STT_RECONNECTING)
+        else:
+            self._apply(Reconnected(self._ms()))
+        self._wake.set()
 
     async def _collect(
         self, capturing: asyncio.Task[CapturedAnswer], session: CaptureSession
     ) -> CapturedAnswer:
-        # STT 오류 뒤 [답변 완료]면 그때까지 인식된 글로 제출한다(AI 명세 6.5)
+        # STT에 다시 연결하지 못했으면 그때까지 인식된 글로 제출한다(AI 명세 6.5)
         try:
             return await capturing
         except Exception:

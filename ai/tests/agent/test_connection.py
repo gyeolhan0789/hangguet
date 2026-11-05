@@ -28,7 +28,7 @@ from app.agent.main import (
     transcribe_participant,
     transcribe_room,
 )
-from app.agent.stt import SttSettings
+from app.agent.stt import SttSettings, SttState
 from app.common.results import ResultPublishError, ResultType
 from app.common.settings import load_settings
 
@@ -147,7 +147,9 @@ def test_answer_capture_reads_candidate_mic_in_100ms_chunks() -> None:
         ):
             captured = CapturedAnswer(datetime(2026, 11, 4, tzinfo=UTC), "답변", None, b"")
             capture.return_value.run = AsyncMock(return_value=captured)
-            answer = await RoomCapture(room, "candidate", SttSettings("test"), Mock(), Mock()).run()
+            answer = await RoomCapture(
+                room, "candidate", SttSettings("test"), Mock(), Mock(), Mock()
+            ).run()
         assert answer == captured
         assert streams.call_args.kwargs["sample_rate"] == 16000
         assert streams.call_args.kwargs["frame_size_ms"] == 100
@@ -532,3 +534,19 @@ def test_reactions_are_skipped_without_jev_key() -> None:
     """Jev 키가 없으면 Jev 실패와 같이 리액션 없이 진행한다(AI 명세 6.5)."""
     assert reaction_judge(load_settings({})) is None
     assert isinstance(reaction_judge(load_settings({"JEV_API_KEY": "jev-key"})), JevJudge)
+
+
+def test_room_capture_resends_subtitles_and_forwards_stt_state() -> None:
+    """재연결에 성공하면 자막을 바로 다시 전송하고, 상태는 면접 진행에 그대로 전달한다."""
+    states: list[SttState] = []
+    with (
+        patch("app.agent.main.TranscriptPublisher") as publisher,
+        patch("app.agent.main.AnswerCapture") as capture,
+    ):
+        RoomCapture(Mock(), "candidate", SttSettings("test"), Mock(), Mock(), states.append)
+        on_stt_state = capture.call_args.kwargs["on_stt_state"]
+        on_stt_state(SttState.RECONNECTING)
+        publisher.return_value.reconnected.assert_not_called()
+        on_stt_state(SttState.RECONNECTED)
+        publisher.return_value.reconnected.assert_called_once_with()
+    assert states == [SttState.RECONNECTING, SttState.RECONNECTED]
