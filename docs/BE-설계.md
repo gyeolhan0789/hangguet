@@ -197,6 +197,8 @@ com.ssafy.a301
 |---|---|---|---|---|
 | `READY` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | 플랜 `READY`(Redis) 아니면 409 `PLAN_NOT_READY` |
 | `IN_PROGRESS` | 결과 메시지 `assignment.rejected` | `START_FAILED` | `failStart()` | 질문 행이 없고, 거절 시각(`occurredAt`)이 시작 시각 이후일 때만. 면접방을 닫는다(5.5) |
+| `IN_PROGRESS` | 시작 15초(임시 값) 뒤 면접방에 면접관(`interviewer`) 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 질문 행이 없을 때만. 면접관 여부는 LiveKit `ListParticipants`로 확인한다. 면접방을 닫는다(5.5) |
+| `IN_PROGRESS` | 지원자(`candidate`) 입장 30초(임시 값) 뒤 질문 행 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 입장 시각은 LiveKit `ListParticipants`의 `joinedAt`. 지원자가 입장하지 않았으면 판단하지 않는다. 면접방을 닫는다(5.5) |
 | `START_FAILED` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 플랜으로 다시 배정하고 시작 시각을 새로 남긴다 |
 | `IN_PROGRESS` | 5.8 끝내기(답변 ≥1) | `ANALYZING` | `end(now, answeredCount)` → true | 연습 기록 남김(6.1) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 0) | `ABORTED` | `end(now, 0)` → false | 결과·연습 인정 없음 |
@@ -230,7 +232,7 @@ com.ssafy.a301
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 이전 상태(`READY`·`START_FAILED`)로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
    - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 호출마다 5초(연결·읽기·전체)라 방 만들기·배정·실패 시 방 지우기까지 최대 15초 잠근다. 멱등 대기(20초)는 이보다 길게 둔다
-2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`) → `InterviewQuestion(seq, content, criteria, prompt_version, model_version, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
+2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`) → `InterviewQuestion(seq, content, criteria, prompt_version, model_version, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있거나, `startedAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 질문이 늦게 도착) 폐기한다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
