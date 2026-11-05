@@ -16,6 +16,7 @@ import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.domain.SpeechMetric;
+import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.dto.AiResultMessage;
 import com.ssafy.a301.interview.dto.AiResultMessage.CriterionScore;
 import com.ssafy.a301.interview.dto.AiResultMessage.EvaluatedAnswer;
@@ -247,6 +248,7 @@ public class AiResultService {
         }
         OffsetDateTime answerStartedAt = required(message.answerStartedAt(), "answerStartedAt");
         AnswerSpeech speech = validTimeline(message.speech(), sessionId, seq);
+        List<SttGap> sttGaps = validSttGaps(message.sttGaps(), sessionId, seq);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
@@ -261,7 +263,12 @@ public class AiResultService {
                     Answer answer =
                             answers.save(
                                     Answer.voice(
-                                            question, content, tokens, speech, answerStartedAt));
+                                            question,
+                                            content,
+                                            tokens,
+                                            speech,
+                                            sttGaps,
+                                            answerStartedAt));
                     aiJobs.enqueue(AiJob.scoreAnswer(sessionId, answer.getId()));
                     return Outcome.SAVED;
                 });
@@ -592,6 +599,28 @@ public class AiResultService {
             LOG.warn("answer.completed 타임라인 값이 범위를 벗어나 버린다: session={} seq={}", sessionId, seq);
         }
         return valid;
+    }
+
+    // 끊긴 구간이 0 ≤ startMs ≤ endMs · 시각 순이 아니면 구간만 버린다. 답변은 저장하고 채점은 끊긴 구간 없이 한다(AI 명세 6.2)
+    private static List<SttGap> validSttGaps(List<SttGap> gaps, long sessionId, int seq) {
+        if (gaps == null) {
+            return null;
+        }
+        boolean valid =
+                gaps.size() <= MAX_TOKEN_COUNT
+                        && gaps.stream()
+                                .allMatch(
+                                        g ->
+                                                g != null
+                                                        && g.startMs() >= 0
+                                                        && g.startMs() <= g.endMs())
+                        && IntStream.range(1, gaps.size())
+                                .allMatch(i -> gaps.get(i - 1).startMs() <= gaps.get(i).startMs());
+        if (!valid) {
+            LOG.warn("answer.completed sttGaps 형식이 맞지 않아 버린다: session={} seq={}", sessionId, seq);
+            return null;
+        }
+        return gaps.isEmpty() ? null : gaps;
     }
 
     private static AiResultMessage parse(String raw) {

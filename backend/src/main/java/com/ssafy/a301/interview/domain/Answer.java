@@ -57,6 +57,11 @@ public class Answer {
     @Column(columnDefinition = "jsonb")
     private AnswerSpeech speech;
 
+    // 화상 답변에서 STT가 끊겨 인식하지 못한 구간(시각 순). 끊긴 적이 없거나 채팅이면 null
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "stt_gaps", columnDefinition = "jsonb")
+    private List<SttGap> sttGaps;
+
     // 화상 답변을 듣기 시작한 시각(tokens 시각의 0ms). 채팅이면 null
     @Column(name = "started_at")
     private OffsetDateTime startedAt;
@@ -100,9 +105,11 @@ public class Answer {
             String content,
             List<AnswerToken> tokens,
             AnswerSpeech speech,
+            List<SttGap> sttGaps,
             OffsetDateTime startedAt) {
         Answer answer = new Answer(question, InputType.VOICE, content, tokens);
         answer.speech = speech;
+        answer.sttGaps = sttGaps;
         answer.startedAt = startedAt;
         return answer;
     }

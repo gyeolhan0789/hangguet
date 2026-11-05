@@ -22,6 +22,7 @@ import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AiJobRepository;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -218,6 +219,7 @@ class AiResultServiceTest {
         assertThat(answer.getContent()).isEqualTo("조회 쿼리를");
         assertThat(answer.getTokens()).hasSize(1);
         assertThat(answer.getSpeech()).isEqualTo(new AnswerSpeech(12.5, null));
+        assertThat(answer.getSttGaps()).isNull();
         assertThat(answer.getStartedAt())
                 .isEqualTo(OffsetDateTime.parse("2026-10-15T12:01:05.250+09:00"));
         assertThat(jobs.findAll())
@@ -274,6 +276,46 @@ class AiResultServiceTest {
                     // 시각만 틀린 경우는 인상이 남고, 인상이 틀린 경우는 인상만 버린다
                     assertThat(speech.impressions() != null).as(timeline).isEqualTo(!kept);
                 });
+    }
+
+    @Test
+    void sttGapsAreSavedWithAnswer() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+        results.handle(questionStarted(session, 1));
+
+        assertThat(
+                        results.handle(
+                                answerCompletedWithSttGaps(
+                                        session,
+                                        "[{\"startMs\":21400,\"endMs\":23950},"
+                                                + "{\"startMs\":30000,\"endMs\":30000}]")))
+                .isEqualTo(Outcome.SAVED);
+
+        assertThat(answers.findWithQuestionBySessionId(session.getId()).getFirst().getSttGaps())
+                .containsExactly(new SttGap(21400, 23950), new SttGap(30000, 30000));
+    }
+
+    @Test
+    void invalidSttGapsAreDroppedButAnswerIsSaved() {
+        // 끊긴 구간이 틀려도 답변은 남긴다. 채점은 끊긴 구간 없이 한다(AI 명세 6.2)
+        for (String gaps :
+                List.of(
+                        "[{\"startMs\":-1,\"endMs\":100}]",
+                        "[{\"startMs\":500,\"endMs\":100}]",
+                        "[{\"startMs\":3000,\"endMs\":4000},{\"startMs\":1000,\"endMs\":2000}]",
+                        "[null]",
+                        "[]")) {
+            InterviewSession session = startedSession(InterviewMode.VIDEO);
+            results.handle(questionStarted(session, 1));
+
+            assertThat(results.handle(answerCompletedWithSttGaps(session, gaps)))
+                    .as(gaps)
+                    .isEqualTo(Outcome.SAVED);
+
+            Answer answer = answers.findWithQuestionBySessionId(session.getId()).getFirst();
+            assertThat(answer.getContent()).isEqualTo("답");
+            assertThat(answer.getSttGaps()).as(gaps).isNull();
+        }
     }
 
     @Test
@@ -511,6 +553,17 @@ class AiResultServiceTest {
          "speech":{"trailingOffRatio":12.5,"pitchRangeSt":null,%s},"endReason":"AUTO_SUBMIT"}
         """
                 .formatted(session.getId(), timeline);
+    }
+
+    // AI 명세 6.2 answer.completed 예시처럼 STT를 다시 연결하지 못해 제출한 답변
+    private static String answerCompletedWithSttGaps(InterviewSession session, String sttGaps) {
+        return """
+        {"type":"answer.completed","sessionId":%d,"seq":1,
+         "answerStartedAt":"2026-10-15T12:01:05.250+09:00","content":"답",
+         "tokens":[{"text":"조회","startMs":0,"endMs":280}],
+         "speech":null,"sttGaps":%s,"endReason":"STT_FAILED"}
+        """
+                .formatted(session.getId(), sttGaps);
     }
 
     private static String answerScored(long sessionId, long answerId, String scoreMethod) {

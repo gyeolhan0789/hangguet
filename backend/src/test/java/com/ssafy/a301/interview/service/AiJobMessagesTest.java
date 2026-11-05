@@ -20,6 +20,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
+import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
@@ -163,6 +164,7 @@ class AiJobMessagesTest {
                         "조회",
                         List.of(new AnswerToken("조회", 0, 280)),
                         speech,
+                        null,
                         OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
         em.persist(answer);
         em.flush();
@@ -196,6 +198,7 @@ class AiJobMessagesTest {
                         "조회",
                         List.of(new AnswerToken("조회", 0, 280)),
                         new AnswerSpeech(12.5, 6.2, List.of(9120), impressions),
+                        null,
                         OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
         em.persist(answer);
         em.flush();
@@ -214,6 +217,33 @@ class AiJobMessagesTest {
     }
 
     @Test
+    void sttGapsAreSentWithScoreAnswerAndEvaluate() {
+        // AI 명세 3장 · 4장 작업 입력. 끊긴 구간은 답변 저장 뒤 도는 채점 · 결과 생성 모두에 같은 값을 보낸다
+        InterviewSession session = plannedSession(InterviewMode.VIDEO);
+        InterviewQuestion question = new InterviewQuestion(session, 1, "질문1");
+        em.persist(question);
+        List<SttGap> gaps = List.of(new SttGap(21400, 23950));
+        Answer answer =
+                Answer.voice(
+                        question,
+                        "조회",
+                        List.of(new AnswerToken("조회", 0, 280)),
+                        null,
+                        gaps,
+                        OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
+        em.persist(answer);
+        em.flush();
+
+        assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
+                .containsEntry("sttGaps", gaps);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> answered =
+                (List<Map<String, Object>>)
+                        messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
+        assertThat(answered.getFirst()).containsEntry("sttGaps", gaps);
+    }
+
+    @Test
     void answerWithoutTimelineValuesHasNoTimelineInput() {
         InterviewSession session = plannedSession(InterviewMode.VIDEO);
         InterviewQuestion question = new InterviewQuestion(session, 1, "질문1");
@@ -224,6 +254,7 @@ class AiJobMessagesTest {
                         "조회",
                         null,
                         new AnswerSpeech(12.5, 6.2),
+                        null,
                         OffsetDateTime.parse("2026-10-22T14:02:18.250+09:00"));
         em.persist(answer);
         em.flush();
@@ -232,7 +263,7 @@ class AiJobMessagesTest {
         List<Map<String, Object>> answered =
                 (List<Map<String, Object>>)
                         messages.of(withId(AiJob.evaluate(session.getId()))).get("answers");
-        assertThat(answered.getFirst()).doesNotContainKey("timeline");
+        assertThat(answered.getFirst()).doesNotContainKey("timeline").doesNotContainKey("sttGaps");
     }
 
     @Test
