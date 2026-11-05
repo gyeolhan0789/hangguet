@@ -51,6 +51,8 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - 지원자 퇴장·재입장과 STT 오류의 처리 규칙은 AI 명세 6.5에 있다. 시험 방에서는 마지막 확정 응답을 기다린 뒤 캡처를 정리하고 새 `streamId`로 다시 시작한다. 방 종료·작업 종료 시에는 대기도 정리한다.
 - Soniox 연결이 실패하거나 끊기거나, 음성을 전송했는데 5초 동안 응답이 없으면 다시 연결한다(최대 3회, AI 명세 6.5). 다시 연결하는 동안의 음성은 전송하지 않고, 인식하지 못한 구간은 `answer.completed`의 `sttGaps`로 전달한다. 다시 연결하지 못하면 그때까지 인식된 글을 `STT_FAILED`로 제출하고(글이 없으면 전송하지 않음) 다음 질문으로 진행한다.
 - `Soniox STT 다시 연결 n/3: 이유, 마지막 응답 뒤 n초`·`Soniox STT 다시 연결 완료` 로그로 재연결을, `답변 음성 인식 실패` 로그의 호출 경로로 실패 원인을 확인한다.
+- 재연결 로그의 `reason` 필드는 끊긴 원인이다: `connect_failed`(연결 실패), `no_response`(음성을 전송했는데 응답 없음), `soniox_error`(Soniox 오류 응답, `detail`에 오류 코드), `closed`(종료 응답 없이 연결이 닫힘), `receive_failed`·`send_failed`·`keepalive_failed`(수신·전송·연결 유지 오류), `finished_early`(음성을 다 전송하기 전에 종료 응답).
+- 답변이 끝나면 `Soniox STT 답변 종료: 결과` 로그를 한 줄 남긴다. `result`는 `completed`·`reconnect_failed`·`audio_failed`(지원자 음성 읽기 실패)·`failed`·`cancelled`이고, `audio_ms`(읽은 음성)·`sent_ms`(전송한 음성)·`responses`(수신한 응답 수)·`final_tokens`·`first_audio_ms`·`first_response_ms`·`reconnects`·`gap_ms`·`failures`(끊긴 원인 순서)를 함께 남긴다. 인식 결과가 비었으면 `audio_ms`가 0인지(음성 미도착), `responses`가 0인지(Soniox 무응답), `final_tokens`가 0인지(빈 응답)로 원인을 구분한다.
 - `Soniox STT 연결 완료`·`STT 확정 토큰 수신` 로그로 연결·결과 수신을 구분한다. 답변 원문과 키는 로그에 남기지 않는다. 실제 인식 확인은 테스트 음성을 입력하고 수집된 `text`·`transcript`를 검사해야 한다.
 
 ## 질문 음성(TTS)
