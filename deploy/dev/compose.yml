@@ -232,6 +232,8 @@ services:
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
       JEV_API_KEY: ${JEV_API_KEY:-}
+      # 미리 실행해 두는 프로세스 수(GitLab 변수, 범위 dev/*). 없으면 CPU 수. 0 이상의 정수가 아니면 에이전트가 뜨지 않는다
+      AGENT_IDLE_PROCESSES: ${AGENT_IDLE_PROCESSES:-}
       REDIS_HOST: a301-dev-redis
       REDIS_PORT: "6379"
     healthcheck:
