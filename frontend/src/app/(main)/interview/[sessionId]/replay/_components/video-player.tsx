@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useEffectEvent, type RefObject } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, type RefObject } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { formatElapsed } from "@/lib/interview/questions";
@@ -18,6 +18,7 @@ import type { ReplayItem } from "@/types/api";
 // · 웹 Swagger 6.4(화상은 녹화 영상과 질문별 시점) · 재생 중 자막은 재생 위치가 속한 질문의 answer · ReplayResponse.videoUrl
 // · 사용자 결정(2026-10-22: 내 화면(PiP)은 녹화 영상에 합쳐져 있다고 보고 따로 그리지 않는다, 배속 1x → 1.5x → 2x → 1x,
 //   자막은 단어 하이라이트 없이 답변 단위)
+// · Next.js 16 Preserving UI State(다른 화면으로 가면 이 화면을 없애지 않고 숨기는데, 숨겨도 <video>는 계속 재생되므로 직접 멈춘다)
 
 /** 배속 칩을 누를 때마다 바뀌는 순서 */
 export const PLAYBACK_RATES = [1, 1.5, 2] as const;
@@ -59,6 +60,12 @@ export function VideoScreen({
       onDuration(element.duration);
   });
   useEffect(() => readLoaded(), []);
+
+  // 다른 화면으로 가 이 화면이 숨겨지면 영상을 멈춘다(돌아오면 멈춘 위치에 그대로 있다).
+  useLayoutEffect(() => {
+    const element = video.current;
+    return () => element?.pause();
+  }, [video]);
 
   return (
     <div className="relative aspect-[860/452] w-full overflow-hidden rounded-[20px] bg-night">
