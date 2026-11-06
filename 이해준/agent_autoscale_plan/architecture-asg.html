@@ -126,14 +126,14 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
           <marker id="a-deploy" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-deploy" d="M0,0 L8,4 L0,8 z"/></marker>
         </defs>
 
-        <!-- 맨 위 줄: 사용자 · Cloudflare · CI · Docker Hub · 외부 서비스 -->
+        <!-- 맨 위 줄: 사용자 · Cloudflare(DNS만) · CI · Docker Hub · 외부 서비스 -->
         <rect class="box" x="40" y="36" width="160" height="64" rx="6"/>
         <text class="t-head" x="120" y="62" text-anchor="middle">사용자 브라우저</text>
         <text class="t-sub" x="120" y="82" text-anchor="middle">화면 · 카메라 · 마이크</text>
 
         <rect class="box" x="225" y="36" width="160" height="64" rx="6"/>
         <text class="t-head" x="305" y="62" text-anchor="middle">Cloudflare</text>
-        <text class="t-sub" x="305" y="82" text-anchor="middle">DNS · Tunnel · HTTPS</text>
+        <text class="t-sub" x="305" y="82" text-anchor="middle">DNS만 · 프록시 끔</text>
 
         <rect class="box" x="410" y="36" width="160" height="64" rx="6"/>
         <text class="t-head" x="490" y="62" text-anchor="middle">GitLab CI</text>
@@ -165,10 +165,10 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
         <text class="t-group c-inst" x="64" y="210">메인 서버 · EC2 t3.xlarge · 4 vCPU · 16GB</text>
 
         <rect class="box" x="68" y="228" width="170" height="56" rx="6"/>
-        <text class="t-head" x="153" y="251" text-anchor="middle">cloudflared</text>
-        <text class="t-sub" x="153" y="270" text-anchor="middle">Tunnel 끝점</text>
+        <text class="t-head" x="153" y="251" text-anchor="middle">Nginx 443 입구</text>
+        <text class="t-sub" x="153" y="270" text-anchor="middle">도메인 이름(SNI)으로 나눔</text>
         <rect class="box" x="253" y="228" width="170" height="56" rx="6"/>
-        <text class="t-head" x="338" y="251" text-anchor="middle">Nginx</text>
+        <text class="t-head" x="338" y="251" text-anchor="middle">Nginx HTTPS</text>
         <text class="t-mono t-muted" x="338" y="270" text-anchor="middle">/ · /be/ · /admin/</text>
         <rect class="box" x="438" y="228" width="170" height="56" rx="6"/>
         <text class="t-head" x="523" y="251" text-anchor="middle">FE · Next.js</text>
@@ -190,7 +190,7 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
 
         <rect class="box" x="68" y="498" width="540" height="70" rx="6"/>
         <text class="t-head" x="338" y="526" text-anchor="middle">LiveKit · TURN (셀프 호스팅)</text>
-        <text class="t-sub" x="338" y="548" text-anchor="middle">시그널링 7880 · 미디어 UDP 7882 / TCP 7881 · TURN 443 · 3478</text>
+        <text class="t-sub" x="338" y="548" text-anchor="middle">시그널링 7880 · 미디어 UDP 7882 / TCP 7881 · TURN UDP 3478 · TURN/TLS</text>
 
         <rect class="g-vpc" x="68" y="600" width="540" height="100" rx="4"/>
         <text class="t-group" x="80" y="620">모니터링</text>
@@ -273,10 +273,11 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
         <text class="t-sub" x="1225" y="767" text-anchor="middle">평균 CPU → 대수 조절 · 경보 메일</text>
 
         <!-- 웹 요청(초록) -->
-        <path class="f f-web" d="M200 68 H225" marker-end="url(#a-web)"/>
-        <path class="f f-web" d="M305 100 V140 H153 V228" marker-end="url(#a-web)"/>
-        <text class="t-flow c-web" x="229" y="134" text-anchor="middle">Tunnel</text>
+        <path class="f f-web" d="M120 100 V228" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="128" y="132">HTTPS · TLS 443 (서버 공인 IP)</text>
         <path class="f f-web" d="M238 256 H253" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M262 284 V296 H245 V498" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="0" y="0" text-anchor="middle" transform="translate(245 440) rotate(-90)">rtc 시그널링</text>
         <path class="f f-web" d="M423 256 H438" marker-end="url(#a-web)"/>
         <path class="f f-web" d="M470 284 V301 H360 V318" marker-end="url(#a-web)"/>
         <text class="t-flow c-web" x="415" y="297" text-anchor="middle">API</text>
@@ -288,11 +289,11 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
         <path class="f f-web" d="M560 464 V498" marker-end="url(#a-web)"/>
         <text class="t-flow c-web" x="567" y="486">psrpc</text>
         <path class="f f-web" d="M68 270 H58 V524 H68" marker-end="url(#a-web)"/>
-        <text class="t-flow c-web" x="0" y="0" text-anchor="middle" transform="translate(62 400) rotate(-90)">rtc 시그널링</text>
+        <text class="t-flow c-web" x="0" y="0" text-anchor="middle" transform="translate(62 400) rotate(-90)">TURN/TLS (turn.)</text>
 
         <!-- 미디어(파랑) -->
         <path class="f f-media" d="M40 82 H20 V548 H68" marker-end="url(#a-media)"/>
-        <text class="t-flow c-media" x="0" y="0" text-anchor="middle" transform="translate(16 330) rotate(-90)">미디어 UDP 7882 · TURN 443 (공인 IP)</text>
+        <text class="t-flow c-media" x="0" y="0" text-anchor="middle" transform="translate(16 330) rotate(-90)">미디어 UDP 7882 · TURN UDP 3478 (공인 IP)</text>
         <path class="f f-media" d="M580 568 V586 H772 V340 H800" marker-end="url(#a-media)"/>
         <path class="f f-media" d="M772 560 H800" marker-end="url(#a-media)"/>
         <text class="t-flow c-media" x="612" y="582">미디어 · 공인 IP UDP 7882</text>
@@ -342,14 +343,14 @@ svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: va
       <span class="l-store"><i></i><b>S3 저장 · 재생</b></span>
       <span class="l-deploy"><i class="dash"></i><b>배포 · 설정 · 확장</b></span>
     </div>
-    <figcaption>브라우저가 BE 말고 직접 붙는 곳은 LiveKit과 S3(Presigned URL)뿐입니다. 에이전트와 Egress는 받는 포트 없이 메인 서버 쪽으로만 연결합니다. 시그널링 · 큐 · 지표 · 로그는 Tailscale로, 음성 · 영상은 사용자와 같은 공인 IP UDP 7882로 갑니다. AI 작업자도 GMS를 부르지만 선은 생략했습니다.</figcaption>
+    <figcaption>사용자는 서버 443으로 바로 들어옵니다(11/06 Cloudflare 프록시 제거, Cloudflare는 DNS만). Nginx 443 입구가 TLS를 풀지 않고 도메인 이름만 보고 웹 · rtc · grafana는 Nginx HTTPS로, turn은 LiveKit TURN/TLS로 넘깁니다. 브라우저가 Nginx 말고 직접 붙는 곳은 LiveKit 미디어 포트와 S3(Presigned URL)뿐입니다. 에이전트와 Egress는 받는 포트 없이 메인 서버 쪽으로만 연결합니다. 시그널링 · 큐 · 지표 · 로그는 Tailscale로, 음성 · 영상은 사용자와 같은 공인 IP UDP 7882로 갑니다. AI 작업자도 GMS를 부르지만 선은 생략했습니다.</figcaption>
   </figure>
 
   <section class="cards" aria-label="구조 설명">
     <div class="card">
       <h2>메인 서버에 남는 것 · 빠지는 것</h2>
       <ul>
-        <li>남음: LiveKit · TURN, Nginx · FE · BE, PostgreSQL · Redis, AI 작업자 3개(질문 생성 · 채점 · 녹화 합치기), 모니터링</li>
+        <li>남음: LiveKit · TURN, Nginx(443 입구 · HTTPS) · FE · BE, PostgreSQL · Redis, AI 작업자 3개(질문 생성 · 채점 · 녹화 합치기), 모니터링</li>
         <li>빠짐: <code>a301-prod-ai-agent</code>, <code>a301-prod-egress</code>. 지우지 않고 프로필로 꺼 두었다가 되돌릴 때 켭니다</li>
         <li>메인 서버는 여전히 단일 장애점입니다. LiveKit · Redis · BE가 이 한 대에 있습니다</li>
       </ul>
