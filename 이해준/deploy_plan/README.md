@@ -385,6 +385,23 @@ sudo ufw status numbered
   - SSAFY 와이파이는 **바깥으로 나가는 TCP를 80 · 443 · 8080만 허용**한다(3478 · 5349 · 7880 · 7881 · 8443은 막힘). 그래서 강의실에서는 TCP 7881이 안 되고 **TURN/TLS 443이 사실상 유일한 길**이다
   - Lightsail 쪽: SSAFY 와이파이에서 443 접속 성공, 핫스팟에서 443 · 7881 접속 성공 → **Lightsail 방화벽(SSAFY 관리)도 이 포트들을 열어 두었다**. UDP는 LiveKit Connection Test로 확인했다(4.2)
 
+**보안 설정 [결정](11/06 점검 후)**
+
+Cloudflare 프록시를 빼면서(5.1) 바깥 요청을 서버가 직접 받게 되어, 읽기 전용 점검(SSH · 계정 · 웹 · 업데이트 · 비밀값 · 컨테이너 · 로그 · 커널 · 백업)을 하고 아래를 맞췄다. 바깥에서 바로 악용될 항목(DB · 관리 도구 공개, 비밀번호 SSH, 노출된 키)은 없었다.
+
+| 대상 | 설정 | 어디에 | 왜 |
+|---|---|---|---|
+| SSH | `PermitRootLogin no` · `AllowUsers ubuntu` · `MaxAuthTries 4` · `X11Forwarding no`(비밀번호 로그인은 원래 꺼짐) | 서버 `/etc/ssh/sshd_config.d/10-a301-hardening.conf` | root 키의 `command=` 제한 하나에만 기대지 않고, 접속 계정을 실제로 쓰는 하나로 줄인다. 파일 이름을 `10-`으로 시작해 `60-cloudimg-settings.conf`보다 먼저 읽힌다(sshd는 처음 읽은 값을 쓴다) |
+| SSH 무차별 대입 | fail2ban: 10분 안에 5번 실패하면 1시간 차단, SSAFY 공인 IP(`211.192.210.149`)는 제외 | 서버 `/etc/fail2ban/jail.d/a301-sshd.local` | 7일 동안 실패 1419회(3개 IP가 각 약 440회). Ubuntu의 SSH 서비스 이름은 `ssh.service`라 `journalmatch`를 직접 적었다(기본값 `sshd.service`로는 로그를 못 읽는다) |
+| 요청 수 제한 | 사용자 IP당. 로그인 · 회원가입(`/login` · `/signup` POST, 관리자 로그인) 초당 1회 · 한꺼번에 30회, 그 밖의 POST와 `/be/` 초당 30회 · 한꺼번에 60회, GET은 제한 없음. 넘으면 429 | `deploy/prod/nginx.conf` | 로그인은 FE 서버 액션이 BE를 부르므로 BE에서는 사용자 IP를 알 수 없다. SSAFY처럼 여러 사람이 공인 IP 하나를 쓰는 곳에서 시연해도 막히지 않게 넉넉히 잡았다 |
+| 보안 헤더 | HSTS(1년, 하위 도메인 제외) · `X-Frame-Options: SAMEORIGIN` · `nosniff` · `Referrer-Policy: strict-origin-when-cross-origin`, `X-Powered-By` 숨김 | `deploy/prod/nginx.conf` | 뒤쪽 서비스(Spring Security 등)가 보내는 같은 헤더는 지우고 한 번만 붙인다(두 값이 겹치면 브라우저가 무시할 수 있다). Grafana는 스스로 보내므로 HSTS만 더한다 |
+| MPTCP | Nginx · LiveKit 컨테이너에서 끔(`sysctls: net.mptcp.enabled: "0"`) | `deploy/prod/compose.yml` | 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연)의 수정 커널이 아직 정식 업데이트에 없다. LiveKit(Go)이 7881/tcp를 MPTCP로 열고 있었다. 설정이 컨테이너마다 따로라 서버 설정으로는 안 된다 |
+| DB 백업 파일 | 권한 600(`umask 077`) | `deploy/prod/backup.sh` | 회원 정보가 든 덤프가 664로 만들어지고 있었다 |
+| 커널 · libc | 자동 보안 업데이트로 설치된 것을 재부팅으로 적용 | 서버 | 재부팅해야 적용된다. CVE-2026-98432 수정 커널이 나오면 한 번 더 재부팅한다 |
+
+- 남은 것(낮음): 안 쓰는 서비스(`ModemManager` · `open-vm-tools`) 끄기, `net.ipv4.conf.*.send_redirects=0`, telnet · ftp 클라이언트 제거, Lightsail 자동 스냅샷 · 덤프 복구 시험, 장애 알림(3.3)
+- 그대로 두는 것: `ubuntu`의 NOPASSWD sudo와 `gitlab-runner`의 docker 그룹(배포에 필요, 키 인증만 허용), cAdvisor `privileged` · Alloy `docker.sock:ro`(바깥 노출 없음, 모니터링 표준 구성)
+
 ## 6. 저장소 · 권한
 
 ### 6.1 S3 · Docker Hub
@@ -710,3 +727,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 8.1 | 운영 배포 확인에 바깥 주소 `rtc.hangguet.co.kr`(LiveKit `OK`) · `grafana.hangguet.co.kr/api/health`를 더하고, healthy 확인 뒤 20초 동안 모든 컨테이너의 재시작 수가 그대로인지 보는 확인을 더함(S15P31A301-391) | healthcheck가 없는 서비스 12개(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보는 확인을 통과했다. 바깥 주소는 앱만 봐서 LiveKit이 요청을 받지 못해도 배포가 성공할 수 있었다. 설정 해시로 설정이 바뀐 서비스가 다시 만들어지므로, 설정 오류는 이 확인에서 드러나야 한다 |
 | 인프라 | 3.2 · 6.2 | 에이전트 · Egress를 ASG 두 개로 따로 옮긴다는 결정과 계획 문서 링크를 3.2에 적음(표는 반영 뒤 고침). 6.2 버킷 IP 조건에서 녹화 키를 빼고 S3 게이트웨이 엔드포인트 + `aws:SourceVpc` 조건으로 바꾸는 안 **[제안]** | Egress를 ASG로 옮기면 업로드 공인 IP가 매번 바뀌어, 계획대로 IP 조건을 넣으면 녹화가 모두 막힌다. 왜 Egress를 따로 두는지는 [오토스케일링 계획](../agent_autoscale_plan/README.md) 1장 |
 | 인프라 | 2 · 3.2 · 3.3 · 4.1 · 4.2 · 5.1 · 5.2 · 13 | 운영 웹 입구를 Cloudflare Tunnel에서 서버 직접 접속으로 바꿈(S15P31A301-412). Cloudflare는 DNS만(회색 구름) 쓰고, Nginx가 80 · 443을 받아 443을 도메인 이름(SNI)으로 나눈다(웹 3개는 HTTPS, 그 밖은 LiveKit TURN/TLS로 그대로). 웹 인증서(`hangguet.co.kr` · `rtc.` · `grafana.`)를 certbot DNS-01로 발급하고 갱신 hook을 인증서별로 나눔. 4.2의 갱신 방식을 cron → `certbot.timer`로 고침. 전환 순서와 남은 정리(cloudflared 제거 · 처리방침)를 5.1 · 13장에 적음 | 한국 사용자 요청이 Cloudflare 미국 거점(라스베이거스)을 거쳐 느려졌다. 통신사가 무료 플랜 트래픽을 해외로 보내는 것이라 우리가 고칠 수 없다. TURN/TLS는 SSAFY 와이파이 때문에 443을 떠날 수 없어 SNI로 같이 쓴다. hook은 어느 인증서가 갱신되든 모두 실행되므로 나누지 않으면 웹 인증서 갱신 때 LiveKit이 재시작돼 면접이 끊긴다. 실제 서버는 systemd 타이머로 갱신하고 있었다 |
+| 인프라 | 5.2 | 「보안 설정」 추가(S15P31A301-413): 서버 점검 결과에 따라 SSH 잠금(root 로그인 · 접속 계정 · 인증 시도) · fail2ban(서버에서 적용), Nginx 요청 수 제한 · 보안 헤더 · `X-Powered-By` 숨김, Nginx · LiveKit 컨테이너 MPTCP 끄기, 백업 덤프 권한 600 | Cloudflare를 빼서 바깥 요청을 서버가 직접 받게 됐다. 로그인 경로에 요청 수 제한이 Nginx · BE 어디에도 없었고, 커널 TCP 취약점(CVE-2026-98432)의 수정 커널이 아직 없는데 LiveKit이 MPTCP 리스너를 바깥에 열고 있었다. 덤프는 회원 정보가 들어 있는데 664로 만들어지고 있었다 |
