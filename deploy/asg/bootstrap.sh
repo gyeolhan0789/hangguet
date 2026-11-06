@@ -39,12 +39,22 @@ case "$ROLE" in
     ;;
 esac
 
-param() {
+ssm_get() {
   aws ssm get-parameter --region "$REGION" --name "${PREFIX}/$1" --with-decryption \
     --query Parameter.Value --output text
 }
+# 콘솔에 붙여 넣다 들어간 앞뒤 공백 · CR은 떼고, 줄바꿈이 있으면 어느 값인지 알리고 멈춘다.
+# 줄바꿈이 섞이면 뒤의 설정 파일 만들기(sed)가 알 수 없는 오류로 멈추고 감시 스크립트까지 뜨지 않는다(11/06 테스트)
+clean() {
+  local v=${2//$'\r'/}
+  case "$v" in *$'\n'*) echo "FAIL: SSM ${PREFIX}/$1 값에 줄바꿈이 있다. 한 줄로 고친다" >&2; return 1 ;; esac
+  v="${v#"${v%%[![:space:]]*}"}"
+  v="${v%"${v##*[![:space:]]}"}"
+  printf '%s' "$v"
+}
+param() { local v; v=$(ssm_get "$1") || return 1; clean "$1" "$v"; }
 # 없어도 되는 값. 없으면 빈 문자열
-param_opt() { param "$1" 2>/dev/null || true; }
+param_opt() { local v; v=$(ssm_get "$1" 2>/dev/null) || return 0; clean "$1" "$v"; }
 
 TOKEN=$(curl -sf -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 300')
 md() { curl -sf -H "X-aws-ec2-metadata-token: ${TOKEN}" "http://169.254.169.254/latest/meta-data/$1"; }
@@ -177,14 +187,18 @@ run_egress() {
 "run_${ROLE}"
 unset LIVEKIT_API_SECRET
 
-if [ -n "$METRICS_WRITE_URL" ] && [ -n "$LOKI_URL" ]; then
-  metrics_target=${METRICS_URL#http://}
+# sed 치환 값에서 구분자(|) · & · \를 이스케이프한다
+esc() { printf '%s' "$1" | sed -e 's/[\\|&]/\\&/g'; }
+
+# 지표 · 로그 보내기. 실패해도 지표 · 로그만 빠지므로 감시 스크립트는 계속 띄운다
+start_alloy() {
+  local metrics_target=${METRICS_URL#http://}
   metrics_target=${metrics_target%%/*}
-  sed -e "s|@@JOB@@|${JOB}|g" -e "s|@@METRICS_TARGET@@|${metrics_target}|g" \
-    -e "s|@@METRICS_WRITE_URL@@|${METRICS_WRITE_URL}|g" -e "s|@@LOKI_URL@@|${LOKI_URL}|g" \
-    -e "s|@@CONTAINER@@|${CONTAINER}|g" -e "s|@@ENV@@|${A301_ENV}|g" -e "s|@@ROLE@@|${ROLE}|g" \
-    -e "s|@@INSTANCE_ID@@|${INSTANCE_ID}|g" -e "s|@@AZ@@|${AZ}|g" \
-    /etc/a301/alloy.alloy.tmpl >/etc/a301/alloy.alloy
+  sed -e "s|@@JOB@@|$(esc "$JOB")|g" -e "s|@@METRICS_TARGET@@|$(esc "$metrics_target")|g" \
+    -e "s|@@METRICS_WRITE_URL@@|$(esc "$METRICS_WRITE_URL")|g" -e "s|@@LOKI_URL@@|$(esc "$LOKI_URL")|g" \
+    -e "s|@@CONTAINER@@|$(esc "$CONTAINER")|g" -e "s|@@ENV@@|$(esc "$A301_ENV")|g" -e "s|@@ROLE@@|$(esc "$ROLE")|g" \
+    -e "s|@@INSTANCE_ID@@|$(esc "$INSTANCE_ID")|g" -e "s|@@AZ@@|$(esc "$AZ")|g" \
+    /etc/a301/alloy.alloy.tmpl >/etc/a301/alloy.alloy || return 1
   docker run -d --name a301-alloy \
     --restart unless-stopped \
     --network host \
@@ -193,8 +207,15 @@ if [ -n "$METRICS_WRITE_URL" ] && [ -n "$LOKI_URL" ]; then
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
     -v a301-alloy-data:/var/lib/alloy/data \
     --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
-    "$ALLOY_IMAGE" run --storage.path=/var/lib/alloy/data --disable-reporting /etc/alloy/config.alloy
-  echo "== $(date -Is) Alloy 시작"
+    "$ALLOY_IMAGE" run --storage.path=/var/lib/alloy/data --disable-reporting /etc/alloy/config.alloy || return 1
+}
+
+if [ -n "$METRICS_WRITE_URL" ] && [ -n "$LOKI_URL" ]; then
+  if start_alloy; then
+    echo "== $(date -Is) Alloy 시작"
+  else
+    echo "WARN: Alloy를 띄우지 못했다(지표 · 로그만 빠진다). 감시 스크립트는 계속 띄운다"
+  fi
 fi
 
 install -m 600 /dev/null /etc/a301/redis-password

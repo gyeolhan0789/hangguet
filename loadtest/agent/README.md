@@ -156,16 +156,16 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
 비밀값은 콘솔과 서버에 직접 넣는다. 대화 · 문서 · 커밋에 붙여 넣지 않는다.
 
 1. 팀 공용 계정으로 tailnet을 만든다(어떤 로그인 계정으로 할지 · Personal 플랜 약관은 계획 11장)
-2. **Access controls**: 태그와 접근 규칙을 넣는다. 운영 태그도 지금 같이 넣어 둔다(운영 기기가 없으면 아무 일도 없다). 팀원 기기는 넣지 않는다
+2. **Access controls**: 태그와 접근 규칙을 넣는다. 운영 태그도 지금 같이 넣어 둔다(운영 기기가 없으면 아무 일도 없다). 팀원 기기는 넣지 않는다. 각 태그는 자기 자신도 소유자로 둔다: OAuth 클라이언트가 가진 태그 중 일부만 붙일 때(테스트 서버는 `main`만) Tailscale은 `tagOwners`에서 그 태그를 클라이언트의 태그가 소유하는지 본다(11/06, 빠지면 "requested tags ... not permitted")
    ```json
    {
      "tagOwners": {
-       "tag:a301-main": ["autogroup:admin"],
-       "tag:a301-agent": ["autogroup:admin"],
-       "tag:a301-egress": ["autogroup:admin"],
-       "tag:a301-loadtest-main": ["autogroup:admin"],
-       "tag:a301-loadtest-agent": ["autogroup:admin"],
-       "tag:a301-loadtest-egress": ["autogroup:admin"]
+       "tag:a301-main": ["autogroup:admin", "tag:a301-main"],
+       "tag:a301-agent": ["autogroup:admin", "tag:a301-agent"],
+       "tag:a301-egress": ["autogroup:admin", "tag:a301-egress"],
+       "tag:a301-loadtest-main": ["autogroup:admin", "tag:a301-loadtest-main"],
+       "tag:a301-loadtest-agent": ["autogroup:admin", "tag:a301-loadtest-agent"],
+       "tag:a301-loadtest-egress": ["autogroup:admin", "tag:a301-loadtest-egress"]
      },
      "acls": [
        {"action": "accept", "src": ["tag:a301-agent", "tag:a301-egress"], "dst": ["tag:a301-main:7880,6379,9090,3100"]},

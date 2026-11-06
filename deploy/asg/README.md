@@ -93,7 +93,7 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 
 이 키트는 문법 검사(`bash -n`, user data 빌드)까지만 했다. 실제 동작은 테스트 환경(계획 9장)에서 확인한다.
 
-- Tailscale 설치 스크립트 · OAuth 가입이 Amazon Linux 2023에서 되는지, 컨테이너에서 Tailscale IP로 나가는지
+- ~~Tailscale 설치 · OAuth 가입(AL2023), 컨테이너 → Tailscale IP, Alloy 지표 · 로그, 축소 보호 켜고 끄기~~ 11/06 테스트에서 확인(부팅 약 50초 뒤 가입 · 직접 연결 1ms, 면접을 받고 약 20초 뒤 보호 on)
 - IMDS `target-lifecycle-state`가 종료 대기 중에 `Terminated`로 보이는지, 훅 완료 뒤 바로 종료되는지
 - Egress가 루프백 8080에 상태를 응답하는지, `livekit_egress_requests` 값이 진행 중 녹화 수와 맞는지
-- LiveKit 서버가 `REDIS_PASSWORD`로 Redis에 실제로 붙는지(소스로는 확인함)
+- ~~LiveKit 서버가 `REDIS_PASSWORD`로 Redis에 붙는지~~ 11/06 테스트 서버에서 확인
