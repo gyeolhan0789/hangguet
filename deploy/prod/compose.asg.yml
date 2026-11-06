@@ -1,0 +1,55 @@
+# 에이전트 ASG 전환용 compose 덮어쓰기(이해준/agent_autoscale_plan 10.1의 5).
+# deploy.sh가 GitLab 변수 AGENT_ASG_ENABLED=true일 때만 compose.yml 뒤에 더한다. 변수를 지우고 다시 배포하면 원래 구성으로 돌아간다.
+# 테스트 서버는 compose.loadtest.yml 뒤에 더한다(loadtest/agent/README.md 「운영 경로 재현」).
+# 필요한 값: MAIN_TAILSCALE_IP(메인 서버의 Tailscale IP, deploy/asg/main-tailscale.sh가 출력한다)
+# Redis 비밀번호는 compose.yml에 늘 켜져 있다(Redis를 Tailscale 쪽에 열기 때문에 필수, 계획 5.2).
+#
+# 하는 일
+# - 에이전트를 메인 서버에서 끈다(프로필 agent-on-main). 이미 떠 있던 컨테이너는 deploy.sh가 drain 뒤 지운다
+# - Egress도 프로필(egress-on-main)로 묶는다. Egress ASG로 옮기기 전까지는 deploy.sh가 이 프로필을 켜 메인 서버에 남긴다
+#   (EGRESS_ASG_ENABLED=true일 때만 끈다, 계획 10.1의 10)
+# - ASG 인스턴스가 붙는 포트를 Tailscale IP에만 연다: LiveKit 7880, Redis 6379, Prometheus 9090(원격 쓰기), Loki 3100
+#   Docker가 연 포트는 ufw를 거치지 않으므로 0.0.0.0에 열리지 않았는지 `ss -tulpn`으로 확인한다(계획 5.4)
+# - Prometheus가 원격 쓰기를 받게 한다(ASG 인스턴스의 Alloy가 보낸다, 계획 8장)
+# - LiveKit TCP 재전송 상한을 낮춘다(유령 작업자 대책, 아래)
+#
+# prometheus.yml의 a301-ai-agent 수집 작업은 남겨 둔다. 컨테이너가 없어 수집만 실패하고(up=0), 대시보드가 쓰는 지표는
+# ASG 인스턴스가 instance_id 라벨을 붙여 원격으로 보낸다. 되돌릴 때 설정 파일을 바꿀 필요가 없게 하려는 것이다.
+# 재부팅 때 Docker가 Tailscale IP에 포트를 묶으려면 main-tailscale.sh가 켠 net.ipv4.ip_nonlocal_bind=1이 필요하다(계획 5.4)
+
+services:
+  a301-prod-ai-agent:
+    profiles: ["agent-on-main"]
+
+  a301-prod-egress:
+    profiles: ["egress-on-main"]
+
+  a301-prod-livekit:
+    # 유령 작업자 대책(계획 11장, 11/06 운영 경로 보고서 3장). 에이전트 인스턴스가 연결을 닫지 못하고 사라지면
+    # LiveKit 쪽 TCP가 재전송만 하며 남아, 기본값(15)이면 약 14분 동안 그 작업자에게 면접을 배정한다(배정 실패 시 다시 주지 않음).
+    # LiveKit 컨테이너 네트워크에만 재전송 상한을 낮춰 약 2분으로 줄인다(테스트 서버에서 확인).
+    # 사용자 쪽 TCP(7881 · Nginx를 거친 시그널링 · TURN/TLS)도 100초 넘게 응답이 없으면 끊긴다.
+    # 에이전트가 같은 서버에 있으면 연결이 바로 닫혀 필요 없으므로 전환할 때만 더한다. compose.yml의 MPTCP 끄기와 합쳐진다
+    sysctls:
+      net.ipv4.tcp_retries2: "8"
+    ports:
+      - "${MAIN_TAILSCALE_IP:?MAIN_TAILSCALE_IP(메인 서버 Tailscale IP)가 필요하다}:7880:7880"
+
+  a301-prod-redis:
+    ports:
+      - "${MAIN_TAILSCALE_IP:?MAIN_TAILSCALE_IP(메인 서버 Tailscale IP)가 필요하다}:6379:6379"
+
+  a301-prod-prometheus:
+    # command는 덮어쓰면 전부 바뀌므로 compose.yml의 값을 그대로 옮기고 원격 쓰기 받기만 더한다
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=2GB
+      - --web.enable-remote-write-receiver
+    ports:
+      - "${MAIN_TAILSCALE_IP:?MAIN_TAILSCALE_IP(메인 서버 Tailscale IP)가 필요하다}:9090:9090"
+
+  a301-prod-loki:
+    ports:
+      - "${MAIN_TAILSCALE_IP:?MAIN_TAILSCALE_IP(메인 서버 Tailscale IP)가 필요하다}:3100:3100"

@@ -502,6 +502,10 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `LLM_CHAT_URL` · `LLM_MODEL` | X | AI 분석 작업자. compose에 적는다(개발 · 운영 같은 값, `gpt-4.1-mini`는 AI에 등록된 모델) |
 | `SONIOX_STT_MODEL` | X | AI 에이전트. 현재 기본값 `stt-rt-v5` |
 | `AGENT_IDLE_PROCESSES` | X | AI 에이전트가 미리 실행해 두는 프로세스 수(선택, 0 이상의 정수). 없으면 CPU 수(지금 서버 4). 개발과 다른 값을 쓰려고 범위 `prod/*` · `dev/*`로 따로 등록한다. 정수가 아니면 에이전트가 뜨지 않는다 |
+| `REDIS_PASSWORD` | O | Redis `requirepass`, BE(`SPRING_DATA_REDIS_PASSWORD`) · AI 작업자 · 에이전트 · LiveKit · Egress · redis-exporter. 공백 · 따옴표 없이(`openssl rand -hex 24`). 에이전트 ASG로 옮기면 Redis를 Tailscale 쪽에 열어야 해서 먼저 켠다([오토스케일링 계획](../agent_autoscale_plan/README.md) 5.2). ASG 인스턴스는 같은 값을 SSM에서 읽는다 |
+| `AGENT_ASG_ENABLED` | X | `true`면 `deploy.sh`가 `compose.asg.yml`을 더해 메인 서버 에이전트를 끄고 포트를 Tailscale IP에 열며, 배포 뒤 에이전트 ASG를 새로 고친다([오토스케일링 계획](../agent_autoscale_plan/README.md) 7.1 · 10.1). 지우고 다시 배포하면 원래 구성 |
+| `MAIN_TAILSCALE_IP` | X | `AGENT_ASG_ENABLED=true`일 때 필수. 메인 서버의 Tailscale IP(`deploy/asg/main-tailscale.sh prod`가 출력) |
+| `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY` | O | `AGENT_ASG_ENABLED=true`일 때 필수. 우리 계정 IAM 사용자 `a301-prod-agent-ci`(SSM 태그 하나 쓰기 · 에이전트 ASG 새로 고침만) |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |
 
@@ -734,3 +738,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 2 · 3.2 · 3.3 · 4.1 · 4.2 · 5.1 · 5.2 · 13 | 운영 웹 입구를 Cloudflare Tunnel에서 서버 직접 접속으로 바꿈(S15P31A301-412). Cloudflare는 DNS만(회색 구름) 쓰고, Nginx가 80 · 443을 받아 443을 도메인 이름(SNI)으로 나눈다(웹 3개는 HTTPS, 그 밖은 LiveKit TURN/TLS로 그대로). 웹 인증서(`hangguet.co.kr` · `rtc.` · `grafana.`)를 certbot DNS-01로 발급하고 갱신 hook을 인증서별로 나눔. 4.2의 갱신 방식을 cron → `certbot.timer`로 고침. 전환 순서와 남은 정리(cloudflared 제거 · 처리방침)를 5.1 · 13장에 적음 | 한국 사용자 요청이 Cloudflare 미국 거점(라스베이거스)을 거쳐 느려졌다. 통신사가 무료 플랜 트래픽을 해외로 보내는 것이라 우리가 고칠 수 없다. TURN/TLS는 SSAFY 와이파이 때문에 443을 떠날 수 없어 SNI로 같이 쓴다. hook은 어느 인증서가 갱신되든 모두 실행되므로 나누지 않으면 웹 인증서 갱신 때 LiveKit이 재시작돼 면접이 끊긴다. 실제 서버는 systemd 타이머로 갱신하고 있었다 |
 | 인프라 | 5.2 | 「보안 설정」 추가(S15P31A301-413): 서버 점검 결과에 따라 SSH 잠금(root 로그인 · 접속 계정 · 인증 시도) · fail2ban(서버에서 적용), Nginx 요청 수 제한 · 보안 헤더 · `X-Powered-By` 숨김, Nginx · LiveKit 컨테이너 MPTCP 끄기, 백업 덤프 권한 600 | Cloudflare를 빼서 바깥 요청을 서버가 직접 받게 됐다. 로그인 경로에 요청 수 제한이 Nginx · BE 어디에도 없었고, 커널 TCP 취약점(CVE-2026-98432)의 수정 커널이 아직 없는데 LiveKit이 MPTCP 리스너를 바깥에 열고 있었다. 덤프는 회원 정보가 들어 있는데 664로 만들어지고 있었다 |
 | 인프라 | 5.2 | 「보안 설정」에 Nginx 부하 방어 추가(S15P31A301-413): 443 연결 IP당 1000개 · 동시 처리 요청 IP당 200개(정적 파일 제외), Nginx 연결 한도 4096 · 메모리 상한 256m, 화면 GET 요청 수 제한(초당 100회, 정적 파일 제외), 요청 본문 1MB 명시, 스캐너 경로 444. 대량 트래픽 공격은 서버에서 막지 못한다는 점과 비상시 Cloudflare 프록시를 다시 켤 때 주의점을 적음 | Cloudflare를 빼서 한 IP의 연결 · 요청 폭주를 서버가 직접 받게 됐다. 화면 GET은 FE · BE를 함께 써서 제한이 없으면 새로고침 폭주에 약하다. 자동 스캐너 요청이 매일 들어온다 |
+| 인프라 | 7 | 운영 변수에 `REDIS_PASSWORD` · `AGENT_ASG_ENABLED` · `MAIN_TAILSCALE_IP` · `AGENT_REFRESH_AWS_*` 추가. Redis 비밀번호를 운영 compose에 늘 켬, `deploy.sh`가 `AGENT_ASG_ENABLED=true`일 때 `compose.asg.yml`을 더함(오토스케일링 계획 10.1) | 에이전트 ASG 전환을 서버에서 compose를 손으로 고치지 않고 GitLab 변수 하나로 켜고 끄게 했다 |

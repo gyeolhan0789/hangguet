@@ -7,7 +7,8 @@
 
 | 파일 | 내용 |
 |---|---|
-| `compose.yml` | 운영 서비스 전체(프로젝트 `a301-prod`, 네트워크 `a301-prod`) |
+| `compose.yml` | 운영 서비스 전체(프로젝트 `a301-prod`, 네트워크 `a301-prod`). Redis는 비밀번호(`REDIS_PASSWORD`)를 켠다 |
+| `compose.asg.yml` | 에이전트 ASG 전환 덮어쓰기. `deploy.sh`가 GitLab 변수 `AGENT_ASG_ENABLED=true`일 때만 더한다: 메인 서버 에이전트 끄기, LiveKit 7880 · Redis 6379 · Prometheus 9090 · Loki 3100을 Tailscale IP에만 열기, LiveKit `tcp_retries2=8`([키트 README](../asg/README.md) 「메인 서버 전환」) |
 | `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis). 키는 환경 변수 `LIVEKIT_KEYS` |
 | `nginx.conf` | Nginx 전체 설정(`/etc/nginx/nginx.conf`). 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. 앱은 `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙), Swagger 경로는 404 |
 | `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress · Redis · PostgreSQL을 더 모은다 |

@@ -1,6 +1,6 @@
 // ASG 인스턴스 지표 · 로그 수집(Grafana Alloy, 이해준/agent_autoscale_plan 8장). bootstrap.sh가 @@…@@를 채워 /etc/a301/alloy.alloy로 쓴다.
 // 메인 서버가 늘고 주는 인스턴스 목록을 알 필요가 없도록, 인스턴스가 메인 서버로 보낸다(push).
-// 메인 Prometheus는 --web.enable-remote-write-receiver, Loki는 3100을 Tailscale IP에만 연다(main-override.yml).
+// 메인 Prometheus는 --web.enable-remote-write-receiver, Loki는 3100을 Tailscale IP에만 연다(compose.asg.yml).
 
 // 역할 컨테이너의 지표. job은 메인 서버가 직접 긁던 이름(a301-ai-agent · a301-egress)과 같게 해 기존 패널을 그대로 쓴다
 prometheus.scrape "role" {
