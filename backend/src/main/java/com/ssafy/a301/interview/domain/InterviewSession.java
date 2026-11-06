@@ -126,7 +126,7 @@ public class InterviewSession {
         return status == SessionStatus.READY || status == SessionStatus.START_FAILED;
     }
 
-    // 에이전트가 배정을 거절함(AI 명세 1.4). 질문을 내기 전인지는 결과 처리가 확인한다
+    // 에이전트가 배정을 거절했거나 면접관이 첫 질문을 시작하지 못함(AI 명세 1.4 · 6.5). 질문을 내기 전인지는 부르는 쪽이 확인한다
     public void failStart() {
         requireStatus(SessionStatus.IN_PROGRESS);
         this.status = SessionStatus.START_FAILED;

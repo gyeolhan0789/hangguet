@@ -212,8 +212,10 @@ public class AiResultService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
+                    // 시작 시각보다 이른 질문은 시작 실패(AI 명세 6.5) 뒤 다시 시작하기 전 시도의 것이다(AI 명세 1.4)
                     if (session == null
-                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()) {
+                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()
+                            || startedAt.isBefore(session.getStartedAt())) {
                         return Outcome.DISCARDED;
                     }
                     questions.save(

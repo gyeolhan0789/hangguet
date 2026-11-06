@@ -11,20 +11,25 @@ import io.livekit.server.CanPublish;
 import io.livekit.server.CanPublishData;
 import io.livekit.server.CanPublishSources;
 import io.livekit.server.CanSubscribe;
+import io.livekit.server.RoomAdmin;
 import io.livekit.server.RoomCreate;
 import io.livekit.server.RoomJoin;
 import io.livekit.server.RoomName;
 import io.livekit.server.RoomService;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import livekit.LivekitEgress.AutoTrackEgress;
 import livekit.LivekitEgress.S3Upload;
+import livekit.LivekitModels.ParticipantInfo;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
+import livekit.LivekitRoom.ListParticipantsRequest;
 import livekit.LivekitRoom.RoomEgress;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
@@ -48,6 +53,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     // 호출 하나의 시간 제한(BE 설계 5.2). 5.4 · 10.7은 면접 · 그룹 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     static final String CANDIDATE = "candidate";
+    // 에이전트가 면접방에 들어올 때 쓰는 참가자 이름(AI 명세 6.1)
+    static final String INTERVIEWER = "interviewer";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
     private static final int EMPTY_TIMEOUT_SECONDS = 600;
     // 브라우저에 알려 줄 주소와 BE가 서버 API를 부르는 주소의 설정 이름. 시험이 같은 이름으로 실제 값을 확인한다.
@@ -106,6 +113,42 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     @Override
     public void close(long sessionId) {
         delete(roomName(sessionId));
+    }
+
+    @Override
+    public Presence presence(long sessionId) {
+        requireConfigured();
+        String room = roomName(sessionId);
+        try {
+            List<ParticipantInfo> participants =
+                    execute(
+                                    rooms().listParticipants(
+                                                    ListParticipantsRequest.newBuilder()
+                                                            .setRoom(room)
+                                                            .build(),
+                                                    roomAdminAuth(room)))
+                            .getParticipantsList();
+            boolean interviewer =
+                    participants.stream().anyMatch(p -> INTERVIEWER.equals(p.getIdentity()));
+            OffsetDateTime candidateJoinedAt =
+                    participants.stream()
+                            .filter(p -> CANDIDATE.equals(p.getIdentity()))
+                            .findFirst()
+                            .map(LiveKitInterviewRoom::joinedAt)
+                            .orElse(null);
+            return new Presence(interviewer, candidateJoinedAt);
+        } catch (IOException ex) {
+            throw new UncheckedIOException("면접방 참가자를 조회하지 못했다: room=" + room, ex);
+        }
+    }
+
+    // 입장 시각. 밀리초 값이 없는(0) 서버면 초 값을 쓴다
+    private static OffsetDateTime joinedAt(ParticipantInfo participant) {
+        Instant joined =
+                participant.getJoinedAtMs() > 0
+                        ? Instant.ofEpochMilli(participant.getJoinedAtMs())
+                        : Instant.ofEpochSecond(participant.getJoinedAt());
+        return OffsetDateTime.ofInstant(joined, KoreaTime.ZONE);
     }
 
     @Override
@@ -223,6 +266,14 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private String adminAuth() {
         AccessToken token = new AccessToken(apiKey, apiSecret);
         token.addGrants(new RoomCreate(true));
+        token.setTtl(TimeUnit.MINUTES.toMillis(1));
+        return "Bearer " + token.toJwt();
+    }
+
+    // 방 하나의 참가자 조회 권한
+    private String roomAdminAuth(String room) {
+        AccessToken token = new AccessToken(apiKey, apiSecret);
+        token.addGrants(new RoomAdmin(true), new RoomName(room));
         token.setTtl(TimeUnit.MINUTES.toMillis(1));
         return "Bearer " + token.toJwt();
     }

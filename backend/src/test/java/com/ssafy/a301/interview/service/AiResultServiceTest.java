@@ -153,6 +153,18 @@ class AiResultServiceTest {
         assertThat(results.handle(questionStarted(session, 2))).isEqualTo(Outcome.DISCARDED);
     }
 
+    // 기준: AI 명세 1.4 · 6.5(시작 실패 뒤 다시 시작하면 이전 시도의 질문이 늦게 올 수 있다)
+    @Test
+    void questionStartedFromAttemptBeforeRestartIsDiscarded() {
+        InterviewSession session = newSession(InterviewMode.VIDEO);
+        savePlan(session);
+        session.start(STARTED_AT.plusSeconds(1));
+        em.flush();
+
+        assertThat(results.handle(questionStarted(session, 1))).isEqualTo(Outcome.DISCARDED);
+        assertThat(questions.findBySessionIdAndSeq(session.getId(), 1)).isEmpty();
+    }
+
     // 기준: AI 명세 1.4·2.2, BE 설계 5.4(질문 행은 플랜이 아니라 실제로 출제한 질문의 글·채점 기준·버전으로 만든다)
     @Test
     void questionStartedSavesFollowUpQuestionAsAsked() {
@@ -464,10 +476,11 @@ class AiResultServiceTest {
         return session;
     }
 
+    // 결과 메시지의 시각(STARTED_AT)보다 먼저 시작한다. 시작 시각보다 이른 질문은 버리기 때문이다
     private InterviewSession startedSession(InterviewMode mode) {
         InterviewSession session = newSession(mode);
         savePlan(session);
-        session.start(OffsetDateTime.now());
+        session.start(STARTED_AT.minusMinutes(1));
         em.flush();
         return session;
     }

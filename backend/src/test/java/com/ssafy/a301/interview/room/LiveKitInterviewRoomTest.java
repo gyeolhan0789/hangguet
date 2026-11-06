@@ -6,8 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
+import com.ssafy.a301.interview.room.InterviewRoom.Presence;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -17,8 +19,11 @@ import java.util.Base64;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import livekit.LivekitAgentDispatch.CreateAgentDispatchRequest;
+import livekit.LivekitModels.ParticipantInfo;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
+import livekit.LivekitRoom.ListParticipantsRequest;
+import livekit.LivekitRoom.ListParticipantsResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,12 +35,15 @@ import org.springframework.core.io.ClassPathResource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** 가짜 LiveKit 서버 API(HTTP)로 입장 토큰 권한, 방 만들기(녹화 설정)·에이전트 배정·방 지우기 요청을 확인한다. */
+/** 가짜 LiveKit 서버 API(HTTP)로 입장 토큰 권한, 방 만들기(녹화 설정)·에이전트 배정·방 지우기·참가자 조회 요청을 확인한다. */
 class LiveKitInterviewRoomTest {
     private static final String SECRET = "test-secret-at-least-32-bytes-long-000";
+    private static final String LIST_PARTICIPANTS = "/twirp/livekit.RoomService/ListParticipants";
 
     private final Map<String, byte[]> requests = new ConcurrentHashMap<>();
     private final Map<String, Integer> statuses = new ConcurrentHashMap<>();
+    private final Map<String, byte[]> bodies = new ConcurrentHashMap<>();
+    private final Map<String, String> authorizations = new ConcurrentHashMap<>();
     private HttpServer server;
     private String apiUrl;
 
@@ -47,8 +55,15 @@ class LiveKitInterviewRoomTest {
                 exchange -> {
                     String path = exchange.getRequestURI().getPath();
                     requests.put(path, exchange.getRequestBody().readAllBytes());
+                    authorizations.put(
+                            path, exchange.getRequestHeaders().getFirst("Authorization"));
                     exchange.getResponseHeaders().add("Content-Type", "application/protobuf");
-                    exchange.sendResponseHeaders(statuses.getOrDefault(path, 200), -1);
+                    byte[] body = bodies.get(path);
+                    exchange.sendResponseHeaders(
+                            statuses.getOrDefault(path, 200), body == null ? -1 : body.length);
+                    if (body != null) {
+                        exchange.getResponseBody().write(body);
+                    }
                     exchange.close();
                 });
         server.start();
@@ -188,6 +203,63 @@ class LiveKitInterviewRoomTest {
                                         requests.get("/twirp/livekit.RoomService/DeleteRoom"))
                                 .getRoom())
                 .isEqualTo("group-7");
+    }
+
+    // 기준: AI 명세 6.5(면접관 interviewer 여부와 지원자 candidate 입장 시각을 ListParticipants로 본다)
+    @Test
+    void presenceReadsInterviewerAndCandidateJoinTimeWithRoomAdminGrant() throws Exception {
+        bodies.put(
+                LIST_PARTICIPANTS,
+                ListParticipantsResponse.newBuilder()
+                        .addParticipants(ParticipantInfo.newBuilder().setIdentity("interviewer"))
+                        .addParticipants(
+                                ParticipantInfo.newBuilder()
+                                        .setIdentity("candidate")
+                                        .setJoinedAt(1_762_322_400L)
+                                        .setJoinedAtMs(1_762_322_400_250L))
+                        .build()
+                        .toByteArray());
+
+        Presence presence = room(apiUrl).presence(55L);
+
+        assertThat(presence.interviewer()).isTrue();
+        assertThat(presence.candidateJoinedAt().toInstant())
+                .isEqualTo(Instant.ofEpochMilli(1_762_322_400_250L));
+        assertThat(ListParticipantsRequest.parseFrom(requests.get(LIST_PARTICIPANTS)).getRoom())
+                .isEqualTo("interview-55");
+        JsonNode video =
+                claims(authorizations.get(LIST_PARTICIPANTS).replaceFirst("^Bearer ", ""))
+                        .path("video");
+        assertThat(video.path("roomAdmin").asBoolean()).isTrue();
+        assertThat(video.path("room").asString()).isEqualTo("interview-55");
+    }
+
+    @Test
+    void presenceUsesSecondsWhenServerHasNoMillisecondJoinTime() {
+        bodies.put(
+                LIST_PARTICIPANTS,
+                ListParticipantsResponse.newBuilder()
+                        .addParticipants(
+                                ParticipantInfo.newBuilder()
+                                        .setIdentity("candidate")
+                                        .setJoinedAt(1_762_322_400L))
+                        .build()
+                        .toByteArray());
+
+        Presence presence = room(apiUrl).presence(55L);
+
+        assertThat(presence.interviewer()).isFalse();
+        assertThat(presence.candidateJoinedAt().toInstant())
+                .isEqualTo(Instant.ofEpochSecond(1_762_322_400L));
+    }
+
+    @Test
+    void emptyRoomHasNobodyAndFailedLookupThrows() {
+        assertThat(room(apiUrl).presence(55L)).isEqualTo(new Presence(false, null));
+
+        statuses.put(LIST_PARTICIPANTS, 500);
+        assertThatThrownBy(() -> room(apiUrl).presence(55L))
+                .isInstanceOf(UncheckedIOException.class);
     }
 
     @Test
