@@ -11,6 +11,7 @@ import io.livekit.server.CanPublish;
 import io.livekit.server.CanPublishData;
 import io.livekit.server.CanPublishSources;
 import io.livekit.server.CanSubscribe;
+import io.livekit.server.EgressServiceClient;
 import io.livekit.server.RoomAdmin;
 import io.livekit.server.RoomCreate;
 import io.livekit.server.RoomJoin;
@@ -89,8 +90,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private final S3Upload egressS3;
     private RoomService rooms;
     private AgentDispatchServiceClient dispatches;
-    // 패키지 이름까지 적는다. 같은 자리에 import를 더하는 그룹 면접 종료(S15P31A301-374)와 충돌하지 않게 하기 위해서다
-    private io.livekit.server.EgressServiceClient egresses;
+    private EgressServiceClient egresses;
 
     public LiveKitInterviewRoom(
             @Value(URL_PROPERTY) String url,
@@ -140,14 +140,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         requireConfigured();
         String room = roomName(sessionId);
         try {
-            List<ParticipantInfo> participants =
-                    execute(
-                                    rooms().listParticipants(
-                                                    ListParticipantsRequest.newBuilder()
-                                                            .setRoom(room)
-                                                            .build(),
-                                                    roomAdminAuth(room)))
-                            .getParticipantsList();
+            List<ParticipantInfo> participants = participants(room);
             boolean interviewer =
                     participants.stream().anyMatch(p -> INTERVIEWER.equals(p.getIdentity()));
             OffsetDateTime candidateJoinedAt =
@@ -169,14 +162,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         }
         String room = roomName(sessionId);
         try {
-            List<ParticipantInfo> participants =
-                    execute(
-                                    rooms().listParticipants(
-                                                    ListParticipantsRequest.newBuilder()
-                                                            .setRoom(room)
-                                                            .build(),
-                                                    roomAdminAuth(room)))
-                            .getParticipantsList();
+            List<ParticipantInfo> participants = participants(room);
             Set<String> recording =
                     execute(egresses().listEgress(room, null, true)).stream()
                             .filter(egress -> RECORDING.contains(egress.getStatus()))
@@ -238,6 +224,15 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         String filePrefix() {
             return identity + "-" + type.name().toLowerCase(Locale.ROOT) + "-";
         }
+    }
+
+    // 면접방 참가자 목록. 방이 없으면 비어 있다
+    private List<ParticipantInfo> participants(String room) throws IOException {
+        return execute(
+                        rooms().listParticipants(
+                                        ListParticipantsRequest.newBuilder().setRoom(room).build(),
+                                        roomAdminAuth(room)))
+                .getParticipantsList();
     }
 
     // 입장 시각. 밀리초 값이 없는(0) 서버면 초 값을 쓴다
@@ -397,7 +392,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         return "Bearer " + token.toJwt();
     }
 
-    // 참가자 내보내기 권한(그 방의 관리자)
+    // 방 하나의 관리 권한(참가자 조회 · 내보내기)
     private String roomAdminAuth(String room) {
         AccessToken token = new AccessToken(apiKey, apiSecret);
         token.addGrants(new RoomAdmin(true), new RoomName(room));
@@ -441,10 +436,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         return dispatches;
     }
 
-    private synchronized io.livekit.server.EgressServiceClient egresses() {
+    private synchronized EgressServiceClient egresses() {
         if (egresses == null) {
             egresses =
-                    io.livekit.server.EgressServiceClient.createClient(
+                    EgressServiceClient.createClient(
                             httpUrl(apiUrl), apiKey, apiSecret, LiveKitInterviewRoom::httpClient);
         }
         return egresses;

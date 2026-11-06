@@ -29,9 +29,10 @@ import livekit.LivekitEgress.TrackEgressRequest;
 import livekit.LivekitModels.ParticipantInfo;
 import livekit.LivekitModels.TrackInfo;
 import livekit.LivekitModels.TrackType;
-import livekit.LivekitRoom;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
+import livekit.LivekitRoom.ListParticipantsRequest;
+import livekit.LivekitRoom.ListParticipantsResponse;
 import livekit.LivekitRoom.RoomParticipantIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -221,7 +222,7 @@ class LiveKitInterviewRoomTest {
     void presenceReadsInterviewerAndCandidateJoinTimeWithRoomAdminGrant() throws Exception {
         bodies.put(
                 LIST_PARTICIPANTS,
-                LivekitRoom.ListParticipantsResponse.newBuilder()
+                ListParticipantsResponse.newBuilder()
                         .addParticipants(ParticipantInfo.newBuilder().setIdentity("interviewer"))
                         .addParticipants(
                                 ParticipantInfo.newBuilder()
@@ -236,10 +237,7 @@ class LiveKitInterviewRoomTest {
         assertThat(presence.interviewer()).isTrue();
         assertThat(presence.candidateJoinedAt().toInstant())
                 .isEqualTo(Instant.ofEpochMilli(1_762_322_400_250L));
-        assertThat(
-                        LivekitRoom.ListParticipantsRequest.parseFrom(
-                                        requests.get(LIST_PARTICIPANTS))
-                                .getRoom())
+        assertThat(ListParticipantsRequest.parseFrom(requests.get(LIST_PARTICIPANTS)).getRoom())
                 .isEqualTo("interview-55");
         JsonNode video =
                 claims(authorizations.get(LIST_PARTICIPANTS).replaceFirst("^Bearer ", ""))
@@ -252,7 +250,7 @@ class LiveKitInterviewRoomTest {
     void presenceUsesSecondsWhenServerHasNoMillisecondJoinTime() {
         bodies.put(
                 LIST_PARTICIPANTS,
-                LivekitRoom.ListParticipantsResponse.newBuilder()
+                ListParticipantsResponse.newBuilder()
                         .addParticipants(
                                 ParticipantInfo.newBuilder()
                                         .setIdentity("candidate")
@@ -432,7 +430,7 @@ class LiveKitInterviewRoomTest {
     }
 
     private static byte[] participants(ParticipantInfo... participants) {
-        return LivekitRoom.ListParticipantsResponse.newBuilder()
+        return ListParticipantsResponse.newBuilder()
                 .addAllParticipants(List.of(participants))
                 .build()
                 .toByteArray();
