@@ -136,6 +136,8 @@ https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(�
 
 - Docker 29.9 · Compose v5.6, 스왑 4GB, 시간대 `Asia/Seoul`, 로그 10MB × 3
 - ufw: 22 · 80/tcp · 7881/tcp · 7882/udp · 3478/udp · 443/tcp
+- SSH(11/06): `/etc/ssh/sshd_config.d/10-a301-hardening.conf`에 `PermitRootLogin no` · `AllowUsers ubuntu` · `MaxAuthTries 4` · `X11Forwarding no`. 바꿀 때는 SSH 창을 하나 더 열어 두고 `systemd-run --on-active=5min`으로 자동 되돌리기를 걸어 둔 뒤 `sshd -t` → `systemctl reload ssh` → 새 접속 시험 순서로 한다(브라우저 SSH를 쓰지 않아 잠기면 들어갈 길이 없다)
+- fail2ban(11/06): `/etc/fail2ban/jail.d/a301-sshd.local`(10분 5회 실패 → 1시간 차단, SSAFY 공인 IP 제외, `journalmatch`는 `ssh.service`). 상태는 `sudo fail2ban-client status sshd`
 - 인증서(certbot + Cloudflare DNS 플러그인, `certbot.timer`가 하루 두 번 갱신을 본다). LiveKit · Nginx 이미지는 root로 돌아 그대로 읽는다
   - TURN `/etc/letsencrypt/live/turn.hangguet.co.kr/`: 갱신 뒤 `renewal-hooks/deploy/restart-livekit.sh`가 `a301-prod-livekit`을 재시작
   - 웹 `/etc/letsencrypt/live/hangguet.co.kr/`(`hangguet.co.kr` · `rtc.` · `grafana.`, 11/06 발급): 갱신 뒤 `renewal-hooks/deploy/reload-nginx.sh`가 `a301-prod-nginx`를 reload(접속이 끊기지 않음)
@@ -150,6 +152,7 @@ https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(�
 
 - Swagger를 공개하지 않는다: BE `SPRINGDOC_API_DOCS_ENABLED=false` · `SPRINGDOC_SWAGGER_UI_ENABLED=false`, Nginx에서 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs` 404(배포 계획 3.2)
 - FE 지표(`A301_DEV_MONITORING`)를 켜지 않는다(아래)
+- Nginx 요청 수 제한 · 보안 헤더, Nginx · LiveKit 컨테이너 MPTCP 끄기(배포 계획 5.2 「보안 설정」). 개발 서버는 Tunnel 뒤라 넣지 않았다
 - BE 메모리 상한 1280m(개발 768m), JVM 옵션에 `-XX:+ExitOnOutOfMemoryError`를 더한다. 힙을 다 쓰면 약 1.06GB를 써 768m로는 강제 종료될 수 있어서다(배포 계획 3.2)
 
 ## 아직 없는 것

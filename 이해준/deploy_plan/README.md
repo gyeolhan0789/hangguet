@@ -161,7 +161,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | 컨테이너 | 역할 | 외부 노출 | 메모리 상한 **[제안]** |
 |---|---|---|---|
 | `a301-prod-cloudflared` | Cloudflare Tunnel(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`). DNS를 서버 IP로 바꾸는 동안만 둔다(5.1) | 밖으로 나가는 연결만 | 64m |
-| `a301-prod-nginx` | 바깥 웹 입구. 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | TCP 443, TCP 80 | 64m |
+| `a301-prod-nginx` | 바깥 웹 입구. 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | TCP 443, TCP 80 | 256m(HTTPS를 직접 풀어 64m에서 올림, 5.2 「보안 설정」) |
 | `a301-prod-admin` | 관리 페이지 정적 파일 | 없음 | 64m |
 | `a301-prod-ai` | AI 상태 확인(`/health`)만 하는 HTTP. 개발 서버와 같다 | 없음 | 256m |
 | `a301-prod-fe` | Next standalone. `livekit-client`로 면접방 접속. `API_BASE_URL=http://a301-prod-be:8080/api/v1` | 없음 | 512m |
@@ -177,7 +177,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Nginx로) | 합계 약 1.9g(cAdvisor 384m · Grafana 768m) |
 | `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
-모든 컨테이너 상한의 합계는 약 12.2GB(에이전트 4g 포함)다. 나머지 약 2.8GB를 OS · Docker · 러너가 쓴다. 이 서버 한 대로 늘릴 수 있는 동시 면접 수는 메모리로 약 20~30건이 끝이고, CPU(하루 평균 40%) · 녹화(Egress) · AI 작업자(작업을 하나씩 처리)가 그보다 먼저 막을 수 있다. 그 이상은 에이전트 · Egress · 작업자를 다른 서버로 나눠야 한다(1.1). 이미지 빌드는 이 서버에서 하지 않는다(8장).
+모든 컨테이너 상한의 합계는 약 12.4GB(에이전트 4g 포함, 11/06 Nginx 64m → 256m)다. 나머지 약 2.6GB를 OS · Docker · 러너가 쓴다. 이 서버 한 대로 늘릴 수 있는 동시 면접 수는 메모리로 약 20~30건이 끝이고, CPU(하루 평균 40%) · 녹화(Egress) · AI 작업자(작업을 하나씩 처리)가 그보다 먼저 막을 수 있다. 그 이상은 에이전트 · Egress · 작업자를 다른 서버로 나눠야 한다(1.1). 이미지 빌드는 이 서버에서 하지 않는다(8장).
 
 > **[결정] 에이전트(`a301-prod-ai-agent`)와 Egress(`a301-prod-egress`)를 우리 계정의 ASG 두 개로 따로 옮긴다**(에이전트 11/03, Egress 11/05). 설계 · 순서는 [에이전트 · Egress 오토스케일링 계획](../agent_autoscale_plan/README.md)(1장 · 10.1)이다. 옮긴 뒤 두 컨테이너는 이 서버에서 프로필(`agent-on-main` · `egress-on-main`)로 꺼 두고 되돌릴 때만 켠다. 이 표와 2장 구조는 운영에 반영한 뒤에 고친다(계획 10.1의 13). **다음 릴리즈에는 넣지 않는다**(11/05). 반영 뒤 master 배포를 ASG에 반영하는 방법은 계획 7.1이다
 
@@ -384,6 +384,28 @@ sudo ufw status numbered
 - **확인 결과(실측)**
   - SSAFY 와이파이는 **바깥으로 나가는 TCP를 80 · 443 · 8080만 허용**한다(3478 · 5349 · 7880 · 7881 · 8443은 막힘). 그래서 강의실에서는 TCP 7881이 안 되고 **TURN/TLS 443이 사실상 유일한 길**이다
   - Lightsail 쪽: SSAFY 와이파이에서 443 접속 성공, 핫스팟에서 443 · 7881 접속 성공 → **Lightsail 방화벽(SSAFY 관리)도 이 포트들을 열어 두었다**. UDP는 LiveKit Connection Test로 확인했다(4.2)
+
+**보안 설정 [결정](11/06 점검 후)**
+
+Cloudflare 프록시를 빼면서(5.1) 바깥 요청을 서버가 직접 받게 되어, 읽기 전용 점검(SSH · 계정 · 웹 · 업데이트 · 비밀값 · 컨테이너 · 로그 · 커널 · 백업)을 하고 아래를 맞췄다. 바깥에서 바로 악용될 항목(DB · 관리 도구 공개, 비밀번호 SSH, 노출된 키)은 없었다.
+
+| 대상 | 설정 | 어디에 | 왜 |
+|---|---|---|---|
+| SSH | `PermitRootLogin no` · `AllowUsers ubuntu` · `MaxAuthTries 4` · `X11Forwarding no`(비밀번호 로그인은 원래 꺼짐) | 서버 `/etc/ssh/sshd_config.d/10-a301-hardening.conf` | root 키의 `command=` 제한 하나에만 기대지 않고, 접속 계정을 실제로 쓰는 하나로 줄인다. 파일 이름을 `10-`으로 시작해 `60-cloudimg-settings.conf`보다 먼저 읽힌다(sshd는 처음 읽은 값을 쓴다) |
+| SSH 무차별 대입 | fail2ban: 10분 안에 5번 실패하면 1시간 차단, SSAFY 공인 IP(`211.192.210.149`)는 제외 | 서버 `/etc/fail2ban/jail.d/a301-sshd.local` | 7일 동안 실패 1419회(3개 IP가 각 약 440회). Ubuntu의 SSH 서비스 이름은 `ssh.service`라 `journalmatch`를 직접 적었다(기본값 `sshd.service`로는 로그를 못 읽는다) |
+| 요청 수 제한 | 사용자 IP당. 로그인 · 회원가입(`/login` · `/signup` POST, 관리자 로그인) 초당 1회 · 한꺼번에 30회, 그 밖의 POST와 `/be/` 초당 30회 · 한꺼번에 60회, 화면 GET 초당 100회 · 한꺼번에 200회(정적 파일 제외). 넘으면 429 | `deploy/prod/nginx.conf` | 로그인은 FE 서버 액션이 BE를 부르므로 BE에서는 사용자 IP를 알 수 없다. SSAFY처럼 여러 사람이 공인 IP 하나를 쓰는 곳에서 시연해도 막히지 않게 넉넉히 잡았다 |
+| 보안 헤더 | HSTS(1년, 하위 도메인 제외) · `X-Frame-Options: SAMEORIGIN` · `nosniff` · `Referrer-Policy: strict-origin-when-cross-origin`, `X-Powered-By` 숨김 | `deploy/prod/nginx.conf` | 뒤쪽 서비스(Spring Security 등)가 보내는 같은 헤더는 지우고 한 번만 붙인다(두 값이 겹치면 브라우저가 무시할 수 있다). Grafana는 스스로 보내므로 HSTS만 더한다 |
+| 동시 연결 · 요청 | 443 연결 IP당 1000개(넘으면 새 연결을 끊음, 웹 · 시그널링 · TURN/TLS 모두), 앱에서 동시에 처리 중인 요청 IP당 200개(서버에서 그리는 화면 · 서버 액션 · `/be/`만, 정적 파일 제외, 넘으면 429) | `deploy/prod/nginx.conf` | 한 IP가 연결 · 느린 요청을 잔뜩 걸어 자리를 다 차지하는 것을 막는다. 브라우저 하나는 연결 5개 안팎이라 공용 IP에서 약 200명까지 막히지 않는다. 정적 파일은 화면 하나가 수십 개를 함께 받고 3D 모델은 받는 동안 내내 자리를 차지해, 세면 공용 IP에서 화면이 깨질 수 있어 뺐다 |
+| Nginx 연결 한도 · 메모리 | `worker_connections 4096` · `worker_rlimit_nofile 16384`(기본 1024), 컨테이너 `ulimits nofile 65536`, 메모리 상한 64m → 256m | `deploy/prod/nginx.conf` · `compose.yml` | 바깥 연결 하나가 Nginx 안에서 연결 4개를 쓴다(바깥 → 443 stream → 8443 HTTPS → FE · BE, TURN/TLS도 면접 내내). 기본값이면 바깥 연결 약 1000개가 서버 전체의 한계였다. HTTPS를 Nginx가 직접 풀어 연결마다 메모리를 더 쓰므로 상한도 올렸다(로컬 시험에서 부하 중 약 56MB) |
+| 요청 본문 | 앱 1MB(넘으면 413) | `deploy/prod/nginx.conf` | 파일은 브라우저가 S3로 바로 올려 큰 본문이 올 일이 없다. Nginx 기본값 · Next 서버 액션 기본 상한과 같은 값을 명시했다 |
+| 스캐너 경로 | `/.env` · `/.git` 등 점으로 시작하는 경로(`/.well-known` 제외), WordPress · phpMyAdmin · CGI 경로, `.php` · `.sql` · `.yml` 등 쓰지 않는 확장자 → 응답 없이 끊음(444), 접속 기록도 남기지 않음 | `deploy/prod/nginx.conf` | 자동 스캐너 요청이 매일 들어온다. 앱까지 보내지 않아 부하와 로그 잡음을 줄인다 |
+| 대량 트래픽 공격(DDoS) | 서버에서는 막지 못한다. Lightsail에 기본 적용되는 AWS Shield Standard(네트워크 계층)만 있다 | — | 회선을 채우는 공격은 서버에 닿기 전에 막아야 한다. 큰 공격이 오면 Cloudflare 프록시(주황 구름)를 다시 켜는 것이 가장 빠르다. 이때는 사용자 IP가 Cloudflare IP로 보여 요청 수 제한이 Cloudflare IP 단위로 걸리므로 실제 사용자 IP 설정이 같이 필요하다 |
+| MPTCP | Nginx · LiveKit 컨테이너에서 끔(`sysctls: net.mptcp.enabled: "0"`) | `deploy/prod/compose.yml` | 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연)의 수정 커널이 아직 정식 업데이트에 없다. LiveKit(Go)이 7881/tcp를 MPTCP로 열고 있었다. 설정이 컨테이너마다 따로라 서버 설정으로는 안 된다 |
+| DB 백업 파일 | 권한 600(`umask 077`) | `deploy/prod/backup.sh` | 회원 정보가 든 덤프가 664로 만들어지고 있었다 |
+| 커널 · libc | 자동 보안 업데이트로 설치된 것을 재부팅으로 적용 | 서버 | 재부팅해야 적용된다. CVE-2026-98432 수정 커널이 나오면 한 번 더 재부팅한다 |
+
+- 남은 것(낮음): 안 쓰는 서비스(`ModemManager` · `open-vm-tools`) 끄기, `net.ipv4.conf.*.send_redirects=0`, telnet · ftp 클라이언트 제거, Lightsail 자동 스냅샷 · 덤프 복구 시험, 장애 알림(3.3)
+- 그대로 두는 것: `ubuntu`의 NOPASSWD sudo와 `gitlab-runner`의 docker 그룹(배포에 필요, 키 인증만 허용), cAdvisor `privileged` · Alloy `docker.sock:ro`(바깥 노출 없음, 모니터링 표준 구성)
 
 ## 6. 저장소 · 권한
 
@@ -710,3 +732,5 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 8.1 | 운영 배포 확인에 바깥 주소 `rtc.hangguet.co.kr`(LiveKit `OK`) · `grafana.hangguet.co.kr/api/health`를 더하고, healthy 확인 뒤 20초 동안 모든 컨테이너의 재시작 수가 그대로인지 보는 확인을 더함(S15P31A301-391) | healthcheck가 없는 서비스 12개(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보는 확인을 통과했다. 바깥 주소는 앱만 봐서 LiveKit이 요청을 받지 못해도 배포가 성공할 수 있었다. 설정 해시로 설정이 바뀐 서비스가 다시 만들어지므로, 설정 오류는 이 확인에서 드러나야 한다 |
 | 인프라 | 3.2 · 6.2 | 에이전트 · Egress를 ASG 두 개로 따로 옮긴다는 결정과 계획 문서 링크를 3.2에 적음(표는 반영 뒤 고침). 6.2 버킷 IP 조건에서 녹화 키를 빼고 S3 게이트웨이 엔드포인트 + `aws:SourceVpc` 조건으로 바꾸는 안 **[제안]** | Egress를 ASG로 옮기면 업로드 공인 IP가 매번 바뀌어, 계획대로 IP 조건을 넣으면 녹화가 모두 막힌다. 왜 Egress를 따로 두는지는 [오토스케일링 계획](../agent_autoscale_plan/README.md) 1장 |
 | 인프라 | 2 · 3.2 · 3.3 · 4.1 · 4.2 · 5.1 · 5.2 · 13 | 운영 웹 입구를 Cloudflare Tunnel에서 서버 직접 접속으로 바꿈(S15P31A301-412). Cloudflare는 DNS만(회색 구름) 쓰고, Nginx가 80 · 443을 받아 443을 도메인 이름(SNI)으로 나눈다(웹 3개는 HTTPS, 그 밖은 LiveKit TURN/TLS로 그대로). 웹 인증서(`hangguet.co.kr` · `rtc.` · `grafana.`)를 certbot DNS-01로 발급하고 갱신 hook을 인증서별로 나눔. 4.2의 갱신 방식을 cron → `certbot.timer`로 고침. 전환 순서와 남은 정리(cloudflared 제거 · 처리방침)를 5.1 · 13장에 적음 | 한국 사용자 요청이 Cloudflare 미국 거점(라스베이거스)을 거쳐 느려졌다. 통신사가 무료 플랜 트래픽을 해외로 보내는 것이라 우리가 고칠 수 없다. TURN/TLS는 SSAFY 와이파이 때문에 443을 떠날 수 없어 SNI로 같이 쓴다. hook은 어느 인증서가 갱신되든 모두 실행되므로 나누지 않으면 웹 인증서 갱신 때 LiveKit이 재시작돼 면접이 끊긴다. 실제 서버는 systemd 타이머로 갱신하고 있었다 |
+| 인프라 | 5.2 | 「보안 설정」 추가(S15P31A301-413): 서버 점검 결과에 따라 SSH 잠금(root 로그인 · 접속 계정 · 인증 시도) · fail2ban(서버에서 적용), Nginx 요청 수 제한 · 보안 헤더 · `X-Powered-By` 숨김, Nginx · LiveKit 컨테이너 MPTCP 끄기, 백업 덤프 권한 600 | Cloudflare를 빼서 바깥 요청을 서버가 직접 받게 됐다. 로그인 경로에 요청 수 제한이 Nginx · BE 어디에도 없었고, 커널 TCP 취약점(CVE-2026-98432)의 수정 커널이 아직 없는데 LiveKit이 MPTCP 리스너를 바깥에 열고 있었다. 덤프는 회원 정보가 들어 있는데 664로 만들어지고 있었다 |
+| 인프라 | 5.2 | 「보안 설정」에 Nginx 부하 방어 추가(S15P31A301-413): 443 연결 IP당 1000개 · 동시 처리 요청 IP당 200개(정적 파일 제외), Nginx 연결 한도 4096 · 메모리 상한 256m, 화면 GET 요청 수 제한(초당 100회, 정적 파일 제외), 요청 본문 1MB 명시, 스캐너 경로 444. 대량 트래픽 공격은 서버에서 막지 못한다는 점과 비상시 Cloudflare 프록시를 다시 켤 때 주의점을 적음 | Cloudflare를 빼서 한 IP의 연결 · 요청 폭주를 서버가 직접 받게 됐다. 화면 GET은 FE · BE를 함께 써서 제한이 없으면 새로고침 폭주에 약하다. 자동 스캐너 요청이 매일 들어온다 |

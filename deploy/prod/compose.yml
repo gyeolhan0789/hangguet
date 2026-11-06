@@ -315,6 +315,9 @@ services:
     depends_on:
       a301-prod-livekit:
         condition: service_started
+    # MPTCP 끄기: 아래 a301-prod-livekit의 sysctls 설명과 같다
+    sysctls:
+      net.mptcp.enabled: "0"
     ports:
       - "443:443/tcp"     # 웹 HTTPS + TURN/TLS(SNI로 나눔)
       - "80:8080/tcp"     # http → https. 컨테이너 80(Tunnel 입구)은 서버에 연결하지 않는다
@@ -328,7 +331,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    mem_limit: 64m
+    # 연결 한도(nginx.conf의 worker_connections · worker_rlimit_nofile)를 컨테이너가 실제로 허용하도록 파일 수 한도를 명시한다
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # 64m → 256m: Cloudflare를 뺀 뒤 HTTPS를 Nginx가 직접 풀어 연결마다 수십 KB를 쓴다.
+    # 연결 한도만 올리면 사람이 몰릴 때 메모리 상한에 걸려 Nginx가 강제 종료될 수 있다(배포 계획 3.2)
+    mem_limit: 256m
     networks:
       - internal
     logging: *logging
@@ -359,6 +369,13 @@ services:
         condition: service_healthy
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}"
+    # MPTCP 끄기(배포 계획 5.2). 바깥에 열린 컨테이너(Nginx · LiveKit)만 둔다.
+    # 왜: 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연됨)의 수정 커널이 아직 정식 업데이트에 없다(11/06).
+    #     LiveKit(Go)은 MPTCP를 기본으로 써 7881/tcp가 MPTCP로 열려 있었다(Nginx도 MPTCP 소켓 1개).
+    #     꺼 두면 Go · Nginx는 일반 TCP로 열어 동작은 같다. MPTCP 설정은 컨테이너마다 따로라 서버(호스트) 설정으로는 안 된다.
+    # 수정 커널로 재부팅한 뒤에도 MPTCP가 필요 없으므로 남겨 둔다. MPTCP가 없는 커널(Docker Desktop 등)에서는 이 설정 때문에 컨테이너가 뜨지 않는다
+    sysctls:
+      net.mptcp.enabled: "0"
     ports:
       - "7881:7881/tcp"   # 미디어 예비 경로(UDP가 막힌 네트워크)
       - "7882:7882/udp"   # 미디어(단일 포트 모드)
