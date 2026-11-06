@@ -24,6 +24,13 @@ services:
     profiles: ["egress-on-main"]
 
   a301-prod-livekit:
+    # 유령 작업자 대책(계획 11장, 11/06 운영 경로 보고서 3장). 에이전트 인스턴스가 연결을 닫지 못하고 사라지면
+    # LiveKit 쪽 TCP가 재전송만 하며 남아, 기본값(15)이면 약 14분 동안 그 작업자에게 면접을 배정한다(배정 실패 시 다시 주지 않음).
+    # LiveKit 컨테이너 네트워크에만 재전송 상한을 낮춰 약 2분으로 줄인다(테스트 서버에서 확인).
+    # 사용자 쪽 TCP(7881 · Nginx를 거친 시그널링 · TURN/TLS)도 100초 넘게 응답이 없으면 끊긴다.
+    # 에이전트가 같은 서버에 있으면 연결이 바로 닫혀 필요 없으므로 전환할 때만 더한다. compose.yml의 MPTCP 끄기와 합쳐진다
+    sysctls:
+      net.ipv4.tcp_retries2: "8"
     ports:
       - "${MAIN_TAILSCALE_IP:?MAIN_TAILSCALE_IP(메인 서버 Tailscale IP)가 필요하다}:7880:7880"
 
