@@ -331,7 +331,14 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    mem_limit: 64m
+    # 연결 한도(nginx.conf의 worker_connections · worker_rlimit_nofile)를 컨테이너가 실제로 허용하도록 파일 수 한도를 명시한다
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # 64m → 256m: Cloudflare를 뺀 뒤 HTTPS를 Nginx가 직접 풀어 연결마다 수십 KB를 쓴다.
+    # 연결 한도만 올리면 사람이 몰릴 때 메모리 상한에 걸려 Nginx가 강제 종료될 수 있다(배포 계획 3.2)
+    mem_limit: 256m
     networks:
       - internal
     logging: *logging
