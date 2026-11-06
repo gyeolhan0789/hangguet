@@ -74,6 +74,8 @@ tasks.withType(Test).configureEach {
     systemProperty 'ai-job.republish-interval', '1h'
     // 테스트 중 결과 큐 처리기가 실제 Redis의 ai:results를 꺼내 가지 않게 끈다
     systemProperty 'ai-result.consumer-enabled', 'false'
+    // 테스트 중 면접관 확인이 다른 테스트의 진행 중 면접을 시작 실패로 바꾸지 않게 사실상 끈다
+    systemProperty 'interview.start-watch.interval', '1h'
 }
 
 // Format: google-java-format AOSP 스타일 (들여쓰기 4칸)

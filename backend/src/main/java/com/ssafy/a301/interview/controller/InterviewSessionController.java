@@ -208,7 +208,8 @@ public class InterviewSessionController {
             summary = "5.4 면접 시작",
             description =
                     "면접을 시작하고 면접방을 연다. 에이전트를 배정하고 화상이면 녹화를 시작한다. 질문은 에이전트가 면접방에서 낸다."
-                            + " 에이전트가 배정을 거절해 START_FAILED가 되면 같은 질문으로 다시 시작한다.")
+                            + " 에이전트가 배정을 거절하거나 면접관이 들어오지 않거나 첫 질문을 시작하지 못해 START_FAILED가 되면 같은"
+                            + " 질문으로 다시 시작한다.")
     @ApiResponse(
             responseCode = "200",
             description = "시작(status IN_PROGRESS, room = 입장 정보, currentQuestion = null)")

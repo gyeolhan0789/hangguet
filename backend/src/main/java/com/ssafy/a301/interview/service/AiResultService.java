@@ -30,6 +30,7 @@ import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -41,6 +42,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
@@ -65,6 +67,8 @@ public class AiResultService {
     private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
     // 배정 거절 이유(AI 명세 1.4). 이유로 처리를 나누지는 않지만 모르는 값은 실패 목록으로 보낸다
     private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
+    // 면접의 첫 질문 순서(AI 명세 2장)
+    private static final int FIRST_SEQ = 1;
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {
@@ -82,6 +86,7 @@ public class AiResultService {
     private final SessionRuntimeStore runtimes;
     private final AiJobService aiJobs;
     private final InterviewRoom rooms;
+    private final ApplicationEventPublisher events;
     private final TransactionTemplate transactions;
 
     public AiResultService(
@@ -95,6 +100,7 @@ public class AiResultService {
             SessionRuntimeStore runtimes,
             AiJobService aiJobs,
             InterviewRoom rooms,
+            ApplicationEventPublisher events,
             TransactionTemplate transactions) {
         this.sessions = sessions;
         this.questions = questions;
@@ -106,6 +112,7 @@ public class AiResultService {
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.rooms = rooms;
+        this.events = events;
         this.transactions = transactions;
     }
 
@@ -212,8 +219,10 @@ public class AiResultService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
+                    // 시작 시각보다 이른 질문은 시작 실패(AI 명세 6.5) 뒤 다시 시작하기 전 시도의 것이다(AI 명세 1.4)
                     if (session == null
-                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()) {
+                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()
+                            || startedAt.isBefore(session.getStartedAt())) {
                         return Outcome.DISCARDED;
                     }
                     questions.save(
@@ -225,6 +234,10 @@ public class AiResultService {
                                     message.promptVersion(),
                                     message.modelVersion(),
                                     startedAt));
+                    // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다. 그룹 면접은 다루지 않는다
+                    if (seq == FIRST_SEQ && session.isVideo() && session.getGroupId() == null) {
+                        events.publishEvent(new FirstQuestionStarted(sessionId));
+                    }
                     return Outcome.SAVED;
                 });
     }

@@ -259,6 +259,22 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Query("select s from InterviewSession s where s.id = :id")
     Optional<InterviewSession> findByIdForUpdate(@Param("id") long id);
 
+    /**
+     * 시작한 지 before보다 오래됐는데 아직 질문 행이 없는 개인 면접(AI 명세 6.5 면접관 미입장 · 첫 질문 기한 초과 확인 대상). 최근에 시작한 면접부터
+     * 준다.
+     */
+    @Query(
+            """
+            select s from InterviewSession s
+             where s.status = com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS
+               and s.groupId is null
+               and s.startedAt <= :before
+               and not exists (select q.id from InterviewQuestion q where q.session = s)
+             order by s.startedAt desc
+            """)
+    List<InterviewSession> findAwaitingFirstQuestion(
+            @Param("before") OffsetDateTime before, Limit limit);
+
     /** 그룹 면접 참가자들의 면접을 id 순서로 잠근다(잠금 순서: 그룹 → 면접, docs/그룹면접-설계.md 9장) */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from InterviewSession s where s.id in :ids order by s.id")

@@ -30,6 +30,7 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
+import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
@@ -43,12 +44,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 실제 PostgreSQL로 결과 메시지 종류별 저장과 버림 조건(상태·중복)을 확인한다. Redis 진행 상태는 메모리 저장소다. */
 @SpringBootTest
 @Transactional
 @Import(InMemorySessionRuntimeStore.Config.class)
+@RecordApplicationEvents
 class AiResultServiceTest {
     private static final OffsetDateTime STARTED_AT =
             OffsetDateTime.parse("2026-10-15T12:01:00+09:00");
@@ -62,6 +66,7 @@ class AiResultServiceTest {
     @Autowired private EntityManager em;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private InterviewRoom rooms;
+    @Autowired private ApplicationEvents events;
 
     @BeforeEach
     void setUp() {
@@ -151,6 +156,41 @@ class AiResultServiceTest {
         assertThat(question.getCreatedAt()).isEqualTo(STARTED_AT);
 
         assertThat(results.handle(questionStarted(session, 2))).isEqualTo(Outcome.DISCARDED);
+    }
+
+    // 기준: BE 파트 요청 2(첫 question.started 때 트랙 녹화가 모두 시작됐는지 확인)
+    @Test
+    void firstVideoQuestionSchedulesTrackRecordingCheckOnce() {
+        InterviewSession video = startedSession(InterviewMode.VIDEO);
+
+        assertThat(results.handle(questionStarted(video, 1))).isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(questionStarted(video, 2))).isEqualTo(Outcome.SAVED);
+        // 같은 첫 질문이 다시 오면 버리고 다시 확인하지 않는다
+        assertThat(results.handle(questionStarted(video, 1))).isEqualTo(Outcome.DISCARDED);
+
+        assertThat(events.stream(FirstQuestionStarted.class))
+                .containsExactly(new FirstQuestionStarted(video.getId()));
+    }
+
+    @Test
+    void chatQuestionDoesNotCheckTrackRecording() {
+        InterviewSession chat = startedSession(InterviewMode.CHAT);
+
+        assertThat(results.handle(questionStarted(chat, 1))).isEqualTo(Outcome.SAVED);
+
+        assertThat(events.stream(FirstQuestionStarted.class)).isEmpty();
+    }
+
+    // 기준: AI 명세 1.4 · 6.5(시작 실패 뒤 다시 시작하면 이전 시도의 질문이 늦게 올 수 있다)
+    @Test
+    void questionStartedFromAttemptBeforeRestartIsDiscarded() {
+        InterviewSession session = newSession(InterviewMode.VIDEO);
+        savePlan(session);
+        session.start(STARTED_AT.plusSeconds(1));
+        em.flush();
+
+        assertThat(results.handle(questionStarted(session, 1))).isEqualTo(Outcome.DISCARDED);
+        assertThat(questions.findBySessionIdAndSeq(session.getId(), 1)).isEmpty();
     }
 
     // 기준: AI 명세 1.4·2.2, BE 설계 5.4(질문 행은 플랜이 아니라 실제로 출제한 질문의 글·채점 기준·버전으로 만든다)
@@ -464,10 +504,11 @@ class AiResultServiceTest {
         return session;
     }
 
+    // 결과 메시지의 시각(STARTED_AT)보다 먼저 시작한다. 시작 시각보다 이른 질문은 버리기 때문이다
     private InterviewSession startedSession(InterviewMode mode) {
         InterviewSession session = newSession(mode);
         savePlan(session);
-        session.start(OffsetDateTime.now());
+        session.start(STARTED_AT.minusMinutes(1));
         em.flush();
         return session;
     }

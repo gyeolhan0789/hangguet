@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.room;
 
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
+import java.time.OffsetDateTime;
 import java.util.Map;
 
 /**
@@ -26,6 +27,22 @@ public interface InterviewRoom {
 
     /** 방을 지운다. 에이전트가 나가고 녹화도 끝난다. 실패해도 던지지 않고 로그만 남긴다 */
     void close(long sessionId);
+
+    /**
+     * 개인 면접방에 지금 면접관 · 지원자가 있는지(AI 명세 6.5). 방이 없으면 아무도 없다. 조회하지 못하면 던진다.
+     *
+     * @return 면접관이 있는지와 지원자가 입장한 시각(없으면 null)
+     */
+    Presence presence(long sessionId);
+
+    /**
+     * 개인 화상 면접방의 트랙(지원자 영상 · 음성, 면접관 음성)이 모두 녹화 중인지 보고, 녹화가 시작되지 않은 트랙만 녹화를 다시 요청한다. 다시 요청도 실패하면 녹화
+     * 없이 면접을 진행한다. 실패해도 던지지 않고 로그만 남긴다
+     */
+    void ensureTrackRecording(long sessionId);
+
+    /** 면접방 참가자 현황 */
+    record Presence(boolean interviewer, OffsetDateTime candidateJoinedAt) {}
 
     /** 그룹 면접방 입장 정보. 권한은 issueAccess와 같고 참가자 이름만 면접마다 다르다 */
     RoomResponse issueGroupAccess(long groupId, long sessionId, boolean video);
