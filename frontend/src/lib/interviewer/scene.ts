@@ -55,11 +55,19 @@ export type InterviewerModel = {
       /** 자세 전환 구간(animation.json) */
       animation: string;
       clips?: never;
+      staticPose?: never;
     }
   | {
       /** 이름으로 골라 재생하는 동작 클립 */
       clips: ClipMotions;
       animation?: never;
+      staticPose?: never;
+    }
+  | {
+      /** 앱이 쓰는 자세를 기본 형상 · 뼈대에 고정해 불필요한 전환 데이터를 제거한 모델 */
+      staticPose: true;
+      animation?: never;
+      clips?: never;
     }
 );
 
@@ -268,6 +276,7 @@ export async function createInterviewerScene({
   let clips: ClipPlayer | null = null;
   let storm: Storm | null = null;
   let backdrop: Backdrop | null = null;
+  let resetStaticHead: (() => void) | null = null;
   /** 이 장면이 꺼내 쓴 모델. 정리할 때 GPU 자원만 놓고 캐시에 되돌려 둔다 */
   let assets: InterviewerAssets | null = null;
   const release = () => {
@@ -275,6 +284,7 @@ export async function createInterviewerScene({
     storm?.dispose();
     backdrop?.dispose();
     clips?.dispose();
+    resetStaticHead?.();
     mixer?.stopAllAction();
     scene.traverse((object: Object3D) => {
       const mesh = object as Mesh;
@@ -308,7 +318,7 @@ export async function createInterviewerScene({
     if (model.clips) {
       // 동작 클립 면접관: 기본 자세 클립을 걸어 두고, 말하기 · 끄덕임 때만 움직인다.
       clips = createClipPlayer(mixer, gltf.animations, model.clips);
-    } else {
+    } else if (!model.staticPose) {
       // 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점에 멈춰 둔다.
       if (!pose) throw new Error("모델에 자세 구간이 없다");
       const tracks = gltf.animations.flatMap((clip) => clip.tracks);
@@ -327,6 +337,8 @@ export async function createInterviewerScene({
     const startMixer = mixer;
     moveWithLift(() => startMixer.update(0));
     const moveHead = createHeadControl(gltf.scene, headBone);
+    // 고정 자세에는 뼈대를 되돌리는 애니메이션 트랙이 없다. 캐시에 마지막 리액션 각도를 남기지 않는다.
+    if (model.staticPose) resetStaticHead = () => moveHead(0, 0);
 
     // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
     if (shadow) {

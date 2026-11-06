@@ -49,7 +49,9 @@ const LOOKS = {
     model: {
       glb: "/interview/devil/interviewer.glb",
       faceRules: "/interview/devil/face-rules.json",
-      animation: "/interview/devil/animation.json",
+      // 사용자 요청(2026-11-06): 읽는 자세를 GLB에 고정하고 사용하지 않는 자세 전환을 제거.
+      // 표정 · 입 모양과 headBone의 작은 끄덕임 · 갸웃은 계속 별도로 제어한다.
+      staticPose: true,
     },
     frame: { position: [0, 0.91, 1.74], target: [0, 0.65, 0.1], fov: 34 },
     still: "/interview/devil/still.webp",

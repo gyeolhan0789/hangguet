@@ -9,12 +9,12 @@ import { interviewerBackdrop, interviewerLook } from "./models";
 // · 사용자 결정(2026-10-26: 커피챗 3D 모델 연결, 카페 실내 그림 1장 배경 · 커피챗만 따로 조명)
 
 describe("면접관별 3D 모델 · 배경", () => {
-  it("악마 면접관은 3D 모델 · 표정 규칙 · 자세 구간 · 정지 이미지와 번개 폭풍 배경을 쓴다", () => {
+  it("악마 면접관은 읽는 자세를 고정한 3D 모델 · 표정 규칙 · 정지 이미지와 번개 폭풍 배경을 쓴다", () => {
     expect(interviewerLook("DEVIL")).toMatchObject({
       model: {
         glb: "/interview/devil/interviewer.glb",
         faceRules: "/interview/devil/face-rules.json",
-        animation: "/interview/devil/animation.json",
+        staticPose: true,
       },
       still: "/interview/devil/still.webp",
       storm: "/interview/devil/storm.mp4",
@@ -28,7 +28,13 @@ describe("면접관별 3D 모델 · 배경", () => {
 
   it("악마 면접관의 모델 · 정지 그림 · 배경 파일이 public에 있다", () => {
     const look = interviewerLook("DEVIL")!;
-    for (const file of [...Object.values(look.model), look.still, look.storm, look.interior]) {
+    for (const file of [
+      look.model.glb,
+      look.model.faceRules,
+      look.still,
+      look.storm,
+      look.interior,
+    ]) {
       expect(existsSync(join(process.cwd(), "public", file!)), file).toBe(true);
     }
   });

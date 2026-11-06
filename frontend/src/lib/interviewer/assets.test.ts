@@ -21,6 +21,9 @@ function gltfJson(glb: string) {
   return JSON.parse(bytes.subarray(20, 20 + length).toString("utf-8")) as {
     nodes: { name?: string }[];
     animations?: { name?: string }[];
+    meshes?: { extras?: { targetNames?: string[] } }[];
+    images?: { mimeType?: string }[];
+    extensionsRequired?: string[];
   };
 }
 
@@ -36,7 +39,22 @@ interface PoseSegments {
 
 describe.each(PERSONAS)("%s 면접관 자산", (persona) => {
   const { model, headBone } = interviewerLook(persona)!;
-  const { animation, clips } = model;
+  const { animation, clips, staticPose } = model;
+
+  it.runIf(staticPose)("고정 자세 모델은 전환 동작 · 옷 자세 모프 없이 WebP 텍스처를 쓴다", () => {
+    const json = gltfJson(model.glb);
+    expect(json.animations ?? []).toHaveLength(0);
+    expect(
+      json.meshes
+        ?.flatMap((mesh) => mesh.extras?.targetNames ?? [])
+        .some((name) => name.startsWith("BodyPose_")),
+    ).toBe(false);
+    expect(json.images?.length).toBeGreaterThan(0);
+    expect(json.images?.every((image) => image.mimeType === "image/webp")).toBe(true);
+    expect(json.extensionsRequired).toEqual(
+      expect.arrayContaining(["EXT_texture_webp", "EXT_meshopt_compression"]),
+    );
+  });
 
   it.runIf(headBone)("리액션이 조절하는 머리 뼈대가 실제 모델에 존재한다", () => {
     expect(gltfJson(model.glb).nodes.some((node) => node.name === headBone)).toBe(true);

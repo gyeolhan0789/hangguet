@@ -340,7 +340,7 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
         model: {
           glb: "/interview/devil/interviewer.glb",
           faceRules: "/interview/devil/face-rules.json",
-          animation: "/interview/devil/animation.json",
+          staticPose: true,
         },
       }),
     );
