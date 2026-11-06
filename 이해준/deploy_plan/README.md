@@ -59,7 +59,7 @@ FE가 BE, AI 서버 등 여러 서버를 직접 보게 되면 악성 사용자 �
 
 WebRTC는 구조상 시그널링 과정에서 미디어 서버 주소가 노출되므로, 미디어 서버의 보안도 고려해 구현한다.
 
-- 브라우저가 BE 말고 직접 붙는 곳은 **LiveKit 하나뿐**이다. 시그널은 Tunnel(`rtc.hangguet.co.kr`)로, 미디어는 UDP 7882 · TCP 7881로만 받는다(5장)
+- 브라우저가 BE 말고 직접 붙는 곳은 **LiveKit 하나뿐**이다. 시그널은 Nginx(`rtc.hangguet.co.kr`)로, 미디어는 UDP 7882 · TCP 7881로만 받는다(5장)
 - 면접방에는 **BE가 발급한 입장 토큰**으로만 들어간다. 토큰은 면접방 하나 · 해당 회원에게만 권한을 주고 유효 시간을 짧게 둔다 **[제안]**
 - AI 서버 · DB · Redis는 외부에 열지 않는다. 외부 API 키(Soniox · ElevenLabs · Jev · GMS)는 서버에만 있다
 
@@ -91,15 +91,16 @@ AI 서버가 필요한 기능을 계약된 API 형태로 제공하면, AI 서버
 
 ```
 브라우저
-  ├─ https://hangguet.co.kr ─────▶ Cloudflare ─▶ Tunnel ─┐
-  ├─ wss://rtc.hangguet.co.kr ───▶ Cloudflare ─▶ Tunnel ─┤ (시그널링)
+  ├─ https://hangguet.co.kr ──────── TCP 443 ─────────────┐ (Cloudflare는 DNS만, 프록시 끔)
+  ├─ wss://rtc.hangguet.co.kr ────── TCP 443 ─────────────┤ (시그널링)
   ├─ UDP 7882 / TCP 7881 ─────────────────────────────────┼─▶ (미디어, Lightsail 공인 IP로 직접)
   └─ turn.hangguet.co.kr UDP 3478 / TLS 443 ──────────────┼─▶ (TURN: 위 두 포트가 막힌 네트워크용)
                                                           ▼
 ┌─ Lightsail (SSAFY 지급) ────────────────────────────────────────────────────┐
-│  cloudflared ─┬─▶ Nginx ─▶ FE ─▶ BE ─▶ PostgreSQL · Redis                    │
-│               ├─▶ LiveKit(7880)                                              │
-│               └─▶ Grafana (grafana.hangguet.co.kr, Grafana 로그인)           │
+│  Nginx 443(SNI로 나눔) ─┬─▶ 앱 ─▶ FE ─▶ BE ─▶ PostgreSQL · Redis             │
+│                         ├─▶ LiveKit(7880, rtc.)                              │
+│                         ├─▶ Grafana (grafana.hangguet.co.kr, Grafana 로그인) │
+│                         └─▶ LiveKit TURN/TLS(turn., TLS를 풀지 않고 넘김)     │
 │                                                                              │
 │  LiveKit ◀── UDP 7882 · TCP 7881 ── 브라우저(카메라 · 마이크 / 면접관 음성)   │
 │     ▲                                                                        │
@@ -119,9 +120,9 @@ AI 서버가 필요한 기능을 계약된 API 형태로 제공하면, AI 서버
 
 요청이 흐르는 길:
 
-1. **화면 · CRUD**: 브라우저 → Cloudflare → Tunnel → Nginx → FE → BE → PostgreSQL · Redis. FE는 API를 서버에서만 부르고(`API_BASE_URL`), BE를 내부 네트워크로 바로 부른다
+1. **화면 · CRUD**: 브라우저 → Nginx(443) → FE → BE → PostgreSQL · Redis. FE는 API를 서버에서만 부르고(`API_BASE_URL`), BE를 내부 네트워크로 바로 부른다
 2. **면접방 입장**: 브라우저 → Nginx → FE → BE. BE가 면접 상태를 확인하고 **LiveKit 입장 토큰**을 발급한다(방 = 면접, 참가자 = 회원). AI 에이전트를 그 방에 배정한다. 화상 · 채팅 모두 입장한다. 채팅은 마이크 · 카메라를 켜지 않고 면접관 음성(TTS)만 받는다 **[결정]**
-3. **시그널링**: 브라우저 → Cloudflare → Tunnel → LiveKit 7880 (`wss://rtc.hangguet.co.kr`)
+3. **시그널링**: 브라우저 → Nginx(443) → LiveKit 7880 (`wss://rtc.hangguet.co.kr`)
 4. **미디어**: 브라우저 ⇄ Lightsail 공인 IP UDP 7882(막히면 TCP 7881, 그것도 막히면 TURN: UDP 3478 → TLS 443) ⇄ LiveKit
 5. **면접 진행**: LiveKit → AI 에이전트(사용자 음성 구독) → STT → Jev → LiveKit → 브라우저. 질문은 면접 전에 만든 플랜의 5개를 TTS로 읽어 면접관 음성으로 발행한다(면접 중 LLM 호출 없음). 리액션은 LiveKit 데이터 메시지로 브라우저에 보내고, 브라우저가 아바타를 움직인다. 질문을 말하기 시작한 시각과 인식한 답변은 에이전트가 Redis 결과 큐로 보내고 BE가 저장한다. 채팅은 STT 없이 화면이 답변 글을 BE에 보낸다
 6. **채점 · 결과**: BE가 필요한 데이터를 담아 Redis 작업 큐에 넣고, AI 분석 작업자가 GMS로 처리해 진행 상태와 결과를 Redis 결과 큐에 넣는다. BE가 꺼내 DB와 Redis 진행 상태에 쓴다. 화면은 2초마다 BE에 상태를 묻는다(지금 명세와 같음)
@@ -134,7 +135,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 왜 이렇게 나눴나:
 
-- **웹 · 시그널링은 Tunnel, 미디어는 직접**: Tunnel은 서버에 들어오는 포트를 열지 않아도 되고 인증서도 Cloudflare가 관리한다. 하지만 Cloudflare는 UDP 미디어를 중계하지 못하므로 미디어만 서버 IP로 직접 받는다
+- **모두 서버로 직접, Cloudflare는 DNS만**: 처음에는 웹 · 시그널링을 Cloudflare Tunnel로 받았지만, 한국 사용자 요청이 미국 거점(라스베이거스)을 거쳐 느려져 직접 받도록 바꿨다(11/06, 5.1). 443 하나를 웹과 TURN/TLS가 같이 쓰므로 Nginx가 도메인 이름(SNI)으로 나눈다
 - **질문은 미리 만든 5개**: 면접 중에는 STT · Jev · TTS만 돌아 응답이 빠르고, LLM 장애가 면접 진행을 막지 않는다
 - **녹화는 끝난 뒤 합친다**: 면접 중에는 원본만 저장하고 무거운 작업(합치기)은 면접이 끝난 뒤 큐로 돌려, 면접 중 서버 부담을 줄인다
 
@@ -159,13 +160,13 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 | 컨테이너 | 역할 | 외부 노출 | 메모리 상한 **[제안]** |
 |---|---|---|---|
-| `a301-prod-cloudflared` | Cloudflare Tunnel(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`) | 밖으로 나가는 연결만 | 64m |
-| `a301-prod-nginx` | `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | 없음 | 64m |
+| `a301-prod-cloudflared` | Cloudflare Tunnel(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`). DNS를 서버 IP로 바꾸는 동안만 둔다(5.1) | 밖으로 나가는 연결만 | 64m |
+| `a301-prod-nginx` | 바깥 웹 입구. 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | TCP 443, TCP 80 | 64m |
 | `a301-prod-admin` | 관리 페이지 정적 파일 | 없음 | 64m |
 | `a301-prod-ai` | AI 상태 확인(`/health`)만 하는 HTTP. 개발 서버와 같다 | 없음 | 256m |
 | `a301-prod-fe` | Next standalone. `livekit-client`로 면접방 접속. `API_BASE_URL=http://a301-prod-be:8080/api/v1` | 없음 | 512m |
 | `a301-prod-be` | CRUD + LiveKit 입장 토큰 발급 + 녹화 시작 · 종료 요청 + 큐 작업 등록 + AI 결과 큐 처리(저장). DB를 다루는 유일한 서비스. `-Xmx512m` · `-XX:+ExitOnOutOfMemoryError`. 상한은 힙을 다 쓴 최악값(약 1.06GB, 로컬 실측)에 여유를 둔 값이다 | 없음 | 1280m |
-| `a301-prod-livekit` | 미디어 서버 + TURN(4장) | UDP 7882, TCP 7881, UDP 3478, TCP 443 | 512m |
+| `a301-prod-livekit` | 미디어 서버 + TURN(4장) | UDP 7882, TCP 7881, UDP 3478. TURN/TLS(TCP 443)는 Nginx를 거친다 | 512m |
 | `a301-prod-egress` | 서버 녹화(4.3). 트랙 녹화라 인코딩을 하지 않는다 | 없음 | 1g **[제안]** 실측 |
 | `a301-prod-ai-agent` | 면접방 참가자. STT → Jev, 질문 TTS, 리액션 데이터 메시지, 질문 시작 · 답변을 Redis 결과 큐로 전달. 질문 5개 · 채점 기준은 배정 메타데이터로 받는다. 면접 1건마다 처리 프로세스가 하나 생겨 면접이 끝날 때(5.8에서 BE가 방을 지울 때)까지 떠 있다 | 없음 | 4g **[제안]**: 면접 1건 약 150~200MB(추정)로 동시 약 20건. 서버에서 다른 상한을 빼고 남는 만큼이다. 실측 후 조정 |
 | `a301-prod-ai-analysis` | 기본 작업 큐(`ai:jobs`)의 답변 채점 · 결과 생성(SCORE_ANSWER · EVALUATE). 입력은 작업 메시지로 받고, 진행 상태 · 결과는 Redis 결과 큐로 전달. 에이전트와 같은 이미지를 `python -m app.worker`로 띄운다(개발 `a301-dev-ai-analysis`도 같은 모양, 10/26 추가). 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN · 녹화 합치기도 처리하도록 GMS · S3 값을 모두 받는다. HTTP가 없어 헬스체크는 컨테이너 안에서 Redis 연결로 한다. **같은 큐의 작업자를 늘리지 않는다**: 처리 중 리스트를 작업자끼리 공유해, 늘리면 재시작 때 다른 작업자의 작업까지 되돌려 중복 처리된다 | 없음 | 256m **[제안]** 실측 |
@@ -173,7 +174,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | `a301-prod-ai-recording` | 녹화 합치기 큐(`ai:jobs:recording`) 전용 작업자(`AI_WORKER_QUEUE=recording`). ffmpeg가 실시간 면접과 CPU를 나눠 쓰도록 `cpus: 1`로 제한한다. 로컬 PC에서 15분 녹화 합치기에 CPU 약 9초, 메모리 약 90MB를 썼다 | 없음 | 256m · 1코어 **[제안]** 운영 실측 |
 | `a301-prod-postgres` | 메인 DB(PostgreSQL 18) | 없음 | 1g |
 | `a301-prod-redis` | 세션 · 리프레시 토큰 · 작업 큐 · 결과 큐. `noeviction`(차면 쓰기가 거절되어 로그인까지 실패하므로 넉넉히) | 없음 | 256m |
-| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Tunnel) | 합계 약 1.9g(cAdvisor 384m · Grafana 768m) |
+| `a301-prod-prometheus` · `grafana` · `cadvisor` · `node-exporter` · `blackbox` · `redis-exporter` · `postgres-exporter` | 모니터링(3.3). 앱 지표 · 상태 확인은 개발 서버와 같은 job 이름을 쓴다 | 없음(Grafana만 Nginx로) | 합계 약 1.9g(cAdvisor 384m · Grafana 768m) |
 | `a301-prod-loki` · `alloy` | 로그 수집(3.3). `a301-prod-*` 로그를 7일 보관 | 없음 | 512m · 128m |
 
 모든 컨테이너 상한의 합계는 약 12.2GB(에이전트 4g 포함)다. 나머지 약 2.8GB를 OS · Docker · 러너가 쓴다. 이 서버 한 대로 늘릴 수 있는 동시 면접 수는 메모리로 약 20~30건이 끝이고, CPU(하루 평균 40%) · 녹화(Egress) · AI 작업자(작업을 하나씩 처리)가 그보다 먼저 막을 수 있다. 그 이상은 에이전트 · Egress · 작업자를 다른 서버로 나눠야 한다(1.1). 이미지 빌드는 이 서버에서 하지 않는다(8장).
@@ -182,7 +183,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 - 왜 미리 적나: 위 표의 에이전트 4g · Egress 1g와 "동시 약 20~30건"은 두 컨테이너가 이 서버에 있다는 전제다. 지금 이 값을 바꾸려는 사람이 곧 옮겨 간다는 것을 알고 판단하게 한다
 
-- 왜 외부 노출을 LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Tunnel로만 들어온다
+- 왜 외부 노출을 Nginx · LiveKit만 하나: 바깥에서 직접 닿는 곳이 적을수록 공격받을 지점이 줄어든다(1.1). 웹은 Nginx로만 들어온다
 - 왜 AI 메모리는 [미정]인가: 에이전트는 면접마다 프로세스가 늘고, 분석 작업자는 라이브러리가 정해지지 않았다. 추측으로 잡으면 강제 종료가 나거나 메모리를 낭비하므로 실측해서 정한다
 
 ### 3.3 모니터링 **[결정]**(구성은 **[제안]**)
@@ -194,7 +195,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 | cAdvisor | 컨테이너별 CPU · 메모리(어느 서비스가 무거운지) |
 | LiveKit · Egress 내장 지표 | 면접방 · 참가자 수, 패킷 손실, 녹화 상태. `livekit.yaml`의 `prometheus_port`로 내보낸다 |
 | redis_exporter · postgres_exporter | Redis 메모리(상한 대비) · 연결 · 오류, PostgreSQL 연결 · 트랜잭션 · 크기 · 잠금(10/27 추가) |
-| Grafana | 대시보드. `grafana.hangguet.co.kr`을 Tunnel로 열고 **Grafana 자체 로그인**(아이디 · 비밀번호)으로 막는다 **[결정]** |
+| Grafana | 대시보드. `grafana.hangguet.co.kr`을 Nginx로 열고 **Grafana 자체 로그인**(아이디 · 비밀번호)으로 막는다 **[결정]** |
 
 - 의도: 서버 한 대에 모든 서비스가 있으므로, 느려졌을 때 "어느 컨테이너 때문인지"를 바로 알아야 한다. 그래야 그 서비스만 떼어 낼지(MSA) 판단할 수 있다(1.1)
 - 왜 Grafana 자체 로그인: 팀원이 Cloudflare 계정이나 이메일 인증 없이 아이디 · 비밀번호로 바로 들어갈 수 있다. 대신 로그인 화면이 인터넷에 열리므로 아래를 지킨다 **[제안]**
@@ -257,7 +258,7 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 ```yaml
 # deploy/prod/livekit.yaml
-port: 7880               # 시그널링(WebSocket). Tunnel로만 받는다
+port: 7880               # 시그널링(WebSocket). Nginx(rtc.)로만 받는다
 rtc:
   tcp_port: 7881         # UDP가 막힌 네트워크용 예비 경로
   udp_port: 7882         # 단일 포트 모드: 모든 미디어를 포트 하나로 받는다
@@ -277,7 +278,7 @@ room:
 # API 키는 파일에 쓰지 않고 환경 변수 LIVEKIT_KEYS="키: 시크릿"으로 넣는다
 ```
 
-- Docker는 브리지 네트워크 + `7881:7881/tcp`, `7882:7882/udp`, `3478:3478/udp`, `443:443/tcp` 포트 연결로 띄운다. 포트 범위 모드(UDP 50000–60000)로 바꾸면 `network_mode: host`가 필요하다
+- Docker는 브리지 네트워크 + `7881:7881/tcp`, `7882:7882/udp`, `3478:3478/udp` 포트 연결로 띄운다. 컨테이너 443(TURN/TLS)은 서버 443을 받는 Nginx가 넘겨 준다(4.2). 포트 범위 모드(UDP 50000–60000)로 바꾸면 `network_mode: host`가 필요하다
 - AI 에이전트는 내부 주소 `ws://a301-prod-livekit:7880`으로 LiveKit에 등록한다
 - `use_external_ip`가 공인 IP를 못 찾으면 `rtc.node_ip`에 Lightsail 공인 IP를 직접 적는다
 - 왜 단일 UDP 포트 모드: 포트 범위(1만 개)를 열 필요 없이 포트 하나로 된다. 그래서 Docker 브리지 네트워크 그대로 다른 컨테이너와 같은 방식으로 띄울 수 있다. 1:1 면접 규모에서는 성능 차이가 없다
@@ -288,9 +289,12 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 
 - LiveKit에 내장된 TURN을 쓴다. UDP 3478(TURN/UDP)과 TCP 443(TURN/TLS)을 연다. 왜: 별도 TURN 서버(coturn 등)를 따로 운영하지 않아도 된다
 - TURN/TLS는 Tunnel이나 Cloudflare 프록시로 보낼 수 없다(HTTP가 아니다). 그래서 `turn.hangguet.co.kr`은 Cloudflare DNS에서 **프록시 끔(회색 구름)** 으로 Lightsail IP를 바로 가리킨다
-- 인증서는 Let's Encrypt로 받는다. 서버에서 `certbot` + Cloudflare DNS 플러그인(DNS-01)을 쓰면 80번 포트를 열 필요가 없다. 갱신은 cron으로 하고, 갱신 뒤 LiveKit을 다시 띄운다(`--deploy-hook`)
+- 인증서는 Let's Encrypt로 받는다. 서버에서 `certbot` + Cloudflare DNS 플러그인(DNS-01)을 쓰면 80번 포트를 열 필요가 없다. 갱신은 certbot이 설치한 systemd 타이머(`certbot.timer`, 하루 두 번)가 하고, 갱신 뒤 LiveKit을 다시 띄운다(`renewal-hooks/deploy/restart-livekit.sh`)
+  - 웹 인증서(`hangguet.co.kr` · `rtc.` · `grafana.`)도 같은 방법으로 받았다(11/06). 갱신 뒤에는 `reload-nginx.sh`가 Nginx를 reload한다
+  - 두 hook은 `$RENEWED_LINEAGE`로 자기 인증서일 때만 동작한다. 왜: `renewal-hooks/deploy`의 hook은 어느 인증서가 갱신되든 모두 실행되어, 그대로 두면 웹 인증서 갱신 때도 LiveKit이 재시작돼 진행 중인 면접이 끊긴다
 - Cloudflare API 토큰은 `hangguet.co.kr` 영역의 DNS 편집 권한만 준다. 왜: 토큰이 새도 다른 설정은 못 바꾸게 한다
-- 서버의 443은 다른 용도로 쓰지 않는다(웹은 Tunnel로 받으므로 비어 있다). 왜 443인가: 엄격한 방화벽도 HTTPS 포트(443)는 거의 열어 두기 때문이다
+- 서버의 443은 웹과 같이 쓴다. Nginx가 TLS 첫 메시지의 도메인 이름(SNI)을 보고 `turn.hangguet.co.kr`(과 이름 없는 접속)은 TLS를 풀지 않고 LiveKit 443으로 넘긴다(5.1). 왜 443인가: 엄격한 방화벽도 HTTPS 포트(443)는 거의 열어 두기 때문이다. SSAFY 와이파이도 바깥 TCP를 80 · 443 · 8080만 허용해 다른 포트로 옮길 수 없다
+  - LiveKit TURN은 앞단 Nginx의 IP를 사용자 IP로 본다. TURN 중계에는 문제가 없다(LiveKit이 안내하는 서버 한 대 구성(Caddy layer4)도 같은 방식)
 - **확인 결과**: 인증서는 `/etc/letsencrypt/live/turn.hangguet.co.kr/`에 발급했고 자동 갱신 시험을 통과했다. 갱신 뒤 LiveKit을 재시작하는 스크립트를 `/etc/letsencrypt/renewal-hooks/deploy/restart-livekit.sh`에 두었다. LiveKit 컨테이너에는 `/etc/letsencrypt`를 통째로 읽기 전용으로 넣는다(`live/`의 파일이 `archive/`를 가리키는 링크라 파일 하나만 넣으면 링크가 끊긴다)
 - **확인 결과**: 시험용 LiveKit으로 Connection Test를 한 결과 **SSAFY 와이파이(TURN)와 핫스팟 모두 접속 · 음성 · 영상 송수신 성공**. LiveKit TURN의 중계 포트 범위(30000~40000)는 **바깥에 열지 않아도** 동작했다
 
@@ -319,26 +323,34 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 
 | 주소 | 연결 |
 |---|---|
-| `hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-nginx:80` |
-| `rtc.hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-livekit:7880`(WebSocket) |
-| `grafana.hangguet.co.kr` | Cloudflare Tunnel → `http://a301-prod-grafana:3000` (Grafana 자체 로그인, 3.3) |
-| `turn.hangguet.co.kr` | **프록시 끔(회색 구름)** A 레코드 → Lightsail 공인 IP(TURN/TLS는 Cloudflare를 거칠 수 없다) |
+모두 **프록시 끔(회색 구름)** A 레코드 → Lightsail 공인 IP `13.209.81.168`이다. 서버 443은 `a301-prod-nginx`가 받아 도메인 이름(SNI)으로 나눈다.
 
-- 가비아에서 구매, 네임서버는 Cloudflare로 위임 완료
-- 개발 서버 터널과 별도로 `a301-prod` 터널을 만든다. 인증서는 Cloudflare가 관리하고 "Always Use HTTPS"를 켠다
-- 미디어(UDP · TCP 미디어 포트)는 Cloudflare를 거치지 않고 Lightsail 공인 IP로 바로 들어온다
+| 주소 | Nginx가 넘기는 곳 |
+|---|---|
+| `hangguet.co.kr` | 앱(Nginx 안에서 FE · BE · 관리 페이지로) |
+| `rtc.hangguet.co.kr` | `http://a301-prod-livekit:7880`(WebSocket) |
+| `grafana.hangguet.co.kr` | `http://a301-prod-grafana:3000` (Grafana 자체 로그인, 3.3) |
+| `turn.hangguet.co.kr` | `a301-prod-livekit:443`(TLS를 풀지 않고 그대로, TURN/TLS는 HTTP가 아니다) |
 
-**왜 Tunnel인가 (Cloudflare Proxy와 비교)**
+- 가비아에서 구매, 네임서버는 Cloudflare로 위임 완료. Cloudflare는 **DNS만** 쓴다
+- 인증서는 Let's Encrypt(4.2). http(80)는 Nginx가 https로 보낸다(예전 Cloudflare "Always Use HTTPS")
+- 미디어(UDP · TCP 미디어 포트)는 Lightsail 공인 IP로 바로 들어온다
 
-| | Tunnel(선택) | Cloudflare Proxy(주황 구름) |
+**왜 Cloudflare Tunnel에서 직접 접속으로 바꿨나 [결정](11/06)**
+
+처음에는 웹 3개를 Cloudflare Tunnel(`a301-prod`)로 받았다. 서버에 웹 포트를 열지 않아도 되고 인증서도 Cloudflare가 관리해서다. 그런데 한국 사용자의 요청이 Cloudflare의 미국 거점(라스베이거스)으로 들어가 돌아오는 일이 잦았다. 한국 통신사가 Cloudflare 무료 플랜 트래픽을 해외 거점으로 보내는 경우가 많은데, 이것은 우리가 고를 수 없고 유료 플랜(Pro)도 서울 거점을 보장하지 않는다. 그래서 프록시 · Tunnel을 빼고 서버로 바로 받는다.
+
+| | Tunnel(예전) | 직접(지금) |
 |---|---|---|
-| 웹용으로 여는 포트 | 없음 | 443 |
-| 원본 서버 인증서 | 필요 없음 | Origin CA 인증서 설치 |
-| Cloudflare를 건너뛴 직접 접속 | 원래 막힘(들어오는 포트가 없음) | 따로 막아야 함(Docker `ports:`는 ufw를 우회해 ufw만으로는 안 됨) |
-| 개발 서버와 같은 방식 | 같음 | 다름 |
-| 무료 플랜 제한(요청 100MB · 응답 대기 100초), TURN/TLS 불가 | 같음 | 같음 |
+| 한국 사용자 경로 | 통신사에 따라 해외 거점을 거침 | 서울 서버로 바로 |
+| 웹용으로 여는 포트 | 없음 | 80 · 443(Nginx) |
+| 인증서 | Cloudflare | Let's Encrypt(certbot DNS-01, 4.2) |
+| DDoS 방어 · 캐시 | Cloudflare | 없음 |
+| 서버 IP 노출 | `turn.` 레코드로 이미 드러나 있었음 | 같음 |
 
-Tunnel이 할 일이 가장 적고 기본값이 안전하다. 무료 플랜 제한은 파일을 S3로 직접 올리고 긴 작업을 큐 · 폴링으로 처리하는 구조라 걸리지 않는다.
+- 443은 TURN/TLS와 같이 쓴다. TURN을 다른 포트로 옮기면 SSAFY 와이파이(바깥 TCP 80 · 443 · 8080만 허용)에서 면접방에 못 들어온다(4.2)
+- 개발 서버(미니PC)와 목 서버는 이중 NAT 뒤라 들어오는 포트를 열 수 없어 Tunnel을 그대로 쓴다(4.0)
+- 전환 순서: 웹 인증서 발급 → Nginx 443 배포(Tunnel 입구인 컨테이너 80은 남김) → 서버로 직접 시험 → Cloudflare DNS를 회색 A 레코드로 교체 · Tunnel 호스트 이름 삭제 → 하루 지켜본 뒤 cloudflared · 컨테이너 80 입구 제거. 마지막 단계 전까지는 Tunnel 호스트 이름을 다시 추가하면 되돌릴 수 있다
 
 ### 5.2 열 포트 **[결정]**
 
@@ -347,7 +359,8 @@ Tunnel이 할 일이 가장 적고 기본값이 안전하다. 무료 플랜 제�
 | UDP 7882 | 미디어 |
 | TCP 7881 | 미디어 예비 경로 |
 | UDP 3478 | TURN/UDP |
-| TCP 443 | TURN/TLS |
+| TCP 443 | 웹 HTTPS + TURN/TLS(Nginx가 SNI로 나눔, 5.1) |
+| TCP 80 | http → https 리다이렉트(Nginx) |
 | TCP 22 | SSH(기존) |
 
 - 방화벽은 서버의 `ufw`로 **우리가 관리한다** **[결정]**. SSAFY 안내에 따르면 ufw는 켜져 있고 22번만 열려 있다. 클라우드 쪽 방화벽은 SSAFY가 따로 막지 않는 것으로 보이나, 열고 나서 **바깥 네트워크에서 실제로 들어오는지** 확인한다
@@ -358,14 +371,15 @@ sudo ufw allow 7881/tcp
 sudo ufw allow 7882/udp
 sudo ufw allow 3478/udp
 sudo ufw allow 443/tcp
+sudo ufw allow 80/tcp
 sudo ufw status numbered
 ```
 
 - **주의: Docker가 연 포트는 ufw를 거치지 않는다.** compose의 `ports:`로 연 포트는 Docker가 iptables에 직접 규칙을 넣어 ufw 설정과 상관없이 바깥에 열린다. 그래서
   - DB · Redis · BE 등은 `ports:`를 **쓰지 않거나** 헬스 체크용이면 `127.0.0.1:포트`로만 연다(개발 서버 compose와 같은 방식)
-  - 바깥에 열리는 `ports:`는 LiveKit의 7881/tcp · 7882/udp · 3478/udp · 443/tcp뿐이다. ufw 규칙은 이 포트들을 기록으로 남기는 의미이고, LiveKit을 `network_mode: host`로 바꾸면 ufw 규칙이 실제로 적용된다
-  - 배포 뒤 `sudo ss -tulpn`으로 바깥 주소(`0.0.0.0` · `[::]`)에 열린 포트가 22 · 443 · 3478 · 7881 · 7882뿐인지 확인한다
-- 그 밖의 포트(80 · 7880 · 5432 · 6379 · 3000 · 9090 등)는 열지 않는다. 웹 · 시그널링 · Grafana는 Tunnel로만 받는다
+  - 바깥에 열리는 `ports:`는 Nginx의 80/tcp · 443/tcp, LiveKit의 7881/tcp · 7882/udp · 3478/udp뿐이다. ufw 규칙은 이 포트들을 기록으로 남기는 의미이고, LiveKit을 `network_mode: host`로 바꾸면 ufw 규칙이 실제로 적용된다
+  - 배포 뒤 `sudo ss -tulpn`으로 바깥 주소(`0.0.0.0` · `[::]`)에 열린 포트가 22 · 80 · 443 · 3478 · 7881 · 7882뿐인지 확인한다
+- 그 밖의 포트(7880 · 5432 · 6379 · 3000 · 9090 등)는 열지 않는다. 웹 · 시그널링 · Grafana는 Nginx(80 · 443)로만 받는다
 - **SSAFY 강의실 네트워크에서 접속 테스트**를 한다. UDP 7882 → TCP 7881 → TURN(UDP 3478 → TLS 443) 순서로 넘어가는지 확인한다. LiveKit 연결 테스트 페이지(`livekit-cli` 또는 공식 Connection Test)로 어떤 경로로 붙었는지 볼 수 있다
 - **확인 결과(실측)**
   - SSAFY 와이파이는 **바깥으로 나가는 TCP를 80 · 443 · 8080만 허용**한다(3478 · 5349 · 7880 · 7881 · 8443은 막힘). 그래서 강의실에서는 TCP 7881이 안 되고 **TURN/TLS 443이 사실상 유일한 길**이다
@@ -653,6 +667,8 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 녹화 · 백업 보관 기간 | **[미정]** |
 | 구조도 | 새 구조로 다시 그린다. `architecture-draft.webp`는 이전 초안 |
 | LiveKit Cloud 무료 구간 정확한 값(대략은 4.0) · 팀 계정 소유자 | 대시보드 요금 화면에서 확인 (인프라) |
+| Cloudflare 정리(5.1 전환 마지막 단계) | DNS 교체 후 하루 지켜보고 cloudflared · 컨테이너 80 입구 · `CLOUDFLARE_TUNNEL_TOKEN` · `a301-prod` 터널 삭제 (인프라) |
+| 개인정보처리방침 국외 이전 표의 Cloudflare 행 | DNS만 쓰면 요청 내용이 Cloudflare를 거치지 않는다. 행을 빼고 개정일을 어떻게 할지 **[미정]** (팀) |
 | 개발 서버 LiveKit을 미니PC 셀프 호스팅으로 바꿀지 | 앞 장비(통신사 공유기) 관리자 계정을 알게 되면 DMZ(→ ipTIME `192.168.45.235`) 설정 후 전환 |
 
 ## 14. 변경 기록
@@ -693,3 +709,4 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 8.3 | 롤백 방법을 「master Run pipeline에 `IMAGE_TAG` 넘기기」에서 「Environments `prod/app`에서 Re-deploy」로 고침. 391 이전 커밋으로 되돌릴 때 예전 `deploy.sh`의 터널 확인이 실패할 수 있음을 적음(S15P31A301-391) | `workflow.rules`가 수동 실행 파이프라인을 develop에서만 만들어 처음 안은 쓸 수 없었다. 운영 README · `.gitlab-ci.yml`은 이미 Re-deploy를 적고 있어 문서끼리 달랐다 |
 | 인프라 | 8.1 | 운영 배포 확인에 바깥 주소 `rtc.hangguet.co.kr`(LiveKit `OK`) · `grafana.hangguet.co.kr/api/health`를 더하고, healthy 확인 뒤 20초 동안 모든 컨테이너의 재시작 수가 그대로인지 보는 확인을 더함(S15P31A301-391) | healthcheck가 없는 서비스 12개(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보는 확인을 통과했다. 바깥 주소는 앱만 봐서 LiveKit이 요청을 받지 못해도 배포가 성공할 수 있었다. 설정 해시로 설정이 바뀐 서비스가 다시 만들어지므로, 설정 오류는 이 확인에서 드러나야 한다 |
 | 인프라 | 3.2 · 6.2 | 에이전트 · Egress를 ASG 두 개로 따로 옮긴다는 결정과 계획 문서 링크를 3.2에 적음(표는 반영 뒤 고침). 6.2 버킷 IP 조건에서 녹화 키를 빼고 S3 게이트웨이 엔드포인트 + `aws:SourceVpc` 조건으로 바꾸는 안 **[제안]** | Egress를 ASG로 옮기면 업로드 공인 IP가 매번 바뀌어, 계획대로 IP 조건을 넣으면 녹화가 모두 막힌다. 왜 Egress를 따로 두는지는 [오토스케일링 계획](../agent_autoscale_plan/README.md) 1장 |
+| 인프라 | 2 · 3.2 · 3.3 · 4.1 · 4.2 · 5.1 · 5.2 · 13 | 운영 웹 입구를 Cloudflare Tunnel에서 서버 직접 접속으로 바꿈(S15P31A301-412). Cloudflare는 DNS만(회색 구름) 쓰고, Nginx가 80 · 443을 받아 443을 도메인 이름(SNI)으로 나눈다(웹 3개는 HTTPS, 그 밖은 LiveKit TURN/TLS로 그대로). 웹 인증서(`hangguet.co.kr` · `rtc.` · `grafana.`)를 certbot DNS-01로 발급하고 갱신 hook을 인증서별로 나눔. 4.2의 갱신 방식을 cron → `certbot.timer`로 고침. 전환 순서와 남은 정리(cloudflared 제거 · 처리방침)를 5.1 · 13장에 적음 | 한국 사용자 요청이 Cloudflare 미국 거점(라스베이거스)을 거쳐 느려졌다. 통신사가 무료 플랜 트래픽을 해외로 보내는 것이라 우리가 고칠 수 없다. TURN/TLS는 SSAFY 와이파이 때문에 443을 떠날 수 없어 SNI로 같이 쓴다. hook은 어느 인증서가 갱신되든 모두 실행되므로 나누지 않으면 웹 인증서 갱신 때 LiveKit이 재시작돼 면접이 끊긴다. 실제 서버는 systemd 타이머로 갱신하고 있었다 |

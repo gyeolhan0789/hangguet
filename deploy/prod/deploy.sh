@@ -9,7 +9,8 @@
 # 3. 체크아웃의 compose로 설정 검사 · pull. 여기까지 실패하면 서버는 예전 그대로다
 # 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
 # 5. 배포 파일을 /opt/a301/prod로 복사 → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
-# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana), 20초 동안 재시작 없음
+# 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana),
+#    서버 443 · 80 직접 접속(같은 3개 + TURN/TLS SNI 분기 + http → https), 20초 동안 재시작 없음
 # 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
 set -euo pipefail
 
@@ -147,7 +148,7 @@ check_http "BE" "http://127.0.0.1:18084/actuator/health" a301-prod-be
 check_http "FE" "http://127.0.0.1:18082/api/health" a301-prod-fe
 check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
-# 바깥 주소로 한 바퀴. Tunnel 호스트 이름 3개를 모두 본다(배포 계획 5.1). 터널 연결도 이 확인으로 본다.
+# 바깥 주소로 한 바퀴. 도메인 3개를 모두 본다(배포 계획 5.1). DNS가 Tunnel을 가리키는 동안은 터널 연결도 이 확인으로 본다.
 # cloudflared 로그의 「Registered tunnel connection」은 컨테이너를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고,
 # 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 또 pipefail에서 `docker logs | grep -q`는 로그가 길면
 # grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어, 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패).
@@ -163,14 +164,50 @@ check_public() {
   for svc in a301-prod-cloudflared "$@"; do
     echo "---- ${svc} 로그"; "${COMPOSE[@]}" logs --tail 40 "$svc" || true
   done
-  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). 터널 연결 · CLOUDFLARE_TUNNEL_TOKEN · 해당 서비스를 확인하세요."
+  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). DNS가 가리키는 곳(Tunnel이면 터널 연결 · CLOUDFLARE_TUNNEL_TOKEN) · 해당 서비스를 확인하세요."
 }
-# 앱: Cloudflare → Tunnel → Nginx → FE
+# 앱: DNS가 가리키는 길(Tunnel이면 Cloudflare → Tunnel → Nginx:80, 직접이면 서버 443 → Nginx) → FE
 check_public "바깥 주소" "${PUBLIC_URL}/api/health" '"UP"' a301-prod-nginx
 # 면접방 시그널링: 브라우저가 LiveKit에 붙는 경로. LiveKit은 /에 OK로 답한다
 check_public "LiveKit 바깥 주소" "${RTC_URL}/" '^OK$' a301-prod-livekit
 # 대시보드: 장애를 보려면 떠 있어야 한다
 check_public "Grafana 바깥 주소" "${GRAFANA_URL}/api/health" '"database": *"ok"' a301-prod-grafana
+
+# 서버 443 · 80으로 직접(DNS · Cloudflare를 거치지 않고) 한 바퀴. 서버 안에서 127.0.0.1로 붙되 도메인 이름(SNI · Host)은 진짜로 보낸다.
+# DNS가 아직 Tunnel을 가리켜도, 바꾼 뒤에도 사용자가 들어올 길이 살아 있는지 본다(인증서 · SNI 분기 · 각 서비스)
+# check_direct <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
+check_direct() {
+  local name="$1" url="$2" pattern="$3" host port
+  shift 3
+  host="$(echo "$url" | sed -E 's#^https?://([^/:]+).*#\1#')"
+  case "$url" in https://*) port=443 ;; *) port=80 ;; esac
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 5 --resolve "${host}:${port}:127.0.0.1" "$url" 2>/dev/null | grep -Eq "$pattern"; then echo "OK: ${name} 직접 (${url})"; return 0; fi
+    sleep 2
+  done
+  for svc in a301-prod-nginx "$@"; do
+    echo "---- ${svc} 로그"; "${COMPOSE[@]}" logs --tail 40 "$svc" || true
+  done
+  fail "${name}가 직접 접속(서버 ${port})으로 60초 안에 응답하지 않았습니다(${url}). Nginx 설정 · 인증서(/etc/letsencrypt/live/${host}) · 해당 서비스를 확인하세요."
+}
+check_direct "앱" "${PUBLIC_URL}/api/health" '"UP"'
+check_direct "LiveKit" "${RTC_URL}/" '^OK$' a301-prod-livekit
+check_direct "Grafana" "${GRAFANA_URL}/api/health" '"database": *"ok"' a301-prod-grafana
+# TURN/TLS: 443에 turn 이름으로 붙으면 Nginx가 아니라 LiveKit이 TURN 인증서로 답해야 한다(SNI 분기 확인)
+turn_subject="$(openssl s_client -connect 127.0.0.1:443 -servername turn.hangguet.co.kr </dev/null 2>/dev/null | openssl x509 -noout -subject 2>/dev/null || true)"
+if echo "$turn_subject" | grep -q 'turn\.hangguet\.co\.kr'; then
+  echo "OK: TURN/TLS 직접 (443, ${turn_subject})"
+else
+  echo "---- a301-prod-livekit 로그"; "${COMPOSE[@]}" logs --tail 40 a301-prod-livekit || true
+  fail "443에 turn.hangguet.co.kr로 붙었을 때 TURN 인증서가 오지 않았습니다(받은 것: ${turn_subject:-없음}). nginx.conf stream 분기 · LiveKit TURN을 확인하세요."
+fi
+# http → https: 서버 80은 https 주소로 보내야 한다
+redirect="$(curl -sS -o /dev/null --max-time 5 -w '%{http_code} %header{location}' --resolve "hangguet.co.kr:80:127.0.0.1" http://hangguet.co.kr/ 2>/dev/null || true)"
+if [ "$redirect" = "301 https://hangguet.co.kr/" ]; then
+  echo "OK: http → https (${redirect})"
+else
+  fail "서버 80이 https로 보내지 않습니다(받은 것: ${redirect:-없음}). nginx.conf의 8080 서버를 확인하세요."
+fi
 
 log "재시작 반복 확인 (${STABLE_WAIT}초)"
 left=$((STABLE_WAIT - (SECONDS - STABLE_FROM)))
