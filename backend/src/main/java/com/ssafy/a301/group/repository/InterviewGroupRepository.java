@@ -3,6 +3,8 @@ package com.ssafy.a301.group.repository;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import jakarta.persistence.LockModeType;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -31,4 +33,13 @@ public interface InterviewGroupRepository extends JpaRepository<InterviewGroup, 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select g from InterviewGroup g where g.id = :id")
     Optional<InterviewGroup> findByIdForUpdate(@Param("id") long id);
+
+    /** 안전장치(docs/그룹면접-설계.md 6.11) 후보. 잠근 뒤 방식별 시간으로 다시 확인한다 */
+    @Query(
+            "select g.id from InterviewGroup g where g.status = :status"
+                    + " and g.startedAt <= :startedBefore and g.progressedAt <= :progressedBefore")
+    List<Long> findStalledIds(
+            @Param("status") GroupStatus status,
+            @Param("startedBefore") OffsetDateTime startedBefore,
+            @Param("progressedBefore") OffsetDateTime progressedBefore);
 }

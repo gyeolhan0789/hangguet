@@ -118,6 +118,10 @@ public class InterviewGroup {
     @Column(name = "started_at")
     private OffsetDateTime startedAt;
 
+    // 마지막 세션이 끝난 시각(6.10)
+    @Column(name = "ended_at")
+    private OffsetDateTime endedAt;
+
     public InterviewGroup(
             User host,
             InterviewMode mode,
@@ -184,6 +188,19 @@ public class InterviewGroup {
         this.deadlineAt = null;
         this.extended = false;
         this.phaseDueAt = now.plus(askingTimeout);
+        this.progressedAt = now;
+    }
+
+    /** 마지막 세션이 끝났다(docs/그룹면접-설계.md 6.10). 진행 단계 · 기한을 지워 더는 진행하지 않는다 */
+    public void end(OffsetDateTime now) {
+        if (status != GroupStatus.IN_PROGRESS) {
+            throw new IllegalStateException("진행 중이 아닌 그룹은 끝내지 않는다: " + id);
+        }
+        this.status = GroupStatus.ENDED;
+        this.endedAt = now;
+        this.phase = null;
+        this.deadlineAt = null;
+        this.phaseDueAt = null;
         this.progressedAt = now;
     }
 

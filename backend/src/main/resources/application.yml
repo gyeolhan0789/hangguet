@@ -133,6 +133,12 @@ group:
   lobby-host-timeout: 10s
   # 시작(10.7) 뒤 에이전트가 이 시간 안에 첫 질문을 시작하지 않으면 정체로 본다(docs/그룹면접-설계.md 5.2, 임시 값)
   asking-timeout: 20s
+  # 안전장치(docs/그룹면접-설계.md 6.11). 시작한 지 화상 · 채팅 상한이 지났고 마지막 진행 뒤 멈춘 시간이 지난 그룹의 남은 세션을 끝낸다
+  cleanup:
+    interval: 1m
+    video-limit: 60m
+    chat-limit: 100m
+    stall-limit: 5m
 
 # 회사 카드 적재(docs/ERD-회사카드.md). 파이프라인이 카드를 올리는 공용 버킷(개발·운영 같은 버킷)의 manifest를 매시 정각에 확인한다.
 # 버킷이 없으면(로컬·테스트) 적재하지 않는다. 읽기는 storage.s3와 같은 앱 키·리전을 쓴다

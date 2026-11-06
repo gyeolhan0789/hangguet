@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.company.service.CompanyCardFinder;
+import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
@@ -64,11 +65,20 @@ class InterviewSessionPracticeDateTest {
     @Mock private SpeechMetricRepository speechMetrics;
     @Mock private CompanyCardFinder companyCards;
     @Mock private InterviewCapacity capacity;
+    @Mock private GroupEndService groupEnds;
     private InterviewSessionService service;
 
     @BeforeEach
     void setup() {
         // 연습 기록·레벨업 계산은 실제 PracticeService로 확인한다
+        SessionEnder ender =
+                new SessionEnder(
+                        answers,
+                        new PracticeService(practiceLogs),
+                        runtimes,
+                        aiJobs,
+                        recordings,
+                        speechMetrics);
         service =
                 new InterviewSessionService(
                         sessions,
@@ -77,15 +87,14 @@ class InterviewSessionPracticeDateTest {
                         plans,
                         applications,
                         users,
-                        new PracticeService(practiceLogs),
                         runtimes,
                         aiJobs,
                         transactions,
                         rooms,
-                        recordings,
-                        speechMetrics,
                         companyCards,
-                        capacity);
+                        capacity,
+                        ender,
+                        groupEnds);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {
@@ -158,6 +167,7 @@ class InterviewSessionPracticeDateTest {
                         new InterviewSession(user, application, Persona.DEVIL, InterviewMode.CHAT),
                         55);
         session.start(start);
+        when(sessions.findByIdAndUserId(55L, 1L)).thenReturn(Optional.of(session));
         when(sessions.findForUpdate(55, 1)).thenReturn(Optional.of(session));
         when(answers.countByQuestionSessionId(55L)).thenReturn(answerCount);
     }
