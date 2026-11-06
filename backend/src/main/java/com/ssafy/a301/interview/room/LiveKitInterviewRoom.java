@@ -22,11 +22,19 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import livekit.LivekitEgress.AutoTrackEgress;
+import livekit.LivekitEgress.DirectFileOutput;
+import livekit.LivekitEgress.EgressInfo;
+import livekit.LivekitEgress.EgressStatus;
 import livekit.LivekitEgress.S3Upload;
 import livekit.LivekitModels.ParticipantInfo;
+import livekit.LivekitModels.TrackInfo;
+import livekit.LivekitModels.TrackType;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
 import livekit.LivekitRoom.ListParticipantsRequest;
@@ -57,6 +65,15 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     static final String INTERVIEWER = "interviewer";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
     private static final int EMPTY_TIMEOUT_SECONDS = 600;
+    // 개인 화상 면접방에서 녹화해야 하는 트랙(AI 명세 7장 원본 트랙 파일): 지원자 영상 · 음성, 면접관 음성
+    private static final List<RecordedTrack> RECORDED_TRACKS =
+            List.of(
+                    new RecordedTrack(CANDIDATE, TrackType.VIDEO),
+                    new RecordedTrack(CANDIDATE, TrackType.AUDIO),
+                    new RecordedTrack(INTERVIEWER, TrackType.AUDIO));
+    // 녹화 중인 것으로 보는 상태. 시작 중인 녹화도 넣어 같은 트랙을 두 번 녹화하지 않게 한다
+    private static final Set<EgressStatus> RECORDING =
+            Set.of(EgressStatus.EGRESS_STARTING, EgressStatus.EGRESS_ACTIVE);
     // 브라우저에 알려 줄 주소와 BE가 서버 API를 부르는 주소의 설정 이름. 시험이 같은 이름으로 실제 값을 확인한다.
     // livekit.url로 두면 Spring이 환경 변수 LIVEKIT_URL(서버 주소)을 그 이름으로 읽어 LIVEKIT_PUBLIC_URL을 덮어쓴다
     static final String URL_PROPERTY = "${livekit.public-url}";
@@ -71,6 +88,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private final S3Upload egressS3;
     private RoomService rooms;
     private AgentDispatchServiceClient dispatches;
+    // 패키지 이름까지 적는다. 같은 자리에 import를 더하는 그룹 면접 종료(S15P31A301-374)와 충돌하지 않게 하기 위해서다
+    private io.livekit.server.EgressServiceClient egresses;
 
     public LiveKitInterviewRoom(
             @Value(URL_PROPERTY) String url,
@@ -139,6 +158,84 @@ public class LiveKitInterviewRoom implements InterviewRoom {
             return new Presence(interviewer, candidateJoinedAt);
         } catch (IOException ex) {
             throw new UncheckedIOException("면접방 참가자를 조회하지 못했다: room=" + room, ex);
+        }
+    }
+
+    @Override
+    public void ensureTrackRecording(long sessionId) {
+        if (!isConfigured()) {
+            return;
+        }
+        String room = roomName(sessionId);
+        try {
+            List<ParticipantInfo> participants =
+                    execute(
+                                    rooms().listParticipants(
+                                                    ListParticipantsRequest.newBuilder()
+                                                            .setRoom(room)
+                                                            .build(),
+                                                    roomAdminAuth(room)))
+                            .getParticipantsList();
+            Set<String> recording =
+                    execute(egresses().listEgress(room, null, true)).stream()
+                            .filter(egress -> RECORDING.contains(egress.getStatus()))
+                            .filter(EgressInfo::hasTrack)
+                            .map(egress -> egress.getTrack().getTrackId())
+                            .collect(Collectors.toSet());
+            for (RecordedTrack expected : RECORDED_TRACKS) {
+                List<TrackInfo> published = expected.published(participants);
+                if (published.isEmpty()) {
+                    LOG.warn("녹화할 트랙이 면접방에 없다: room={} track={}", room, expected);
+                }
+                published.stream()
+                        .filter(track -> !recording.contains(track.getSid()))
+                        .forEach(track -> restartTrackEgress(sessionId, expected, track.getSid()));
+            }
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("트랙 녹화 상태를 확인하지 못했다: room={}", room, ex);
+        }
+    }
+
+    // 녹화가 시작되지 않은 트랙만 녹화를 다시 요청한다. 실패하면 녹화 없이 면접을 진행한다.
+    // 파일 이름은 자동 녹화와 같은 규칙({참가자}-{종류}-{트랙 id})에 -retry를 붙인다. 자동 녹화가 늦게 시작해도 같은 파일을 덮어쓰지 않는다
+    private void restartTrackEgress(long sessionId, RecordedTrack expected, String trackId) {
+        String room = roomName(sessionId);
+        LOG.warn(
+                "녹화가 시작되지 않은 트랙의 녹화를 다시 요청한다: room={} track={} trackId={}",
+                room,
+                expected,
+                trackId);
+        DirectFileOutput.Builder output =
+                DirectFileOutput.newBuilder()
+                        .setFilepath(
+                                Recording.rawPrefix(sessionId)
+                                        + expected.filePrefix()
+                                        + trackId
+                                        + "-retry")
+                        .setDisableManifest(true);
+        if (egressS3 != null) {
+            output.setS3(egressS3);
+        }
+        try {
+            execute(egresses().startTrackEgress(room, output.build(), trackId));
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("트랙 녹화를 다시 요청하지 못했다: room={} trackId={}", room, trackId, ex);
+        }
+    }
+
+    /** 녹화해야 하는 트랙. 참가자 이름과 트랙 종류로 정한다 */
+    private record RecordedTrack(String identity, TrackType type) {
+        List<TrackInfo> published(List<ParticipantInfo> participants) {
+            return participants.stream()
+                    .filter(participant -> identity.equals(participant.getIdentity()))
+                    .flatMap(participant -> participant.getTracksList().stream())
+                    .filter(track -> track.getType() == type)
+                    .toList();
+        }
+
+        // 자동 녹화 파일 이름의 앞부분({publisher_identity}-{track_type}-). 합치기가 이 앞부분으로 트랙을 찾는다
+        String filePrefix() {
+            return identity + "-" + type.name().toLowerCase(Locale.ROOT) + "-";
         }
     }
 
@@ -270,7 +367,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         return "Bearer " + token.toJwt();
     }
 
-    // 방 하나의 참가자 조회 권한
+    // 참가자 내보내기 권한(그 방의 관리자)
     private String roomAdminAuth(String room) {
         AccessToken token = new AccessToken(apiKey, apiSecret);
         token.addGrants(new RoomAdmin(true), new RoomName(room));
@@ -312,6 +409,15 @@ public class LiveKitInterviewRoom implements InterviewRoom {
                             httpUrl(apiUrl), apiKey, apiSecret, LiveKitInterviewRoom::httpClient);
         }
         return dispatches;
+    }
+
+    private synchronized io.livekit.server.EgressServiceClient egresses() {
+        if (egresses == null) {
+            egresses =
+                    io.livekit.server.EgressServiceClient.createClient(
+                            httpUrl(apiUrl), apiKey, apiSecret, LiveKitInterviewRoom::httpClient);
+        }
+        return egresses;
     }
 
     private static OkHttpClient httpClient() {

@@ -35,6 +35,12 @@ public interface InterviewRoom {
      */
     Presence presence(long sessionId);
 
+    /**
+     * 개인 화상 면접방의 트랙(지원자 영상 · 음성, 면접관 음성)이 모두 녹화 중인지 보고, 녹화가 시작되지 않은 트랙만 녹화를 다시 요청한다. 다시 요청도 실패하면 녹화
+     * 없이 면접을 진행한다. 실패해도 던지지 않고 로그만 남긴다
+     */
+    void ensureTrackRecording(long sessionId);
+
     /** 면접방 참가자 현황 */
     record Presence(boolean interviewer, OffsetDateTime candidateJoinedAt) {}
 

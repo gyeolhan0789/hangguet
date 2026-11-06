@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.room;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.common.error.ApiException;
@@ -16,14 +17,21 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import livekit.LivekitAgentDispatch.CreateAgentDispatchRequest;
+import livekit.LivekitEgress.EgressInfo;
+import livekit.LivekitEgress.EgressStatus;
+import livekit.LivekitEgress.ListEgressRequest;
+import livekit.LivekitEgress.ListEgressResponse;
+import livekit.LivekitEgress.TrackEgressRequest;
 import livekit.LivekitModels.ParticipantInfo;
+import livekit.LivekitModels.TrackInfo;
+import livekit.LivekitModels.TrackType;
+import livekit.LivekitRoom;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
-import livekit.LivekitRoom.ListParticipantsRequest;
-import livekit.LivekitRoom.ListParticipantsResponse;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +47,8 @@ import tools.jackson.databind.json.JsonMapper;
 class LiveKitInterviewRoomTest {
     private static final String SECRET = "test-secret-at-least-32-bytes-long-000";
     private static final String LIST_PARTICIPANTS = "/twirp/livekit.RoomService/ListParticipants";
+    private static final String LIST_EGRESS = "/twirp/livekit.Egress/ListEgress";
+    private static final String START_TRACK_EGRESS = "/twirp/livekit.Egress/StartTrackEgress";
 
     private final Map<String, byte[]> requests = new ConcurrentHashMap<>();
     private final Map<String, Integer> statuses = new ConcurrentHashMap<>();
@@ -210,7 +220,7 @@ class LiveKitInterviewRoomTest {
     void presenceReadsInterviewerAndCandidateJoinTimeWithRoomAdminGrant() throws Exception {
         bodies.put(
                 LIST_PARTICIPANTS,
-                ListParticipantsResponse.newBuilder()
+                LivekitRoom.ListParticipantsResponse.newBuilder()
                         .addParticipants(ParticipantInfo.newBuilder().setIdentity("interviewer"))
                         .addParticipants(
                                 ParticipantInfo.newBuilder()
@@ -225,7 +235,10 @@ class LiveKitInterviewRoomTest {
         assertThat(presence.interviewer()).isTrue();
         assertThat(presence.candidateJoinedAt().toInstant())
                 .isEqualTo(Instant.ofEpochMilli(1_762_322_400_250L));
-        assertThat(ListParticipantsRequest.parseFrom(requests.get(LIST_PARTICIPANTS)).getRoom())
+        assertThat(
+                        LivekitRoom.ListParticipantsRequest.parseFrom(
+                                        requests.get(LIST_PARTICIPANTS))
+                                .getRoom())
                 .isEqualTo("interview-55");
         JsonNode video =
                 claims(authorizations.get(LIST_PARTICIPANTS).replaceFirst("^Bearer ", ""))
@@ -238,7 +251,7 @@ class LiveKitInterviewRoomTest {
     void presenceUsesSecondsWhenServerHasNoMillisecondJoinTime() {
         bodies.put(
                 LIST_PARTICIPANTS,
-                ListParticipantsResponse.newBuilder()
+                LivekitRoom.ListParticipantsResponse.newBuilder()
                         .addParticipants(
                                 ParticipantInfo.newBuilder()
                                         .setIdentity("candidate")
@@ -260,6 +273,70 @@ class LiveKitInterviewRoomTest {
         statuses.put(LIST_PARTICIPANTS, 500);
         assertThatThrownBy(() -> room(apiUrl).presence(55L))
                 .isInstanceOf(UncheckedIOException.class);
+    }
+
+    // 기준: BE 파트 요청 2(녹화가 진행 중이 아닌 트랙만 같은 S3 설정 · 파일 이름 규칙으로 다시 요청한다)
+    @Test
+    void ensureTrackRecordingRestartsOnlyTracksWithoutRunningEgress() throws Exception {
+        bodies.put(
+                LIST_PARTICIPANTS,
+                participants(
+                        participant(
+                                "candidate",
+                                track("TR_CV", TrackType.VIDEO),
+                                track("TR_CA", TrackType.AUDIO)),
+                        participant("interviewer", track("TR_IA", TrackType.AUDIO))));
+        bodies.put(
+                LIST_EGRESS,
+                egresses(
+                        egress("TR_CV", EgressStatus.EGRESS_ACTIVE),
+                        egress("TR_IA", EgressStatus.EGRESS_STARTING),
+                        egress("TR_CA", EgressStatus.EGRESS_FAILED)));
+
+        room(apiUrl).ensureTrackRecording(55L);
+
+        ListEgressRequest list = ListEgressRequest.parseFrom(requests.get(LIST_EGRESS));
+        assertThat(list.getRoomName()).isEqualTo("interview-55");
+        assertThat(list.getActive()).isTrue();
+        TrackEgressRequest restart = TrackEgressRequest.parseFrom(requests.get(START_TRACK_EGRESS));
+        assertThat(restart.getRoomName()).isEqualTo("interview-55");
+        assertThat(restart.getTrackId()).isEqualTo("TR_CA");
+        assertThat(restart.getFile().getFilepath())
+                .isEqualTo("recordings/raw/55/candidate-audio-TR_CA-retry");
+        assertThat(restart.getFile().getDisableManifest()).isTrue();
+        assertThat(restart.getFile().getS3().getBucket()).isEqualTo("bucket");
+        JsonNode video =
+                claims(authorizations.get(START_TRACK_EGRESS).replaceFirst("^Bearer ", ""))
+                        .path("video");
+        assertThat(video.path("roomRecord").asBoolean()).isTrue();
+    }
+
+    @Test
+    void ensureTrackRecordingLeavesRecordingAndUnpublishedTracks() {
+        // 지원자 음성 · 면접관은 트랙이 없어 녹화할 수 없다(경고 로그만 남긴다)
+        bodies.put(
+                LIST_PARTICIPANTS,
+                participants(participant("candidate", track("TR_CV", TrackType.VIDEO))));
+        bodies.put(LIST_EGRESS, egresses(egress("TR_CV", EgressStatus.EGRESS_ACTIVE)));
+
+        room(apiUrl).ensureTrackRecording(55L);
+
+        assertThat(requests).containsKey(LIST_EGRESS).doesNotContainKey(START_TRACK_EGRESS);
+    }
+
+    @Test
+    void ensureTrackRecordingOnlyLogsFailures() {
+        statuses.put(LIST_PARTICIPANTS, 500);
+        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L)).doesNotThrowAnyException();
+        assertThat(requests).doesNotContainKey(START_TRACK_EGRESS);
+
+        statuses.remove(LIST_PARTICIPANTS);
+        bodies.put(
+                LIST_PARTICIPANTS,
+                participants(participant("interviewer", track("TR_IA", TrackType.AUDIO))));
+        statuses.put(START_TRACK_EGRESS, 500);
+        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L)).doesNotThrowAnyException();
+        assertThat(requests).containsKey(START_TRACK_EGRESS);
     }
 
     @Test
@@ -289,6 +366,8 @@ class LiveKitInterviewRoomTest {
         assertThatThrownBy(() -> unset.issueAccess(55L, true)).isInstanceOf(ApiException.class);
         assertThatThrownBy(() -> unset.open(55L, true, Map.of())).isInstanceOf(ApiException.class);
         unset.close(55L);
+        // 녹화 확인은 면접을 막지 않으므로 설정이 없으면 아무것도 하지 않는다
+        assertThatCode(() -> unset.ensureTrackRecording(55L)).doesNotThrowAnyException();
     }
 
     @Test
@@ -320,6 +399,35 @@ class LiveKitInterviewRoomTest {
                 .isEqualTo("http://livekit:7880/");
         assertThat(LiveKitInterviewRoom.httpUrl("https://x.livekit.cloud"))
                 .isEqualTo("https://x.livekit.cloud/");
+    }
+
+    private static TrackInfo track(String sid, TrackType type) {
+        return TrackInfo.newBuilder().setSid(sid).setType(type).build();
+    }
+
+    private static ParticipantInfo participant(String identity, TrackInfo... tracks) {
+        return ParticipantInfo.newBuilder()
+                .setIdentity(identity)
+                .addAllTracks(List.of(tracks))
+                .build();
+    }
+
+    private static byte[] participants(ParticipantInfo... participants) {
+        return LivekitRoom.ListParticipantsResponse.newBuilder()
+                .addAllParticipants(List.of(participants))
+                .build()
+                .toByteArray();
+    }
+
+    private static EgressInfo egress(String trackId, EgressStatus status) {
+        return EgressInfo.newBuilder()
+                .setStatus(status)
+                .setTrack(TrackEgressRequest.newBuilder().setTrackId(trackId))
+                .build();
+    }
+
+    private static byte[] egresses(EgressInfo... items) {
+        return ListEgressResponse.newBuilder().addAllItems(List.of(items)).build().toByteArray();
     }
 
     private static LiveKitInterviewRoom room(String apiUrl) {
