@@ -1,0 +1,9 @@
+# 유령 작업자 대책 시험(이해준/agent_autoscale_plan 11장, 11/06). 테스트 서버에서만 compose 마지막에 더한다.
+# 에이전트 인스턴스가 연결을 닫지 못하고 사라지면(강제 종료 · Tailscale 끊김) LiveKit 쪽 TCP가 재전송만 하며 남아,
+# 기본값(tcp_retries2=15)이면 약 15분 동안 그 작업자에게 면접을 배정하고 면접방에는 말없는 면접관이 남는다.
+# LiveKit 컨테이너의 네트워크 네임스페이스에만 재전송 상한을 낮춘다(8 ≈ 100초, RFC 1122가 권하는 하한 근처).
+# 사용자 쪽 TCP(7881 미디어 예비 경로 · Nginx를 거친 시그널링 · TURN/TLS)도 같은 값을 쓰므로, 100초 넘게 응답이 없는 연결이 끊긴다
+services:
+  a301-prod-livekit:
+    sysctls:
+      net.ipv4.tcp_retries2: "8"

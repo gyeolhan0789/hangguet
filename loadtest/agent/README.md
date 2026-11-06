@@ -141,6 +141,8 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
 
 ## 운영 경로 재현(Tailscale · 키트, 계획 10.1의 3)
 
+> 11/06 결과: [운영 경로 보고서](../report/asg-path-2026-11-06.md). 장애 시험의 유령 작업자 대책 덮어쓰기는 `loadtest/server/compose.ghost-tcp.yml`(compose 마지막에 더한다)
+
 11/03 시험은 같은 VPC 사설망과 이 폴더의 `user-data.sh`로 했다. 운영 메인 서버는 SSAFY 계정이라 사설망으로 이을 수 없어 **Tailscale**과 [`deploy/asg/`](../../deploy/asg/README.md) 키트를 쓴다(계획 5.4). 운영에 넣기 전에 같은 구성을 테스트 서버에서 그대로 재현한다.
 
 | | 11/03 시험 | 운영 경로 재현 |
