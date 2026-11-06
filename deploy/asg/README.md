@@ -37,6 +37,8 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 | 수명 주기 훅 이름 | `a301-prod-agent-drain` | `a301-prod-egress-drain` |
 | Tailscale 태그 | `tag:a301-agent`(테스트 `tag:a301-loadtest-agent`) | `tag:a301-egress`(테스트 `tag:a301-loadtest-egress`) |
 
+부팅 스크립트(`bootstrap.sh`)가 중간에 멈추면(이미지 받기 실패 · SSM 값 없음 등) 끝날 때 인스턴스를 **비정상(Unhealthy)으로 알린다**(유예 기간 무시). EC2 상태 확인은 정상이라 알리지 않으면 ASG가 그대로 두기 때문이다(11/07 운영 전환). 원인이 그대로면 바꿔 띄운 대도 같은 이유로 멈추고, 그 반복이 ASG 활동 기록에 남는다. 원인은 `/var/log/a301-userdata.log`
+
 감시 스크립트(`a301-watcher.service`)
 
 - 15초마다 IMDS `autoscaling/target-lifecycle-state`를 보고, `Terminated`면 `docker stop --time 3900`(SIGTERM: 새 일은 받지 않고 진행 중 면접 · 녹화를 마친 뒤 종료) → `complete-lifecycle-action`
@@ -53,11 +55,11 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 | `livekit-url` | 필수 | 필수 | `ws://<메인 서버 Tailscale IP>:7880` |
 | `livekit-api-key` · `livekit-api-secret` | 필수 | 필수 | GitLab `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` |
 | `redis-host` | 필수 | 필수 | `<메인 서버 Tailscale IP>` |
-| `redis-password` | 선택 | 선택 | GitLab `REDIS_PASSWORD`. 운영은 필수(계획 5.2) |
+| `redis-password` | 선택 | 선택 | GitLab `REDIS_PASSWORD`와 **같은 값**. 운영은 필수(계획 5.2). 바꿀 때는 GitLab과 SSM을 같이 바꾸고 `prod-deploy`(Redis가 새 비밀번호로 다시 만들어지고 BE도 다시 시작) → 에이전트는 이어서 도는 새로 고침으로 새 값을 읽는다. 한쪽만 바꾸면 에이전트가 결과를 보내지 못한다 |
 | `tailscale-auth-key` | 선택 | 선택 | Tailscale OAuth 클라이언트 비밀값(운영 · 테스트 따로). 없으면 Tailscale을 설치하지 않는다(같은 VPC 사설망 시험) |
 | `metrics-url` · `loki-url` | 선택 | 선택 | `http://<Tailscale IP>:9090/api/v1/write` · `http://<Tailscale IP>:3100/loki/api/v1/push`. 둘 다 있어야 Alloy를 띄운다 |
 | `image-tag` | 필수 | – | 운영 배포와 같은 커밋 짧은 SHA(계획 7.1) |
-| `dockerhub-user` · `dockerhub-token` | 필수 | – | 에이전트 전용 읽기 토큰(`a301-prod-agent-pull`) |
+| `dockerhub-user` · `dockerhub-token` | 필수 | – | 에이전트 전용 토큰(`a301-prod-agent-pull`). 권한은 **Repo Read-only**(Repo Public Read-only면 로그인은 되는데 비공개 `hanggeut/a301`을 받지 못한다, 11/07). 넣기 전에 받아지는지 확인한다(아래 「메인 서버 전환」 순서 1) |
 | `soniox-api-key` | 필수 | – | |
 | `elevenlabs-api-key` · `jev-api-key` | 선택 | – | 없으면 질문 음성 · 리액션 없이 진행 |
 | `llm-chat-url` · `llm-model` · `llm-api-key` | 선택 | – | 꼬리질문(GMS). 운영 compose의 `x-gms-env`와 같은 값 |
@@ -95,13 +97,13 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 Redis 비밀번호(`REDIS_PASSWORD`)는 `compose.yml`에 늘 켜져 있다(변수가 없으면 배포가 멈춘다).
 
 순서
-1. 운영 리소스를 원하는 대수 0으로 만든다(위 「리소스」, SSM `/a301/prod/agent/*`, IAM 사용자 `a301-prod-agent-ci`)
-2. 운영 메인 서버에서 `sudo bash deploy/asg/main-tailscale.sh prod` → 출력된 IP를 GitLab `MAIN_TAILSCALE_IP`와 SSM `livekit-url`(`ws://<IP>:7880`) · `redis-host` · `metrics-url` · `loki-url`에 넣는다
+1. 운영 리소스를 원하는 대수 0으로 만든다(위 「리소스」, SSM `/a301/prod/agent/*`, IAM 사용자 `a301-prod-agent-ci`). Docker Hub 토큰은 넣기 전에 실제로 받아지는지 확인한다: `echo <토큰> | docker login -u hanggeut --password-stdin && docker manifest inspect hanggeut/a301:ai-<태그> >/dev/null && echo OK; docker logout`
+2. 운영 메인 서버에 `main-tailscale.sh`를 올려(서버에는 `deploy/prod`만 복사되므로 `scp -i <pem>`으로 `/tmp`에) `sudo bash /tmp/main-tailscale.sh prod` → 출력된 IP를 GitLab `MAIN_TAILSCALE_IP`와 SSM `livekit-url`(`ws://<IP>:7880`) · `redis-host` · `metrics-url` · `loki-url`에 넣는다
 3. GitLab `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY`(Protected · Masked)
-4. ASG 원하는 대수 1 → 인스턴스가 tailnet에 가입하는지 본다. 이때 7880 · 6379가 아직 Tailscale에 열려 있지 않아 LiveKit에는 붙지 못한다(감시 스크립트가 준비 확인 실패를 기록하지만 5번 연속 전에 다음 단계로 간다)
-5. GitLab `AGENT_ASG_ENABLED=true` → `prod-deploy` Re-deploy. 메인 서버 에이전트가 내려가고, 포트가 열리고, 이어서 ASG 새로 고침이 돈다
+4. ASG 원하는 대수 1 → 인스턴스가 tailnet에 가입하고 **부팅이 끝까지 갔는지** 본다(Session Manager · 원격 명령: `/var/log/a301-userdata.log` 마지막 줄이 `감시 시작. 끝`, `docker ps`에 `a301-ai-agent`가 Up). tailnet 가입은 이미지 받기 전 단계라 그것만으로는 에이전트가 떴는지 알 수 없다(11/07). 끝까지 가지 않았으면 5번으로 넘어가지 않는다(부팅이 멈춘 대는 스스로 비정상으로 알려 ASG가 바꿔 띄운다). 이때 7880 · 6379가 아직 Tailscale에 열려 있지 않아 LiveKit에는 붙지 못한다(감시 스크립트가 준비 확인 실패를 기록하지만 5번 연속 전에 다음 단계로 간다)
+5. GitLab `AGENT_ASG_ENABLED=true` → `prod-deploy` Re-deploy. 메인 서버 에이전트가 내려가고, 포트가 열리고, 이어서 ASG 새로 고침이 돈다. Redis가 포트 때문에 다시 만들어지므로 `deploy.sh`가 BE를 다시 시작한다(`Redis가 다시 만들어져 BE 다시 시작`)
 6. ASG 에이전트가 LiveKit에 등록됐는지(`docker logs a301-prod-livekit | grep "worker registered"`) 보고 화상 면접 1건으로 끝까지 확인한다
-7. 되돌리기: `AGENT_ASG_ENABLED`를 지우고 `prod-deploy` Re-deploy(메인 서버 에이전트가 다시 뜨고 포트가 닫힌다) → ASG 원하는 대수 0
+7. 되돌리기: `AGENT_ASG_ENABLED`를 지우고 `prod-deploy` Re-deploy(메인 서버 에이전트가 다시 뜨고 포트가 닫힌다. 이때도 Redis가 다시 만들어져 BE가 다시 시작된다) → ASG 원하는 대수 0
 
 4번에서 기다리는 사이 감시 스크립트가 5번 연속 실패해 인스턴스를 비정상으로 알리면 ASG가 교체한다(대수는 그대로). 해가 없지만, 4 → 5를 5분 안에 하거나 4번을 5번 뒤로 미뤄도 된다. 그러면 5번 직후 잠깐(약 2분) 에이전트가 없어 새 면접은 BE가 `START_FAILED`로 돌린다
 

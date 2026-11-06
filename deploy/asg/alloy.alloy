@@ -44,9 +44,11 @@ discovery.relabel "role" {
     target_label  = "container"
   }
 
+  // service는 메인 서버 compose의 서비스 이름(a301-prod-ai-agent · a301-prod-egress)과 같게 둔다. 로그 대시보드가 이 이름으로 찾는다.
+  // 컨테이너 이름(a301-ai-agent)을 그대로 쓰면 ASG로 옮긴 뒤 대시보드의 에이전트 로그 패널이 비었다(11/07)
   rule {
     target_label = "service"
-    replacement  = "@@CONTAINER@@"
+    replacement  = "@@SERVICE@@"
   }
 }
 
