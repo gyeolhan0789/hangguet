@@ -9,6 +9,7 @@
 # 3. 체크아웃의 compose로 설정 검사 · pull. 여기까지 실패하면 서버는 예전 그대로다
 # 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
 # 5. 배포 파일을 /opt/a301/prod로 복사 → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
+#    Redis만 다시 만들어지면 BE를 다시 시작한다(예전 Redis IP를 붙잡기 때문)
 # 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana),
 #    서버 443 · 80 직접 접속(같은 3개 + TURN/TLS SNI 분기 + http → https), 20초 동안 재시작 없음
 # 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
@@ -119,8 +120,33 @@ mkdir -p "$PROD_DIR"
 rsync -a --delete "${SRC_DIR}/" "${PROD_DIR}/"
 
 log "서비스 띄우기"
+# BE가 붙는 저장소(Redis · PostgreSQL)가 다시 만들어지는지 보려고 up 전의 컨테이너 ID를 적어 둔다(아래 BE 다시 시작)
+BE_DEPS=(a301-prod-redis a301-prod-postgres)
+declare -A dep_before=()
+for dep in "${BE_DEPS[@]}"; do
+  dep_before[$dep]="$(docker inspect -f '{{.Id}}' "$dep" 2>/dev/null || true)"
+done
 # 이미지 · 환경 변수 · 설정 해시 라벨이 바뀐 서비스만 다시 만든다(compose가 Recreate로 출력한다)
 "${COMPOSE[@]}" up -d --remove-orphans
+
+# 저장소만 다시 만들어지고 BE는 그대로 남으면, BE가 예전 IP로 계속 다시 붙으려 해 그 저장소를 못 쓴다
+# (11/07 운영 전환: AGENT_ASG_ENABLED로 Redis 포트만 바뀌어 Redis만 새로 만들어졌고 BE(Lettuce)가 약 7분 동안 Redis에 붙지 못했다).
+# AI 작업자(Python) · LiveKit · Egress(Go)는 다시 붙을 때 이름을 새로 찾아 스스로 복구한다.
+# PostgreSQL(JDBC)은 같은 일을 겪지 않았지만 확인하지 않았으므로 같이 본다. 저장소보다 BE가 먼저 떠 있으면 BE를 다시 시작한다.
+# 저장소 설정이 바뀌는 배포(이미지 · 설정 · 포트 · AGENT_ASG_ENABLED 켜고 끄기)마다 해당한다
+be_started="$(docker inspect -f '{{.State.StartedAt}}' a301-prod-be)"
+for dep in "${BE_DEPS[@]}"; do
+  after="$(docker inspect -f '{{.Id}}' "$dep" 2>/dev/null || true)"
+  [ -n "${dep_before[$dep]}" ] && [ "${dep_before[$dep]}" != "$after" ] || continue
+  dep_started="$(docker inspect -f '{{.State.StartedAt}}' "$dep")"
+  # 같은 형식(RFC 3339, UTC)이라 문자열 비교가 시각 비교다
+  if [[ "$be_started" < "$dep_started" ]]; then
+    log "${dep}가 다시 만들어져 BE 다시 시작 (${dep} ${dep_started}, BE ${be_started})"
+    docker restart a301-prod-be >/dev/null
+    echo "OK: a301-prod-be 다시 시작"
+    break
+  fi
+done
 
 # 프로필로 꺼진 서비스의 컨테이너는 up이 지우지 않는다. 전환하는 날 남아 있는 메인 서버 에이전트를 SIGTERM으로 drain한 뒤 지운다
 # (새 면접은 받지 않고 진행 중 면접을 마친 뒤 내려간다. 그동안 새 면접은 ASG 에이전트가 받는다)

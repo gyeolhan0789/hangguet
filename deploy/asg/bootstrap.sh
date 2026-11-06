@@ -7,12 +7,33 @@
 # 4. 역할 컨테이너 실행: agent = a301-ai-agent(AI 이미지), egress = a301-egress(livekit/egress)
 # 5. Alloy 실행(SSM metrics-url · loki-url이 둘 다 있을 때만): 지표 → 메인 Prometheus 원격 쓰기, 로그 → 메인 Loki
 # 6. 감시 스크립트(a301-watcher) 실행
+# 중간에 멈추면 인스턴스를 비정상(Unhealthy)으로 알려 ASG가 바꿔 띄운다(아래 report_boot_failure)
 # 기록: /var/log/a301-userdata.log. 접속은 Session Manager
 set -euo pipefail
 exec > >(tee -a /var/log/a301-userdata.log) 2>&1
 echo "== $(date -Is) a301 ${A301_ENV} ${ROLE} 시작"
 
 REGION="ap-northeast-2"
+
+# 부팅이 끝까지 가지 못하면(이미지 받기 실패 · SSM 값 없음 등) 인스턴스를 비정상으로 알려 ASG가 바꿔 띄우게 한다.
+# 왜: 실패해도 EC2 상태 확인은 정상이라 ASG가 그대로 두고, 감시 스크립트도 뜨기 전이라 알릴 곳이 없다.
+#     11/07 운영 전환에서 Docker Hub 토큰 권한이 모자라 이미지를 받지 못한 인스턴스가 InService로 남아 면접관이 약 16분 비었다.
+# 시작 직후라 유예 기간을 지키지 않는다(지키면 ASG가 무시한다). 원인이 그대로면 바꿔 띄운 대도 같은 이유로 실패하고,
+# 그 반복이 ASG 활동 기록에 남는다. 원인은 /var/log/a301-userdata.log(Session Manager)에서 본다
+BOOT_OK=no
+report_boot_failure() {
+  local code=$?
+  [ "$BOOT_OK" = yes ] && return
+  echo "FAIL: $(date -Is) user data가 끝까지 가지 못했다(종료 코드 ${code}). 인스턴스를 비정상으로 알린다"
+  local t id
+  t=$(curl -sf -X PUT http://169.254.169.254/latest/api/token -H 'X-aws-ec2-metadata-token-ttl-seconds: 60') || return
+  id=$(curl -sf -H "X-aws-ec2-metadata-token: ${t}" http://169.254.169.254/latest/meta-data/instance-id) || return
+  aws autoscaling set-instance-health --region "$REGION" --instance-id "$id" --health-status Unhealthy \
+    --no-should-respect-grace-period ||
+    echo "비정상 알리기 실패(ASG 밖에서 띄운 인스턴스이거나 권한 없음)"
+}
+trap report_boot_failure EXIT
+
 PREFIX="/a301/${A301_ENV}/${ROLE}"
 ALLOY_IMAGE="grafana/alloy:v1.20.1"
 # 줄일 때 진행 중 면접 · 녹화를 기다리는 상한(초). 수명 주기 훅 제한 시간(3900초)과 같다. 그룹 면접 약 60분을 덮는다(계획 6.3)
@@ -21,6 +42,8 @@ DRAIN_SECONDS=3900
 case "$ROLE" in
   agent)
     CONTAINER="a301-ai-agent"
+    # 로그 라벨 service. 메인 서버 compose 서비스 이름과 같게 해 같은 로그 대시보드에서 본다
+    SERVICE="a301-prod-ai-agent"
     HEALTH_URL="http://127.0.0.1:8081/"
     METRICS_URL="http://127.0.0.1:9464/metrics"
     METRIC_NAME="a301_agent_active_interviews"
@@ -28,6 +51,7 @@ case "$ROLE" in
     ;;
   egress)
     CONTAINER="a301-egress"
+    SERVICE="a301-prod-egress"
     HEALTH_URL="http://127.0.0.1:8080/"
     METRICS_URL="http://127.0.0.1:9090/metrics"
     METRIC_NAME="livekit_egress_requests"
@@ -196,7 +220,7 @@ start_alloy() {
   metrics_target=${metrics_target%%/*}
   sed -e "s|@@JOB@@|$(esc "$JOB")|g" -e "s|@@METRICS_TARGET@@|$(esc "$metrics_target")|g" \
     -e "s|@@METRICS_WRITE_URL@@|$(esc "$METRICS_WRITE_URL")|g" -e "s|@@LOKI_URL@@|$(esc "$LOKI_URL")|g" \
-    -e "s|@@CONTAINER@@|$(esc "$CONTAINER")|g" -e "s|@@ENV@@|$(esc "$A301_ENV")|g" -e "s|@@ROLE@@|$(esc "$ROLE")|g" \
+    -e "s|@@CONTAINER@@|$(esc "$CONTAINER")|g" -e "s|@@SERVICE@@|$(esc "$SERVICE")|g" -e "s|@@ENV@@|$(esc "$A301_ENV")|g" -e "s|@@ROLE@@|$(esc "$ROLE")|g" \
     -e "s|@@INSTANCE_ID@@|$(esc "$INSTANCE_ID")|g" -e "s|@@AZ@@|$(esc "$AZ")|g" \
     /etc/a301/alloy.alloy.tmpl >/etc/a301/alloy.alloy || return 1
   docker run -d --name a301-alloy \
@@ -255,4 +279,5 @@ WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
 systemctl enable --now a301-watcher
+BOOT_OK=yes
 echo "== $(date -Is) 감시 시작. 끝"

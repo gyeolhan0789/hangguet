@@ -2129,7 +2129,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{job=\"a301-ai-agent\"}",
+          "expr": "max(up{job=\"a301-ai-agent\"})",
           "instant": true
         }
       ],
