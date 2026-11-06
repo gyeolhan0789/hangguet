@@ -15,8 +15,8 @@ echo "== $(date -Is) a301 ${A301_ENV} ${ROLE} 시작"
 REGION="ap-northeast-2"
 PREFIX="/a301/${A301_ENV}/${ROLE}"
 ALLOY_IMAGE="grafana/alloy:v1.20.1"
-# 줄일 때 진행 중 면접 · 녹화를 기다리는 상한(초). 수명 주기 훅 제한 시간(1800초)과 같다(계획 6.3)
-DRAIN_SECONDS=1800
+# 줄일 때 진행 중 면접 · 녹화를 기다리는 상한(초). 수명 주기 훅 제한 시간(3900초)과 같다. 그룹 면접 약 60분을 덮는다(계획 6.3)
+DRAIN_SECONDS=3900
 
 case "$ROLE" in
   agent)

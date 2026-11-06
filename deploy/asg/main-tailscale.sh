@@ -9,7 +9,7 @@
 # 2. 태그 기기로 가입: 1회용 아님(재부팅해도 남는다) · 미리 승인. 태그 기기는 키가 만료되지 않는다
 #    --accept-dns=false: 서버의 DNS 설정을 바꾸지 않는다. ASG 인스턴스는 메인 서버를 이름이 아니라 Tailscale IP로 찾는다
 # 3. net.ipv4.ip_nonlocal_bind=1: 재부팅 때 Docker가 Tailscale IP가 생기기 전에 떠도
-#    compose가 그 IP에 연 포트(7880 · 6379 · 9090 · 3100, main-override.yml)를 묶을 수 있게 한다
+#    compose가 그 IP에 연 포트(7880 · 6379 · 9090 · 3100, compose.asg.yml)를 묶을 수 있게 한다
 # 4. Tailscale IP를 출력한다. compose .env의 MAIN_TAILSCALE_IP와 SSM livekit-url · redis-host에 쓴다
 set -euo pipefail
 

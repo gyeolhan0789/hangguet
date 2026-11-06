@@ -8,7 +8,7 @@
 | 파일 | 내용 |
 |---|---|
 | `compose.agent-split.yml` | 에이전트 분리 때만 더하는 덮어쓰기: 메인 서버의 에이전트 끄기, LiveKit 7880 · Redis 6379를 사설 IP에만 열기([../agent/README.md](../agent/README.md)) |
-| `compose.loadtest.yml` | 운영 compose 덮어쓰기: 주소(`lt.` · `rtc-lt.` · `grafana-lt.`), 테스트 버킷, GMS 주소, 회사 카드 적재 끔, 테스트용 LiveKit 설정, Egress 녹화 수락 판정 조정(`track_cpu_cost: 0.1`, 지금은 운영과 같은 값. S5 보고서 7 · 9장) |
+| `compose.loadtest.yml` | 운영 compose 덮어쓰기: 주소(`lt.` · `rtc-lt.` · `grafana-lt.`), 테스트 버킷, GMS 주소, 회사 카드 적재 끔, 테스트용 LiveKit 설정 |
 | `livekit.yaml` | 운영 LiveKit 설정에서 TURN 도메인 · 인증서만 `turn-lt.hangguet.co.kr`로 바꾼 것 |
 | `.env.example` | 서버에서 새로 만들 비밀값 이름. 서버에서 `.env`로 복사해 채운다(커밋하지 않는다) |
 | `setup.sh` | 서버 기본 셋팅(시간대 · 스왑 · Docker · 로그 · TURN 인증서). 운영 서버와 같게 맞춘다 |

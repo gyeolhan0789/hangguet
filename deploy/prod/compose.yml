@@ -14,6 +14,9 @@
 #
 # 값
 # - 비밀값은 GitLab CI/CD Variables(prod/* 또는 범위 All)에서 받는다(배포 계획 7장). 이름은 개발 서버와 같다.
+# - Redis 비밀번호(REDIS_PASSWORD, 운영만): 에이전트를 ASG로 옮기면 Redis를 Tailscale 쪽에 열어야 해서 먼저 켠다
+#   (이해준/agent_autoscale_plan 5.2 · 10.1의 2). 공백 · 따옴표 없는 값(openssl rand -hex 24). 붙는 곳은 BE · AI 작업자 · 에이전트 ·
+#   LiveKit · Egress · redis-exporter이고, ASG 인스턴스는 같은 값을 SSM(/a301/prod/agent/redis-password)에서 읽는다
 # - 이미지: Docker Hub 비공개 저장소 hanggeut/a301, 태그 be-·fe-·ai-·admin-<커밋 SHA>(배포 계획 8.1). IMAGE_TAG는 필수다.
 # - 비밀이 아닌 설정은 이 파일에 적는다.
 # - POSTGRES 비밀번호와 관리자 · Grafana 계정은 볼륨을 처음 만들 때만 적용된다. 나중에 바꾸면 각 서비스에서 직접 바꾼다.
@@ -54,7 +57,7 @@ x-ai-worker: &ai-worker
       - CMD
       - python
       - -c
-      - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), socket_timeout=3).ping()"
+      - "import os, redis; redis.Redis(host=os.environ['REDIS_HOST'], port=int(os.environ['REDIS_PORT']), password=os.environ.get('REDIS_PASSWORD') or None, socket_timeout=3).ping()"
     interval: 30s
     timeout: 5s
     start_period: 10s
@@ -66,6 +69,7 @@ x-ai-worker: &ai-worker
 x-ai-worker-redis-env: &ai-worker-redis-env
   REDIS_HOST: a301-prod-redis
   REDIS_PORT: "6379"
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
 
 # GMS 접속 값. 개발 서버와 같다
 x-gms-env: &gms-env
@@ -108,7 +112,17 @@ services:
     container_name: a301-prod-redis
     restart: unless-stopped
     # 리프레시 토큰을 저장하므로 메모리가 차도 키를 지우지 않는다(지우면 로그인이 풀린다).
-    command: ["redis-server", "--maxmemory", "192mb", "--maxmemory-policy", "noeviction"]
+    command:
+      - redis-server
+      - --maxmemory
+      - 192mb
+      - --maxmemory-policy
+      - noeviction
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
+    environment:
+      # 헬스체크의 redis-cli가 읽는 비밀번호
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
     volumes:
       - redis-data:/data
     healthcheck:
@@ -138,6 +152,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD CI/CD variable is required}
       REDIS_HOST: a301-prod-redis
       REDIS_PORT: "6379"
+      # Spring 자동 설정(spring.data.redis.password)이 읽는다
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET CI/CD variable is required}
       # 문의 제목 · 본문 암호화 키(Base64 32바이트). 개발과 다른 값이다. 바꾸거나 잃으면 이미 저장한 문의를 풀 수 없다
       INQUIRY_ENCRYPTION_KEY: ${INQUIRY_ENCRYPTION_KEY:?INQUIRY_ENCRYPTION_KEY CI/CD variable is required}
@@ -218,6 +234,7 @@ services:
       AGENT_IDLE_PROCESSES: ${AGENT_IDLE_PROCESSES:-}
       REDIS_HOST: a301-prod-redis
       REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
     healthcheck:
       test:
         - CMD
@@ -369,6 +386,8 @@ services:
         condition: service_healthy
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}"
+      # livekit.yaml의 redis.password를 덮어쓴다(livekit-server v1.13.10 redis-password 플래그, 11/06 테스트 서버에서 확인)
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
     # MPTCP 끄기(배포 계획 5.2). 바깥에 열린 컨테이너(Nginx · LiveKit)만 둔다.
     # 왜: 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연됨)의 수정 커널이 아직 정식 업데이트에 없다(11/06).
     #     LiveKit(Go)은 MPTCP를 기본으로 써 7881/tcp가 MPTCP로 열려 있었다(Nginx도 MPTCP 소켓 1개).
@@ -409,6 +428,7 @@ services:
         ws_url: ws://a301-prod-livekit:7880
         redis:
           address: a301-prod-redis:6379
+          password: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
         health_port: 8080
         prometheus_port: 9090
         # 기본값 0.5면 트랙 녹화 1개를 0.5코어로 15초 예약해 4코어 × 0.8 기준 15초에 약 6개만 받는다.
@@ -502,6 +522,7 @@ services:
         condition: service_healthy
     environment:
       REDIS_ADDR: redis://a301-prod-redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
     mem_limit: 64m
     networks:
       - internal

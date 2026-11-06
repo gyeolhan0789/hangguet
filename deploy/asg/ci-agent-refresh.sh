@@ -6,7 +6,7 @@
 # 2. a301-prod-agent ASG 인스턴스 새로 고침 시작: 새 대를 먼저 띄우고(최소 정상 100% · 최대 200%),
 #    옛 대는 수명 주기 훅 → 감시 스크립트 → drain으로 진행 중 면접을 마친 뒤 내린다(계획 6.3)
 #    면접 중이라 축소 보호가 켜진 대는 보호가 풀릴 때까지 기다린다(ScaleInProtectedInstances=Wait)
-# 끝날 때까지 기다리지 않는다(진행 중 면접 때문에 최대 30분). 진행은 콘솔 · `describe-instance-refreshes`로 본다.
+# 끝날 때까지 기다리지 않는다(진행 중 면접 때문에 최대 65분). 진행은 콘솔 · `describe-instance-refreshes`로 본다.
 # 되돌리기: GitLab에서 이전 배포를 Re-deploy하면 이 스크립트도 이전 SHA로 다시 돈다.
 #
 # 필요한 CI/CD 변수(범위 prod/*, Protected · Masked)

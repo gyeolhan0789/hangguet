@@ -339,12 +339,12 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 
 - 면접이 막 배정된 순간과 보호가 켜지는 순간(최대 1분) 사이, 인스턴스 새로 고침, 원하는 대수를 직접 낮출 때는 보호가 없는 대가 골라질 수 있다. 이때 훅이 drain을 기다린다
 
-1. ASG **수명 주기 훅**(`autoscaling:EC2_INSTANCE_TERMINATING`, 하트비트 1800초)으로 종료를 대기 상태에 둔다
-2. 인스턴스의 감시 스크립트가 IMDS(`/latest/meta-data/autoscaling/target-lifecycle-state`)에서 `Terminated`를 보면 `docker stop --time 1800 a301-ai-agent`
+1. ASG **수명 주기 훅**(`autoscaling:EC2_INSTANCE_TERMINATING`, 하트비트 3900초)으로 종료를 대기 상태에 둔다
+2. 인스턴스의 감시 스크립트가 IMDS(`/latest/meta-data/autoscaling/target-lifecycle-state`)에서 `Terminated`를 보면 `docker stop --time 3900 a301-ai-agent`
 3. 에이전트(livekit-agents)는 SIGTERM을 받으면 **새 면접을 받지 않고(drain) 진행 중인 면접이 끝날 때까지 기다린다**. `drain_timeout` 기본 3600초를 1800초로 맞춘다
 4. 컨테이너가 끝나면 `aws autoscaling complete-lifecycle-action`으로 종료를 진행한다
 
-- 왜 1800초: 실제 면접은 약 10분, 결과 생성은 BE · AI 작업자가 하므로 에이전트는 면접방이 끝나면 놓인다. 여유를 두 배 이상 뒀다. **1800초는 상한이다**: 면접이 끝나면 바로, 면접이 없으면 즉시 내려간다. 무한정 보호하는 장치도 아니다(넘으면 종료가 진행된다)
+- 왜 3900초(65분, 11/06 1800초에서 바꿈): 개인 면접은 약 10분이지만 그룹 면접(docs/그룹면접-설계.md)은 약 60분이다. 상한이 그보다 짧으면 비정상 교체 · 강제로 내릴 때 그룹 면접이 중간에 끊긴다. **3900초는 상한이다**: 면접이 끝나면 바로, 면접이 없으면 즉시 내려간다. 무한정 보호하는 장치도 아니다(넘으면 종료가 진행된다). 훅 하트비트 최대값(7200초) 안이다
 - 11/03 1단계에서 확인한 것은 **에이전트 자체의 drain**(면접 중 SIGTERM → 끝까지 진행 → 1초 뒤 종료)이다. ASG 축소 전체(보호 · 훅 · 완료 호출)는 9장 "줄이기"에서 검증한다
 - 강제 종료 · 인스턴스 장애는 보호와 훅으로 막지 못한다(9장 "장애")
 
@@ -371,8 +371,8 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 **줄일 때 진행 중 녹화 보호 [제안]**: 에이전트의 축소 보호 + 수명 주기 훅(6.3)을 그대로 쓴다.
 
 - 축소 보호 기준: 감시 스크립트가 1분마다 Egress 지표 `livekit_egress_requests`(종류별 진행 중 녹화 수, 9090)의 합을 보고 1 이상이면 보호를 켜고 0이면 끈다
-- 수명 주기 훅: `Terminated`를 보면 `docker stop --time 1800 a301-egress`. Egress v1.15.0은 **SIGTERM을 받으면 새 녹화를 받지 않고 진행 중 녹화가 모두 끝날 때까지 기다린 뒤 종료한다**(`cmd/server/main.go` "finishing recording then shutting down", 자체 시간 상한 없음). **SIGINT는 진행 중 녹화를 바로 멈춘다**. 그래서 `docker stop`이 보내는 신호가 SIGTERM인지(이미지의 `StopSignal`) 확인해야 한다 **[확인 필요]**(9장)
-- 녹화는 면접이 끝나 BE가 방을 닫으면(API 명세 5.8) 같이 끝난다. 그래서 1800초 상한의 근거는 에이전트와 같다(면접 약 10분)
+- 수명 주기 훅: `Terminated`를 보면 `docker stop --time 3900 a301-egress`. Egress v1.15.0은 **SIGTERM을 받으면 새 녹화를 받지 않고 진행 중 녹화가 모두 끝날 때까지 기다린 뒤 종료한다**(`cmd/server/main.go` "finishing recording then shutting down", 자체 시간 상한 없음). **SIGINT는 진행 중 녹화를 바로 멈춘다**. 그래서 `docker stop`이 보내는 신호가 SIGTERM인지(이미지의 `StopSignal`) 확인해야 한다 **[확인 필요]**(9장)
+- 녹화는 면접이 끝나 BE가 방을 닫으면(API 명세 5.8) 같이 끝난다. 그래서 3900초 상한의 근거는 에이전트와 같다(면접 약 10분)
 - 메모리 넘침 · 인스턴스 장애로 Egress가 죽으면 그 대의 진행 중 녹화가 모두 잘린다. 합치기가 실패해(`TRACK_NOT_FOUND`) 다시보기가 "녹화를 불러오지 못했어요"가 된다. 면접 · 결과는 영향이 없다
 
 ## 7. 배포 · 버전
@@ -398,14 +398,14 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
   - 왜: 에이전트와 BE가 같은 명세 버전이어야 한다. 메인 서버 배포(`deploy/prod/deploy.sh`) 뒤에 새로 고침을 이어서 한다
   - **[결정] 순서는 BE 먼저 → 에이전트 새로 고침.** 배정 메타데이터 형식이 바뀌면 새 BE가 보낸 면접을 옛 에이전트가 잠깐 받을 수 있으므로, 메타데이터를 바꿀 때는 에이전트가 옛 · 새 형식을 모두 읽게 먼저 배포한다
   - **[결정] 운영은 처음부터 CI로 자동화**(11/06, 7.1): 운영 배포(▶ `prod-deploy`)가 메인 서버 배포에 성공하면 같은 잡에서 SSM 태그를 바꾸고 새로 고침을 시작한다(`deploy/asg/ci-agent-refresh.sh`). 메인 서버 러너에는 `ssm:PutParameter`(태그 하나) · `autoscaling:StartInstanceRefresh`(이 ASG)만 준 IAM 사용자 키를 준다(메인 서버는 SSAFY 계정이라 우리 계정 역할을 못 씀). CI는 새로 고침을 시작만 하고 끝까지 기다리지 않는다
-  - **[결정] 새로 고침 설정**: 최소 정상 비율 100% · 최대 200%(새 대를 먼저 띄우고 옛 대를 drain), 준비 시간 180초. 옛 대는 진행 중 면접이 끝날 때까지 최대 1800초 기다리고, 면접이 없으면 바로 내려간다
+  - **[결정] 새로 고침 설정**: 최소 정상 비율 100% · 최대 200%(새 대를 먼저 띄우고 옛 대를 drain), 준비 시간 180초. 옛 대는 진행 중 면접이 끝날 때까지 최대 3900초 기다리고, 면접이 없으면 바로 내려간다
     - 지금 운영 사용자는 거의 없어 몇 분 안에 끝난다. 그래도 사용자 · 시연이 있을 때를 기준으로 둔다. 비용은 몇 분이고, "진행 중 면접을 끊지 않는 배포"가 이 구조의 핵심이다
   - 되돌리기: SSM 태그를 이전 값으로 바꾸고 새로 고침을 다시 한다. 급하면 10.1의 되돌리기(메인 서버 안 에이전트 + ASG 0)
 - 최소 1대 상시(`t3.small` 월 약 $26)는 사용자가 거의 없어도 유지한다 **[결정]**. 왜: 최소 0이면 첫 면접이 인스턴스가 뜨는 3~4분을 기다린다. 예산($100 + 남은 크레딧)으로 12/1까지 충분하다
 - **[제안]** 이미지 받기: 처음에는 Docker Hub 읽기 토큰(SSM)을 쓴다. 시작 시간이 길거나 토큰 관리가 번거로우면 ECR로 옮긴다
 - **[결정] 운영 수칙: 에이전트 · Egress 인스턴스는 EC2 콘솔 · API로 직접 종료하지 않는다.** 대수를 줄이거나 한 대를 빼려면 ASG로 한다: 원하는 대수 낮추기, 인스턴스 새로 고침, `aws autoscaling terminate-instance-in-auto-scaling-group`(교체가 필요하면 `--no-should-decrement-desired-capacity`)
   - 왜: ASG로 내리면 수명 주기 훅 → 감시 스크립트 → drain을 거쳐 에이전트가 연결을 닫고 나간다. EC2에서 직접 끄면 연결을 닫지 못하고 사라져 LiveKit에 **유령 작업자**가 남고, 그동안 새 면접이 그쪽에 배정돼 면접관 없이 멈춘다(11장, [운영 경로 보고서](../../loadtest/report/asg-path-2026-11-06.md) 3장). 진행 중이던 면접도 잃는다
-  - 유령은 하드웨어 장애처럼 피할 수 없는 경우에도 생긴다. 그래서 LiveKit 재전송 상한(`deploy/asg/main-override.yml`의 `tcp_retries2=8`, 약 2분)과 BE의 시작 실패 처리(`START_FAILED`)를 같이 둔다
+  - 유령은 하드웨어 장애처럼 피할 수 없는 경우에도 생긴다. 그래서 LiveKit 재전송 상한(`deploy/prod/compose.asg.yml`의 `tcp_retries2=8`, 약 2분)과 BE의 시작 실패 처리(`START_FAILED`)를 같이 둔다
 - 운영 CI/CD 연결은 운영 반영을 정한 뒤에 한다
 
 **Egress 운영 리소스 [제안]**(11/05)
@@ -434,7 +434,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 ④ SSM 태그 변경        /a301/prod/agent/image-tag = <③과 같은 SHA>
 ⑤ 인스턴스 새로 고침    a301-prod-agent ASG(최소 정상 100% · 최대 200% · 준비 시간 180초)
      새 인스턴스: user data가 SSM에서 새 태그를 읽어 이미지를 받고 LiveKit에 등록
-     옛 인스턴스: 수명 주기 훅 → SIGTERM → 새 면접은 받지 않고 진행 중 면접이 끝나면 종료(최대 1800초, 6.3)
+     옛 인스턴스: 수명 주기 훅 → SIGTERM → 새 면접은 받지 않고 진행 중 면접이 끝나면 종료(최대 3900초, 6.3)
 ```
 
 | 항목 | 내용 | 왜 |
@@ -453,7 +453,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 - 권한: 메인 서버 러너는 SSAFY 계정이라 우리 계정 역할을 쓸 수 없다. **이 파라미터 하나에 `ssm:PutParameter`, 이 ASG에 `autoscaling:StartInstanceRefresh` · `DescribeInstanceRefreshes`만** 준 IAM 사용자 `a301-prod-agent-ci`(`deploy/asg/iam/ci-agent-refresh-policy.json`)의 키를 `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY`(범위 `prod/*`, Protected · Masked)로 둔다. AWS CLI는 러너에 설치하지 않고 공식 이미지(`amazon/aws-cli`)로 돌린다
 - 동작: 진행 중인 새로 고침이 있으면 태그도 바꾸지 않고 잡을 실패로 남긴다(섞인 상태를 만들지 않게). 없으면 `put-parameter --overwrite` → `start-instance-refresh`(최소 정상 100% · 최대 200% · 준비 180초 · **축소 보호가 켜진 대는 풀릴 때까지 기다림** `ScaleInProtectedInstances=Wait`)
   - 왜 `Wait`: 감시 스크립트가 면접 중인 대에 축소 보호를 건다. 기본값(`Ignore`)이면 그 대는 새로 고침에서 빠져 옛 버전으로 남는다 **[확인함]**(11/06, [운영 경로 보고서](../../loadtest/report/asg-path-2026-11-06.md) 2.3): 면접 중인 대가 있으면 새로 고침은 새 대를 띄우지도 않고 보호가 풀릴 때까지 기다린다. 면접이 끝나면 새 대를 먼저 띄우고 준비 시간(180초) 뒤 옛 대를 내린다. 진행 중 면접은 끊기지 않고, 반영은 면접이 끝난 뒤 약 4~5분 걸린다. 면접이 끊이지 않는 시간에는 배포가 그만큼 늦어진다
-- 기다리지 않는다: 새로 고침은 진행 중 면접 때문에 최대 30분 걸릴 수 있어, 잡은 시작만 하고 끝난다. 끝났는지는 콘솔 · `describe-instance-refreshes`로 본다
+- 기다리지 않는다: 새로 고침은 진행 중 면접 때문에 최대 65분 걸릴 수 있어, 잡은 시작만 하고 끝난다. 끝났는지는 콘솔 · `describe-instance-refreshes`로 본다
 - 실패해도 메인 서버 배포(③)는 되돌리지 않는다. 그 상태는 "④를 잊은 경우"와 같으므로 잡을 다시 돌리면(Retry) 된다
 - 되돌리기: GitLab에서 이전 배포를 Re-deploy하면 ③과 함께 ④ · ⑤도 이전 SHA로 다시 돈다
 
@@ -505,7 +505,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | 혼합 | S6 | 한계가 분리 전보다 높아진다 |
 | 운영 경로(Tailscale) | 테스트 서버에 Tailscale을 넣고 7880 · 6379를 Tailscale IP에만 연 뒤 S5 동시 5건 | 직접 연결(`direct`), 첫 질문 · 결과가 사설 VPC 경로와 같음. 테스트 서버 재부팅 뒤에도 포트가 다시 묶임 |
 | Tailscale 끊김 | 면접 중 에이전트 인스턴스의 `tailscaled`를 잠깐 멈췄다 켬 | 진행 중 면접에 생기는 일 기록, 다시 연결 뒤 LiveKit 자동 재등록, 준비 확인(6.1)이 비정상을 알리는지 |
-| Egress 기능 · drain **[제안]** | Egress ASG 1대 + 메인 서버 Egress 끔으로 S5 1건(녹화 · 합치기 · 다시보기까지). 녹화 중 `docker stop --time 1800 a301-egress`. 이미지 `StopSignal` 확인(`docker inspect --format '{{.Config.StopSignal}}' livekit/egress:v1.15.0`) | 다시보기 정상. 녹화가 끝날 때까지 기다린 뒤 종료(SIGTERM), 새 녹화는 받지 않음. 녹화 파일을 로컬에 쓰는지 · 영상 전송량(5.5) · 버킷 VPC 조건(5.5) 기록 |
+| Egress 기능 · drain **[제안]** | Egress ASG 1대 + 메인 서버 Egress 끔으로 S5 1건(녹화 · 합치기 · 다시보기까지). 녹화 중 `docker stop --time 3900 a301-egress`. 이미지 `StopSignal` 확인(`docker inspect --format '{{.Config.StopSignal}}' livekit/egress:v1.15.0`) | 다시보기 정상. 녹화가 끝날 때까지 기다린 뒤 종료(SIGTERM), 새 녹화는 받지 않음. 녹화 파일을 로컬에 쓰는지 · 영상 전송량(5.5) · 버킷 VPC 조건(5.5) 기록 |
 | Egress 몰림 **[제안]** | Egress 1대에 동시 5 · 10 · 15건을 3초 간격, 그리고 한꺼번에 시작. `track_cpu_cost` 0.1과 0.05를 비교 | 녹화 거절 0이 되는 `track_cpu_cost`와 대당 건수(2.3 추정과 비교), 그때 Egress CPU · 메모리. 확장 목표(40%)를 확정 |
 | Egress 줄이기 · 장애 **[제안]** | 2대 중 녹화 0건인 대가 먼저 내려가는지(축소 보호). 녹화 중 인스턴스 강제 종료 | 0건인 대가 먼저 내려감, 진행 녹화 끊김 0. 강제 종료면 그 대 녹화만 실패하고 다음 면접 녹화는 다른 대로 감 |
 | Egress 분리 뒤 메인 서버 **[제안]** | 에이전트 · Egress 모두 뗀 상태로 S5 10 · 15 · 20건 | 메인 서버 CPU가 2.3 추정(1건 약 0.05코어)과 맞는지. 다음 한계(LiveKit · BE · 합치기) |
@@ -619,3 +619,4 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | 인프라 | 11/06 Cloudflare 프록시 제거 반영: 3장 운영 구조 그림(사용자 → Nginx 443, SNI로 웹 · TURN/TLS 나눔)과 설명, 테스트 서버 그림에 "Tunnel 쓰던 구성" 표시, 2.3 메인 서버 추정에 웹 TLS 몫, 5.4 7880을 Tailscale로 잇는 이유, 아키텍처 그림 | 웹 입구가 Cloudflare Tunnel에서 메인 서버 Nginx로 바뀌었다(S15P31A301-412). 에이전트 · Egress는 Tailscale로 7880 · 6379에 바로 붙어 연결 방식은 그대로이고, 7880의 근거였던 Bot Fight Mode만 사라졌다 |
 | 인프라 | 11/06 테스트 서버 운영 경로 재현 결과 반영([보고서](../../loadtest/report/asg-path-2026-11-06.md)): 10.1의 3 진행 표시, 11장 유령 작업자 측정(14분) · 대책(`tcp_retries2=8`, 2분), 도중에 멈춘 면접이 축소를 막는 문제, EC2 직접 종료와 훅 정정 | Tailscale · 키트 · Redis 비밀번호로 운영과 같은 구성을 띄워 drain · 축소 보호 · 되돌리기를 확인했다. 장애 시험에서 운영 전에 막아야 할 문제 두 가지가 나왔다 |
 | 인프라 | 7 · 7.1: 운영 새 버전 반영을 **CI로 자동화 [결정]**. `prod-deploy`가 메인 서버 배포 뒤 `deploy/asg/ci-agent-refresh.sh`로 SSM 태그 변경 · 인스턴스 새로 고침(`ScaleInProtectedInstances=Wait`)을 한다. `AGENT_ASG_ENABLED=true`일 때만 돌아 전환 전 머지는 운영 배포를 바꾸지 않는다 | 수동이면 SSM 태그 · 새로 고침을 빠뜨려 에이전트만 옛 버전으로 남거나 두 버전이 섞일 수 있다. 축소 보호가 켜진 대를 기본값(Ignore)으로 건너뛰지 않게 Wait로 둔다 |
+| 인프라 | 10.1 운영 반영 준비: Redis 비밀번호를 운영 `compose.yml`에 늘 켬(덮어쓰기 파일 대신, `REDIS_PASSWORD` 필수). 전환 덮어쓰기를 `deploy/prod/compose.asg.yml`로 옮기고 `deploy.sh`가 `AGENT_ASG_ENABLED=true`일 때만 더함(메인 서버 에이전트 drain 뒤 지움, Egress는 `egress-on-main`으로 남김). 6.3 drain 상한 1800 → **3900초** | 전환을 서버에서 손으로 하지 않고 GitLab 변수로 켜고 끄며, 되돌리기도 변수를 지우고 다시 배포하면 된다. 그룹 면접(약 60분)이 drain 상한에 잘리지 않게 늘렸다 |

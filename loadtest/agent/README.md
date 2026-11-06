@@ -148,7 +148,7 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
 | | 11/03 시험 | 운영 경로 재현 |
 |---|---|---|
 | 메인 서버 ↔ 에이전트 | 사설 IP · 보안 그룹 | Tailscale IP · ACL(테스트 태그 `tag:a301-loadtest-*`) |
-| 메인 서버 덮어쓰기 | `compose.agent-split.yml` | `deploy/asg/redis-password.yml` + `deploy/asg/main-override.yml` |
+| 메인 서버 덮어쓰기 | `compose.agent-split.yml` | `deploy/prod/compose.asg.yml`(Redis 비밀번호는 운영 compose에 늘 켜져 있다) |
 | Redis 비밀번호 | 없음 | 있음(운영과 같게) |
 | user data | `loadtest/agent/user-data.sh` | `bash deploy/asg/build.sh agent loadtest` |
 | 감시 스크립트 · 축소 보호 · 수명 주기 훅 · 지표(Alloy) | 없음 | 있음 |
@@ -192,7 +192,7 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
 4. 띄운다. 에이전트만 먼저 옮기므로 Egress는 메인 서버에 남긴다(`--profile egress-on-main`)
    ```bash
    cd ~/a301
-   COMPOSE="docker compose --env-file loadtest/server/.env -f deploy/prod/compose.yml -f loadtest/server/compose.loadtest.yml -f deploy/asg/redis-password.yml -f deploy/asg/main-override.yml"
+   COMPOSE="docker compose --env-file loadtest/server/.env -f deploy/prod/compose.yml -f loadtest/server/compose.loadtest.yml -f deploy/prod/compose.asg.yml"
    $COMPOSE --profile egress-on-main pull
    $COMPOSE --profile egress-on-main up -d
    docker rm -f a301-prod-ai-agent                          # 프로필에서 빠져도 이미 떠 있던 컨테이너는 남는다
@@ -201,7 +201,7 @@ docker ps --format '{{.Names}} {{.Ports}}' | grep -E 'livekit|redis'   # 7880 ·
    docker logs a301-prod-livekit 2>&1 | grep -iE 'redis|NOAUTH|error' | tail   # LiveKit이 비밀번호로 Redis에 붙었는지
    ```
    - Pull은 README 6단계처럼 Docker Hub 로그인 상태에서 한다
-   - Prometheus의 `a301-ai-agent` 수집 작업은 컨테이너가 없어 계속 실패한다. 테스트에서는 그대로 둔다(운영은 지운다, `main-override.yml` 머리말)
+   - Prometheus의 `a301-ai-agent` 수집 작업은 컨테이너가 없어 계속 실패한다. 테스트에서는 그대로 둔다(운영은 지운다, `compose.asg.yml` 머리말)
 
 ### 3. SSM `/a301/loadtest/agent/*`
 
@@ -228,7 +228,7 @@ GMS 꼬리질문(`llm-chat-url` · `llm-model` · `llm-api-key`)은 선택이다
    ```bash
    bash deploy/asg/build.sh agent loadtest > user-data-loadtest-agent.sh   # 커밋하지 않는다
    ```
-4. ASG `a301-loadtest-agent`: 시작 템플릿 버전을 최신(Latest)으로, **인스턴스 관리 → 수명 주기 후크 생성**: 이름 `a301-loadtest-agent-drain`, 인스턴스 종료, 하트비트 제한 시간 `1800`, 기본 결과 `CONTINUE`. 그 뒤 원하는 · 최소 · 최대 **1 · 1 · 1**
+4. ASG `a301-loadtest-agent`: 시작 템플릿 버전을 최신(Latest)으로, **인스턴스 관리 → 수명 주기 후크 생성**: 이름 `a301-loadtest-agent-drain`, 인스턴스 종료, 하트비트 제한 시간 `3900`, 기본 결과 `CONTINUE`. 그 뒤 원하는 · 최소 · 최대 **1 · 1 · 1**
 
 ### 5. 확인
 

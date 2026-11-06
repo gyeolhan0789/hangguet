@@ -12,6 +12,7 @@
 # 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana),
 #    서버 443 · 80 직접 접속(같은 3개 + TURN/TLS SNI 분기 + http → https), 20초 동안 재시작 없음
 # 7. 이미지 정리: 서비스마다 최신 3개만 남긴다(8.2)
+# AGENT_ASG_ENABLED=true면 compose.asg.yml을 더하고 메인 서버 에이전트를 내린다(에이전트 ASG 전환, 이해준/agent_autoscale_plan 10.1)
 set -euo pipefail
 
 : "${IMAGE_TAG:?IMAGE_TAG가 필요합니다}"
@@ -30,6 +31,22 @@ GRAFANA_URL="${GRAFANA_URL:-https://grafana.hangguet.co.kr}"
 STABLE_WAIT="${STABLE_WAIT:-20}"
 COMPOSE=(docker compose -f "${PROD_DIR}/compose.yml")
 SRC_COMPOSE=(docker compose -f "${SRC_DIR}/compose.yml")
+
+# 에이전트 ASG 전환(이해준/agent_autoscale_plan 10.1의 5). GitLab 변수 AGENT_ASG_ENABLED=true면 compose.asg.yml을 더해
+# 메인 서버의 에이전트를 끄고 LiveKit · Redis · Prometheus · Loki를 Tailscale IP에 연다. 변수를 지우고 다시 배포하면 원래 구성이다.
+# 진행 중 면접이 끝날 때까지 기다리는 상한(초). ASG 인스턴스의 drain 상한과 같다(그룹 면접 약 60분을 덮는다, 계획 6.3)
+AGENT_DRAIN_SECONDS="${AGENT_DRAIN_SECONDS:-3900}"
+if [ "${AGENT_ASG_ENABLED:-}" = "true" ]; then
+  : "${MAIN_TAILSCALE_IP:?AGENT_ASG_ENABLED=true면 MAIN_TAILSCALE_IP(메인 서버 Tailscale IP, 범위 prod/*)가 필요합니다}"
+  COMPOSE+=(-f "${PROD_DIR}/compose.asg.yml")
+  SRC_COMPOSE+=(-f "${SRC_DIR}/compose.asg.yml")
+  # Egress는 Egress ASG로 옮기기 전까지 메인 서버에 둔다(compose.asg.yml이 egress-on-main 프로필로 묶는다).
+  # Egress를 옮기는 날 EGRESS_ASG_ENABLED=true로 끄고, 그때 아래 에이전트처럼 남은 컨테이너를 drain하는 처리를 더한다
+  if [ "${EGRESS_ASG_ENABLED:-}" != "true" ]; then
+    export COMPOSE_PROFILES="egress-on-main"
+  fi
+  echo "에이전트 ASG 구성: 메인 서버 에이전트 끔, Tailscale ${MAIN_TAILSCALE_IP}에 7880 · 6379 · 9090 · 3100"
+fi
 
 log() { echo "== $*"; }
 fail() { echo "FAIL: $*"; exit 1; }
@@ -104,6 +121,15 @@ rsync -a --delete "${SRC_DIR}/" "${PROD_DIR}/"
 log "서비스 띄우기"
 # 이미지 · 환경 변수 · 설정 해시 라벨이 바뀐 서비스만 다시 만든다(compose가 Recreate로 출력한다)
 "${COMPOSE[@]}" up -d --remove-orphans
+
+# 프로필로 꺼진 서비스의 컨테이너는 up이 지우지 않는다. 전환하는 날 남아 있는 메인 서버 에이전트를 SIGTERM으로 drain한 뒤 지운다
+# (새 면접은 받지 않고 진행 중 면접을 마친 뒤 내려간다. 그동안 새 면접은 ASG 에이전트가 받는다)
+if [ "${AGENT_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-ai-agent >/dev/null 2>&1; then
+  log "메인 서버 에이전트 내리기 (진행 중 면접을 최대 ${AGENT_DRAIN_SECONDS}초 기다림)"
+  docker stop --time "$AGENT_DRAIN_SECONDS" a301-prod-ai-agent >/dev/null
+  docker rm a301-prod-ai-agent >/dev/null
+  echo "OK: a301-prod-ai-agent 내림"
+fi
 
 log "상태 확인"
 EXPECTED="$("${COMPOSE[@]}" config --services | sort)"
