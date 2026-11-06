@@ -915,6 +915,7 @@ admin-deploy:
 # - prod-deploy는 ▶ 버튼으로 돕니다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어
 #   시점을 사람이 고릅니다. 하는 일은 deploy/prod/deploy.sh
 #   (설정 해시 → 로그인 → 설정 검사 · pull → 백업 준비 → 파일 복사 · up → 상태 · 바깥 주소 · 재시작 확인 → 이미지 정리)
+#   그 뒤 deploy/asg/ci-agent-refresh.sh가 에이전트 ASG를 같은 버전으로 맞춥니다(AGENT_ASG_ENABLED=true일 때만, 아니면 건너뜀)
 # - 롤백: Deployments > Environments > prod/app에서 이전 배포를 Re-deploy 합니다(그 커밋의 이미지 · 설정 · deploy.sh로 다시 띄움).
 #   master 수동 실행(Run pipeline)은 workflow에서 막혀 있어 Re-deploy만 씁니다. 주의할 점은 deploy/prod/README.md 「배포」
 # - 비밀값은 CI/CD Variables(prod/* · All)에서 받습니다. Protected라 master 파이프라인에서만 읽힙니다.
@@ -982,6 +983,8 @@ prod-deploy:
     deployment_tier: production
   script:
     - bash deploy/prod/deploy.sh
+    # 에이전트 ASG를 같은 버전으로(SSM 태그 + 인스턴스 새로 고침, 계획 7.1). AGENT_ASG_ENABLED가 true일 때만 돈다
+    - bash deploy/asg/ci-agent-refresh.sh
 
 ## FE ##
 

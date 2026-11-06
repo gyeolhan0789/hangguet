@@ -397,7 +397,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 - **[제안]** 새 버전 배포: 태그 매개변수를 바꾸고 ASG **인스턴스 새로 고침**(최소 정상 비율 100%, 6.3의 drain을 거침)
   - 왜: 에이전트와 BE가 같은 명세 버전이어야 한다. 메인 서버 배포(`deploy/prod/deploy.sh`) 뒤에 새로 고침을 이어서 한다
   - **[결정] 순서는 BE 먼저 → 에이전트 새로 고침.** 배정 메타데이터 형식이 바뀌면 새 BE가 보낸 면접을 옛 에이전트가 잠깐 받을 수 있으므로, 메타데이터를 바꿀 때는 에이전트가 옛 · 새 형식을 모두 읽게 먼저 배포한다
-  - **[결정] 처음에는 수동**: 운영 배포(▶) 뒤 사람이 SSM 태그를 바꾸고 콘솔에서 새로 고침을 시작한다. 안정되면 CI로 옮긴다. 그때 메인 서버 러너에 `ssm:PutParameter`(태그 하나) · `autoscaling:StartInstanceRefresh`(이 ASG)만 준 IAM 사용자 키가 필요하다(메인 서버는 SSAFY 계정이라 우리 계정 역할을 못 씀). CI는 새로 고침을 시작만 하고 끝까지 기다리지 않는다
+  - **[결정] 운영은 처음부터 CI로 자동화**(11/06, 7.1): 운영 배포(▶ `prod-deploy`)가 메인 서버 배포에 성공하면 같은 잡에서 SSM 태그를 바꾸고 새로 고침을 시작한다(`deploy/asg/ci-agent-refresh.sh`). 메인 서버 러너에는 `ssm:PutParameter`(태그 하나) · `autoscaling:StartInstanceRefresh`(이 ASG)만 준 IAM 사용자 키를 준다(메인 서버는 SSAFY 계정이라 우리 계정 역할을 못 씀). CI는 새로 고침을 시작만 하고 끝까지 기다리지 않는다
   - **[결정] 새로 고침 설정**: 최소 정상 비율 100% · 최대 200%(새 대를 먼저 띄우고 옛 대를 drain), 준비 시간 180초. 옛 대는 진행 중 면접이 끝날 때까지 최대 1800초 기다리고, 면접이 없으면 바로 내려간다
     - 지금 운영 사용자는 거의 없어 몇 분 안에 끝난다. 그래도 사용자 · 시연이 있을 때를 기준으로 둔다. 비용은 몇 분이고, "진행 중 면접을 끊지 않는 배포"가 이 구조의 핵심이다
   - 되돌리기: SSM 태그를 이전 값으로 바꾸고 새로 고침을 다시 한다. 급하면 10.1의 되돌리기(메인 서버 안 에이전트 + ASG 0)
@@ -447,14 +447,15 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | Egress | master 배포와 상관없다. LiveKit 서버 버전을 올릴 때만 `/a301/prod/egress/*`의 버전을 바꾸고 `a301-prod-egress-node` ASG를 같은 설정으로 새로 고친다 | 공식 이미지라 우리 코드와 함께 바뀌지 않는다 |
 | 개발 서버 | ASG 없음. develop 배포는 지금처럼 미니PC compose가 반영한다 | 에이전트 ASG는 운영(과 테스트 환경)에만 둔다 |
 
-**처음에는 수동 [결정]**(7장 위): ③이 끝나면 사람이 우리 계정 콘솔에서 ④(SSM 값 수정) · ⑤(ASG → 인스턴스 새로 고침 시작)를 한다. 운영 사용자가 적어 보통 몇 분 안에 끝난다.
+**운영은 CI로 자동화 [결정]**(11/06): ④ · ⑤를 사람이 하지 않는다. `prod-deploy` 잡이 `deploy/prod/deploy.sh`(③) 성공 뒤 [`deploy/asg/ci-agent-refresh.sh`](../../deploy/asg/ci-agent-refresh.sh)를 이어서 부른다. ③이 실패하면 ④ · ⑤는 돌지 않는다.
 
-**안정되면 CI로 [제안]**: ③ 다음에 잡 하나(`prod-agent-refresh`, ▶ 또는 ③ 성공 뒤 자동)가 ④ · ⑤를 한다.
-
-- 권한: 메인 서버 러너는 SSAFY 계정이라 우리 계정 역할을 쓸 수 없다. **이 파라미터 하나에 `ssm:PutParameter`, 이 ASG에 `autoscaling:StartInstanceRefresh` · `DescribeInstanceRefreshes`만** 준 IAM 사용자 키를 GitLab `prod/*` 변수(Protected)로 둔다
-- 동작: `aws ssm put-parameter --overwrite`로 태그를 바꾸고 `aws autoscaling start-instance-refresh`를 부른다. 이미 진행 중인 새로 고침이 있으면 실패하므로 잡도 실패로 남겨 사람이 본다
-- 기다리지 않는다: 새로 고침은 진행 중 면접 때문에 최대 30분 걸릴 수 있어, 잡은 시작만 하고 끝난다. 끝났는지는 콘솔 · 경보로 본다
-- 실패해도 메인 서버 배포(③)는 되돌리지 않는다. 그 상태는 "④를 잊은 경우"와 같으므로 잡을 다시 돌리면 된다
+- 켜기: GitLab CI/CD 변수 `AGENT_ASG_ENABLED=true`(범위 `prod/*`). 없으면 스크립트가 아무것도 하지 않고 끝나므로, ASG로 전환하기 전에 머지해도 운영 배포는 지금과 같다. 전환하는 날 켜고, 10.1 되돌리기(메인 서버 에이전트로 돌아감) 때는 끈다
+- 권한: 메인 서버 러너는 SSAFY 계정이라 우리 계정 역할을 쓸 수 없다. **이 파라미터 하나에 `ssm:PutParameter`, 이 ASG에 `autoscaling:StartInstanceRefresh` · `DescribeInstanceRefreshes`만** 준 IAM 사용자 `a301-prod-agent-ci`(`deploy/asg/iam/ci-agent-refresh-policy.json`)의 키를 `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY`(범위 `prod/*`, Protected · Masked)로 둔다. AWS CLI는 러너에 설치하지 않고 공식 이미지(`amazon/aws-cli`)로 돌린다
+- 동작: 진행 중인 새로 고침이 있으면 태그도 바꾸지 않고 잡을 실패로 남긴다(섞인 상태를 만들지 않게). 없으면 `put-parameter --overwrite` → `start-instance-refresh`(최소 정상 100% · 최대 200% · 준비 180초 · **축소 보호가 켜진 대는 풀릴 때까지 기다림** `ScaleInProtectedInstances=Wait`)
+  - 왜 `Wait`: 감시 스크립트가 면접 중인 대에 축소 보호를 건다. 기본값(`Ignore`)이면 그 대는 새로 고침에서 빠져 옛 버전으로 남는다 **[확인 필요: 운영 반영 전 테스트 ASG로 설정값 확인]**
+- 기다리지 않는다: 새로 고침은 진행 중 면접 때문에 최대 30분 걸릴 수 있어, 잡은 시작만 하고 끝난다. 끝났는지는 콘솔 · `describe-instance-refreshes`로 본다
+- 실패해도 메인 서버 배포(③)는 되돌리지 않는다. 그 상태는 "④를 잊은 경우"와 같으므로 잡을 다시 돌리면(Retry) 된다
+- 되돌리기: GitLab에서 이전 배포를 Re-deploy하면 ③과 함께 ④ · ⑤도 이전 SHA로 다시 돈다
 
 ## 8. 모니터링
 
@@ -617,3 +618,4 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | 인프라 | 7.1 master 배포를 ASG에 반영하는 방법(① 병합 ~ ⑤ 인스턴스 새로 고침, 순서 · 잊었을 때 · 되돌리기 · Egress · CI 자동화안) **[제안]**, 10.1에 "다음 릴리즈에는 넣지 않음" 표시 | 다음 릴리즈에는 ASG를 넣지 않기로 해(11/05), 운영 반영 때 쓸 방법만 기록한다. 운영 배포(`prod-deploy`)는 메인 서버만 바꾸므로 SSM 태그 · 새로 고침을 빠뜨리면 에이전트만 옛 버전으로 남는다 |
 | 인프라 | 11/06 Cloudflare 프록시 제거 반영: 3장 운영 구조 그림(사용자 → Nginx 443, SNI로 웹 · TURN/TLS 나눔)과 설명, 테스트 서버 그림에 "Tunnel 쓰던 구성" 표시, 2.3 메인 서버 추정에 웹 TLS 몫, 5.4 7880을 Tailscale로 잇는 이유, 아키텍처 그림 | 웹 입구가 Cloudflare Tunnel에서 메인 서버 Nginx로 바뀌었다(S15P31A301-412). 에이전트 · Egress는 Tailscale로 7880 · 6379에 바로 붙어 연결 방식은 그대로이고, 7880의 근거였던 Bot Fight Mode만 사라졌다 |
 | 인프라 | 11/06 테스트 서버 운영 경로 재현 결과 반영([보고서](../../loadtest/report/asg-path-2026-11-06.md)): 10.1의 3 진행 표시, 11장 유령 작업자 측정(14분) · 대책(`tcp_retries2=8`, 2분), 도중에 멈춘 면접이 축소를 막는 문제, EC2 직접 종료와 훅 정정 | Tailscale · 키트 · Redis 비밀번호로 운영과 같은 구성을 띄워 drain · 축소 보호 · 되돌리기를 확인했다. 장애 시험에서 운영 전에 막아야 할 문제 두 가지가 나왔다 |
+| 인프라 | 7 · 7.1: 운영 새 버전 반영을 **CI로 자동화 [결정]**. `prod-deploy`가 메인 서버 배포 뒤 `deploy/asg/ci-agent-refresh.sh`로 SSM 태그 변경 · 인스턴스 새로 고침(`ScaleInProtectedInstances=Wait`)을 한다. `AGENT_ASG_ENABLED=true`일 때만 돌아 전환 전 머지는 운영 배포를 바꾸지 않는다 | 수동이면 SSM 태그 · 새로 고침을 빠뜨려 에이전트만 옛 버전으로 남거나 두 버전이 섞일 수 있다. 축소 보호가 켜진 대를 기본값(Ignore)으로 건너뛰지 않게 Wait로 둔다 |

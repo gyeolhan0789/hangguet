@@ -2,7 +2,7 @@
 
 AI 면접관(에이전트)과 녹화(Egress)를 운영 메인 서버에서 떼어 우리 AWS 계정의 Auto Scaling Group 두 개로 띄울 때 쓰는 파일이다. 기준 문서는 [에이전트 · Egress 오토스케일링 계획](../../이해준/agent_autoscale_plan/README.md)이다.
 
-> **아직 운영에 쓰지 않는다.** 다음 릴리즈에는 ASG를 넣지 않는다(11/05). 이 폴더는 운영 배포(`deploy/prod/deploy.sh`는 `deploy/prod/`만 서버로 복사한다)와 CI 어디에서도 읽지 않으므로, 여기 파일을 고쳐도 운영 릴리즈에 영향이 없다.
+> **아직 운영에 쓰지 않는다.** CI가 읽는 것은 `ci-agent-refresh.sh` 하나다(운영 배포 `prod-deploy`가 메인 서버 배포 뒤 부른다). 이 스크립트는 GitLab 변수 `AGENT_ASG_ENABLED=true`일 때만 동작하고, 그 전에는 아무것도 하지 않는다. 나머지 파일은 운영 배포(`deploy/prod/deploy.sh`는 `deploy/prod/`만 서버로 복사한다)와 CI 어디에서도 읽지 않는다.
 
 ## 파일
 
@@ -13,7 +13,8 @@ AI 면접관(에이전트)과 녹화(Egress)를 운영 메인 서버에서 떼�
 | `watcher.sh` | 감시 스크립트(인스턴스의 `/usr/local/bin/a301-watcher`): 수명 주기 훅 처리, 축소 보호 켜고 끄기, 준비 확인 |
 | `alloy.alloy` | 인스턴스의 지표 · 로그를 메인 Prometheus(원격 쓰기) · Loki로 보낸다 |
 | `iam/agent-instance-policy.json` · `iam/egress-instance-policy.json` | 인스턴스 역할 인라인 정책(+ AWS 관리형 `AmazonSSMManagedInstanceCore`) |
-| `iam/ci-agent-refresh-policy.json` | 나중에 CI가 에이전트를 새로 고칠 IAM 사용자 정책(계획 7.1) |
+| `ci-agent-refresh.sh` | 운영 배포(`prod-deploy`) 뒤 SSM `image-tag`를 이번 SHA로 바꾸고 `a301-prod-agent` 인스턴스 새로 고침을 시작한다(계획 7.1). `AGENT_ASG_ENABLED=true`일 때만 |
+| `iam/ci-agent-refresh-policy.json` | `ci-agent-refresh.sh`가 쓰는 IAM 사용자 `a301-prod-agent-ci` 정책(태그 매개변수 쓰기 · 이 ASG 새로 고침뿐) |
 | `redis-password.yml` | 메인 서버 compose 덮어쓰기: Redis 비밀번호 켜기(전환 전에 먼저) |
 | `main-override.yml` | 메인 서버 compose 덮어쓰기: 에이전트 · Egress 끄기, Tailscale IP에 7880 · 6379 · 9090 · 3100 열기 |
 | `main-tailscale.sh` | 메인 서버(운영 · 테스트)를 Tailscale에 태그 기기로 가입시키고 재부팅 때 포트 묶기를 켠다. `MAIN_TAILSCALE_IP`를 출력한다 |
@@ -85,7 +86,8 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 1. `redis-password.yml`을 먼저 적용한다(AI가 `REDIS_PASSWORD`를 읽는 코드가 들어간 뒤). LiveKit은 `REDIS_PASSWORD` 환경 변수를 읽는다(v1.13.10 소스 확인, 실제 접속은 테스트 서버에서 확인)
 2. `sudo bash main-tailscale.sh prod`로 Tailscale에 가입(`tag:a301-main`)하고 `MAIN_TAILSCALE_IP`를 정한다
 3. ASG 원하는 대수 1 → 면접 1건 확인 → `main-override.yml`을 더해 메인 서버의 에이전트 · Egress를 끈다. `prometheus.yml`의 `a301-ai-agent` · `a301-egress` 수집 작업은 지운다
-4. 되돌리기: `--profile agent-on-main --profile egress-on-main`으로 메인 서버 쪽을 다시 켠 뒤 ASG 원하는 대수를 0으로 낮춘다
+4. 새 버전 자동 반영 켜기: IAM 사용자 `a301-prod-agent-ci`(`iam/ci-agent-refresh-policy.json`, 콘솔 접근 없음)의 액세스 키를 GitLab `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY`(범위 `prod/*`, Protected · Masked)로 넣고 `AGENT_ASG_ENABLED=true`. 이후 `prod-deploy` ▶ 한 번이 메인 서버와 에이전트를 같은 버전으로 맞춘다
+5. 되돌리기: `--profile agent-on-main --profile egress-on-main`으로 메인 서버 쪽을 다시 켠 뒤 ASG 원하는 대수를 0으로 낮춘다. `AGENT_ASG_ENABLED`는 지운다(꺼진 ASG를 새로 고치지 않게)
 
 지금의 `deploy.sh`는 `compose.yml` 하나만 쓴다. 덮어쓰기 파일을 운영 배포에 넣는 방법(파일을 `deploy/prod`로 옮기고 `deploy.sh`가 더하게 하기)은 전환을 정할 때 같이 바꾼다.
 
