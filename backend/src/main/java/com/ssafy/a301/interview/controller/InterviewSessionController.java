@@ -88,7 +88,8 @@ public class InterviewSessionController {
             summary = "5.8 면접 끝내기",
             description =
                     "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200). 본문은 선택이며,"
-                            + " 화상 면접이면 브라우저가 잰 시선 비율을 함께 보낸다.")
+                            + " 화상 면접이면 브라우저가 잰 시선 비율을 함께 보낸다. 그룹 면접은 내 면접만 끝내고 나머지는 계속하며,"
+                            + " 마지막 사람이 끝내면 그룹이 끝난다(API 명세 10.10).")
     @ApiResponse(
             responseCode = "202",
             description = "답변 ≥1. status ANALYZING",

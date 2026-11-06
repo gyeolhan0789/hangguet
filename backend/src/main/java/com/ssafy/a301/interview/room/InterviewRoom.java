@@ -58,4 +58,7 @@ public interface InterviewRoom {
 
     /** 그룹 면접방을 지운다. close와 같이 실패해도 던지지 않는다 */
     void closeGroup(long groupId);
+
+    /** 면접을 끝낸 참가자를 그룹 면접방에서 내보낸다(docs/그룹면접-설계.md 6.10). close와 같이 실패해도 던지지 않는다 */
+    void removeGroupParticipant(long groupId, long sessionId);
 }

@@ -76,6 +76,11 @@ public class InterviewSession {
     @Column(name = "ended_at")
     private OffsetDateTime endedAt;
 
+    // 그룹 세션이 끝난 이유. 개인 면접은 null이다
+    @Enumerated(EnumType.STRING)
+    @Column(name = "end_reason", length = 20)
+    private EndReason endReason;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -134,7 +139,13 @@ public class InterviewSession {
 
     // 5.8. 답변이 있으면 결과 생성(ANALYZING), 없으면 결과 없이 종료(ABORTED). 연습으로 인정되면 true
     public boolean end(OffsetDateTime now, int answeredCount) {
+        return end(now, answeredCount, null);
+    }
+
+    // 그룹 세션은 끝난 이유를 남긴다(docs/그룹면접-설계.md 6.10)
+    public boolean end(OffsetDateTime now, int answeredCount, EndReason reason) {
         requireStatus(SessionStatus.IN_PROGRESS);
+        this.endReason = reason;
         this.endedAt = now;
         this.status = answeredCount > 0 ? SessionStatus.ANALYZING : SessionStatus.ABORTED;
         return answeredCount > 0;

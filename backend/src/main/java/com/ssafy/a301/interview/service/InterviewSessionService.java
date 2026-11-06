@@ -4,8 +4,8 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
+import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewPlan;
@@ -14,10 +14,8 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
-import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
-import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
@@ -27,13 +25,9 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
-import com.ssafy.a301.interview.repository.RecordingRepository;
-import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
-import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -59,15 +53,14 @@ public class InterviewSessionService {
     private final InterviewPlanRepository plans;
     private final ApplicationRepository applications;
     private final UserRepository users;
-    private final PracticeService practices;
     private final SessionRuntimeService runtimes;
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
     private final InterviewRoom rooms;
-    private final RecordingRepository recordings;
-    private final SpeechMetricRepository speechMetrics;
     private final CompanyCardFinder companyCards;
     private final InterviewCapacity capacity;
+    private final SessionEnder ender;
+    private final GroupEndService groupEnds;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -76,30 +69,28 @@ public class InterviewSessionService {
             InterviewPlanRepository plans,
             ApplicationRepository applications,
             UserRepository users,
-            PracticeService practices,
             SessionRuntimeService runtimes,
             AiJobService aiJobs,
             TransactionTemplate transactions,
             InterviewRoom rooms,
-            RecordingRepository recordings,
-            SpeechMetricRepository speechMetrics,
             CompanyCardFinder companyCards,
-            InterviewCapacity capacity) {
+            InterviewCapacity capacity,
+            SessionEnder ender,
+            GroupEndService groupEnds) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
         this.plans = plans;
         this.applications = applications;
         this.users = users;
-        this.practices = practices;
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.transactions = transactions;
         this.rooms = rooms;
-        this.recordings = recordings;
-        this.speechMetrics = speechMetrics;
         this.companyCards = companyCards;
         this.capacity = capacity;
+        this.ender = ender;
+        this.groupEnds = groupEnds;
     }
 
     /**
@@ -311,53 +302,23 @@ public class InterviewSessionService {
     /**
      * 5.8. 답변이 있으면 결과 생성을 시작하고 시작일(한국 시간)에 처음이면 연습 기록을 남긴다. leveledUp은 이번에 기록이 남아 스트릭 뱃지 구간이 바뀌었을
      * 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다. gazeRatio(화면이 잰 시선 비율)는 결과가 나오는 화상 면접일 때만
-     * 남긴다.
+     * 남긴다. 그룹 세션은 GroupEndService가 그룹 행부터 잠그고 끝낸다.
      */
     public SessionResponse end(long userId, long sessionId, BigDecimal gazeRatio) {
+        InterviewSession found =
+                sessions.findByIdAndUserId(sessionId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+        // 그룹 세션은 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10, 잠금 순서: 그룹 → 면접)
+        if (found.isGroup()) {
+            return groupEnds.endByUser(userId, found.getGroupId(), sessionId, gazeRatio);
+        }
         OffsetDateTime now = OffsetDateTime.now();
-        SessionResponse response = endInTransaction(userId, sessionId, now, gazeRatio);
+        SessionResponse response =
+                transactions.execute(
+                        status -> ender.end(lock(userId, sessionId), now, gazeRatio, null, true));
         // 커밋 뒤 면접방을 지운다. 에이전트가 나가고 화상이면 녹화도 끝난다
         rooms.close(sessionId);
         return response;
-    }
-
-    private SessionResponse endInTransaction(
-            long userId, long sessionId, OffsetDateTime now, BigDecimal gazeRatio) {
-        return transactions.execute(
-                status -> {
-                    InterviewSession session = lock(userId, sessionId);
-                    int answeredCount = answers.countByQuestionSessionId(sessionId);
-                    boolean practiced = session.end(now, answeredCount);
-                    boolean leveledUp = false;
-                    if (practiced) {
-                        leveledUp =
-                                practices.recordAndCheckLevelUp(
-                                        userId,
-                                        KoreaTime.dateOf(session.getStartedAt()),
-                                        KoreaTime.dateOf(now));
-                        startAnalysis(sessionId, now);
-                        if (session.isVideo()) {
-                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다.
-                            // 다시보기(6.4)가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다
-                            aiJobs.enqueue(AiJob.mergeRecording(sessionId));
-                            recordings.save(Recording.mergingSessionVideo(session));
-                            if (gazeRatio != null) {
-                                // 말하기 지표는 결과가 나올 때 채운다(AiResultService)
-                                SpeechMetric metric =
-                                        new SpeechMetric(session, null, null, null, null, null);
-                                metric.recordGazeRatio(gazeRatio.setScale(2, RoundingMode.HALF_UP));
-                                speechMetrics.save(metric);
-                            }
-                        }
-                    }
-                    return InterviewMapper.toSessionResponse(
-                            session,
-                            runtimes.current(sessionId, now.toInstant()),
-                            null,
-                            answeredCount,
-                            now,
-                            leveledUp);
-                });
     }
 
     /** 5.9. 결과 생성이 실패한 면접만 다시 만든다. */

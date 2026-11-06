@@ -32,6 +32,7 @@ import livekit.LivekitModels.TrackType;
 import livekit.LivekitRoom;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
+import livekit.LivekitRoom.RoomParticipantIdentity;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -346,6 +347,24 @@ class LiveKitInterviewRoomTest {
 
         server.stop(0);
         room(apiUrl).close(55L);
+    }
+
+    @Test
+    void removeGroupParticipantSendsRoomAndIdentityAndIgnoresFailures() throws Exception {
+        String path = "/twirp/livekit.RoomService/RemoveParticipant";
+        room(apiUrl).removeGroupParticipant(7L, 55L);
+
+        RoomParticipantIdentity removed = RoomParticipantIdentity.parseFrom(requests.get(path));
+        assertThat(removed.getRoom()).isEqualTo("group-7");
+        assertThat(removed.getIdentity()).isEqualTo("candidate-55");
+
+        // 이미 나간 참가자 · 서버 오류 · 연결 실패도 던지지 않는다
+        statuses.put(path, 404);
+        room(apiUrl).removeGroupParticipant(7L, 55L);
+        statuses.put(path, 500);
+        room(apiUrl).removeGroupParticipant(7L, 55L);
+        server.stop(0);
+        room(apiUrl).removeGroupParticipant(7L, 55L);
     }
 
     @Test
