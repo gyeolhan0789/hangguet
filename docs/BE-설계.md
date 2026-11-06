@@ -227,7 +227,10 @@ com.ssafy.a301
 5. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 실제로 출제한 질문(꼬리질문 포함)을 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
-1. 5.4 한 트랜잭션(면접 행 잠금): `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+1. 5.4 한 트랜잭션(면접 행 잠금): (화상) 동시 진행 상한 확인 → `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+   - 동시 진행 상한(화상만, `InterviewCapacity`) **[결정]**: 에이전트는 화상 면접의 답변마다 Soniox 실시간 인식 연결을 하나 연다. 연결 한도는 계정당 10개이고 개발 · 운영이 같은 키를 쓰므로 운영 8 · 개발 2로 나눈다(`interview.capacity.max-video`, 환경 변수 `INTERVIEW_MAX_VIDEO`, 기본 8). 진행 중인 화상 면접이 상한 이상이면 503 `INTERVIEW_CAPACITY_FULL`이고 상태는 그대로다. 채팅은 STT를 쓰지 않아 세지 않는다
+   - 세는 기준: `IN_PROGRESS`이고 최근 90분(`interview.capacity.count-window`) 안에 시작한 화상 면접. 그룹 참가자의 면접은 그룹마다 하나로 센다(에이전트가 답변자 한 명만 인식, AI 명세 6.7). 지원자가 면접 도중 나가면 에이전트는 STT 연결을 바로 닫지만 면접은 `IN_PROGRESS`로 남으므로, 오래전에 시작한 면접은 세지 않는다. 90분은 가장 긴 화상 면접(그룹 3명 약 60분, 그룹 면접 설계)보다 길게 둔 값이다. 실제 사용 수보다 많게 셀 수는 있어도 적게 세지는 않는다
+   - 동시에 들어온 시작이 같은 빈자리로 함께 통과하지 않게, 상한 확인부터 커밋까지 트랜잭션 잠금(`pg_advisory_xact_lock`)을 건다. 그래서 화상 면접 시작(5.4 · 10.7)은 한 번에 하나씩 처리된다(잠금은 방 열기까지 포함해 최대 15초). 이 잠금은 면접 · 그룹 행 잠금 다음에 마지막으로 잡는다(교착 방지)
    - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 이전 상태(`READY`·`START_FAILED`)로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
@@ -274,7 +277,7 @@ com.ssafy.a301
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
 11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경하고 `recordingStartedAt`(null 가능)을 저장한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
-12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`가 아니거나 `occurredAt`이 없으면 실패 목록
+12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`가 아니거나 `occurredAt`이 없으면 실패 목록
 
 ### 5.6 면접방 (LiveKit)
 - 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`. 브라우저용 주소의 설정 이름은 `livekit.public-url`이다. `livekit.url`로 두면 Spring이 환경 변수 `LIVEKIT_URL`을 그 이름으로 읽어 공개 주소를 내부 주소로 덮어쓴다(운영에서 두 주소가 다르다)

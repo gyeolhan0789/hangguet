@@ -217,7 +217,11 @@ public class InterviewSessionController {
             description =
                     "PLAN_NOT_READY: 플랜 생성 중이거나 실패 · INVALID_SESSION_STATE: READY·START_FAILED가 아님"
                             + " · IDEMPOTENCY_KEY_REUSED")
-    @ApiResponse(responseCode = "503", description = "ROOM_UNAVAILABLE: 면접방을 열지 못함(상태 그대로, 다시 시도)")
+    @ApiResponse(
+            responseCode = "503",
+            description =
+                    "ROOM_UNAVAILABLE: 면접방을 열지 못함(상태 그대로, 다시 시도) · INTERVIEW_CAPACITY_FULL: 화상"
+                            + " 면접 동시 진행 상한(상태 그대로, 자동으로 다시 보내지 않음)")
     @Idempotent
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(

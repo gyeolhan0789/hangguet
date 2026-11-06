@@ -145,7 +145,9 @@ public class InterviewGroupController {
                             + " 안 한 참가자 · 질문 생성 중이거나 실패한 참가자가 있음 · IDEMPOTENCY_KEY_REUSED")
     @ApiResponse(
             responseCode = "503",
-            description = "ROOM_UNAVAILABLE: 면접방 만들기 · 에이전트 배정 실패. 그룹은 이전 상태 그대로라 다시 시도한다")
+            description =
+                    "ROOM_UNAVAILABLE: 면접방 만들기 · 에이전트 배정 실패. 그룹은 이전 상태 그대로라 다시 시도한다 ·"
+                            + " INTERVIEW_CAPACITY_FULL: 화상 면접 동시 진행 상한. 그룹은 그대로이며 자동으로 다시 보내지 않는다")
     @Idempotent
     @PostMapping("/{groupId}/start")
     public GroupResponse start(

@@ -206,6 +206,11 @@ public final class ErrorExamples {
             { "title": "Service Unavailable", "status": 503, "detail": "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
               "instance": "/api/v1/interview-sessions/55/start", "code": "ROOM_UNAVAILABLE" }\
             """;
+    public static final String INTERVIEW_CAPACITY_FULL =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "지금 진행 중인 면접이 많아요. 잠시 후 다시 시작해 주세요.",
+              "instance": "/api/v1/interview-sessions/55/start", "code": "INTERVIEW_CAPACITY_FULL" }\
+            """;
     public static final String RESULT_NOT_READY =
             """
             { "title": "Conflict", "status": 409, "detail": "결과를 만들고 있어요.",

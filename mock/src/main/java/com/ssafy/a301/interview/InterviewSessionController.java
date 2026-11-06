@@ -292,10 +292,14 @@ public class InterviewSessionController {
             content =
                     @Content(
                             mediaType = ErrorExamples.PROBLEM,
-                            examples =
-                                    @ExampleObject(
-                                            name = "ROOM_UNAVAILABLE",
-                                            value = ErrorExamples.ROOM_UNAVAILABLE)))
+                            examples = {
+                                @ExampleObject(
+                                        name = "ROOM_UNAVAILABLE",
+                                        value = ErrorExamples.ROOM_UNAVAILABLE),
+                                @ExampleObject(
+                                        name = "INTERVIEW_CAPACITY_FULL",
+                                        value = ErrorExamples.INTERVIEW_CAPACITY_FULL)
+                            }))
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId,

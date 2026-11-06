@@ -64,8 +64,7 @@ public class AiResultService {
     // 말하기 지표 컬럼 NUMERIC(5, 2)
     private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
     // 배정 거절 이유(AI 명세 1.4). 이유로 처리를 나누지는 않지만 모르는 값은 실패 목록으로 보낸다
-    private static final Set<String> REJECT_REASONS =
-            Set.of("INVALID_ASSIGNMENT", "CAPACITY_EXCEEDED");
+    private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {

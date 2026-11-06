@@ -67,6 +67,7 @@ public class InterviewSessionService {
     private final RecordingRepository recordings;
     private final SpeechMetricRepository speechMetrics;
     private final CompanyCardFinder companyCards;
+    private final InterviewCapacity capacity;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -82,7 +83,8 @@ public class InterviewSessionService {
             InterviewRoom rooms,
             RecordingRepository recordings,
             SpeechMetricRepository speechMetrics,
-            CompanyCardFinder companyCards) {
+            CompanyCardFinder companyCards,
+            InterviewCapacity capacity) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -97,6 +99,7 @@ public class InterviewSessionService {
         this.recordings = recordings;
         this.speechMetrics = speechMetrics;
         this.companyCards = companyCards;
+        this.capacity = capacity;
     }
 
     /**
@@ -191,8 +194,8 @@ public class InterviewSessionService {
 
     /**
      * 5.4. 면접방을 열고(화상이면 녹화) 에이전트에 질문 5개를 배정한 뒤 입장 정보를 준다. 질문 행은 에이전트가 질문을 말할 때(question.started)
-     * 생긴다(API 명세 5.4). 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다. 면접방을 열지 못하면 상태를 그대로 두고 503을 준다.
-     * 커밋하지 못하면 연 방을 지운다.
+     * 생긴다(API 명세 5.4). 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다. 화상 면접이 동시 진행 상한에 닿았거나 면접방을 열지 못하면
+     * 상태를 그대로 두고 503을 준다. 커밋하지 못하면 연 방을 지운다.
      */
     public SessionResponse start(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();
@@ -216,6 +219,9 @@ public class InterviewSessionService {
                                             () ->
                                                     new IllegalStateException(
                                                             "플랜이 없다: " + sessionId));
+                    if (session.isVideo()) {
+                        capacity.reserveVideo(now);
+                    }
                     session.start(now);
                     rooms.open(sessionId, session.isVideo(), assignment(session, plan));
                     closeRoomOnRollback(sessionId);

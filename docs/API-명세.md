@@ -482,6 +482,7 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 - **409 / PLAN_NOT_READY**: 플랜 생성 중이거나 실패
 - **409 / INVALID_SESSION_STATE**: `READY`·`START_FAILED`가 아님
 - **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정·녹화 설정이 실패함. 면접은 이전 상태(`READY`·`START_FAILED`) 그대로라 화면은 다시 시도한다 **[결정]**
+- **503 / INTERVIEW_CAPACITY_FULL**: 화상 면접만. 동시에 진행 중인 화상 면접이 상한(운영 8개)에 닿음. 면접은 이전 상태 그대로다. 화면은 자동으로 다시 보내지 않고 "잠시 후 다시 시작해 주세요"를 안내하며, 사용자가 다시 누르면 5.4를 다시 부른다 **[결정]**
 - 배정 요청은 에이전트가 수락하기 전에 성공하므로, 에이전트의 배정 거절(배정 정보 형식 오류), 면접관 미입장, 첫 질문 기한 초과는 5.4 응답으로 알 수 없다. 이때 BE가 면접방을 닫고 면접을 `START_FAILED`로 변경한다([AI 명세](AI-명세.md) 1.4·6.5). 화면은 면접방 연결이 끊기면 5.2로 상태를 확인하고, `START_FAILED`면 면접관을 연결하지 못했다고 안내한 뒤 5.4로 다시 시작한다
 
 #### 5.5 지금 질문
@@ -1038,6 +1039,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 - **409 / GROUP_NOT_READY**: 인원 부족·준비 안 한 참가자·질문 생성 중이거나 실패한 참가자가 있음
 - **409 / IDEMPOTENCY_KEY_REUSED**
 - **503 / ROOM_UNAVAILABLE**: 면접방 만들기·에이전트 배정 실패. 그룹은 이전 상태 그대로
+- **503 / INTERVIEW_CAPACITY_FULL**: 화상 그룹만. 5.4와 같다. 그룹 하나를 화상 면접 하나로 센다. 그룹은 이전 상태 그대로
 
 #### 10.8 답변 시간 연장 **[예정]**
 
@@ -1133,7 +1135,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `IDEMPOTENCY_KEY_REUSED` | 409 | 5.1, 5.4, 5.7, 5.8, 10.1, 10.3, 10.7 |
 | `INVALID_SESSION_STATE` | 409 | 5.4·5.5·5.7·5.8·5.9·5.14 |
 | `PLAN_NOT_READY` · `PLAN_NOT_FAILED` | 409 | 5.4 · 5.3 |
-| `ROOM_UNAVAILABLE` | 503 | 5.4, 10.7 |
+| `ROOM_UNAVAILABLE` · `INTERVIEW_CAPACITY_FULL` | 503 | 5.4, 10.7 |
 | `COVER_LETTER_CHECK_UNAVAILABLE` | 503 | 4.1 |
 | `ANSWER_ALREADY_SUBMITTED` | 409 | 5.7 |
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |

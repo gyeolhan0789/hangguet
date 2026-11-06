@@ -379,7 +379,7 @@ class AiResultServiceTest {
         assertThat(
                         results.handle(
                                 assignmentRejected(
-                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                                        session, "INVALID_ASSIGNMENT", afterStart(session))))
                 .isEqualTo(Outcome.SAVED);
         assertThat(session.getStatus()).isEqualTo(SessionStatus.START_FAILED);
         verify(rooms).close(session.getId());
@@ -388,7 +388,7 @@ class AiResultServiceTest {
         assertThat(
                         results.handle(
                                 assignmentRejected(
-                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                                        session, "INVALID_ASSIGNMENT", afterStart(session))))
                 .isEqualTo(Outcome.DISCARDED);
     }
 
@@ -407,13 +407,13 @@ class AiResultServiceTest {
         InterviewSession restarted = startedSession(InterviewMode.CHAT);
         String late =
                 assignmentRejected(
-                        restarted, "CAPACITY_EXCEEDED", restarted.getStartedAt().minusSeconds(1));
+                        restarted, "INVALID_ASSIGNMENT", restarted.getStartedAt().minusSeconds(1));
         assertThat(results.handle(late)).isEqualTo(Outcome.DISCARDED);
         assertThat(restarted.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
 
         // 시작 전이면 버린다
         InterviewSession ready = newSession(InterviewMode.CHAT);
-        assertThat(results.handle(assignmentRejected(ready, "CAPACITY_EXCEEDED", STARTED_AT)))
+        assertThat(results.handle(assignmentRejected(ready, "INVALID_ASSIGNMENT", STARTED_AT)))
                 .isEqualTo(Outcome.DISCARDED);
         verify(rooms, never()).close(anyLong());
     }
@@ -421,12 +421,14 @@ class AiResultServiceTest {
     @Test
     void assignmentRejectedWithoutReasonOrTimeIsInvalid() {
         InterviewSession session = startedSession(InterviewMode.VIDEO);
-        String valid = assignmentRejected(session, "CAPACITY_EXCEEDED", afterStart(session));
+        String valid = assignmentRejected(session, "INVALID_ASSIGNMENT", afterStart(session));
 
         for (String raw :
                 List.of(
-                        valid.replace("CAPACITY_EXCEEDED", "BUSY"),
-                        valid.replace("\"reason\":\"CAPACITY_EXCEEDED\",", ""),
+                        valid.replace("INVALID_ASSIGNMENT", "BUSY"),
+                        // 에이전트가 더 이상 보내지 않는 이유(AI 명세 1.4)
+                        valid.replace("INVALID_ASSIGNMENT", "CAPACITY_EXCEEDED"),
+                        valid.replace("\"reason\":\"INVALID_ASSIGNMENT\",", ""),
                         valid.replaceAll(",\"occurredAt\":\"[^\"]+\"", ""))) {
             assertThatThrownBy(() -> results.handle(raw))
                     .as(raw)
