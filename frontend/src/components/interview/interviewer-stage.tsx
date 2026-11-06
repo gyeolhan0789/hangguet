@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { interviewerLook } from "@/lib/interviewer/models";
+import { blinkAt, BLINK_DURATION_MS } from "@/lib/interviewer/blink";
 import type { InterviewerScene } from "@/lib/interviewer/scene";
 import type { Persona } from "@/types/api";
 import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
@@ -39,8 +40,6 @@ import { ThinkingAvatar } from "./thinking-avatar";
 
 /** 눈 깜빡임 간격(ms). 이 범위에서 매번 다르게 고른다. */
 const BLINK_GAP_MS = [2500, 5500] as const;
-/** 눈을 감았다 뜨는 데 걸리는 시간(ms) */
-const BLINK_MS = 160;
 /** 동작 클립 면접관이 끄덕임 반응 · 놀람을 시작하는 기한(ms). 받고 이만큼 지나 다시 그리면 하지 않는다 */
 const NOD_START_MS = 300;
 
@@ -232,21 +231,30 @@ export function InterviewerStage({
   useEffect(() => {
     if (state !== "ready" || reduce) return;
     let timer: ReturnType<typeof setTimeout>;
+    let frame = 0;
+    const current = scene.current;
     const next = () => {
       const [min, max] = BLINK_GAP_MS;
       timer = setTimeout(
         () => {
-          scene.current?.setFace({ blink: 1 });
-          timer = setTimeout(() => {
-            scene.current?.setFace({ blink: 0 });
-            next();
-          }, BLINK_MS);
+          const startedAt = performance.now();
+          const draw = () => {
+            const elapsed = performance.now() - startedAt;
+            current?.setFace({ blink: blinkAt(elapsed) });
+            if (elapsed < BLINK_DURATION_MS) frame = requestAnimationFrame(draw);
+            else next();
+          };
+          frame = requestAnimationFrame(draw);
         },
         min + Math.random() * (max - min),
       );
     };
     next();
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      cancelAnimationFrame(frame);
+      current?.setFace({ blink: 0 });
+    };
   }, [state, reduce]);
 
   if (!look) return null;
