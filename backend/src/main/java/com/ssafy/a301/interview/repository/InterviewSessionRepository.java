@@ -224,6 +224,22 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("from") OffsetDateTime from,
             @Param("before") OffsetDateTime before);
 
+    /**
+     * 동시 진행 상한(BE 설계 5.2). :since 뒤에 시작한 진행 중인 화상 면접 수. 그룹 참가자의 면접은 그룹마다 하나로 센다(에이전트가 답변자 한 명만
+     * 인식한다, AI 명세 6.7).
+     */
+    @Query(
+            value =
+                    """
+                    select count(*) filter (where s.group_id is null) + count(distinct s.group_id)
+                    from interview_sessions s
+                    where s.status = 'IN_PROGRESS'
+                      and s.mode = 'VIDEO'
+                      and s.started_at >= :since
+                    """,
+            nativeQuery = true)
+    long countRunningVideo(@Param("since") OffsetDateTime since);
+
     /** 응답에 회사명·직무가 필요한 조회. 지원서를 함께 가져온다(BE 설계 3장). */
     @Query(
             "select s from InterviewSession s join fetch s.application"

@@ -2,6 +2,7 @@ package com.ssafy.a301.group;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyMap;
@@ -37,6 +38,7 @@ import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
+import com.ssafy.a301.interview.service.InterviewCapacity;
 import com.ssafy.a301.interview.service.InvalidAiResultException;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
@@ -90,6 +92,8 @@ class InterviewGroupIntegrationTest {
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private IdempotencyStore idempotency;
     @MockitoBean private InterviewRoom rooms;
+    // 상한은 InterviewCapacityTest가 실제 DB로 확인한다. 여기서는 DB에 남은 다른 면접 수에 흔들리지 않게 바꾼다
+    @MockitoBean private InterviewCapacity interviewCapacity;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
 
@@ -687,6 +691,27 @@ class InterviewGroupIntegrationTest {
                                 Boolean.class,
                                 group.groupId()))
                 .isTrue();
+    }
+
+    // 그룹은 화상 면접 하나로 센다. 상한에 닿으면 그룹 · 면접이 그대로라 잠시 후 다시 시작할 수 있다
+    @Test
+    void videoGroupStartIsRejectedWhenCapacityIsFull() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        doThrow(new ApiException(ErrorCode.INTERVIEW_CAPACITY_FULL))
+                .when(interviewCapacity)
+                .reserveVideo(any());
+
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("INTERVIEW_CAPACITY_FULL"));
+
+        verify(interviewCapacity).reserveVideo(any());
+        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+        assertThat(groupStatus(group.groupId())).isEqualTo("WAITING");
+        for (long sessionId : group.sessionIds()) {
+            assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                    .isEqualTo(SessionStatus.READY);
+        }
     }
 
     @Test

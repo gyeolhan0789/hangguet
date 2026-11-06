@@ -36,7 +36,7 @@ import java.util.Map;
  * @param endReason answer.completed AUTO_SUBMIT · MANUAL_SUBMIT · STT_FAILED
  * @param answerId answer.scored 채점한 답변
  * @param evaluation answer.scored 채점 결과(AI 명세 3장)
- * @param reason plan.failed 등 실패 이유. assignment.rejected는 INVALID_ASSIGNMENT · CAPACITY_EXCEEDED
+ * @param reason plan.failed 등 실패 이유. assignment.rejected는 INVALID_ASSIGNMENT
  * @param analysisStep evaluation.progress 결과 생성 단계
  * @param answers evaluation.completed 답변별 점수·피드백(AI 명세 4장)
  * @param sessionScores evaluation.completed 기준별 점수·코멘트

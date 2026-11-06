@@ -21,6 +21,7 @@ import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.service.InterviewCapacity;
 import com.ssafy.a301.interview.service.SessionRuntimeService;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -41,7 +42,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * 10.7 그룹 면접 시작 · 다시 시작(docs/그룹면접-설계.md 6.2). 그룹 행 → 참가자 면접 행(id 순서)을 잠그고 조건을 확인한 뒤, 모든 면접을 시작하고 첫
  * 차례를 남긴다. 면접방 group-{groupId}는 첫 차례가 담긴 면접방 정보와 함께 잠금 안에서 열고 에이전트 하나에 질문을 배정한다(5.4와 같은 방식). 방을 열지
- * 못하면 트랜잭션을 되돌려 그룹 · 면접이 이전 상태로 남고(503), 커밋하지 못하면 연 방을 지운다.
+ * 못하면 트랜잭션을 되돌려 그룹 · 면접이 이전 상태로 남고(503), 커밋하지 못하면 연 방을 지운다. 화상이면 동시 진행 상한도 확인한다(503).
  */
 @Service
 public class GroupStartService {
@@ -59,6 +60,7 @@ public class GroupStartService {
     private final InterviewRoom rooms;
     private final GroupResponses responses;
     private final TransactionTemplate transactions;
+    private final InterviewCapacity capacity;
     private final Duration waitingExpiry;
     private final Duration askingTimeout;
 
@@ -72,6 +74,7 @@ public class GroupStartService {
             InterviewRoom rooms,
             GroupResponses responses,
             TransactionTemplate transactions,
+            InterviewCapacity capacity,
             @Value("${group.waiting-expiry:1h}") Duration waitingExpiry,
             @Value("${group.asking-timeout:20s}") Duration askingTimeout) {
         this.groups = groups;
@@ -83,6 +86,7 @@ public class GroupStartService {
         this.rooms = rooms;
         this.responses = responses;
         this.transactions = transactions;
+        this.capacity = capacity;
         this.waitingExpiry = waitingExpiry;
         this.askingTimeout = askingTimeout;
     }
@@ -114,6 +118,11 @@ public class GroupStartService {
                         throw new ApiException(ErrorCode.INVALID_GROUP_STATE);
                     }
                     requireReady(group, active, now);
+                    boolean video = group.getMode() == InterviewMode.VIDEO;
+                    // 그룹은 답변자 한 명만 인식하므로 화상 면접 하나로 센다(BE 설계 5.2)
+                    if (video) {
+                        capacity.reserveVideo(now);
+                    }
                     List<InterviewGroupParticipant> ordered = orderTurns(group, active);
                     if (!group.hasCommonQuestions()) {
                         group.chooseCommonQuestions(
@@ -123,7 +132,6 @@ public class GroupStartService {
                     }
                     locked.forEach(session -> session.start(now));
                     group.start(now, ordered.getFirst().getSession().getId(), askingTimeout);
-                    boolean video = group.getMode() == InterviewMode.VIDEO;
                     rooms.openGroup(
                             groupId,
                             video,

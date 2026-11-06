@@ -37,6 +37,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.service.InterviewCapacity;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.math.BigDecimal;
@@ -90,6 +91,8 @@ class InterviewSessionIntegrationTest {
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private IdempotencyStore idempotency;
     @MockitoBean private InterviewRoom rooms;
+    // 상한은 InterviewCapacityTest가 실제 DB로 확인한다. 여기서는 DB에 남은 다른 면접 수에 흔들리지 않게 바꾼다
+    @MockitoBean private InterviewCapacity interviewCapacity;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
 
@@ -332,6 +335,38 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void videoStartIsRejectedWhenCapacityIsFull() throws Exception {
+        long user = newUser();
+        long sessionId = create(user, newApplication(user));
+        planReady(sessionId);
+        String start = "/api/v1/interview-sessions/" + sessionId + "/start";
+        doThrow(new ApiException(ErrorCode.INTERVIEW_CAPACITY_FULL))
+                .when(interviewCapacity)
+                .reserveVideo(any());
+
+        mvc.perform(as(user, idempotent(post(start))))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("INTERVIEW_CAPACITY_FULL"));
+        // 면접방을 열지 않고 상태도 그대로라 잠시 후 다시 시작할 수 있다
+        verify(rooms, never()).open(anyLong(), anyBoolean(), any());
+        mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
+                .andExpect(jsonPath("$.status").value("READY"));
+    }
+
+    // 채팅은 STT를 쓰지 않으므로 상한을 보지 않는다
+    @Test
+    void chatStartDoesNotCheckCapacity() throws Exception {
+        long user = newUser();
+        doThrow(new ApiException(ErrorCode.INTERVIEW_CAPACITY_FULL))
+                .when(interviewCapacity)
+                .reserveVideo(any());
+
+        started(user, "CHAT");
+
+        verify(interviewCapacity, never()).reserveVideo(any());
     }
 
     @Test

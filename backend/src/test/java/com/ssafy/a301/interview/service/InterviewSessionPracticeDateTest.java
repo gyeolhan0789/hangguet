@@ -63,6 +63,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private RecordingRepository recordings;
     @Mock private SpeechMetricRepository speechMetrics;
     @Mock private CompanyCardFinder companyCards;
+    @Mock private InterviewCapacity capacity;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -83,7 +84,8 @@ class InterviewSessionPracticeDateTest {
                         rooms,
                         recordings,
                         speechMetrics,
-                        companyCards);
+                        companyCards,
+                        capacity);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {
