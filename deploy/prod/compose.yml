@@ -4,10 +4,12 @@
 #   IMAGE_TAG=<커밋 SHA> <비밀값들> <설정 해시들> docker compose -f deploy/prod/compose.yml up -d
 #   설정 해시까지 맞춰 넣어야 하므로 서버에서는 deploy.sh로 띄운다(deploy/prod/README.md 「배포」)
 # 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr
-# 외부 요청 경로: Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000
-#   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다(배포 계획 5.1). 컨테이너 이름을 바꾸면 거기도 바꾼다.
+# 외부 요청 경로: 서버 443 → a301-prod-nginx(도메인 이름으로 나눔) → FE · BE · 관리 페이지 · a301-prod-livekit:7880 · a301-prod-grafana:3000,
+#   turn.hangguet.co.kr은 a301-prod-livekit:443(TURN/TLS). Cloudflare는 DNS만 쓴다(프록시 끔, 배포 계획 5.1).
+#   전환 기간에는 Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000 길도 남아 있다.
+#   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다. DNS를 서버 IP로 바꾼 뒤 cloudflared와 함께 지운다.
 #
-# 네트워크: 프로젝트 전용 네트워크(a301-prod) 하나. 바깥에 여는 포트는 LiveKit의 미디어 · TURN 포트뿐이다(배포 계획 5.2).
+# 네트워크: 프로젝트 전용 네트워크(a301-prod) 하나. 바깥에 여는 포트는 Nginx의 웹(80 · 443)과 LiveKit의 미디어 · TURN 포트뿐이다(배포 계획 5.2).
 #   Docker가 연 포트는 ufw를 거치지 않으므로, 나머지는 ports를 쓰지 않거나 127.0.0.1에만 연다.
 #
 # 값
@@ -301,15 +303,26 @@ services:
       - internal
     logging: *logging
 
-  # / → FE, /be/ → BE, /admin/ → 관리 페이지. 설정은 nginx.conf
+  # 바깥 웹 입구. 443을 도메인 이름(SNI)으로 나눠 웹은 직접 받고 TURN/TLS는 LiveKit으로 넘긴다.
+  # 앱: / → FE, /be/ → BE, /admin/ → 관리 페이지. 설정은 nginx.conf(배포 계획 5.1)
   a301-prod-nginx:
     image: nginx:1.30.6-alpine
     container_name: a301-prod-nginx
     labels:
       a301.config-hash: ${A301_NGINX_CONFIG_HASH:?A301_NGINX_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
+    # LiveKit이 443을 쓰지 않게 바뀐 뒤에 뜬다. 예전 LiveKit이 서버 443을 쥐고 있을 때 먼저 뜨면 포트가 겹쳐 실패한다
+    depends_on:
+      a301-prod-livekit:
+        condition: service_started
+    ports:
+      - "443:443/tcp"     # 웹 HTTPS + TURN/TLS(SNI로 나눔)
+      - "80:8080/tcp"     # http → https. 컨테이너 80(Tunnel 입구)은 서버에 연결하지 않는다
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # stream 블록이 필요해 conf.d가 아니라 nginx.conf 전체를 바꾼다
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # 웹 인증서(hangguet.co.kr). live/의 파일이 archive/를 가리키는 링크라 폴더 전체를 넣는다(LiveKit과 같음)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health"]
       interval: 10s
@@ -350,7 +363,7 @@ services:
       - "7881:7881/tcp"   # 미디어 예비 경로(UDP가 막힌 네트워크)
       - "7882:7882/udp"   # 미디어(단일 포트 모드)
       - "3478:3478/udp"   # TURN/UDP
-      - "443:443/tcp"     # TURN/TLS
+      # TURN/TLS(컨테이너 443)는 서버 443에 직접 연결하지 않는다. 서버 443은 Nginx가 받아 turn.hangguet.co.kr을 여기로 넘긴다
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
       # TURN 인증서. live/의 파일이 archive/를 가리키는 링크라 폴더 전체를 넣는다(배포 계획 4.2)

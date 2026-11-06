@@ -9,7 +9,7 @@
 |---|---|
 | `compose.yml` | 운영 서비스 전체(프로젝트 `a301-prod`, 네트워크 `a301-prod`) |
 | `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis). 키는 환경 변수 `LIVEKIT_KEYS` |
-| `nginx.conf` | `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙). Swagger 경로는 404 |
+| `nginx.conf` | Nginx 전체 설정(`/etc/nginx/nginx.conf`). 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. 앱은 `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙), Swagger 경로는 404 |
 | `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress · Redis · PostgreSQL을 더 모은다 |
 | `loki.yml` · `alloy.alloy` | 로그 수집(Alloy가 `a301-prod-*` 컨테이너 로그를 Loki에 7일 보관). 개발 서버와 같고 보관 기간 · 이름만 다르다 |
 | `grafana/` | 데이터 소스(Prometheus · Loki) · 대시보드 **A301 운영 서버**(지표) · **A301 운영 서버 로그**(아래 「대시보드」) |
@@ -22,14 +22,23 @@
 |---|---|---|
 | `a301-prod-be` · `-fe` · `-ai` · `-ai-agent` · `-ai-analysis` · `-ai-plan` · `-ai-recording` · `-admin` | `hanggeut/a301:{be,fe,ai,admin}-<IMAGE_TAG>`(AI 다섯 컨테이너는 같은 `ai-` 이미지, 명령 · 환경 변수만 다름) | 없음(헬스체크 포트만 루프백: BE 관리 18084, FE 18082, AI 18083) |
 | `a301-prod-postgres` · `-redis` | 공식 이미지(개발 서버와 같은 버전) | 없음 |
-| `a301-prod-nginx` · `-cloudflared` | 공식 이미지 | 없음(Tunnel이 밖으로 나가는 연결만 씀) |
-| `a301-prod-livekit` · `-egress` | `livekit/livekit-server:v1.13.10` · `livekit/egress:v1.15.0` | LiveKit만 7881/tcp · 7882/udp · 3478/udp · 443/tcp |
-| `a301-prod-prometheus` · `-blackbox` · `-node-exporter` · `-cadvisor` · `-grafana` | 공식 이미지 | 없음(Grafana는 Tunnel) |
+| `a301-prod-nginx` | 공식 이미지 | 443/tcp(웹 + TURN/TLS, SNI로 나눔) · 80/tcp(→ 컨테이너 8080, https로 보냄) |
+| `a301-prod-cloudflared` | 공식 이미지 | 없음(Tunnel이 밖으로 나가는 연결만 씀). DNS를 서버 IP로 바꾸는 동안만 둔다 |
+| `a301-prod-livekit` · `-egress` | `livekit/livekit-server:v1.13.10` · `livekit/egress:v1.15.0` | LiveKit만 7881/tcp · 7882/udp · 3478/udp. TURN/TLS(컨테이너 443)는 Nginx를 거친다 |
+| `a301-prod-prometheus` · `-blackbox` · `-node-exporter` · `-cadvisor` · `-grafana` | 공식 이미지 | 없음(Grafana는 Nginx `grafana.hangguet.co.kr`) |
 | `a301-prod-redis-exporter` · `-postgres-exporter` | `oliver006/redis_exporter:v1.93.0` · `quay.io/prometheuscommunity/postgres-exporter:v0.20.1` | 없음 |
 | `a301-prod-loki` · `-alloy` | `grafana/loki:3.7.8` · `grafana/alloy:v1.20.1`(개발 서버와 같음) | 없음 |
 
-Cloudflare Tunnel(`a301-prod`)의 호스트 이름은 컨테이너 이름을 가리킨다(Cloudflare 대시보드에서 설정, 배포 계획 5.1).
-`hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.hangguet.co.kr` → `http://a301-prod-livekit:7880`, `grafana.hangguet.co.kr` → `http://a301-prod-grafana:3000`
+바깥 요청은 서버 443 → `a301-prod-nginx`가 도메인 이름으로 나눈다(배포 계획 5.1). Cloudflare는 DNS만 쓴다(프록시 끔).
+
+| 도메인 | Nginx가 넘기는 곳 |
+|---|---|
+| `hangguet.co.kr` | 앱(FE · BE · 관리 페이지) |
+| `rtc.hangguet.co.kr` | `http://a301-prod-livekit:7880`(WebSocket) |
+| `grafana.hangguet.co.kr` | `http://a301-prod-grafana:3000` |
+| 그 밖(`turn.hangguet.co.kr`) | `a301-prod-livekit:443`(TLS를 풀지 않고 그대로, TURN/TLS) |
+
+전환 기간에는 Cloudflare Tunnel(`a301-prod`)도 남아 있다. 호스트 이름은 `hangguet.co.kr` → `http://a301-prod-nginx:80`, `rtc.` → `http://a301-prod-livekit:7880`, `grafana.` → `http://a301-prod-grafana:3000`이다(Cloudflare 대시보드). DNS를 서버 IP로 바꾼 뒤 cloudflared · 컨테이너 80 입구와 함께 지운다.
 
 ## 필요한 값
 
@@ -65,10 +74,14 @@ develop → Release MR → master 병합
 6. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
    - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
    - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`
-   - 바깥 주소 3개(Tunnel 호스트 이름 전부, 각 120초). 터널 연결도 이것으로 본다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
-     - `https://hangguet.co.kr/api/health`가 `UP`(Cloudflare → Tunnel → Nginx → FE)
+   - 바깥 주소 3개(도메인 전부, 각 120초). DNS가 가리키는 길로 간다. Tunnel을 가리키는 동안은 터널 연결도 이것으로 본다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+     - `https://hangguet.co.kr/api/health`가 `UP`(Nginx → FE)
      - `https://rtc.hangguet.co.kr/`가 `OK`(면접방 시그널링, LiveKit)
      - `https://grafana.hangguet.co.kr/api/health`가 `"database": "ok"`(대시보드)
+   - 직접 접속(각 60초): 서버 안에서 `127.0.0.1`의 443 · 80으로 붙되 도메인 이름은 진짜로 보낸다(`curl --resolve`). DNS가 어디를 가리키든 서버로 바로 오는 길이 살아 있는지 본다
+     - 위 3개 주소가 같은 응답
+     - 443에 `turn.hangguet.co.kr`로 붙으면 LiveKit이 TURN 인증서로 답한다(SNI 분기)
+     - `http://hangguet.co.kr/`가 `301 https://hangguet.co.kr/`
    - cloudflared 로그의 `Registered tunnel connection`은 기준으로 쓰지 않는다. cloudflared를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고, 로그가 회전되면 연결이 멀쩡해도 사라진다. 또 `pipefail`에서 `docker logs | grep -q`는 로그가 길면(약 64KB 이상) 줄을 찾고도 `docker logs`가 SIGPIPE로 죽어 실패로 판정된다. 10/29 무렵 배포가 터널이 멀쩡한데 이것으로 실패했다(배포 계획 14장)
    - 재시작 반복: 위 healthy 확인 때 적어 둔 컨테이너별 재시작 수가 20초 뒤(HTTP 확인 시간 포함)에도 그대로이고 모두 실행 중이어야 한다. healthcheck가 없는 서비스(LiveKit · Egress · Prometheus · Loki · Alloy · Grafana · cloudflared · exporter)는 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 실행 중인 순간만 보면 통과하기 때문이다(개발 모니터링 잡과 같은 확인)
 7. 이미지 정리: 접두사(`be-` · `fe-` · `ai-` · `admin-`)마다 최신 3개만 남긴다(배포 계획 8.2)
@@ -122,8 +135,11 @@ https://grafana.hangguet.co.kr → A301. 팀원은 Viewer 계정으로 본다(�
 배포 계획 3.1 · 4.2 · 5.2 · 11장. 2026-10-26에 다시 확인했다.
 
 - Docker 29.9 · Compose v5.6, 스왑 4GB, 시간대 `Asia/Seoul`, 로그 10MB × 3
-- ufw: 22 · 7881/tcp · 7882/udp · 3478/udp · 443/tcp
-- TURN 인증서 `/etc/letsencrypt/live/turn.hangguet.co.kr/`(자동 갱신, 갱신 뒤 `a301-prod-livekit` 재시작). LiveKit 이미지는 root로 돌아 그대로 읽는다
+- ufw: 22 · 80/tcp · 7881/tcp · 7882/udp · 3478/udp · 443/tcp
+- 인증서(certbot + Cloudflare DNS 플러그인, `certbot.timer`가 하루 두 번 갱신을 본다). LiveKit · Nginx 이미지는 root로 돌아 그대로 읽는다
+  - TURN `/etc/letsencrypt/live/turn.hangguet.co.kr/`: 갱신 뒤 `renewal-hooks/deploy/restart-livekit.sh`가 `a301-prod-livekit`을 재시작
+  - 웹 `/etc/letsencrypt/live/hangguet.co.kr/`(`hangguet.co.kr` · `rtc.` · `grafana.`, 11/06 발급): 갱신 뒤 `renewal-hooks/deploy/reload-nginx.sh`가 `a301-prod-nginx`를 reload(접속이 끊기지 않음)
+  - 두 hook은 `$RENEWED_LINEAGE`로 자기 인증서일 때만 동작한다. 왜: 이 폴더의 hook은 어느 인증서가 갱신되든 모두 실행되어, 그대로 두면 웹 인증서 갱신 때도 LiveKit이 재시작돼 면접이 끊긴다
 - 러너 `a301-prod`(protected, shell), 러너 계정은 docker 그룹. 배포 폴더 `/opt/a301`(러너 계정 전용), 백업 폴더 `/opt/a301/backup`
 - 백업 cron(러너 계정): `30 4 * * * /opt/a301/backup.sh >> /opt/a301/backup/backup.log 2>&1`. DB 컨테이너가 없으면 건너뛴다
 - 공개 이미지(LiveKit · Egress · Nginx · cloudflared · 모니터링 · aws-cli)를 미리 받아 두었다
