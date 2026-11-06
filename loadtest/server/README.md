@@ -42,7 +42,7 @@ EC2 → 인스턴스 시작:
 | TCP 7881 | 0.0.0.0/0 | 미디어 예비 경로 |
 | UDP 7882 | 0.0.0.0/0 | 미디어 |
 | UDP 3478 | 0.0.0.0/0 | TURN/UDP |
-| TCP 443 | 0.0.0.0/0 | TURN/TLS |
+| TCP 443 | 0.0.0.0/0 | TURN/TLS(Nginx가 받아 LiveKit으로 넘긴다) |
 
 웹 · 시그널링 · Grafana는 Tunnel로만 받으므로 80 · 7880 · 3000은 열지 않는다(운영과 같음).
 
@@ -111,6 +111,8 @@ CERTBOT_EMAIL=<메일> CF_DNS_API_TOKEN=<2-4의 토큰> sudo -E bash setup.sh
 exit   # docker 그룹을 적용하려고 다시 접속한다
 ```
 
+11/06 전에 만든 서버는 `setup.sh`를 한 번 더 실행한다(`CERTBOT_EMAIL`만 주면 된다. DNS 토큰은 `/root/.secrets`에 남아 있다). 운영 Nginx 설정이 `/etc/letsencrypt/live/hangguet.co.kr/` 인증서를 요구해, 그 자리에 `lt.hangguet.co.kr` 인증서를 받아 둔다(`compose.loadtest.yml` 머리말).
+
 ### 6. 띄우기
 
 서버에서:
@@ -142,7 +144,7 @@ curl -s 127.0.0.1:18082/api/health                      # FE
 curl -s 127.0.0.1:18083/health                          # AI
 docker logs a301-prod-cloudflared 2>&1 | grep -m1 'Registered tunnel connection'
 curl -s https://lt.hangguet.co.kr/api/health            # 바깥 주소 한 바퀴(로컬 PC에서)
-sudo ss -tulpn | grep -E '0.0.0.0|\[::\]'               # 바깥에 열린 포트가 22 · 443 · 3478 · 7881 · 7882뿐인지
+sudo ss -tulpn | grep -E '0.0.0.0|\[::\]'               # 바깥에 열린 포트가 22 · 80 · 443 · 3478 · 7881 · 7882뿐인지(80은 보안 그룹에서 닫혀 있다)
 ```
 
 그다음 브라우저로 `https://lt.hangguet.co.kr`에서 가입 → 지원서 → 화상 면접 1건을 끝까지 하고, 결과와 다시보기(녹화 합치기)까지 되는지 본다(계획 7.2의 0단계).

@@ -2,7 +2,7 @@
 # build.sh가 ROLE(agent · egress) · A301_ENV(prod · loadtest)와 watcher.sh · alloy.alloy를 앞에 붙여 user data 한 파일로 만든다.
 #
 # 1. Docker 설치
-# 2. Tailscale 설치 · 가입(SSM tailscale-auth-key가 있을 때만. 테스트 환경은 같은 VPC 사설망이라 쓰지 않는다)
+# 2. Tailscale 설치 · 가입(SSM tailscale-auth-key가 있을 때만. 없으면 같은 VPC 사설망으로 붙는 테스트 구성)
 # 3. SSM /a301/<환경>/<역할>/*에서 주소 · 비밀값을 읽어 root만 읽는 파일로 컨테이너에 넘긴다(시작 템플릿에 비밀값을 적지 않는다)
 # 4. 역할 컨테이너 실행: agent = a301-ai-agent(AI 이미지), egress = a301-egress(livekit/egress)
 # 5. Alloy 실행(SSM metrics-url · loki-url이 둘 다 있을 때만): 지표 → 메인 Prometheus 원격 쓰기, 로그 → 메인 Loki
@@ -59,8 +59,10 @@ if [ -n "$TS_KEY" ]; then
   curl -fsSL https://tailscale.com/install.sh | sh
   systemctl enable --now tailscaled
   # OAuth 클라이언트 비밀값으로 1회용(꺼지면 tailnet에서 빠짐) · 미리 승인 · 역할 태그로 가입한다(계획 5.4)
+  # 테스트 환경은 태그를 따로 둔다(tag:a301-loadtest-agent). ACL에서 테스트 인스턴스가 운영 메인 서버에 닿지 않게 한다
+  if [ "$A301_ENV" = prod ]; then TS_TAG="tag:a301-${ROLE}"; else TS_TAG="tag:a301-${A301_ENV}-${ROLE}"; fi
   tailscale up --auth-key="${TS_KEY}?ephemeral=true&preauthorized=true" \
-    --advertise-tags="tag:a301-${ROLE}" --hostname="a301-${A301_ENV}-${ROLE}-${INSTANCE_ID}"
+    --advertise-tags="$TS_TAG" --hostname="a301-${A301_ENV}-${ROLE}-${INSTANCE_ID}"
   TAILSCALE=yes
 else
   TAILSCALE=no

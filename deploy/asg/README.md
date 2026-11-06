@@ -16,6 +16,7 @@ AI 면접관(에이전트)과 녹화(Egress)를 운영 메인 서버에서 떼�
 | `iam/ci-agent-refresh-policy.json` | 나중에 CI가 에이전트를 새로 고칠 IAM 사용자 정책(계획 7.1) |
 | `redis-password.yml` | 메인 서버 compose 덮어쓰기: Redis 비밀번호 켜기(전환 전에 먼저) |
 | `main-override.yml` | 메인 서버 compose 덮어쓰기: 에이전트 · Egress 끄기, Tailscale IP에 7880 · 6379 · 9090 · 3100 열기 |
+| `main-tailscale.sh` | 메인 서버(운영 · 테스트)를 Tailscale에 태그 기기로 가입시키고 재부팅 때 포트 묶기를 켠다. `MAIN_TAILSCALE_IP`를 출력한다 |
 
 ## user data 만들기
 
@@ -34,7 +35,7 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 | 상태 · 지표(루프백) | 8081 · 9464 | 8080 · 9090 |
 | 축소 보호 기준 | `a301_agent_active_interviews` 합 | `livekit_egress_requests` 합 |
 | 수명 주기 훅 이름 | `a301-prod-agent-drain` | `a301-prod-egress-drain` |
-| Tailscale 태그 | `tag:a301-agent` | `tag:a301-egress` |
+| Tailscale 태그 | `tag:a301-agent`(테스트 `tag:a301-loadtest-agent`) | `tag:a301-egress`(테스트 `tag:a301-loadtest-egress`) |
 
 감시 스크립트(`a301-watcher.service`)
 
@@ -53,7 +54,7 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 | `livekit-api-key` · `livekit-api-secret` | 필수 | 필수 | GitLab `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` |
 | `redis-host` | 필수 | 필수 | `<메인 서버 Tailscale IP>` |
 | `redis-password` | 선택 | 선택 | GitLab `REDIS_PASSWORD`. 운영은 필수(계획 5.2) |
-| `tailscale-auth-key` | 선택 | 선택 | Tailscale OAuth 클라이언트 비밀값. 없으면 Tailscale을 설치하지 않는다(테스트 환경) |
+| `tailscale-auth-key` | 선택 | 선택 | Tailscale OAuth 클라이언트 비밀값(운영 · 테스트 따로). 없으면 Tailscale을 설치하지 않는다(같은 VPC 사설망 시험) |
 | `metrics-url` · `loki-url` | 선택 | 선택 | `http://<Tailscale IP>:9090/api/v1/write` · `http://<Tailscale IP>:3100/loki/api/v1/push`. 둘 다 있어야 Alloy를 띄운다 |
 | `image-tag` | 필수 | – | 운영 배포와 같은 커밋 짧은 SHA(계획 7.1) |
 | `dockerhub-user` · `dockerhub-token` | 필수 | – | 에이전트 전용 읽기 토큰(`a301-prod-agent-pull`) |
@@ -81,8 +82,8 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 
 ## 메인 서버 전환(계획 10.1)
 
-1. `redis-password.yml`을 먼저 적용한다(AI가 `REDIS_PASSWORD`를 읽는 코드가 들어간 뒤). LiveKit이 `REDIS_PASSWORD` 환경 변수를 읽는지는 테스트 서버에서 확인한다
-2. Tailscale을 설치 · 가입(`tag:a301-main`)하고 `MAIN_TAILSCALE_IP`를 정한다
+1. `redis-password.yml`을 먼저 적용한다(AI가 `REDIS_PASSWORD`를 읽는 코드가 들어간 뒤). LiveKit은 `REDIS_PASSWORD` 환경 변수를 읽는다(v1.13.10 소스 확인, 실제 접속은 테스트 서버에서 확인)
+2. `sudo bash main-tailscale.sh prod`로 Tailscale에 가입(`tag:a301-main`)하고 `MAIN_TAILSCALE_IP`를 정한다
 3. ASG 원하는 대수 1 → 면접 1건 확인 → `main-override.yml`을 더해 메인 서버의 에이전트 · Egress를 끈다. `prometheus.yml`의 `a301-ai-agent` · `a301-egress` 수집 작업은 지운다
 4. 되돌리기: `--profile agent-on-main --profile egress-on-main`으로 메인 서버 쪽을 다시 켠 뒤 ASG 원하는 대수를 0으로 낮춘다
 
@@ -95,4 +96,4 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 - Tailscale 설치 스크립트 · OAuth 가입이 Amazon Linux 2023에서 되는지, 컨테이너에서 Tailscale IP로 나가는지
 - IMDS `target-lifecycle-state`가 종료 대기 중에 `Terminated`로 보이는지, 훅 완료 뒤 바로 종료되는지
 - Egress가 루프백 8080에 상태를 응답하는지, `livekit_egress_requests` 값이 진행 중 녹화 수와 맞는지
-- LiveKit 서버의 Redis 비밀번호 환경 변수
+- LiveKit 서버가 `REDIS_PASSWORD`로 Redis에 실제로 붙는지(소스로는 확인함)

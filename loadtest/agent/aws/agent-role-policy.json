@@ -15,6 +15,22 @@
       "Condition": {
         "StringEquals": { "kms:ViaService": "ssm.ap-northeast-2.amazonaws.com" }
       }
+    },
+    {
+      "Sid": "FindOwnAutoScalingGroup",
+      "Effect": "Allow",
+      "Action": "autoscaling:DescribeAutoScalingInstances",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageOwnInstanceInAgentGroup",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:SetInstanceProtection",
+        "autoscaling:SetInstanceHealth",
+        "autoscaling:CompleteLifecycleAction"
+      ],
+      "Resource": "arn:aws:autoscaling:ap-northeast-2:*:autoScalingGroup:*:autoScalingGroupName/a301-loadtest-agent"
     }
   ]
 }
