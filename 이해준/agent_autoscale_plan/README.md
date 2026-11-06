@@ -452,7 +452,7 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 - 켜기: GitLab CI/CD 변수 `AGENT_ASG_ENABLED=true`(범위 `prod/*`). 없으면 스크립트가 아무것도 하지 않고 끝나므로, ASG로 전환하기 전에 머지해도 운영 배포는 지금과 같다. 전환하는 날 켜고, 10.1 되돌리기(메인 서버 에이전트로 돌아감) 때는 끈다
 - 권한: 메인 서버 러너는 SSAFY 계정이라 우리 계정 역할을 쓸 수 없다. **이 파라미터 하나에 `ssm:PutParameter`, 이 ASG에 `autoscaling:StartInstanceRefresh` · `DescribeInstanceRefreshes`만** 준 IAM 사용자 `a301-prod-agent-ci`(`deploy/asg/iam/ci-agent-refresh-policy.json`)의 키를 `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY`(범위 `prod/*`, Protected · Masked)로 둔다. AWS CLI는 러너에 설치하지 않고 공식 이미지(`amazon/aws-cli`)로 돌린다
 - 동작: 진행 중인 새로 고침이 있으면 태그도 바꾸지 않고 잡을 실패로 남긴다(섞인 상태를 만들지 않게). 없으면 `put-parameter --overwrite` → `start-instance-refresh`(최소 정상 100% · 최대 200% · 준비 180초 · **축소 보호가 켜진 대는 풀릴 때까지 기다림** `ScaleInProtectedInstances=Wait`)
-  - 왜 `Wait`: 감시 스크립트가 면접 중인 대에 축소 보호를 건다. 기본값(`Ignore`)이면 그 대는 새로 고침에서 빠져 옛 버전으로 남는다 **[확인 필요: 운영 반영 전 테스트 ASG로 설정값 확인]**
+  - 왜 `Wait`: 감시 스크립트가 면접 중인 대에 축소 보호를 건다. 기본값(`Ignore`)이면 그 대는 새로 고침에서 빠져 옛 버전으로 남는다 **[확인함]**(11/06, [운영 경로 보고서](../../loadtest/report/asg-path-2026-11-06.md) 2.3): 면접 중인 대가 있으면 새로 고침은 새 대를 띄우지도 않고 보호가 풀릴 때까지 기다린다. 면접이 끝나면 새 대를 먼저 띄우고 준비 시간(180초) 뒤 옛 대를 내린다. 진행 중 면접은 끊기지 않고, 반영은 면접이 끝난 뒤 약 4~5분 걸린다. 면접이 끊이지 않는 시간에는 배포가 그만큼 늦어진다
 - 기다리지 않는다: 새로 고침은 진행 중 면접 때문에 최대 30분 걸릴 수 있어, 잡은 시작만 하고 끝난다. 끝났는지는 콘솔 · `describe-instance-refreshes`로 본다
 - 실패해도 메인 서버 배포(③)는 되돌리지 않는다. 그 상태는 "④를 잊은 경우"와 같으므로 잡을 다시 돌리면(Retry) 된다
 - 되돌리기: GitLab에서 이전 배포를 Re-deploy하면 ③과 함께 ④ · ⑤도 이전 SHA로 다시 돈다
