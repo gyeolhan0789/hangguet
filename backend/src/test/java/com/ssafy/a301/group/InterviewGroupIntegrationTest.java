@@ -27,13 +27,19 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.group.repository.GroupPresenceStore;
+import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
+import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.InputType;
+import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.repository.AiJobQueue;
+import com.ssafy.a301.interview.repository.AnswerRepository;
+import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService;
@@ -84,6 +90,9 @@ class InterviewGroupIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired private ApplicationRepository applications;
     @Autowired private InterviewSessionRepository sessions;
+    @Autowired private InterviewQuestionRepository questions;
+    @Autowired private AnswerRepository answers;
+    @Autowired private GroupEndService groupEnds;
     @Autowired private AiResultService results;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private InMemorySessionRuntimeStore runtimes;
@@ -113,6 +122,14 @@ class InterviewGroupIntegrationTest {
         for (long id : userIds) {
             String sessionsOfUser = "SELECT id FROM interview_sessions WHERE user_id = " + id;
             jdbc.update("DELETE FROM interview_group_participants WHERE user_id = ?", id);
+            jdbc.update(
+                    "DELETE FROM answers WHERE question_id IN (SELECT id FROM interview_questions"
+                            + " WHERE session_id IN ("
+                            + sessionsOfUser
+                            + "))");
+            jdbc.update(
+                    "DELETE FROM interview_questions WHERE session_id IN (" + sessionsOfUser + ")");
+            jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_plans WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM ai_job_outbox WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
@@ -693,6 +710,95 @@ class InterviewGroupIntegrationTest {
                 .isTrue();
     }
 
+    // 5.8: 내 면접만 끝내고 나머지는 계속한다. 마지막 면접이 끝나면 그룹이 끝나고 방을 지운다(docs/그룹면접-설계.md 6.10)
+    @Test
+    void endingSessionsOneByOneEndsGroupWithLastOne() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long hostSession = group.sessionIds().get(0);
+        long guestSession = group.sessionIds().get(1);
+        long guest = group.guests().getFirst();
+        answered(hostSession);
+
+        mvc.perform(endRequest(group.host(), hostSession))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("ANALYZING"))
+                .andExpect(jsonPath("$.answeredCount").value(1));
+        // 남은 사람은 계속한다. 끝낸 사람만 방에서 내보낸다
+        assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
+        assertThat(endReason(hostSession)).isEqualTo("USER_ENDED");
+        assertThat(jobTypes(hostSession)).containsExactlyInAnyOrder("PLAN", "EVALUATE");
+        verify(rooms).removeGroupParticipant(group.groupId(), hostSession);
+        verify(rooms, never()).closeGroup(anyLong());
+        // 한 번 더 끝내면 409
+        mvc.perform(endRequest(group.host(), hostSession))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
+
+        mvc.perform(endRequest(guest, guestSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ABORTED"));
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT ended_at IS NOT NULL FROM interview_groups WHERE id = ?",
+                                Boolean.class,
+                                group.groupId()))
+                .isTrue();
+        verify(rooms).closeGroup(group.groupId());
+        verify(rooms, never()).removeGroupParticipant(group.groupId(), guestSession);
+        // 녹화 합치기는 본인 답변 구간(segments)이 생긴 뒤에 넣는다(6.12). 개인 면접 경로로도 넣지 않는다
+        assertThat(jobTypes(hostSession)).doesNotContain("MERGE_RECORDING");
+        verify(rooms, never()).close(anyLong());
+    }
+
+    // 다른 사람의 그룹 면접은 끝낼 수 없다(404)
+    @Test
+    void othersGroupSessionCannotBeEnded() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+
+        mvc.perform(endRequest(group.guests().getFirst(), group.sessionIds().get(0)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
+        assertThat(sessions.findById(group.sessionIds().get(0)).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+    }
+
+    // 안전장치(6.11): 오래전에 시작했고 진행도 멈춘 그룹만 남은 면접을 끝낸다
+    @Test
+    void stalledGroupIsCleanedUpButProgressingGroupIsNot() throws Exception {
+        ReadyGroup stalled = readyGroup(2);
+        mvc.perform(startRequest(stalled.host(), stalled.groupId())).andExpect(status().isOk());
+        ReadyGroup progressing = readyGroup(2);
+        mvc.perform(startRequest(progressing.host(), progressing.groupId()))
+                .andExpect(status().isOk());
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update(
+                "UPDATE interview_groups SET started_at = ?, progressed_at = ? WHERE id = ?",
+                now.minusMinutes(61),
+                now.minusMinutes(6),
+                stalled.groupId());
+        // 오래 걸려도 방금 진행했으면 정상이다
+        jdbc.update(
+                "UPDATE interview_groups SET started_at = ?, progressed_at = ? WHERE id = ?",
+                now.minusMinutes(61),
+                now.minusMinutes(1),
+                progressing.groupId());
+
+        groupEnds.cleanupStalled(now);
+
+        assertThat(groupStatus(stalled.groupId())).isEqualTo("ENDED");
+        for (long sessionId : stalled.sessionIds()) {
+            assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                    .isEqualTo(SessionStatus.ABORTED);
+            assertThat(endReason(sessionId)).isEqualTo("CLEANUP");
+        }
+        verify(rooms).closeGroup(stalled.groupId());
+        assertThat(groupStatus(progressing.groupId())).isEqualTo("IN_PROGRESS");
+        verify(rooms, never()).closeGroup(progressing.groupId());
+    }
+
     // 그룹은 화상 면접 하나로 센다. 상한에 닿으면 그룹 · 면접이 그대로라 잠시 후 다시 시작할 수 있다
     @Test
     void videoGroupStartIsRejectedWhenCapacityIsFull() throws Exception {
@@ -893,6 +999,32 @@ class InterviewGroupIntegrationTest {
                         + " IS NULL",
                 Long.class,
                 groupId);
+    }
+
+    private MockHttpServletRequestBuilder endRequest(long userId, long sessionId) {
+        return as(userId, idempotent(post("/api/v1/interview-sessions/" + sessionId + "/end")))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}");
+    }
+
+    // 에이전트가 1번 질문을 내고 답변을 저장한 것처럼 만든다
+    private void answered(long sessionId) {
+        InterviewSession session = sessions.findById(sessionId).orElseThrow();
+        InterviewQuestion question =
+                questions.saveAndFlush(
+                        new InterviewQuestion(
+                                session, 1, "질문", "기준", null, null, OffsetDateTime.now()));
+        answers.saveAndFlush(new Answer(question, InputType.TEXT, "답"));
+    }
+
+    private String endReason(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT end_reason FROM interview_sessions WHERE id = ?", String.class, sessionId);
+    }
+
+    private List<String> jobTypes(long sessionId) {
+        return jdbc.queryForList(
+                "SELECT job_type FROM ai_job_outbox WHERE session_id = ?", String.class, sessionId);
     }
 
     private String groupStatus(long groupId) {

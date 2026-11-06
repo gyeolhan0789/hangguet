@@ -11,6 +11,7 @@ import io.livekit.server.CanPublish;
 import io.livekit.server.CanPublishData;
 import io.livekit.server.CanPublishSources;
 import io.livekit.server.CanSubscribe;
+import io.livekit.server.RoomAdmin;
 import io.livekit.server.RoomCreate;
 import io.livekit.server.RoomJoin;
 import io.livekit.server.RoomName;
@@ -26,6 +27,7 @@ import livekit.LivekitEgress.S3Upload;
 import livekit.LivekitRoom.CreateRoomRequest;
 import livekit.LivekitRoom.DeleteRoomRequest;
 import livekit.LivekitRoom.RoomEgress;
+import livekit.LivekitRoom.RoomParticipantIdentity;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -129,6 +131,35 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         delete(groupRoomName(groupId));
     }
 
+    @Override
+    public void removeGroupParticipant(long groupId, long sessionId) {
+        if (!isConfigured()) {
+            return;
+        }
+        String room = groupRoomName(groupId);
+        String identity = InterviewRoom.groupCandidate(sessionId);
+        try {
+            Response<?> response =
+                    rooms().removeParticipant(
+                                    RoomParticipantIdentity.newBuilder()
+                                            .setRoom(room)
+                                            .setIdentity(identity)
+                                            .build(),
+                                    roomAdminAuth(room))
+                            .execute();
+            // 이미 나간 참가자 · 닫힌 방은 그대로 둔다
+            if (!response.isSuccessful() && response.code() != 404) {
+                LOG.warn(
+                        "참가자를 내보내지 못했다: room={} identity={} status={}",
+                        room,
+                        identity,
+                        response.code());
+            }
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("참가자를 내보내지 못했다: room={} identity={}", room, identity, ex);
+        }
+    }
+
     private RoomResponse access(String room, String identity, boolean video) {
         requireConfigured();
         AccessToken token = new AccessToken(apiKey, apiSecret);
@@ -223,6 +254,14 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     private String adminAuth() {
         AccessToken token = new AccessToken(apiKey, apiSecret);
         token.addGrants(new RoomCreate(true));
+        token.setTtl(TimeUnit.MINUTES.toMillis(1));
+        return "Bearer " + token.toJwt();
+    }
+
+    // 참가자 내보내기 권한(그 방의 관리자)
+    private String roomAdminAuth(String room) {
+        AccessToken token = new AccessToken(apiKey, apiSecret);
+        token.addGrants(new RoomAdmin(true), new RoomName(room));
         token.setTtl(TimeUnit.MINUTES.toMillis(1));
         return "Bearer " + token.toJwt();
     }
