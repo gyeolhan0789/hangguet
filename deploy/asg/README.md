@@ -96,6 +96,8 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 
 Redis 비밀번호(`REDIS_PASSWORD`)는 `compose.yml`에 늘 켜져 있다(변수가 없으면 배포가 멈춘다).
 
+CI는 이미지 태그만 바꾼다. 키트(`bootstrap.sh` · `watcher.sh` · `alloy.alloy`)를 고치면 user data에 들어가므로 손으로 반영한다: `bash deploy/asg/build.sh agent prod`로 만든 user data로 시작 템플릿 새 버전을 만들고, ASG가 그 버전을 쓰게 한 뒤 인스턴스 새로 고침을 한다(`ci-agent-refresh.sh`와 같은 설정, 진행 중 면접은 drain).
+
 순서
 1. 운영 리소스를 원하는 대수 0으로 만든다(위 「리소스」, SSM `/a301/prod/agent/*`, IAM 사용자 `a301-prod-agent-ci`). Docker Hub 토큰은 넣기 전에 실제로 받아지는지 확인한다: `echo <토큰> | docker login -u hanggeut --password-stdin && docker manifest inspect hanggeut/a301:ai-<태그> >/dev/null && echo OK; docker logout`
 2. 운영 메인 서버에 `main-tailscale.sh`를 올려(서버에는 `deploy/prod`만 복사되므로 `scp -i <pem>`으로 `/tmp`에) `sudo bash /tmp/main-tailscale.sh prod` → 출력된 IP를 GitLab `MAIN_TAILSCALE_IP`와 SSM `livekit-url`(`ws://<IP>:7880`) · `redis-host` · `metrics-url` · `loki-url`에 넣는다

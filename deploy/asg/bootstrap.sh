@@ -229,6 +229,7 @@ start_alloy() {
     --memory 192m \
     -v /etc/a301/alloy.alloy:/etc/alloy/config.alloy:ro \
     -v /var/run/docker.sock:/var/run/docker.sock:ro \
+    -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \
     -v a301-alloy-data:/var/lib/alloy/data \
     --log-driver json-file --log-opt max-size=10m --log-opt max-file=3 \
     "$ALLOY_IMAGE" run --storage.path=/var/lib/alloy/data --disable-reporting /etc/alloy/config.alloy || return 1

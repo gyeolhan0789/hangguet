@@ -463,10 +463,10 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 
 | 대상 | 방법 |
 |---|---|
-| 지표 | 에이전트 인스턴스의 **Alloy**가 에이전트 지표(9464, 컨테이너 안)를 긁어 메인 Prometheus에 **원격 쓰기**(`remote_write`, Tailscale IP의 9090)로 보낸다. 메인 Prometheus는 원격 쓰기 받기(`--web.enable-remote-write-receiver`)를 켠다 |
+| 지표 | 에이전트 인스턴스의 **Alloy**가 에이전트 지표(9464, 컨테이너 안, `job=a301-ai-agent`)와 인스턴스 CPU · 메모리 · 디스크(`prometheus.exporter.unix`, `job=a301-asg-node`)를 긁어 메인 Prometheus에 **원격 쓰기**(`remote_write`, Tailscale IP의 9090)로 보낸다. 메인 Prometheus는 원격 쓰기 받기(`--web.enable-remote-write-receiver`)를 켠다 |
 | 로그 | 같은 Alloy가 에이전트 컨테이너 로그를 메인 **Loki**(Tailscale IP의 3100)로 보낸다 |
-| 라벨 | `instance`(인스턴스 ID), `az`, `a301_env=prod`. 어느 대에서 난 지표 · 로그인지 구분한다 |
-| Grafana | 기존 대시보드에 "에이전트 대수 · 대당 진행 중 면접 · CPU" 줄을 더한다 |
+| 라벨 | 지표: `instance_id`(EC2 인스턴스 ID) · `az` · `env` · `role`. 로그: `instance_id` · `env` · `role` · `service=a301-prod-ai-agent`. `instance`는 모든 대가 `127.0.0.1:9464`로 같으므로 대를 나눌 때는 `instance_id`를 쓴다 |
+| Grafana | 운영 대시보드 "AI 면접 에이전트" 줄에 **에이전트 인스턴스**(지표가 들어오는 대수) · **인스턴스별 진행 중 면접** · **인스턴스별 CPU**(40% 점선) · **인스턴스별 메모리**. 다른 에이전트 패널은 모든 대의 합계다. 로그 대시보드에 **에이전트 인스턴스** 선택 칸(전체 = 메인 서버 로그 포함) |
 | Egress **[제안]** | 같은 방식. Egress 인스턴스의 Alloy가 Egress 지표(9090: `livekit_egress_requests` · `livekit_egress_can_accept_request` · `livekit_egress_handler_results_total`)를 원격 쓰기로, 컨테이너 로그를 Loki로 보낸다. 메인 Prometheus가 지금 직접 긁는 `a301-egress` 작업(`deploy/prod/prometheus.yml`)은 지우고, 원격 쓰기로 받는 지표에 같은 `job` 라벨을 붙여 기존 패널을 그대로 쓴다. 대시보드 LiveKit · 녹화 줄을 대별로 바꾸고, 녹화 결과 중 `completed`가 아닌 것(`killed_oom` 등)을 따로 보인다 |
 
 - 왜 보내는 쪽(push): 메인 Prometheus가 가져가려면(pull) 늘고 주는 에이전트 목록을 알아야 한다. EC2 서비스 탐색(`ec2_sd_configs`)은 메인 서버가 우리 계정 EC2 API를 부를 역할이 없고, 받은 사설 IP도 Tailscale로는 닿지 않아 쓸 수 없다. Tailscale API로 목록을 만드는 방법은 갱신 스크립트와 API 키가 더 든다. 보내면 목록이 필요 없고 지표 · 로그를 Alloy 설정 한 곳에서 끝낸다
@@ -637,3 +637,4 @@ ASG가 인스턴스를 줄이면 그 인스턴스의 면접이 끊긴다. 두 �
 | 인프라 | 10.1 운영 반영 준비: Redis 비밀번호를 운영 `compose.yml`에 늘 켬(덮어쓰기 파일 대신, `REDIS_PASSWORD` 필수). 전환 덮어쓰기를 `deploy/prod/compose.asg.yml`로 옮기고 `deploy.sh`가 `AGENT_ASG_ENABLED=true`일 때만 더함(메인 서버 에이전트 drain 뒤 지움, Egress는 `egress-on-main`으로 남김). 6.3 drain 상한 1800 → **3900초** | 전환을 서버에서 손으로 하지 않고 GitLab 변수로 켜고 끄며, 되돌리기도 변수를 지우고 다시 배포하면 된다. 그룹 면접(약 60분)이 drain 상한에 잘리지 않게 늘렸다 |
 | 인프라 | 11/07 운영 전환 기록(10.1), 11장에 전환 중 문제 두 가지(Redis만 다시 만들어지면 BE가 예전 IP를 붙잡음 · 부팅이 멈춘 인스턴스가 InService로 남음)와 고친 것 | `deploy.sh`가 Redis 재생성 때 BE를 다시 시작하고, `bootstrap.sh`가 부팅 실패를 비정상으로 알린다. 테스트를 운영과 같은 단계로 나눠 하지 않아 놓쳤다 |
 | 인프라 | 11/07 비슷한 문제 점검: `deploy.sh`의 BE 다시 시작을 PostgreSQL 재생성에도 적용, ASG 에이전트 로그 라벨 `service`를 메인 서버 서비스 이름(`a301-prod-ai-agent`)으로 맞춤(로그 대시보드 에이전트 패널이 비어 있었다), 운영 대시보드 "에이전트 지표 수집"을 `max(up{job="a301-ai-agent"})`로(꺼진 메인 서버 대상의 up=0이 함께 보였다), 키트 README에 Redis 비밀번호 바꾸는 순서 | 운영 전환 뒤 "새로 만들어진 대상을 옛 이름 · 주소로 찾는" 같은 종류의 문제를 찾아 함께 고쳤다 |
+| 인프라 | 11/07 대별로 보기: 8장 라벨을 실제 값(`instance_id` · `env` · `role` · `az`)으로 정정, Alloy에 인스턴스 CPU · 메모리 · 디스크(`job=a301-asg-node`) 추가, 운영 대시보드에 에이전트 인스턴스 수 · 인스턴스별 면접 · CPU · 메모리, 로그 대시보드에 인스턴스 선택 칸. 메인 Prometheus의 `a301-ai-agent` 작업을 Docker DNS 탐색으로 바꾸고 `deploy.sh`가 메인 서버 에이전트를 지운 뒤 Prometheus를 다시 시작 | 기존 패널은 모든 대를 합쳐 보여 대수 · 몰림 · 확장 기준(CPU)을 Grafana에서 볼 수 없었다. 고정 대상이던 메인 서버 에이전트가 없어진 뒤 up=0이 남아 "지표 수집 실패" 알림이 계속 울렸다 |
