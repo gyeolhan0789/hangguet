@@ -1,4 +1,4 @@
-# 운영 서버 배포 (Lightsail)
+# 운영 서버 배포 (SSAFY EC2)
 
 운영 서버에서 도는 서비스와 설정 파일이다. 기준 문서는 [운영 배포 계획](../../이해준/deploy_plan/README.md)이다.
 개발 서버([`deploy/dev`](../dev))와 **같은 컨테이너 구성 · 같은 환경 변수 이름**으로 띄우고, 이미지 출처(Docker Hub)와 키 값만 다르다.
@@ -57,7 +57,7 @@ GitLab CI/CD Variables(배포 계획 7장). compose가 파일 전체를 읽으�
 ```
 develop → Release MR → master 병합
   → prod-build (자동, yobi 미니PC 배포 러너): be · fe · ai · admin 이미지 빌드 → Docker Hub push → 미니PC에서 지움
-  → prod-deploy (▶ 버튼, Lightsail 러너 a301-prod): deploy.sh
+  → prod-deploy (▶ 버튼, SSAFY EC2 러너 a301-prod): deploy.sh
 ```
 
 - 배포 시점을 사람이 고른다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있다

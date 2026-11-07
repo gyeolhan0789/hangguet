@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 운영 서버 배포(배포 계획 8장). CI prod-deploy 잡이 Lightsail 러너(a301-prod, shell)에서 레포 루트 기준으로 실행한다.
+# 운영 서버 배포(배포 계획 8장). CI prod-deploy 잡이 SSAFY EC2 러너(a301-prod, shell)에서 레포 루트 기준으로 실행한다.
 #   IMAGE_TAG=<커밋 짧은 SHA> bash deploy/prod/deploy.sh
 # 비밀값은 CI/CD Variables가 환경 변수로 넣는다(배포 계획 7장). compose가 빠진 값을 이름과 함께 알려 주고 멈춘다.
 #

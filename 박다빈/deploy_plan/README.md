@@ -163,7 +163,7 @@ pipeline-deploy:
 - Airflow(8080)·MinIO(9000·9001)를 인터넷에 열기. Airflow가 "모두 관리자"(`SIMPLE_AUTH_MANAGER_ALL_ADMINS`) 설정이라 열면 누구나 작업 실행·설정 변경 가능. 화면은 SSH 터널로만:
   `ssh -i <pem> -L 8080:127.0.0.1:8080 ubuntu@13.209.132.209` → 브라우저 `http://localhost:8080`
 - API 키를 git·채팅·메신저·CI 로그에 남기기
-- Lightsail(MVP)과 연결: MVP 이후. 그때 보안 그룹에 Lightsail 고정 IP 하나만 추가
+- 운영 서버(SSAFY EC2, MVP)와 연결: MVP 이후. 그때 보안 그룹에 SSAFY EC2 고정 IP 하나만 추가
 
 ## 5. 함정 (이미 겪은 것)
 
