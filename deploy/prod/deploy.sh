@@ -41,12 +41,18 @@ if [ "${AGENT_ASG_ENABLED:-}" = "true" ]; then
   : "${MAIN_TAILSCALE_IP:?AGENT_ASG_ENABLED=true면 MAIN_TAILSCALE_IP(메인 서버 Tailscale IP, 범위 prod/*)가 필요합니다}"
   COMPOSE+=(-f "${PROD_DIR}/compose.asg.yml")
   SRC_COMPOSE+=(-f "${SRC_DIR}/compose.asg.yml")
-  # Egress는 Egress ASG로 옮기기 전까지 메인 서버에 둔다(compose.asg.yml이 egress-on-main 프로필로 묶는다).
-  # Egress를 옮기는 날 EGRESS_ASG_ENABLED=true로 끄고, 그때 아래 에이전트처럼 남은 컨테이너를 drain하는 처리를 더한다
-  if [ "${EGRESS_ASG_ENABLED:-}" != "true" ]; then
+  # Egress는 compose.asg.yml이 egress-on-main 프로필로 묶는다. EGRESS_ASG_ENABLED=true가 아니면 프로필을 켜 메인 서버에 둔다.
+  # true면 메인 서버 Egress를 끄고(아래에서 남은 컨테이너를 drain 뒤 지움) Egress ASG만 녹화를 받는다(계획 10.1의 10)
+  if [ "${EGRESS_ASG_ENABLED:-}" = "true" ]; then
+    echo "Egress ASG 구성: 메인 서버 Egress 끔"
+  else
     export COMPOSE_PROFILES="egress-on-main"
   fi
   echo "에이전트 ASG 구성: 메인 서버 에이전트 끔, Tailscale ${MAIN_TAILSCALE_IP}에 7880 · 6379 · 9090 · 3100"
+elif [ "${EGRESS_ASG_ENABLED:-}" = "true" ]; then
+  # Egress ASG도 Tailscale로 7880 · 6379에 붙으므로 compose.asg.yml(에이전트 전환)이 먼저다
+  echo "FAIL: EGRESS_ASG_ENABLED=true는 AGENT_ASG_ENABLED=true와 같이 써야 합니다"
+  exit 1
 fi
 
 log() { echo "== $*"; }
@@ -150,15 +156,29 @@ done
 
 # 프로필로 꺼진 서비스의 컨테이너는 up이 지우지 않는다. 전환하는 날 남아 있는 메인 서버 에이전트를 SIGTERM으로 drain한 뒤 지운다
 # (새 면접은 받지 않고 진행 중 면접을 마친 뒤 내려간다. 그동안 새 면접은 ASG 에이전트가 받는다)
+removed_main=""
 if [ "${AGENT_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-ai-agent >/dev/null 2>&1; then
   log "메인 서버 에이전트 내리기 (진행 중 면접을 최대 ${AGENT_DRAIN_SECONDS}초 기다림)"
   docker stop --time "$AGENT_DRAIN_SECONDS" a301-prod-ai-agent >/dev/null
   docker rm a301-prod-ai-agent >/dev/null
   echo "OK: a301-prod-ai-agent 내림"
-  # Prometheus는 에이전트를 이름(DNS)으로 찾는데, 켜진 뒤에 컨테이너가 사라지면 이름 찾기가 실패해도 예전 대상을 붙잡아
+  removed_main=yes
+fi
+# Egress도 같다. SIGTERM이면 새 녹화를 받지 않고 진행 중 녹화를 마친 뒤 종료한다(11/07 Egress ASG 보고서 2.1).
+# 녹화는 면접이 끝나 방이 닫히면 같이 끝나므로 상한은 에이전트와 같다
+if [ "${EGRESS_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-egress >/dev/null 2>&1; then
+  log "메인 서버 Egress 내리기 (진행 중 녹화를 최대 ${AGENT_DRAIN_SECONDS}초 기다림)"
+  # 이미지에 StopSignal이 없고 compose도 정하지 않아 docker stop은 SIGTERM을 보낸다
+  docker stop --time "$AGENT_DRAIN_SECONDS" a301-prod-egress >/dev/null
+  docker rm a301-prod-egress >/dev/null
+  echo "OK: a301-prod-egress 내림"
+  removed_main=yes
+fi
+if [ -n "$removed_main" ]; then
+  # Prometheus는 에이전트 · Egress를 이름(DNS)으로 찾는데, 켜진 뒤에 컨테이너가 사라지면 이름 찾기가 실패해도 예전 대상을 붙잡아
   # up=0과 "지표 수집 실패" 알림이 남는다(11/07, 로컬에서 재현). 다시 시작하면 대상 없이 뜬다. 지표는 볼륨에 남는다
   docker restart a301-prod-prometheus >/dev/null
-  echo "OK: a301-prod-prometheus 다시 시작(꺼진 에이전트 대상 지우기)"
+  echo "OK: a301-prod-prometheus 다시 시작(꺼진 대상 지우기)"
 fi
 
 log "상태 확인"

@@ -82,9 +82,18 @@ scrape_configs:
       - targets: [a301-prod-livekit:6789]
 
   # 녹화 상태(compose.yml EGRESS_CONFIG_BODY prometheus_port)
+  # 에이전트(a301-ai-agent)와 같다. 메인 서버에 Egress 컨테이너가 있을 때만 긁고, Egress ASG로 옮기면(EGRESS_ASG_ENABLED=true)
+  # 대상이 사라진다. ASG Egress는 인스턴스의 Alloy가 같은 job 이름으로 원격 쓰기를 보낸다(instance_id 라벨)
   - job_name: a301-egress
-    static_configs:
-      - targets: [a301-prod-egress:9090]
+    dns_sd_configs:
+      - names: [a301-prod-egress]
+        type: A
+        port: 9090
+        refresh_interval: 30s
+    relabel_configs:
+      # 대상 주소는 컨테이너 IP가 되므로 instance는 예전과 같은 이름으로 둔다(대시보드 · 알림이 그대로 읽게)
+      - target_label: instance
+        replacement: a301-prod-egress:9090
 
   # Redis 메모리 · 연결 · 명령
   - job_name: a301-redis

@@ -13,8 +13,9 @@
 # - Prometheus가 원격 쓰기를 받게 한다(ASG 인스턴스의 Alloy가 보낸다, 계획 8장)
 # - LiveKit TCP 재전송 상한을 낮춘다(유령 작업자 대책, 아래)
 #
-# prometheus.yml의 a301-ai-agent 수집 작업은 남겨 둔다. 컨테이너가 없어 수집만 실패하고(up=0), 대시보드가 쓰는 지표는
-# ASG 인스턴스가 instance_id 라벨을 붙여 원격으로 보낸다. 되돌릴 때 설정 파일을 바꿀 필요가 없게 하려는 것이다.
+# prometheus.yml의 a301-ai-agent · a301-egress 수집 작업은 Docker DNS로 컨테이너를 찾아, 메인 서버에 없으면 대상이 사라진다.
+# 대시보드가 쓰는 지표는 ASG 인스턴스가 instance_id 라벨을 붙여 원격으로 보낸다. 되돌릴 때 설정 파일을 바꿀 필요가 없다.
+# 메인 서버 컨테이너를 지운 뒤에는 deploy.sh가 Prometheus를 다시 시작해 남은 대상을 지운다.
 # 재부팅 때 Docker가 Tailscale IP에 포트를 묶으려면 main-tailscale.sh가 켠 net.ipv4.ip_nonlocal_bind=1이 필요하다(계획 5.4)
 
 services:
