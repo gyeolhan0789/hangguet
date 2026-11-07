@@ -155,6 +155,10 @@ if [ "${AGENT_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-a
   docker stop --time "$AGENT_DRAIN_SECONDS" a301-prod-ai-agent >/dev/null
   docker rm a301-prod-ai-agent >/dev/null
   echo "OK: a301-prod-ai-agent 내림"
+  # Prometheus는 에이전트를 이름(DNS)으로 찾는데, 켜진 뒤에 컨테이너가 사라지면 이름 찾기가 실패해도 예전 대상을 붙잡아
+  # up=0과 "지표 수집 실패" 알림이 남는다(11/07, 로컬에서 재현). 다시 시작하면 대상 없이 뜬다. 지표는 볼륨에 남는다
+  docker restart a301-prod-prometheus >/dev/null
+  echo "OK: a301-prod-prometheus 다시 시작(꺼진 에이전트 대상 지우기)"
 fi
 
 log "상태 확인"

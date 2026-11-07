@@ -10,6 +10,23 @@ prometheus.scrape "role" {
   forward_to      = [prometheus.remote_write.main.receiver]
 }
 
+// 인스턴스 CPU · 메모리 · 디스크. 확장 기준(CPU 40%)과 대당 부하를 Grafana에서 instance_id별로 본다(11/07)
+// 컨테이너 안에서 돌므로 호스트의 /proc · /sys · /를 /host/* 로 읽는다(bootstrap.sh start_alloy가 마운트한다)
+prometheus.exporter.unix "host" {
+  set_collectors = ["cpu", "loadavg", "meminfo", "filesystem"]
+  procfs_path    = "/host/proc"
+  sysfs_path     = "/host/sys"
+  rootfs_path    = "/host/root"
+}
+
+// job은 메인 서버 node-exporter(a301-node)와 다르게 둔다. 같으면 메인 서버 CPU 패널에 인스턴스 값이 섞인다
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  job_name        = "a301-asg-node"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.main.receiver]
+}
+
 // 어느 인스턴스의 값인지 구분한다. 인스턴스마다 instance 라벨(127.0.0.1:…)이 같으므로 instance_id로 나눈다
 prometheus.remote_write "main" {
   endpoint {

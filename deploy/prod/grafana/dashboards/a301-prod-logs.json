@@ -158,6 +158,36 @@
         ]
       },
       {
+        "name": "agent_instance",
+        "label": "에이전트 인스턴스",
+        "type": "query",
+        "description": "ASG agent instance (EC2 instance id). All also keeps logs without the label (main server). Picking one shows only that instance",
+        "datasource": {
+          "type": "loki",
+          "uid": "a301-loki"
+        },
+        "query": {
+          "refId": "LokiVariableQueryEditor-VariableQuery",
+          "type": 1,
+          "label": "instance_id",
+          "stream": "{env=\"prod\", service=\"a301-prod-ai-agent\"}"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "options": []
+      },
+      {
         "name": "level",
         "label": "수준",
         "type": "custom",
@@ -257,14 +287,14 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{env=\"prod\", service=\"a301-prod-ai-agent\"} |~ `(?i)(error|exception|traceback|fatal|critical|warn)`",
+          "expr": "{env=\"prod\", service=\"a301-prod-ai-agent\", instance_id=~\"$agent_instance\"} |~ `(?i)(error|exception|traceback|fatal|critical|warn)`",
           "queryType": "range",
           "maxLines": 500
         }
       ],
       "options": {
         "showTime": true,
-        "showLabels": false,
+        "showLabels": true,
         "showCommonLabels": false,
         "wrapLogMessage": true,
         "prettifyLogMessage": false,
@@ -441,7 +471,7 @@
         {
           "refId": "A",
           "queryType": "range",
-          "expr": "quantile_over_time(0.95, {env=\"prod\", service=\"a301-prod-ai-agent\"} |~ `ms=\\d+` | regexp `(?P<call>Jev 인상 판단|Jev 판단|발화 중단 안내 음성 합성|질문 음성 합성|꼬리질문 생성)[^\"]*?ms=(?P<ms>\\d+)` | call != \"\" | unwrap ms | __error__=\"\" [$__interval]) by (call)",
+          "expr": "quantile_over_time(0.95, {env=\"prod\", service=\"a301-prod-ai-agent\", instance_id=~\"$agent_instance\"} |~ `ms=\\d+` | regexp `(?P<call>Jev 인상 판단|Jev 판단|발화 중단 안내 음성 합성|질문 음성 합성|꼬리질문 생성)[^\"]*?ms=(?P<ms>\\d+)` | call != \"\" | unwrap ms | __error__=\"\" [$__interval]) by (call)",
           "legendFormat": "{{call}}"
         }
       ],
@@ -846,7 +876,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "{env=\"prod\", service=~\"$service\"} |~ `$level` |= `$search`",
+          "expr": "{env=\"prod\", service=~\"$service\", instance_id=~\"$agent_instance\"} |~ `$level` |= `$search`",
           "queryType": "range",
           "maxLines": 1000
         }
