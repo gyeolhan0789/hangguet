@@ -1,6 +1,6 @@
-# 운영 서버 Lightsail 배포 (이해준/deploy_plan)
+# 운영 서버(SSAFY EC2) 배포 (이해준/deploy_plan)
 # 개발 서버(deploy/dev/compose.yml)와 같은 이름 · 같은 환경 변수로 띄우고, 이미지 출처와 키 값만 다르다.
-# CI(prod-deploy)가 Lightsail 러너에서 실행한다. 수동 실행: 레포 루트에서
+# CI(prod-deploy)가 SSAFY EC2 러너에서 실행한다. 수동 실행: 레포 루트에서
 #   IMAGE_TAG=<커밋 SHA> <비밀값들> <설정 해시들> docker compose -f deploy/prod/compose.yml up -d
 #   설정 해시까지 맞춰 넣어야 하므로 서버에서는 deploy.sh로 띄운다(deploy/prod/README.md 「배포」)
 # 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr

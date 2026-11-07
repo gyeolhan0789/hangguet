@@ -33,7 +33,7 @@ workflow:
 # 모든 잡은 이 프로젝트에 할당한 러너(태그 s15p31a301)에서만 돕니다.
 # 지금은 yobi-mini-pc-runner(#2163)와 데일밴드 CI/CD 러너(#1940) 중 비어 있는 쪽이 가져갑니다.
 # 배포 잡(목 서버·개발 서버)과 운영 이미지 빌드만 예외로 미니PC의 배포 전용 러너(태그 a301-mock-deploy)에서 돕니다.
-# 운영 배포는 Lightsail의 protected 러너(태그 a301-prod)에서 돕니다.
+# 운영 배포는 SSAFY EC2의 protected 러너(태그 a301-prod)에서 돕니다.
 # 같은 MR에 새 커밋이 올라오면 이전 파이프라인은 취소해도 됩니다.
 default:
   tags:
@@ -909,7 +909,7 @@ admin-deploy:
 
 ## 운영 서버 ##
 
-# 운영 서버 Lightsail 배포 (deploy/prod, 이해준/deploy_plan 8장)
+# 운영 서버(SSAFY EC2) 배포 (deploy/prod, 이해준/deploy_plan 8장)
 # - master 병합(Release MR) → prod-build가 자동으로 이미지 4개(be · fe · ai · admin)를 빌드해 Docker Hub에 올립니다.
 #   태그: hanggeut/a301:<서비스>-<커밋 짧은 SHA>. AI 이미지 하나를 HTTP · 에이전트 · 분석 작업자가 같이 씁니다.
 # - prod-deploy는 ▶ 버튼으로 돕니다(배포 계획 8.1 [결정]). 배포하면 에이전트 · LiveKit이 다시 떠 진행 중인 면접이 끊길 수 있어
@@ -963,7 +963,7 @@ prod-build:
       done
       echo "OK: 운영 이미지 ${IMAGE_TAG} 4개를 올렸습니다. prod-deploy ▶ 버튼으로 배포합니다."
 
-# 운영 배포: Lightsail protected 러너에서 deploy/prod/deploy.sh를 실행합니다.
+# 운영 배포: SSAFY EC2 protected 러너에서 deploy/prod/deploy.sh를 실행합니다.
 # 누르지 않아도 파이프라인은 통과합니다. 한 번에 하나만 돕니다(resource_group prod-deploy).
 prod-deploy:
   extends: .prod
