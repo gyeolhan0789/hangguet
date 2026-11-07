@@ -505,6 +505,7 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `REDIS_PASSWORD` | O | Redis `requirepass`, BE(`SPRING_DATA_REDIS_PASSWORD`) · AI 작업자 · 에이전트 · LiveKit · Egress · redis-exporter. 공백 · 따옴표 없이(`openssl rand -hex 24`). 에이전트 ASG로 옮기면 Redis를 Tailscale 쪽에 열어야 해서 먼저 켠다([오토스케일링 계획](../agent_autoscale_plan/README.md) 5.2). ASG 인스턴스는 같은 값을 SSM에서 읽는다 |
 | `AGENT_ASG_ENABLED` | X | `true`면 `deploy.sh`가 `compose.asg.yml`을 더해 메인 서버 에이전트를 끄고 포트를 Tailscale IP에 열며, 배포 뒤 에이전트 ASG를 새로 고친다([오토스케일링 계획](../agent_autoscale_plan/README.md) 7.1 · 10.1). 지우고 다시 배포하면 원래 구성 |
 | `MAIN_TAILSCALE_IP` | X | `AGENT_ASG_ENABLED=true`일 때 필수. 메인 서버의 Tailscale IP(`deploy/asg/main-tailscale.sh prod`가 출력) |
+| `EGRESS_ASG_ENABLED` | X | `true`면 메인 서버 Egress도 끈다(진행 중 녹화를 마친 뒤 지움). 녹화는 Egress ASG(`a301-prod-egress-node`)만 받는다. `AGENT_ASG_ENABLED=true`와 같이 써야 한다(없으면 배포가 멈춤). 지우고 다시 배포하면 메인 서버 Egress가 다시 뜬다([키트 README](../../deploy/asg/README.md) 「Egress 전환」) |
 | `AGENT_REFRESH_AWS_ACCESS_KEY_ID` · `AGENT_REFRESH_AWS_SECRET_ACCESS_KEY` | O | `AGENT_ASG_ENABLED=true`일 때 필수. 우리 계정 IAM 사용자 `a301-prod-agent-ci`(SSM 태그 하나 쓰기 · 에이전트 ASG 새로 고침만) |
 | `LIVEKIT_URL`(서버 내부 주소 `ws://a301-prod-livekit:7880`) · `LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소 `wss://rtc.hangguet.co.kr`) | X | AI 에이전트 · BE. 이름은 LiveKit SDK가 기본으로 읽는 이름에 맞춘다 |
 | `AWS_REGION` · `S3_BUCKET` | X | compose |

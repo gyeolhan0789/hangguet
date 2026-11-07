@@ -90,7 +90,7 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 |---|---|---|
 | compose 파일 | `compose.yml` | `compose.yml` + `../prod/compose.asg.yml` |
 | 메인 서버 에이전트 | 돈다 | 끈다(남아 있으면 `docker stop --time 3900`으로 drain 뒤 지움) |
-| Egress | 메인 서버 | 메인 서버(`EGRESS_ASG_ENABLED=true`가 아니면 `egress-on-main` 프로필을 켠다) |
+| Egress | 메인 서버 | 메인 서버(`egress-on-main` 프로필). **`EGRESS_ASG_ENABLED=true`도 있으면 끈다**(남아 있으면 `docker stop --time 3900`으로 진행 중 녹화를 마친 뒤 지움). `AGENT_ASG_ENABLED` 없이 `EGRESS_ASG_ENABLED`만 있으면 배포가 멈춘다 |
 | LiveKit 7880 · Redis 6379 · Prometheus 9090 · Loki 3100 | 열지 않음 | `MAIN_TAILSCALE_IP`에만 연다 |
 | 에이전트 새 버전 반영 | 없음 | `ci-agent-refresh.sh`(SSM 태그 + 인스턴스 새로 고침) |
 
@@ -109,11 +109,23 @@ CI는 이미지 태그만 바꾼다. 키트(`bootstrap.sh` · `watcher.sh` · `a
 
 4번에서 기다리는 사이 감시 스크립트가 5번 연속 실패해 인스턴스를 비정상으로 알리면 ASG가 교체한다(대수는 그대로). 해가 없지만, 4 → 5를 5분 안에 하거나 4번을 5번 뒤로 미뤄도 된다. 그러면 5번 직후 잠깐(약 2분) 에이전트가 없어 새 면접은 BE가 `START_FAILED`로 돌린다
 
+Egress 전환(에이전트 전환 뒤, 계획 10.1의 10). 메인 서버는 이미 Tailscale · 포트가 열려 있어 바꿀 것이 없다
+1. 운영 리소스를 원하는 대수 0으로 만든다(위 「리소스」의 Egress 열, SSM `/a301/prod/egress/*`). SSM 값은 `egress-image`(`livekit/egress:v1.15.0`, 운영 compose와 같게)만 새로 정하고 나머지는 에이전트(`/a301/prod/agent/*`)와 같은 값이다. Tailscale 운영 OAuth 클라이언트가 `tag:a301-egress`를 붙일 수 있어야 한다
+2. ASG 원하는 대수 1 → 부팅이 끝까지 갔는지(`/var/log/a301-userdata.log` 마지막 줄 `감시 시작. 끝`, `docker ps`에 `a301-egress` Up), Egress 로그에 `service ready`
+3. GitLab `EGRESS_ASG_ENABLED=true` → `prod-deploy` Re-deploy. 메인 서버 Egress가 진행 중 녹화를 마친 뒤 내려가고 Prometheus가 다시 시작된다. 2번과 3번 사이에는 두 Egress가 같은 Redis에 붙어 어느 쪽이든 녹화를 받는다
+4. 화상 면접 1건으로 녹화 · 다시보기까지 확인한다(녹화가 ASG Egress 로그에 `egress_complete`로 남는지)
+5. 되돌리기: `EGRESS_ASG_ENABLED`를 지우고 `prod-deploy` Re-deploy(메인 서버 Egress가 다시 뜬다) → ASG 원하는 대수 0(진행 중 녹화는 훅이 기다린다)
+
+Egress 설정 메모(11/07 테스트, [보고서](../../loadtest/report/egress-asg-2026-11-07.md))
+- `memory_source: cgroup`: 기본값(`proc_rss`)은 녹화 프로세스마다 메모리를 더해 공유 메모리를 여러 번 센다. 실제 0.62GB를 2.22GB로 세어 10건 동시 시작 중 녹화 4개를 거절했다
+- `livekit_egress_can_accept_request`는 2코어 인스턴스에서 늘 0이다(방 전체 합성용 4코어 판정). 트랙 녹화는 받으므로 상태 확인 · 알림에 쓰지 않는다
+- 뜰 때마다 `ERROR not enough cpu for some egress types`가 한 번 남는다. 같은 이유이고 무시한다
+
 ## 확인하지 못한 것
 
 이 키트는 문법 검사(`bash -n`, user data 빌드)까지만 했다. 실제 동작은 테스트 환경(계획 9장)에서 확인한다.
 
 - ~~Tailscale 설치 · OAuth 가입(AL2023), 컨테이너 → Tailscale IP, Alloy 지표 · 로그, 축소 보호 켜고 끄기~~ 11/06 테스트에서 확인(부팅 약 50초 뒤 가입 · 직접 연결 1ms, 면접을 받고 약 20초 뒤 보호 on)
 - IMDS `target-lifecycle-state`가 종료 대기 중에 `Terminated`로 보이는지, 훅 완료 뒤 바로 종료되는지
-- Egress가 루프백 8080에 상태를 응답하는지, `livekit_egress_requests` 값이 진행 중 녹화 수와 맞는지
+- ~~Egress가 루프백 8080에 상태를 응답하는지, `livekit_egress_requests` 값이 진행 중 녹화 수와 맞는지~~ 11/07 테스트에서 확인(녹화 3개 = 3, 축소 보호 on · 줄이기 · drain)
 - ~~LiveKit 서버가 `REDIS_PASSWORD`로 Redis에 붙는지~~ 11/06 테스트 서버에서 확인

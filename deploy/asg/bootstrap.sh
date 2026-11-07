@@ -183,14 +183,16 @@ run_egress() {
 
   # 설정 본문은 한 줄 JSON(YAML로도 읽힌다)으로 env 파일에 넣는다. 여러 줄 YAML은 env 파일에 넣을 수 없다
   # - S3 키는 넣지 않는다. BE가 녹화 요청에 담아 보낸다(배포 계획 4.3)
-  # - track_cpu_cost 0.05: 2코어 한 대가 15초 안에 받는 녹화를 늘린다(계획 2.3 [제안], 9장에서 확정)
-  # - max_memory 3: 컨테이너 상한(3g)이 차기 전에 새 녹화를 거절한다(계획 4.2)
+  # - track_cpu_cost 0.05: 2코어 한 대가 15초 안에 받는 녹화를 늘린다(계획 2.3, 11/07 테스트: 10건 동시 시작에 녹화 30개 모두 받음)
+  # - max_memory 3: 컨테이너 상한(3g)이 차기 전에 새 녹화를 거절한다(계획 4.2). 실제 사용량 + 고정 여유 1GB가 3GB를 넘으면 거절
+  # - memory_source cgroup: 기본값(proc_rss)은 프로세스마다 RSS를 더해 공유 메모리를 여러 번 센다.
+  #   11/07 테스트에서 실제 0.62GB를 2.22GB로 세어 10건 동시 시작 중 녹화 4개를 거절했다(LiveKit "no response from servers", 다시보기 실패 2건)
   local redis_json body
   redis_json="\"address\":\"${REDIS_HOST}:6379\""
   [ -z "$REDIS_PASSWORD" ] || redis_json="${redis_json},\"password\":\"${REDIS_PASSWORD}\""
   body="{\"log_level\":\"info\",\"api_key\":\"${LIVEKIT_API_KEY}\",\"api_secret\":\"${LIVEKIT_API_SECRET}\""
   body="${body},\"ws_url\":\"${LIVEKIT_URL}\",\"redis\":{${redis_json}},\"health_port\":8080,\"prometheus_port\":9090"
-  body="${body},\"cpu_cost\":{\"track_cpu_cost\":0.05,\"max_memory\":3}}"
+  body="${body},\"cpu_cost\":{\"track_cpu_cost\":0.05,\"max_memory\":3,\"memory_source\":\"cgroup\"}}"
   put EGRESS_CONFIG_BODY "$body"
   unset body redis_json
 
