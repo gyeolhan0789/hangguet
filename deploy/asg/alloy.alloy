@@ -20,8 +20,18 @@ prometheus.exporter.unix "host" {
 }
 
 // job은 메인 서버 node-exporter(a301-node)와 다르게 둔다. 같으면 메인 서버 CPU 패널에 인스턴스 값이 섞인다
+// exporter 대상에는 job="integrations/unix"가 미리 붙어 있어 scrape의 job_name이 무시된다(11/07 운영에서 확인). 여기서 덮어쓴다
+discovery.relabel "host" {
+  targets = prometheus.exporter.unix.host.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "a301-asg-node"
+  }
+}
+
 prometheus.scrape "host" {
-  targets         = prometheus.exporter.unix.host.targets
+  targets         = discovery.relabel.host.output
   job_name        = "a301-asg-node"
   scrape_interval = "30s"
   forward_to      = [prometheus.remote_write.main.receiver]
