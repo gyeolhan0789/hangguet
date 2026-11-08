@@ -51,6 +51,14 @@ describe("LoginForm (S01)", () => {
     expect(buttons[emailLogin + 1]).toBe(screen.getByRole("button", { name: "카카오 로그인" }));
   });
 
+  it("비밀번호 칸 아래에 비밀번호 찾기 링크가 있다", () => {
+    render(<LoginForm />);
+
+    expect(screen.getByRole("link", { name: "비밀번호를 잊으셨나요?" }).getAttribute("href")).toBe(
+      "/forgot-password",
+    );
+  });
+
   it("카카오 실패 문구를 오류 문구 자리에 보이고 문구 쿠키를 지운다", async () => {
     render(
       <LoginForm

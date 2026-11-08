@@ -302,7 +302,7 @@ test.describe("S01-1 회원가입 · 제출 (1.2)", () => {
       agreements: [
         { termsType: "TERMS", termsVersion: "1.0" },
         { termsType: "PRIVACY", termsVersion: "1.0" },
-        { termsType: "RECORDING", termsVersion: "1.0" },
+        { termsType: "RECORDING", termsVersion: "1.1" },
       ],
     });
     const cookies = await context.cookies();

@@ -1,4 +1,4 @@
-// 1. 인증 요청. 기준: 웹 Swagger 1.1 ~ 1.7.
+// 1. 인증 요청. 기준: 웹 Swagger 1.1 ~ 1.9.
 
 /** 약관 종류. TERMS 이용약관 · PRIVACY 개인정보 수집·이용 · RECORDING 면접 녹화·음성 이용 */
 export type TermsType = "TERMS" | "PRIVACY" | "RECORDING";
@@ -65,4 +65,18 @@ export interface SocialSignupRequest {
   signupToken: string;
   /** 필수 약관 3개 모두 동의(1.2와 같음) */
   agreements: AgreementRequest[];
+}
+
+/** 1.8 POST /auth/password-reset 본문 */
+export interface PasswordResetRequest {
+  /** 가입한 이메일. 필수, 이메일 형식, 최대 255자 */
+  email: string;
+}
+
+/** 1.9 POST /auth/password-reset/confirm 본문 */
+export interface PasswordResetConfirmRequest {
+  /** 메일 링크의 token. 필수, 최대 100자. 30분 동안 한 번만 쓸 수 있다 */
+  token: string;
+  /** 새 비밀번호. 필수, 8~64자, 영문 · 숫자 각 1자 이상(2.3과 같음) */
+  newPassword: string;
 }

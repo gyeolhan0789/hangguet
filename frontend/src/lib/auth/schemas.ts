@@ -39,6 +39,21 @@ export const AGE_CHECK = { type: "AGE", label: "[필수] 만 14세 이상입니�
 /** 가입 화면의 동의 줄: 만 14세 확인 → 약관 3개 */
 export const AGREEMENT_ITEMS = [AGE_CHECK, ...TERMS] as const;
 
+/** 새 비밀번호(1.2 가입 · 1.9 재설정). 8~64자, 영문 · 숫자 각 1자 이상 */
+const newPasswordSchema = z
+  .string()
+  .max(PASSWORD_MAX, `비밀번호는 ${PASSWORD_MAX}자까지 쓸 수 있어요.`)
+  .refine(
+    (value) => PASSWORD_RULES.every((rule) => rule.test(value)),
+    "8~64자, 영문과 숫자를 모두 포함해야 합니다.",
+  );
+
+const passwordConfirmSchema = z.string().min(1, "비밀번호를 한 번 더 입력해 주세요.");
+const PASSWORD_CONFIRM_MISMATCH = {
+  path: ["passwordConfirm"],
+  message: "비밀번호가 일치하지 않아요.",
+};
+
 export const loginSchema = z.object({
   email: emailSchema,
   password: z
@@ -57,20 +72,19 @@ export const signupSchema = z
       .min(1, "닉네임을 입력해 주세요.")
       .max(50, "닉네임은 50자까지 쓸 수 있어요."),
     email: emailSchema,
-    password: z
-      .string()
-      .max(PASSWORD_MAX, `비밀번호는 ${PASSWORD_MAX}자까지 쓸 수 있어요.`)
-      .refine(
-        (value) => PASSWORD_RULES.every((rule) => rule.test(value)),
-        "8~64자, 영문과 숫자를 모두 포함해야 합니다.",
-      ),
-    passwordConfirm: z.string().min(1, "비밀번호를 한 번 더 입력해 주세요."),
+    password: newPasswordSchema,
+    passwordConfirm: passwordConfirmSchema,
     agreements: z.object({ AGE: agreed, TERMS: agreed, PRIVACY: agreed, RECORDING: agreed }),
   })
-  .refine((values) => values.password === values.passwordConfirm, {
-    path: ["passwordConfirm"],
-    message: "비밀번호가 일치하지 않아요.",
-  });
+  .refine((values) => values.password === values.passwordConfirm, PASSWORD_CONFIRM_MISMATCH);
+
+/** 1.8 비밀번호 찾기 메일 요청 */
+export const forgotPasswordSchema = z.object({ email: emailSchema });
+
+/** 1.9 비밀번호 재설정. 메일 링크의 token은 화면이 주소에서 읽어 따로 넘긴다 */
+export const passwordResetSchema = z
+  .object({ password: newPasswordSchema, passwordConfirm: passwordConfirmSchema })
+  .refine((values) => values.password === values.passwordConfirm, PASSWORD_CONFIRM_MISMATCH);
 
 /**
  * S01-3 카카오 가입 약관 동의. 1.7은 약관 3개만 받고, 만 14세 확인은 이메일 가입(1.2)과 같이 화면에서만 확인한다.
@@ -86,3 +100,5 @@ export const socialSignupSchema = z.object({
 export type LoginValues = z.infer<typeof loginSchema>;
 export type SocialSignupValues = z.infer<typeof socialSignupSchema>;
 export type SignupValues = z.infer<typeof signupSchema>;
+export type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
+export type PasswordResetValues = z.infer<typeof passwordResetSchema>;

@@ -342,7 +342,7 @@ public class AuthController {
             summary = "1.8 비밀번호 찾기 메일 요청",
             description =
                     "이메일 회원에게 30분 동안 한 번 쓸 수 있는 재설정 링크를 메일로 보낸다. 없는 이메일 · 소셜 회원도 같은 204(메일 없음)."
-                            + " 같은 이메일은 1분 안에 다시 보내지 않는다. 목 서버는 메일을 보내지 않고 항상 204")
+                            + " 같은 이메일은 30초 안에 다시 보내지 않는다. 목 서버는 메일을 보내지 않고 항상 204")
     @SecurityRequirements
     @ApiResponse(responseCode = "204", description = "요청 받음(메일 발송 여부와 관계없이)")
     @PostMapping("/password-reset")

@@ -96,6 +96,13 @@ export function LoginForm({
             {...register("password")}
           />
         </Field>
+        {/* 기준: 사용자 결정(2026-11-08: 비밀번호 칸 바로 아래 오른쪽) · Figma [보류] S01-2 비밀번호 찾기 */}
+        <Link
+          href={ROUTES.forgotPassword}
+          className="-mt-3 self-end text-[13px] leading-normal font-semibold text-text-3"
+        >
+          비밀번호를 잊으셨나요?
+        </Link>
 
         <AnimatePresence initial={false}>
           {formError && (
