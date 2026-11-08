@@ -32,6 +32,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    // 비밀번호 찾기(1.8) 재설정 링크 메일(Gmail SMTP)
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
     testImplementation 'org.springframework.security:spring-security-test'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'

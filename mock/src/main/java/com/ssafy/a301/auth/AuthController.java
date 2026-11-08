@@ -3,6 +3,8 @@ package com.ssafy.a301.auth;
 import com.ssafy.a301.auth.AuthDtos.EmailAvailabilityResponse;
 import com.ssafy.a301.auth.AuthDtos.LoginRequest;
 import com.ssafy.a301.auth.AuthDtos.LogoutRequest;
+import com.ssafy.a301.auth.AuthDtos.PasswordResetConfirmRequest;
+import com.ssafy.a301.auth.AuthDtos.PasswordResetRequest;
 import com.ssafy.a301.auth.AuthDtos.RefreshRequest;
 import com.ssafy.a301.auth.AuthDtos.RefreshResponse;
 import com.ssafy.a301.auth.AuthDtos.SignupRequest;
@@ -334,6 +336,41 @@ public class AuthController {
             throw new ApiException(ErrorCode.SIGNUP_TOKEN_INVALID);
         }
         return tokens(new UserSummary(EXAMPLE_USER_ID, SOCIAL_EMAIL, EXAMPLE_NICKNAME, null));
+    }
+
+    @Operation(
+            summary = "1.8 비밀번호 찾기 메일 요청",
+            description =
+                    "이메일 회원에게 30분 동안 한 번 쓸 수 있는 재설정 링크를 메일로 보낸다. 없는 이메일 · 소셜 회원도 같은 204(메일 없음)."
+                            + " 같은 이메일은 1분 안에 다시 보내지 않는다. 목 서버는 메일을 보내지 않고 항상 204")
+    @SecurityRequirements
+    @ApiResponse(responseCode = "204", description = "요청 받음(메일 발송 여부와 관계없이)")
+    @PostMapping("/password-reset")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {}
+
+    @Operation(
+            summary = "1.9 비밀번호 재설정",
+            description =
+                    "메일 링크의 token으로 새 비밀번호를 정한다. 모든 기기가 로그아웃되므로 새 비밀번호로 다시 로그인(1.3)한다."
+                            + " 목 서버는 token이 `expired`면 400 PASSWORD_RESET_TOKEN_INVALID")
+    @SecurityRequirements
+    @ApiResponse(responseCode = "204", description = "변경")
+    @ApiResponse(
+            responseCode = "400",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "PASSWORD_RESET_TOKEN_INVALID",
+                                            value = ErrorExamples.PASSWORD_RESET_TOKEN_INVALID)))
+    @PostMapping("/password-reset/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        if ("expired".equals(request.token())) {
+            throw new ApiException(ErrorCode.PASSWORD_RESET_TOKEN_INVALID);
+        }
     }
 
     private static void requireAllTerms(List<AuthDtos.AgreementRequest> agreements) {

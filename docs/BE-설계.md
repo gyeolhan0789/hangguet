@@ -33,12 +33,13 @@
 com.ssafy.a301
 ├─ auth
 │  ├─ controller   AuthController
-│  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7)
+│  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7), PasswordResetService(비밀번호 찾기, 1.8 · 1.9)
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
 │  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
 │  ├─ oauth        SocialLoginClient · KakaoLoginClient · GoogleLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
-│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore
-│  └─ config       SecurityConfig, OAuthConfig
+│  ├─ reset        PasswordResetMailer(재설정 링크 메일, Gmail SMTP), PasswordResetProperties
+│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore, LoginAttemptStore, RedisLoginAttemptStore, PasswordResetTokenStore, RedisPasswordResetTokenStore
+│  └─ config       SecurityConfig, OAuthConfig, PasswordResetConfig
 ├─ user
 │  ├─ controller   UserController, SocialAccountController(2.12 · 2.13)
 │  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 다른 기기 로그아웃, 2.3 · 9.10), SocialAccountService(이메일 회원의 카카오 연결 · 해제)
@@ -356,11 +357,13 @@ com.ssafy.a301
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
 | `login-fail:{SHA-256(정규화한 이메일)}` | 성공하지 못한 로그인 시도 횟수 | 시도할 때마다 15분으로 다시 맞춤 | 1.3. 비밀번호를 확인하기 전에 Lua 스크립트로 잠김 확인과 세기를 한 번에 한다(동시에 보낸 요청이 5번을 넘지 못하게). 5 이상이면 세지 않고 남은 시간으로 429 `LOGIN_LOCKED`. 로그인에 성공하면 지운다 (`RedisLoginAttemptStore`) |
 | `social-signup:{SHA-256(token)}` | `SocialProfile` JSON(제공자 · 제공자 회원 번호 · 이메일 · 닉네임) | `oauth.signup-token-ttl`(10분) | 1.6에서 처음 온 사람에게 가입 토큰을 줄 때 넣고, 1.7에서 읽은 뒤 가입에 성공하면 지운다(실패하면 남겨 다시 보낼 수 있게) |
+| `password-reset:{SHA-256(token)}` | `userId:발급 시각(epoch 밀리초)` | `password-reset.token-ttl`(30분) | 1.8에서 이메일 회원마다 넣고, 1.9에서 GETDEL로 한 번만 쓴다. 발급 시각 뒤에 비밀번호가 바뀌었으면 쓸 수 없다 |
+| `password-reset-wait:{SHA-256(정규화한 이메일)}` | `1` | `password-reset.resend-interval`(1분) | 1.8. SET NX로 같은 이메일의 재요청을 막는다(가입하지 않은 이메일도 같게) |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
 | `upload:{objectKey}` | userId · 용도(문의 사진은 용도만) | Presigned 만료와 같게(문의 사진은 1시간) | 2.5에서 "본인에게 발급된 키"인지, 9.1 · 9.4에서 "발급했고 아직 안 쓴 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
-ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제외라 지금은 쓰지 않는다.
+ERD 메모의 "비밀번호 재설정 토큰"은 DB 테이블이 아니라 Redis `password-reset:` 키로 둔다.
 
 ## 8. 멱등성 **[결정]**
 
@@ -390,6 +393,13 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
+
+### 비밀번호 찾기 (1.8 · 1.9) **[결정]**
+
+- 메일은 Gmail SMTP(`spring.mail.*`)로 보낸다. 계정 · 앱 비밀번호는 환경 변수 `MAIL_USERNAME` · `MAIL_PASSWORD`로만 받고, 링크가 여는 FE 화면 주소는 `PASSWORD_RESET_URL`이다. `MAIL_USERNAME`이 없으면 메일을 보내지 않고 경고만 남긴다(로컬 개발). 메일 서버 연결은 상태 확인(`/actuator/health`)에 넣지 않는다(`management.health.mail.enabled: false`)
+- 1.8은 가입 여부를 드러내지 않는다. 결과와 관계없이 204이고, 메일은 가상 스레드로 따로 보내 메일 서버를 기다리는 시간이 응답에 드러나지 않게 한다. 재요청 간격(1분)은 가입하지 않은 이메일에도 똑같이 건다
+- 1.9는 `PasswordChangeService.changeByReset`이 회원 행을 잠그고, 링크 발급 시각 뒤에 비밀번호가 바뀌지 않은 이메일 회원일 때만 바꾼다. 변경 기록은 `RESET`, 2.3 · 9.10처럼 `password_changed_at`을 남기고 모든 리프레시 토큰을 폐기해 바꾸기 전 액세스 토큰도 401이 된다. 로그인 잠금 키(`login-fail:`)도 지운다
+- 링크 토큰은 GETDEL로 꺼내므로 같은 링크를 동시에 보내도 한 번만 바뀐다. 꺼낸 뒤 검사에서 실패해도 그 링크는 다시 쓸 수 없다
 
 ### 소셜 로그인 (1.6 · 1.7) **[결정]**
 

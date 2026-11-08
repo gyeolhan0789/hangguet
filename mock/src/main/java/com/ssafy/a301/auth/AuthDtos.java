@@ -141,6 +141,30 @@ public final class AuthDtos {
                     @Size(min = 3, max = 3, message = "약관 3개가 필요합니다.")
                     List<@NotNull @Valid AgreementRequest> agreements) {}
 
+    public record PasswordResetRequest(
+            @Schema(description = "가입한 이메일", example = "a@ssafy.com", maxLength = 255)
+                    @NotBlank(message = "필수 값입니다.")
+                    @Email(message = "이메일 형식이 아닙니다.")
+                    @Size(max = 255, message = "최대 255자입니다.")
+                    String email) {}
+
+    public record PasswordResetConfirmRequest(
+            @Schema(description = "메일 링크의 token", example = "Zm9v…")
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = 100, message = "최대 100자입니다.")
+                    String token,
+            @Schema(
+                            description = "새 비밀번호. 8~64자, 영문·숫자 각 1자 이상(2.3과 같음)",
+                            example = "efgh5678",
+                            minLength = 8,
+                            maxLength = 64)
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(min = 8, max = 64, message = "8~64자, 영문과 숫자를 모두 포함해야 합니다.")
+                    @Pattern(
+                            regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$",
+                            message = "8~64자, 영문과 숫자를 모두 포함해야 합니다.")
+                    String newPassword) {}
+
     public record LogoutRequest(
             @Schema(description = "폐기할 리프레시 토큰", example = "8f14e45f-ceea-4672-9f5a-2f1c7a3b9d10")
                     @NotBlank(message = "필수 값입니다.")

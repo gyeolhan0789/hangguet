@@ -109,6 +109,33 @@ class ApiSpecTest {
     }
 
     @Test
+    void passwordResetAlwaysAcceptsAndExpiredTokenIsRejected() {
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/password-reset")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{ \"email\": \"a@ssafy.com\" }"))
+                .hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{ \"token\": \"abc\", \"newPassword\": \"efgh5678\" }"))
+                .hasStatus(HttpStatus.NO_CONTENT);
+        assertThat(
+                        mockMvc.post()
+                                .uri("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        "{ \"token\": \"expired\", \"newPassword\": \"efgh5678\""
+                                                + " }"))
+                .hasStatus(HttpStatus.BAD_REQUEST)
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("PASSWORD_RESET_TOKEN_INVALID");
+    }
+
+    @Test
     void socialLoginCodeChoosesResult() {
         assertThat(socialLogin("kakao", "signup"))
                 .hasStatusOk()

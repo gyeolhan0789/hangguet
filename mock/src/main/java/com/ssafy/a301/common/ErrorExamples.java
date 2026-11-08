@@ -125,6 +125,11 @@ public final class ErrorExamples {
             { "title": "Unauthorized", "status": 401, "detail": "가입 시간이 지났어요. 다시 로그인해 주세요.",
               "instance": "/api/v1/auth/oauth/signup", "code": "SIGNUP_TOKEN_INVALID" }\
             """;
+    public static final String PASSWORD_RESET_TOKEN_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+              "instance": "/api/v1/auth/password-reset/confirm", "code": "PASSWORD_RESET_TOKEN_INVALID" }\
+            """;
     public static final String SOCIAL_LINK_FAILED =
             """
             { "title": "Bad Request", "status": 400, "detail": "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요.",
