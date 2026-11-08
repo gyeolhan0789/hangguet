@@ -504,6 +504,7 @@ mock-deploy:
 #   앱 S3 키 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY도 Variables에서 받아 BE에 넘깁니다(없으면 프로필 사진 API만 실패합니다).
 #   카카오 키 KAKAO_CLIENT_ID·KAKAO_CLIENT_SECRET도 Variables에서 받아 BE에 넘기고, KAKAO_CLIENT_ID는 FE에도 넘깁니다
 #   (없으면 카카오 로그인 · 계정 연결 · 연습 알림 켜기만 안 됩니다).
+#   비밀번호 찾기 메일 계정 MAIL_USERNAME·MAIL_PASSWORD도 Variables에서 받아 BE에 넘깁니다(없으면 메일만 보내지 않습니다).
 # - 배포 후 헬스체크가 UP이 아니면 잡을 실패시킵니다.
 # - 롤백: Deployments > Environments > dev/be·dev/fe·dev/ai·dev/ai-agent·dev/ai-analysis·dev/ai-plan·dev/ai-recording·dev/admin·dev/monitoring에서 이전 배포를 Re-deploy 합니다.
 

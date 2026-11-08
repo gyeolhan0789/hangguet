@@ -46,7 +46,7 @@
 GitLab CI/CD Variables(배포 계획 7장). compose가 파일 전체를 읽으므로 어느 서비스를 띄우든 모두 필요하다.
 
 - 범위 `prod/*`: `DB_PASSWORD`, `JWT_SECRET`, `INQUIRY_ENCRYPTION_KEY`(Base64 32바이트, 잃으면 문의를 풀 수 없으므로 따로 보관), `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_EGRESS_S3_ACCESS_KEY`, `LIVEKIT_EGRESS_S3_SECRET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `CLOUDFLARE_TUNNEL_TOKEN`
-- 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행), `JEV_API_KEY`(없으면 리액션 없이 진행), `KAKAO_CLIENT_ID` · `KAKAO_CLIENT_SECRET` · `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(없으면 그 소셜 로그인만 503, `KAKAO_CLIENT_ID`는 FE에도 넘긴다)
+- 범위 All(개발과 같은 값): `ADMIN_LOGIN_ID`, `ADMIN_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `SONIOX_API_KEY`, `LLM_API_KEY`, `ELEVENLABS_API_KEY`(없으면 질문 글로만 진행), `JEV_API_KEY`(없으면 리액션 없이 진행), `KAKAO_CLIENT_ID` · `KAKAO_CLIENT_SECRET` · `GOOGLE_CLIENT_ID` · `GOOGLE_CLIENT_SECRET`(없으면 그 소셜 로그인만 503, `KAKAO_CLIENT_ID`는 FE에도 넘긴다), `MAIL_USERNAME` · `MAIL_PASSWORD`(비밀번호 찾기 메일의 팀 Gmail 계정 · 앱 비밀번호, 없으면 메일만 보내지 않는다. 링크 화면 주소 `PASSWORD_RESET_URL`은 compose에 적는다)
 - 범위 `prod/*`, 선택(개발과 다른 값): `AGENT_IDLE_PROCESSES`(AI 에이전트가 미리 실행해 두는 프로세스 수, 0 이상의 정수. 없으면 CPU 수라 지금 서버는 4. 개발은 같은 이름을 범위 `dev/*`로 따로 등록한다)
 - GMS 주소 · 모델(`LLM_CHAT_URL` · `LLM_MODEL`)은 비밀이 아니라 compose에 적었다(개발과 같은 값)
 - 배포 작업이 넣는 값: `IMAGE_TAG`(커밋 짧은 SHA, 필수), `DOCKERHUB_PULL_TOKEN`(범위 `prod/*`). 빌드 잡은 `DOCKERHUB_PUSH_TOKEN`
