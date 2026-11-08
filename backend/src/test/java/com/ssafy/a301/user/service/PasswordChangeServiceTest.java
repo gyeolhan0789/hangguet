@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.auth.repository.LoginAttemptStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -23,6 +24,8 @@ import com.ssafy.a301.user.repository.PasswordChangeRepository;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,11 +38,13 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 class PasswordChangeServiceTest {
     private static final long USER_ID = 7L;
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UserRepository users = mock(UserRepository.class);
     private final PasswordChangeRepository changes = mock(PasswordChangeRepository.class);
     private final PasswordEncoder passwords = mock(PasswordEncoder.class);
     private final RefreshTokenStore refreshTokens = mock(RefreshTokenStore.class);
+    private final LoginAttemptStore loginAttempts = mock(LoginAttemptStore.class);
     private final AccessTokens accessTokens = mock(AccessTokens.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
@@ -54,6 +59,7 @@ class PasswordChangeServiceTest {
                         changes,
                         passwords,
                         refreshTokens,
+                        loginAttempts,
                         accessTokens,
                         new AuthProperties(
                                 "test-secret-at-least-thirty-two-bytes",
@@ -104,6 +110,51 @@ class PasswordChangeServiceTest {
         assertThat(user.getPasswordChangedAt()).isEqualTo(saved.getValue().getChangedAt());
         verify(refreshTokens).revokeAll(USER_ID);
         verify(accessTokens, never()).issue(anyLong(), any());
+    }
+
+    @Test
+    void resetChangesPasswordRecordsResetLogsOutAndUnlocksLogin() {
+        when(passwords.encode("newpass1")).thenReturn("new-hash");
+
+        service.changeByReset(USER_ID, "newpass1", Instant.now());
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        ArgumentCaptor<PasswordChange> saved = ArgumentCaptor.forClass(PasswordChange.class);
+        verify(changes).save(saved.capture());
+        assertThat(saved.getValue().getChangedBy()).isEqualTo(PasswordChangedBy.RESET);
+        assertThat(user.getPasswordChangedAt()).isEqualTo(saved.getValue().getChangedAt());
+        verify(refreshTokens).revokeAll(USER_ID);
+        verify(loginAttempts).reset("a@test.com");
+    }
+
+    @Test
+    void resetLinkMadeBeforeLastPasswordChangeIsRejected() {
+        // 링크를 만든 뒤 다른 링크 · 2.3 · 9.10으로 비밀번호가 바뀌었다
+        Instant issuedAt = Instant.now().minusSeconds(60);
+        user.changePassword("hash", OffsetDateTime.ofInstant(issuedAt.plusSeconds(1), KST));
+
+        assertResetRejected(issuedAt);
+    }
+
+    @Test
+    void socialOrWithdrawnUserCannotReset() {
+        when(users.findActiveForUpdate(USER_ID))
+                .thenReturn(Optional.of(User.social("k@kakao.com", "카카오")))
+                .thenReturn(Optional.empty());
+
+        assertResetRejected(Instant.now());
+        assertResetRejected(Instant.now());
+    }
+
+    private void assertResetRejected(Instant issuedAt) {
+        assertThatThrownBy(() -> service.changeByReset(USER_ID, "newpass1", issuedAt))
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        ex ->
+                                assertThat(ex.errorCode())
+                                        .isEqualTo(ErrorCode.PASSWORD_RESET_TOKEN_INVALID));
+        verify(changes, never()).save(any());
+        verify(refreshTokens, never()).revokeAll(anyLong());
     }
 
     @Test

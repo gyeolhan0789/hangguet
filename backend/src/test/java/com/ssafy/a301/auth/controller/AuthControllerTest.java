@@ -3,6 +3,7 @@ package com.ssafy.a301.auth.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.auth.service.PasswordResetService;
 import com.ssafy.a301.auth.service.SocialAuthService;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -60,6 +62,7 @@ class AuthControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private AuthService service;
     @MockitoBean private SocialAuthService social;
+    @MockitoBean private PasswordResetService passwordReset;
     @MockitoBean private UserRepository users;
     @Autowired private JwtEncoder encoder;
     @Autowired private AuthProperties properties;
@@ -102,6 +105,53 @@ class AuthControllerTest {
                 .andExpect(header().string("Retry-After", "61"))
                 .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"))
                 .andExpect(jsonPath("$.retryAfterSeconds").value(61));
+    }
+
+    @Test
+    void passwordResetIsPublic() throws Exception {
+        mvc.perform(
+                        post("/api/v1/auth/password-reset")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"a@test.com\"}"))
+                .andExpect(status().isNoContent());
+        verify(passwordReset).request("a@test.com");
+
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"token-1\",\"newPassword\":\"efgh5678\"}"))
+                .andExpect(status().isNoContent());
+        verify(passwordReset).confirm("token-1", "efgh5678");
+    }
+
+    @Test
+    void passwordResetValidatesEmailAndNewPasswordRule() throws Exception {
+        mvc.perform(
+                        post("/api/v1/auth/password-reset")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"not-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("email"));
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"token-1\",\"newPassword\":\"onlyletters\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("newPassword"));
+        verify(passwordReset, never()).confirm(anyString(), anyString());
+    }
+
+    @Test
+    void usedResetTokenIsBadRequest() throws Exception {
+        doThrow(new ApiException(ErrorCode.PASSWORD_RESET_TOKEN_INVALID))
+                .when(passwordReset)
+                .confirm("used", "efgh5678");
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"used\",\"newPassword\":\"efgh5678\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_RESET_TOKEN_INVALID"));
     }
 
     @Test

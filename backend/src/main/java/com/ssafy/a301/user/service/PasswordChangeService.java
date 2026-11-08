@@ -2,6 +2,7 @@ package com.ssafy.a301.user.service;
 
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.auth.repository.LoginAttemptStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -11,6 +12,7 @@ import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.dto.UserDtos.PasswordChangeResponse;
 import com.ssafy.a301.user.repository.PasswordChangeRepository;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
@@ -32,6 +34,7 @@ public class PasswordChangeService {
     private final PasswordChangeRepository changes;
     private final PasswordEncoder passwords;
     private final RefreshTokenStore refreshTokens;
+    private final LoginAttemptStore loginAttempts;
     private final AccessTokens accessTokens;
     private final AuthProperties authProperties;
     private final TransactionTemplate transactions;
@@ -41,6 +44,7 @@ public class PasswordChangeService {
             PasswordChangeRepository changes,
             PasswordEncoder passwords,
             RefreshTokenStore refreshTokens,
+            LoginAttemptStore loginAttempts,
             AccessTokens accessTokens,
             AuthProperties authProperties,
             TransactionTemplate transactions) {
@@ -48,6 +52,7 @@ public class PasswordChangeService {
         this.changes = changes;
         this.passwords = passwords;
         this.refreshTokens = refreshTokens;
+        this.loginAttempts = loginAttempts;
         this.accessTokens = accessTokens;
         this.authProperties = authProperties;
         this.transactions = transactions;
@@ -104,6 +109,44 @@ public class PasswordChangeService {
                     changes.save(PasswordChange.byAdmin(userId, adminId, inquiryId, changedAt));
                 });
         revokeAll(userId);
+    }
+
+    /**
+     * 1.9. 비밀번호 찾기 링크로 바꾼다. 링크를 만든 뒤 비밀번호가 바뀌었거나(다른 링크 · 2.3 · 9.10) 탈퇴했거나 소셜 회원이면 400
+     * PASSWORD_RESET_TOKEN_INVALID. 모든 기기를 로그아웃하고, 잊어서 잠긴 로그인(1.3)도 푼다
+     */
+    public void changeByReset(long userId, String newPassword, Instant issuedAt) {
+        String email =
+                transactions.execute(
+                        status -> {
+                            User user =
+                                    users.findActiveForUpdate(userId)
+                                            .filter(candidate -> canReset(candidate, issuedAt))
+                                            .orElseThrow(
+                                                    () ->
+                                                            new ApiException(
+                                                                    ErrorCode
+                                                                            .PASSWORD_RESET_TOKEN_INVALID));
+                            // 리프레시 토큰의 로그인 시각과 같은 밀리초 단위로 맞춘다(2.3과 같음)
+                            OffsetDateTime changedAt =
+                                    KoreaTime.now().truncatedTo(ChronoUnit.MILLIS);
+                            user.changePassword(passwords.encode(newPassword), changedAt);
+                            changes.save(PasswordChange.byReset(userId, changedAt));
+                            return user.getEmail();
+                        });
+        revokeAll(userId);
+        try {
+            loginAttempts.reset(email);
+        } catch (DataAccessException ex) {
+            LOG.warn("회원 {}의 로그인 잠금 해제 실패(비밀번호 찾기): {}", userId, ex.getMessage());
+        }
+    }
+
+    // 링크를 만든 뒤 비밀번호가 바뀌지 않은 이메일 회원
+    private static boolean canReset(User user, Instant issuedAt) {
+        OffsetDateTime changedAt = user.getPasswordChangedAt();
+        return user.hasPassword()
+                && (changedAt == null || changedAt.toInstant().isBefore(issuedAt));
     }
 
     private static void requirePassword(User user) {
