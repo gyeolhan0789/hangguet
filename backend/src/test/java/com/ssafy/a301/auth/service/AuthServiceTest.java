@@ -14,6 +14,7 @@ import com.ssafy.a301.auth.dto.LoginRequest;
 import com.ssafy.a301.auth.dto.SignupRequest;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.auth.repository.LoginAttemptStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore.RefreshSession;
 import com.ssafy.a301.common.error.ApiException;
@@ -44,6 +45,7 @@ class AuthServiceTest {
     private final PasswordEncoder passwords = mock(PasswordEncoder.class);
     private final AccessTokens access = mock(AccessTokens.class);
     private final RefreshTokenStore refresh = mock(RefreshTokenStore.class);
+    private final LoginAttemptStore loginAttempts = mock(LoginAttemptStore.class);
     private final PasswordChangeRepository passwordChanges = mock(PasswordChangeRepository.class);
     private final TransactionTemplate transactions = mock(TransactionTemplate.class);
     private final S3FileStorage storage = mock(S3FileStorage.class);
@@ -58,6 +60,7 @@ class AuthServiceTest {
                         passwords,
                         access,
                         refresh,
+                        loginAttempts,
                         passwordChanges,
                         new AuthProperties(
                                 "test-secret-at-least-thirty-two-bytes",
@@ -148,6 +151,38 @@ class AuthServiceTest {
         assertCode(
                 () -> service.login(new LoginRequest("a@test.com", "wrong")),
                 ErrorCode.LOGIN_FAILED);
+    }
+
+    @Test
+    void lockedEmailIsRejectedBeforeCheckingPassword() {
+        when(loginAttempts.tryAcquire("a@test.com")).thenReturn(Duration.ofMinutes(3));
+        assertThatThrownBy(() -> service.login(new LoginRequest(" A@Test.com", "abcd1234")))
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        ex -> {
+                            assertThat(ex.errorCode()).isEqualTo(ErrorCode.LOGIN_LOCKED);
+                            assertThat(ex.retryAfter()).isEqualTo(Duration.ofMinutes(3));
+                        });
+        verify(users, never()).findActiveByEmail(any());
+        verify(passwords, never()).matches(any(), any());
+    }
+
+    @Test
+    void failedLoginKeepsAttemptAndSuccessfulLoginResetsIt() {
+        var user = new User("a@test.com", "hash", "회원");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        when(users.findActiveByEmail("a@test.com")).thenReturn(List.of(user));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+
+        assertCode(
+                () -> service.login(new LoginRequest("a@test.com", "wrong")),
+                ErrorCode.LOGIN_FAILED);
+        verify(loginAttempts).tryAcquire("a@test.com");
+        verify(loginAttempts, never()).reset(any());
+
+        service.login(new LoginRequest("A@test.com", "abcd1234"));
+        verify(loginAttempts).reset("a@test.com");
     }
 
     @Test

@@ -26,7 +26,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ProblemDetail> handleApi(ApiException ex) {
-        return ResponseEntity.status(ex.errorCode().status()).body(problem(ex.errorCode()));
+        ProblemDetail pd = problem(ex.errorCode());
+        var response = ResponseEntity.status(ex.errorCode().status());
+        if (ex.retryAfter() != null) {
+            // 초 단위로 올려 남은 시간보다 일찍 다시 시도하지 않게 한다
+            long seconds = Math.max(1, (ex.retryAfter().toMillis() + 999) / 1000);
+            pd.setProperty("retryAfterSeconds", seconds);
+            response.header(HttpHeaders.RETRY_AFTER, Long.toString(seconds));
+        }
+        return response.body(pd);
     }
 
     @ExceptionHandler(FieldValidationException.class)

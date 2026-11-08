@@ -62,6 +62,15 @@ public class AuthController {
 
     @Operation(summary = "1.3 로그인")
     @SecurityRequirements
+    @ApiResponse(responseCode = "200", description = "이메일·비밀번호 일치")
+    @ApiResponse(
+            responseCode = "401",
+            description = "LOGIN_FAILED: 이메일 없음·비밀번호 틀림·탈퇴 회원·소셜 회원. 구분 없이 같은 문구")
+    @ApiResponse(
+            responseCode = "429",
+            description =
+                    "LOGIN_LOCKED: 같은 이메일로 5번 연속 틀려 15분 동안 잠김. 남은 시간은 Retry-After 헤더 ·"
+                            + " retryAfterSeconds(초)")
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         return service.login(request);

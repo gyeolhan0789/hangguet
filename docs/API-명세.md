@@ -37,7 +37,7 @@
 - **연습 면접** 답변 1개 이상으로 끝난 면접(`ANALYZING`·`COMPLETED`·`FAILED`, `ABORTED` 제외). 스트릭·면접 수·연습 시간은 모두 이 기준
 - **MVP 제외(API 없음)**: 비밀번호 찾기, 업적, 연습 알림 메일(카카오톡 알림 2.8~2.11로 대신함), 개발자 콘솔
 
-목 서버는 실제 로직 없이 예시 응답을 돌려준다. 인증·DB는 없고, 경로의 id가 `0`이면 해당 404를 돌려준다(화면 오류 처리 확인용). 회원가입(1.2)은 요청한 닉네임으로, 로그인(1.3)·재발급(1.4)은 예시 회원(id 1, 닉네임 "면접왕")으로 액세스 토큰을 만든다. 토큰을 검사하지는 않는다. 소셜 로그인(1.6)은 `code`로 결과를 고른다(`signup` 가입 필요 · `no-email` 400 · `duplicated` 409 · `invalid` 401 · 그 밖은 로그인). 소셜 회원가입(1.7)은 `signupToken`이 `expired`면 401이다. 소셜 계정 연결(2.12)도 `code`로 결과를 고른다(`invalid` 400 · `already` · `in-use` 409 · `unavailable` 503 · 그 밖은 연결).
+목 서버는 실제 로직 없이 예시 응답을 돌려준다. 인증·DB는 없고, 경로의 id가 `0`이면 해당 404를 돌려준다(화면 오류 처리 확인용). 회원가입(1.2)은 요청한 닉네임으로, 로그인(1.3)·재발급(1.4)은 예시 회원(id 1, 닉네임 "면접왕")으로 액세스 토큰을 만든다. 로그인(1.3)은 이메일이 `locked@`로 시작하면 429 `LOGIN_LOCKED`(`retryAfterSeconds` 900)다. 토큰을 검사하지는 않는다. 소셜 로그인(1.6)은 `code`로 결과를 고른다(`signup` 가입 필요 · `no-email` 400 · `duplicated` 409 · `invalid` 401 · 그 밖은 로그인). 소셜 회원가입(1.7)은 `signupToken`이 `expired`면 401이다. 소셜 계정 연결(2.12)도 `code`로 결과를 고른다(`invalid` 400 · `already` · `in-use` 409 · `unavailable` 503 · 그 밖은 연결).
 
 ## 2. API
 
@@ -160,8 +160,11 @@
 
 자동 로그인 유지(스트릭 유지 목적)를 위해 리프레시 토큰 유효 기간을 길게 둔다(값은 BE 결정). 비밀번호 찾기는 MVP 제외.
 
+같은 이메일로 5번 연속 틀리면 15분 동안 로그인을 막는다(비밀번호가 맞아도 429). 가입하지 않은 이메일도 같게 세고, 잠긴 동안의 시도는 세지 않는다. 로그인에 성공하면 센 횟수를 지운다. 남은 시간은 `Retry-After` 헤더와 `retryAfterSeconds`(초)로 준다.
+
 - **200**: 이메일·비밀번호 일치
 - **401 / LOGIN_FAILED**: 이메일 없음·비밀번호 틀림·탈퇴 회원·소셜 회원(비밀번호 없음). 구분 없이 같은 문구
+- **429 / LOGIN_LOCKED**: 같은 이메일로 5번 연속 틀려 잠김. `retryAfterSeconds` 뒤에 다시 시도
 
 #### 1.4 토큰 재발급
 
@@ -1119,6 +1122,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `VALIDATION_FAILED` | 400 | 본문·쿼리가 있는 전부 |
 | `INTERNAL_ERROR` | 500 | 전부 |
 | `LOGIN_FAILED` · `REFRESH_TOKEN_INVALID` | 401 | 1.3 · 1.4 |
+| `LOGIN_LOCKED` | 429 | 1.3 (`retryAfterSeconds` · `Retry-After` 헤더) |
 | `AGREEMENT_REQUIRED` · `EMAIL_DUPLICATED` | 400 · 409 | 1.2 (`AGREEMENT_REQUIRED`는 1.7도) |
 | `SOCIAL_EMAIL_REQUIRED` · `SOCIAL_LOGIN_FAILED` · `SOCIAL_LOGIN_UNAVAILABLE` | 400 · 401 · 503 | 1.6 |
 | `SOCIAL_EMAIL_DUPLICATED` | 409 | 1.6, 1.7 |

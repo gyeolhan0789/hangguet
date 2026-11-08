@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.offset;
 
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.common.crypto.Hashes;
+import com.ssafy.a301.user.domain.User;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -50,6 +53,7 @@ class RedisAuthIntegrationTest {
             redis.delete(tokenKeys);
         }
         for (String email : emails) {
+            redis.delete(loginFailKey(email));
             jdbc.update(
                     "DELETE FROM password_changes WHERE user_id IN (SELECT id FROM users WHERE"
                             + " email = ?)",
@@ -388,6 +392,82 @@ class RedisAuthIntegrationTest {
         remember(body(refreshed).path("refreshToken").asText());
     }
 
+    @Test
+    void fiveWrongPasswordsLockLoginEvenWithRightPasswordUntilKeyExpires() throws Exception {
+        Account account = signup();
+        for (int i = 0; i < 5; i++) {
+            var wrong =
+                    post(
+                            "/api/v1/auth/login",
+                            Map.of("email", account.email(), "password", "wrongPass1234"),
+                            null);
+            assertThat(wrong.statusCode()).isEqualTo(401);
+            assertThat(body(wrong).path("code").asText()).isEqualTo("LOGIN_FAILED");
+        }
+
+        var locked =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of(
+                                "email",
+                                account.email().toUpperCase(Locale.ROOT),
+                                "password",
+                                "testPass1234"),
+                        null);
+        assertThat(locked.statusCode()).isEqualTo(429);
+        assertThat(body(locked).path("code").asText()).isEqualTo("LOGIN_LOCKED");
+        long retryAfter = Long.parseLong(locked.headers().firstValue("Retry-After").orElseThrow());
+        assertThat(retryAfter).isBetween(890L, 900L);
+        assertThat(body(locked).path("retryAfterSeconds").asLong()).isEqualTo(retryAfter);
+        // 잠긴 동안의 시도는 세지 않는다
+        assertThat(redis.opsForValue().get(loginFailKey(account.email()))).isEqualTo("5");
+
+        // 15분이 지난 것처럼 키를 지우면 다시 로그인한다
+        redis.delete(loginFailKey(account.email()));
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(login.statusCode()).isEqualTo(200);
+        remember(body(login).path("refreshToken").asText());
+    }
+
+    @Test
+    void successfulLoginResetsFailures() throws Exception {
+        Account account = signup();
+        for (int i = 0; i < 4; i++) {
+            post(
+                    "/api/v1/auth/login",
+                    Map.of("email", account.email(), "password", "wrongPass1234"),
+                    null);
+        }
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(login.statusCode()).isEqualTo(200);
+        remember(body(login).path("refreshToken").asText());
+        assertThat(redis.hasKey(loginFailKey(account.email()))).isFalse();
+    }
+
+    @Test
+    void unknownEmailIsLockedTheSameWay() throws Exception {
+        String email = "redis-it-unknown-" + UUID.randomUUID() + "@example.com";
+        emails.add(email);
+        for (int i = 0; i < 5; i++) {
+            post("/api/v1/auth/login", Map.of("email", email, "password", "wrongPass1234"), null);
+        }
+        var locked =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", email, "password", "wrongPass1234"),
+                        null);
+        assertThat(locked.statusCode()).isEqualTo(429);
+        assertThat(body(locked).path("code").asText()).isEqualTo("LOGIN_LOCKED");
+    }
+
     private Account signup() throws Exception {
         return signup("redis-it-" + UUID.randomUUID() + "@example.com");
     }
@@ -433,6 +513,10 @@ class RedisAuthIntegrationTest {
                         .formatHex(
                                 MessageDigest.getInstance("SHA-256")
                                         .digest(token.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    private static String loginFailKey(String email) {
+        return "login-fail:" + Hashes.sha256Hex(User.normalizeEmail(email));
     }
 
     private static String userKey(long userId) {
