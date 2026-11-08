@@ -22,7 +22,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 비밀번호를 바꾸고 기록을 남긴 뒤 그 회원의 모든 기기를 로그아웃한다(리프레시 토큰 전부 폐기). 2.3 회원 변경은 바꾼 기기에 새 토큰을 줘 로그인을 잇고, 9.10
- * 관리자 변경은 주지 않는다. 이미 발급된 액세스 토큰은 만료(auth.access-ttl)까지 그대로 쓸 수 있다.
+ * 관리자 변경은 주지 않는다. 변경 전에 발급된 액세스 토큰은 회원의 비밀번호 변경 시각(password_changed_at)으로 토큰 검증에서 거절된다.
  */
 @Service
 public class PasswordChangeService {
@@ -69,10 +69,10 @@ public class PasswordChangeService {
                             if (!passwords.matches(currentPassword, user.getPasswordHash())) {
                                 throw new ApiException(ErrorCode.PASSWORD_MISMATCH);
                             }
-                            user.changePasswordHash(passwords.encode(newPassword));
                             // 잠금을 얻은 뒤의 시각을 쓴다. 리프레시 토큰의 로그인 시각은 밀리초 단위라 같은 단위로 맞춘다
                             OffsetDateTime changedAt =
                                     KoreaTime.now().truncatedTo(ChronoUnit.MILLIS);
+                            user.changePassword(passwords.encode(newPassword), changedAt);
                             changes.save(PasswordChange.byUser(userId, changedAt));
                             return new UserChange(user.getNickname(), changedAt);
                         });
@@ -99,9 +99,9 @@ public class PasswordChangeService {
                             users.findActiveForUpdate(userId)
                                     .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
                     requirePassword(user);
-                    user.changePasswordHash(passwords.encode(newPassword));
-                    changes.save(
-                            PasswordChange.byAdmin(userId, adminId, inquiryId, KoreaTime.now()));
+                    OffsetDateTime changedAt = KoreaTime.now();
+                    user.changePassword(passwords.encode(newPassword), changedAt);
+                    changes.save(PasswordChange.byAdmin(userId, adminId, inquiryId, changedAt));
                 });
         revokeAll(userId);
     }

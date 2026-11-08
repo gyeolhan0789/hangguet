@@ -27,6 +27,9 @@ import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -53,6 +56,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
             "auth.refresh-ttl=30d"
         })
 class AuthControllerTest {
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     @Autowired private MockMvc mvc;
     @MockitoBean private AuthService service;
     @MockitoBean private SocialAuthService social;
@@ -226,6 +230,43 @@ class AuthControllerTest {
     }
 
     // 실제 서명한 JWT를 Authorization 헤더로 보내 Security 필터(검증·오류 응답)를 그대로 거친다.
+    @Test
+    void tokenIssuedBeforePasswordChangeIsUnauthorized() throws Exception {
+        Instant issuedAt = Instant.now().minus(Duration.ofMinutes(10));
+        var user = new User("a@test.com", "hash", "회원");
+        user.changePassword("new-hash", OffsetDateTime.ofInstant(issuedAt.plusSeconds(1), KST));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+        mvc.perform(logoutWith(tokenIssuedAt(issuedAt)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        verify(service, never()).logout(anyLong(), anyString());
+    }
+
+    @Test
+    void tokenIssuedRightAfterPasswordChangeInSameSecondPasses() throws Exception {
+        // 발급 시각(iat)은 초 단위로 내려 담기므로 변경 시각(밀리초)보다 앞서 보여도 같은 초면 받는다
+        Instant second =
+                Instant.now().minus(Duration.ofMinutes(10)).truncatedTo(ChronoUnit.SECONDS);
+        var user = new User("a@test.com", "hash", "회원");
+        user.changePassword("new-hash", OffsetDateTime.ofInstant(second.plusMillis(500), KST));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+        mvc.perform(logoutWith(tokenIssuedAt(second.plusMillis(700))))
+                .andExpect(status().isNoContent());
+    }
+
+    private String tokenIssuedAt(Instant issuedAt) {
+        return encoder.encode(
+                        JwtEncoderParameters.from(
+                                JwsHeader.with(MacAlgorithm.HS256).build(),
+                                JwtClaimsSet.builder()
+                                        .issuer("a301")
+                                        .subject("7")
+                                        .issuedAt(issuedAt)
+                                        .expiresAt(issuedAt.plus(Duration.ofHours(1)))
+                                        .build()))
+                .getTokenValue();
+    }
+
     private static MockHttpServletRequestBuilder logoutWith(String accessToken) {
         return post("/api/v1/auth/logout")
                 .header("Authorization", "Bearer " + accessToken)

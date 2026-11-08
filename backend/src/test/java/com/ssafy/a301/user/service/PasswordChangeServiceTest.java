@@ -80,6 +80,8 @@ class PasswordChangeServiceTest {
         verify(changes).save(saved.capture());
         assertThat(saved.getValue().getChangedBy()).isEqualTo(PasswordChangedBy.USER);
         assertThat(saved.getValue().getAdminId()).isNull();
+        // 이 시각보다 먼저 발급한 액세스 토큰은 토큰 검증에서 거절된다
+        assertThat(user.getPasswordChangedAt()).isEqualTo(saved.getValue().getChangedAt());
         // 모두 폐기한 뒤 이 기기 토큰을 만든다. 새 토큰의 로그인 시각은 변경 기록 시각과 같아 재발급(1.4)에서 막히지 않는다
         var order = inOrder(refreshTokens);
         order.verify(refreshTokens).revokeAll(USER_ID);
@@ -87,6 +89,21 @@ class PasswordChangeServiceTest {
         assertThat(response.accessToken()).isEqualTo("new-access");
         assertThat(response.refreshToken()).isEqualTo("new-refresh");
         assertThat(response.expiresIn()).isEqualTo(3600);
+    }
+
+    @Test
+    void adminChangeRecordsChangeTimeAndRevokesEveryDevice() {
+        when(passwords.encode("newpass1")).thenReturn("new-hash");
+
+        service.changeByAdmin(USER_ID, 1L, "newpass1", 3L);
+
+        assertThat(user.getPasswordHash()).isEqualTo("new-hash");
+        ArgumentCaptor<PasswordChange> saved = ArgumentCaptor.forClass(PasswordChange.class);
+        verify(changes).save(saved.capture());
+        assertThat(saved.getValue().getChangedBy()).isEqualTo(PasswordChangedBy.ADMIN);
+        assertThat(user.getPasswordChangedAt()).isEqualTo(saved.getValue().getChangedAt());
+        verify(refreshTokens).revokeAll(USER_ID);
+        verify(accessTokens, never()).issue(anyLong(), any());
     }
 
     @Test
@@ -98,6 +115,7 @@ class PasswordChangeServiceTest {
                         ApiException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.PASSWORD_MISMATCH));
         assertThat(user.getPasswordHash()).isEqualTo("hash");
+        assertThat(user.getPasswordChangedAt()).isNull();
         verify(txManager, never()).commit(any());
         verify(changes, never()).save(any());
         verify(refreshTokens, never()).revokeAll(anyLong());
