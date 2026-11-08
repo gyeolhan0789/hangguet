@@ -26,9 +26,13 @@ import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.application.service.ApplicationService;
 import com.ssafy.a301.auth.dto.AgreementRequest;
+import com.ssafy.a301.auth.dto.LoginRequest;
 import com.ssafy.a301.auth.dto.SignupRequest;
 import com.ssafy.a301.auth.dto.TokenResponse;
+import com.ssafy.a301.auth.repository.PasswordResetTokenStore;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardManifest;
@@ -55,6 +59,8 @@ import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.storage.s3.StoredFile;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.service.UserService;
+import jakarta.mail.Session;
+import jakarta.mail.internet.MimeMessage;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -69,6 +75,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -78,6 +85,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -100,6 +108,7 @@ class FrontendContractTest {
 
     @LocalServerPort private int port;
     @Autowired private AuthService auth;
+    @Autowired private PasswordResetTokenStore resetTokens;
     @Autowired private UserService users;
     @Autowired private ApplicationService applications;
     @Autowired private InterviewSessionService sessions;
@@ -120,6 +129,7 @@ class FrontendContractTest {
     @MockitoBean private AiJobQueue aiJobs;
     @MockitoBean private InterviewRoom rooms;
     @MockitoBean private S3FileStorage storage;
+    @MockitoBean private JavaMailSender mailSender;
 
     /** 이번 상호작용의 상황이 만든 값. 다음 상황이 이어서 쓴다(상호작용마다 테스트 인스턴스가 새로 생긴다). */
     private final Map<String, Object> values = new HashMap<>();
@@ -128,7 +138,14 @@ class FrontendContractTest {
 
     @BeforeEach
     void target(PactVerificationContext context) {
-        context.setTarget(new HttpTestTarget("localhost", port));
+        // 기본 HTTP 클라이언트는 429 · 503의 Retry-After만큼 기다렸다 다시 보낸다(1.3 LOGIN_LOCKED는 900초).
+        // 계약은 첫 응답을 비교해야 하므로 다시 보내지 않는 클라이언트를 쓴다.
+        context.setTarget(
+                new HttpTestTarget(
+                        "localhost",
+                        port,
+                        "/",
+                        () -> provider -> HttpClients.custom().disableAutomaticRetries().build()));
         when(coverLetterCheck.check(any(), any(), any())).thenReturn(Verdict.USABLE);
         when(rooms.issueAccess(anyLong(), anyBoolean()))
                 .thenReturn(
@@ -144,6 +161,7 @@ class FrontendContractTest {
         when(storage.find(anyString()))
                 .thenReturn(Optional.of(new StoredFile("image/png", 204800L)));
         when(storage.presignDownload(anyString())).thenReturn("https://s3.test/download");
+        when(mailSender.createMimeMessage()).thenReturn(new MimeMessage((Session) null));
     }
 
     @TestTemplate
@@ -166,6 +184,34 @@ class FrontendContractTest {
         values.put("email", email);
         values.put("accessToken", token.accessToken());
         values.put("refreshToken", token.refreshToken());
+        return values;
+    }
+
+    /** 1.3 429 LOGIN_LOCKED. 잠길 때까지 틀린 비밀번호로 로그인한다(기준 횟수를 여기 적지 않는다) */
+    @State("로그인이 잠긴 회원")
+    Map<String, Object> lockedMember() {
+        member();
+        LoginRequest wrong = new LoginRequest((String) values.get("email"), "wrong-pass1");
+        for (int attempt = 0; attempt < 20; attempt++) {
+            try {
+                auth.login(wrong);
+            } catch (ApiException ex) {
+                if (ex.errorCode() == ErrorCode.LOGIN_LOCKED) {
+                    return values;
+                }
+            }
+        }
+        throw new IllegalStateException("로그인이 잠기지 않음");
+    }
+
+    /**
+     * 1.9. 1.8이 메일로 보내는 링크의 token. 서비스(PasswordResetService.request)는 token을 메일로만 보내고 돌려주지 않아 저장소로
+     * 직접 만든다
+     */
+    @State("비밀번호 재설정 링크")
+    Map<String, Object> passwordResetLink() {
+        member();
+        values.put("resetToken", resetTokens.issue(userId()));
         return values;
     }
 

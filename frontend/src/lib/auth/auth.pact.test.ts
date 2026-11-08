@@ -16,12 +16,20 @@ import {
 } from "@/test/pact";
 import type { MeResponse, RefreshResponse } from "@/types/api";
 
-import { checkEmailAvailable, login, logout, signup } from "./actions";
+import {
+  checkEmailAvailable,
+  login,
+  logout,
+  requestPasswordReset,
+  resetPassword,
+  signup,
+} from "./actions";
 import { NOTICE_COOKIE, SOCIAL_SIGNUP_COOKIE } from "./kakao";
 import { getMe } from "./session";
 import { socialSignup } from "./social-actions";
 
-// 기준: Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입 · 1.3 로그인 · 1.4 토큰 재발급 · 1.5 로그아웃 · 1.7 소셜 회원가입
+// 기준: Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입 · 1.3 로그인(429 LOGIN_LOCKED 포함) · 1.4 토큰 재발급 · 1.5 로그아웃
+// · 1.7 소셜 회원가입 · 1.8 비밀번호 찾기 메일 요청 · 1.9 비밀번호 재설정
 // · 2.1 내 정보 · 공통 401(TOKEN_EXPIRED · UNAUTHORIZED) 예시
 // 1.6 소셜 로그인과 1.7 성공은 BE 계약 테스트에 카카오 클라이언트(@MockitoBean)와 가입 토큰 · 카카오 회원 상황(@State)이 있어야
 // 재현된다. 아직 BE에 없어 이번에는 상황 없이 재현되는 1.7 무효 가입 토큰만 넣었다. BE 상황이 생기면 1.6(가입한 회원 · 처음 온
@@ -175,6 +183,87 @@ describe("인증", () => {
         asGuest(async () =>
           expect(await login({ email: "a@ssafy.com", password: "wrong1234" })).toEqual({
             formError: "이메일 또는 비밀번호를 확인해 주세요.",
+          }),
+        ),
+      ));
+
+  it("1.3 잠긴 이메일이면 남은 시간을 분으로 안내한다(429 LOGIN_LOCKED)", () =>
+    pact
+      .addInteraction()
+      .given("로그인이 잠긴 회원")
+      .uponReceiving("1.3 잠긴 이메일로 로그인")
+      .withRequest("POST", "/api/v1/auth/login", (b) => b.jsonBody({ email, password: "abcd1234" }))
+      .willRespondWith(429, (b) =>
+        // retryAfterSeconds가 있으면 FE는 detail 대신 남은 분을 넣은 문구를 쓴다(detail을 읽지 않는다)
+        problem(b, { code: "LOGIN_LOCKED", retryAfterSeconds: 900 }),
+      )
+      .executeTest(
+        asGuest(async () =>
+          expect(await login({ email: "a@ssafy.com", password: "abcd1234" })).toEqual({
+            formError: "로그인에 여러 번 실패했어요. 15분 뒤에 다시 시도해 주세요.",
+          }),
+        ),
+      ));
+
+  it("1.8 비밀번호 찾기 메일을 요청한다", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .uponReceiving("1.8 비밀번호 찾기 메일 요청")
+      .withRequest("POST", "/api/v1/auth/password-reset", (b) => b.jsonBody({ email }))
+      .willRespondWith(204)
+      .executeTest(
+        asGuest(async () =>
+          expect(await requestPasswordReset({ email: "a@ssafy.com" })).toEqual({ ok: true }),
+        ),
+      ));
+
+  it("1.9 메일 링크의 token으로 비밀번호를 바꾼다", () =>
+    pact
+      .addInteraction()
+      .given("비밀번호 재설정 링크")
+      .uponReceiving("1.9 비밀번호 재설정")
+      .withRequest("POST", "/api/v1/auth/password-reset/confirm", (b) =>
+        b.jsonBody({
+          token: providerValue("resetToken", "i1BUXG8z_ulEvbGIqGuA3g9us0MGdYX9Ct_gcpJSAyo"),
+          newPassword: "efgh5678",
+        }),
+      )
+      .willRespondWith(204)
+      .executeTest(
+        asGuest(async () =>
+          expect(
+            await resetPassword("i1BUXG8z_ulEvbGIqGuA3g9us0MGdYX9Ct_gcpJSAyo", {
+              password: "efgh5678",
+              passwordConfirm: "efgh5678",
+            }),
+          ).toEqual({ ok: true }),
+        ),
+      ));
+
+  it("1.9 만료된 링크면 다시 받게 안내한다(400 PASSWORD_RESET_TOKEN_INVALID)", () =>
+    pact
+      .addInteraction()
+      .uponReceiving("1.9 만료된 링크로 비밀번호 재설정")
+      .withRequest("POST", "/api/v1/auth/password-reset/confirm", (b) =>
+        b.jsonBody({ token: "expired-link", newPassword: "efgh5678" }),
+      )
+      .willRespondWith(400, (b) =>
+        problem(b, {
+          detail: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+          code: "PASSWORD_RESET_TOKEN_INVALID",
+        }),
+      )
+      .executeTest(
+        asGuest(async () =>
+          expect(
+            await resetPassword("expired-link", {
+              password: "efgh5678",
+              passwordConfirm: "efgh5678",
+            }),
+          ).toEqual({
+            linkInvalid: true,
+            formError: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
           }),
         ),
       ));

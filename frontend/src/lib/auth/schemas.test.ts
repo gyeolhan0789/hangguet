@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { loginSchema, PASSWORD_RULES, signupSchema } from "./schemas";
+import {
+  forgotPasswordSchema,
+  loginSchema,
+  PASSWORD_RULES,
+  passwordResetSchema,
+  signupSchema,
+} from "./schemas";
 
 const validSignup = {
   nickname: "  면접왕  ",
@@ -70,6 +76,33 @@ describe("signupSchema", () => {
       agreements: { ...validSignup.agreements, AGE: false },
     });
     expect(firstError(result)).toBe("agreements.AGE");
+  });
+});
+
+describe("forgotPasswordSchema", () => {
+  it("이메일 형식이 틀리면 막고, 맞으면 앞뒤 공백을 지운다", () => {
+    expect(firstError(forgotPasswordSchema.safeParse({ email: "a" }))).toBe("email");
+    expect(forgotPasswordSchema.parse({ email: " a@ssafy.com " })).toEqual({
+      email: "a@ssafy.com",
+    });
+  });
+});
+
+describe("passwordResetSchema", () => {
+  it("가입과 같은 비밀번호 규칙을 쓴다", () => {
+    const result = passwordResetSchema.safeParse({
+      password: "abcdefgh",
+      passwordConfirm: "abcdefgh",
+    });
+    expect(result.error?.issues[0]?.message).toBe("8~64자, 영문과 숫자를 모두 포함해야 합니다.");
+  });
+
+  it("비밀번호 확인이 다르면 확인 칸 오류로 막는다", () => {
+    expect(
+      firstError(
+        passwordResetSchema.safeParse({ password: "efgh5678", passwordConfirm: "efgh5679" }),
+      ),
+    ).toBe("passwordConfirm");
   });
 });
 

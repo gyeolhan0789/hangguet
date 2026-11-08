@@ -96,7 +96,12 @@ export function oneOf<T extends string>(values: readonly T[], example: T) {
  */
 export function problem<B extends ProblemResponseBuilder<B>>(
   response: B,
-  { code, detail, errors }: Pick<ProblemDetail, "code" | "errors"> & { detail?: string },
+  {
+    code,
+    detail,
+    errors,
+    retryAfterSeconds,
+  }: Pick<ProblemDetail, "code" | "errors" | "retryAfterSeconds"> & { detail?: string },
   { generic = false } = {},
 ) {
   return response.headers({ "Content-Type": "application/problem+json" }).jsonBody({
@@ -107,6 +112,10 @@ export function problem<B extends ProblemResponseBuilder<B>>(
         field: MatchersV3.equal(errors[0].field),
         reason: MatchersV3.like(errors[0].reason),
       }),
+    }),
+    // BE가 남은 시간으로 정하는 값이라 모양만 비교한다(1.3 429 LOGIN_LOCKED)
+    ...(retryAfterSeconds !== undefined && {
+      retryAfterSeconds: MatchersV3.integer(retryAfterSeconds),
     }),
   });
 }

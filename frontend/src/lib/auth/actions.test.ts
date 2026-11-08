@@ -18,7 +18,8 @@ const redirect = vi.fn((url: string) => {
 });
 vi.mock("next/navigation", () => ({ redirect: (url: string) => redirect(url) }));
 
-const { checkEmailAvailable, login, logout, signup } = await import("./actions");
+const { checkEmailAvailable, login, logout, requestPasswordReset, resetPassword, signup } =
+  await import("./actions");
 
 const tokens = {
   accessToken: "access",
@@ -89,6 +90,146 @@ describe("login", () => {
     expect(await login({ email: "a@ssafy.com", password: "abcd1234" })).toEqual({
       formError: "잠시 후 다시 시도해 주세요.",
     });
+  });
+});
+
+describe("login · 429 LOGIN_LOCKED", () => {
+  it("남은 시간(retryAfterSeconds)을 분으로 올려 안내한다", async () => {
+    post.mockRejectedValue(
+      problem(429, {
+        code: "LOGIN_LOCKED",
+        detail: "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+        retryAfterSeconds: 61,
+      }),
+    );
+
+    expect(await login({ email: "a@ssafy.com", password: "abcd1234" })).toEqual({
+      formError: "로그인에 여러 번 실패했어요. 2분 뒤에 다시 시도해 주세요.",
+    });
+  });
+
+  it("남은 시간이 없으면 서버 문구를 그대로 쓴다", async () => {
+    post.mockRejectedValue(
+      problem(429, {
+        code: "LOGIN_LOCKED",
+        detail: "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+      }),
+    );
+
+    expect(await login({ email: "a@ssafy.com", password: "abcd1234" })).toEqual({
+      formError: "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+    });
+  });
+});
+
+describe("requestPasswordReset", () => {
+  it("앞뒤 공백을 지운 이메일을 1.8로 보내고 성공을 돌려준다", async () => {
+    post.mockResolvedValue({ data: "" });
+
+    expect(await requestPasswordReset({ email: " a@ssafy.com " })).toEqual({ ok: true });
+    expect(post).toHaveBeenCalledWith("/auth/password-reset", { email: "a@ssafy.com" });
+  });
+
+  it("형식이 틀리면 서버에 묻지 않는다", async () => {
+    expect(await requestPasswordReset({ email: "not-email" })).toEqual({
+      formError: "이메일을 확인해 주세요.",
+    });
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
+    post.mockRejectedValue(new Error("network"));
+
+    expect(await requestPasswordReset({ email: "a@ssafy.com" })).toEqual({
+      formError: "잠시 후 다시 시도해 주세요.",
+    });
+  });
+
+  it("VALIDATION_FAILED의 email은 칸 오류로 바꾼다", async () => {
+    post.mockRejectedValue(
+      problem(400, {
+        code: "VALIDATION_FAILED",
+        detail: "입력값을 확인해 주세요.",
+        errors: [{ field: "email", reason: "이메일 형식이 아닙니다." }],
+      }),
+    );
+
+    expect(await requestPasswordReset({ email: "a@ssafy.com" })).toEqual({
+      fieldErrors: { email: "이메일 형식이 아닙니다." },
+    });
+  });
+});
+
+describe("resetPassword", () => {
+  const values = { password: "efgh5678", passwordConfirm: "efgh5678" };
+
+  it("token과 새 비밀번호를 1.9로 보내고, 모든 기기가 로그아웃되므로 이 브라우저의 토큰도 지운다", async () => {
+    post.mockResolvedValue({ data: "" });
+
+    expect(await resetPassword("token-1", values)).toEqual({ ok: true });
+    expect(post).toHaveBeenCalledWith("/auth/password-reset/confirm", {
+      token: "token-1",
+      newPassword: "efgh5678",
+    });
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_access");
+    expect(cookieStore.delete).toHaveBeenCalledWith("hk_refresh");
+  });
+
+  it("token 칸이 형식 검사(VALIDATION_FAILED)에 걸리면 사용자가 고칠 수 없으니 링크 무효로 본다", async () => {
+    post.mockRejectedValue(
+      problem(400, {
+        code: "VALIDATION_FAILED",
+        detail: "입력값을 확인해 주세요.",
+        errors: [{ field: "token", reason: "최대 100자입니다." }],
+      }),
+    );
+
+    expect(await resetPassword("x".repeat(101), values)).toEqual({ linkInvalid: true });
+    expect(cookieStore.delete).not.toHaveBeenCalled();
+  });
+
+  it("PASSWORD_RESET_TOKEN_INVALID면 링크 무효로 알리고 서버 문구를 돌려준다", async () => {
+    post.mockRejectedValue(
+      problem(400, {
+        code: "PASSWORD_RESET_TOKEN_INVALID",
+        detail: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+      }),
+    );
+
+    expect(await resetPassword("used", values)).toEqual({
+      linkInvalid: true,
+      formError: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+    });
+  });
+
+  it("VALIDATION_FAILED의 newPassword는 칸 오류로 바꾼다", async () => {
+    post.mockRejectedValue(
+      problem(400, {
+        code: "VALIDATION_FAILED",
+        detail: "입력값을 확인해 주세요.",
+        errors: [{ field: "newPassword", reason: "8~64자, 영문과 숫자를 모두 포함해야 합니다." }],
+      }),
+    );
+
+    expect(await resetPassword("token-1", values)).toEqual({
+      fieldErrors: { newPassword: "8~64자, 영문과 숫자를 모두 포함해야 합니다." },
+    });
+  });
+
+  it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 쿠키는 그대로 둔다", async () => {
+    post.mockRejectedValue(new Error("network"));
+
+    expect(await resetPassword("token-1", values)).toEqual({
+      formError: "잠시 후 다시 시도해 주세요.",
+    });
+    expect(cookieStore.delete).not.toHaveBeenCalled();
+  });
+
+  it("확인 칸이 다르면 서버에 보내지 않는다", async () => {
+    expect(
+      await resetPassword("token-1", { password: "efgh5678", passwordConfirm: "other5678" }),
+    ).toEqual({ formError: "입력값을 확인해 주세요." });
+    expect(post).not.toHaveBeenCalled();
   });
 });
 
