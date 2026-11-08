@@ -7,6 +7,7 @@ import com.ssafy.a301.auth.dto.SignupRequest;
 import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.auth.repository.LoginAttemptStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.auth.repository.RefreshTokenStore.RefreshSession;
 import com.ssafy.a301.common.error.ApiException;
@@ -19,6 +20,7 @@ import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.PasswordChangeRepository;
 import com.ssafy.a301.user.repository.UserAgreementRepository;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
@@ -34,6 +36,7 @@ public class AuthService {
     private final PasswordEncoder passwords;
     private final AccessTokens accessTokens;
     private final RefreshTokenStore refreshTokens;
+    private final LoginAttemptStore loginAttempts;
     private final PasswordChangeRepository passwordChanges;
     private final AuthProperties properties;
     private final TransactionTemplate transactions;
@@ -45,6 +48,7 @@ public class AuthService {
             PasswordEncoder passwords,
             AccessTokens accessTokens,
             RefreshTokenStore refreshTokens,
+            LoginAttemptStore loginAttempts,
             PasswordChangeRepository passwordChanges,
             AuthProperties properties,
             TransactionTemplate transactions,
@@ -54,6 +58,7 @@ public class AuthService {
         this.passwords = passwords;
         this.accessTokens = accessTokens;
         this.refreshTokens = refreshTokens;
+        this.loginAttempts = loginAttempts;
         this.passwordChanges = passwordChanges;
         this.properties = properties;
         this.transactions = transactions;
@@ -89,10 +94,16 @@ public class AuthService {
         }
     }
 
+    /** 같은 이메일로 5번 연속 틀리면 15분 동안 429 LOGIN_LOCKED(비밀번호가 맞아도). 가입하지 않은 이메일도 같게 센다 */
     public TokenResponse login(LoginRequest request) {
+        String email = User.normalizeEmail(request.email());
+        Duration locked = loginAttempts.tryAcquire(email);
+        if (locked.isPositive()) {
+            throw new ApiException(ErrorCode.LOGIN_LOCKED, locked);
+        }
         // 대소문자만 다른 예전 계정이 둘 이상이면 비밀번호가 맞는 계정으로 로그인한다. 소셜 회원은 비밀번호가 없어 고르지 않는다
         User user =
-                users.findActiveByEmail(User.normalizeEmail(request.email())).stream()
+                users.findActiveByEmail(email).stream()
                         .filter(
                                 candidate ->
                                         candidate.hasPassword()
@@ -101,6 +112,7 @@ public class AuthService {
                                                         candidate.getPasswordHash()))
                         .findFirst()
                         .orElseThrow(() -> new ApiException(ErrorCode.LOGIN_FAILED));
+        loginAttempts.reset(email);
         TokenResponse response = tokens(user);
         // 확인한 뒤 토큰을 만들기 전에 비밀번호가 바뀌었으면(2.3·9.10) 이 토큰은 그 변경의 폐기(revokeAll)보다 늦게 생겨 남는다.
         // 만든 뒤 다시 읽어 바뀌었거나 탈퇴했으면 지우고 실패로 둔다. 다시 읽을 때 아직 그대로였다면 변경 쪽 폐기가 이 토큰을 지운다

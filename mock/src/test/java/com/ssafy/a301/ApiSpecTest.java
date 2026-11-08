@@ -93,6 +93,22 @@ class ApiSpecTest {
     }
 
     @Test
+    void lockedEmailLoginIsTooManyRequests() {
+        MvcTestResult locked =
+                mockMvc.post()
+                        .uri("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{ \"email\": \"locked@test.com\", \"password\": \"abcd1234\" }")
+                        .exchange();
+        assertThat(locked)
+                .hasStatus(HttpStatus.TOO_MANY_REQUESTS)
+                .hasHeader("Retry-After", "900")
+                .bodyJson()
+                .extractingPath("$.code")
+                .isEqualTo("LOGIN_LOCKED");
+    }
+
+    @Test
     void socialLoginCodeChoosesResult() {
         assertThat(socialLogin("kakao", "signup"))
                 .hasStatusOk()

@@ -26,6 +26,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
+import java.time.Duration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
@@ -78,6 +79,7 @@ public class AuthController {
     private static final String EXAMPLE_NICKNAME = "면접왕";
     private static final String SOCIAL_EMAIL = "a@kakao.com";
     private static final long SIGNUP_TOKEN_TTL_SECONDS = 600;
+    private static final Duration LOGIN_LOCK = Duration.ofMinutes(15);
 
     private final JwtIssuer jwtIssuer;
 
@@ -154,8 +156,23 @@ public class AuthController {
                                     @ExampleObject(
                                             name = "LOGIN_FAILED",
                                             value = ErrorExamples.LOGIN_FAILED)))
+    @ApiResponse(
+            responseCode = "429",
+            description =
+                    "같은 이메일로 5번 연속 틀려 15분 동안 잠김. 남은 시간은 Retry-After 헤더 · retryAfterSeconds(초)",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "LOGIN_LOCKED",
+                                            value = ErrorExamples.LOGIN_LOCKED)))
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
+        // 목 서버: locked@로 시작하는 이메일은 잠긴 것으로 답한다
+        if (request.email().startsWith("locked@")) {
+            throw new ApiException(ErrorCode.LOGIN_LOCKED, LOGIN_LOCK);
+        }
         return tokens(new UserSummary(EXAMPLE_USER_ID, request.email(), EXAMPLE_NICKNAME, null));
     }
 

@@ -10,6 +10,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -20,6 +21,8 @@ import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.service.AuthService;
 import com.ssafy.a301.auth.service.SocialAuthService;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
@@ -80,6 +83,21 @@ class AuthControllerTest {
                                 .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void lockedLoginIsTooManyRequestsWithRetryAfter() throws Exception {
+        // 남은 시간은 초 단위로 올린다
+        when(service.login(any()))
+                .thenThrow(new ApiException(ErrorCode.LOGIN_LOCKED, Duration.ofMillis(60_500)));
+        mvc.perform(
+                        post("/api/v1/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"a@test.com\",\"password\":\"abcd1234\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "61"))
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(61));
     }
 
     @Test

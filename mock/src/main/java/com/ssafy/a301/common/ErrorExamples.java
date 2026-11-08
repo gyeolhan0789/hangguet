@@ -44,6 +44,12 @@ public final class ErrorExamples {
             { "title": "Unauthorized", "status": 401, "detail": "이메일 또는 비밀번호를 확인해 주세요.",
               "instance": "/api/v1/auth/login", "code": "LOGIN_FAILED" }\
             """;
+    public static final String LOGIN_LOCKED =
+            """
+            { "title": "Too Many Requests", "status": 429,
+              "detail": "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/auth/login", "code": "LOGIN_LOCKED", "retryAfterSeconds": 900 }\
+            """;
     public static final String REFRESH_TOKEN_INVALID =
             """
             { "title": "Unauthorized", "status": 401, "detail": "다시 로그인해 주세요.",
