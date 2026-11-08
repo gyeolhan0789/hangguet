@@ -353,23 +353,7 @@ class RedisAuthIntegrationTest {
                         null);
         String other = remember(body(otherDevice).path("refreshToken").asText());
 
-        var changed =
-                http.send(
-                        HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
-                                .timeout(Duration.ofSeconds(10))
-                                .header("Content-Type", "application/json")
-                                .header("Authorization", "Bearer " + account.access())
-                                .method(
-                                        "PATCH",
-                                        HttpRequest.BodyPublishers.ofString(
-                                                json.writeValueAsString(
-                                                        Map.of(
-                                                                "currentPassword",
-                                                                "testPass1234",
-                                                                "newPassword",
-                                                                "newPass5678"))))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
+        var changed = changePassword(account.access());
         assertThat(changed.statusCode()).isEqualTo(200);
         String next = remember(body(changed).path("refreshToken").asText());
         assertThat(get("/api/v1/users/me", body(changed).path("accessToken").asText()).statusCode())
@@ -390,6 +374,40 @@ class RedisAuthIntegrationTest {
         var refreshed = post("/api/v1/auth/token/refresh", Map.of("refreshToken", next), null);
         assertThat(refreshed.statusCode()).isEqualTo(200);
         remember(body(refreshed).path("refreshToken").asText());
+    }
+
+    @Test
+    void passwordChangeRejectsAccessTokensIssuedBeforeIt() throws Exception {
+        Account account = signup();
+        var otherDevice =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        String otherAccess = body(otherDevice).path("accessToken").asText();
+        remember(body(otherDevice).path("refreshToken").asText());
+        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 구분하지 못한다. 다음 초로 넘긴다
+        Thread.sleep(1_100);
+
+        var changed = changePassword(account.access());
+        assertThat(changed.statusCode()).isEqualTo(200);
+        remember(body(changed).path("refreshToken").asText());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT password_changed_at IS NOT NULL FROM users WHERE id = ?",
+                                Boolean.class,
+                                account.id()))
+                .isTrue();
+
+        // 바꾸기 전 액세스 토큰은 이 기기 것도, 다른 기기 것도 만료 전에 401
+        for (String old : List.of(account.access(), otherAccess)) {
+            var rejected = get("/api/v1/users/me", old);
+            assertThat(rejected.statusCode()).isEqualTo(401);
+            assertThat(body(rejected).path("code").asText()).isEqualTo("UNAUTHORIZED");
+        }
+        // 응답으로 받은 새 토큰은 바로 쓸 수 있다
+        assertThat(get("/api/v1/users/me", body(changed).path("accessToken").asText()).statusCode())
+                .isEqualTo(200);
     }
 
     @Test
@@ -545,6 +563,25 @@ class RedisAuthIntegrationTest {
             throws Exception {
         return http.send(
                 request(endpoint, payload, accessToken), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> changePassword(String accessToken) throws Exception {
+        return http.send(
+                HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .method(
+                                "PATCH",
+                                HttpRequest.BodyPublishers.ofString(
+                                        json.writeValueAsString(
+                                                Map.of(
+                                                        "currentPassword",
+                                                        "testPass1234",
+                                                        "newPassword",
+                                                        "newPass5678"))))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> get(String endpoint, String accessToken) throws Exception {
