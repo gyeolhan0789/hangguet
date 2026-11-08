@@ -22,6 +22,8 @@
 #   없으면 그 제공자 로그인만 503으로 답한다. 콜백 주소(*_REDIRECT_URIS)는 비밀이 아니라 이 파일에 적는다.
 #   FE도 카카오 인가 화면으로 보낼 때 같은 KAKAO_CLIENT_ID(REST API 키)와 콜백 주소(KAKAO_REDIRECT_URI)를 쓴다. 시크릿은 FE에 넘기지 않는다.
 #   FE 콜백 주소는 BE KAKAO_REDIRECT_URIS와 카카오 앱 Redirect URI에 등록한 값과 글자까지 같아야 한다. 키가 없으면 카카오 버튼만 안내 문구를 띄운다.
+# - 비밀번호 찾기 메일 계정(MAIL_USERNAME · MAIL_PASSWORD, 팀 Gmail · 앱 비밀번호)도 CI/CD Variables에서 받아 BE에 넘긴다.
+#   없으면 메일만 보내지 않는다. 메일 링크가 여는 화면 주소(PASSWORD_RESET_URL)는 비밀이 아니라 이 파일에 적는다.
 # - LiveKit: 개발 서버는 LiveKit Cloud를 쓴다(운영은 셀프 호스팅, 이해준/deploy_plan 4.0). 키·시크릿은 CI/CD Variables,
 #   주소는 비밀이 아니라 이 파일에 적는다. 없어도 BE·AI는 뜨고 면접방 기능만 실패하므로 필수로 두지 않는다.
 # - 비밀이 아닌 설정은 이 파일에 적는다.
@@ -190,6 +192,11 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URIS: https://hangguet.yobistory.com/oauth/google/callback,http://localhost:3000/oauth/google/callback
+      # 비밀번호 찾기 메일(API 명세 1.8, Gmail SMTP). 팀 Gmail 계정 · 앱 비밀번호이고 운영과 같다. 없으면 메일을 보내지 않고 경고만 남긴다
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 재설정 메일의 링크가 여는 FE 화면. 이 서버의 FE 주소다
+      PASSWORD_RESET_URL: https://hangguet.yobistory.com/password-reset
     mem_limit: 768m
     networks:
       - internal

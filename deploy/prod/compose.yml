@@ -188,6 +188,11 @@ services:
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URIS: https://hangguet.co.kr/oauth/google/callback
+      # 비밀번호 찾기 메일(API 명세 1.8, Gmail SMTP). 팀 Gmail 계정 · 앱 비밀번호이고 개발과 같다. 없으면 메일을 보내지 않고 경고만 남긴다
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      # 재설정 메일의 링크가 여는 FE 화면. 이 서버의 FE 주소다
+      PASSWORD_RESET_URL: https://hangguet.co.kr/password-reset
     # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 쓴다(10/27 로컬 실측, 운영과 같은 SerialGC).
     # 768m에서는 부하만으로 90%에 닿아 강제 종료될 수 있어 여유를 두고 올렸다(배포 계획 3.2)
     mem_limit: 1280m
