@@ -16,6 +16,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.group.service.GroupEndService;
+import com.ssafy.a301.group.service.GroupTurnService;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
@@ -66,6 +67,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private CompanyCardFinder companyCards;
     @Mock private InterviewCapacity capacity;
     @Mock private GroupEndService groupEnds;
+    @Mock private GroupTurnService groupTurns;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -94,7 +96,8 @@ class InterviewSessionPracticeDateTest {
                         companyCards,
                         capacity,
                         ender,
-                        groupEnds);
+                        groupEnds,
+                        groupTurns);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

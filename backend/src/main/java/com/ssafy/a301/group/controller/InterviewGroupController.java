@@ -2,12 +2,14 @@ package com.ssafy.a301.group.controller;
 
 import com.ssafy.a301.common.idempotency.Idempotent;
 import com.ssafy.a301.common.web.CurrentUserId;
+import com.ssafy.a301.group.dto.GroupDtos.ExtendResponse;
 import com.ssafy.a301.group.dto.GroupDtos.GroupCreateRequest;
 import com.ssafy.a301.group.dto.GroupDtos.GroupJoinRequest;
 import com.ssafy.a301.group.dto.GroupDtos.GroupResponse;
 import com.ssafy.a301.group.dto.GroupDtos.InviteResponse;
 import com.ssafy.a301.group.dto.GroupDtos.ReadyRequest;
 import com.ssafy.a301.group.service.GroupStartService;
+import com.ssafy.a301.group.service.GroupTurnService;
 import com.ssafy.a301.group.service.InterviewGroupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,10 +33,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class InterviewGroupController {
     private final InterviewGroupService groups;
     private final GroupStartService starts;
+    private final GroupTurnService turns;
 
-    public InterviewGroupController(InterviewGroupService groups, GroupStartService starts) {
+    public InterviewGroupController(
+            InterviewGroupService groups, GroupStartService starts, GroupTurnService turns) {
         this.groups = groups;
         this.starts = starts;
+        this.turns = turns;
     }
 
     @Operation(
@@ -154,5 +159,22 @@ public class InterviewGroupController {
             @CurrentUserId long userId,
             @Parameter(description = "그룹 id", example = "7") @PathVariable long groupId) {
         return starts.start(userId, groupId);
+    }
+
+    @Operation(
+            summary = "10.8 답변 시간 연장",
+            description =
+                    "화상 그룹 면접에서 지금 답변자가 남은 시간이 30초 이하일 때 한 번 부른다. 마감을 1분 늦추고 면접방 정보로 모두에게"
+                            + " 알린다.")
+    @ApiResponse(responseCode = "200", description = "deadlineAt(새 마감)")
+    @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND: 없거나 참가자가 아님")
+    @ApiResponse(
+            responseCode = "409",
+            description = "EXTEND_NOT_ALLOWED: 채팅 · 지금 답변자가 아님 · 답변 중이 아님 · 남은 시간 30초 초과 · 이미 연장함")
+    @PostMapping("/{groupId}/turn/extend")
+    public ExtendResponse extend(
+            @CurrentUserId long userId,
+            @Parameter(description = "그룹 id", example = "7") @PathVariable long groupId) {
+        return new ExtendResponse(turns.extend(userId, groupId));
     }
 }

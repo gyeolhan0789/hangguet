@@ -7,6 +7,7 @@ import com.ssafy.a301.common.web.CurrentUserId;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.DraftRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.PendingResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
@@ -35,6 +36,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -62,7 +64,8 @@ public class InterviewSessionController {
             summary = "5.7 답변 제출(채팅)",
             description =
                     "채팅 면접의 답변 글을 낸다. 질문마다 한 번만 낼 수 있다. 다음 질문은 AI 에이전트가 면접방 메시지로 알린다. 화상"
-                            + " 답변은 이 API를 쓰지 않는다.")
+                            + " 답변은 이 API를 쓰지 않는다. 그룹 면접은 지금 내 차례이고 마감 전인 질문만 받고, isLastQuestion은"
+                            + " 항상 false다(끝은 면접방 정보로 안다).")
     @ApiResponse(responseCode = "202", description = "접수")
     @ApiResponse(
             responseCode = "400",
@@ -72,7 +75,7 @@ public class InterviewSessionController {
             responseCode = "409",
             description =
                     "ANSWER_ALREADY_SUBMITTED · INVALID_SESSION_STATE: IN_PROGRESS가 아님 ·"
-                            + " IDEMPOTENCY_KEY_REUSED")
+                        + " QUESTION_CLOSED: 그룹 면접에서 지금 내 차례가 아니거나 마감이 지남 · IDEMPOTENCY_KEY_REUSED")
     @Idempotent
     @PostMapping("/{sessionId}/questions/{questionId}/answer")
     @ResponseStatus(HttpStatus.ACCEPTED)
@@ -192,6 +195,27 @@ public class InterviewSessionController {
         return sessions.get(userId, sessionId);
     }
 
+    @Operation(
+            summary = "10.9 작성 중인 답변 저장",
+            description =
+                    "채팅 그룹 면접에서 입력 칸의 글 전체를 저장한다. 최종 답변이 아니다. 최종 답변은 5.7로 내거나, 마감 때 BE가"
+                            + " 마지막으로 저장된 글로 확정한다.")
+    @ApiResponse(responseCode = "204", description = "저장")
+    @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED: content가 없거나 1,000자 초과")
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND · QUESTION_NOT_FOUND")
+    @ApiResponse(
+            responseCode = "409",
+            description = "QUESTION_CLOSED: 지금 답할 질문이 아님 · 마감이 지남 · 이미 답함 · 그룹 채팅 면접이 아님")
+    @PutMapping("/{sessionId}/questions/{questionId}/draft")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void saveDraft(
+            @CurrentUserId long userId,
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId,
+            @Parameter(description = "질문 id", example = "303") @PathVariable long questionId,
+            @Valid @RequestBody DraftRequest request) {
+        answers.saveDraft(userId, sessionId, questionId, request.content());
+    }
+
     @Operation(summary = "5.3 면접 플랜 재생성")
     @ApiResponse(responseCode = "202", description = "재생성 시작(planStatus GENERATING)")
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
@@ -234,7 +258,9 @@ public class InterviewSessionController {
 
     @Operation(
             summary = "5.5 지금 질문",
-            description = "새로고침·재접속 때 지금 답할 질문을 준다. 에이전트가 다음 질문을 아직 내지 않았으면 202를 준다.")
+            description =
+                    "새로고침·재접속 때 지금 답할 질문을 준다. 에이전트가 다음 질문을 아직 내지 않았으면 202를 준다. 그룹 면접은"
+                            + " 답하지 않았고 마감되지 않은 마지막 질문이고, 다음 내 차례를 기다리면 202다.")
     @ApiResponse(
             responseCode = "200",
             description = "답할 질문 있음",
@@ -246,7 +272,9 @@ public class InterviewSessionController {
     @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND")
     @ApiResponse(
             responseCode = "409",
-            description = "INVALID_SESSION_STATE: IN_PROGRESS가 아니거나 5개 질문에 모두 답함(5.8 호출)")
+            description =
+                    "INVALID_SESSION_STATE: IN_PROGRESS가 아니거나 5개 질문에 모두 답함 · 그룹 면접에서 내 질문을 모두"
+                            + " 마침(5.8 호출)")
     @GetMapping("/{sessionId}/questions/current")
     public ResponseEntity<Object> currentQuestion(
             @CurrentUserId long userId,

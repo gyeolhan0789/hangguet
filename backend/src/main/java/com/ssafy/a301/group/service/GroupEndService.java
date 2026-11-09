@@ -4,6 +4,8 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
+import com.ssafy.a301.group.domain.InterviewGroupParticipant;
+import com.ssafy.a301.group.repository.GroupDraftStore;
 import com.ssafy.a301.group.repository.InterviewGroupParticipantRepository;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.EndReason;
@@ -11,6 +13,7 @@ import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
+import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.SessionEnder;
@@ -26,10 +29,11 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 그룹 세션 종료 · 그룹 종료(docs/그룹면접-설계.md 6.10). 그룹 행 → 참가자 면접 행(id 순서)을 잠그고, 세션 하나를 개인 면접 5.8과 같이 끝낸다. 남은
- * 세션이 있으면 끝낸 사람만 면접방에서 내보내고, 마지막 세션이면 그룹을 ENDED로 바꾸고 면접방을 지운다. 면접방은 커밋 뒤에 정리한다.
+ * 세션이 있으면 끝낸 사람이 지금 답변자일 때 다음 차례로 넘기고, 끝낸 사람을 면접방에서 내보내고 면접방 정보를 바꾼다. 마지막 세션이면 그룹을 ENDED로 바꾸고 면접방을
+ * 지운다. 면접방은 커밋 뒤에 정리한다.
  *
- * <p>아직 하지 않는 것(그룹 진행 구현 때 더함): 끝낸 사람이 지금 답변자일 때 다음 차례 정하기 · 면접방 정보 갱신, 이탈 2분 초과 · 질문을 모두 마침 · AI
- * 장애로 끝내기, 녹화 합치기 작업(본인 답변 구간 segments가 필요하다, 6.12).
+ * <p>아직 하지 않는 것(마감 처리기 · 이탈 감지 · 녹화 합치기를 구현할 때 더함): 질문을 모두 마치고 60초 안에 5.8이 없을 때 · 이탈 2분 초과 · AI 장애로
+ * 끝내기, 녹화 합치기 작업(본인 답변 구간 segments가 필요하다, 6.12).
  */
 @Service
 public class GroupEndService {
@@ -38,8 +42,12 @@ public class GroupEndService {
     private final InterviewGroupRepository groups;
     private final InterviewGroupParticipantRepository participants;
     private final InterviewSessionRepository sessions;
+    private final InterviewQuestionRepository questions;
     private final SessionEnder ender;
     private final InterviewRoom rooms;
+    private final GroupTurnFlow flow;
+    private final GroupRoomUpdates roomUpdates;
+    private final GroupDraftStore drafts;
     private final TransactionTemplate transactions;
     private final Duration videoLimit;
     private final Duration chatLimit;
@@ -49,8 +57,12 @@ public class GroupEndService {
             InterviewGroupRepository groups,
             InterviewGroupParticipantRepository participants,
             InterviewSessionRepository sessions,
+            InterviewQuestionRepository questions,
             SessionEnder ender,
             InterviewRoom rooms,
+            GroupTurnFlow flow,
+            GroupRoomUpdates roomUpdates,
+            GroupDraftStore drafts,
             TransactionTemplate transactions,
             @Value("${group.cleanup.video-limit:60m}") Duration videoLimit,
             @Value("${group.cleanup.chat-limit:100m}") Duration chatLimit,
@@ -58,8 +70,12 @@ public class GroupEndService {
         this.groups = groups;
         this.participants = participants;
         this.sessions = sessions;
+        this.questions = questions;
         this.ender = ender;
         this.rooms = rooms;
+        this.flow = flow;
+        this.roomUpdates = roomUpdates;
+        this.drafts = drafts;
         this.transactions = transactions;
         this.videoLimit = videoLimit;
         this.chatLimit = chatLimit;
@@ -67,8 +83,8 @@ public class GroupEndService {
     }
 
     /**
-     * 5.8. 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10). 이미 끝났거나 진행 중이 아니면 409 INVALID_SESSION_STATE. 면접의 소유는
-     * 부르는 쪽(InterviewSessionService)이 확인한다.
+     * 5.8. 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10). 질문을 모두 마친 뒤면 ALL_ANSWERED, 아니면 USER_ENDED로 남긴다. 이미
+     * 끝났거나 진행 중이 아니면 409 INVALID_SESSION_STATE. 면접의 소유는 부르는 쪽(InterviewSessionService)이 확인한다.
      */
     public SessionResponse endByUser(
             long userId, long groupId, long sessionId, BigDecimal gazeRatio) {
@@ -88,9 +104,26 @@ public class GroupEndService {
                                                             new ApiException(
                                                                     ErrorCode
                                                                             .INVALID_SESSION_STATE));
+                            List<InterviewGroupParticipant> active =
+                                    participants.findActiveByGroupId(groupId);
+                            boolean done =
+                                    active.stream()
+                                            .anyMatch(
+                                                    p ->
+                                                            p.getSession().getId() == sessionId
+                                                                    && p.isDone());
                             SessionResponse response =
-                                    ender.end(session, now, gazeRatio, EndReason.USER_ENDED, false);
-                            return new Ended(response, endGroupIfLast(group, locked, now));
+                                    ender.end(
+                                            session,
+                                            now,
+                                            gazeRatio,
+                                            done ? EndReason.ALL_ANSWERED : EndReason.USER_ENDED,
+                                            false);
+                            boolean groupEnded = endGroupIfLast(group, locked, now);
+                            if (!groupEnded && group.getStatus() == GroupStatus.IN_PROGRESS) {
+                                continueWithout(group, active, sessionId, now);
+                            }
+                            return new Ended(response, groupEnded);
                         });
         // 커밋 뒤 정리한다. 실패해도 던지지 않는다(방은 빈 방 시간이 지나면 닫힌다)
         if (ended.groupEnded()) {
@@ -124,6 +157,26 @@ public class GroupEndService {
             }
         }
         return cleaned;
+    }
+
+    // 남은 사람은 계속한다. 끝낸 사람이 지금 답변자면 답하던 질문은 그대로 두고 다음 차례로 넘긴다(6.10 3). 판단을 기다리던 꼬리질문도 버린다
+    private void continueWithout(
+            InterviewGroup group,
+            List<InterviewGroupParticipant> active,
+            long sessionId,
+            OffsetDateTime now) {
+        if (Long.valueOf(sessionId).equals(group.getTurnSessionId())) {
+            Integer seq = group.getTurnSeq();
+            flow.advance(group, active, false, now);
+            if (seq != null) {
+                questions
+                        .findBySessionIdAndSeq(sessionId, seq)
+                        .ifPresent(q -> drafts.delete(sessionId, q.getId()));
+            }
+        } else {
+            group.touch(now);
+        }
+        roomUpdates.publishAfterCommit(group, active, now);
     }
 
     // 잠근 뒤 DB 값으로 다시 확인한다. 그 사이 진행됐거나 끝났으면 두지 않는다

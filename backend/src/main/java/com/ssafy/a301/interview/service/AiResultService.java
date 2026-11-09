@@ -56,9 +56,6 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiResultService {
     private static final Logger LOG = LoggerFactory.getLogger(AiResultService.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    // 답변 글 길이(UTF-16)와 토큰 수 상한(AI 명세 6.2)
-    private static final int MAX_ANSWER_LENGTH = 10_000;
-    private static final int MAX_TOKEN_COUNT = 10_000;
     // 총평·기준 코멘트(VARCHAR(255), 글자 수)
     private static final int MAX_COMMENT_LENGTH = 255;
     // interview_sessions.headline 길이. AI가 30자를 넘기면 자르지만(AI 명세 4장) 저장이 실패하지 않게 BE도 자른다
@@ -219,8 +216,10 @@ public class AiResultService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
-                    // 시작 시각보다 이른 질문은 시작 실패(AI 명세 6.5) 뒤 다시 시작하기 전 시도의 것이다(AI 명세 1.4)
+                    // 시작 시각보다 이른 질문은 시작 실패(AI 명세 6.5) 뒤 다시 시작하기 전 시도의 것이다(AI 명세 1.4).
+                    // 그룹 면접의 질문은 그룹 결과 큐(ai:results:group)로만 받는다(그룹 행부터 잠그고 차례를 확인해야 한다)
                     if (session == null
+                            || session.isGroup()
                             || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()
                             || startedAt.isBefore(session.getStartedAt())) {
                         return Outcome.DISCARDED;
@@ -234,8 +233,8 @@ public class AiResultService {
                                     message.promptVersion(),
                                     message.modelVersion(),
                                     startedAt));
-                    // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다. 그룹 면접은 다루지 않는다
-                    if (seq == FIRST_SEQ && session.isVideo() && session.getGroupId() == null) {
+                    // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다
+                    if (seq == FIRST_SEQ && session.isVideo()) {
                         events.publishEvent(new FirstQuestionStarted(sessionId));
                     }
                     return Outcome.SAVED;
@@ -245,26 +244,17 @@ public class AiResultService {
     // 화상 답변. 질문 하나에 답변 하나이며(5.7과 같은 규칙), 저장하면 채점 작업을 넣는다
     private Outcome answerCompleted(long sessionId, AiResultMessage message) {
         int seq = requiredSeq(message);
-        String content = required(message.content(), "content");
-        if (content.isBlank() || content.length() > MAX_ANSWER_LENGTH) {
-            throw new InvalidAiResultException(
-                    "답변 글은 1~10,000자다: session=" + sessionId + " seq=" + seq);
-        }
+        String content = message.content();
         List<AnswerToken> tokens = message.tokens();
-        if (tokens != null
-                && (tokens.size() > MAX_TOKEN_COUNT
-                        || tokens.stream()
-                                .anyMatch(t -> t.startMs() < 0 || t.startMs() > t.endMs()))) {
-            throw new InvalidAiResultException(
-                    "토큰은 10,000개 이하, 0 ≤ startMs ≤ endMs다: session=" + sessionId + " seq=" + seq);
-        }
+        VoiceAnswerChecks.requireValid(content, tokens, sessionId, seq);
         OffsetDateTime answerStartedAt = required(message.answerStartedAt(), "answerStartedAt");
-        AnswerSpeech speech = validTimeline(message.speech(), sessionId, seq);
-        List<SttGap> sttGaps = validSttGaps(message.sttGaps(), sessionId, seq);
+        AnswerSpeech speech = VoiceAnswerChecks.validTimeline(message.speech(), sessionId, seq);
+        List<SttGap> sttGaps = VoiceAnswerChecks.validSttGaps(message.sttGaps(), sessionId, seq);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
-                    if (session == null || !session.isVideo()) {
+                    // 그룹 면접의 답변은 그룹 결과 큐(ai:results:group)로만 받는다
+                    if (session == null || !session.isVideo() || session.isGroup()) {
                         return Outcome.DISCARDED;
                     }
                     InterviewQuestion question =
@@ -598,41 +588,6 @@ public class AiResultService {
             throw new InvalidAiResultException("seq는 1~5다: " + seq);
         }
         return seq;
-    }
-
-    // 다시보기 타임라인용 값(AI 명세 3장 trailingOffAtMs·6.6 impressions)이 범위를 벗어나면 그 값만 버리고 답변은 저장한다.
-    // 저장만 하고 채점·결과에 쓰지 않는 값이라 답변을 실패 목록으로 보낼 이유가 없다
-    private static AnswerSpeech validTimeline(AnswerSpeech speech, long sessionId, int seq) {
-        if (speech == null) {
-            return null;
-        }
-        AnswerSpeech valid = speech.withValidTimeline();
-        if (valid != speech) {
-            LOG.warn("answer.completed 타임라인 값이 범위를 벗어나 버린다: session={} seq={}", sessionId, seq);
-        }
-        return valid;
-    }
-
-    // 끊긴 구간이 0 ≤ startMs ≤ endMs · 시각 순이 아니면 구간만 버린다. 답변은 저장하고 채점은 끊긴 구간 없이 한다(AI 명세 6.2)
-    private static List<SttGap> validSttGaps(List<SttGap> gaps, long sessionId, int seq) {
-        if (gaps == null) {
-            return null;
-        }
-        boolean valid =
-                gaps.size() <= MAX_TOKEN_COUNT
-                        && gaps.stream()
-                                .allMatch(
-                                        g ->
-                                                g != null
-                                                        && g.startMs() >= 0
-                                                        && g.startMs() <= g.endMs())
-                        && IntStream.range(1, gaps.size())
-                                .allMatch(i -> gaps.get(i - 1).startMs() <= gaps.get(i).startMs());
-        if (!valid) {
-            LOG.warn("answer.completed sttGaps 형식이 맞지 않아 버린다: session={} seq={}", sessionId, seq);
-            return null;
-        }
-        return gaps.isEmpty() ? null : gaps;
     }
 
     private static AiResultMessage parse(String raw) {

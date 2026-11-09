@@ -274,6 +274,7 @@ com.ssafy.a301
 6. 실패 처리 **[결정]**: DB·Redis 연결 장애, 시간 초과, 잠금 대기처럼 잠시 뒤 될 수 있는 실패만 처리 중 리스트에 두고 5초(`ai-result.retry-delay`)마다 같은 메시지를 다시 처리한다(순서 유지, 장애 동안 메시지를 잃지 않도록 횟수 제한 없음). 그 밖의 실패(JSON이 아님, 모르는 `type`, 필수 필드 없음, 질문 수 틀림, 질문 글·채점 기준 빈 값, DB 제약 위반, 예상하지 못한 오류)는 다시 해도 같으므로 `ai:results:failed`로 옮기고 경고 로그를 남긴다. 처리기가 하나라 한 메시지가 뒤의 모든 결과를 막지 않게 하기 위해서다
 7. 처리기는 BE 하나에 스레드 하나로 순서대로 처리한다. 기동하면 처리 중 리스트에 남은 메시지(지난번에 처리 도중 멈춘 것)부터 처리한다
 8. 받는 결과: `plan.*`·`question.started`·`answer.completed`·`answer.scored`·`evaluation.*`·`recording.*`·`assignment.rejected`
+9. 그룹 면접 에이전트 결과(`question.*` · `answer.completed` · `followup.decided`)는 `ai:results:group`으로 와서 `GroupResultConsumer`가 같은 규칙(처리 중 리스트 `ai:results:group:processing`, 실패 목록 `ai:results:failed`)으로 따로 처리한다. 그룹 행부터 잠그고 지금 차례인지 확인해야 하므로 `ai:results`로 온 그룹 면접의 `question.started` · `answer.completed`는 버린다(그룹 면접 설계 6.5)
 9. `evaluation.completed`(AI 명세 4장): 면접 행을 잠그고 `ANALYZING`·마지막 `jobId`일 때만 한 트랜잭션에서 답변 점수·피드백·`evaluation`(확정본으로 덮어씀)을 쓰고, `session_scores`·`speech_metrics`를 지우고 다시 쓴 뒤 `COMPLETED`·`headline`·`summary`로 바꾼다. `headline`은 30자를 넘으면 자르고, 없으면(이전 AI) 비워 둔다. 커밋 뒤 `analysisStep`을 지운다
    - 실패 목록으로 옮기는 경우: 이 면접의 답변마다 결과가 하나씩이 아님, 기준 4개가 하나씩이 아님, 점수 0~100 밖, 총평·코멘트 255자 초과, 말하기 지표 ±999.99 밖(소수 둘째 자리로 반올림해 저장)
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다

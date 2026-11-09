@@ -136,6 +136,13 @@ public final class InterviewDtos {
                     @Size(max = 1_000, message = "채팅 답변은 1~1,000자입니다.")
                     String content) {}
 
+    /** 10.9 그룹 채팅 면접의 작성 중인 글. 최종 답변이 아니다 */
+    public record DraftRequest(
+            @Schema(description = "입력 칸의 글 전체(0~1,000자). 지웠으면 빈 글")
+                    @NotNull(message = "필수 값입니다.")
+                    @Size(max = 1_000, message = "0~1,000자입니다.")
+                    String content) {}
+
     public record SessionEndRequest(
             @Schema(
                             description =

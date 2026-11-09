@@ -66,6 +66,10 @@ public class Answer {
     @Column(name = "started_at")
     private OffsetDateTime startedAt;
 
+    // 답변을 끝낸 시각. 그룹 면접만 남긴다(본인 답변 구간 계산, docs/그룹면접-설계.md 6.12). 개인 면접은 null
+    @Column(name = "ended_at")
+    private OffsetDateTime endedAt;
+
     // 답변 채점 결과(AI 명세 3장 evaluation). 채점 전에는 null
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb")
@@ -112,6 +116,11 @@ public class Answer {
         answer.sttGaps = sttGaps;
         answer.startedAt = startedAt;
         return answer;
+    }
+
+    /** 그룹 면접에서 답변을 끝낸 시각을 남긴다 */
+    public void recordEndedAt(OffsetDateTime endedAt) {
+        this.endedAt = endedAt;
     }
 
     /** 채점 결과가 아직 없을 때만 남긴다. 같은 결과가 두 번 오면 처음 것을 둔다. 남겼으면 true */

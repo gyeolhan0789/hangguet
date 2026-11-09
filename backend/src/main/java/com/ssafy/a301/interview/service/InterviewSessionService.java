@@ -6,6 +6,7 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.group.service.GroupEndService;
+import com.ssafy.a301.group.service.GroupTurnService;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewPlan;
@@ -61,6 +62,7 @@ public class InterviewSessionService {
     private final InterviewCapacity capacity;
     private final SessionEnder ender;
     private final GroupEndService groupEnds;
+    private final GroupTurnService groupTurns;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -76,7 +78,8 @@ public class InterviewSessionService {
             CompanyCardFinder companyCards,
             InterviewCapacity capacity,
             SessionEnder ender,
-            GroupEndService groupEnds) {
+            GroupEndService groupEnds,
+            GroupTurnService groupTurns) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -91,6 +94,7 @@ public class InterviewSessionService {
         this.capacity = capacity;
         this.ender = ender;
         this.groupEnds = groupEnds;
+        this.groupTurns = groupTurns;
     }
 
     /**
@@ -280,7 +284,7 @@ public class InterviewSessionService {
 
     /**
      * 5.5. 답하지 않은 마지막 질문을 준다. 다음 질문을 만드는 중이면 비어 있다(202). 5개에 모두 답했으면 더 낼 질문이 없으므로 409이며, 화면은
-     * 끝내기(5.8)를 부른다.
+     * 끝내기(5.8)를 부른다. 그룹 면접은 답하지 않았고 마감되지 않은 마지막 질문이고, 내 질문을 모두 마쳤으면 409다(API 명세 10.10).
      */
     public Optional<QuestionResponse> currentQuestion(long userId, long sessionId) {
         InterviewSession session =
@@ -288,6 +292,9 @@ public class InterviewSessionService {
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.getStatus() != SessionStatus.IN_PROGRESS) {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        if (session.isGroup()) {
+            return groupTurns.currentQuestion(sessionId).map(InterviewMapper::toQuestionResponse);
         }
         Optional<InterviewQuestion> last = questions.findFirstBySessionIdOrderBySeqDesc(sessionId);
         if (last.isPresent() && !answers.existsByQuestionId(last.get().getId())) {

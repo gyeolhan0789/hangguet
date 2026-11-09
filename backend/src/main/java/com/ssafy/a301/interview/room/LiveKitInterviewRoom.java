@@ -1,5 +1,6 @@
 package com.ssafy.a301.interview.room;
 
+import com.google.protobuf.ByteString;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.time.KoreaTime;
@@ -19,6 +20,7 @@ import io.livekit.server.RoomName;
 import io.livekit.server.RoomService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -33,6 +35,7 @@ import livekit.LivekitEgress.DirectFileOutput;
 import livekit.LivekitEgress.EgressInfo;
 import livekit.LivekitEgress.EgressStatus;
 import livekit.LivekitEgress.S3Upload;
+import livekit.LivekitModels.DataPacket;
 import livekit.LivekitModels.ParticipantInfo;
 import livekit.LivekitModels.TrackInfo;
 import livekit.LivekitModels.TrackType;
@@ -41,6 +44,8 @@ import livekit.LivekitRoom.DeleteRoomRequest;
 import livekit.LivekitRoom.ListParticipantsRequest;
 import livekit.LivekitRoom.RoomEgress;
 import livekit.LivekitRoom.RoomParticipantIdentity;
+import livekit.LivekitRoom.SendDataRequest;
+import livekit.LivekitRoom.UpdateRoomMetadataRequest;
 import okhttp3.OkHttpClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +70,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     static final String CANDIDATE = "candidate";
     // 에이전트가 면접방에 들어올 때 쓰는 참가자 이름(AI 명세 6.1)
     static final String INTERVIEWER = "interviewer";
+    // 채팅 최종 답변을 에이전트에게 보내는 메시지 주제(AI 명세 6.7)
+    static final String GROUP_ANSWER_TOPIC = "group.answer";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
     private static final int EMPTY_TIMEOUT_SECONDS = 600;
     // 개인 화상 면접방에서 녹화해야 하는 트랙(AI 명세 7장 원본 트랙 파일): 지원자 영상 · 음성, 면접관 음성
@@ -291,6 +298,49 @@ public class LiveKitInterviewRoom implements InterviewRoom {
             }
         } catch (IOException | RuntimeException ex) {
             LOG.warn("참가자를 내보내지 못했다: room={} identity={}", room, identity, ex);
+        }
+    }
+
+    @Override
+    public void updateGroupInfo(long groupId, String metadata) {
+        if (!isConfigured()) {
+            return;
+        }
+        String room = groupRoomName(groupId);
+        try {
+            execute(
+                    rooms().updateRoomMetadata(
+                                    UpdateRoomMetadataRequest.newBuilder()
+                                            .setRoom(room)
+                                            .setMetadata(metadata)
+                                            .build(),
+                                    roomAdminAuth(room)));
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("면접방 정보를 바꾸지 못했다: room={}", room, ex);
+        }
+    }
+
+    @Override
+    public void sendGroupAnswer(long groupId, String payload) {
+        if (!isConfigured()) {
+            return;
+        }
+        String room = groupRoomName(groupId);
+        try {
+            execute(
+                    rooms().sendData(
+                                    SendDataRequest.newBuilder()
+                                            .setRoom(room)
+                                            .setData(
+                                                    ByteString.copyFrom(
+                                                            payload, StandardCharsets.UTF_8))
+                                            .setKind(DataPacket.Kind.RELIABLE)
+                                            .addDestinationIdentities(INTERVIEWER)
+                                            .setTopic(GROUP_ANSWER_TOPIC)
+                                            .build(),
+                                    roomAdminAuth(room)));
+        } catch (IOException | RuntimeException ex) {
+            LOG.warn("채팅 답변을 에이전트에게 보내지 못했다: room={}", room, ex);
         }
     }
 

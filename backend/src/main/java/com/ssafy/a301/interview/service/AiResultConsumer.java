@@ -4,9 +4,11 @@ import com.ssafy.a301.interview.repository.AiResultQueue;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 import java.time.Duration;
+import java.util.function.Consumer;
 import org.hibernate.exception.JDBCConnectionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -35,21 +37,36 @@ public class AiResultConsumer implements SmartLifecycle {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final AiResultQueue queue;
-    private final AiResultService results;
+    private final Consumer<String> handler;
     private final boolean enabled;
     private final Duration retryDelay;
+    private final String threadName;
     private volatile boolean running;
     private Thread worker;
 
+    @Autowired
     public AiResultConsumer(
             AiResultQueue queue,
             AiResultService results,
             @Value("${ai-result.consumer-enabled:true}") boolean enabled,
             @Value("${ai-result.retry-delay:5s}") Duration retryDelay) {
+        this(queue, results::handle, enabled, retryDelay, "ai-result-consumer");
+    }
+
+    /**
+     * 같은 방식으로 다른 결과 큐를 처리한다(그룹 면접 결과 큐). handler는 다시 처리해도 안 되는 메시지에 InvalidAiResultException 등을 던진다
+     */
+    protected AiResultConsumer(
+            AiResultQueue queue,
+            Consumer<String> handler,
+            boolean enabled,
+            Duration retryDelay,
+            String threadName) {
         this.queue = queue;
-        this.results = results;
+        this.handler = handler;
         this.enabled = enabled;
         this.retryDelay = retryDelay;
+        this.threadName = threadName;
     }
 
     @Override
@@ -58,7 +75,7 @@ public class AiResultConsumer implements SmartLifecycle {
             return;
         }
         running = true;
-        worker = new Thread(this::run, "ai-result-consumer");
+        worker = new Thread(this::run, threadName);
         worker.setDaemon(true);
         worker.start();
     }
@@ -116,7 +133,7 @@ public class AiResultConsumer implements SmartLifecycle {
     // 저장했거나 버렸으면 지우고, 다시 해도 안 되면 실패 목록으로 옮긴다. 잠시 뒤 될 수 있는 실패는 그대로 던진다
     private void finish(String message) {
         try {
-            results.handle(message);
+            handler.accept(message);
             queue.done(message);
         } catch (RuntimeException ex) {
             if (isTemporary(ex)) {

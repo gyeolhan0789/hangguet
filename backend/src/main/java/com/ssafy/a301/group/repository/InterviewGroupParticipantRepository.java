@@ -26,6 +26,9 @@ public interface InterviewGroupParticipantRepository
                     + " p.leftAt is null and p.user.deletedAt is null")
     List<Long> findActiveSessionIds(@Param("groupId") long groupId);
 
+    /** 그 면접의 참가자가 질문을 모두 마쳤는지(5.5) */
+    boolean existsBySessionIdAndDoneAtIsNotNull(Long sessionId);
+
     @Query(
             "select count(p) from InterviewGroupParticipant p where p.group.id = :groupId and"
                     + " p.leftAt is null and p.user.deletedAt is null")

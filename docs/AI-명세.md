@@ -600,7 +600,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `interview.chatInput` | 리액션용으로 그대로 쓴다. 보낸 사람이 지금 답변자가 아니면 `false`. 지금은 배정 정보의 세션 하나로 `sessionId` · `questionSeq`를 검사하므로, 보낸 사람(참가자 이름)의 세션으로 검사하도록 바꾼다 **[미정]**(FE와 함께) |
 | `group.answer` (새) | BE → 에이전트, LiveKit `SendData`(주제 `group.answer`, 대상 `interviewer`). 채팅 최종 답변이 저장되면 `sessionId` · `seq` · `content` · `turnVersion`. BE가 전달에 실패하면 7초 안에서 다시 보낸다 |
 
-**결과 메시지** `ai:results:group`으로 보낸다(1.4). 모든 메시지에 받은 방 정보의 `turnVersion`을 담는다. BE는 지금 차례와 버전이 다르면 늦은 메시지로 보고 버린다. 전송 실패 재시도는 6.5와 같다.
+**결과 메시지** `ai:results:group`으로 보낸다(1.4). 모든 메시지에 받은 방 정보의 `turnVersion`을 담는다. BE는 지금 차례(같은 `sessionId` · `seq`)를 정한 뒤의 버전이 아니거나 단계가 맞지 않으면 늦은 메시지로 보고 버린다(차례 안에서도 단계마다 버전이 오르므로 마지막으로 받은 버전을 그대로 담으면 된다). 전송 실패 재시도는 6.5와 같다.
 
 | `type` | 6.2 · 1.4와 다른 점 |
 |---|---|

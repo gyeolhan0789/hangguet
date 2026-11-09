@@ -1,5 +1,6 @@
 package com.ssafy.a301.group.mapper;
 
+import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
@@ -52,8 +53,8 @@ public final class GroupMapper {
     }
 
     /**
-     * 면접방 정보(API 명세 10.11). 시작한 그룹만 부른다. 참가자는 답변 순서대로 담는다. 이탈(ABSENT · absentUntil) · 질문을 모두
-     * 마침(DONE) · 끝난 이유는 진행 처리를 구현할 때 채운다.
+     * 면접방 정보(API 명세 10.11). 시작한 그룹만 부른다. 참가자는 답변 순서대로 담는다. 남은 질문이 없으면 turn은 null이다. 이탈(ABSENT ·
+     * absentUntil)은 이탈 감지를 구현할 때 채운다.
      */
     public static RoomInfo toRoomInfo(
             InterviewGroup group,
@@ -69,20 +70,27 @@ public final class GroupMapper {
                         .filter(p -> p.getSession().getId().equals(group.getTurnSessionId()))
                         .findFirst();
         boolean followup = group.getTurnKind() == TurnKind.FOLLOWUP;
+        // 꼬리질문 판단(DECIDING)은 지금 질문을 끝낸 뒤라 끝낸 기본 질문 수에 이미 들어 있다
+        int answering = group.getPhase() == GroupPhase.DECIDING ? 0 : 1;
         TurnInfo turn =
-                new TurnInfo(
-                        group.getTurnSessionId(),
-                        group.getTurnSeq(),
-                        group.getTurnKind(),
-                        followup ? null : current.map(p -> p.getBaseDone() + 1).orElse(null),
-                        group.getTurnAnnounce(),
-                        group.getDeadlineAt(),
-                        group.isExtended(),
-                        current.map(
-                                        p ->
-                                                InterviewGroupParticipant.MAX_FOLLOWUPS
-                                                        - p.getFollowupsUsed())
-                                .orElse(0));
+                group.getTurnSessionId() == null
+                        ? null
+                        : new TurnInfo(
+                                group.getTurnSessionId(),
+                                group.getTurnSeq(),
+                                group.getTurnKind(),
+                                followup
+                                        ? null
+                                        : current.map(p -> p.getBaseDone() + answering)
+                                                .orElse(null),
+                                group.getTurnAnnounce(),
+                                group.getDeadlineAt(),
+                                group.isExtended(),
+                                current.map(
+                                                p ->
+                                                        InterviewGroupParticipant.MAX_FOLLOWUPS
+                                                                - p.getFollowupsUsed())
+                                        .orElse(0));
         int currentOrder = current.map(InterviewGroupParticipant::getTurnOrder).orElse(0);
         return new RoomInfo(
                 group.getTurnVersion(),
@@ -99,13 +107,17 @@ public final class GroupMapper {
                                                 p.getTurnOrder(),
                                                 state(group.getStatus(), p),
                                                 null,
-                                                null))
+                                                Optional.ofNullable(p.getSession().getEndReason())
+                                                        .map(Enum::name)
+                                                        .orElse(null)))
                         .toList(),
-                ordered.stream()
-                        .filter(p -> p.getTurnOrder() > currentOrder)
-                        .filter(p -> p.getSession().getStatus() == SessionStatus.IN_PROGRESS)
-                        .map(p -> p.getSession().getId())
-                        .toList());
+                turn == null
+                        ? List.of()
+                        : ordered.stream()
+                                .filter(p -> p.getTurnOrder() > currentOrder)
+                                .filter(InterviewGroupParticipant::isAnswering)
+                                .map(p -> p.getSession().getId())
+                                .toList());
     }
 
     public static ParticipantResponse toParticipantResponse(
@@ -136,14 +148,15 @@ public final class GroupMapper {
                 (int) participantCount);
     }
 
-    // 시작 전이면 WAITING, 진행 중이면 면접이 진행 중인지로 정한다. 이탈(ABSENT) · 질문을 모두 마침(DONE)은 진행을 구현할 때 더한다
+    // 시작 전이면 WAITING, 진행 중이면 면접이 진행 중인지 · 질문을 모두 마쳤는지로 정한다. 이탈(ABSENT)은 이탈 감지를 구현할 때 더한다
     private static ParticipantState state(
             GroupStatus status, InterviewGroupParticipant participant) {
         if (status != GroupStatus.IN_PROGRESS && status != GroupStatus.ENDED) {
             return ParticipantState.WAITING;
         }
-        return participant.getSession().getStatus() == SessionStatus.IN_PROGRESS
-                ? ParticipantState.PRESENT
-                : ParticipantState.ENDED;
+        if (participant.getSession().getStatus() != SessionStatus.IN_PROGRESS) {
+            return ParticipantState.ENDED;
+        }
+        return participant.isDone() ? ParticipantState.DONE : ParticipantState.PRESENT;
     }
 }
