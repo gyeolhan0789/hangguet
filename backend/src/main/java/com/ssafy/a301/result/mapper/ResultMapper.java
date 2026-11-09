@@ -1,6 +1,7 @@
 package com.ssafy.a301.result.mapper;
 
 import com.ssafy.a301.interview.domain.Answer;
+import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
@@ -68,7 +69,8 @@ public final class ResultMapper {
                 session.getEndedAt(),
                 sessionScores,
                 answers,
-                session.isVideo() ? toSpeechMetrics(metric) : null);
+                session.isVideo() ? toSpeechMetrics(metric) : null,
+                session.getEndReason() == EndReason.AI_FAILURE);
     }
 
     // 6.4. 낸 질문은 답변이 없어도 넣는다(대화 기록·마커). 녹화 상태·주소·영상 0초 시각은 채팅이면 null이다.

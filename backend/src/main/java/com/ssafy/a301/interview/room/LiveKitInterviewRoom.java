@@ -302,9 +302,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     }
 
     @Override
-    public void updateGroupInfo(long groupId, String metadata) {
+    public boolean updateGroupInfo(long groupId, String metadata) {
+        // 설정이 없으면(로컬) 보낼 곳이 없으므로 다시 보내지 않게 보낸 것으로 본다
         if (!isConfigured()) {
-            return;
+            return true;
         }
         String room = groupRoomName(groupId);
         try {
@@ -315,15 +316,18 @@ public class LiveKitInterviewRoom implements InterviewRoom {
                                             .setMetadata(metadata)
                                             .build(),
                                     roomAdminAuth(room)));
+            return true;
         } catch (IOException | RuntimeException ex) {
             LOG.warn("면접방 정보를 바꾸지 못했다: room={}", room, ex);
+            return false;
         }
     }
 
     @Override
-    public void sendGroupAnswer(long groupId, String payload) {
+    public boolean sendGroupAnswer(long groupId, String payload) {
+        // 설정이 없으면(로컬) 보낼 곳이 없으므로 다시 보내지 않게 보낸 것으로 본다
         if (!isConfigured()) {
-            return;
+            return true;
         }
         String room = groupRoomName(groupId);
         try {
@@ -339,8 +343,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
                                             .setTopic(GROUP_ANSWER_TOPIC)
                                             .build(),
                                     roomAdminAuth(room)));
+            return true;
         } catch (IOException | RuntimeException ex) {
             LOG.warn("채팅 답변을 에이전트에게 보내지 못했다: room={}", room, ex);
+            return false;
         }
     }
 

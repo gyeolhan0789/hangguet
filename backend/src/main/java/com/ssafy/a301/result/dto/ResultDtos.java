@@ -72,7 +72,12 @@ public final class ResultDtos {
             @Schema(description = "평가 기준 4개") List<SessionScore> sessionScores,
             @Schema(description = "질문별 피드백, 질문 순") List<AnswerFeedback> answers,
             @Schema(description = "음성 지표. 채팅 면접이면 null", nullable = true)
-                    SpeechMetrics speechMetrics) {}
+                    SpeechMetrics speechMetrics,
+            @Schema(
+                            description =
+                                    "그룹 면접이 AI 면접관 장애로 중간에 끝나 일부 답변으로 만든 결과면 true. 그 밖에는 false",
+                            example = "false")
+                    boolean partial) {}
 
     public record ReplayItem(
             @Schema(description = "질문 id", example = "301") long questionId,

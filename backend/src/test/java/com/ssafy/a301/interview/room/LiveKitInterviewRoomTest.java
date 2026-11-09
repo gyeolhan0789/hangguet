@@ -372,8 +372,8 @@ class LiveKitInterviewRoomTest {
     void groupInfoAndAnswerGoToGroupRoomAndIgnoreFailures() throws Exception {
         String metadataPath = "/twirp/livekit.RoomService/UpdateRoomMetadata";
         String dataPath = "/twirp/livekit.RoomService/SendData";
-        room(apiUrl).updateGroupInfo(7L, "{\"turnVersion\":2}");
-        room(apiUrl).sendGroupAnswer(7L, "{\"seq\":1}");
+        assertThat(room(apiUrl).updateGroupInfo(7L, "{\"turnVersion\":2}")).isTrue();
+        assertThat(room(apiUrl).sendGroupAnswer(7L, "{\"seq\":1}")).isTrue();
 
         UpdateRoomMetadataRequest metadata =
                 UpdateRoomMetadataRequest.parseFrom(requests.get(metadataPath));
@@ -392,14 +392,14 @@ class LiveKitInterviewRoomTest {
         assertThat(grant.path("roomAdmin").asBoolean()).isTrue();
         assertThat(grant.path("room").asString()).isEqualTo("group-7");
 
-        // 서버 오류 · 연결 실패도 던지지 않는다(업무는 이미 커밋했다)
+        // 서버 오류 · 연결 실패도 던지지 않고 실패만 알린다(업무는 이미 커밋했고 마감 처리기가 다시 보낸다)
         statuses.put(metadataPath, 500);
         statuses.put(dataPath, 500);
-        room(apiUrl).updateGroupInfo(7L, "{}");
-        room(apiUrl).sendGroupAnswer(7L, "{}");
+        assertThat(room(apiUrl).updateGroupInfo(7L, "{}")).isFalse();
+        assertThat(room(apiUrl).sendGroupAnswer(7L, "{}")).isFalse();
         server.stop(0);
-        room(apiUrl).updateGroupInfo(7L, "{}");
-        room(apiUrl).sendGroupAnswer(7L, "{}");
+        assertThat(room(apiUrl).updateGroupInfo(7L, "{}")).isFalse();
+        assertThat(room(apiUrl).sendGroupAnswer(7L, "{}")).isFalse();
     }
 
     @Test

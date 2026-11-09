@@ -104,6 +104,14 @@ public class InterviewGroup {
     @Column(name = "turn_started_version", nullable = false)
     private int turnStartedVersion;
 
+    // LiveKit 면접방 정보에 마지막으로 반영한 turnVersion(6.5 재동기화). 커밋 뒤 보내기에 성공하면 저장소가 직접 바꾼다
+    @Column(name = "room_version", nullable = false, insertable = false, updatable = false)
+    private int roomVersion;
+
+    // 채팅 최종 답변(group.answer)을 에이전트에 전한 차례의 turnVersion(6.14). 저장소가 직접 바꾼다
+    @Column(name = "answer_sent_version", nullable = false, insertable = false, updatable = false)
+    private int answerSentVersion;
+
     // 현재 질문의 답변 마감. ANSWERING에서만 값이 있다
     @Column(name = "deadline_at")
     private OffsetDateTime deadlineAt;
@@ -282,6 +290,21 @@ public class InterviewGroup {
         this.progressedAt = now;
     }
 
+    /** ASKING 기한이 지났지만 에이전트가 면접방 정보를 놓쳤을 수 있어 한 번 더 기다린다(6.11). 버전은 그대로 두고 같은 정보를 다시 보낸다 */
+    public void waitAsking(OffsetDateTime dueAt) {
+        requirePhase(GroupPhase.ASKING);
+        this.phaseDueAt = dueAt;
+    }
+
+    /** 첫 질문 전에 AI를 연결하지 못했다(5.1). 방장이 다시 시작(10.7)할 수 있다. 답변 순서 · 공통 질문은 그대로 둔다 */
+    public void failStart() {
+        requireInProgress();
+        this.status = GroupStatus.START_FAILED;
+        this.phase = null;
+        this.deadlineAt = null;
+        this.phaseDueAt = null;
+    }
+
     /** 차례는 그대로이고 참가자 상태만 바뀌었다(세션 종료 · 질문을 모두 마침). 면접방 정보를 다시 보내도록 버전만 올린다 */
     public void touch(OffsetDateTime now) {
         requireInProgress();
@@ -310,7 +333,7 @@ public class InterviewGroup {
         }
     }
 
-    /** 마지막 세션이 끝났다(docs/그룹면접-설계.md 6.10). 진행 단계 · 기한을 지워 더는 진행하지 않는다 */
+    /** 마지막 세션이 끝났다(docs/그룹면접-설계.md 6.10). 진행 단계 · 기한을 지워 더는 진행하지 않는다. 남은 사람에게 끝났다고 알리도록 버전을 올린다 */
     public void end(OffsetDateTime now) {
         if (status != GroupStatus.IN_PROGRESS) {
             throw new IllegalStateException("진행 중이 아닌 그룹은 끝내지 않는다: " + id);
@@ -320,6 +343,7 @@ public class InterviewGroup {
         this.phase = null;
         this.deadlineAt = null;
         this.phaseDueAt = null;
+        this.turnVersion++;
         this.progressedAt = now;
     }
 

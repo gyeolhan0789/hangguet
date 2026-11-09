@@ -129,6 +129,13 @@ public class InterviewQuestion {
         this.deadlineAt = deadlineAt;
     }
 
+    /** 답 없이 마감했다(docs/그룹면접-설계.md 6.6) */
+    public void close(OffsetDateTime now) {
+        if (closedAt == null) {
+            this.closedAt = now;
+        }
+    }
+
     public boolean isClosed() {
         return closedAt != null;
     }
