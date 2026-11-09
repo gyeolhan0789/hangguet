@@ -564,7 +564,7 @@ async def never_ends(*_args: object) -> None:
     await asyncio.Event().wait()
 
 
-def disconnect_interview(reason: rtc.DisconnectReason, results: Mock) -> None:
+def disconnect_interview(reason: rtc.DisconnectReason.ValueType, results: Mock) -> None:
     async def run() -> None:
         ctx = interview_context()
         task = asyncio.create_task(entrypoint(ctx))
@@ -598,7 +598,9 @@ def test_room_closed_by_livekit_reports_room_closed() -> None:
         rtc.DisconnectReason.SERVER_SHUTDOWN,
     ],
 )
-def test_other_disconnects_do_not_report_room_closed(reason: rtc.DisconnectReason) -> None:
+def test_other_disconnects_do_not_report_room_closed(
+    reason: rtc.DisconnectReason.ValueType,
+) -> None:
     results = Mock()
     disconnect_interview(reason, results)
     results.publish.assert_not_called()
