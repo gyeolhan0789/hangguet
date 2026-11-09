@@ -117,6 +117,17 @@ describe("useGazeTracker (S06 화상 면접 시선 측정)", () => {
     expect(useGazeStore.getState().frames).toEqual([null, SAMPLE]);
   });
 
+  it("같은 면접을 새로고침해 들어오면 그때까지 잰 값에 이어 쌓는다", async () => {
+    sessionStorage.setItem("a301-gaze", JSON.stringify({ sessionId: 55, frames: [SAMPLE] }));
+    renderHook(() => useGazeTracker(stream, undefined, 55));
+    expect(useGazeStore.getState().frames).toEqual([SAMPLE]);
+    await loaded();
+    await tick(1);
+
+    expect(useGazeStore.getState().frames).toEqual([SAMPLE, SAMPLE]);
+    sessionStorage.clear();
+  });
+
   it("영상이 멈춰 같은 프레임이거나 아직 준비되지 않았으면 재지 않는다", async () => {
     renderHook(() => useGazeTracker(stream));
     await loaded();
