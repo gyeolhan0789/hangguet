@@ -129,34 +129,55 @@ function WaveBar({ height, level }: { height: number; level: MotionValue<number>
 }
 
 /**
- * 마이크 입력이 10초 넘게 0이면 화면 아래에 토스트를 띄우고, 소리가 다시 들어오면 내린다.
- * [마이크 확인](장치 점검 미니 모달)은 Figma에 모달 화면이 없어 글자만 둔다.
+ * 답할 차례(answering)에 마이크 입력이 10초 넘게 0이면 화면 아래에 토스트를 띄우고, 소리가 다시 들어오면 내린다.
+ * 답할 차례가 아니면(면접관이 질문을 말하는 중 · 답변을 내는 중 · 다음 질문을 기다리는 중) 세지 않고 토스트도 내리며,
+ * 답할 차례가 되면 그때부터 10초를 새로 센다(사용자 결정 2026-11-09: 말할 일이 없는 동안 마이크 안내를 띄우지 않는다).
+ * [마이크 확인]을 누르면 장치 점검 미니 모달을 연다(onCheck, mic-check-modal.tsx).
  */
-export function MicToast({ level }: { level: MotionValue<number> }) {
+export function MicToast({
+  level,
+  answering,
+  onCheck,
+}: {
+  level: MotionValue<number>;
+  /** 사용자가 답할 차례다. 이때만 소리 없는 시간을 센다 */
+  answering: boolean;
+  /** [마이크 확인]: 장치 점검 미니 모달을 연다 */
+  onCheck: () => void;
+}) {
   const reduce = useReducedMotion();
   const [silent, setSilent] = useState(false);
-  // 소리 크기가 0이 된 때. 소리가 있으면 null
+  // 답할 차례가 바뀌면 떠 있던 토스트를 내린다(렌더 중 이전 값과 비교해 상태를 맞추는 React 권장 방식)
+  const [wasAnswering, setWasAnswering] = useState(answering);
+  if (answering !== wasAnswering) {
+    setWasAnswering(answering);
+    setSilent(false);
+  }
+  // 답할 차례에 소리 크기가 0이 된 때. 소리가 있거나 답할 차례가 아니면 null
   const since = useRef<number | null>(null);
+  const counting = useRef(answering);
 
   useMotionValueEvent(level, "change", (value) => {
     if (value > 0) {
       since.current = null;
       setSilent(false);
-    } else {
+    } else if (counting.current) {
       since.current ??= performance.now();
     }
   });
 
   // 소리 크기가 0에 머물면 change가 오지 않으므로, 1초마다 0이 이어진 시간을 확인한다.
   useEffect(() => {
-    if (level.get() === 0) since.current ??= performance.now();
+    counting.current = answering;
+    since.current = answering && level.get() === 0 ? performance.now() : null;
+    if (!answering) return;
     const timer = setInterval(() => {
       if (since.current !== null && performance.now() - since.current >= SILENT_TOAST_MS) {
         setSilent(true);
       }
     }, 1000);
     return () => clearInterval(timer);
-  }, [level]);
+  }, [level, answering]);
 
   return (
     <div
@@ -164,7 +185,7 @@ export function MicToast({ level }: { level: MotionValue<number> }) {
       className="pointer-events-none fixed inset-x-0 bottom-11 z-30 flex justify-center px-4"
     >
       <AnimatePresence>
-        {silent && (
+        {silent && answering && (
           <motion.div
             className="flex h-14 w-full max-w-[500px] items-center gap-2.5 rounded-2xl bg-[#191f28] px-[18px]"
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40 }}
@@ -177,9 +198,13 @@ export function MicToast({ level }: { level: MotionValue<number> }) {
               마이크 소리가 들리지 않아요
             </span>
             <span className="flex-1" />
-            <span className="text-sm leading-normal font-bold whitespace-nowrap text-brand">
+            <button
+              type="button"
+              onClick={onCheck}
+              className="pointer-events-auto shrink-0 cursor-pointer text-sm leading-normal font-bold whitespace-nowrap text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            >
               마이크 확인
-            </span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>

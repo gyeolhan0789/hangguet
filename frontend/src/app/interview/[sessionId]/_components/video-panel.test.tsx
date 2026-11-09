@@ -25,19 +25,19 @@ const TOAST = "마이크 소리가 들리지 않아요";
 describe("MicToast (S06-F 마이크 끊김)", () => {
   it("마이크 입력이 10초 넘게 0이면 토스트를 띄운다", () => {
     const level = motionValue(0);
-    render(<MicToast level={level} />);
+    render(<MicToast level={level} answering onCheck={() => {}} />);
 
     act(() => vi.advanceTimersByTime(SILENT_TOAST_MS - 1000));
     expect(screen.queryByText(TOAST)).toBeNull();
     act(() => vi.advanceTimersByTime(1000));
 
     expect(screen.getByText(TOAST)).toBeTruthy();
-    expect(screen.getByText("마이크 확인")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "마이크 확인" })).toBeTruthy();
   });
 
   it("소리가 들어오면 0이 이어진 시간을 처음부터 다시 세고, 떠 있던 토스트를 내린다", () => {
     const level = motionValue(0);
-    render(<MicToast level={level} />);
+    render(<MicToast level={level} answering onCheck={() => {}} />);
 
     act(() => vi.advanceTimersByTime(SILENT_TOAST_MS - 2000));
     act(() => level.set(0.4));
@@ -49,6 +49,43 @@ describe("MicToast (S06-F 마이크 끊김)", () => {
     expect(screen.getByText(TOAST)).toBeTruthy();
     act(() => level.set(0.3));
     expect(screen.queryByText(TOAST)).toBeNull();
+  });
+
+  it("[마이크 확인]을 누르면 장치 점검 미니 모달을 연다(onCheck)", () => {
+    const onCheck = vi.fn();
+    render(<MicToast level={motionValue(0)} answering onCheck={onCheck} />);
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS));
+
+    fireEvent.click(screen.getByRole("button", { name: "마이크 확인" }));
+
+    expect(onCheck).toHaveBeenCalledOnce();
+  });
+
+  // 사용자 결정(2026-11-09: 면접관이 질문을 말하는 중 · 답변을 내는 중 · 다음 질문을 기다리는 중에는 세지 않는다)
+  it("답할 차례가 아니면 소리가 10초 넘게 0이어도 토스트를 띄우지 않는다", () => {
+    render(<MicToast level={motionValue(0)} answering={false} onCheck={() => {}} />);
+
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS * 3));
+
+    expect(screen.queryByText(TOAST)).toBeNull();
+  });
+
+  it("답할 차례가 끝나면 떠 있던 토스트를 내리고, 다시 답할 차례가 되면 그때부터 10초를 센다", () => {
+    const level = motionValue(0);
+    const { rerender } = render(<MicToast level={level} answering onCheck={() => {}} />);
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS));
+    expect(screen.getByText(TOAST)).toBeTruthy();
+
+    rerender(<MicToast level={level} answering={false} onCheck={() => {}} />);
+    expect(screen.queryByText(TOAST)).toBeNull();
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS));
+    expect(screen.queryByText(TOAST)).toBeNull();
+
+    rerender(<MicToast level={level} answering onCheck={() => {}} />);
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS - 1000));
+    expect(screen.queryByText(TOAST)).toBeNull();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText(TOAST)).toBeTruthy();
   });
 });
 

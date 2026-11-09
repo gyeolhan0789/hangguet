@@ -1,22 +1,14 @@
 "use client";
 
-import { motion, useMotionValueEvent, useTransform, type MotionValue } from "motion/react";
+import { motion, type MotionValue } from "motion/react";
 import Image from "next/image";
 import { useEffect, useRef } from "react";
+
+import { LevelMeter } from "@/components/level-meter";
 
 // 기준: Figma S05 Camera Preview(18:2381: 600×430 · #1b1f2a · 둥글기 24 · 가운데 user-round 180)
 // · Live Chip(18:2385: rec dot 8 · '카메라 연결됨' 13 Bold 흰색) · Mic Level(18:2388: 아래 20px · 높이 44 · 막대 24개 6px
 // · 켜진 막대 brand · 꺼진 막대 흰색 20%) · 모션 메모 S05(18:2492: 마이크 레벨은 실제 입력 볼륨에 맞춰 막대 높이 실시간)
-
-/** 막대 수(Figma Bars 24개) */
-export const LEVEL_BARS = 24;
-/** 켜진 막대 높이(Figma 켜진 막대 13개의 높이를 차례로 되풀이) */
-const LIT_HEIGHTS = [10, 16, 22, 14, 26, 30, 20, 12, 24, 18, 28, 16, 10];
-/** 꺼진 막대는 6px 점. 켜진 막대 바로 다음 하나는 8px(Figma 14번째 막대) */
-const OFF_HEIGHT = 6;
-const EDGE_HEIGHT = 8;
-/** 소리가 작을 때 켜진 막대가 줄어드는 정도. 높이 = 패턴 높이 × (최소 비율 + 나머지 × 소리 크기) */
-const MIN_HEIGHT_RATIO = 0.5;
 
 /** 카메라 미리보기. 카메라 · 마이크가 확인되면 영상 · 연결 표시 · 소리 크기 막대를 보여 준다. */
 export function CameraPreview({
@@ -84,55 +76,5 @@ export function CameraPreview({
         </div>
       )}
     </div>
-  );
-}
-
-/** 소리 크기 막대 묶음. 보조기기와 테스트가 읽을 수 있게 소리 크기(0~100)를 meter 값으로도 둔다. */
-function LevelMeter({ level }: { level: MotionValue<number> }) {
-  const meter = useRef<HTMLDivElement>(null);
-  // 매 프레임 바뀌므로 리렌더 없이 속성만 고친다. 값이 10 단위로 바뀔 때만 쓴다.
-  useMotionValueEvent(level, "change", (value) => {
-    const now = String(Math.round(value * 10) * 10);
-    if (meter.current && meter.current.getAttribute("aria-valuenow") !== now) {
-      meter.current.setAttribute("aria-valuenow", now);
-    }
-  });
-  return (
-    <div
-      ref={meter}
-      role="meter"
-      aria-label="마이크 소리 크기"
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-valuenow={0}
-      className="flex min-w-0 items-center gap-1 overflow-hidden"
-    >
-      {Array.from({ length: LEVEL_BARS }, (_, i) => (
-        <LevelBar key={i} index={i} level={level} />
-      ))}
-    </div>
-  );
-}
-
-/** 소리 크기 막대 하나. 소리가 클수록 왼쪽부터 더 많은 막대가 켜진다. */
-function LevelBar({ index, level }: { index: number; level: MotionValue<number> }) {
-  const lit = (value: number) => value * LEVEL_BARS > index;
-  // 켜진 막대는 소리 크기에 따라 높이도 함께 바뀐다(모션 메모: 실제 입력 볼륨에 맞춰 막대 높이 실시간).
-  const height = useTransform(level, (value) => {
-    if (lit(value)) {
-      const pattern = LIT_HEIGHTS[index % LIT_HEIGHTS.length];
-      return Math.max(OFF_HEIGHT, pattern * (MIN_HEIGHT_RATIO + (1 - MIN_HEIGHT_RATIO) * value));
-    }
-    return index > 0 && lit(value + 1 / LEVEL_BARS) ? EDGE_HEIGHT : OFF_HEIGHT;
-  });
-  const backgroundColor = useTransform(level, (value) =>
-    lit(value) ? "var(--color-brand)" : "rgba(255,255,255,0.2)",
-  );
-  return (
-    <motion.span
-      aria-hidden
-      className="w-1.5 shrink-0 rounded-full"
-      style={{ height, backgroundColor }}
-    />
   );
 }

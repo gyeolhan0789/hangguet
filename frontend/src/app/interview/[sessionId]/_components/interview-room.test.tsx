@@ -21,6 +21,7 @@ import {
   SESSION_POLL_MS,
 } from "./interview-room";
 import { PAUSE_AFTER_MS, RESTART_WAIT_SECONDS } from "./room-alerts";
+import { SILENT_TOAST_MS } from "./video-panel";
 import { SAVE_WAIT_MS } from "./use-save-confirmed";
 
 const FRONT: GazeSample = { headYaw: 0, headPitch: 0, eyeYaw: 0, eyePitch: 0, blinking: false };
@@ -57,8 +58,10 @@ vi.mock("@/components/interview/interviewer-stage", () => ({
 vi.mock("@/lib/interviewer/preload", () => ({ preloadInterviewer: () => {} }));
 // 시선 측정(MediaPipe)은 use-gaze-tracker.test.ts에서 본다. 여기서는 쌓인 값을 끝내기(5.8)로 보내는지만 본다
 vi.mock("@/components/interview/use-gaze-tracker", () => ({ useGazeTracker: () => {} }));
+// 마이크 소리 크기는 테스트가 바꾼다(기본은 소리가 있음). 실제 훅처럼 화면 동안 같은 값을 준다
+let mockMicLevel = motionValue(0.5);
 vi.mock("./use-interview-media", () => ({
-  useInterviewMedia: () => ({ stream: null, level: motionValue(0.5) }),
+  useInterviewMedia: () => ({ stream: null, level: mockMicLevel }),
 }));
 // 면접방(LiveKit) 입장도 경계다. 어떤 인자로 들어가는지, 테스트가 바꾸는 연결 상태 · 내 답변 자막에 따라 화면이 무엇을 하는지만 본다
 // (입장 · RPC 동작은 use-interview-room.test.ts).
@@ -74,6 +77,7 @@ const room = vi.hoisted(() => ({
   retry: () => {},
   submitAnswer: (async () => "accepted") as (seq: number) => Promise<string>,
   sendChatInput: vi.fn(),
+  pauseMicrophone: vi.fn(async () => {}),
   mounts: 0,
 }));
 vi.mock("@/components/interview/use-interview-room", async () => {
@@ -94,6 +98,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         retry: room.retry,
         submitAnswer: room.submitAnswer,
         sendChatInput: room.sendChatInput,
+        pauseMicrophone: room.pauseMicrophone,
       };
     },
   };
@@ -158,6 +163,7 @@ beforeEach(() => {
   room.submitAnswer = vi.fn(async () => "accepted");
   room.sendChatInput.mockReset();
   room.mounts = 0;
+  mockMicLevel = motionValue(0.5);
   submitTextAnswer.mockReset();
   endSession.mockReset().mockResolvedValue({});
   online = true;
@@ -174,6 +180,8 @@ afterEach(() => {
 const videoRoom = (question: CurrentQuestion | null = QUESTION, answeredCount = 2) => (
   <InterviewRoom session={{ ...SESSION, answeredCount }} currentQuestion={question} />
 );
+/** S06-F 마이크 끊김 토스트 */
+const MIC_TOAST = "마이크 소리가 들리지 않아요";
 const submitButton = () => screen.getByRole("button", { name: "답변 완료" }) as HTMLButtonElement;
 /** S06-A 제출 실패 토스트의 [다시 시도] */
 const retryButton = () => screen.getByRole("button", { name: "다시 시도" }) as HTMLButtonElement;
@@ -696,6 +704,55 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       expect(caption()).toContain("트래픽을 나눠 받았어요");
     },
   );
+
+  // 사용자 결정(2026-11-09: 면접관이 질문을 말하는 중 · 답변을 내는 중 · 다음 질문을 기다리는 중에는 마이크 안내를 띄우지 않고,
+  // 답할 차례가 되면 그때부터 10초를 센다)
+  it("화상: 질문 음성이 나오는 동안은 소리가 10초 넘게 없어도 마이크 안내를 띄우지 않고, 끝나면 그때부터 10초를 센다", () => {
+    mockMicLevel = motionValue(0);
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 3,
+      content: "질문 메시지",
+      speech: "started",
+      alignment: null,
+    };
+    const { rerender } = render(videoRoom());
+
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS * 2));
+    expect(screen.queryByText(MIC_TOAST)).toBeNull();
+
+    room.question = { ...room.question, speech: "ended" };
+    rerender(videoRoom());
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS - 1000));
+    expect(screen.queryByText(MIC_TOAST)).toBeNull();
+    act(() => vi.advanceTimersByTime(1000));
+    expect(screen.getByText(MIC_TOAST)).toBeTruthy();
+  });
+
+  it("화상: 마이크 안내의 [마이크 확인]을 누르면 마이크 확인 미니 모달이 열리고 [닫기]로 닫힌다", () => {
+    mockMicLevel = motionValue(0);
+    render(videoRoom());
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS));
+
+    fireEvent.click(screen.getByRole("button", { name: "마이크 확인" }));
+    expect(screen.getByRole("dialog", { name: "마이크 확인" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+    expect(screen.queryByRole("dialog", { name: "마이크 확인" })).toBeNull();
+  });
+
+  it("화상: 답변을 낸 뒤 다음 질문을 기다리는 동안은 소리가 10초 넘게 없어도 마이크 안내를 띄우지 않는다", async () => {
+    mockMicLevel = motionValue(0);
+    room.streamId = "capture-1";
+    room.confirmedText = "트래픽을 나눠 받았어요";
+    render(videoRoom());
+
+    await act(async () => fireEvent.click(submitButton()));
+    act(() => vi.advanceTimersByTime(SILENT_TOAST_MS * 2));
+
+    expect(screen.queryByText(MIC_TOAST)).toBeNull();
+  });
 
   it("화상: 질문 음성이 나오는 동안(started)은 [답변 완료]를 막는다", () => {
     room.streamId = "capture-1";
