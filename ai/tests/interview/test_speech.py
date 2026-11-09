@@ -76,6 +76,31 @@ def test_group_words_joins_subwords() -> None:
     ]
 
 
+def test_punctuation_token_does_not_extend_word_end() -> None:
+    """Soniox가 멈춘 뒤의 시각에 둔 문장 부호가 단어를 늘려 긴 멈춤을 가리지 않는다.
+
+    stt-rt-v6 실제 응답의 시각 배치(멈춤 2.3초 뒤에 "."가 온다)를 줄인 것이다.
+    """
+    tokens = [
+        tok("문", 1_620, 1_680),
+        tok("제", 1_740, 1_800),
+        tok("는", 1_980, 2_040),
+        tok(".", 4_380, 4_440),
+        tok(" 동", 4_860, 4_920),
+        tok("시에", 5_040, 5_100),
+    ]
+    assert words_of(tokens) == [("문제는.", 1_620, 2_040), ("동시에", 4_860, 5_100)]
+    metrics = speech_metrics(tokens)
+    assert metrics is not None
+    assert metrics["longPauseCount"] == 1
+    assert metrics["speakingMs"] == 5_100 - 1_620 - (4_860 - 2_040)
+
+
+def test_word_of_only_punctuation_keeps_its_time() -> None:
+    """앞에 글자가 없는 문장 부호 토큰은 그 토큰의 시각을 그대로 쓴다."""
+    assert words_of([tok(" ...", 100, 200)]) == [("...", 100, 200)]
+
+
 @pytest.mark.parametrize("word", ["음", "음.", "어,", "어...", "음음", "어어", "흠"])
 def test_hesitation_is_always_filler(word: str) -> None:
     assert is_filler(word)
