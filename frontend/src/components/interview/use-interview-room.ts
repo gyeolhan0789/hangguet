@@ -1,6 +1,6 @@
 "use client";
 
-import { Room, RoomEvent, RpcError, Track } from "livekit-client";
+import { Room, RoomEvent, RpcError, Track, TrackEvent, type LocalTrack } from "livekit-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { issueRoomToken } from "@/lib/interview/actions";
@@ -87,6 +87,10 @@ export function useInterviewRoom(
 ) {
   const microphone = listenOnly ? undefined : stream?.getAudioTracks()[0];
   const camera = listenOnly ? undefined : stream?.getVideoTracks()[0];
+  // 마이크를 다시 받아 트랙이 바뀌어도(useInterviewMedia) 방에 다시 들어가지 않는다. 있는지만 입장 조건으로 보고,
+  // 송출할 트랙은 이 값에서 꺼낸다(사용자 결정 2026-11-09: 마이크를 껐다 켜면 송출 트랙만 바꿔 이어 간다)
+  const hasMicrophone = microphone !== undefined;
+  const latestMicrophone = useRef(microphone);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState(INITIAL);
   const [question, setQuestion] = useState<QuestionMessage | null>(null);
@@ -114,6 +118,14 @@ export function useInterviewRoom(
     setAttempt((value) => value + 1);
   }, []);
   const connected = useRef<Room | null>(null);
+  useEffect(() => {
+    latestMicrophone.current = microphone;
+    // 이미 송출 중이면 보내는 트랙만 새 마이크로 바꾼다(LiveKit LocalTrack.replaceTrack → RTCRtpSender.replaceTrack:
+    // 재협상 · 재입장 없이 같은 발행물로 이어진다). 마이크 주인은 useInterviewMedia라 SDK가 끄거나 다시 받지 않게 한다.
+    const room = connected.current;
+    if (!room || !microphone) return;
+    void swapMicrophone(room, microphone).catch(() => {});
+  }, [microphone]);
   // 받은 함수가 바뀌어도 다시 입장하지 않도록 최신 함수만 기억한다.
   const answerState = useRef(onAnswerState);
   useEffect(() => {
@@ -121,7 +133,7 @@ export function useInterviewRoom(
   });
 
   useEffect(() => {
-    const track = microphone;
+    const track = latestMicrophone.current;
     if (!track && !listenOnly) return;
     const room = new Room({ stopLocalTrackOnUnpublish: false });
     const lifetime = new AbortController();
@@ -208,7 +220,13 @@ export function useInterviewRoom(
       if (!disposed) setState((previous) => ({ ...previous, status: sttStatus }));
     });
     room.on(RoomEvent.Disconnected, fail);
-    track?.addEventListener("ended", fail);
+    let publishedMicrophone: LocalTrack | undefined;
+    const keepMicrophoneOn = (muted: LocalTrack) => {
+      if (disposed || muted.mediaStreamTrack.readyState !== "live") return;
+      void muted.unmute().catch(() => {});
+    };
+    // 마이크 트랙이 끝나도(장치를 빼거나 끔) 방 연결은 실패로 보지 않는다. 마이크는 useInterviewMedia가 다시 받고,
+    // 그동안은 소리가 없어 마이크 끊김 토스트가 알린다(기획 메모 S06-F: 연결 끊김은 배너 · 카드, 마이크 끊김은 토스트).
 
     // 면접관(에이전트)의 질문 음성을 재생한다(AI 명세 6.2 질문).
     const voices = new Set<HTMLMediaElement>();
@@ -339,6 +357,15 @@ export function useInterviewRoom(
           await room.disconnect(false);
           return;
         }
+        // 앞 마이크가 끝나 LiveKit이 송출을 음소거해 둔 뒤 새 마이크로 바꾸는 사이에 음소거가 늦게 걸려도 다시 푼다
+        // (LocalParticipant handleTrackEnded → track.mute()는 비동기다). 지금 트랙이 살아 있을 때만 푼다.
+        publishedMicrophone = room.localParticipant.getTrackPublication(
+          Track.Source.Microphone,
+        )?.track;
+        publishedMicrophone?.on(TrackEvent.Muted, keepMicrophoneOn);
+        // 송출하는 동안 마이크를 다시 받았으면 보내는 트랙을 새 마이크로 바꾼다.
+        const now = latestMicrophone.current;
+        if (now && now !== track) await swapMicrophone(room, now);
         if (camera) await publishCamera(room, camera);
       } catch {
         fail();
@@ -354,14 +381,14 @@ export function useInterviewRoom(
       room.unregisterRpcMethod(ANSWER_STATE_METHOD);
       room.unregisterRpcMethod(QUESTION_METHOD);
       room.unregisterRpcMethod(REACTION_METHOD);
-      track?.removeEventListener("ended", fail);
       room.unregisterTextStreamHandler(STT_TOPIC);
+      publishedMicrophone?.off(TrackEvent.Muted, keepMicrophoneOn);
       room.removeAllListeners();
       for (const element of voices) element.remove();
       // 마이크 소유자는 기존 useInterviewMedia다. SDK가 원본 트랙을 중지하지 않게 한다.
       void room.disconnect(false);
     };
-  }, [sessionId, microphone, camera, listenOnly, attempt]);
+  }, [sessionId, hasMicrophone, camera, listenOnly, attempt]);
 
   // [답변 완료]를 에이전트에 보낸다(answer.submit). 방에 들어가 있지 않거나 에이전트가 없으면 보내지 못한다.
   const submitAnswer = useCallback(
@@ -437,7 +464,47 @@ export function useInterviewRoom(
     [listenOnly],
   );
 
-  return { ...state, question, reaction, retry, submitAnswer, sendChatInput, sendFrame };
+  // [마이크 확인]에서 녹음하는 동안 송출만 멈춘다. 내 화면의 마이크(파형 · 녹음)는 그대로 듣고, 면접관(에이전트)에게는
+  // 그동안 소리가 가지 않아 테스트한 말이 답변에 섞이지 않는다(사용자 결정 2026-11-09 · LiveKit LocalTrack.pauseUpstream).
+  const pauseMicrophone = useCallback(async (paused: boolean) => {
+    const track = connected.current?.localParticipant.getTrackPublication(
+      Track.Source.Microphone,
+    )?.track;
+    if (!track) return;
+    try {
+      await (paused ? track.pauseUpstream() : track.resumeUpstream());
+    } catch {
+      // 멈추지 못하면 그대로 보낸다(테스트한 말이 답변에 섞일 수 있다).
+    }
+  }, []);
+
+  return {
+    ...state,
+    question,
+    reaction,
+    retry,
+    submitAnswer,
+    sendChatInput,
+    sendFrame,
+    pauseMicrophone,
+  };
+}
+
+/**
+ * 송출 중인 마이크를 새 트랙으로 바꾼다(LiveKit LocalTrack.replaceTrack → RTCRtpSender.replaceTrack: 재협상 · 재입장 없이
+ * 같은 발행물로 이어진다). 마이크 주인은 useInterviewMedia라 SDK가 끄거나 다시 받지 않게 한다(userProvidedTrack).
+ * 앞 트랙이 끝나면 LiveKit은 사용자 제공 트랙의 송출을 음소거해 두고(LocalParticipant handleTrackEnded → track.mute()),
+ * 바꿀 때 새 트랙도 그 상태에 맞춰 enabled=false로 끈다(LocalTrack.setMediaStreamTrack). 그대로 두면 새 마이크도
+ * 화면 파형 · 면접관 모두 소리가 0이므로, 바꾼 뒤 음소거와 송출 멈춤을 푼다(livekit-client 2.23 소스 기준).
+ */
+async function swapMicrophone(room: Room, next: MediaStreamTrack) {
+  const published = room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+  if (!published) return;
+  if (published.mediaStreamTrack !== next) {
+    await published.replaceTrack(next, { userProvidedTrack: true });
+  }
+  if (published.isMuted) await published.unmute();
+  if (published.isUpstreamPaused) await published.resumeUpstream();
 }
 
 /**

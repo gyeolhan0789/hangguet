@@ -22,8 +22,60 @@ const sdk = vi.hoisted(() => {
       ["agent", { identity: "agent", isAgent: true }],
       ["other", { identity: "other", isAgent: false }],
     ]);
+    /** 송출 중인 마이크 발행물의 트랙(LiveKit LocalAudioTrack). 송출 전에는 없다 */
+    microphone:
+      | {
+          mediaStreamTrack: unknown;
+          replaceTrack: ReturnType<
+            typeof vi.fn<(track: unknown, options?: unknown) => Promise<void>>
+          >;
+          pauseUpstream: ReturnType<typeof vi.fn<() => Promise<void>>>;
+          resumeUpstream: ReturnType<typeof vi.fn<() => Promise<void>>>;
+          isMuted: boolean;
+          isUpstreamPaused: boolean;
+          unmute: ReturnType<typeof vi.fn<() => Promise<void>>>;
+          listeners: Map<string, (track: unknown) => void>;
+          on: (event: string, handler: (track: unknown) => void) => void;
+          off: (event: string) => void;
+        }
+      | undefined = undefined;
     localParticipant = {
-      publishTrack: vi.fn<(track: unknown, options?: unknown) => Promise<void>>(async () => {}),
+      publishTrack: vi.fn<(track: unknown, options?: unknown) => Promise<void>>(
+        async (track, options) => {
+          if ((options as { source?: string } | undefined)?.source !== "microphone") return;
+          // LiveKit LocalAudioTrack처럼: 바꾼 트랙은 음소거 상태에 맞춰 켜고 끄며(setMediaStreamTrack), 음소거를 풀면 다시 켠다
+          const published = {
+            mediaStreamTrack: track,
+            replaceTrack: vi.fn(async (next: unknown) => {
+              published.mediaStreamTrack = next;
+              (next as { enabled?: boolean }).enabled = !published.isMuted;
+            }),
+            pauseUpstream: vi.fn(async () => {
+              published.isUpstreamPaused = true;
+            }),
+            resumeUpstream: vi.fn(async () => {
+              published.isUpstreamPaused = false;
+            }),
+            isMuted: false,
+            isUpstreamPaused: false,
+            unmute: vi.fn(async () => {
+              published.isMuted = false;
+              (published.mediaStreamTrack as { enabled?: boolean }).enabled = true;
+            }),
+            listeners: new Map<string, (track: unknown) => void>(),
+            on: (event: string, handler: (track: unknown) => void) => {
+              published.listeners.set(event, handler);
+            },
+            off: (event: string) => {
+              published.listeners.delete(event);
+            },
+          };
+          this.microphone = published;
+        },
+      ),
+      getTrackPublication: vi.fn((source: string) =>
+        source === "microphone" && this.microphone ? { track: this.microphone } : undefined,
+      ),
       unpublishTrack: vi.fn(async () => {}),
       performRpc: vi.fn<(params: unknown) => Promise<string>>(async () =>
         JSON.stringify({ accepted: true }),
@@ -79,6 +131,7 @@ vi.mock("livekit-client", () => ({
     Source: { Microphone: "microphone", Camera: "camera" },
     Kind: { Audio: "audio", Video: "video" },
   },
+  TrackEvent: { Muted: "muted" },
 }));
 vi.mock("@/lib/interview/actions", () => ({ issueRoomToken: sdk.issueRoomToken }));
 
@@ -559,6 +612,136 @@ describe("면접방 마이크 송출과 STT 수신", () => {
     expect(room.disconnect).toHaveBeenCalledWith(false);
     expect(room.unregisterTextStreamHandler).toHaveBeenCalledWith(STT_TOPIC);
     expect(microphone.stop).not.toHaveBeenCalled();
+  });
+
+  // 사용자 결정(2026-11-09: 마이크를 껐다 켜면 방에 다시 들어가지 않고 송출 트랙만 새 마이크로 바꾼다)
+  it("마이크 트랙이 끝나도(장치를 빼거나 끔) 방 연결을 실패로 보지 않는다", async () => {
+    const { stream, microphone } = media();
+    const { result } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    const before = result.current.status;
+
+    act(() => microphone.dispatchEvent(new Event("ended")));
+
+    expect(result.current.status).toBe(before);
+    expect(room.disconnect).not.toHaveBeenCalled();
+  });
+
+  it("송출 중에 마이크를 다시 받으면 방에 다시 들어가지 않고 보내는 트랙만 새 마이크로 바꾼다", async () => {
+    const first = media();
+    const { rerender } = renderHook(({ stream }) => useInterviewRoom(55, stream), {
+      initialProps: { stream: first.stream },
+    });
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+
+    const next = media();
+    rerender({ stream: next.stream });
+
+    expect(room.microphone?.replaceTrack).toHaveBeenCalledExactlyOnceWith(next.microphone, {
+      userProvidedTrack: true,
+    });
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+    expect(room.localParticipant.publishTrack).toHaveBeenCalledTimes(1);
+    expect(room.disconnect).not.toHaveBeenCalled();
+  });
+
+  // livekit-client 2.23: 사용자 제공 트랙이 끝나면 송출을 음소거해 두고(handleTrackEnded → mute), 바꿀 때 새 트랙도 끈다
+  it("앞 마이크가 끝나 LiveKit이 송출을 음소거해 뒀으면, 새 마이크로 바꾼 뒤 음소거를 풀어 새 마이크가 켜져 있다", async () => {
+    const first = media();
+    const { rerender } = renderHook(({ stream }) => useInterviewRoom(55, stream), {
+      initialProps: { stream: first.stream },
+    });
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    room.microphone!.isMuted = true;
+
+    const next = media();
+    rerender({ stream: next.stream });
+
+    await waitFor(() => expect(room.microphone?.unmute).toHaveBeenCalledOnce());
+    expect(room.microphone?.mediaStreamTrack).toBe(next.microphone);
+    expect((next.microphone as { enabled?: boolean }).enabled).toBe(true);
+  });
+
+  it("[마이크 확인] 녹음 등으로 송출이 멈춰 있을 때 마이크가 바뀌면 다시 보낸다", async () => {
+    const first = media();
+    const { result, rerender } = renderHook(({ stream }) => useInterviewRoom(55, stream), {
+      initialProps: { stream: first.stream },
+    });
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+    await act(() => result.current.pauseMicrophone(true));
+
+    rerender({ stream: media().stream });
+
+    await waitFor(() => expect(room.microphone?.resumeUpstream).toHaveBeenCalledOnce());
+  });
+
+  it("바꾼 뒤에 음소거가 늦게 걸려도 지금 마이크가 살아 있으면 다시 풀고, 끝난 마이크면 두고 본다", async () => {
+    const { stream } = media();
+    renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.microphone?.listeners.has("muted")).toBe(true));
+    const published = room.microphone!;
+
+    published.isMuted = true;
+    act(() => published.listeners.get("muted")?.(published));
+    await waitFor(() => expect(published.unmute).toHaveBeenCalledOnce());
+
+    (published.mediaStreamTrack as { readyState: string }).readyState = "ended";
+    published.isMuted = true;
+    act(() => published.listeners.get("muted")?.(published));
+    expect(published.unmute).toHaveBeenCalledOnce();
+  });
+
+  it("들어가 송출하는 사이에 마이크를 다시 받았으면 송출을 마친 뒤 새 마이크로 바꾼다", async () => {
+    const first = media();
+    let publish!: () => void;
+    const { rerender } = renderHook(({ stream }) => useInterviewRoom(55, stream), {
+      initialProps: { stream: first.stream },
+    });
+    const room = sdk.FakeRoom.instances[0];
+    const original = room.localParticipant.publishTrack.getMockImplementation()!;
+    room.localParticipant.publishTrack.mockImplementationOnce(async (track, options) => {
+      await new Promise<void>((done) => (publish = done));
+      return original(track, options);
+    });
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+
+    const next = media();
+    rerender({ stream: next.stream });
+    await act(async () => publish());
+
+    await waitFor(() =>
+      expect(room.microphone?.replaceTrack).toHaveBeenCalledWith(next.microphone, {
+        userProvidedTrack: true,
+      }),
+    );
+    expect(room.microphone?.mediaStreamTrack).toBe(next.microphone);
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+  });
+
+  it("[마이크 확인]에서 녹음하는 동안 송출만 멈추고(pauseUpstream) 끝나면 다시 보낸다(resumeUpstream)", async () => {
+    const { stream } = media();
+    const { result } = renderHook(() => useInterviewRoom(55, stream));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.localParticipant.publishTrack).toHaveBeenCalled());
+
+    await act(() => result.current.pauseMicrophone(true));
+    expect(room.microphone?.pauseUpstream).toHaveBeenCalledOnce();
+    await act(() => result.current.pauseMicrophone(false));
+    expect(room.microphone?.resumeUpstream).toHaveBeenCalledOnce();
+    // 방에서 나가거나 다시 들어가지 않는다
+    expect(room.disconnect).not.toHaveBeenCalled();
+    expect(sdk.FakeRoom.instances).toHaveLength(1);
+  });
+
+  it("송출 전이면 멈출 것이 없어 아무것도 하지 않는다", async () => {
+    const { result } = renderHook(() => useInterviewRoom(55, null));
+
+    await expect(result.current.pauseMicrophone(true)).resolves.toBeUndefined();
   });
 
   it("중간 결과를 교체하고 확정 결과를 중복 없이 표시하며 늦은 갱신은 버린다", async () => {

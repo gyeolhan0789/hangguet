@@ -36,6 +36,7 @@ import {
   StartFailedModal,
   useReconnectSeconds,
 } from "./room-alerts";
+import { MicCheckModal } from "./mic-check-modal";
 import { AnswerNotice, MicToast, SelfCamera, VideoControls } from "./video-panel";
 import { ChatWaiting } from "./chat-waiting";
 import { useSaveConfirmed } from "./use-save-confirmed";
@@ -418,6 +419,8 @@ function VideoInterview({
   const [failedId, setFailedId] = useState<number | null>(null);
   const [completedSeq, setCompletedSeq] = useState(0);
   const [answerNotice, setAnswerNotice] = useState<AnswerStateMessage | null>(null);
+  // S06-F [마이크 확인] 미니 모달
+  const [micCheckOpen, setMicCheckOpen] = useState(false);
 
   function startSubmitting(questionId: number) {
     setAnswerNotice(null);
@@ -513,6 +516,10 @@ function VideoInterview({
     (spoke || failedId === question.id) &&
     !submitting &&
     !requesting;
+  // 사용자가 답할 차례: 질문이 있고, 면접관이 질문을 말하는 중 · 답변을 내는 중(낸 뒤 다음 질문을 기다리는 동안 포함)이 아니다.
+  // 이때만 마이크 끊김 토스트가 소리 없는 시간을 센다(사용자 결정 2026-11-09)
+  const answering =
+    (liveQuestion ?? question) !== null && !speechLocked && !submitting && !requesting;
   // S06-A 답변 상태 토스트(answer.state). 음성 인식이 끊긴 것은 자막 스트림이 알려 줄 수도 있다.
   const noticeMessage = savingLast
     ? "답변을 저장하는 중이에요"
@@ -571,8 +578,15 @@ function VideoInterview({
         </AnswerCaption>
       </Dialog>
       <div className={uiHidden ? "hidden" : "contents"}>
-        <MicToast level={level} />
+        <MicToast level={level} answering={answering} onCheck={() => setMicCheckOpen(true)} />
       </div>
+      <MicCheckModal
+        open={micCheckOpen}
+        onClose={() => setMicCheckOpen(false)}
+        stream={stream}
+        level={level}
+        onPauseSending={stt.pauseMicrophone}
+      />
       <PausedModal open={paused && !startFailed && !endOpen} onEnd={openEnd} onRetry={stt.retry} />
     </>
   );
