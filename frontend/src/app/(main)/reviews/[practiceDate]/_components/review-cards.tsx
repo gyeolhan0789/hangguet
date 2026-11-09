@@ -26,6 +26,7 @@ import type { CriterionReview, Grade } from "@/types/api";
 // · 웹 Swagger 7.1 · GrowthReviewResponse(criteria · nextActions)
 // · 사용자 결정(2026-10-22: '다음에 해볼 것'은 nextActions를 큰 글씨로만 보여 주고 회색 점 목록은 뺀다, 지난 날짜는 '오늘' 대신 '이날')
 // · 사용자 요청(2026-10-27: '다음에 해볼 것'의 '내일 홈에서 다시 알려드려요' 안내를 뺀다)
+// · 사용자 결정(2026-11-09: '다음에 해볼 것'은 실제 글이 길어 28이 너무 크다 — 모든 폭에서 줄여 모바일 20 · sm 이상 24)
 
 const BASE_COLOR: Record<Grade, string> = {
   GOOD: "text-text-1",
@@ -194,7 +195,7 @@ export function NextActionCard({ actions }: { actions: string[] }) {
       {actions.map((action) => (
         <p
           key={action}
-          className="text-[28px] leading-[1.3] font-extrabold tracking-[-0.8px] break-keep text-text-1"
+          className="text-xl leading-[1.3] font-extrabold sm:text-2xl tracking-[-0.8px] break-keep text-text-1"
         >
           {action}
         </p>
