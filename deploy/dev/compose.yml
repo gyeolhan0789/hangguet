@@ -236,7 +236,7 @@ services:
       <<: [*livekit-env, *gms-env]
       LIVEKIT_AGENT_NAME: a301-interviewer
       SONIOX_API_KEY: ${SONIOX_API_KEY:-}
-      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v5}
+      SONIOX_STT_MODEL: ${SONIOX_STT_MODEL:-stt-rt-v6}
       # 질문 음성(TTS). 질문 시작(question.started)은 BE와 같은 Redis의 결과 큐로 보낸다
       ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
       # 답변 리액션(Jev). 없으면 리액션 없이 진행한다
