@@ -7,6 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // WebGL로 그리는 부분은 jsdom · node에서 돌릴 수 없어, 미리 불러오기(내려받기 · 해석)만 본다. 그리기는 E2E가 본다.
 
 const parseAsync = vi.fn();
+vi.mock("three", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("three")>()),
+  WebGLRenderer: class {
+    setPixelRatio() {}
+    setAnimationLoop() {}
+    setSize() {}
+    render() {}
+    dispose() {}
+    forceContextLoss() {}
+  },
+}));
 vi.mock("three/addons/loaders/GLTFLoader.js", () => ({
   GLTFLoader: class {
     setMeshoptDecoder() {
@@ -56,6 +67,66 @@ afterEach(() => {
 });
 
 describe("preloadInterviewerAssets (면접관 모델 미리 불러오기)", () => {
+  it("고정 자세에서 고개를 돌린 채 떠나도 캐시로 다시 들어오면 원래 자세다", async () => {
+    const { Group, Bone } = await import("three");
+    const root = new Group();
+    const head = new Bone();
+    head.name = "Head";
+    head.rotation.x = 0.2;
+    root.add(head);
+    const rest = head.quaternion.clone();
+    parseAsync.mockResolvedValue({ scene: root, animations: [] });
+    vi.mocked(fetch).mockImplementation(
+      async () => new Response(JSON.stringify({ defaults: {}, rules: {} })),
+    );
+    vi.stubGlobal("window", { devicePixelRatio: 1 });
+    const { createInterviewerScene } = await import("./scene");
+    const options = {
+      canvas: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        clientWidth: 800,
+        clientHeight: 600,
+      } as unknown as HTMLCanvasElement,
+      model: {
+        glb: MODEL.glb,
+        glbBytes: MODEL.glbBytes,
+        faceRules: MODEL.faceRules,
+        staticPose: true as const,
+      },
+      frame: {
+        position: [0, 1, 2] as [number, number, number],
+        target: [0, 1, 0] as [number, number, number],
+        fov: 34,
+      },
+      onLost: vi.fn(),
+      signal: new AbortController().signal,
+      headBone: "Head",
+    };
+    const first = await createInterviewerScene(options);
+    first.setHead(0.1, 0.1);
+    expect(head.quaternion.angleTo(rest)).toBeGreaterThan(0.1);
+    first.dispose();
+    const second = await createInterviewerScene(options);
+    second.setHead(0, 0);
+    expect(head.quaternion.angleTo(rest)).toBeLessThan(1e-7);
+    expect(parseAsync).toHaveBeenCalledTimes(1);
+    second.dispose();
+  });
+
+  it("자세가 고정된 모델은 삭제한 자세 전환 파일을 요청하지 않는다", async () => {
+    const { preloadInterviewerAssets } = await import("./scene");
+
+    await preloadInterviewerAssets({
+      glb: MODEL.glb,
+      glbBytes: MODEL.glbBytes,
+      faceRules: MODEL.faceRules,
+      staticPose: true,
+    });
+
+    expect(fetchUrls()).toEqual([MODEL.glb, MODEL.faceRules]);
+  });
+
   it("모델 · 표정 규칙 · 자세 구간을 내려받아 모델을 해석하고, 같은 모델을 다시 부르면 또 받지 않는다", async () => {
     const { preloadInterviewerAssets } = await import("./scene");
 

@@ -69,6 +69,45 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
     createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
     return { setFace, setHead };
   }
+  it.each(["DEVIL", "COFFEE_CHAT"] as const)(
+    "%s 깜빡임은 중간 프레임을 거치고 숨길 때 멈춘다",
+    async (persona) => {
+      const random = vi.spyOn(Math, "random").mockReturnValue(0);
+      try {
+        const { setFace } = animated();
+        const { rerender } = render(
+          <Activity mode="visible">
+            <InterviewerStage persona={persona} />
+          </Activity>,
+        );
+        await act(async () => {});
+        const lastBlink = () =>
+          setFace.mock.calls.filter(([face]) => face.blink !== undefined).at(-1)?.[0].blink;
+        act(() => vi.advanceTimersByTime(2500 + 16));
+        expect(lastBlink()).toBeGreaterThan(0);
+        expect(lastBlink()).toBeLessThan(1);
+        act(() => vi.advanceTimersByTime(48));
+        expect(lastBlink()).toBe(1);
+        act(() => vi.advanceTimersByTime(48));
+        expect(lastBlink()).toBeGreaterThan(0);
+        expect(lastBlink()).toBeLessThan(1);
+        act(() => vi.advanceTimersByTime(48));
+        expect(lastBlink()).toBe(0);
+        act(() => vi.advanceTimersByTime(2500 + 16));
+        rerender(
+          <Activity mode="hidden">
+            <InterviewerStage persona={persona} />
+          </Activity>,
+        );
+        expect(lastBlink()).toBe(0);
+        const count = setFace.mock.calls.length;
+        act(() => vi.advanceTimersByTime(10_000));
+        expect(setFace).toHaveBeenCalledTimes(count);
+      } finally {
+        random.mockRestore();
+      }
+    },
+  );
   const activity = () => ({ questionSeq: 3, streamId: "capture-1", speechAt: performance.now() });
   // 기준: AI 명세 6.3 interview.question(started의 alignment.chars) · 사용자 결정(2026-10-27: 150ms 늦춰 모음별 입 모양,
   // 동작 줄이기면 입을 움직이지 않는다)
@@ -340,7 +379,7 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
         model: expect.objectContaining({
           glb: "/interview/devil/interviewer.glb",
           faceRules: "/interview/devil/face-rules.json",
-          animation: "/interview/devil/animation.json",
+          staticPose: true,
         }),
       }),
     );
