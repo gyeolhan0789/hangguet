@@ -163,20 +163,27 @@ public class GroupResultService {
             InterviewGroup group = turn.group();
             if (!current
                     || !group.isPhase(GroupPhase.ASKING)
-                    || startedAt.isBefore(group.getStartedAt())
-                    || question(turn).isPresent()) {
+                    || startedAt.isBefore(group.getStartedAt())) {
                 return false;
             }
-            questions.save(
-                    InterviewQuestion.groupTurn(
-                            turn.session(),
-                            turn.seq(),
-                            group.getTurnKind(),
-                            message.content(),
-                            message.criteria(),
-                            message.promptVersion(),
-                            message.modelVersion(),
-                            startedAt));
+            Optional<InterviewQuestion> asked = question(turn);
+            if (asked.isEmpty()) {
+                questions.save(
+                        InterviewQuestion.groupTurn(
+                                turn.session(),
+                                turn.seq(),
+                                group.getTurnKind(),
+                                message.content(),
+                                message.criteria(),
+                                message.promptVersion(),
+                                message.modelVersion(),
+                                startedAt));
+            } else if (isAbandoned(asked.get())) {
+                // 답변 중 나갔다 돌아온 사람에게 같은 질문을 다시 묻는다(6.9). 질문 행은 처음 낸 것을 그대로 둔다
+                asked.get().reask();
+            } else {
+                return false;
+            }
             flow.startSpeaking(group, startedAt, message.speechMs(), turn.now());
             return true;
         };
@@ -311,6 +318,11 @@ public class GroupResultService {
                         answer ->
                                 metrics.followupDecision(
                                         outcome, answer.getCreatedAt(), turn.now()));
+    }
+
+    // 답변 중 이탈해 닫지도 답하지도 않은 채 남은 질문
+    private boolean isAbandoned(InterviewQuestion question) {
+        return !question.isClosed() && answers.findByQuestionId(question.getId()).isEmpty();
     }
 
     private Optional<InterviewQuestion> question(Turn turn) {

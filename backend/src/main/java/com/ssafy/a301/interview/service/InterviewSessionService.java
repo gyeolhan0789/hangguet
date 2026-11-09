@@ -243,6 +243,7 @@ public class InterviewSessionService {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
         }
         if (session.isGroup()) {
+            groupTurns.requireRejoinable(sessionId);
             return rooms.issueGroupAccess(session.getGroupId(), sessionId, session.isVideo());
         }
         return rooms.issueAccess(sessionId, session.isVideo());

@@ -30,6 +30,7 @@ import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.group.repository.GroupPresenceStore;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
+import com.ssafy.a301.group.service.GroupAbsenceService;
 import com.ssafy.a301.group.service.GroupDeadlineService;
 import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.group.service.GroupResultService;
@@ -46,7 +47,9 @@ import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.GroupRoomEvent;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.room.InterviewRoom.GroupPresence;
 import com.ssafy.a301.interview.service.AiResultService;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.interview.service.InterviewCapacity;
@@ -60,6 +63,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -104,6 +109,7 @@ class InterviewGroupIntegrationTest {
     @Autowired private AiResultService results;
     @Autowired private GroupResultService groupResults;
     @Autowired private GroupDeadlineService deadlines;
+    @Autowired private GroupAbsenceService absences;
     @Autowired private InterviewGroupRepository groups;
     @Autowired private MeterRegistry meters;
     @Autowired private JdbcTemplate jdbc;
@@ -1329,6 +1335,164 @@ class InterviewGroupIntegrationTest {
         assertThat(roomVersion(group.groupId())).isEqualTo(latest - 1);
         deadlines.tick(OffsetDateTime.now());
         assertThat(roomVersion(group.groupId())).isEqualTo(latest);
+    }
+
+    // 6.9: 답변 중 나가면 차례를 건너뛰고 질문은 닫지 않는다. 돌아오면 지금 차례가 끝난 뒤 순서가 지난 자기 질문을 같은 seq로 다시 받는다
+    @Test
+    void answererLeavingSkipsTurnAndGetsSameQuestionAfterReturning() throws Exception {
+        ReadyGroup group = readyGroup(3, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        long c = order.get(2);
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+
+        assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isTrue();
+        assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isFalse();
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT closed_at IS NULL FROM interview_questions WHERE id = ?",
+                                Boolean.class,
+                                questionId(a, 1)))
+                .isTrue();
+        JsonNode info = lastRoomInfo(group.groupId());
+        assertThat(info.path("participants").get(0).path("state").asString()).isEqualTo("ABSENT");
+        assertThat(info.path("participants").get(0).path("absentUntil").isNull()).isFalse();
+        assertThat(info.path("upcoming").size()).isEqualTo(1);
+        // 나간 사람의 늦은 답변은 받지 않는다
+        assertThat(handle(answerCompleted(a, 1, turnVersion(group.groupId()))))
+                .isEqualTo(Outcome.DISCARDED);
+
+        assertThat(absences.returned(group.groupId(), a, OffsetDateTime.now())).isTrue();
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
+        assertThat(
+                        lastRoomInfo(group.groupId())
+                                .path("participants")
+                                .get(0)
+                                .path("state")
+                                .asString())
+                .isEqualTo("PRESENT");
+
+        chatTurn(group.groupId(), users.get(b), b, 1, false);
+        assertTurn(group.groupId(), 1, a, 1, "COMMON", "CALL");
+        assertThat(handle(questionStarted(a, 1, turnVersion(group.groupId()))))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
+        assertThat(questionKinds(a)).hasSize(1);
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+        mvc.perform(chatAnswerRequest(users.get(a), a, questionId(a, 1), "다시 답변"))
+                .andExpect(status().isAccepted());
+        handle(followupDecided(a, 1, turnVersion(group.groupId()), false));
+        assertTurn(group.groupId(), 1, c, 1, "COMMON", "CALL");
+    }
+
+    // 6.9: 남은 질문이 나간 사람 것뿐이면 기다리고(WAITING), 돌아오면 이어 간다. 2분 안에만 다시 들어올 수 있고 지나면 DISCONNECTED로 끝난다
+    @Test
+    void waitingForAbsentParticipantUntilReturnOrDisconnect() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        absences.left(group.groupId(), b, OffsetDateTime.now());
+        mvc.perform(endRequest(users.get(a), a)).andExpect(status().isOk());
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("WAITING");
+        assertThat(lastRoomInfo(group.groupId()).path("turn").isNull()).isTrue();
+
+        mvc.perform(as(users.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
+                .andExpect(status().isOk());
+        absences.returned(group.groupId(), b, OffsetDateTime.now());
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
+
+        // 질문을 시작하기 전에 다시 나가면 다시 기다린다
+        absences.left(group.groupId(), b, OffsetDateTime.now());
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("WAITING");
+        jdbc.update(
+                "UPDATE interview_group_participants SET absent_since = now() - interval '3"
+                        + " minutes' WHERE session_id = ?",
+                b);
+        mvc.perform(as(users.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
+                .andExpect(status().isConflict());
+        deadlines.tick(OffsetDateTime.now());
+        assertThat(endReason(b)).isEqualTo("DISCONNECTED");
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        verify(rooms).closeGroup(group.groupId());
+    }
+
+    // 6.9 · 6.11: 면접관이 나가면 AI 장애다. 같은 웹훅 이벤트는 한 번만 처리한다
+    @Test
+    void webhookEventsAreHandledOnceAndInterviewerLeavingIsAiFailure() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long a = sessionIdsByTurnOrder(group.groupId()).get(0);
+        long b = sessionIdsByTurnOrder(group.groupId()).get(1);
+        String eventId = "test-" + UUID.randomUUID();
+        GroupRoomEvent left =
+                new GroupRoomEvent(eventId, GroupRoomEvent.Type.LEFT, group.groupId(), b);
+        try {
+            absences.handle(left);
+            assertThat(absentSince(b)).isNotNull();
+            absences.returned(group.groupId(), b, OffsetDateTime.now());
+            absences.handle(left);
+            assertThat(absentSince(b)).isNull();
+        } finally {
+            redis.delete("livekit-webhook:" + eventId);
+        }
+
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        String interviewerLeft = "test-" + UUID.randomUUID();
+        try {
+            absences.handle(
+                    new GroupRoomEvent(
+                            interviewerLeft, GroupRoomEvent.Type.LEFT, group.groupId(), null));
+        } finally {
+            redis.delete("livekit-webhook:" + interviewerLeft);
+        }
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(endReason(a)).isEqualTo("AI_FAILURE");
+        assertThat(endReason(b)).isEqualTo("AI_FAILURE");
+        // 서명이 없는 웹훅은 받지 않는다
+        mvc.perform(post("/api/v1/webhooks/livekit").content("{}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // 6.9: 웹훅이 빠져도 면접방 참가자 조회로 이탈 · 재입장 · 면접관 퇴장을 맞춘다. 막 시작한 그룹은 아직 들어오는 중이라 보지 않는다
+    @Test
+    void presenceCheckMatchesLiveKitParticipants() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long a = sessionIdsByTurnOrder(group.groupId()).get(0);
+        long b = sessionIdsByTurnOrder(group.groupId()).get(1);
+        when(rooms.groupPresence(group.groupId()))
+                .thenReturn(Optional.of(new GroupPresence(true, Set.of(a))));
+
+        absences.reconcile(OffsetDateTime.now());
+        assertThat(absentSince(b)).isNull();
+        absences.reconcile(OffsetDateTime.now().plusMinutes(1));
+        assertThat(absentSince(b)).isNotNull();
+
+        when(rooms.groupPresence(group.groupId()))
+                .thenReturn(Optional.of(new GroupPresence(true, Set.of(a, b))));
+        absences.reconcile(OffsetDateTime.now().plusMinutes(1));
+        assertThat(absentSince(b)).isNull();
+
+        // 첫 질문 전에 면접관이 없으면 시작 실패다
+        when(rooms.groupPresence(group.groupId()))
+                .thenReturn(Optional.of(new GroupPresence(false, Set.of(a, b))));
+        absences.reconcile(OffsetDateTime.now().plusMinutes(1));
+        assertThat(groupStatus(group.groupId())).isEqualTo("START_FAILED");
+    }
+
+    private OffsetDateTime absentSince(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT absent_since FROM interview_group_participants WHERE session_id = ?",
+                OffsetDateTime.class,
+                sessionId);
     }
 
     private String rejected(long groupId, OffsetDateTime occurredAt) {

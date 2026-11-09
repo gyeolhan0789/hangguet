@@ -71,6 +71,32 @@ class TurnPlannerTest {
         assertThat(afterEnded.announce()).isEqualTo(TurnAnnounce.FULL);
     }
 
+    // 6.9: 이탈한 사람은 건너뛰고 나간 답변자에게 꼬리질문을 주지 않는다. 돌아온 사람은 이 라운드에서 순서가 지난 자기 질문부터 받는다
+    @Test
+    void absentParticipantsAreSkippedAndReturnedOnesGoFirst() {
+        InterviewGroupParticipant a = participant(1L, 1, 1, 0);
+        InterviewGroupParticipant absent = participant(2L, 2, 0, 0);
+        when(absent.isAbsent()).thenReturn(true);
+        InterviewGroupParticipant c = participant(3L, 3, 0, 0);
+        assertThat(next(group(1, 1L), List.of(a, absent, c), false).orElseThrow().participant())
+                .isSameAs(c);
+
+        InterviewGroupParticipant leftCurrent = participant(1L, 1, 1, 0);
+        when(leftCurrent.isAbsent()).thenReturn(true);
+        InterviewGroupParticipant b = participant(2L, 2, 0, 0);
+        Turn afterLeft = next(group(1, 1L), List.of(leftCurrent, b), true).orElseThrow();
+        assertThat(afterLeft.participant()).isSameAs(b);
+        assertThat(afterLeft.kind()).isEqualTo(TurnKind.COMMON);
+
+        // 라운드 2에서 1번이 나가 건너뛰었고 2번이 답한 뒤 1번이 돌아왔다: 3번보다 1번이 먼저다
+        InterviewGroupParticipant returned = participant(1L, 1, 1, 0);
+        InterviewGroupParticipant current = participant(2L, 2, 2, 0);
+        InterviewGroupParticipant last = participant(3L, 3, 1, 0);
+        Turn overdue = next(group(2, 2L), List.of(returned, current, last), false).orElseThrow();
+        assertThat(overdue.participant()).isSameAs(returned);
+        assertThat(overdue.kind()).isEqualTo(TurnKind.PERSONAL);
+    }
+
     @Test
     void noTurnWhenEveryoneFinishedBaseQuestions() {
         InterviewGroupParticipant a = participant(1L, 1, 4, 1);

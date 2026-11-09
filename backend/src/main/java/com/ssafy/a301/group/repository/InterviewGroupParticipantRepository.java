@@ -6,6 +6,7 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -41,6 +42,16 @@ public interface InterviewGroupParticipantRepository
             "select count(q) > 0 from InterviewQuestion q where q.session.id in (select"
                     + " p.session.id from InterviewGroupParticipant p where p.group.id = :groupId)")
     boolean hasAskedQuestion(@Param("groupId") long groupId);
+
+    /** 이탈한 지 before 전부터 돌아오지 않은 진행 중 면접(docs/그룹면접-설계.md 6.9). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시 확인한다 */
+    @Query(
+            "select p.group.id, p.session.id from InterviewGroupParticipant p where p.absentSince"
+                    + " <= :before and p.doneAt is null and p.session.status ="
+                    + " com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS")
+    List<Object[]> findOverdueAbsent(@Param("before") OffsetDateTime before);
+
+    /** 면접의 그룹 참가자(5.14 재입장 확인) */
+    Optional<InterviewGroupParticipant> findBySessionId(Long sessionId);
 
     /** 그 면접의 참가자가 질문을 모두 마쳤는지(5.5) */
     boolean existsBySessionIdAndDoneAtIsNotNull(Long sessionId);

@@ -184,6 +184,8 @@ public class GroupStartService {
         }
         for (int i = 0; i < ordered.size(); i++) {
             ordered.get(i).assignTurnOrder(i + 1);
+            // 시작 실패한 시도에서 남은 이탈 기록은 다시 시작하면 지운다
+            ordered.get(i).markPresent();
         }
         return ordered;
     }

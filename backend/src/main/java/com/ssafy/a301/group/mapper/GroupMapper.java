@@ -53,8 +53,8 @@ public final class GroupMapper {
     }
 
     /**
-     * 면접방 정보(API 명세 10.11). 시작한 그룹만 부른다. 참가자는 답변 순서대로 담는다. 남은 질문이 없으면 turn은 null이다. 이탈(ABSENT ·
-     * absentUntil)은 이탈 감지를 구현할 때 채운다.
+     * 면접방 정보(API 명세 10.11). 시작한 그룹만 부른다. 참가자는 답변 순서대로 담는다. 남은 질문이 없거나 이탈한 사람을 기다리면(WAITING) turn은
+     * null이다.
      */
     public static RoomInfo toRoomInfo(
             InterviewGroup group,
@@ -99,25 +99,27 @@ public final class GroupMapper {
                 group.getRound(),
                 group.getPhase(),
                 turn,
-                ordered.stream()
-                        .map(
-                                p ->
-                                        new RoomParticipant(
-                                                p.getSession().getId(),
-                                                p.getTurnOrder(),
-                                                state(group.getStatus(), p),
-                                                null,
-                                                Optional.ofNullable(p.getSession().getEndReason())
-                                                        .map(Enum::name)
-                                                        .orElse(null)))
-                        .toList(),
+                ordered.stream().map(p -> toRoomParticipant(group.getStatus(), p)).toList(),
                 turn == null
                         ? List.of()
                         : ordered.stream()
                                 .filter(p -> p.getTurnOrder() > currentOrder)
-                                .filter(InterviewGroupParticipant::isAnswering)
+                                .filter(p -> p.isAnswering() && !p.isAbsent())
                                 .map(p -> p.getSession().getId())
                                 .toList());
+    }
+
+    private static RoomParticipant toRoomParticipant(
+            GroupStatus status, InterviewGroupParticipant participant) {
+        ParticipantState state = state(status, participant);
+        return new RoomParticipant(
+                participant.getSession().getId(),
+                participant.getTurnOrder(),
+                state,
+                state == ParticipantState.ABSENT ? participant.absentUntil() : null,
+                Optional.ofNullable(participant.getSession().getEndReason())
+                        .map(Enum::name)
+                        .orElse(null));
     }
 
     public static ParticipantResponse toParticipantResponse(
@@ -148,7 +150,7 @@ public final class GroupMapper {
                 (int) participantCount);
     }
 
-    // 시작 전이면 WAITING, 진행 중이면 면접이 진행 중인지 · 질문을 모두 마쳤는지로 정한다. 이탈(ABSENT)은 이탈 감지를 구현할 때 더한다
+    // 시작 전이면 WAITING, 진행 중이면 면접이 진행 중인지 · 질문을 모두 마쳤는지 · 면접방에서 나갔는지로 정한다
     private static ParticipantState state(
             GroupStatus status, InterviewGroupParticipant participant) {
         if (status != GroupStatus.IN_PROGRESS && status != GroupStatus.ENDED) {
@@ -157,6 +159,9 @@ public final class GroupMapper {
         if (participant.getSession().getStatus() != SessionStatus.IN_PROGRESS) {
             return ParticipantState.ENDED;
         }
-        return participant.isDone() ? ParticipantState.DONE : ParticipantState.PRESENT;
+        if (participant.isDone()) {
+            return ParticipantState.DONE;
+        }
+        return participant.isAbsent() ? ParticipantState.ABSENT : ParticipantState.PRESENT;
     }
 }

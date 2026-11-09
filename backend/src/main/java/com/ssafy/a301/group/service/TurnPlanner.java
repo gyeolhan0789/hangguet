@@ -10,9 +10,7 @@ import java.util.Optional;
 
 /**
  * 다음 차례 정하기(docs/그룹면접-설계.md 6.3). 기본 질문 4개를 라운드로 묻는다: 1 공통(자기소개) → 2 개인 → 3 공통(인성) → 4 개인. 순서는
- * turn_order 고정이다. 그룹 행을 잠근 트랜잭션 안에서 부르고, 값만 계산하며 아무것도 바꾸지 않는다.
- *
- * <p>아직 다루지 않는 것(이탈 감지를 구현할 때 더함): 이탈한 참가자 건너뛰기, 남은 질문이 이탈한 사람 것뿐일 때 재접속 기다리기(WAITING).
+ * turn_order 고정이다. 이탈한 참가자는 건너뛴다(6.9). 그룹 행을 잠근 트랜잭션 안에서 부르고, 값만 계산하며 아무것도 바꾸지 않는다.
  */
 final class TurnPlanner {
     private static final Comparator<InterviewGroupParticipant> BY_ORDER =
@@ -23,13 +21,13 @@ final class TurnPlanner {
     /**
      * @param active 나가지 않은 참가자
      * @param followupNeeded 방금 답한 사람에게 꼬리질문이 정해졌는지(followup.decided needed)
-     * @return 다음 차례. 남은 질문이 없으면 비어 있다
+     * @return 다음 차례. 접속 중인 사람에게 남은 질문이 없으면 비어 있다(이탈한 사람 것이 남았는지는 부르는 쪽이 본다)
      */
     static Optional<Turn> next(
             InterviewGroup group, List<InterviewGroupParticipant> active, boolean followupNeeded) {
         List<InterviewGroupParticipant> answering =
                 active.stream()
-                        .filter(p -> p.getTurnOrder() != null && p.isAnswering())
+                        .filter(p -> p.getTurnOrder() != null && p.isAnswering() && !p.isAbsent())
                         .sorted(BY_ORDER)
                         .toList();
         Optional<InterviewGroupParticipant> current =
@@ -48,7 +46,8 @@ final class TurnPlanner {
         if (overdue.isPresent()) {
             return Optional.of(base(overdue.get(), round, TurnAnnounce.FULL));
         }
-        // 3. 이 라운드에서 순서상 다음 사람. 순서가 지났는데 받지 못한 사람은 그 뒤에. 지금 답변자가 면접을 끝냈어도 그 순서 다음부터 본다
+        // 3. 이 라운드 질문을 아직 받지 못한 사람. 이탈로 순서가 지난 뒤 돌아온 사람(밀린 질문)부터, 그다음 순서상 다음 사람이다.
+        // 지금 답변자가 면접을 끝냈어도 그 순서 다음부터 본다
         int currentOrder =
                 active.stream()
                         .filter(p -> p.getSession().getId().equals(group.getTurnSessionId()))
@@ -62,7 +61,7 @@ final class TurnPlanner {
                         .min(
                                 Comparator.comparing(
                                                 (InterviewGroupParticipant p) ->
-                                                        p.getTurnOrder() <= currentOrder)
+                                                        p.getTurnOrder() > currentOrder)
                                         .thenComparing(BY_ORDER));
         if (inRound.isPresent()) {
             boolean asked = active.stream().anyMatch(p -> p.getBaseDone() >= round);
