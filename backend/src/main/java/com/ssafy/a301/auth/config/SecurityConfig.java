@@ -128,6 +128,10 @@ public class SecurityConfig {
                                                 "/api/v1/inquiries/*/messages",
                                                 "/api/v1/inquiries/*/close")
                                         .permitAll()
+                                        // LiveKit 웹훅: 회원 인증 대신 LiveKit 서명을 확인한다(그룹면접-설계 6.9)
+                                        .requestMatchers(
+                                                HttpMethod.POST, "/api/v1/webhooks/livekit")
+                                        .permitAll()
                                         .anyRequest()
                                         .authenticated())
                 .exceptionHandling(

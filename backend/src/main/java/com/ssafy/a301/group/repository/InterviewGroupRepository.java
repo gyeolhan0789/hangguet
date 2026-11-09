@@ -43,6 +43,12 @@ public interface InterviewGroupRepository extends JpaRepository<InterviewGroup, 
                 + " com.ssafy.a301.group.domain.GroupStatus.IN_PROGRESS and g.phaseDueAt <= :now")
     List<Long> findDueIds(@Param("now") OffsetDateTime now);
 
+    /** 면접방 참가자를 LiveKit과 맞출 진행 중 그룹(6.9). 막 시작한 그룹은 아직 들어오는 중이라 뺀다 */
+    @Query(
+            "select g.id from InterviewGroup g where g.status ="
+                + " com.ssafy.a301.group.domain.GroupStatus.IN_PROGRESS and g.startedAt <= :before")
+    List<Long> findInProgressIdsStartedBefore(@Param("before") OffsetDateTime before);
+
     /** 면접방 정보를 아직 반영하지 못한 진행 중 그룹(6.5 재동기화) */
     @Query(
             "select g.id from InterviewGroup g where g.status ="

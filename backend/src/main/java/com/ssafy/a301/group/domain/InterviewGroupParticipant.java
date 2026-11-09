@@ -14,6 +14,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -29,6 +30,8 @@ public class InterviewGroupParticipant {
     public static final int MAX_FOLLOWUPS = 2;
     // 한 사람의 기본 질문 수(공통 2 + 개인 2, docs/그룹면접-설계.md 2장)
     public static final int BASE_QUESTIONS = 4;
+    // 진행 중 이탈 뒤 다시 들어올 수 있는 시간. 지나면 면접을 끝낸다(docs/그룹면접-설계.md 2장)
+    public static final Duration ABSENCE_LIMIT = Duration.ofMinutes(2);
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -75,6 +78,10 @@ public class InterviewGroupParticipant {
     // 질문을 모두 마친 시각. 이 뒤에 화면이 5.8을 부른다
     @Column(name = "done_at")
     private OffsetDateTime doneAt;
+
+    // 진행 중 면접방에서 나간 시각. 다시 들어오면 null(6.9)
+    @Column(name = "absent_since")
+    private OffsetDateTime absentSince;
 
     public InterviewGroupParticipant(
             InterviewGroup group,
@@ -139,6 +146,38 @@ public class InterviewGroupParticipant {
         if (doneAt == null) {
             this.doneAt = now;
         }
+    }
+
+    public boolean isAbsent() {
+        return absentSince != null;
+    }
+
+    /** 이탈했으면 이 시각까지 다시 들어올 수 있다. 아니면 null */
+    public OffsetDateTime absentUntil() {
+        return absentSince == null ? null : absentSince.plus(ABSENCE_LIMIT);
+    }
+
+    /** 이탈한 지 2분이 지났다. 다시 들어올 수 없다(5.14) */
+    public boolean isAbsentTooLong(OffsetDateTime now) {
+        return absentSince != null && !now.isBefore(absentUntil());
+    }
+
+    // 6.9. 처음 나간 시각을 둔다(퇴장이 두 번 와도 결과가 같다)
+    public boolean markAbsent(OffsetDateTime at) {
+        if (absentSince != null) {
+            return false;
+        }
+        this.absentSince = at;
+        return true;
+    }
+
+    // 6.9. 다시 들어왔다
+    public boolean markPresent() {
+        if (absentSince == null) {
+            return false;
+        }
+        this.absentSince = null;
+        return true;
     }
 
     // 10.6. 면접은 시작하지 않은 채 남는다

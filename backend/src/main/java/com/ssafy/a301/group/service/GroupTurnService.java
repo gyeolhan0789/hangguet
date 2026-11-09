@@ -217,6 +217,20 @@ public class GroupTurnService {
                 .orElseThrow(() -> new ApiException(ErrorCode.QUESTION_NOT_FOUND));
     }
 
+    /**
+     * 5.14 그룹 면접 재입장. 진행 중 이탈한 사람은 2분 안에만 다시 들어올 수 있다(docs/그룹면접-설계.md 6.9). 2분이 지났으면 마감 처리기가 끝내기
+     * 전이라도 409 INVALID_SESSION_STATE.
+     */
+    public void requireRejoinable(long sessionId) {
+        participants
+                .findBySessionId(sessionId)
+                .filter(p -> p.isAbsentTooLong(OffsetDateTime.now()))
+                .ifPresent(
+                        p -> {
+                            throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+                        });
+    }
+
     private static void afterCommit(Runnable action) {
         TransactionSynchronizationManager.registerSynchronization(
                 new TransactionSynchronization() {

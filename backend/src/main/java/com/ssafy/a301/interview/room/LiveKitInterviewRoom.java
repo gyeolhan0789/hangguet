@@ -27,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -68,8 +69,6 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     // 호출 하나의 시간 제한(BE 설계 5.2). 5.4 · 10.7은 면접 · 그룹 행을 잠근 채 방 만들기·배정(실패하면 방 지우기까지)을 부르므로 최대 15초다
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
     static final String CANDIDATE = "candidate";
-    // 에이전트가 면접방에 들어올 때 쓰는 참가자 이름(AI 명세 6.1)
-    static final String INTERVIEWER = "interviewer";
     // 채팅 최종 답변을 에이전트에게 보내는 메시지 주제(AI 명세 6.7)
     static final String GROUP_ANSWER_TOPIC = "group.answer";
     // 아무도 들어오지 않았거나 모두 나간 방을 닫는 시간(초). 입장 토큰 유효 시간과 같다
@@ -270,6 +269,28 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     @Override
     public void closeGroup(long groupId) {
         delete(groupRoomName(groupId));
+    }
+
+    @Override
+    public Optional<GroupPresence> groupPresence(long groupId) {
+        if (!isConfigured()) {
+            return Optional.empty();
+        }
+        String room = groupRoomName(groupId);
+        try {
+            List<ParticipantInfo> participants = participants(room);
+            return Optional.of(
+                    new GroupPresence(
+                            participants.stream()
+                                    .anyMatch(p -> INTERVIEWER.equals(p.getIdentity())),
+                            participants.stream()
+                                    .map(ParticipantInfo::getIdentity)
+                                    .map(InterviewRoom::groupCandidateSession)
+                                    .flatMap(Optional::stream)
+                                    .collect(Collectors.toSet())));
+        } catch (IOException ex) {
+            throw new UncheckedIOException("그룹 면접방 참가자를 조회하지 못했다: room=" + room, ex);
+        }
     }
 
     @Override

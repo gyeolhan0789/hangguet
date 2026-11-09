@@ -2,6 +2,7 @@ package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
@@ -34,7 +35,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 세션이 있으면 끝낸 사람이 지금 답변자일 때 다음 차례로 넘기고, 끝낸 사람을 면접방에서 내보내고 면접방 정보를 바꾼다. 마지막 세션이면 그룹을 ENDED로 바꾸고 면접방을
  * 지운다. 면접방은 커밋 뒤에 정리한다.
  *
- * <p>아직 하지 않는 것(이탈 감지 · 녹화 합치기를 구현할 때 더함): 이탈 2분 초과로 끝내기, 녹화 합치기 작업(본인 답변 구간 segments가 필요하다, 6.12).
+ * <p>아직 하지 않는 것(녹화 합치기를 구현할 때 더함): 녹화 합치기 작업(본인 답변 구간 segments가 필요하다, 6.12).
  */
 @Service
 public class GroupEndService {
@@ -89,7 +90,7 @@ public class GroupEndService {
      */
     public SessionResponse endByUser(
             long userId, long groupId, long sessionId, BigDecimal gazeRatio) {
-        return endSession(groupId, sessionId, gazeRatio, false);
+        return endSession(groupId, sessionId, gazeRatio, Trigger.USER);
     }
 
     /**
@@ -99,13 +100,23 @@ public class GroupEndService {
      * @return 끝냈으면 true
      */
     public boolean endAfterDone(long groupId, long sessionId) {
-        return endSession(groupId, sessionId, null, true) != null;
+        return endSession(groupId, sessionId, null, Trigger.DONE) != null;
     }
 
-    // 5.8과 완료 뒤 자동 종료가 같은 처리를 탄다. 질문을 모두 마친 뒤면 ALL_ANSWERED, 아니면 USER_ENDED.
-    // onlyDone이면 질문을 모두 마친 진행 중 면접만 끝내고, 아니면 null 대신 409를 던진다
+    /**
+     * 이탈한 지 2분이 지나도 돌아오지 않은 면접을 끝낸다(DISCONNECTED, docs/그룹면접-설계.md 6.9 · 6.10). 그 사이 돌아왔거나 끝났으면 아무것도
+     * 하지 않는다.
+     *
+     * @return 끝냈으면 true
+     */
+    public boolean endDisconnected(long groupId, long sessionId) {
+        return endSession(groupId, sessionId, null, Trigger.DISCONNECTED) != null;
+    }
+
+    // 5.8 · 완료 뒤 자동 종료 · 이탈 2분 초과가 같은 처리를 탄다. 5.8은 질문을 모두 마친 뒤면 ALL_ANSWERED, 아니면 USER_ENDED.
+    // BE가 끝내는 경우는 조건을 잠근 뒤 다시 보고 맞지 않으면 null을 돌려주고, 5.8은 409를 던진다
     private SessionResponse endSession(
-            long groupId, long sessionId, BigDecimal gazeRatio, boolean onlyDone) {
+            long groupId, long sessionId, BigDecimal gazeRatio, Trigger trigger) {
         OffsetDateTime now = OffsetDateTime.now();
         Ended ended =
                 transactions.execute(
@@ -119,11 +130,7 @@ public class GroupEndService {
                                             .filter(p -> p.getSession().getId() == sessionId)
                                             .findFirst()
                                             .orElse(null);
-                            if (onlyDone
-                                    && (participant == null
-                                            || !participant.isDone()
-                                            || participant.getSession().getStatus()
-                                                    != SessionStatus.IN_PROGRESS)) {
+                            if (trigger != Trigger.USER && !trigger.applies(participant, now)) {
                                 return null;
                             }
                             // 대기실에서 나간 참가자의 면접은 시작하지 않았다
@@ -135,9 +142,7 @@ public class GroupEndService {
                                             participant.getSession(),
                                             now,
                                             gazeRatio,
-                                            participant.isDone()
-                                                    ? EndReason.ALL_ANSWERED
-                                                    : EndReason.USER_ENDED,
+                                            trigger.reason(participant),
                                             false);
                             boolean groupEnded = endGroupIfLast(group, locked, now);
                             if (!groupEnded && group.getStatus() == GroupStatus.IN_PROGRESS) {
@@ -176,6 +181,20 @@ public class GroupEndService {
             long groupId = group.getId();
             roomUpdates.publishAfterCommit(group, participants.findActiveByGroupId(groupId), now);
             afterCommit(() -> rooms.closeGroup(groupId));
+        }
+    }
+
+    /**
+     * AI 면접관이 멈췄거나 나갔다(docs/그룹면접-설계.md 6.11). 질문을 하나도 내지 않았으면 시작 실패, 냈으면 남은 면접을 모두 AI_FAILURE로 끝낸다.
+     * 그룹 행 → 면접 행을 잠근 트랜잭션 안에서 부른다.
+     */
+    void stopForAiFailure(InterviewGroup group, List<InterviewSession> locked, OffsetDateTime now) {
+        if (participants.hasAskedQuestion(group.getId())) {
+            LOG.warn("AI 면접관 장애로 그룹 면접을 끝낸다: group={}", group.getId());
+            endAll(group, locked, EndReason.AI_FAILURE, now);
+        } else {
+            LOG.warn("AI 면접관이 첫 질문 전에 멈춰 시작 실패로 둔다: group={}", group.getId());
+            failStart(group, locked);
         }
     }
 
@@ -223,7 +242,9 @@ public class GroupEndService {
             List<InterviewGroupParticipant> active,
             long sessionId,
             OffsetDateTime now) {
-        if (Long.valueOf(sessionId).equals(group.getTurnSessionId())) {
+        // 지금 답변자였거나 이탈한 사람을 기다리던 중이면(그 사람이 끝났을 수 있다) 다음 차례를 다시 정한다
+        if (Long.valueOf(sessionId).equals(group.getTurnSessionId())
+                || group.isPhase(GroupPhase.WAITING)) {
             Integer seq = group.getTurnSeq();
             flow.advance(group, active, false, now);
             if (seq != null) {
@@ -295,4 +316,28 @@ public class GroupEndService {
     }
 
     private record Ended(SessionResponse response, boolean groupEnded) {}
+
+    // 누가 면접을 끝내는지. BE가 끝내는 경우는 잠근 뒤 조건을 다시 본다
+    private enum Trigger {
+        USER,
+        DONE,
+        DISCONNECTED;
+
+        boolean applies(InterviewGroupParticipant participant, OffsetDateTime now) {
+            if (participant == null
+                    || participant.getSession().getStatus() != SessionStatus.IN_PROGRESS) {
+                return false;
+            }
+            return this == DONE
+                    ? participant.isDone()
+                    : !participant.isDone() && participant.isAbsentTooLong(now);
+        }
+
+        EndReason reason(InterviewGroupParticipant participant) {
+            if (this == DISCONNECTED) {
+                return EndReason.DISCONNECTED;
+            }
+            return participant.isDone() ? EndReason.ALL_ANSWERED : EndReason.USER_ENDED;
+        }
+    }
 }

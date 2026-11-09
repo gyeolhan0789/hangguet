@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
+import com.ssafy.a301.interview.room.InterviewRoom.GroupPresence;
 import com.ssafy.a301.interview.room.InterviewRoom.Presence;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -19,6 +20,7 @@ import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import livekit.LivekitAgentDispatch.CreateAgentDispatchRequest;
 import livekit.LivekitEgress.EgressInfo;
@@ -277,6 +279,25 @@ class LiveKitInterviewRoomTest {
                 .isInstanceOf(UncheckedIOException.class);
     }
 
+    // 기준: docs/그룹면접-설계.md 6.9(면접관과 들어와 있는 지원자의 면접 id를 ListParticipants로 본다)
+    @Test
+    void groupPresenceReadsInterviewerAndCandidateSessions() throws Exception {
+        bodies.put(
+                LIST_PARTICIPANTS,
+                participants(
+                        ParticipantInfo.newBuilder().setIdentity("interviewer").build(),
+                        ParticipantInfo.newBuilder().setIdentity("candidate-55").build(),
+                        ParticipantInfo.newBuilder().setIdentity("EG_recorder").build()));
+
+        assertThat(room(apiUrl).groupPresence(7L)).contains(new GroupPresence(true, Set.of(55L)));
+        assertThat(ListParticipantsRequest.parseFrom(requests.get(LIST_PARTICIPANTS)).getRoom())
+                .isEqualTo("group-7");
+
+        statuses.put(LIST_PARTICIPANTS, 500);
+        assertThatThrownBy(() -> room(apiUrl).groupPresence(7L))
+                .isInstanceOf(UncheckedIOException.class);
+    }
+
     // 기준: BE 파트 요청 2(녹화가 진행 중이 아닌 트랙만 같은 S3 설정 · 파일 이름 규칙으로 다시 요청한다)
     @Test
     void ensureTrackRecordingRestartsOnlyTracksWithoutRunningEgress() throws Exception {
@@ -422,6 +443,8 @@ class LiveKitInterviewRoomTest {
         unset.close(55L);
         // 녹화 확인은 면접을 막지 않으므로 설정이 없으면 아무것도 하지 않는다
         assertThatCode(() -> unset.ensureTrackRecording(55L)).doesNotThrowAnyException();
+        // 참가자 맞추기도 보낼 곳이 없으면 하지 않는다
+        assertThat(unset.groupPresence(7L)).isEmpty();
     }
 
     @Test

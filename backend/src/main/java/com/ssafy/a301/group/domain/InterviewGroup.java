@@ -257,6 +257,17 @@ public class InterviewGroup {
         moveTo(null, now, null);
     }
 
+    /** 남은 질문이 이탈한 사람 것뿐이다(6.3 규칙 5). 재접속을 기다리고, dueAt(가장 이른 이탈 + 2분)이 지나면 그 사람의 면접을 끝낸다 */
+    public void waitForReturn(OffsetDateTime now, OffsetDateTime dueAt) {
+        requireInProgress();
+        this.turnSessionId = null;
+        this.turnSeq = null;
+        this.turnKind = null;
+        this.turnAnnounce = null;
+        this.extended = false;
+        moveTo(GroupPhase.WAITING, now, dueAt);
+    }
+
     /** ASKING → SPEAKING. 에이전트가 질문 음성을 보내기 시작했다(question.started) */
     public void startSpeaking(OffsetDateTime now, OffsetDateTime dueAt) {
         requirePhase(GroupPhase.ASKING);

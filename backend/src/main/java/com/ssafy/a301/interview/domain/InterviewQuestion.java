@@ -124,6 +124,12 @@ public class InterviewQuestion {
         this.deadlineAt = deadlineAt;
     }
 
+    /** 그룹 면접에서 답변 중 나갔던 질문을 다시 묻는다(docs/그룹면접-설계.md 6.9). 답변 시간은 새로 센다 */
+    public void reask() {
+        this.spokenAt = null;
+        this.deadlineAt = null;
+    }
+
     /** 10.8 답변 시간 연장 */
     public void extendDeadline(OffsetDateTime deadlineAt) {
         this.deadlineAt = deadlineAt;

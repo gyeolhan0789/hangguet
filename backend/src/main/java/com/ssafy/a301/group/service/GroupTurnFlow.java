@@ -7,7 +7,9 @@ import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -98,7 +100,8 @@ class GroupTurnFlow {
     }
 
     /**
-     * 다음 차례를 정한다(6.3). 방금 답한 사람이 기본 질문을 모두 마쳤고 꼬리질문도 없으면 완료로 남긴다. 남은 질문이 없으면 차례를 비운다.
+     * 다음 차례를 정한다(6.3). 방금 답한 사람이 기본 질문을 모두 마쳤고 꼬리질문도 없으면 완료로 남긴다. 남은 질문이 이탈한 사람 것뿐이면 재접속을
+     * 기다리고(WAITING), 남은 질문이 없으면 차례를 비운다.
      *
      * @param followupNeeded 방금 답한 사람에게 꼬리질문이 정해졌는지
      */
@@ -114,7 +117,17 @@ class GroupTurnFlow {
                 .filter(p -> next.map(turn -> turn.participant() != p).orElse(true))
                 .ifPresent(p -> p.complete(now));
         if (next.isEmpty()) {
-            group.finishTurns(now);
+            Optional<OffsetDateTime> firstAbsent =
+                    active.stream()
+                            .filter(p -> p.getTurnOrder() != null && p.isAnswering())
+                            .map(InterviewGroupParticipant::absentUntil)
+                            .filter(Objects::nonNull)
+                            .min(Comparator.naturalOrder());
+            if (firstAbsent.isPresent()) {
+                group.waitForReturn(now, firstAbsent.get());
+            } else {
+                group.finishTurns(now);
+            }
             return;
         }
         Turn turn = next.get();

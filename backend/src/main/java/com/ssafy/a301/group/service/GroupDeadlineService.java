@@ -9,7 +9,6 @@ import com.ssafy.a301.group.repository.InterviewGroupParticipantRepository;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
-import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
@@ -41,10 +40,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>ASKING: 면접방 정보를 한 번 더 보내고 기다린다. 그래도 질문이 시작되지 않으면 AI 정체다. 질문을 하나도 내지 않았으면 시작 실패, 냈으면 AI 장애로
  *       남은 면접을 모두 끝낸다
  *   <li>질문을 모두 마치고 doneGrace 안에 5.8이 없으면 ALL_ANSWERED로 끝낸다
+ *   <li>이탈한 지 2분이 지나도 돌아오지 않으면 DISCONNECTED로 끝낸다(6.9). WAITING도 이것으로 풀린다
  *   <li>면접방 정보 · 채팅 답변 보내기가 실패했으면 다시 보낸다(6.5 · 6.14)
  * </ul>
- *
- * <p>아직 하지 않는 것(이탈 감지를 구현할 때 더함): WAITING 기한(이탈 2분 초과), 에이전트 퇴장으로 AI 장애 판단.
  */
 @Service
 public class GroupDeadlineService {
@@ -99,7 +97,7 @@ public class GroupDeadlineService {
         this.doneGrace = doneGrace;
     }
 
-    /** 한 주기. 기한이 지난 단계 → 완료 뒤 5.8 없음 → 보내지 못한 면접방 정보 · 채팅 답변 순서로 본다 */
+    /** 한 주기. 기한이 지난 단계 → 완료 뒤 5.8 없음 → 이탈 2분 초과 → 보내지 못한 면접방 정보 · 채팅 답변 순서로 본다 */
     public void tick(OffsetDateTime now) {
         for (long groupId : groups.findDueIds(now)) {
             safely("단계 기한", groupId, () -> expire(groupId, now));
@@ -108,6 +106,13 @@ public class GroupDeadlineService {
             long groupId = (Long) row[0];
             long sessionId = (Long) row[1];
             safely("완료 뒤 종료", groupId, () -> groupEnds.endAfterDone(groupId, sessionId));
+        }
+        for (Object[] row :
+                participants.findOverdueAbsent(
+                        now.minus(InterviewGroupParticipant.ABSENCE_LIMIT))) {
+            long groupId = (Long) row[0];
+            long sessionId = (Long) row[1];
+            safely("이탈 종료", groupId, () -> groupEnds.endDisconnected(groupId, sessionId));
         }
         for (long groupId : groups.findUnsyncedIds()) {
             safely("면접방 정보 재전송", groupId, () -> resync(groupId, now));
@@ -153,7 +158,7 @@ public class GroupDeadlineService {
                 flow.advance(group, active, false, now);
             }
             default -> {
-                // WAITING은 이탈 감지와 함께 구현한다
+                // WAITING은 기다리던 사람이 2분이 지나 끝나면(이탈 종료) 다음 차례를 다시 정한다
                 return;
             }
         }
@@ -202,13 +207,8 @@ public class GroupDeadlineService {
             roomUpdates.publishAfterCommit(group, active, now);
             return;
         }
-        if (participants.hasAskedQuestion(group.getId())) {
-            LOG.warn("AI 면접관이 질문을 시작하지 않아 그룹 면접을 끝낸다: group={}", group.getId());
-            groupEnds.endAll(group, locked, EndReason.AI_FAILURE, now);
-        } else {
-            LOG.warn("AI 면접관이 첫 질문을 시작하지 않아 시작 실패로 둔다: group={}", group.getId());
-            groupEnds.failStart(group, locked);
-        }
+        LOG.warn("AI 면접관이 질문을 시작하지 않는다: group={}", group.getId());
+        groupEnds.stopForAiFailure(group, locked, now);
     }
 
     // 6.5 재동기화. 커밋된 지금 상태를 다시 보낸다

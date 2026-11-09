@@ -3,16 +3,33 @@ package com.ssafy.a301.interview.room;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import java.time.OffsetDateTime;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 면접방(LiveKit, BE 설계 5.6). 방 이름은 interview-{sessionId}, 지원자 참가자 이름은 candidate다. 그룹 면접은 방 이름
  * group-{groupId}, 지원자 참가자 이름 candidate-{sessionId}다(API 명세 10.10). 테스트에서는 가짜로 바꾼다.
  */
 public interface InterviewRoom {
+    // 에이전트가 면접방에 들어올 때 쓰는 참가자 이름(AI 명세 6.1)
+    String INTERVIEWER = "interviewer";
+    String GROUP_CANDIDATE_PREFIX = "candidate-";
 
     /** 그룹 면접방의 지원자 참가자 이름. 에이전트 배정 정보에도 같은 값을 담는다(AI 명세 6.7) */
     static String groupCandidate(long sessionId) {
-        return "candidate-" + sessionId;
+        return GROUP_CANDIDATE_PREFIX + sessionId;
+    }
+
+    /** 그룹 면접방 참가자 이름에서 면접 id를 읽는다. 지원자가 아니면 비어 있다 */
+    static Optional<Long> groupCandidateSession(String identity) {
+        if (identity == null || !identity.startsWith(GROUP_CANDIDATE_PREFIX)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Long.parseLong(identity.substring(GROUP_CANDIDATE_PREFIX.length())));
+        } catch (NumberFormatException ex) {
+            return Optional.empty();
+        }
     }
 
     /** 입장 정보. 외부 호출 없이 API 키로 서명만 한다. 화상은 마이크·카메라 송출, 채팅은 수신·메시지만 */
@@ -58,6 +75,15 @@ public interface InterviewRoom {
 
     /** 그룹 면접방을 지운다. close와 같이 실패해도 던지지 않는다 */
     void closeGroup(long groupId);
+
+    /**
+     * 그룹 면접방에 지금 누가 있는지(ListParticipants, docs/그룹면접-설계.md 6.9). 웹훅이 빠져도 이것으로 이탈 상태를 맞춘다. 방이 없으면 아무도
+     * 없다. 설정이 없으면(로컬) 비어 있고, 조회하지 못하면 던진다.
+     */
+    Optional<GroupPresence> groupPresence(long groupId);
+
+    /** 그룹 면접방 참가자 현황. 면접관이 있는지와 들어와 있는 지원자의 면접 id */
+    record GroupPresence(boolean interviewer, Set<Long> candidates) {}
 
     /** 면접을 끝낸 참가자를 그룹 면접방에서 내보낸다(docs/그룹면접-설계.md 6.10). close와 같이 실패해도 던지지 않는다 */
     void removeGroupParticipant(long groupId, long sessionId);
