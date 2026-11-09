@@ -70,28 +70,31 @@ export function ReviewView({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1152px] flex-col items-center gap-[26px] px-4 pt-8 pb-12">
-      <Celebrate days={review.streakOnDate} first={first} sub={sub} />
-      <ReviewWeek
-        days={reviewWeek(review, today)}
-        streak={review.streakOnDate}
-        first={first}
-        today={today}
-      />
-      {/* 두 카드는 같은 높이로 맞춘다('다음에 해볼 것'은 글이 짧아도 옆 카드만큼 크다. 사용자 결정 2026-10-22). */}
-      <div className="grid w-full max-w-[1120px] gap-5 lg:grid-cols-2">
-        {first ? (
-          <BaselineCard criteria={review.criteria} today={today} />
-        ) : (
-          <ImprovedCard criteria={review.criteria} today={today} />
+    // 종이폭죽 조각이 화면 밖(옆)까지 날아가 문서 폭을 넓히면 모바일에서 화면이 축소돼 보이므로, 화면 폭에서 가로로만 자른다.
+    <div className="w-full overflow-x-clip">
+      <div className="mx-auto flex w-full max-w-[1152px] flex-col items-center gap-[26px] px-4 pt-8 pb-12">
+        <Celebrate days={review.streakOnDate} first={first} sub={sub} />
+        <ReviewWeek
+          days={reviewWeek(review, today)}
+          streak={review.streakOnDate}
+          first={first}
+          today={today}
+        />
+        {/* 두 카드는 같은 높이로 맞춘다('다음에 해볼 것'은 글이 짧아도 옆 카드만큼 크다. 사용자 결정 2026-10-22). */}
+        <div className="grid w-full max-w-[1120px] gap-5 lg:grid-cols-2">
+          {first ? (
+            <BaselineCard criteria={review.criteria} today={today} />
+          ) : (
+            <ImprovedCard criteria={review.criteria} today={today} />
+          )}
+          <NextActionCard actions={review.nextActions} />
+        </div>
+        <ReviewDecision today={today} />
+        {round !== null && surveyUrl && userId !== null && (
+          <SurveyModal round={round} surveyUrl={surveyUrl} userId={userId} />
         )}
-        <NextActionCard actions={review.nextActions} />
+        <Toast />
       </div>
-      <ReviewDecision today={today} />
-      {round !== null && surveyUrl && userId !== null && (
-        <SurveyModal round={round} surveyUrl={surveyUrl} userId={userId} />
-      )}
-      <Toast />
     </div>
   );
 }
