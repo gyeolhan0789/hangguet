@@ -432,6 +432,49 @@ class AiResultServiceTest {
                 .isEqualTo(Outcome.DISCARDED);
     }
 
+    // 기준: AI 명세 1.4 · 6.5(지원자가 모두 떠나 LiveKit이 방을 닫으면 끝내기 5.8과 같이 끝낸다)
+    @Test
+    void roomClosedEndsInterviewLikeUserEnd() {
+        // 답변이 있으면 결과를 만든다
+        InterviewSession answered = startedSession(InterviewMode.VIDEO);
+        results.handle(questionStarted(answered, 1));
+        results.handle(answerCompleted(answered, 1, "조회 쿼리를"));
+        assertThat(results.handle(roomClosed(answered, afterStart(answered))))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(answered.getStatus()).isEqualTo(SessionStatus.ANALYZING);
+        // 같은 메시지가 다시 오면 버린다
+        assertThat(results.handle(roomClosed(answered, afterStart(answered))))
+                .isEqualTo(Outcome.DISCARDED);
+
+        // 답변이 없으면 ABORTED다
+        InterviewSession unanswered = startedSession(InterviewMode.CHAT);
+        assertThat(results.handle(roomClosed(unanswered, afterStart(unanswered))))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(unanswered.getStatus()).isEqualTo(SessionStatus.ABORTED);
+    }
+
+    @Test
+    void roomClosedBeforeRestartOrBeforeStartIsDiscarded() {
+        // 다시 시작(5.4)하기 전 시도의 방이 닫힌 것이 늦게 왔다
+        InterviewSession restarted = startedSession(InterviewMode.VIDEO);
+        assertThat(results.handle(roomClosed(restarted, restarted.getStartedAt().minusSeconds(1))))
+                .isEqualTo(Outcome.DISCARDED);
+        assertThat(restarted.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
+
+        // 시작 전이면 버린다
+        InterviewSession ready = newSession(InterviewMode.VIDEO);
+        assertThat(results.handle(roomClosed(ready, STARTED_AT))).isEqualTo(Outcome.DISCARDED);
+        assertThat(ready.getStatus()).isEqualTo(SessionStatus.READY);
+
+        // 닫힌 시각이 없으면 처리할 수 없다
+        assertThatThrownBy(
+                        () ->
+                                results.handle(
+                                        "{\"type\":\"room.closed\",\"sessionId\":%d}"
+                                                .formatted(restarted.getId())))
+                .isInstanceOf(InvalidAiResultException.class);
+    }
+
     @Test
     void assignmentRejectedAfterQuestionOrBeforeRestartIsDiscarded() {
         // 질문을 낸 뒤에는 배정이 이미 된 것이다
@@ -619,6 +662,13 @@ class AiResultServiceTest {
 
     private static OffsetDateTime afterStart(InterviewSession session) {
         return session.getStartedAt().plusSeconds(1);
+    }
+
+    private static String roomClosed(InterviewSession session, OffsetDateTime occurredAt) {
+        return """
+        {"type":"room.closed","sessionId":%d,"occurredAt":"%s"}
+        """
+                .formatted(session.getId(), occurredAt);
     }
 
     private static String assignmentRejected(
