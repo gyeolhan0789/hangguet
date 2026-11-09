@@ -132,16 +132,20 @@ function WaveBar({ height, level }: { height: number; level: MotionValue<number>
  * 답할 차례(answering)에 마이크 입력이 10초 넘게 0이면 화면 아래에 토스트를 띄우고, 소리가 다시 들어오면 내린다.
  * 답할 차례가 아니면(면접관이 질문을 말하는 중 · 답변을 내는 중 · 다음 질문을 기다리는 중) 세지 않고 토스트도 내리며,
  * 답할 차례가 되면 그때부터 10초를 새로 센다(사용자 결정 2026-11-09: 말할 일이 없는 동안 마이크 안내를 띄우지 않는다).
+ * 카메라 · 마이크를 아예 받지 못한 동안(unavailable)은 답할 차례가 되면 10초를 기다리지 않고 바로 띄운다.
  * [마이크 확인]을 누르면 장치 점검 미니 모달을 연다(onCheck, mic-check-modal.tsx).
  */
 export function MicToast({
   level,
   answering,
+  unavailable = false,
   onCheck,
 }: {
   level: MotionValue<number>;
   /** 사용자가 답할 차례다. 이때만 소리 없는 시간을 센다 */
   answering: boolean;
+  /** 카메라 · 마이크를 받지 못했다(useInterviewMedia). 답할 차례면 10초를 기다리지 않고 띄운다 */
+  unavailable?: boolean;
   /** [마이크 확인]: 장치 점검 미니 모달을 연다 */
   onCheck: () => void;
 }) {
@@ -185,7 +189,7 @@ export function MicToast({
       className="pointer-events-none fixed inset-x-0 bottom-11 z-30 flex justify-center px-4"
     >
       <AnimatePresence>
-        {silent && answering && (
+        {(silent || unavailable) && answering && (
           <motion.div
             className="flex h-14 w-full max-w-[500px] items-center gap-2.5 rounded-2xl bg-[#191f28] px-[18px]"
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40 }}

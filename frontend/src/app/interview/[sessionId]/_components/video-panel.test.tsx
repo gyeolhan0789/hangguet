@@ -62,6 +62,16 @@ describe("MicToast (S06-F 마이크 끊김)", () => {
   });
 
   // 사용자 결정(2026-11-09: 면접관이 질문을 말하는 중 · 답변을 내는 중 · 다음 질문을 기다리는 중에는 세지 않는다)
+  it("카메라 · 마이크를 받지 못했으면(unavailable) 답할 차례에 바로 띄우고, 답할 차례가 아니면 띄우지 않는다", () => {
+    const { rerender } = render(
+      <MicToast level={motionValue(0)} answering unavailable onCheck={() => {}} />,
+    );
+    expect(screen.getByText(TOAST)).toBeTruthy();
+
+    rerender(<MicToast level={motionValue(0)} answering={false} unavailable onCheck={() => {}} />);
+    expect(screen.queryByText(TOAST)).toBeNull();
+  });
+
   it("답할 차례가 아니면 소리가 10초 넘게 0이어도 토스트를 띄우지 않는다", () => {
     render(<MicToast level={motionValue(0)} answering={false} onCheck={() => {}} />);
 

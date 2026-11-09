@@ -400,7 +400,7 @@ function VideoInterview({
   }, [duckCall]);
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
-  const { stream, level } = useInterviewMedia();
+  const { stream, level, unavailable } = useInterviewMedia();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
@@ -578,7 +578,12 @@ function VideoInterview({
         </AnswerCaption>
       </Dialog>
       <div className={uiHidden ? "hidden" : "contents"}>
-        <MicToast level={level} answering={answering} onCheck={() => setMicCheckOpen(true)} />
+        <MicToast
+          level={level}
+          answering={answering}
+          unavailable={unavailable}
+          onCheck={() => setMicCheckOpen(true)}
+        />
       </div>
       <MicCheckModal
         open={micCheckOpen}
