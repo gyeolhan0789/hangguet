@@ -100,6 +100,10 @@ public class InterviewGroup {
     @Column(name = "turn_version", nullable = false)
     private int turnVersion;
 
+    // 지금 차례를 정했을 때의 turnVersion. 에이전트 메시지는 이 값 이상 turnVersion 이하일 때만 지금 차례의 것으로 본다
+    @Column(name = "turn_started_version", nullable = false)
+    private int turnStartedVersion;
+
     // 현재 질문의 답변 마감. ANSWERING에서만 값이 있다
     @Column(name = "deadline_at")
     private OffsetDateTime deadlineAt;
@@ -185,10 +189,125 @@ public class InterviewGroup {
         this.turnKind = TurnKind.COMMON;
         this.turnAnnounce = TurnAnnounce.FULL;
         this.turnVersion++;
+        this.turnStartedVersion = turnVersion;
         this.deadlineAt = null;
         this.extended = false;
         this.phaseDueAt = now.plus(askingTimeout);
         this.progressedAt = now;
+    }
+
+    /**
+     * 에이전트 메시지가 지금 차례의 것인지(docs/그룹면접-설계.md 8.4). 같은 답변자 · 질문 순서이고, 차례를 정한 뒤의 면접방 정보를 보고 보낸 것이어야 한다.
+     * 차례 안에서도 단계 · 연장으로 버전이 오르므로 같은 값이 아니라 범위로 본다.
+     */
+    public boolean isCurrentTurn(long sessionId, int seq, int version) {
+        return status == GroupStatus.IN_PROGRESS
+                && turnSessionId != null
+                && turnSessionId == sessionId
+                && turnSeq != null
+                && turnSeq == seq
+                && version >= turnStartedVersion
+                && version <= turnVersion;
+    }
+
+    public boolean isPhase(GroupPhase phase) {
+        return status == GroupStatus.IN_PROGRESS && this.phase == phase;
+    }
+
+    /**
+     * 다음 차례를 정한다(6.3). 에이전트가 askingTimeout 안에 질문을 시작하지 않으면 정체로 본다(6.11).
+     *
+     * @param announce 질문 전체를 말할지 같은 공통 질문의 다음 답변자를 호명만 할지
+     */
+    public void assignTurn(
+            OffsetDateTime now,
+            int round,
+            long sessionId,
+            int seq,
+            TurnKind kind,
+            TurnAnnounce announce,
+            Duration askingTimeout) {
+        requireInProgress();
+        this.round = round;
+        this.turnSessionId = sessionId;
+        this.turnSeq = seq;
+        this.turnKind = kind;
+        this.turnAnnounce = announce;
+        this.extended = false;
+        moveTo(GroupPhase.ASKING, now, now.plus(askingTimeout));
+        this.turnStartedVersion = turnVersion;
+    }
+
+    /** 남은 질문이 없다(6.3 규칙 6). 남은 사람은 질문을 모두 마치고 5.8을 기다린다 */
+    public void finishTurns(OffsetDateTime now) {
+        requireInProgress();
+        this.turnSessionId = null;
+        this.turnSeq = null;
+        this.turnKind = null;
+        this.turnAnnounce = null;
+        this.extended = false;
+        moveTo(null, now, null);
+    }
+
+    /** ASKING → SPEAKING. 에이전트가 질문 음성을 보내기 시작했다(question.started) */
+    public void startSpeaking(OffsetDateTime now, OffsetDateTime dueAt) {
+        requirePhase(GroupPhase.ASKING);
+        moveTo(GroupPhase.SPEAKING, now, dueAt);
+    }
+
+    /** SPEAKING → ANSWERING. 질문 음성이 끝나 답변 시간을 시작했다(question.spoken) */
+    public void startAnswering(
+            OffsetDateTime now, OffsetDateTime deadlineAt, OffsetDateTime dueAt) {
+        requirePhase(GroupPhase.SPEAKING);
+        moveTo(GroupPhase.ANSWERING, now, dueAt);
+        this.deadlineAt = deadlineAt;
+    }
+
+    /** ANSWERING → DECIDING. 최종 답변을 저장해 에이전트의 꼬리질문 판단을 기다린다 */
+    public void startDeciding(OffsetDateTime now, OffsetDateTime dueAt) {
+        requirePhase(GroupPhase.ANSWERING);
+        moveTo(GroupPhase.DECIDING, now, dueAt);
+    }
+
+    /** 10.8. 답변 마감을 늦춘다. 한 질문에 한 번만이고 조건은 부르는 쪽이 확인한다 */
+    public void extend(OffsetDateTime now, OffsetDateTime deadlineAt, OffsetDateTime dueAt) {
+        requirePhase(GroupPhase.ANSWERING);
+        if (extended) {
+            throw new IllegalStateException("이미 연장한 질문이다: " + id);
+        }
+        this.extended = true;
+        this.deadlineAt = deadlineAt;
+        this.phaseDueAt = dueAt;
+        this.turnVersion++;
+        this.progressedAt = now;
+    }
+
+    /** 차례는 그대로이고 참가자 상태만 바뀌었다(세션 종료 · 질문을 모두 마침). 면접방 정보를 다시 보내도록 버전만 올린다 */
+    public void touch(OffsetDateTime now) {
+        requireInProgress();
+        this.turnVersion++;
+        this.progressedAt = now;
+    }
+
+    // 단계가 바뀔 때마다 버전을 올린다. 마감은 ANSWERING에서만 둔다
+    private void moveTo(GroupPhase phase, OffsetDateTime now, OffsetDateTime dueAt) {
+        this.phase = phase;
+        this.deadlineAt = null;
+        this.phaseDueAt = dueAt;
+        this.turnVersion++;
+        this.progressedAt = now;
+    }
+
+    private void requirePhase(GroupPhase expected) {
+        if (!isPhase(expected)) {
+            throw new IllegalStateException("단계가 " + expected + "가 아니다: " + id + " " + phase);
+        }
+    }
+
+    private void requireInProgress() {
+        if (status != GroupStatus.IN_PROGRESS) {
+            throw new IllegalStateException("진행 중인 그룹이 아니다: " + id);
+        }
     }
 
     /** 마지막 세션이 끝났다(docs/그룹면접-설계.md 6.10). 진행 단계 · 기한을 지워 더는 진행하지 않는다 */

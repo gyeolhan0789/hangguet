@@ -170,8 +170,21 @@ group:
   waiting-expiry: 1h
   # 방장이 대기실 조회(10.4)를 이 시간 넘게 멈추면 다른 참가자의 조회 때 방장을 넘긴다
   lobby-host-timeout: 10s
-  # 시작(10.7) 뒤 에이전트가 이 시간 안에 첫 질문을 시작하지 않으면 정체로 본다(docs/그룹면접-설계.md 5.2, 임시 값)
+  # 차례를 정한 뒤 에이전트가 이 시간 안에 질문을 시작하지 않으면 정체로 본다(docs/그룹면접-설계.md 5.2, 임시 값)
   asking-timeout: 20s
+  # 질문 음성 길이(speechMs)를 받지 못했을 때 쓰는 값과, 음성이 끝났다는 메시지를 기다리는 여유(6.4)
+  default-speech: 60s
+  speaking-grace: 5s
+  # 답변 시간(6.6). 화상은 마감 뒤 에이전트의 자동 제출을 기다리는 여유를 둔다
+  answer-time:
+    video: 2m
+    chat: 5m
+  video-answer-grace: 5s
+  # 10.8 답변 시간 연장. 남은 시간이 extend-window 이하일 때 한 번 extend-time만큼 늘린다
+  extend-time: 1m
+  extend-window: 30s
+  # 꼬리질문 판단을 기다리는 시간(결정 값). 측정 뒤 2~3초로 줄일지 본다(6.4)
+  followup-decision-timeout: 7s
   # 안전장치(docs/그룹면접-설계.md 6.11). 시작한 지 화상 · 채팅 상한이 지났고 마지막 진행 뒤 멈춘 시간이 지난 그룹의 남은 세션을 끝낸다
   cleanup:
     interval: 1m

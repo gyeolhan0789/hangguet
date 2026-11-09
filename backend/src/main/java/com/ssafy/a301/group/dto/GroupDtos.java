@@ -107,6 +107,9 @@ public final class GroupDtos {
                             nullable = true)
                     RoomResponse room) {}
 
+    /** 10.8 답변 시간 연장 응답 */
+    public record ExtendResponse(@Schema(description = "늘어난 답변 마감") OffsetDateTime deadlineAt) {}
+
     /** 면접방 정보(LiveKit room metadata, API 명세 10.11). BE만 쓰고 화면 · 에이전트는 읽는다. 10.4 turn도 같은 형식이다 */
     public record RoomInfo(
             @Schema(description = "바뀔 때마다 1씩 는다. 가진 값보다 작거나 같으면 버린다", example = "17")
@@ -115,8 +118,9 @@ public final class GroupDtos {
                     OffsetDateTime serverTime,
             GroupStatus groupStatus,
             @Schema(description = "현재 라운드 1~4", example = "2") int round,
-            GroupPhase phase,
-            TurnInfo turn,
+            @Schema(description = "진행 단계. 남은 질문이 없으면 null", nullable = true) GroupPhase phase,
+            @Schema(description = "지금 차례. 남은 질문이 없으면(모두 DONE · ENDED) null", nullable = true)
+                    TurnInfo turn,
             List<RoomParticipant> participants,
             @Schema(description = "이 라운드에서 지금 답변자 다음에 답할 면접 id 순서", example = "[56, 57]")
                     List<Long> upcoming) {}
@@ -134,7 +138,7 @@ public final class GroupDtos {
             @Schema(description = "답변 마감. ANSWERING에서만, 그 밖에는 null", nullable = true)
                     OffsetDateTime deadlineAt,
             @Schema(description = "이 질문에서 답변 시간을 연장했는지", example = "false") boolean extended,
-            @Schema(description = "이 답변자가 더 받을 수 있는 꼬리질문 수 0~2", example = "2")
+            @Schema(description = "이 답변자가 더 받을 수 있는 꼬리질문 수 0~2(끝낸 꼬리질문을 뺀 수)", example = "2")
                     int followupsLeft) {}
 
     public record RoomParticipant(

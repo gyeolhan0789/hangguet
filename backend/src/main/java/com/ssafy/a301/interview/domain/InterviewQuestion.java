@@ -1,7 +1,10 @@
 package com.ssafy.a301.interview.domain;
 
+import com.ssafy.a301.group.domain.TurnKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -56,6 +59,22 @@ public class InterviewQuestion {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    // 그룹 면접의 질문 종류(docs/그룹면접-설계.md 4.3). 개인 면접은 null
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private TurnKind kind;
+
+    // 그룹 면접에서 질문 음성이 끝나 답변 시간을 시작한 시각과 연장을 반영한 답변 마감. 개인 면접은 null
+    @Column(name = "spoken_at")
+    private OffsetDateTime spokenAt;
+
+    @Column(name = "deadline_at")
+    private OffsetDateTime deadlineAt;
+
+    // 그룹 면접에서 답 없이 마감한 시각
+    @Column(name = "closed_at")
+    private OffsetDateTime closedAt;
+
     public InterviewQuestion(InterviewSession session, int seq, String content) {
         this(session, seq, content, OffsetDateTime.now());
     }
@@ -80,5 +99,37 @@ public class InterviewQuestion {
         this.promptVersion = promptVersion;
         this.modelVersion = modelVersion;
         this.createdAt = askedAt;
+    }
+
+    /** 그룹 면접의 질문(question.started, docs/그룹면접-설계.md 6.4) */
+    public static InterviewQuestion groupTurn(
+            InterviewSession session,
+            int seq,
+            TurnKind kind,
+            String content,
+            String criteria,
+            String promptVersion,
+            String modelVersion,
+            OffsetDateTime askedAt) {
+        InterviewQuestion question =
+                new InterviewQuestion(
+                        session, seq, content, criteria, promptVersion, modelVersion, askedAt);
+        question.kind = kind;
+        return question;
+    }
+
+    /** 질문 음성이 끝나 답변 시간을 시작했다(question.spoken 또는 기한 초과) */
+    public void startAnswering(OffsetDateTime spokenAt, OffsetDateTime deadlineAt) {
+        this.spokenAt = spokenAt;
+        this.deadlineAt = deadlineAt;
+    }
+
+    /** 10.8 답변 시간 연장 */
+    public void extendDeadline(OffsetDateTime deadlineAt) {
+        this.deadlineAt = deadlineAt;
+    }
+
+    public boolean isClosed() {
+        return closedAt != null;
     }
 }

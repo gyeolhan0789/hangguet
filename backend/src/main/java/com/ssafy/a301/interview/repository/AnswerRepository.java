@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.repository;
 import com.ssafy.a301.interview.domain.Answer;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -25,6 +26,8 @@ public interface AnswerRepository extends JpaRepository<Answer, Long> {
     List<SessionAnswerCount> countBySessionIds(@Param("sessionIds") Collection<Long> sessionIds);
 
     boolean existsByQuestionId(Long questionId);
+
+    Optional<Answer> findByQuestionId(Long questionId);
 
     /** 면접에서 지금까지 낸 답변 수 */
     int countByQuestionSessionId(Long sessionId);

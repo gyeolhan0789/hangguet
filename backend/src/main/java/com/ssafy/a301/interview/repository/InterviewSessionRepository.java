@@ -275,6 +275,10 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     List<InterviewSession> findAwaitingFirstQuestion(
             @Param("before") OffsetDateTime before, Limit limit);
 
+    /** 면접이 속한 그룹. 그룹 행부터 잠그기 전에 읽는다(잠금 순서: 그룹 → 면접). 개인 면접이거나 없으면 비어 있다 */
+    @Query("select s.groupId from InterviewSession s where s.id = :id")
+    Optional<Long> findGroupIdById(@Param("id") long id);
+
     /** 그룹 면접 참가자들의 면접을 id 순서로 잠근다(잠금 순서: 그룹 → 면접, docs/그룹면접-설계.md 9장) */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from InterviewSession s where s.id in :ids order by s.id")

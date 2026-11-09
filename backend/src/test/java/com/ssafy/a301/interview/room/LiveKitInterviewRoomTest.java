@@ -26,6 +26,7 @@ import livekit.LivekitEgress.EgressStatus;
 import livekit.LivekitEgress.ListEgressRequest;
 import livekit.LivekitEgress.ListEgressResponse;
 import livekit.LivekitEgress.TrackEgressRequest;
+import livekit.LivekitModels.DataPacket;
 import livekit.LivekitModels.ParticipantInfo;
 import livekit.LivekitModels.TrackInfo;
 import livekit.LivekitModels.TrackType;
@@ -34,6 +35,8 @@ import livekit.LivekitRoom.DeleteRoomRequest;
 import livekit.LivekitRoom.ListParticipantsRequest;
 import livekit.LivekitRoom.ListParticipantsResponse;
 import livekit.LivekitRoom.RoomParticipantIdentity;
+import livekit.LivekitRoom.SendDataRequest;
+import livekit.LivekitRoom.UpdateRoomMetadataRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -363,6 +366,40 @@ class LiveKitInterviewRoomTest {
         room(apiUrl).removeGroupParticipant(7L, 55L);
         server.stop(0);
         room(apiUrl).removeGroupParticipant(7L, 55L);
+    }
+
+    @Test
+    void groupInfoAndAnswerGoToGroupRoomAndIgnoreFailures() throws Exception {
+        String metadataPath = "/twirp/livekit.RoomService/UpdateRoomMetadata";
+        String dataPath = "/twirp/livekit.RoomService/SendData";
+        room(apiUrl).updateGroupInfo(7L, "{\"turnVersion\":2}");
+        room(apiUrl).sendGroupAnswer(7L, "{\"seq\":1}");
+
+        UpdateRoomMetadataRequest metadata =
+                UpdateRoomMetadataRequest.parseFrom(requests.get(metadataPath));
+        assertThat(metadata.getRoom()).isEqualTo("group-7");
+        assertThat(metadata.getMetadata()).isEqualTo("{\"turnVersion\":2}");
+        // 채팅 답변은 에이전트에게만 group.answer 주제로 보낸다
+        SendDataRequest data = SendDataRequest.parseFrom(requests.get(dataPath));
+        assertThat(data.getRoom()).isEqualTo("group-7");
+        assertThat(data.getData().toStringUtf8()).isEqualTo("{\"seq\":1}");
+        assertThat(data.getDestinationIdentitiesList()).containsExactly("interviewer");
+        assertThat(data.getTopic()).isEqualTo("group.answer");
+        assertThat(data.getKind()).isEqualTo(DataPacket.Kind.RELIABLE);
+        JsonNode grant =
+                claims(authorizations.get(metadataPath).substring("Bearer ".length()))
+                        .path("video");
+        assertThat(grant.path("roomAdmin").asBoolean()).isTrue();
+        assertThat(grant.path("room").asString()).isEqualTo("group-7");
+
+        // 서버 오류 · 연결 실패도 던지지 않는다(업무는 이미 커밋했다)
+        statuses.put(metadataPath, 500);
+        statuses.put(dataPath, 500);
+        room(apiUrl).updateGroupInfo(7L, "{}");
+        room(apiUrl).sendGroupAnswer(7L, "{}");
+        server.stop(0);
+        room(apiUrl).updateGroupInfo(7L, "{}");
+        room(apiUrl).sendGroupAnswer(7L, "{}");
     }
 
     @Test

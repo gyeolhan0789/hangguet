@@ -1,6 +1,7 @@
 package com.ssafy.a301.group.domain;
 
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,6 +27,8 @@ import lombok.NoArgsConstructor;
 public class InterviewGroupParticipant {
     // 한 사람이 받을 수 있는 꼬리질문 수(API 명세 10장)
     public static final int MAX_FOLLOWUPS = 2;
+    // 한 사람의 기본 질문 수(공통 2 + 개인 2, docs/그룹면접-설계.md 2장)
+    public static final int BASE_QUESTIONS = 4;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -69,6 +72,10 @@ public class InterviewGroupParticipant {
     @Column(name = "followups_used", nullable = false)
     private int followupsUsed;
 
+    // 질문을 모두 마친 시각. 이 뒤에 화면이 5.8을 부른다
+    @Column(name = "done_at")
+    private OffsetDateTime doneAt;
+
     public InterviewGroupParticipant(
             InterviewGroup group,
             User user,
@@ -98,6 +105,40 @@ public class InterviewGroupParticipant {
     // 10.7. 처음 시작할 때 무작위로 정하고, 다시 시작하면 남은 참가자끼리 같은 순서로 다시 센다
     public void assignTurnOrder(int turnOrder) {
         this.turnOrder = turnOrder;
+    }
+
+    /** 다음에 받을 질문의 면접 안 순서(1~6). 끝낸 기본 질문 · 꼬리질문 다음이다 */
+    public int nextSeq() {
+        return baseDone + followupsUsed + 1;
+    }
+
+    /** 질문을 더 받을 수 있다. 면접이 진행 중이고 질문을 모두 마치지 않았다 */
+    public boolean isAnswering() {
+        return session.getStatus() == SessionStatus.IN_PROGRESS && doneAt == null;
+    }
+
+    public boolean isDone() {
+        return doneAt != null;
+    }
+
+    public boolean canReceiveFollowup() {
+        return followupsUsed < MAX_FOLLOWUPS;
+    }
+
+    // 지금 차례의 질문을 끝냈다(답했든 시간이 다 됐든)
+    public void finishQuestion(TurnKind kind) {
+        if (kind == TurnKind.FOLLOWUP) {
+            followupsUsed++;
+        } else {
+            baseDone++;
+        }
+    }
+
+    // 기본 질문을 모두 마쳤고 꼬리질문도 없다
+    public void complete(OffsetDateTime now) {
+        if (doneAt == null) {
+            this.doneAt = now;
+        }
     }
 
     // 10.6. 면접은 시작하지 않은 채 남는다

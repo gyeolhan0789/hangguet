@@ -60,6 +60,8 @@ public enum ErrorCode {
     GROUP_SESSION(HttpStatus.CONFLICT, "그룹 면접은 방장이 그룹에서 시작해요."),
     GROUP_NOT_READY(HttpStatus.CONFLICT, "모든 참가자가 준비하고 질문 준비가 끝나야 시작할 수 있어요."),
     NOT_GROUP_HOST(HttpStatus.FORBIDDEN, "방장만 시작할 수 있어요."),
+    QUESTION_CLOSED(HttpStatus.CONFLICT, "지금 답할 수 있는 질문이 아니에요."),
+    EXTEND_NOT_ALLOWED(HttpStatus.CONFLICT, "지금은 답변 시간을 늘릴 수 없어요."),
 
     // 결과·성장 리뷰
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),
