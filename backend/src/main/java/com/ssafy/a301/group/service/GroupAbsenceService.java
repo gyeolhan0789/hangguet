@@ -241,6 +241,8 @@ public class GroupAbsenceService {
             question.close(now);
             flow.finishQuestion(group, active, false, now);
         } else {
+            // 녹화의 본인 답변 구간은 여기서 끊긴다(6.12)
+            question.interrupt(now);
             flow.advance(group, active, false, now);
         }
         long questionId = question.getId();

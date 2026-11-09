@@ -69,7 +69,8 @@ public class ResultController {
                       "reasons": [ { "metric": "CONFIDENCE", "count": null, "text": "고개가 숙여졌어요. 화면 속 면접관을 보며 말해 보세요." },
                                    { "metric": "FILLER", "count": 3, "text": "'음'이 이어졌어요. 생각할 때는 소리 없이 잠깐 멈춰도 괜찮아요." } ] } ] } },
                 { "questionId": 305, "seq": 5, "question": "대용량 트래픽 처리 방법은?", "questionCreatedAt": "2026-10-15T12:14:30+09:00",
-                  "answer": "읽기 부하는 캐시로…", "answerCreatedAt": "2026-10-15T12:17:40+09:00", "grade": "GOOD", "timeline": null } ] }\
+                  "answer": "읽기 부하는 캐시로…", "answerCreatedAt": "2026-10-15T12:17:40+09:00", "grade": "GOOD", "timeline": null } ],
+              "segments": null }\
             """;
 
     private final Stub stub;

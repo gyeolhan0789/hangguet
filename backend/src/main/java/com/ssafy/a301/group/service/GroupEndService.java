@@ -9,14 +9,18 @@ import com.ssafy.a301.group.domain.InterviewGroupParticipant;
 import com.ssafy.a301.group.repository.GroupDraftStore;
 import com.ssafy.a301.group.repository.InterviewGroupParticipantRepository;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
+import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.service.AiJobService;
 import com.ssafy.a301.interview.service.SessionEnder;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -33,9 +37,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 그룹 세션 종료 · 그룹 종료(docs/그룹면접-설계.md 6.10). 그룹 행 → 참가자 면접 행(id 순서)을 잠그고, 세션 하나를 개인 면접 5.8과 같이 끝낸다. 남은
  * 세션이 있으면 끝낸 사람이 지금 답변자일 때 다음 차례로 넘기고, 끝낸 사람을 면접방에서 내보내고 면접방 정보를 바꾼다. 마지막 세션이면 그룹을 ENDED로 바꾸고 면접방을
- * 지운다. 면접방은 커밋 뒤에 정리한다.
- *
- * <p>아직 하지 않는 것(녹화 합치기를 구현할 때 더함): 녹화 합치기 작업(본인 답변 구간 segments가 필요하다, 6.12).
+ * 지운다. 화상 그룹이면 그때 녹화 합치기 작업을 넣는다(6.12). 면접방은 커밋 뒤에 정리한다.
  */
 @Service
 public class GroupEndService {
@@ -51,6 +53,8 @@ public class GroupEndService {
     private final GroupRoomUpdates roomUpdates;
     private final GroupDraftStore drafts;
     private final TransactionTemplate transactions;
+    private final AiJobService aiJobs;
+    private final RecordingRepository recordings;
     private final Duration videoLimit;
     private final Duration chatLimit;
     private final Duration stallLimit;
@@ -66,6 +70,8 @@ public class GroupEndService {
             GroupRoomUpdates roomUpdates,
             GroupDraftStore drafts,
             TransactionTemplate transactions,
+            AiJobService aiJobs,
+            RecordingRepository recordings,
             @Value("${group.cleanup.video-limit:60m}") Duration videoLimit,
             @Value("${group.cleanup.chat-limit:100m}") Duration chatLimit,
             @Value("${group.cleanup.stall-limit:5m}") Duration stallLimit) {
@@ -79,6 +85,8 @@ public class GroupEndService {
         this.roomUpdates = roomUpdates;
         this.drafts = drafts;
         this.transactions = transactions;
+        this.aiJobs = aiJobs;
+        this.recordings = recordings;
         this.videoLimit = videoLimit;
         this.chatLimit = chatLimit;
         this.stallLimit = stallLimit;
@@ -281,14 +289,33 @@ public class GroupEndService {
     }
 
     // 그룹 종료 판단은 "그룹 세션 중 IN_PROGRESS가 없음" 하나다(5.3). 동시에 끝나도 그룹 행 잠금으로 하나씩 처리되어 한 번만 끝낸다
-    private static boolean endGroupIfLast(
+    private boolean endGroupIfLast(
             InterviewGroup group, List<InterviewSession> locked, OffsetDateTime now) {
         if (group.getStatus() != GroupStatus.IN_PROGRESS
                 || locked.stream().anyMatch(s -> s.getStatus() == SessionStatus.IN_PROGRESS)) {
             return false;
         }
         group.end(now);
+        if (group.getMode() == InterviewMode.VIDEO) {
+            mergeRecordings(locked);
+        }
         return true;
+    }
+
+    // 6.10 종료 처리 5 · 6.12. 면접관 음성 녹화는 방이 닫혀야 끝나므로 그룹이 끝날 때 화상 세션마다 합치기 작업을 넣는다. 답변이 없어 결과가 없는
+    // 면접(ABORTED)은 다시보기도 없어 넣지 않는다. 다시보기가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다. 이 행을 만든
+    // 시각(그룹 종료)부터 합치기 결과를 기다린다(API 명세 6.4)
+    private void mergeRecordings(List<InterviewSession> locked) {
+        for (InterviewSession session : locked) {
+            if (session.getStatus() == SessionStatus.ABORTED
+                    || recordings
+                            .findByObjectKey(Recording.sessionVideoKey(session.getId()))
+                            .isPresent()) {
+                continue;
+            }
+            aiJobs.enqueue(AiJob.mergeRecording(session.getId()));
+            recordings.save(Recording.mergingSessionVideo(session));
+        }
     }
 
     private static void afterCommit(Runnable action) {

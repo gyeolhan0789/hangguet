@@ -44,16 +44,22 @@ import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.repository.AiJobQueue;
+import com.ssafy.a301.interview.repository.AiJobRepository;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.interview.room.GroupRoomEvent;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.room.InterviewRoom.GroupPresence;
+import com.ssafy.a301.interview.service.AiJobMessages;
 import com.ssafy.a301.interview.service.AiResultService;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.interview.service.InterviewCapacity;
 import com.ssafy.a301.interview.service.InvalidAiResultException;
+import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
+import com.ssafy.a301.result.dto.ResultDtos.ReplaySegment;
+import com.ssafy.a301.result.dto.ResultDtos.VideoStatus;
+import com.ssafy.a301.result.service.ResultService;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -86,6 +92,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -110,6 +117,10 @@ class InterviewGroupIntegrationTest {
     @Autowired private GroupResultService groupResults;
     @Autowired private GroupDeadlineService deadlines;
     @Autowired private GroupAbsenceService absences;
+    @Autowired private ResultService resultService;
+    @Autowired private AiJobMessages jobMessages;
+    @Autowired private AiJobRepository aiJobRepository;
+    @Autowired private TransactionTemplate transactions;
     @Autowired private InterviewGroupRepository groups;
     @Autowired private MeterRegistry meters;
     @Autowired private JdbcTemplate jdbc;
@@ -150,6 +161,7 @@ class InterviewGroupIntegrationTest {
             jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_plans WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM ai_job_outbox WHERE session_id IN (" + sessionsOfUser + ")");
+            jdbc.update("DELETE FROM recordings WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
         }
         for (long id : userIds) {
@@ -615,8 +627,22 @@ class InterviewGroupIntegrationTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> assignment = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<String> metadata = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<OffsetDateTime> startedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
         verify(rooms)
-                .openGroup(eq(group.groupId()), eq(true), assignment.capture(), metadata.capture());
+                .openGroup(
+                        eq(group.groupId()),
+                        eq(true),
+                        assignment.capture(),
+                        metadata.capture(),
+                        startedAt.capture());
+        // 녹화 원본 위치를 나눌 시작 시도 시각은 그룹 · 면접 시작 시각이다
+        assertThat(
+                        sessions.findById(group.sessionIds().get(0))
+                                .orElseThrow()
+                                .getStartedAt()
+                                .toInstant()
+                                .toEpochMilli())
+                .isEqualTo(startedAt.getValue().toInstant().toEpochMilli());
         verify(rooms, never()).open(anyLong(), anyBoolean(), anyMap());
         JsonNode dispatched = json.valueToTree(assignment.getValue());
         assertThat(dispatched.path("kind").asString()).isEqualTo("GROUP");
@@ -693,7 +719,7 @@ class InterviewGroupIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_READY"));
         assertThat(groupStatus(groupId)).isEqualTo("WAITING");
-        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString(), any());
     }
 
     @Test
@@ -701,7 +727,7 @@ class InterviewGroupIntegrationTest {
         ReadyGroup group = readyGroup(2);
         doThrow(new ApiException(ErrorCode.ROOM_UNAVAILABLE))
                 .when(rooms)
-                .openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+                .openGroup(anyLong(), anyBoolean(), anyMap(), anyString(), any());
 
         mvc.perform(startRequest(group.host(), group.groupId()))
                 .andExpect(status().isServiceUnavailable())
@@ -765,8 +791,8 @@ class InterviewGroupIntegrationTest {
                 .isTrue();
         verify(rooms).closeGroup(group.groupId());
         verify(rooms, never()).removeGroupParticipant(group.groupId(), guestSession);
-        // 녹화 합치기는 본인 답변 구간(segments)이 생긴 뒤에 넣는다(6.12). 개인 면접 경로로도 넣지 않는다
-        assertThat(jobTypes(hostSession)).doesNotContain("MERGE_RECORDING");
+        // 녹화 합치기는 그룹이 끝날 때 넣는다(6.12). 개인 면접 방은 쓰지 않는다
+        assertThat(jobTypes(hostSession)).contains("MERGE_RECORDING");
         verify(rooms, never()).close(anyLong());
     }
 
@@ -830,7 +856,7 @@ class InterviewGroupIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INTERVIEW_CAPACITY_FULL"));
 
         verify(interviewCapacity).reserveVideo(any());
-        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString());
+        verify(rooms, never()).openGroup(anyLong(), anyBoolean(), anyMap(), anyString(), any());
         assertThat(groupStatus(group.groupId())).isEqualTo("WAITING");
         for (long sessionId : group.sessionIds()) {
             assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
@@ -1350,12 +1376,14 @@ class InterviewGroupIntegrationTest {
         handle(questionStarted(a, 1, turnVersion(group.groupId())));
         handle(questionSpoken(a, 1, turnVersion(group.groupId())));
 
+        OffsetDateTime firstAsked = askedAt(questionId(a, 1));
         assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isTrue();
         assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isFalse();
         assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
         assertThat(
                         jdbc.queryForObject(
-                                "SELECT closed_at IS NULL FROM interview_questions WHERE id = ?",
+                                "SELECT closed_at IS NULL AND interrupted_at IS NOT NULL FROM"
+                                        + " interview_questions WHERE id = ?",
                                 Boolean.class,
                                 questionId(a, 1)))
                 .isTrue();
@@ -1383,6 +1411,15 @@ class InterviewGroupIntegrationTest {
                 .isEqualTo(Outcome.SAVED);
         assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
         assertThat(questionKinds(a)).hasSize(1);
+        // 다시 물은 시각이 질문을 낸 시각이고, 녹화 구간도 거기서 다시 시작한다(6.12)
+        assertThat(askedAt(questionId(a, 1))).isAfter(firstAsked);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT interrupted_at IS NULL FROM interview_questions WHERE id ="
+                                        + " ?",
+                                Boolean.class,
+                                questionId(a, 1)))
+                .isTrue();
         handle(questionSpoken(a, 1, turnVersion(group.groupId())));
         mvc.perform(chatAnswerRequest(users.get(a), a, questionId(a, 1), "다시 답변"))
                 .andExpect(status().isAccepted());
@@ -1488,11 +1525,84 @@ class InterviewGroupIntegrationTest {
         assertThat(groupStatus(group.groupId())).isEqualTo("START_FAILED");
     }
 
+    private OffsetDateTime askedAt(long questionId) {
+        return jdbc.queryForObject(
+                "SELECT created_at FROM interview_questions WHERE id = ?",
+                OffsetDateTime.class,
+                questionId);
+    }
+
     private OffsetDateTime absentSince(long sessionId) {
         return jdbc.queryForObject(
                 "SELECT absent_since FROM interview_group_participants WHERE session_id = ?",
                 OffsetDateTime.class,
                 sessionId);
+    }
+
+    // 6.10 · 6.12: 화상 그룹은 그룹이 끝날 때 결과가 나오는 면접마다 녹화 합치기 작업을 넣는다. 작업에는 이번 시작 시도의 그룹 녹화 위치 · 내 참가자
+    // 이름 · 본인 답변 구간을 담고, 다시보기는 구간 목록을 주며 그룹이 끝나기 전에는 합치는 중이다
+    @Test
+    void videoGroupMergesRecordingsWithOwnSegmentsWhenGroupEnds() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+        assertThat(handle(answerCompleted(a, 1, turnVersion(group.groupId()))))
+                .isEqualTo(Outcome.SAVED);
+        handle(followupDecided(a, 1, turnVersion(group.groupId()), false));
+
+        mvc.perform(endRequest(users.get(a), a)).andExpect(status().isAccepted());
+        assertThat(jobTypes(a)).doesNotContain("MERGE_RECORDING");
+        jdbc.update("UPDATE interview_sessions SET status = 'COMPLETED' WHERE id = ?", a);
+        ReplayResponse waiting = resultService.replay(users.get(a), a);
+        assertThat(waiting.videoStatus()).isEqualTo(VideoStatus.MERGING);
+        assertThat(waiting.segments()).extracting(ReplaySegment::seq).containsExactly(1);
+
+        // 답변이 없는 b는 결과가 없어 합치지 않는다
+        mvc.perform(endRequest(users.get(b), b)).andExpect(status().isOk());
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(jobTypes(a)).contains("MERGE_RECORDING");
+        assertThat(jobTypes(b)).doesNotContain("MERGE_RECORDING");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT status FROM recordings WHERE session_id = ?",
+                                String.class,
+                                a))
+                .isEqualTo("MERGING");
+
+        UUID jobId =
+                jdbc.queryForObject(
+                        "SELECT id FROM ai_job_outbox WHERE session_id = ? AND job_type ="
+                                + " 'MERGE_RECORDING'",
+                        UUID.class,
+                        a);
+        JsonNode message =
+                json.valueToTree(
+                        transactions.execute(
+                                status ->
+                                        jobMessages.of(
+                                                aiJobRepository.findById(jobId).orElseThrow())));
+        OffsetDateTime startedAt = sessions.findById(a).orElseThrow().getStartedAt();
+        assertThat(message.path("rawPrefix").asString())
+                .isEqualTo(
+                        "recordings/raw/group-"
+                                + group.groupId()
+                                + "/"
+                                + startedAt.toInstant().toEpochMilli()
+                                + "/");
+        assertThat(message.path("roomName").asString()).isEqualTo("group-" + group.groupId());
+        assertThat(message.path("candidateIdentity").asString()).isEqualTo("candidate-" + a);
+        assertThat(message.path("objectKey").asString()).isEqualTo("recordings/" + a + ".mp4");
+        assertThat(message.path("segments").size()).isEqualTo(1);
+        JsonNode segment = message.path("segments").get(0);
+        assertThat(OffsetDateTime.parse(segment.path("start").asString()))
+                .isBefore(OffsetDateTime.parse(segment.path("end").asString()));
+        assertThat(segment.path("start").asString())
+                .matches(".*T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+09:00");
     }
 
     private String rejected(long groupId, OffsetDateTime occurredAt) {

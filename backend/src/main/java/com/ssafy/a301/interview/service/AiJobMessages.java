@@ -9,14 +9,20 @@ import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.RecordingSegment;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
+import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.room.InterviewRoom;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
@@ -25,18 +31,23 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class AiJobMessages {
+    private static final DateTimeFormatter MILLIS =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
 
     private final InterviewSessionRepository sessions;
     private final InterviewPlanRepository plans;
     private final AnswerRepository answers;
+    private final InterviewQuestionRepository questions;
 
     public AiJobMessages(
             InterviewSessionRepository sessions,
             InterviewPlanRepository plans,
-            AnswerRepository answers) {
+            AnswerRepository answers,
+            InterviewQuestionRepository questions) {
         this.sessions = sessions;
         this.plans = plans;
         this.answers = answers;
+        this.questions = questions;
     }
 
     /** 작업에 쓸 면접·플랜·답변이 없으면 IllegalStateException(보낼 수 없는 작업) */
@@ -150,13 +161,43 @@ public class AiJobMessages {
                 session.getStartedAt());
     }
 
-    // AI 명세 7장. 위치는 면접마다 정해져 있다
-    private static void putMergeRecording(Map<String, Object> message, InterviewSession session) {
+    // AI 명세 7장. 위치는 면접마다 정해져 있다. 그룹 면접은 그룹 면접방의 녹화에서 내 트랙의 본인 답변 구간만 쓴다(docs/그룹면접-설계.md 6.12)
+    private void putMergeRecording(Map<String, Object> message, InterviewSession session) {
         if (!session.isVideo()) {
             throw new IllegalStateException("화상 면접이 아니라 녹화가 없다: " + session.getId());
         }
-        message.put("rawPrefix", Recording.rawPrefix(session.getId()));
+        if (session.isGroup()) {
+            message.put(
+                    "rawPrefix",
+                    Recording.groupRawPrefix(session.getGroupId(), session.getStartedAt()));
+            message.put("roomName", "group-" + session.getGroupId());
+            message.put("candidateIdentity", InterviewRoom.groupCandidate(session.getId()));
+            message.put(
+                    "segments",
+                    recordingSegments(session).stream()
+                            .map(s -> Map.of("start", millis(s.start()), "end", millis(s.end())))
+                            .toList());
+        } else {
+            message.put("rawPrefix", Recording.rawPrefix(session.getId()));
+        }
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
+    }
+
+    private List<RecordingSegment> recordingSegments(InterviewSession session) {
+        Map<Long, Answer> answerByQuestion =
+                answers.findWithQuestionBySessionId(session.getId()).stream()
+                        .collect(
+                                Collectors.toMap(
+                                        a -> a.getQuestion().getId(), Function.identity()));
+        return RecordingSegment.of(
+                questions.findBySessionIdOrderBySeq(session.getId()),
+                answerByQuestion,
+                session.getEndedAt());
+    }
+
+    // ISO 8601 밀리초(AI 명세 7장 segments)
+    private static String millis(OffsetDateTime time) {
+        return time.atZoneSameInstant(KoreaTime.ZONE).format(MILLIS);
     }
 
     // seq·question·criteria·content와 화상이면 tokens·speech·sttGaps(AI 명세 3 · 4장).

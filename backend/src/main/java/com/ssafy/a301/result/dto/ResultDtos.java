@@ -149,5 +149,19 @@ public final class ResultDtos {
                     VideoStatus videoStatus,
             @Schema(description = "녹화 영상 임시 주소(만료됨). videoStatus가 READY일 때만 값이 있다", nullable = true)
                     String videoUrl,
-            @Schema(description = "질문 순") List<ReplayItem> items) {}
+            @Schema(description = "질문 순") List<ReplayItem> items,
+            @Schema(
+                            description =
+                                    "그룹 화상 면접만. 본인 답변 구간만 이어 붙인 영상의 구간 목록(시간 순). 질문 마커는 그 질문 구간의"
+                                            + " videoStart다. 개인 면접 · 채팅이면 null",
+                            nullable = true)
+                    List<ReplaySegment> segments) {}
+
+    /** 6.4 그룹 화상 면접의 본인 답변 구간(docs/그룹면접-설계.md 6.12) */
+    public record ReplaySegment(
+            @Schema(description = "질문 순서", example = "1") int seq,
+            @Schema(description = "이어 붙인 영상에서 구간이 시작하는 위치(초, 소수 셋째 자리)", example = "0.0")
+                    double videoStart,
+            @Schema(description = "이어 붙인 영상에서 구간이 끝나는 위치(초)", example = "95.42") double videoEnd,
+            @Schema(description = "구간이 시작한 원래 시각(질문을 낸 시각)") OffsetDateTime startedAt) {}
 }

@@ -42,6 +42,16 @@ final class ReplayTimelines {
 
     /** 형식이 틀렸거나 시각을 알 수 없으면 null */
     static ReplayTimeline of(Answer answer, OffsetDateTime videoZero) {
+        return of(answer, videoZero, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY);
+    }
+
+    /**
+     * 그룹 화상 면접(docs/그룹면접-설계.md 6.12). 이어 붙인 영상에서 그 답변의 구간 [from, to] 밖의 점 · 체크포인트는 빼고, 체크포인트 구간은 구간
+     * 안으로 줄인다.
+     *
+     * @param videoZero 그 구간이 이어 붙인 영상에서 0초였다면의 시각(구간 시작 시각 − 구간의 영상 위치)
+     */
+    static ReplayTimeline of(Answer answer, OffsetDateTime videoZero, double from, double to) {
         Map<String, Object> evaluation = answer.getEvaluation();
         Object raw = evaluation == null ? null : evaluation.get("timeline");
         if (raw == null || videoZero == null || answer.getStartedAt() == null) {
@@ -57,9 +67,19 @@ final class ReplayTimelines {
                                             new TimelinePoint(
                                                     seconds(offsetMs, present(p).atMs()),
                                                     finite(p.value())))
+                            .filter(p -> p.at() >= from && p.at() <= to)
                             .toList(),
                     present(timeline.checkpoints()).stream()
                             .map(c -> checkpoint(present(c), offsetMs))
+                            .filter(c -> c.at() >= from && c.at() <= to)
+                            .map(
+                                    c ->
+                                            new TimelineCheckpoint(
+                                                    c.at(),
+                                                    Math.max(c.start(), from),
+                                                    Math.min(c.end(), to),
+                                                    c.value(),
+                                                    c.reasons()))
                             .toList());
         } catch (JacksonException | IllegalArgumentException ex) {
             LOG.warn("다시보기 타임라인 형식이 틀려 빼고 응답한다: answer={} {}", answer.getId(), ex.getMessage());

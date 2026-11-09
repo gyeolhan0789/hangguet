@@ -188,14 +188,21 @@ class LiveKitInterviewRoomTest {
 
     @Test
     void openGroupCreatesRoomWithMetadataAndGroupRecordingPath() throws Exception {
-        room(apiUrl).openGroup(7L, true, Map.of("kind", "GROUP"), "{\"turnVersion\":1}");
+        room(apiUrl)
+                .openGroup(
+                        7L,
+                        true,
+                        Map.of("kind", "GROUP"),
+                        "{\"turnVersion\":1}",
+                        OffsetDateTime.parse("2026-11-04T14:00:00.123+09:00"));
 
         CreateRoomRequest created =
                 CreateRoomRequest.parseFrom(requests.get("/twirp/livekit.RoomService/CreateRoom"));
         assertThat(created.getName()).isEqualTo("group-7");
         assertThat(created.getMetadata()).isEqualTo("{\"turnVersion\":1}");
         assertThat(created.getEgress().getTracks().getFilepath())
-                .isEqualTo("recordings/raw/group-7/{publisher_identity}-{track_type}");
+                .isEqualTo(
+                        "recordings/raw/group-7/1793768400123/{publisher_identity}-{track_type}");
         CreateAgentDispatchRequest dispatch =
                 CreateAgentDispatchRequest.parseFrom(
                         requests.get("/twirp/livekit.AgentDispatchService/CreateDispatch"));
@@ -213,7 +220,10 @@ class LiveKitInterviewRoomTest {
     void failedGroupDispatchDeletesGroupRoom() throws Exception {
         statuses.put("/twirp/livekit.AgentDispatchService/CreateDispatch", 500);
 
-        assertThatThrownBy(() -> room(apiUrl).openGroup(7L, false, Map.of(), "{}"))
+        assertThatThrownBy(
+                        () ->
+                                room(apiUrl)
+                                        .openGroup(7L, false, Map.of(), "{}", OffsetDateTime.now()))
                 .isInstanceOf(ApiException.class);
         assertThat(
                         DeleteRoomRequest.parseFrom(
