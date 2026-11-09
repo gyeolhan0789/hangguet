@@ -482,13 +482,15 @@ function VideoInterview({
     if (duckCall && !retry) duckExclaim();
   }
 
-  // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
+  // 면접관이 말하는 질문이 5.5 질문보다 뒤다(낸 뒤 저장되기 전에 새로고침해 낸 표시를 잃음 등). 다음 질문을 5.5로 받는다
+  const behind = liveQuestion !== null && question !== null && liveQuestion.seq > question.seq;
+  // 내는 중이거나 질문이 어긋나면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
   // [끝내기] 뒤 저장을 기다리는 동안은 면접 화면이 다시 그린다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   useEffect(() => {
-    if (!submitting || confirmingSave || refreshing || !online) return;
+    if ((!submitting && !behind) || confirmingSave || refreshing || !online) return;
     const timer = setTimeout(() => startRefresh(() => router.refresh()), SESSION_POLL_MS);
     return () => clearTimeout(timer);
-  }, [submitting, confirmingSave, refreshing, online, router]);
+  }, [submitting, behind, confirmingSave, refreshing, online, router]);
 
   // 마지막 답변이 제출됐으면 5.2 answeredCount로 저장을 확인한 뒤 끝낸다. 10초가 지나도 보이지 않으면 그대로 끝낸다
   // (API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257). 기다리는 동안 저장 중임을 안내한다.
