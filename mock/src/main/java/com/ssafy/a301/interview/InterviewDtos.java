@@ -107,7 +107,9 @@ public final class InterviewDtos {
             @Schema(description = "6.3의 한 줄 총평. 완료 전이거나 총평이 없으면 null", nullable = true)
                     String summary,
             @Schema(description = "완료된 면접의 기준별 등급 4개. 분석 중·실패는 빈 배열")
-                    List<CriterionGrade> criterionGrades) {}
+                    List<CriterionGrade> criterionGrades,
+            @Schema(description = "그룹 면접이면 그룹 id. 개인 면접은 null", nullable = true, example = "7")
+                    Long groupId) {}
 
     public record PageMetadata(int size, int number, long totalElements, int totalPages) {}
 
@@ -171,7 +173,25 @@ public final class InterviewDtos {
                             nullable = true)
                     Boolean leveledUp,
             @Schema(description = "면접방 입장 정보. 5.4 응답에만 값이 있고, 그 외에는 null", nullable = true)
-                    RoomResponse room) {}
+                    RoomResponse room,
+            @Schema(description = "그룹 면접이면 그룹 정보(API 명세 10.10). 개인 면접은 null", nullable = true)
+                    SessionGroup group) {}
+
+    @Schema(
+            description =
+                    "그룹 상태. WAITING 대기실 · IN_PROGRESS 진행 중 · START_FAILED 시작 실패(방장이 다시 시작) · ENDED"
+                            + " 끝남 · CANCELLED 취소(모두 나감 · 만든 지 1시간)")
+    public enum GroupStatus {
+        WAITING,
+        IN_PROGRESS,
+        START_FAILED,
+        ENDED,
+        CANCELLED
+    }
+
+    @Schema(description = "면접이 속한 그룹(API 명세 10.10)")
+    public record SessionGroup(
+            @Schema(description = "그룹 id", example = "7") long groupId, GroupStatus status) {}
 
     @Schema(description = "면접방(LiveKit) 입장 정보(5.4·5.14)")
     public record RoomResponse(

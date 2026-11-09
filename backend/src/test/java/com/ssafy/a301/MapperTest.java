@@ -98,6 +98,8 @@ class MapperTest {
         assertThat(ready.currentQuestion()).isNull();
         assertThat(ready.elapsedSeconds()).isZero();
         assertThat(ready.leveledUp()).isNull();
+        // 개인 면접에는 그룹 정보가 없다(API 명세 10.10)
+        assertThat(ready.group()).isNull();
 
         s.start(T0);
         SessionResponse inProgress =
@@ -429,6 +431,7 @@ class MapperTest {
         var analyzing = InterviewMapper.toListItem(s, 1, Map.of());
         assertThat(analyzing.summary()).isNull();
         assertThat(analyzing.criterionGrades()).isEmpty();
+        assertThat(analyzing.groupId()).isNull();
 
         s.complete("총평", "다음에 해볼 것");
         Map<Criterion, Grade> grades = new EnumMap<>(Criterion.class);

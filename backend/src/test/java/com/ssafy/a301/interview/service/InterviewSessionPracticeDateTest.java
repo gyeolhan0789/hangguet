@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.company.service.CompanyCardFinder;
+import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.group.service.GroupTurnService;
 import com.ssafy.a301.interview.domain.InterviewMode;
@@ -68,6 +69,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private InterviewCapacity capacity;
     @Mock private GroupEndService groupEnds;
     @Mock private GroupTurnService groupTurns;
+    @Mock private InterviewGroupRepository groups;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -97,7 +99,8 @@ class InterviewSessionPracticeDateTest {
                         capacity,
                         ender,
                         groupEnds,
-                        groupTurns);
+                        groupTurns,
+                        groups);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

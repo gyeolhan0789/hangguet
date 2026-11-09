@@ -50,11 +50,11 @@ public class InterviewHistoryController {
                   { "criterion": "JOB_FIT", "grade": "GOOD" },
                   { "criterion": "COVER_LETTER", "grade": "WEAK" },
                   { "criterion": "LOGIC", "grade": "GOOD" },
-                  { "criterion": "DELIVERY", "grade": "NORMAL" } ] },
+                  { "criterion": "DELIVERY", "grade": "NORMAL" } ], "groupId": null },
               { "id": 54, "companyName": "△△소프트", "jobTitle": "서버 개발자",
                 "persona": "COFFEE_CHAT", "mode": "CHAT", "status": "ANALYZING",
                 "startedAt": "2026-10-21T19:30:00+09:00", "endedAt": "2026-10-21T19:42:00+09:00",
-                "answeredCount": 3, "summary": null, "criterionGrades": [] } ],
+                "answeredCount": 3, "summary": null, "criterionGrades": [], "groupId": null } ],
               "page": { "size": 5, "number": 0, "totalElements": 2, "totalPages": 1 },
               "summary": { "totalInterviewCount": 4, "practiceMinutes": 32 } }
             """;

@@ -5,6 +5,7 @@ import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.company.service.CompanyCardFinder;
+import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.group.service.GroupTurnService;
 import com.ssafy.a301.interview.domain.AiJob;
@@ -20,6 +21,7 @@ import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionGroup;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.mapper.InterviewMapper;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -63,6 +65,7 @@ public class InterviewSessionService {
     private final SessionEnder ender;
     private final GroupEndService groupEnds;
     private final GroupTurnService groupTurns;
+    private final InterviewGroupRepository groups;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -79,7 +82,8 @@ public class InterviewSessionService {
             InterviewCapacity capacity,
             SessionEnder ender,
             GroupEndService groupEnds,
-            GroupTurnService groupTurns) {
+            GroupTurnService groupTurns,
+            InterviewGroupRepository groups) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -95,6 +99,7 @@ public class InterviewSessionService {
         this.ender = ender;
         this.groupEnds = groupEnds;
         this.groupTurns = groupTurns;
+        this.groups = groups;
     }
 
     /**
@@ -183,7 +188,14 @@ public class InterviewSessionService {
                     }
                     startPlan(sessionId, now);
                     return InterviewMapper.toSessionResponse(
-                            session, SessionRuntime.generating(), null, 0, now, null);
+                            session,
+                            SessionRuntime.generating(),
+                            null,
+                            0,
+                            now,
+                            null,
+                            null,
+                            groupOf(session));
                 });
     }
 
@@ -343,7 +355,9 @@ public class InterviewSessionService {
                             null,
                             answers.countByQuestionSessionId(sessionId),
                             now,
-                            null);
+                            null,
+                            null,
+                            groupOf(session));
                 });
     }
 
@@ -392,6 +406,18 @@ public class InterviewSessionService {
                 current,
                 answers.countByQuestionSessionId(session.getId()),
                 now,
-                null);
+                null,
+                null,
+                groupOf(session));
+    }
+
+    // 그룹 면접이면 그룹 id와 지금 그룹 상태(API 명세 10.10). 개인 면접은 null
+    private SessionGroup groupOf(InterviewSession session) {
+        if (!session.isGroup()) {
+            return null;
+        }
+        return groups.findById(session.getGroupId())
+                .map(group -> new SessionGroup(group.getId(), group.getStatus()))
+                .orElseThrow(() -> new IllegalStateException("그룹이 없다: " + session.getGroupId()));
     }
 }

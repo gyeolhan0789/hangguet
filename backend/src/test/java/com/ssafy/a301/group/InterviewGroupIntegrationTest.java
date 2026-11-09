@@ -220,10 +220,12 @@ class InterviewGroupIntegrationTest {
                                                         .equals(job.get("questionCount"))));
         InterviewSession session = sessions.findById(sessionId).orElseThrow();
         assertThat(session.getGroupId()).isEqualTo(group.path("groupId").asLong());
-        // 면접은 5.2로 보고, 시작은 그룹으로만 한다(API 명세 10.10)
+        // 면접은 5.2로 보고(그룹 정보 포함), 시작은 그룹으로만 한다(API 명세 10.10)
         mvc.perform(as(host, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("READY"));
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.group.groupId").value(group.path("groupId").asLong()))
+                .andExpect(jsonPath("$.group.status").value("WAITING"));
         runtimes.values.put(sessionId, new SessionRuntime(PlanStatus.READY, null, null, 0));
         mvc.perform(
                         as(
@@ -767,7 +769,25 @@ class InterviewGroupIntegrationTest {
         mvc.perform(endRequest(group.host(), hostSession))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("ANALYZING"))
-                .andExpect(jsonPath("$.answeredCount").value(1));
+                .andExpect(jsonPath("$.answeredCount").value(1))
+                .andExpect(jsonPath("$.group.groupId").value(group.groupId()))
+                .andExpect(jsonPath("$.group.status").value("IN_PROGRESS"));
+        // 목록(4.6) 항목에 그룹 id가 있다
+        long applicationId =
+                jdbc.queryForObject(
+                        "SELECT application_id FROM interview_sessions WHERE id = ?",
+                        Long.class,
+                        hostSession);
+        mvc.perform(
+                        as(
+                                group.host(),
+                                get(
+                                        "/api/v1/applications/"
+                                                + applicationId
+                                                + "/interview-sessions")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(hostSession))
+                .andExpect(jsonPath("$.content[0].groupId").value(group.groupId()));
         // 남은 사람은 계속한다. 끝낸 사람만 방에서 내보낸다
         assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
         assertThat(endReason(hostSession)).isEqualTo("USER_ENDED");
@@ -779,9 +799,11 @@ class InterviewGroupIntegrationTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
 
+        // 마지막 사람이 끝내면 응답의 그룹도 끝난 상태다
         mvc.perform(endRequest(guest, guestSession))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("ABORTED"));
+                .andExpect(jsonPath("$.status").value("ABORTED"))
+                .andExpect(jsonPath("$.group.status").value("ENDED"));
         assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
         assertThat(
                         jdbc.queryForObject(
