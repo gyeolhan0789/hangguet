@@ -25,22 +25,29 @@ const MODEL_PATH = "/mediapipe/face_landmarker.task";
 type FrameHandler = (jpeg: Blob, capturedAt: number) => void;
 
 /**
- * stream의 카메라로 면접 화면에 있는 동안 시선을 재 gaze-store에 쌓는다. 화면에 들어오면 지난 면접의 값을 비운다.
+ * stream의 카메라로 면접 화면에 있는 동안 시선을 재 gaze-store에 쌓는다. 화면에 들어오면 지난 면접의 값을 비우고,
+ * 같은 면접을 새로고침해 들어온 것이면(sessionId) 그때까지 잰 값에 이어 쌓는다.
  * 얼굴이 잡히지 않은 프레임도 쌓는다(안 본 것으로 센다). 영상이 멈춰 같은 프레임이면(탭을 가려 재생이 멈춤 등) 재지 않는다.
  * MediaPipe를 불러오지 못하거나 카메라가 없으면 재지 않고 넘어간다(면접은 그대로 진행되고 5.8에 시선을 보내지 않는다).
  *
  * 영상을 캔버스에 찍은 뒤 그 캔버스를 잰다. 잰 사진과 onFrame으로 넘기는 사진이 같아야 하기 때문이다.
  * 1초마다 그동안 eyeBlink가 가장 작은(눈을 가장 크게 뜬) 프레임을 넘긴다. 얼굴이 잡히지 않은 1초는 넘기지 않는다.
  */
-export function useGazeTracker(stream: MediaStream | null, onFrame?: FrameHandler) {
+export function useGazeTracker(
+  stream: MediaStream | null,
+  onFrame?: FrameHandler,
+  /** 면접 id. 주면 같은 면접을 새로고침한 경우 잰 값을 이어 쓴다(gaze-store) */
+  sessionId?: number,
+) {
   const frameHandler = useRef(onFrame);
   useEffect(() => {
     frameHandler.current = onFrame;
   });
 
   useEffect(() => {
-    useGazeStore.getState().reset();
-  }, []);
+    if (sessionId === undefined) useGazeStore.getState().reset();
+    else useGazeStore.getState().start(sessionId);
+  }, [sessionId]);
 
   useEffect(() => {
     const camera = stream?.getVideoTracks()[0];

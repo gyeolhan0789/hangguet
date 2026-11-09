@@ -54,11 +54,17 @@ class ResultType(StrEnum):
     QUESTION_STARTED = "question.started"
     ANSWER_COMPLETED = "answer.completed"
     ASSIGNMENT_REJECTED = "assignment.rejected"
+    ROOM_CLOSED = "room.closed"
 
 
 # 면접 에이전트가 전송하는 종류는 작업 결과가 아니므로 jobId가 없다
 AGENT_RESULT_TYPES = frozenset(
-    {ResultType.QUESTION_STARTED, ResultType.ANSWER_COMPLETED, ResultType.ASSIGNMENT_REJECTED}
+    {
+        ResultType.QUESTION_STARTED,
+        ResultType.ANSWER_COMPLETED,
+        ResultType.ASSIGNMENT_REJECTED,
+        ResultType.ROOM_CLOSED,
+    }
 )
 
 REASON = "reason"

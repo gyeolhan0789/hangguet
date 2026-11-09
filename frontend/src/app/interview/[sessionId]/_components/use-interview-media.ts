@@ -14,7 +14,8 @@ import { useMicLevel } from "@/components/use-mic-level";
 export const MIC_RETRY_MS = 2000;
 
 /**
- * 화면에 들어오면 카메라 · 마이크를 켜고, 떠나면 끈다. 받지 못하면 stream은 null로 둔다(장치 점검은 S05에서 했다).
+ * 화면에 들어오면 카메라 · 마이크를 켜고, 떠나면 끈다. 받지 못하면(새로고침 뒤 권한 거부 · 다른 탭이 장치를 씀 등)
+ * stream은 null로 두고 unavailable을 켠 채, 받을 때까지 MIC_RETRY_MS마다 · 장치가 바뀔 때마다 둘 다 다시 받는다.
  * 마이크가 끊기면(트랙이 끝남 · 소리를 받지 못함) 마이크만 새로 받아 카메라 트랙과 묶은 새 stream으로 바꾼다.
  * 바로 한 번 받아 보고, 받을 때까지 MIC_RETRY_MS마다 · 장치가 바뀔 때마다(devicechange) 다시 받아 본다.
  * 운영체제 기본 마이크가 바뀌면(장치를 다시 켬 · 꽂음) 그 장치로 옮긴다.
@@ -25,23 +26,54 @@ export function useInterviewMedia() {
   /** 지금 쓰는 stream. 화면을 떠날 때 새로 받은 마이크까지 끈다 */
   const latest = useRef<MediaStream | null>(null);
 
+  // 처음 받기에 실패했는지(권한 거부 · 다른 탭이 장치를 씀 등). 받으면 false로 돌아온다
+  const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {
+    const devices = navigator.mediaDevices;
+    if (!devices) {
+      // 카메라를 지원하지 않는 브라우저(보안 연결이 아님 등). 그리는 중에 상태를 바꾸지 않도록 다음 차례에 알린다
+      queueMicrotask(() => setUnavailable(true));
+      return;
+    }
     let alive = true;
-    navigator.mediaDevices
-      ?.getUserMedia({ video: true, audio: true })
-      .then((next) => {
-        if (!alive) {
-          next.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        latest.current = next;
-        setStream(next);
-      })
-      .catch(() => {
-        if (alive) setStream(null);
-      });
+    let requesting = false;
+    let retry: ReturnType<typeof setInterval> | undefined;
+    const stopRetry = () => {
+      clearInterval(retry);
+      retry = undefined;
+      devices.removeEventListener?.("devicechange", acquire);
+    };
+    /** 카메라 · 마이크를 함께 받는다. 실패하면 받을 때까지 MIC_RETRY_MS마다 · 장치가 바뀔 때마다 다시 받는다 */
+    function acquire() {
+      if (requesting) return;
+      requesting = true;
+      devices
+        .getUserMedia({ video: true, audio: true })
+        .then((next) => {
+          requesting = false;
+          if (!alive) {
+            next.getTracks().forEach((track) => track.stop());
+            return;
+          }
+          stopRetry();
+          latest.current = next;
+          setStream(next);
+          setUnavailable(false);
+        })
+        .catch(() => {
+          requesting = false;
+          if (!alive) return;
+          setUnavailable(true);
+          if (retry === undefined) {
+            retry = setInterval(acquire, MIC_RETRY_MS);
+            devices.addEventListener?.("devicechange", acquire);
+          }
+        });
+    }
+    acquire();
     return () => {
       alive = false;
+      stopRetry();
       latest.current?.getTracks().forEach((track) => track.stop());
     };
   }, []);
@@ -134,5 +166,5 @@ export function useInterviewMedia() {
     };
   }, [stream, microphone]);
 
-  return { stream, level };
+  return { stream, level, unavailable };
 }

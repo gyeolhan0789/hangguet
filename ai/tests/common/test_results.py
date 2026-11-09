@@ -264,6 +264,7 @@ def test_result_type_values_match_spec() -> None:
         "question.started",
         "answer.completed",
         "assignment.rejected",
+        "room.closed",
     }
 
 

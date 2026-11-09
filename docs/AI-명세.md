@@ -44,7 +44,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
-| 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` · `assignment.rejected` | `interview_questions`, `answers`(화상, `speech` 포함), `interview_sessions`의 `status` |
+| 면접 에이전트 | 5.4 배정 | 배정 정보, 면접방 음성 · 메시지 | `question.started` · `answer.completed` · `assignment.rejected` · `room.closed` | `interview_questions`, `answers`(화상, `speech` 포함), `interview_sessions`의 `status` |
 
 `interview_plans`(`claims`·`questions`), `answers.tokens`, `answers.evaluation`은 DB 스키마(BE 마이그레이션 V2)에 JSONB로 있다. 형식은 이 문서 2·3장을 따른다. 에이전트가 계산한 음성 지표(`answer.completed`의 `speech`, 6.2)를 저장할 `answers.speech`(JSONB)와 `answerStartedAt`을 저장할 `answers.started_at`은 BE 마이그레이션 V4로 추가했다. 이 값은 실시간 음성으로만 계산하므로 채점이 실패해도 결과 생성(4장)에서 사용할 수 있도록 답변과 함께 저장한다. 같은 `speech`에 다시보기 타임라인용 값 `trailingOffAtMs`(말끝 흐린 문장의 끝 시각, 3장)와 `impressions`(답변 중 인상 판단, 6.6)도 담는다 **[제안]**. 둘 다 실시간 음성·사진으로만 구할 수 있고 답변 시각 기준이라 답변과 함께 둔다. 지금은 저장만 하고 채점·결과에는 쓰지 않는다.
 
@@ -111,6 +111,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 | `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
+| `room.closed` | 면접 에이전트 | (공통 필드만) | 지원자가 모두 떠나 LiveKit이 면접방을 닫았다(6.5). 개인 면접이 `IN_PROGRESS`이면 끝내기(API 명세 5.8)와 같이 끝낸다(답변이 있으면 `ANALYZING`, 없으면 `ABORTED`, 시선 비율은 비움). 그 밖에는 폐기한다 |
 
 **실패 이유(`reason`)** 실패 결과 메시지는 아래 값 중 하나를 담는다. BE가 값으로 처리를 나눌 수 있도록 자유 문장을 사용하지 않는다.
 
@@ -133,6 +134,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 중복 수신 | 같은 `answer.completed`가 두 번 | 「질문 하나에 답변 하나」(`answers.question_id` UNIQUE)로 두 번째는 버림 |
 | 중복 수신 | 같은 `answer.scored`가 두 번 | `evaluation`이 이미 있어 버림 |
 | 중복 · 순서 역전 | 같은 `assignment.rejected`가 두 번, 질문을 시작한 뒤 도착, 또는 다시 시작(5.4)한 뒤 이전 시도의 거절이 도착 | 면접이 이미 `START_FAILED`이거나 질문 행이 있거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
+| 중복 · 순서 역전 | 같은 `room.closed`가 두 번, 또는 다시 시작(5.4)한 뒤 이전 시도의 방 닫힘이 도착 | 면접이 이미 `IN_PROGRESS`가 아니거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 첫 질문 기한 초과(6.5)로 다시 시작(5.4)한 뒤 이전 시도의 `question.started`가 도착 | `startedAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 버림 |
 | 순서 역전 | 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 도착 | `status`가 `ANALYZING`이 아니면 버림. 같은 `ANALYZING` 안에서 이전 시도와 구분하려면 BE가 마지막으로 보낸 `jobId`와 비교한다 **[제안]** |
@@ -531,6 +533,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | 에이전트가 면접 도중 끊김 | BE가 `currentSeq`를 넣어 다시 배정한다. 누가 끊김을 알아채고 언제 다시 배정할지 **[미정]**. 이미 출제한 꼬리질문은 질문 행에만 남으므로, 다시 배정할 때 그 질문 글을 넘길지도 함께 정한다 |
 | 배정 정보 형식 오류 | LiveKit이 배정을 에이전트에 전달할 때 방에 들어가지 않고 거절한다. 틀린 배정 정보로는 질문을 진행할 수 없고, 같은 배정 정보로는 어느 에이전트 서버도 진행할 수 없으므로 다른 에이전트 서버에 다시 넘기지 않는다. 결과 메시지 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송한다. 배정 정보에서 면접 id(`sessionId`)를 읽지 못하면 방 이름(`interview-{sessionId}`, 6.1)에서 읽고, 방 이름으로도 알 수 없으면 전송하지 않는다. BE는 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다(1.4) |
 | 면접관 미입장·첫 질문 기한 초과 | 배정을 수락할 에이전트 서버가 없거나 에이전트가 10초 안에 응답하지 않으면 LiveKit은 배정을 다시 시도하지 않으므로(LiveKit 서버 v1.13.10), 면접관이 입장하지 않는다. BE는 질문 행이 없는 동안 LiveKit `ListParticipants`로 면접방을 조회하고, 배정 요청을 마친 시각부터 15초(임시 값)가 지나도 면접관(`interviewer`)이 없거나, 지원자(`candidate`)가 입장한 시각(`joinedAt`)부터 30초(임시 값)가 지나도 질문 행이 없으면 면접방을 닫고 면접을 `START_FAILED`로 변경하며, 화면은 다시 시작(API 명세 5.4)을 안내한다. 지원자가 아직 입장하지 않았으면 30초 기한을 계산하지 않으므로, 지원자가 늦게 입장해도 실패로 처리하지 않는다 |
+| 지원자가 끝내기 없이 떠남 | 지원자(사람 참가자)가 모두 나가고 BE가 정한 `departure_timeout`(10분)이 지나면 LiveKit이 면접방을 닫고 에이전트 연결을 `ROOM_CLOSED`로 끊는다(LiveKit 서버 v1.13.10, 에이전트는 방을 비우지 않은 것으로 세지 않음). 에이전트는 이때만 결과 메시지 `room.closed`를 전송하고, BE는 면접을 끝내기(API 명세 5.8)와 같이 끝낸다(1.4). BE가 방을 지운 경우(`ROOM_DELETED`)와 연결만 끊긴 경우(`SIGNAL_CLOSE` 등)는 전송하지 않는다. 재시도(5장) 후에도 전송하지 못하면 면접이 `IN_PROGRESS`로 남는다 |
 
 ### 6.6 인상 판단 (Jev 이미지) **[제안]**
 

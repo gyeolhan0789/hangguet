@@ -84,6 +84,7 @@ public class AiResultService {
     private final AiJobService aiJobs;
     private final InterviewRoom rooms;
     private final ApplicationEventPublisher events;
+    private final SessionEnder ender;
     private final TransactionTemplate transactions;
 
     public AiResultService(
@@ -98,6 +99,7 @@ public class AiResultService {
             AiJobService aiJobs,
             InterviewRoom rooms,
             ApplicationEventPublisher events,
+            SessionEnder ender,
             TransactionTemplate transactions) {
         this.sessions = sessions;
         this.questions = questions;
@@ -110,6 +112,7 @@ public class AiResultService {
         this.aiJobs = aiJobs;
         this.rooms = rooms;
         this.events = events;
+        this.ender = ender;
         this.transactions = transactions;
     }
 
@@ -134,6 +137,7 @@ public class AiResultService {
                     case "recording.merged" -> recordingMerged(sessionId, message);
                     case "recording.mergeFailed" -> recordingMergeFailed(sessionId, message);
                     case "assignment.rejected" -> assignmentRejected(sessionId, message);
+                    case "room.closed" -> roomClosed(sessionId, message);
                     default ->
                             throw new InvalidAiResultException("처리하지 않는 결과 종류: " + message.type());
                 };
@@ -475,6 +479,25 @@ public class AiResultService {
                     }
                     session.failStart();
                     rooms.close(sessionId);
+                    return Outcome.SAVED;
+                });
+    }
+
+    // 지원자가 모두 떠나 LiveKit이 면접방을 닫았다(AI 명세 1.4 · 6.5). 끝내기(5.8) 없이 떠난 개인 면접을 5.8과 같이 끝낸다.
+    // 답변이 있으면 결과를 만들고 없으면 ABORTED다. 화면이 재던 시선 비율은 받지 못했으므로 비운다.
+    // 다시 시작(5.4)하기 전 방이 닫힌 것이 늦게 오면 새 시도를 끝내지 않게 버린다. 그룹 면접은 그룹 정리가 끝낸다
+    private Outcome roomClosed(long sessionId, AiResultMessage message) {
+        OffsetDateTime occurredAt = required(message.occurredAt(), "occurredAt");
+        return transactions.execute(
+                status -> {
+                    InterviewSession session = lockInProgress(sessionId);
+                    if (session == null
+                            || session.isGroup()
+                            || occurredAt.isBefore(session.getStartedAt())) {
+                        return Outcome.DISCARDED;
+                    }
+                    LOG.info("면접방이 닫혀 면접을 끝낸다: session={}", sessionId);
+                    ender.end(session, OffsetDateTime.now(), null, null, true);
                     return Outcome.SAVED;
                 });
     }

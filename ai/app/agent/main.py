@@ -29,6 +29,7 @@ from app.agent.praise import load_praises
 from app.agent.question import QuestionSpeaker
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
 from app.agent.rejection import rejected_session_id, send_rejection
+from app.agent.room_closed import closed_by_livekit, send_room_closed
 from app.agent.stt import CHUNK_MS, SAMPLE_RATE, SonioxSTT, SttSettings, SttState
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
@@ -81,13 +82,13 @@ STATE_RPC_TIMEOUT = 3.0
 
 
 @functools.cache
-def rejection_results() -> ResultPublisher:
-    """배정 거절을 전송하는 결과 전송기다. 거절할 때 처음 생성한다."""
+def agent_results() -> ResultPublisher:
+    """배정 거절·면접방 닫힘을 전송하는 결과 전송기다. 처음 전송할 때 생성한다."""
     return ResultPublisher(create_publisher_redis(load_settings(os.environ)))
 
 
 async def accept_request(
-    request: JobRequest, *, results: Callable[[], ResultPublisher] = rejection_results
+    request: JobRequest, *, results: Callable[[], ResultPublisher] = agent_results
 ) -> None:
     """형식이 틀린 배정 정보로 온 배정은 방에 들어가기 전에 거절하고 BE에 알린다.
 
@@ -128,8 +129,11 @@ async def entrypoint(ctx: JobContext) -> None:
     transcription: asyncio.Task[None] | None = None
     interviewing: asyncio.Task[None] | None = None
     speaker: QuestionSpeaker | None = None
+    disconnected: rtc.DisconnectReason | None = None
 
-    def on_disconnected(_reason: rtc.DisconnectReason) -> None:
+    def on_disconnected(reason: rtc.DisconnectReason) -> None:
+        nonlocal disconnected
+        disconnected = reason
         closed.set()
 
     async def on_shutdown() -> None:
@@ -177,6 +181,10 @@ async def entrypoint(ctx: JobContext) -> None:
         finally:
             ctx.room.off("disconnected", on_disconnected)
             log.info("LiveKit 방 연결 종료")
+    # 지원자가 모두 떠나 LiveKit이 방을 닫았으면 BE가 면접을 끝내도록 알린다.
+    # 배정 없이 테스트 방에 연결했으면 끝낼 면접이 없다
+    if assignment is not None and closed_by_livekit(disconnected):
+        await send_room_closed(agent_results(), assignment.session_id)
 
 
 class RoomCapture:

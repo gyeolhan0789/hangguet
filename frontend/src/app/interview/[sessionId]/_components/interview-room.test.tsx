@@ -437,6 +437,21 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it("면접 중에는 페이지를 떠나려 하면 확인 창을 띄우고, 결과 분석 중이면 띄우지 않는다", () => {
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const { rerender } = render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
+    expect(leave()).toBe(true);
+
+    rerender(
+      <InterviewRoom session={{ ...SESSION, status: "ANALYZING" }} currentQuestion={null} />,
+    );
+    expect(leave()).toBe(false);
+  });
+
   it("다음 질문을 만드는 중이면(5.5 202) 면접관이 생각하는 중이고, 2초 뒤 다시 조회한다", () => {
     render(<InterviewRoom session={SESSION} currentQuestion={null} />);
 
@@ -458,6 +473,45 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     act(() => window.dispatchEvent(new Event("online")));
     waitPoll();
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 면접관이 5.5보다 뒤 질문을 말하면(낸 뒤 저장 전 새로고침 등) 2초마다 다시 조회해 다음 질문을 받는다", () => {
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 4,
+      content: "다음 질문",
+      speech: "ended",
+      alignment: null,
+    };
+    const { rerender } = render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
+
+    waitPoll();
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <InterviewRoom
+        session={SESSION}
+        currentQuestion={{ id: 304, seq: 4, content: "다음 질문" }}
+      />,
+    );
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 3));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("화상: 면접관이 5.5와 같은 질문을 말하는 중이면 다시 조회하지 않는다", () => {
+    room.question = {
+      type: "question",
+      sessionId: 55,
+      seq: 3,
+      content: QUESTION.content,
+      speech: "ended",
+      alignment: null,
+    };
+    render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
+
+    act(() => vi.advanceTimersByTime(SESSION_POLL_MS * 3));
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("방금 답한 질문이 그대로 오면 아직 다음 질문이 없는 것으로 보고, 새 질문이 오면 보여 준다", () => {

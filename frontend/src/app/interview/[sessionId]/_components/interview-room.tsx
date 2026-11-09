@@ -87,6 +87,9 @@ export function InterviewRoom({
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
   // 오리 면접관은 면접하는 동안 배경음(풀벌레 · 강물)을 작게 틀고, 결과 분석으로 넘어가면 줄이며 멈춘다
   useDuckAmbience(hasDuckCall(session.persona) && !analyzing);
+  // 면접 중에 탭을 닫거나 새로고침하면 브라우저 기본 확인 창을 띄운다(사용자 결정 2026-11-09, 문구는 브라우저가 정한다).
+  // 화면 안 이동(router)에는 뜨지 않는다
+  useLeaveConfirm(session.status === "IN_PROGRESS");
   // 방금 답한 질문이 그대로 오거나 질문이 없으면 다음 질문을 기다리는 중이다.
   const question: CurrentQuestion | null =
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
@@ -400,7 +403,7 @@ function VideoInterview({
   }, [duckCall]);
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
-  const { stream, level } = useInterviewMedia();
+  const { stream, level, unavailable } = useInterviewMedia();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
   const endOpen = useInterviewStore((state) => state.endOpen);
@@ -454,7 +457,7 @@ function VideoInterview({
     onPresentation,
   });
   // 면접 동안 시선을 잰다. 끝낼 때(5.8) 비율만 보낸다. 같은 측정으로 고른 사진은 인상 판단용으로 에이전트에 보낸다(AI 명세 6.6)
-  useGazeTracker(stream, stt.sendFrame);
+  useGazeTracker(stream, stt.sendFrame, sessionId);
   const liveQuestion =
     stt.question &&
     stt.question.seq > completedSeq &&
@@ -482,13 +485,15 @@ function VideoInterview({
     if (duckCall && !retry) duckExclaim();
   }
 
-  // 내는 중이면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
+  // 면접관이 말하는 질문이 5.5 질문보다 뒤다(낸 뒤 저장되기 전에 새로고침해 낸 표시를 잃음 등). 다음 질문을 5.5로 받는다
+  const behind = liveQuestion !== null && question !== null && liveQuestion.seq > question.seq;
+  // 내는 중이거나 질문이 어긋나면 2초마다 다시 그려 5.5로 다음 질문을 확인한다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
   // [끝내기] 뒤 저장을 기다리는 동안은 면접 화면이 다시 그린다(두 곳이 다시 그리면 서로의 요청을 끊는다).
   useEffect(() => {
-    if (!submitting || confirmingSave || refreshing || !online) return;
+    if ((!submitting && !behind) || confirmingSave || refreshing || !online) return;
     const timer = setTimeout(() => startRefresh(() => router.refresh()), SESSION_POLL_MS);
     return () => clearTimeout(timer);
-  }, [submitting, confirmingSave, refreshing, online, router]);
+  }, [submitting, behind, confirmingSave, refreshing, online, router]);
 
   // 마지막 답변이 제출됐으면 5.2 answeredCount로 저장을 확인한 뒤 끝낸다. 10초가 지나도 보이지 않으면 그대로 끝낸다
   // (API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257). 기다리는 동안 저장 중임을 안내한다.
@@ -578,7 +583,12 @@ function VideoInterview({
         </AnswerCaption>
       </Dialog>
       <div className={uiHidden ? "hidden" : "contents"}>
-        <MicToast level={level} answering={answering} onCheck={() => setMicCheckOpen(true)} />
+        <MicToast
+          level={level}
+          answering={answering}
+          unavailable={unavailable}
+          onCheck={() => setMicCheckOpen(true)}
+        />
       </div>
       <MicCheckModal
         open={micCheckOpen}
@@ -764,6 +774,20 @@ function ChatLive({
       />
     </>
   );
+}
+
+/** active인 동안 페이지를 떠나려 하면(탭 닫기 · 새로고침 · 주소 이동) 브라우저 기본 확인 창을 띄운다(MDN beforeunload) */
+function useLeaveConfirm(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const confirm = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // 예전 브라우저는 returnValue를 정해야 창을 띄운다
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", confirm);
+    return () => window.removeEventListener("beforeunload", confirm);
+  }, [active]);
 }
 
 /** 질문이 바뀔 때만 번개처럼 깜빡이는 빛(악마 면접관 배경). 처음 화면에 들어올 때는 깜빡이지 않는다. */

@@ -550,3 +550,64 @@ def test_room_capture_resends_subtitles_and_forwards_stt_state() -> None:
         on_stt_state(SttState.RECONNECTED)
         publisher.return_value.reconnected.assert_called_once_with()
     assert states == [SttState.RECONNECTING, SttState.RECONNECTED]
+
+
+def interview_context() -> Mock:
+    """배정 정보가 있는 면접방이다. 면접 진행은 끝나지 않는 작업으로 바꿔 연결 종료만 본다."""
+    ctx = context()
+    ctx.job.metadata = ASSIGNMENT_JSON
+    ctx.room.name = "interview-55"
+    return ctx
+
+
+async def never_ends(*_args: object) -> None:
+    await asyncio.Event().wait()
+
+
+def disconnect_interview(reason: rtc.DisconnectReason.ValueType, results: Mock) -> None:
+    async def run() -> None:
+        ctx = interview_context()
+        task = asyncio.create_task(entrypoint(ctx))
+        await asyncio.sleep(0)
+        ctx.room.on.call_args.args[1](reason)
+        await asyncio.wait_for(task, timeout=1)
+
+    with (
+        patch("app.agent.main.run_interview", side_effect=never_ends),
+        patch("app.agent.main.question_speaker", return_value=Mock(aclose=AsyncMock())),
+        patch("app.agent.main.agent_results", return_value=results),
+    ):
+        asyncio.run(run())
+
+
+def test_room_closed_by_livekit_reports_room_closed() -> None:
+    """지원자가 모두 떠나 LiveKit이 방을 닫으면 BE가 면접을 끝내도록 알린다(AI 명세 1.4·6.5)."""
+    results = Mock()
+    disconnect_interview(rtc.DisconnectReason.ROOM_CLOSED, results)
+    results.publish.assert_called_once_with(ResultType.ROOM_CLOSED, 55, {})
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        # BE가 끝내기 · 시작 실패로 방을 지웠으면 이미 처리했다
+        rtc.DisconnectReason.ROOM_DELETED,
+        # 연결만 끊겼으면 방이 남아 있고 LiveKit이 새 에이전트를 배정한다
+        rtc.DisconnectReason.SIGNAL_CLOSE,
+        rtc.DisconnectReason.CONNECTION_TIMEOUT,
+        rtc.DisconnectReason.SERVER_SHUTDOWN,
+    ],
+)
+def test_other_disconnects_do_not_report_room_closed(
+    reason: rtc.DisconnectReason.ValueType,
+) -> None:
+    results = Mock()
+    disconnect_interview(reason, results)
+    results.publish.assert_not_called()
+
+
+def test_room_closed_publish_failure_is_only_logged() -> None:
+    results = Mock()
+    results.publish.side_effect = ResultPublishError("redis down")
+    disconnect_interview(rtc.DisconnectReason.ROOM_CLOSED, results)
+    results.publish.assert_called_once()
