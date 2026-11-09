@@ -437,6 +437,21 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it("면접 중에는 페이지를 떠나려 하면 확인 창을 띄우고, 결과 분석 중이면 띄우지 않는다", () => {
+    const leave = () => {
+      const event = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    const { rerender } = render(<InterviewRoom session={SESSION} currentQuestion={QUESTION} />);
+    expect(leave()).toBe(true);
+
+    rerender(
+      <InterviewRoom session={{ ...SESSION, status: "ANALYZING" }} currentQuestion={null} />,
+    );
+    expect(leave()).toBe(false);
+  });
+
   it("다음 질문을 만드는 중이면(5.5 202) 면접관이 생각하는 중이고, 2초 뒤 다시 조회한다", () => {
     render(<InterviewRoom session={SESSION} currentQuestion={null} />);
 

@@ -87,6 +87,9 @@ export function InterviewRoom({
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
   // 오리 면접관은 면접하는 동안 배경음(풀벌레 · 강물)을 작게 틀고, 결과 분석으로 넘어가면 줄이며 멈춘다
   useDuckAmbience(hasDuckCall(session.persona) && !analyzing);
+  // 면접 중에 탭을 닫거나 새로고침하면 브라우저 기본 확인 창을 띄운다(사용자 결정 2026-11-09, 문구는 브라우저가 정한다).
+  // 화면 안 이동(router)에는 뜨지 않는다
+  useLeaveConfirm(session.status === "IN_PROGRESS");
   // 방금 답한 질문이 그대로 오거나 질문이 없으면 다음 질문을 기다리는 중이다.
   const question: CurrentQuestion | null =
     currentQuestion && currentQuestion.id !== answeredQuestionId ? currentQuestion : null;
@@ -771,6 +774,20 @@ function ChatLive({
       />
     </>
   );
+}
+
+/** active인 동안 페이지를 떠나려 하면(탭 닫기 · 새로고침 · 주소 이동) 브라우저 기본 확인 창을 띄운다(MDN beforeunload) */
+function useLeaveConfirm(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const confirm = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // 예전 브라우저는 returnValue를 정해야 창을 띄운다
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", confirm);
+    return () => window.removeEventListener("beforeunload", confirm);
+  }, [active]);
 }
 
 /** 질문이 바뀔 때만 번개처럼 깜빡이는 빛(악마 면접관 배경). 처음 화면에 들어올 때는 깜빡이지 않는다. */
