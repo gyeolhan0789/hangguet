@@ -1,6 +1,7 @@
 package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.group.domain.GroupPhase;
+import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
 import com.ssafy.a301.group.dto.GroupResultMessage;
@@ -21,9 +22,6 @@ import com.ssafy.a301.interview.service.AiJobService;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.interview.service.InvalidAiResultException;
 import com.ssafy.a301.interview.service.VoiceAnswerChecks;
-import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -39,7 +37,7 @@ import tools.jackson.databind.json.JsonMapper;
  * 그룹 면접 에이전트 결과 메시지 하나를 처리한다(ai:results:group, AI 명세 6.7, docs/그룹면접-설계.md 6.4). 그룹 행 → 면접 행(id 순서)을
  * 잠그고, 지금 차례 · 단계의 메시지일 때만 반영한 뒤 커밋하고 면접방 정보를 바꾼다. 늦게 왔거나 두 번 온 메시지는 차례 · 단계 · 버전이 맞지 않아 버린다.
  *
- * <p>아직 하지 않는 것(마감 처리기 · 시작 실패 처리를 구현할 때 더함): 배정 거절(assignment.rejected), 기한이 지난 단계 처리.
+ * <p>기한이 지난 단계는 마감 처리기(GroupDeadlineService)가 처리한다.
  */
 @Service
 public class GroupResultService {
@@ -49,8 +47,8 @@ public class GroupResultService {
     private static final int MAX_SEQ =
             InterviewGroupParticipant.BASE_QUESTIONS + InterviewGroupParticipant.MAX_FOLLOWUPS;
     private static final Set<String> SPOKEN = Set.of("ENDED", "FAILED");
-    // 꼬리질문 판단 응답 시간(docs/그룹면접-설계.md 6.4 응답 시간 측정)
-    static final String DECISION_TIMER = "a301.group.followup.decision";
+    // 배정 거절 이유(AI 명세 1.4)
+    private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
 
     private final InterviewGroupRepository groups;
     private final InterviewGroupParticipantRepository participants;
@@ -61,7 +59,8 @@ public class GroupResultService {
     private final GroupTurnFlow flow;
     private final GroupRoomUpdates roomUpdates;
     private final TransactionTemplate transactions;
-    private final MeterRegistry meters;
+    private final GroupMetrics metrics;
+    private final GroupEndService groupEnds;
 
     public GroupResultService(
             InterviewGroupRepository groups,
@@ -73,7 +72,8 @@ public class GroupResultService {
             GroupTurnFlow flow,
             GroupRoomUpdates roomUpdates,
             TransactionTemplate transactions,
-            MeterRegistry meters) {
+            GroupMetrics metrics,
+            GroupEndService groupEnds) {
         this.groups = groups;
         this.participants = participants;
         this.sessions = sessions;
@@ -83,7 +83,8 @@ public class GroupResultService {
         this.flow = flow;
         this.roomUpdates = roomUpdates;
         this.transactions = transactions;
-        this.meters = meters;
+        this.metrics = metrics;
+        this.groupEnds = groupEnds;
     }
 
     /**
@@ -92,6 +93,9 @@ public class GroupResultService {
     public Outcome handle(String raw) {
         GroupResultMessage message = parse(raw);
         String type = required(message.type(), "type");
+        if (type.equals("assignment.rejected")) {
+            return assignmentRejected(message);
+        }
         long sessionId = required(message.sessionId(), "sessionId");
         int seq = required(message.seq(), "seq");
         if (seq < 1 || seq > MAX_SEQ) {
@@ -268,6 +272,34 @@ public class GroupResultService {
         };
     }
 
+    // 에이전트가 그룹 배정을 거절했다(AI 명세 6.7). 질문을 내기 전인 그룹만 START_FAILED로 바꾸고 면접방을 지운다.
+    // 다시 시작(10.7)하기 전에 보낸 거절이 늦게 오면 새 시도를 실패시키지 않게 버린다
+    private Outcome assignmentRejected(GroupResultMessage message) {
+        long groupId = required(message.groupId(), "groupId");
+        String reason = required(message.reason(), "reason");
+        if (!REJECT_REASONS.contains(reason)) {
+            throw new InvalidAiResultException("배정 거절 이유가 아니다: " + reason);
+        }
+        OffsetDateTime occurredAt = required(message.occurredAt(), "occurredAt");
+        LOG.warn("그룹 면접방 배정 거절: group={} reason={}", groupId, reason);
+        return transactions.execute(
+                status -> {
+                    InterviewGroup group = groups.findByIdForUpdate(groupId).orElse(null);
+                    if (group == null
+                            || group.getStatus() != GroupStatus.IN_PROGRESS
+                            || occurredAt.isBefore(group.getStartedAt())) {
+                        return Outcome.DISCARDED;
+                    }
+                    List<Long> sessionIds = participants.findActiveSessionIds(groupId);
+                    List<InterviewSession> locked = sessions.findAllForUpdate(sessionIds);
+                    if (participants.hasAskedQuestion(groupId)) {
+                        return Outcome.DISCARDED;
+                    }
+                    groupEnds.failStart(group, locked);
+                    return Outcome.SAVED;
+                });
+    }
+
     // 최종 답변을 저장한 때(DECIDING 시작)부터 판단이 도착한 때까지
     private void recordDecision(Turn turn, String outcome) {
         if (turn.session() == null) {
@@ -277,13 +309,8 @@ public class GroupResultService {
                 .flatMap(q -> answers.findByQuestionId(q.getId()))
                 .ifPresent(
                         answer ->
-                                Timer.builder(DECISION_TIMER)
-                                        .tag("outcome", outcome)
-                                        .publishPercentiles(0.5, 0.9, 0.99)
-                                        .register(meters)
-                                        .record(
-                                                Duration.between(
-                                                        answer.getCreatedAt(), turn.now())));
+                                metrics.followupDecision(
+                                        outcome, answer.getCreatedAt(), turn.now()));
     }
 
     private Optional<InterviewQuestion> question(Turn turn) {

@@ -61,6 +61,7 @@ public class GroupStartService {
     private final GroupResponses responses;
     private final TransactionTemplate transactions;
     private final InterviewCapacity capacity;
+    private final GroupRoomUpdates roomUpdates;
     private final Duration waitingExpiry;
     private final Duration askingTimeout;
 
@@ -75,6 +76,7 @@ public class GroupStartService {
             GroupResponses responses,
             TransactionTemplate transactions,
             InterviewCapacity capacity,
+            GroupRoomUpdates roomUpdates,
             @Value("${group.waiting-expiry:1h}") Duration waitingExpiry,
             @Value("${group.asking-timeout:20s}") Duration askingTimeout) {
         this.groups = groups;
@@ -87,6 +89,7 @@ public class GroupStartService {
         this.responses = responses;
         this.transactions = transactions;
         this.capacity = capacity;
+        this.roomUpdates = roomUpdates;
         this.waitingExpiry = waitingExpiry;
         this.askingTimeout = askingTimeout;
     }
@@ -138,6 +141,7 @@ public class GroupStartService {
                             assignment(group, ordered),
                             JSON.writeValueAsString(GroupMapper.toRoomInfo(group, active, now)));
                     closeRoomOnRollback(groupId);
+                    roomUpdates.markOpenedAfterCommit(group);
                     return responses.of(
                             group,
                             active,

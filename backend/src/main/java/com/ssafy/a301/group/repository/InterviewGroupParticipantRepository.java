@@ -3,6 +3,7 @@ package com.ssafy.a301.group.repository;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,6 +26,21 @@ public interface InterviewGroupParticipantRepository
             "select p.session.id from InterviewGroupParticipant p where p.group.id = :groupId and"
                     + " p.leftAt is null and p.user.deletedAt is null")
     List<Long> findActiveSessionIds(@Param("groupId") long groupId);
+
+    /**
+     * 질문을 모두 마치고 before 전부터 5.8을 기다리는 진행 중 면접(docs/그룹면접-설계.md 6.11). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시 확인한다
+     */
+    @Query(
+            "select p.group.id, p.session.id from InterviewGroupParticipant p where p.doneAt <="
+                    + " :before and p.session.status ="
+                    + " com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS")
+    List<Object[]> findOverdueDone(@Param("before") OffsetDateTime before);
+
+    /** 그룹에서 질문을 하나라도 냈는지(첫 질문 전의 AI 실패는 시작 실패, docs/그룹면접-설계.md 5.1). 먼저 끝낸 사람의 질문도 센다 */
+    @Query(
+            "select count(q) > 0 from InterviewQuestion q where q.session.id in (select"
+                    + " p.session.id from InterviewGroupParticipant p where p.group.id = :groupId)")
+    boolean hasAskedQuestion(@Param("groupId") long groupId);
 
     /** 그 면접의 참가자가 질문을 모두 마쳤는지(5.5) */
     boolean existsBySessionIdAndDoneAtIsNotNull(Long sessionId);

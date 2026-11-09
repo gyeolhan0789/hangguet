@@ -608,7 +608,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `question.spoken` (새) | `sessionId` · `seq` · `turnVersion` · `endedAt`(음성 마지막 소리 · 실패 시각, 밀리초) · `speech`(`ENDED` · `FAILED`). BE는 이 시각부터 답변 시간을 센다. 오지 않으면 `speechMs` + 5초 뒤에 BE가 스스로 시작한다 |
 | `answer.completed` | `turnVersion` · `answerEndedAt`(답변을 끝낸 시각) 추가. `endReason`에 `TIME_LIMIT`(마감) 추가 |
 | `followup.decided` (새) | 아래 |
-| `assignment.rejected` | `groupId` 추가 |
+| `assignment.rejected` | `ai:results:group`으로 보내고 `groupId` · `reason` · `occurredAt`을 담는다(`sessionId` 없음). BE는 그룹이 질문을 하나도 내지 않았고 `occurredAt`이 마지막 시작 뒤일 때만 시작 실패로 바꾼다 |
 
 ```json
 { "type": "followup.decided", "sessionId": 55, "seq": 2, "turnVersion": 18,

@@ -17,6 +17,7 @@ import com.ssafy.a301.home.mapper.HomeMapper;
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
+import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.Grade;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewMode;
@@ -157,6 +158,17 @@ class MapperTest {
         assertThat(replay.recordingStartedAt()).isNull();
     }
 
+    // 그룹 면접이 AI 장애로 끝났으면 부분 결과다(API 명세 6.3 partial)
+    @Test
+    void aiFailureResultIsPartial() {
+        InterviewSession s = session(InterviewMode.CHAT);
+        s.start(T0);
+        s.end(T0.plusMinutes(5), 1, EndReason.AI_FAILURE);
+        s.complete("총평", "다음에 해볼 것");
+
+        assertThat(ResultMapper.toResult(s, List.of(), List.of(), null).partial()).isTrue();
+    }
+
     @Test
     void videoResultHasSpeechMetricsAndVideoUrl() {
         InterviewSession s = session(InterviewMode.VIDEO);
@@ -168,6 +180,7 @@ class MapperTest {
         ResultResponse result = ResultMapper.toResult(s, List.of(), List.of(), metric);
         assertThat(result.speechMetrics().longPauseCount()).isEqualTo(3);
         assertThat(result.speechMetrics().gazeRatio()).isNull();
+        assertThat(result.partial()).isFalse();
         ReplayResponse replay =
                 ResultMapper.toReplay(
                         s,

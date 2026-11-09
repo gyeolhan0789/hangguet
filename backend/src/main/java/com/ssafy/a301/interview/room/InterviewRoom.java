@@ -67,14 +67,16 @@ public interface InterviewRoom {
      * 남긴다(업무는 이미 커밋했다).
      *
      * @param metadata 면접방 정보(API 명세 10.11) JSON
+     * @return 보냈으면 true. 실패하면 마감 처리기가 다시 보낸다
      */
-    void updateGroupInfo(long groupId, String metadata);
+    boolean updateGroupInfo(long groupId, String metadata);
 
     /**
      * 채팅 최종 답변을 에이전트에게 보낸다(SendData 주제 group.answer, 대상 interviewer, AI 명세 6.7). 실패해도 던지지 않고 로그만
      * 남긴다.
      *
      * @param payload sessionId · seq · content · turnVersion JSON
+     * @return 보냈으면 true. 실패하면 마감 처리기가 꼬리질문 판단 시간 안에서 다시 보낸다
      */
-    void sendGroupAnswer(long groupId, String payload);
+    boolean sendGroupAnswer(long groupId, String payload);
 }

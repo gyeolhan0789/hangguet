@@ -78,6 +78,9 @@ tasks.withType(Test).configureEach {
     systemProperty 'ai-result.consumer-enabled', 'false'
     // 테스트 중 면접관 확인이 다른 테스트의 진행 중 면접을 시작 실패로 바꾸지 않게 사실상 끈다
     systemProperty 'interview.start-watch.interval', '1h'
+    // 테스트 중 그룹 마감 처리기 · 안전장치가 다른 테스트의 진행 중 그룹을 바꾸지 않게 사실상 끈다(테스트는 직접 부른다)
+    systemProperty 'group.deadline.interval', '1h'
+    systemProperty 'group.cleanup.interval', '1h'
 }
 
 // Format: google-java-format AOSP 스타일 (들여쓰기 4칸)

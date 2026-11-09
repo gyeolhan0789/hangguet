@@ -11,7 +11,11 @@ import tools.jackson.databind.JsonNode;
  * 그룹 면접 에이전트 결과 메시지(ai:results:group, AI 명세 6.7). 종류(type)마다 쓰는 필드가 달라 쓰지 않는 필드는 null이다. 모르는 필드는
  * 무시한다.
  *
- * @param type question.started · question.spoken · answer.completed · followup.decided
+ * @param type question.started · question.spoken · answer.completed · followup.decided ·
+ *     assignment.rejected
+ * @param groupId assignment.rejected 거절한 그룹
+ * @param occurredAt assignment.rejected 거절한 시각. 다시 시작하기 전의 거절인지 가린다
+ * @param reason assignment.rejected INVALID_ASSIGNMENT
  * @param seq 그 면접 안의 질문 순서 1~6
  * @param turnVersion 에이전트가 보고 보낸 면접방 정보의 버전
  * @param kind question.started 질문 종류(COMMON · PERSONAL · FOLLOWUP)
@@ -35,6 +39,9 @@ import tools.jackson.databind.JsonNode;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GroupResultMessage(
         String type,
+        Long groupId,
+        OffsetDateTime occurredAt,
+        String reason,
         Long sessionId,
         Integer seq,
         Integer turnVersion,

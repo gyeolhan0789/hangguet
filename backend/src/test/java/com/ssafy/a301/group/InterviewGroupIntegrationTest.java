@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mockingDetails;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -28,6 +29,8 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.group.repository.GroupPresenceStore;
+import com.ssafy.a301.group.repository.InterviewGroupRepository;
+import com.ssafy.a301.group.service.GroupDeadlineService;
 import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.group.service.GroupResultService;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
@@ -50,6 +53,7 @@ import com.ssafy.a301.interview.service.InterviewCapacity;
 import com.ssafy.a301.interview.service.InvalidAiResultException;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -99,6 +103,9 @@ class InterviewGroupIntegrationTest {
     @Autowired private GroupEndService groupEnds;
     @Autowired private AiResultService results;
     @Autowired private GroupResultService groupResults;
+    @Autowired private GroupDeadlineService deadlines;
+    @Autowired private InterviewGroupRepository groups;
+    @Autowired private MeterRegistry meters;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private InMemorySessionRuntimeStore runtimes;
     @Autowired private GroupPresenceStore presence;
@@ -1132,6 +1139,214 @@ class InterviewGroupIntegrationTest {
         assertTurn(group.groupId(), 1, order.get(1), 1, "COMMON", "FULL");
         assertThat(turnVersion(group.groupId())).isEqualTo(version + 1);
         assertThat(lastRoomInfo(group.groupId()).path("upcoming").size()).isZero();
+    }
+
+    // 6.4 · 6.11: 질문 음성이 끝났다는 메시지가 없으면 기한에 답변 시간을 시작하고, 채팅 마감은 작성 중인 글로 최종 답변을 확정한다.
+    // 꼬리질문 판단이 오지 않으면 꼬리질문 없이 다음 차례다
+    @Test
+    void chatDeadlinesStartAnsweringSubmitDraftAndSkipMissingDecision() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        // 기한 전이면 아무것도 하지 않는다
+        deadlines.expire(group.groupId(), OffsetDateTime.now());
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
+
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(30));
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("ANSWERING");
+        long questionId = questionId(a, 1);
+        mvc.perform(draftRequest(users.get(a), a, questionId, "마감 전 글"))
+                .andExpect(status().isNoContent());
+
+        // 채팅 마감(5분) 뒤: 작성 중인 글을 최종 답변으로 확정하고 꼬리질문 판단을 기다린다
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(6));
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("DECIDING");
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT content FROM answers WHERE question_id = ?",
+                                String.class,
+                                questionId))
+                .isEqualTo("마감 전 글");
+        assertThat(redis.hasKey("group-draft:" + a + ":" + questionId)).isFalse();
+        assertThat(jobTypes(a)).contains("SCORE_ANSWER");
+        verify(rooms).sendGroupAnswer(eq(group.groupId()), anyString());
+
+        // 꼬리질문 판단이 7초 안에 오지 않으면 꼬리질문 없이 다음 사람이다(판단 기한은 마감을 처리한 시각부터 센다)
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(7));
+        assertTurn(group.groupId(), 1, order.get(1), 1, "COMMON", "CALL");
+        assertThat(meters.find("a301.group.followup.decision").tag("outcome", "missing").timer())
+                .isNotNull();
+    }
+
+    // 6.6: 글이 없는 채팅 마감과 화상 마감은 답 없이 질문을 닫고 꼬리질문 판단 없이 다음 차례로 간다
+    @Test
+    void deadlineWithoutAnswerClosesQuestion() throws Exception {
+        for (String mode : List.of("CHAT", "VIDEO")) {
+            ReadyGroup group = readyGroup(2, mode);
+            mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+            List<Long> order = sessionIdsByTurnOrder(group.groupId());
+            long a = order.get(0);
+            handle(questionStarted(a, 1, turnVersion(group.groupId())));
+            handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+
+            deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(6));
+            assertThat(
+                            jdbc.queryForObject(
+                                    "SELECT closed_at IS NOT NULL FROM interview_questions WHERE"
+                                            + " id = ?",
+                                    Boolean.class,
+                                    questionId(a, 1)))
+                    .isTrue();
+            assertTurn(group.groupId(), 1, order.get(1), 1, "COMMON", "CALL");
+            // 닫힌 질문에 늦게 온 답변은 받지 않는다
+            assertThat(handle(answerCompleted(a, 1, turnVersion(group.groupId()))))
+                    .isEqualTo(Outcome.DISCARDED);
+        }
+    }
+
+    // 6.11: 질문이 시작되지 않으면 면접방 정보를 한 번 더 보내고 기다린 뒤, 첫 질문 전이면 시작 실패로 둔다
+    @Test
+    void agentNotAskingFirstQuestionFailsStart() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(21));
+        assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
+        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("ASKING");
+        verify(rooms).updateGroupInfo(eq(group.groupId()), anyString());
+
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(31));
+        assertThat(groupStatus(group.groupId())).isEqualTo("START_FAILED");
+        for (long sessionId : group.sessionIds()) {
+            assertThat(sessions.findById(sessionId).orElseThrow().getStatus())
+                    .isEqualTo(SessionStatus.START_FAILED);
+        }
+        verify(rooms).closeGroup(group.groupId());
+    }
+
+    // 6.11 AI 장애: 질문을 낸 뒤 AI가 멈추면 남은 면접을 모두 AI_FAILURE로 끝낸다. 답변이 있으면 결과를 만들고 없으면 결과 없이 끝난다
+    @Test
+    void agentStallingAfterQuestionsEndsGroupAsAiFailure() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        chatTurn(group.groupId(), users.get(a), a, 1, false);
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "CALL");
+
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(31));
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(endReason(a)).isEqualTo("AI_FAILURE");
+        assertThat(endReason(b)).isEqualTo("AI_FAILURE");
+        assertThat(sessions.findById(a).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.ANALYZING);
+        assertThat(sessions.findById(b).orElseThrow().getStatus()).isEqualTo(SessionStatus.ABORTED);
+        // 끝났다는 면접방 정보를 보낸 뒤 방을 지운다
+        JsonNode info = lastRoomInfo(group.groupId());
+        assertThat(info.path("groupStatus").asString()).isEqualTo("ENDED");
+        assertThat(info.path("participants").get(0).path("endReason").asString())
+                .isEqualTo("AI_FAILURE");
+        verify(rooms).closeGroup(group.groupId());
+    }
+
+    // 5.1: 그룹 배정 거절은 첫 질문 전에만 시작 실패로 바꾼다. 다시 시작하기 전의 늦은 거절은 버린다
+    @Test
+    void groupAssignmentRejectionFailsStartOnlyBeforeFirstQuestion() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+
+        assertThat(handle(rejected(group.groupId(), OffsetDateTime.now().minusHours(1))))
+                .isEqualTo(Outcome.DISCARDED);
+        assertThat(handle(rejected(group.groupId(), OffsetDateTime.now())))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(groupStatus(group.groupId())).isEqualTo("START_FAILED");
+        verify(rooms).closeGroup(group.groupId());
+
+        ReadyGroup asked = readyGroup(2);
+        mvc.perform(startRequest(asked.host(), asked.groupId())).andExpect(status().isOk());
+        long first = sessionIdsByTurnOrder(asked.groupId()).get(0);
+        handle(questionStarted(first, 1, turnVersion(asked.groupId())));
+        assertThat(handle(rejected(asked.groupId(), OffsetDateTime.now())))
+                .isEqualTo(Outcome.DISCARDED);
+        assertThat(groupStatus(asked.groupId())).isEqualTo("IN_PROGRESS");
+    }
+
+    // 6.10: 질문을 모두 마치고 5.8이 없으면 BE가 ALL_ANSWERED로 끝낸다. 마치지 않은 사람은 끝내지 않는다
+    @Test
+    void doneParticipantWithoutEndRequestIsEndedAllAnswered() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long a = group.sessionIds().get(0);
+        long b = group.sessionIds().get(1);
+
+        assertThat(groupEnds.endAfterDone(group.groupId(), a)).isFalse();
+        jdbc.update(
+                "UPDATE interview_group_participants SET done_at = now() - interval '2 minutes'"
+                        + " WHERE session_id = ?",
+                a);
+        assertThat(groupEnds.endAfterDone(group.groupId(), a)).isTrue();
+        assertThat(endReason(a)).isEqualTo("ALL_ANSWERED");
+        assertThat(groupEnds.endAfterDone(group.groupId(), a)).isFalse();
+        assertThat(sessions.findById(b).orElseThrow().getStatus())
+                .isEqualTo(SessionStatus.IN_PROGRESS);
+        verify(rooms).removeGroupParticipant(group.groupId(), a);
+    }
+
+    // 6.5 · 6.14: 보내지 못한 면접방 정보와 채팅 답변은 마감 처리기가 다시 보내고, 보낸 뒤에는 다시 보내지 않는다
+    @Test
+    void failedRoomInfoAndAnswerAreResentUntilDelivered() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> users = usersBySession(group);
+        long a = sessionIdsByTurnOrder(group.groupId()).get(0);
+        // 면접방을 열 때 넣은 정보는 보낸 것으로 남긴다
+        assertThat(roomVersion(group.groupId())).isEqualTo(turnVersion(group.groupId()));
+
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+        mvc.perform(chatAnswerRequest(users.get(a), a, questionId(a, 1), "답변"))
+                .andExpect(status().isAccepted());
+        // 가짜 면접방은 false(보내기 실패)를 돌려준다
+        assertThat(roomVersion(group.groupId())).isLessThan(turnVersion(group.groupId()));
+
+        when(rooms.updateGroupInfo(eq(group.groupId()), anyString())).thenReturn(true);
+        when(rooms.sendGroupAnswer(eq(group.groupId()), anyString())).thenReturn(true);
+        deadlines.tick(OffsetDateTime.now());
+        assertThat(roomVersion(group.groupId())).isEqualTo(turnVersion(group.groupId()));
+        verify(rooms, times(2)).sendGroupAnswer(eq(group.groupId()), anyString());
+
+        deadlines.tick(OffsetDateTime.now());
+        verify(rooms, times(2)).sendGroupAnswer(eq(group.groupId()), anyString());
+
+        // 이전 버전 보내기가 늦게 끝나면 더 새 정보를 덮어썼을 수 있어 다시 보내게 낮춘다
+        int latest = turnVersion(group.groupId());
+        groups.markRoomVersion(group.groupId(), latest - 1);
+        assertThat(roomVersion(group.groupId())).isEqualTo(latest - 1);
+        deadlines.tick(OffsetDateTime.now());
+        assertThat(roomVersion(group.groupId())).isEqualTo(latest);
+    }
+
+    private String rejected(long groupId, OffsetDateTime occurredAt) {
+        return json.writeValueAsString(
+                Map.of(
+                        "type",
+                        "assignment.rejected",
+                        "groupId",
+                        groupId,
+                        "reason",
+                        "INVALID_ASSIGNMENT",
+                        "occurredAt",
+                        occurredAt.toString()));
+    }
+
+    private int roomVersion(long groupId) {
+        return jdbc.queryForObject(
+                "SELECT room_version FROM interview_groups WHERE id = ?", Integer.class, groupId);
     }
 
     // 에이전트 결과를 차례대로 보내고 5.7로 답한다. 판단(DECIDING)을 거치는 차례만 쓴다
