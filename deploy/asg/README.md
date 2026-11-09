@@ -63,7 +63,7 @@ bash deploy/asg/build.sh egress prod > user-data-egress.sh
 | `soniox-api-key` | 필수 | – | |
 | `elevenlabs-api-key` · `jev-api-key` | 선택 | – | 없으면 질문 음성 · 리액션 없이 진행 |
 | `llm-chat-url` · `llm-model` · `llm-api-key` | 선택 | – | 꼬리질문(GMS). 운영 compose의 `x-gms-env`와 같은 값 |
-| `idle-processes` · `soniox-stt-model` | 선택 | – | `AGENT_IDLE_PROCESSES`(없으면 CPU 수 = 2) · 기본 `stt-rt-v5` |
+| `idle-processes` · `soniox-stt-model` | 선택 | – | `AGENT_IDLE_PROCESSES`(없으면 CPU 수 = 2) · 기본 `stt-rt-v6` |
 | `egress-image` | – | 필수 | 운영 LiveKit 서버와 짝이 맞는 버전 |
 
 - 비밀값에 공백 · 따옴표를 넣지 않는다. Egress 설정이 한 줄 JSON이고, 감시 스크립트가 Redis에 인라인 명령으로 보낸다

@@ -162,14 +162,14 @@ class _AudioFeed:
 @dataclass(frozen=True)
 class SttSettings:
     api_key: str = field(repr=False)
-    model: str = "stt-rt-v5"
+    model: str = "stt-rt-v6"
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> SttSettings:
         key = env.get("SONIOX_API_KEY", "").strip()
         if not key:
             raise SttError("SONIOX_API_KEY가 필요합니다")
-        return cls(api_key=key, model=env.get("SONIOX_STT_MODEL") or "stt-rt-v5")
+        return cls(api_key=key, model=env.get("SONIOX_STT_MODEL") or "stt-rt-v6")
 
 
 class SonioxSTT:

@@ -152,7 +152,7 @@ run_agent() {
   put REDIS_PORT 6379
   put REDIS_PASSWORD "$REDIS_PASSWORD"
   put SONIOX_API_KEY "$soniox"
-  put SONIOX_STT_MODEL "${stt_model:-stt-rt-v5}"
+  put SONIOX_STT_MODEL "${stt_model:-stt-rt-v6}"
   put ELEVENLABS_API_KEY "$elevenlabs"
   put JEV_API_KEY "$jev"
   # 꼬리질문(GMS). 빠지면 오류 없이 미리 만든 질문으로 진행하므로 첫 면접 로그로 확인한다(계획 7장)

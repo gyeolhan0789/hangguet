@@ -14,7 +14,7 @@ LiveKit에 등록하고 배정받은 면접방에서 질문 5개를 진행한다
 | `LIVEKIT_AGENT_NAME` | 선택. 기본 `a301-interviewer` |
 | `AGENT_IDLE_PROCESSES` | 선택. 미리 실행해 두는 프로세스 수(0 이상의 정수). 없으면 라이브러리 기본값(운영 모드는 CPU 수, `dev`는 0) |
 | `SONIOX_API_KEY` | Soniox API 키. 없으면 에이전트 실행 실패 |
-| `SONIOX_STT_MODEL` | 선택. 기본 `stt-rt-v5` |
+| `SONIOX_STT_MODEL` | 선택. 기본 `stt-rt-v6` |
 | `ELEVENLABS_API_KEY` | 질문 음성 합성 키. 없으면 질문 음성 없이 `question`에 `failed`를 보낸다 |
 | `JEV_API_KEY` | 리액션·인상 판단(Jev) 키. 없으면 리액션·인상 판단 없이 진행한다 |
 | `REDIS_HOST`·`REDIS_PORT` | `question.started`·`answer.completed`를 전송할 결과 큐(BE와 같은 Redis). 기본 `localhost:6379` |
