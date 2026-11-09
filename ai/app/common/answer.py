@@ -31,6 +31,22 @@ class SpeechToken:
 
 
 @dataclass(frozen=True)
+class SttGap:
+    """STT가 끊겨 음성을 인식하지 못한 구간(answer.completed sttGaps, AI 명세 6.2·6.5).
+
+    시각은 답변 시작 기준 밀리초이고 start_ms ≤ end_ms다.
+    채점·결과 생성은 이 구간의 쉼과 앞뒤의 말 중단·반복을
+    지원자의 것으로 간주하지 않는다(AI 명세 3·4장).
+    """
+
+    start_ms: int
+    end_ms: int
+
+    def to_json(self) -> dict[str, int]:
+        return {"startMs": self.start_ms, "endMs": self.end_ms}
+
+
+@dataclass(frozen=True)
 class VoiceMetrics:
     """면접 에이전트가 실시간 음성으로 계산한 말끝 흐림·억양 폭(AI 명세 3장, answers.speech).
 

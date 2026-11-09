@@ -19,6 +19,10 @@ export const authEndpoints = {
   socialLogin: (provider: "kakao" | "google") => `/auth/oauth/${provider}`,
   /** 1.7 POST 소셜 회원가입 (토큰 없이) */
   socialSignup: "/auth/oauth/signup",
+  /** 1.8 POST 비밀번호 찾기 메일 요청 (토큰 없이) */
+  passwordReset: "/auth/password-reset",
+  /** 1.9 POST 비밀번호 재설정 (토큰 없이) */
+  passwordResetConfirm: "/auth/password-reset/confirm",
 } as const;
 
 /** 2. 회원 */

@@ -1,6 +1,7 @@
 "use client";
 
 import Form from "next/form";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
@@ -15,15 +16,23 @@ import { PersonaList } from "./persona-list";
 // · Swagger 4.2(지원서 회사명 · 직무) · 5.1 SessionCreateRequest.persona
 // 면접은 면접 방식(S05-1)까지 고른 뒤 만들므로(5.1), 여기서는 고른 면접관을 주소로 넘긴다(GET 폼).
 
-export function InterviewerForm({
-  application,
-  initialPersona,
-}: {
+interface InterviewerFormProps {
   /** 화면에 쓰는 칸만 받는다(자기소개서 본문은 브라우저로 보내지 않는다). */
   application: Pick<ApplicationResponse, "id" | "companyName" | "jobTitle">;
   /** 다음 단계에서 돌아왔을 때 이미 고른 면접관 */
   initialPersona: Persona | null;
-}) {
+}
+
+/**
+ * S04 면접관 선택. 한 번 본 화면은 고른 값을 살려 다시 보여 주므로(cacheComponents · Activity), 다른 지원서로 들어와도 지난번
+ * 면접관이 골라져 있지 않게 새로 들어올 때마다(push · replace) 새로 그리고, 뒤로 · 앞으로 가기로 돌아오면 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식). 고른 면접관은 주소(persona, S05-1 [← 면접관 선택])로만 미리 고른다.
+ */
+export function InterviewerForm(props: InterviewerFormProps) {
+  const { bfcacheId } = useRouter();
+  return <Interviewer key={bfcacheId} {...props} />;
+}
+
+function Interviewer({ application, initialPersona }: InterviewerFormProps) {
   const [persona, setPersona] = useState<Persona | null>(initialPersona);
 
   return (

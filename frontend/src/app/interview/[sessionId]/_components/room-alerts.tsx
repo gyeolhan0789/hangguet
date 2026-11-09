@@ -12,6 +12,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 // · 기획 메모 S06-F(18:3575: 상단 배너 + 자동 재연결 카운트, 5초 넘게 실패하면 '잠시 멈춤' 카드) · S06-F2(340:1886: 5.2 START_FAILED면
 // 이 카드, [다시 시작] → 5.4 · [나가기] → 홈) · 웹 Swagger 5.14(끊기면 입장 정보를 다시 받아 재접속)
 // · 사용자 요청(2026-10-27: 카드에 '답하던 질문은 처음부터 다시 답해요' 추가)
+// · 사용자 요청(2026-11-06: S06-F2 [다시 시작]을 RESTART_WAIT_SECONDS 동안 막고 남은 초를 버튼에 보인다. 그동안 본문은
+//   '면접관을 다시 준비하고 있어요 · 잠시 뒤 다시 시작할 수 있어요'. 근거: 이해준/agent_autoscale_plan/be-requests.md 1.1)
 // S06 계열은 라이트 · 다크 구분 없는 화면이라 Figma 값을 그대로 쓴다(end-modal과 같음).
 
 /** 다시 연결하는 중이 이 시간을 넘기면 '면접이 잠시 멈췄어요' 카드를 띄운다(기획 메모 S06-F 5초) */
@@ -51,6 +53,30 @@ export function useReconnectSeconds(reconnecting: boolean) {
     return () => clearInterval(timer);
   }, [reconnecting]);
   return seconds;
+}
+
+/**
+ * 면접관 연결 실패(START_FAILED) 뒤 [다시 시작]을 막는 시간(초).
+ * 면접관 서버가 연결을 닫지 못하고 사라지면 LiveKit이 그 서버를 약 2분 동안 살아 있는 것으로 보고 면접을 배정한다.
+ * 바로 다시 시작하면 같은 서버에 또 배정돼 다시 실패할 수 있어 잠시 기다리게 한다(be-requests.md 1.1).
+ */
+export const RESTART_WAIT_SECONDS = 60;
+
+/** active가 켜지면 from초부터 1초씩 줄여 0에서 멈춘다. 꺼졌다 다시 켜지면 처음부터 센다. */
+function useCountdown(active: boolean, from: number) {
+  const [left, setLeft] = useState(active ? from : 0);
+  const [running, setRunning] = useState(active);
+  if (running !== active) {
+    setRunning(active);
+    setLeft(active ? from : 0);
+  }
+  const counting = active && left > 0;
+  useEffect(() => {
+    if (!counting) return;
+    const timer = setInterval(() => setLeft((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [counting]);
+  return left;
 }
 
 /** S06-F · S06-F2 공통 모달 틀(안쪽에서만 Tab이 돈다) */
@@ -189,6 +215,8 @@ export function StartFailedModal({
   onLeave: () => void;
   onRestart: () => void;
 }) {
+  const waitLeft = useCountdown(open, RESTART_WAIT_SECONDS);
+  const waiting = waitLeft > 0;
   return (
     <RoomModal
       open={open}
@@ -202,17 +230,22 @@ export function StartFailedModal({
           <button
             type="button"
             onClick={onRestart}
-            disabled={restarting}
+            disabled={restarting || waiting}
             aria-busy={restarting || undefined}
             className={primaryButton}
           >
             <Image src="/devices/icon-rotate-cw.svg" alt="" width={18} height={18} />
             다시 시작
+            {/* 남은 초는 본문 문구로 알리므로 버튼 이름에서는 뺀다(스크린 리더가 1초마다 읽지 않게) */}
+            {waiting && <span aria-hidden="true">({waitLeft}초)</span>}
           </button>
         </>
       }
     >
-      {error ?? "다시 시작해 주세요"}
+      {error ??
+        (waiting
+          ? "면접관을 다시 준비하고 있어요\n잠시 뒤 다시 시작할 수 있어요"
+          : "다시 시작해 주세요")}
     </RoomModal>
   );
 }

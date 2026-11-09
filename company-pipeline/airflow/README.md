@@ -92,7 +92,7 @@ develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
 
 - `raw/`는 덮어쓰지 않는다. 규칙·프롬프트를 바꿔도 다시 받지 않고 다시 가공할 수 있다
 - 카드는 `pipeline/data/cards/`(git 제외)에 만들고, `publish_cards`가 MinIO가 아닌 AWS 공용 버킷(`CARD_S3_BUCKET`)에 올린다. 카드 형식은 [pipeline/README.md](../pipeline/README.md#카드-형식)
-- 서버 배포는 MVP 서버(Lightsail)가 아니라 교보재 EC2에 한다. 계획: [박다빈/deploy_plan](../../박다빈/deploy_plan/README.md)
+- 서버 배포는 MVP 서버(SSAFY EC2)가 아니라 교보재 EC2에 한다. 계획: [박다빈/deploy_plan](../../박다빈/deploy_plan/README.md)
 - Docker 없이 직접 실행할 때 `S3_ENDPOINT`가 없으면 MinIO 대신 `pipeline/data/` 폴더에 같은 경로로 저장한다. 직접 실행하면서 MinIO를 쓰려면 `company-pipeline/.env`에 추가한다(컨테이너는 compose 설정이 우선이라 영향 없음):
 
 ```

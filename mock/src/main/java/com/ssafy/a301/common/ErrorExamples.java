@@ -44,6 +44,12 @@ public final class ErrorExamples {
             { "title": "Unauthorized", "status": 401, "detail": "이메일 또는 비밀번호를 확인해 주세요.",
               "instance": "/api/v1/auth/login", "code": "LOGIN_FAILED" }\
             """;
+    public static final String LOGIN_LOCKED =
+            """
+            { "title": "Too Many Requests", "status": 429,
+              "detail": "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+              "instance": "/api/v1/auth/login", "code": "LOGIN_LOCKED", "retryAfterSeconds": 900 }\
+            """;
     public static final String REFRESH_TOKEN_INVALID =
             """
             { "title": "Unauthorized", "status": 401, "detail": "다시 로그인해 주세요.",
@@ -118,6 +124,11 @@ public final class ErrorExamples {
             """
             { "title": "Unauthorized", "status": 401, "detail": "가입 시간이 지났어요. 다시 로그인해 주세요.",
               "instance": "/api/v1/auth/oauth/signup", "code": "SIGNUP_TOKEN_INVALID" }\
+            """;
+    public static final String PASSWORD_RESET_TOKEN_INVALID =
+            """
+            { "title": "Bad Request", "status": 400, "detail": "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+              "instance": "/api/v1/auth/password-reset/confirm", "code": "PASSWORD_RESET_TOKEN_INVALID" }\
             """;
     public static final String SOCIAL_LINK_FAILED =
             """
@@ -205,6 +216,11 @@ public final class ErrorExamples {
             """
             { "title": "Service Unavailable", "status": 503, "detail": "면접방을 열지 못했어요. 잠시 후 다시 시도해 주세요.",
               "instance": "/api/v1/interview-sessions/55/start", "code": "ROOM_UNAVAILABLE" }\
+            """;
+    public static final String INTERVIEW_CAPACITY_FULL =
+            """
+            { "title": "Service Unavailable", "status": 503, "detail": "지금 진행 중인 면접이 많아요. 잠시 후 다시 시작해 주세요.",
+              "instance": "/api/v1/interview-sessions/55/start", "code": "INTERVIEW_CAPACITY_FULL" }\
             """;
     public static final String RESULT_NOT_READY =
             """

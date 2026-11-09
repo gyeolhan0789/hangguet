@@ -47,6 +47,7 @@ AI 모의면접 서비스 한끗의 REST API와 데이터 관리를 담당합니
 | `S3_BUCKET` · `AWS_REGION` | | 프로필 사진·녹화 저장소. 자격 증명은 `AWS_ACCESS_KEY_ID`·`AWS_SECRET_ACCESS_KEY` | `a301-local` · `ap-northeast-2` |
 | `LIVEKIT_URL` · `LIVEKIT_PUBLIC_URL` · `LIVEKIT_API_KEY` · `LIVEKIT_API_SECRET` | | 면접방(LiveKit) 서버 주소·키 | 없음 |
 | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | | 녹화(Egress) 원본을 올릴 S3 키. LiveKit Cloud(개발)는 없으면 방 만들기가 거절됨. 셀프 호스팅은 Egress 서버 설정을 씀 | 없음 |
+| `INTERVIEW_MAX_VIDEO` | | 화상 면접 동시 진행 상한(BE 설계 5.2). Soniox 연결 한도(10개)를 개발(2)과 운영(8)이 나눠 씀 | `8` |
 
 로컬 예시 값은 루트 [`.env.example`](../.env.example)에 있습니다. S3·LiveKit 값이 없어도 기동하며, 그 기능이 필요한 요청만 실패합니다.
 

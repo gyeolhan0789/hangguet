@@ -457,6 +457,23 @@ export const PROBLEM = {
     instance: "/api/v1/auth/login",
     code: "LOGIN_FAILED",
   },
+  // 웹 Swagger 1.3 429 예시
+  LOGIN_LOCKED: {
+    title: "Too Many Requests",
+    status: 429,
+    detail: "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
+    instance: "/api/v1/auth/login",
+    code: "LOGIN_LOCKED",
+    retryAfterSeconds: 900,
+  },
+  // 웹 Swagger 1.9 400 예시
+  PASSWORD_RESET_TOKEN_INVALID: {
+    title: "Bad Request",
+    status: 400,
+    detail: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
+    instance: "/api/v1/auth/password-reset/confirm",
+    code: "PASSWORD_RESET_TOKEN_INVALID",
+  },
   AGREEMENT_REQUIRED: {
     title: "Bad Request",
     status: 400,

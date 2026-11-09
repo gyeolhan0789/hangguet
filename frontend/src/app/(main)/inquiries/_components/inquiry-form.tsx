@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
@@ -20,7 +21,16 @@ import { ROUTES } from "@/lib/routes";
 // · Swagger 9.11 → 9.1 attachmentKeys · 사용자 결정(2026-11-03: 내용 아래 '사진' 칸(photo-picker))
 // 서버 칸 오류(VALIDATION_FAILED)는 그 칸 아래에, 그 밖의 실패(사진 올리기 실패 포함)는 버튼 아래에 서버 문구로 보여 준다.
 
+/**
+ * I01 문의하기. 한 번 본 화면은 입력값을 살려 다시 보여 주므로(cacheComponents · Activity), 보낸 뒤 다시 들어와도 지난 제목 ·
+ * 내용 · 사진이 남지 않게 새로 들어올 때마다(push · replace) 새로 그리고, 뒤로 · 앞으로 가기로 돌아오면 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식).
+ */
 export function InquiryForm() {
+  const { bfcacheId } = useRouter();
+  return <Inquiry key={bfcacheId} />;
+}
+
+function Inquiry() {
   const [formError, setFormError] = useState<string>();
   const [pending, startTransition] = useTransition();
   const picks = usePhotoPicks();

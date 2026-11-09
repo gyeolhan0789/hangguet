@@ -8,6 +8,10 @@ export const ROUTES = {
   login: "/login",
   /** S01-1 회원가입 */
   signup: "/signup",
+  /** 비밀번호 찾기(1.8). S01 로그인 [비밀번호를 잊으셨나요?]로 들어온다 */
+  forgotPassword: "/forgot-password",
+  /** 비밀번호 재설정(1.9). 재설정 메일의 링크로 들어온다(주소의 token). BE 설정 PASSWORD_RESET_URL과 같아야 한다 */
+  passwordReset: "/password-reset",
   /** S02 홈. 오늘 완료(S02-B) · 끊김(S02-C) · 첫 방문(S02-D)도 같은 주소에서 상태로 나눈다. */
   home: "/home",
   /** S03 지원서 선택 — 연습 시작(진행 1단계). 고른 지원서(applicationId)는 주소에 붙일 수 있다. */
@@ -69,8 +73,12 @@ export const interviewPath = (sessionId: number) => `/interview/${sessionId}`;
 /** S07 피드백 결과(6.3). 결과가 나오면(COMPLETED) S06-1에서 넘어온다. */
 export const resultPath = (sessionId: number) => `/interview/${sessionId}/result`;
 
-/** S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. */
-export const replayPath = (sessionId: number) => `/interview/${sessionId}/replay`;
+/**
+ * S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. S07 질문별 피드백의 [자세히 보기]는 그 질문 순서(seq)를 q로 붙여
+ * 그 질문을 펼친 채로 연다.
+ */
+export const replayPath = (sessionId: number, seq?: number) =>
+  `/interview/${sessionId}/replay${seq === undefined ? "" : `?q=${seq}`}`;
 
 /**
  * S03 지원서 선택을 그 지원서를 골라 둔 채로 연다. S04 [← 지원서 선택] · 지원서 쓰기(S03에서 온 경우) 저장 뒤에 쓴다.
@@ -129,6 +137,8 @@ export const PUBLIC_PATHS: readonly string[] = [
   ROUTES.landing,
   ROUTES.login,
   ROUTES.signup,
+  ROUTES.forgotPassword,
+  ROUTES.passwordReset,
   ROUTES.guestInquiry,
   ROUTES.guestInquiryNew,
   ROUTES.terms,
@@ -143,6 +153,7 @@ export const PUBLIC_PATHS: readonly string[] = [
 export const GUEST_ONLY_PATHS: readonly string[] = [
   ROUTES.login,
   ROUTES.signup,
+  ROUTES.forgotPassword,
   ROUTES.guestInquiry,
   ROUTES.guestInquiryNew,
 ];

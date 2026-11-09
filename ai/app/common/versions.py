@@ -64,8 +64,10 @@ REGISTRY = VersionRegistry(
         {
             "plan-v5",
             "score-answer-v1",
+            "score-answer-v2",
             "evaluate-feedback-v1",
             "evaluate-feedback-v6",
+            "evaluate-feedback-v7",
             "evaluate-cover-letter-v1",
             "reaction-v1",
             "impression-v1",

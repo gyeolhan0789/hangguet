@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 
@@ -27,7 +28,17 @@ import type { InquiryResponse } from "@/types/api";
 // · Swagger 9.3 · 9.4 · 9.5
 // I01-1 [확인]으로 오면 store에 든 문의번호 · 조회 비밀번호로 바로 연다. 새로고침하면 store가 비어 I04부터 다시 한다.
 
+/**
+ * I04 비회원 내 문의. 문의를 남기고 [확인]으로 올 때마다 그 문의를 열도록(처음 그릴 때 한 번), 새로 들어올 때마다 새로 그린다
+ * (cacheComponents · Activity로 화면이 남아 있으면 두 번째 문의는 열리지 않았다). 뒤로 · 앞으로 가기로 돌아오면 그대로 둔다
+ * (Next useRouter().bfcacheId).
+ */
 export function GuestInquiryView() {
+  const { bfcacheId } = useRouter();
+  return <GuestInquiries key={bfcacheId} />;
+}
+
+function GuestInquiries() {
   const stored = useGuestInquiryStore();
   const [inquiry, setInquiry] = useState<InquiryResponse | null>(null);
   const [formError, setFormError] = useState<string>();

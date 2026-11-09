@@ -4,18 +4,18 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
-import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
+import com.ssafy.a301.group.service.GroupEndService;
 import com.ssafy.a301.interview.domain.AiJob;
+import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
-import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
-import com.ssafy.a301.interview.domain.SpeechMetric;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
@@ -25,13 +25,9 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
-import com.ssafy.a301.interview.repository.RecordingRepository;
-import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
-import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -43,8 +39,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 5.1~5.5 면접 만들기부터 시작까지, 5.8·5.9 끝내기·결과 재생성. 회원은 토큰의 회원 id로만 찾고, 없거나 남의 면접은 404다. 플랜 생성 상태(Redis)는
- * 작업이 큐로 나가기 전, 트랜잭션 안에서 기록한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴 수 있다(BE 설계 5.1).
+ * 5.1~5.5 면접 만들기부터 시작까지(그룹 면접 참가자의 면접 만들기 포함), 5.8·5.9 끝내기·결과 재생성. 회원은 토큰의 회원 id로만 찾고, 없거나 남의 면접은
+ * 404다. 플랜 생성 상태(Redis)는 작업이 큐로 나가기 전, 트랜잭션 안에서 기록한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴
+ * 수 있다(BE 설계 5.1).
  */
 @Service
 public class InterviewSessionService {
@@ -56,14 +53,14 @@ public class InterviewSessionService {
     private final InterviewPlanRepository plans;
     private final ApplicationRepository applications;
     private final UserRepository users;
-    private final PracticeService practices;
     private final SessionRuntimeService runtimes;
     private final AiJobService aiJobs;
     private final TransactionTemplate transactions;
     private final InterviewRoom rooms;
-    private final RecordingRepository recordings;
-    private final SpeechMetricRepository speechMetrics;
     private final CompanyCardFinder companyCards;
+    private final InterviewCapacity capacity;
+    private final SessionEnder ender;
+    private final GroupEndService groupEnds;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -72,28 +69,28 @@ public class InterviewSessionService {
             InterviewPlanRepository plans,
             ApplicationRepository applications,
             UserRepository users,
-            PracticeService practices,
             SessionRuntimeService runtimes,
             AiJobService aiJobs,
             TransactionTemplate transactions,
             InterviewRoom rooms,
-            RecordingRepository recordings,
-            SpeechMetricRepository speechMetrics,
-            CompanyCardFinder companyCards) {
+            CompanyCardFinder companyCards,
+            InterviewCapacity capacity,
+            SessionEnder ender,
+            GroupEndService groupEnds) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
         this.plans = plans;
         this.applications = applications;
         this.users = users;
-        this.practices = practices;
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.transactions = transactions;
         this.rooms = rooms;
-        this.recordings = recordings;
-        this.speechMetrics = speechMetrics;
         this.companyCards = companyCards;
+        this.capacity = capacity;
+        this.ender = ender;
+        this.groupEnds = groupEnds;
     }
 
     /**
@@ -125,6 +122,34 @@ public class InterviewSessionService {
                     return InterviewMapper.toSessionResponse(
                             session, SessionRuntime.generating(), null, 0, now, null);
                 });
+    }
+
+    /**
+     * 그룹 면접 참가자의 면접을 만든다(API 명세 10.1 · 10.3). 5.1과 같이 지원서 행을 잠그고 회사 카드를 남긴 뒤 그룹용 플랜(질문 2개) 생성을
+     * 시작한다. 그룹 행을 잠근 트랜잭션 안에서 부른다(잠금 순서: 회원 → 그룹 → 지원서 · 면접, docs/그룹면접-설계.md 9장).
+     */
+    public InterviewSession createForGroup(
+            long userId,
+            long applicationId,
+            Persona persona,
+            InterviewMode mode,
+            long groupId,
+            OffsetDateTime now) {
+        Application application =
+                applications
+                        .findForUpdate(applicationId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.APPLICATION_NOT_FOUND));
+        InterviewSession session =
+                sessions.save(
+                        InterviewSession.ofGroup(
+                                users.getReferenceById(userId),
+                                application,
+                                companyCards.findCurrent(application.getCompanyName()).orElse(null),
+                                persona,
+                                mode,
+                                groupId));
+        startPlan(session.getId(), now);
+        return session;
     }
 
     /**
@@ -160,14 +185,18 @@ public class InterviewSessionService {
 
     /**
      * 5.4. 면접방을 열고(화상이면 녹화) 에이전트에 질문 5개를 배정한 뒤 입장 정보를 준다. 질문 행은 에이전트가 질문을 말할 때(question.started)
-     * 생긴다(API 명세 5.4). 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다. 면접방을 열지 못하면 상태를 그대로 두고 503을 준다.
-     * 커밋하지 못하면 연 방을 지운다.
+     * 생긴다(API 명세 5.4). 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다. 화상 면접이 동시 진행 상한에 닿았거나 면접방을 열지 못하면
+     * 상태를 그대로 두고 503을 준다. 커밋하지 못하면 연 방을 지운다.
      */
     public SessionResponse start(long userId, long sessionId) {
         OffsetDateTime now = OffsetDateTime.now();
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
+                    // 그룹 면접은 방장이 그룹으로 시작한다(API 명세 10.10)
+                    if (session.isGroup()) {
+                        throw new ApiException(ErrorCode.GROUP_SESSION);
+                    }
                     if (!session.canStart()) {
                         throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
                     }
@@ -181,6 +210,9 @@ public class InterviewSessionService {
                                             () ->
                                                     new IllegalStateException(
                                                             "플랜이 없다: " + sessionId));
+                    if (session.isVideo()) {
+                        capacity.reserveVideo(now);
+                    }
                     session.start(now);
                     rooms.open(sessionId, session.isVideo(), assignment(session, plan));
                     closeRoomOnRollback(sessionId);
@@ -195,13 +227,19 @@ public class InterviewSessionService {
                 });
     }
 
-    /** 5.14. 새로고침·연결 끊김 뒤 면접방에 다시 들어갈 입장 정보 */
+    /**
+     * 5.14. 새로고침·연결 끊김 뒤 면접방에 다시 들어갈 입장 정보. 그룹 면접은 그룹 면접방(group-{groupId})에 자기 참가자 이름으로 들어간다(API 명세
+     * 10.10). 그룹 면접 참가자는 처음 입장도 이 API로 받는다(10.7 응답에는 방장 것만 있다).
+     */
     public RoomResponse roomAccess(long userId, long sessionId) {
         InterviewSession session =
                 sessions.findWithApplication(sessionId, userId)
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         if (session.getStatus() != SessionStatus.IN_PROGRESS) {
             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);
+        }
+        if (session.isGroup()) {
+            return rooms.issueGroupAccess(session.getGroupId(), sessionId, session.isVideo());
         }
         return rooms.issueAccess(sessionId, session.isVideo());
     }
@@ -264,53 +302,23 @@ public class InterviewSessionService {
     /**
      * 5.8. 답변이 있으면 결과 생성을 시작하고 시작일(한국 시간)에 처음이면 연습 기록을 남긴다. leveledUp은 이번에 기록이 남아 스트릭 뱃지 구간이 바뀌었을
      * 때만 true다(BE 설계 6.1). 답변이 없으면 결과·연습 인정 없이 ABORTED다. gazeRatio(화면이 잰 시선 비율)는 결과가 나오는 화상 면접일 때만
-     * 남긴다.
+     * 남긴다. 그룹 세션은 GroupEndService가 그룹 행부터 잠그고 끝낸다.
      */
     public SessionResponse end(long userId, long sessionId, BigDecimal gazeRatio) {
+        InterviewSession found =
+                sessions.findByIdAndUserId(sessionId, userId)
+                        .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+        // 그룹 세션은 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10, 잠금 순서: 그룹 → 면접)
+        if (found.isGroup()) {
+            return groupEnds.endByUser(userId, found.getGroupId(), sessionId, gazeRatio);
+        }
         OffsetDateTime now = OffsetDateTime.now();
-        SessionResponse response = endInTransaction(userId, sessionId, now, gazeRatio);
+        SessionResponse response =
+                transactions.execute(
+                        status -> ender.end(lock(userId, sessionId), now, gazeRatio, null, true));
         // 커밋 뒤 면접방을 지운다. 에이전트가 나가고 화상이면 녹화도 끝난다
         rooms.close(sessionId);
         return response;
-    }
-
-    private SessionResponse endInTransaction(
-            long userId, long sessionId, OffsetDateTime now, BigDecimal gazeRatio) {
-        return transactions.execute(
-                status -> {
-                    InterviewSession session = lock(userId, sessionId);
-                    int answeredCount = answers.countByQuestionSessionId(sessionId);
-                    boolean practiced = session.end(now, answeredCount);
-                    boolean leveledUp = false;
-                    if (practiced) {
-                        leveledUp =
-                                practices.recordAndCheckLevelUp(
-                                        userId,
-                                        KoreaTime.dateOf(session.getStartedAt()),
-                                        KoreaTime.dateOf(now));
-                        startAnalysis(sessionId, now);
-                        if (session.isVideo()) {
-                            // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다.
-                            // 다시보기(6.4)가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다
-                            aiJobs.enqueue(AiJob.mergeRecording(sessionId));
-                            recordings.save(Recording.mergingSessionVideo(session));
-                            if (gazeRatio != null) {
-                                // 말하기 지표는 결과가 나올 때 채운다(AiResultService)
-                                SpeechMetric metric =
-                                        new SpeechMetric(session, null, null, null, null, null);
-                                metric.recordGazeRatio(gazeRatio.setScale(2, RoundingMode.HALF_UP));
-                                speechMetrics.save(metric);
-                            }
-                        }
-                    }
-                    return InterviewMapper.toSessionResponse(
-                            session,
-                            runtimes.current(sessionId, now.toInstant()),
-                            null,
-                            answeredCount,
-                            now,
-                            leveledUp);
-                });
     }
 
     /** 5.9. 결과 생성이 실패한 면접만 다시 만든다. */

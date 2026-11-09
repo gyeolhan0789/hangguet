@@ -63,4 +63,8 @@ public class PasswordChange {
     public static PasswordChange byUser(long userId, OffsetDateTime changedAt) {
         return new PasswordChange(userId, PasswordChangedBy.USER, null, null, changedAt);
     }
+
+    public static PasswordChange byReset(long userId, OffsetDateTime changedAt) {
+        return new PasswordChange(userId, PasswordChangedBy.RESET, null, null, changedAt);
+    }
 }

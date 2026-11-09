@@ -1,0 +1,451 @@
+<title>A301 ASG 운영 구조</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* 레이아웃: 기존 팀 아키텍처 그림(AWS 그룹 상자 + 색깔별 흐름선)을 따른 한 장의 구성도, 그 아래 범례와 설명 카드 */
+:root {
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --fg: #1c2230;
+  --muted: #5b6475;
+  --line: #c7cdd8;
+  --box: #3a6cc2;
+  --vpc: #7a4ed4;
+  --inst: #5a9638;
+  --asg: #c0457a;
+  --web: #2c8a4b;
+  --media: #2c6bd8;
+  --ts: #7a4ed4;
+  --ts-fill: rgba(122, 78, 212, 0.09);
+  --api: #c4473a;
+  --store: #c26d14;
+  --deploy: #7a8292;
+  --chip: #fff4df;
+  --chip-fg: #8a5300;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11141a; --surface: #1a1f28; --fg: #e5e8ee; --muted: #9aa3b3; --line: #3a4250;
+    --box: #78a0ea; --vpc: #a68aff; --inst: #84c262; --asg: #ec7aa9;
+    --web: #5cc27e; --media: #6ea2ff; --ts: #a68aff; --ts-fill: rgba(166, 138, 255, 0.12);
+    --api: #f0786a; --store: #f0a24a; --deploy: #8e97a7; --chip: #3a2e17; --chip-fg: #f5c77a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11141a; --surface: #1a1f28; --fg: #e5e8ee; --muted: #9aa3b3; --line: #3a4250;
+  --box: #78a0ea; --vpc: #a68aff; --inst: #84c262; --asg: #ec7aa9;
+  --web: #5cc27e; --media: #6ea2ff; --ts: #a68aff; --ts-fill: rgba(166, 138, 255, 0.12);
+  --api: #f0786a; --store: #f0a24a; --deploy: #8e97a7; --chip: #3a2e17; --chip-fg: #f5c77a;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); line-height: 1.6; }
+.wrap {
+  max-width: 1240px; margin: 0 auto;
+  padding-block: 32px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px;
+}
+header { display: grid; gap: 8px; }
+.eyebrow { font-family: var(--font-body); font-size: 13px; font-weight: 500; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; }
+h1 { margin: 0; font-size: clamp(24px, 3.2vw, 32px); line-height: 1.25; text-wrap: balance; }
+.lede { margin: 0; max-width: 68ch; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 4px 10px; border-radius: 999px; background: var(--chip); color: var(--chip-fg); font-size: 13px; font-weight: 500; }
+figure { margin: 0; display: grid; gap: 12px; }
+.scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.scroll svg { display: block; width: 100%; min-width: 1080px; height: auto; }
+figcaption { color: var(--muted); font-size: 14px; max-width: 80ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend i { display: inline-block; width: 28px; height: 0; border-top: 3px solid currentColor; }
+.legend i.dash { border-top-style: dashed; }
+.l-web { color: var(--web); } .l-media { color: var(--media); } .l-ts { color: var(--ts); }
+.l-api { color: var(--api); } .l-store { color: var(--store); } .l-deploy { color: var(--deploy); }
+.legend b { color: var(--fg); font-weight: 500; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; min-width: 0; display: grid; gap: 10px; align-content: start; }
+.card h2 { margin: 0; font-size: 16px; }
+.card p, .card li { margin: 0; font-size: 14px; }
+.card ul, .card ol { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.card code, td code { font-family: var(--font-mono); font-size: 12.5px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; }
+.src { font-size: 13px; color: var(--muted); }
+
+/* SVG 안의 모양 · 글자 */
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .t-head { font-size: 13px; font-weight: 700; }
+svg .t-sub { font-size: 11px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11px; }
+svg .t-muted { fill: var(--muted); }
+svg .t-strong { fill: var(--fg); }
+svg .t-group { font-size: 13px; font-weight: 700; }
+svg .t-flow { font-size: 11px; font-weight: 500; paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.g-account { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+.g-vpc { fill: none; stroke: var(--vpc); stroke-width: 1.5; }
+.g-inst { fill: none; stroke: var(--inst); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.g-asg { fill: none; stroke: var(--asg); stroke-width: 1.5; }
+.g-ext { fill: none; stroke: var(--vpc); stroke-width: 1.5; }
+.box { fill: var(--surface); stroke: var(--box); stroke-width: 1.6; }
+.box-off { fill: var(--surface); stroke: var(--line); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.box-inner { fill: var(--bg); stroke: var(--box); stroke-width: 1.2; }
+.band { fill: var(--ts-fill); stroke: var(--ts); stroke-width: 1.5; }
+.f { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.f-web { stroke: var(--web); } .f-media { stroke: var(--media); } .f-ts { stroke: var(--ts); }
+.f-api { stroke: var(--api); } .f-store { stroke: var(--store); } .f-deploy { stroke: var(--deploy); stroke-dasharray: 6 4; }
+.m-web { fill: var(--web); } .m-media { fill: var(--media); } .m-ts { fill: var(--ts); }
+.m-api { fill: var(--api); } .m-store { fill: var(--store); } .m-deploy { fill: var(--deploy); }
+.c-web { fill: var(--web); } .c-media { fill: var(--media); } .c-ts { fill: var(--ts); }
+.c-api { fill: var(--api); } .c-store { fill: var(--store); } .c-deploy { fill: var(--deploy); }
+.c-asg { fill: var(--asg); } .c-vpc { fill: var(--vpc); } .c-inst { fill: var(--inst); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">A301 · 에이전트 · Egress 오토스케일링 계획 3장</div>
+    <h1>ASG를 넣은 뒤의 운영 구조</h1>
+    <p class="lede">면접관 에이전트와 녹화(Egress)를 메인 서버에서 떼어 우리 AWS 계정의 Auto Scaling Group 두 개로 옮긴 모습입니다. 메인 서버에는 LiveKit과 웹 · DB · 큐 · AI 작업자가 남습니다.</p>
+    <span class="chip">11/07 운영 반영 · 에이전트 · Egress 모두 ASG에서 동작</span>
+  </header>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 1400 1160" role="img" aria-label="메인 서버(SSAFY 계정 EC2)에는 LiveKit, BE, FE, DB, Redis, AI 작업자가 남고, 우리 AWS 계정의 에이전트 ASG와 Egress ASG가 Tailscale로 LiveKit 7880과 Redis 6379에 붙으며, 미디어는 공인 IP UDP 7882로, 녹화 원본은 Egress가 S3에 바로 올린다. 교보재 EC2의 회사 카드 파이프라인(Airflow)은 공시 · 기사 · 인재상을 모아 GMS로 카드를 만들어 우리 계정 공용 버킷에 올리고, BE가 매시 그 버킷을 읽어 DB에 적재한다.">
+        <defs>
+          <marker id="a-web" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-web" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a-media" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-media" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a-ts" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-ts" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a-api" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-api" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a-store" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-store" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a-deploy" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="m-deploy" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+
+        <!-- 맨 위 줄: 사용자 · Cloudflare(DNS만) · CI · Docker Hub · 외부 서비스 -->
+        <rect class="box" x="40" y="36" width="160" height="64" rx="6"/>
+        <text class="t-head" x="120" y="62" text-anchor="middle">사용자 브라우저</text>
+        <text class="t-sub" x="120" y="82" text-anchor="middle">화면 · 카메라 · 마이크</text>
+
+        <rect class="box" x="225" y="36" width="160" height="64" rx="6"/>
+        <text class="t-head" x="305" y="62" text-anchor="middle">Cloudflare</text>
+        <text class="t-sub" x="305" y="82" text-anchor="middle">DNS만 · 프록시 끔</text>
+
+        <rect class="box" x="410" y="36" width="160" height="64" rx="6"/>
+        <text class="t-head" x="490" y="62" text-anchor="middle">GitLab CI</text>
+        <text class="t-sub" x="490" y="82" text-anchor="middle">build 자동 · deploy ▶</text>
+
+        <rect class="box" x="595" y="36" width="150" height="64" rx="6"/>
+        <text class="t-head" x="670" y="62" text-anchor="middle">Docker Hub</text>
+        <text class="t-mono t-muted" x="670" y="82" text-anchor="middle">hanggeut/a301</text>
+
+        <rect class="g-ext" x="850" y="20" width="520" height="104" rx="4"/>
+        <text class="t-group" x="862" y="40">외부 서비스</text>
+        <rect class="box" x="862" y="50" width="116" height="62" rx="6"/>
+        <text class="t-head" x="920" y="76" text-anchor="middle">Soniox</text>
+        <text class="t-sub" x="920" y="96" text-anchor="middle">음성 인식</text>
+        <rect class="box" x="990" y="50" width="116" height="62" rx="6"/>
+        <text class="t-head" x="1048" y="76" text-anchor="middle">ElevenLabs</text>
+        <text class="t-sub" x="1048" y="96" text-anchor="middle">질문 음성</text>
+        <rect class="box" x="1118" y="50" width="116" height="62" rx="6"/>
+        <text class="t-head" x="1176" y="76" text-anchor="middle">Jev</text>
+        <text class="t-sub" x="1176" y="96" text-anchor="middle">리액션 · 인상</text>
+        <rect class="box" x="1246" y="50" width="116" height="62" rx="6"/>
+        <text class="t-head" x="1304" y="76" text-anchor="middle">SSAFY GMS</text>
+        <text class="t-sub" x="1304" y="96" text-anchor="middle">꼬리질문 · 채점</text>
+
+        <!-- 왼쪽: SSAFY 계정 메인 서버 -->
+        <rect class="g-account" x="30" y="150" width="640" height="710" rx="4"/>
+        <text class="t-group" x="46" y="172">SSAFY 계정</text>
+        <rect class="g-inst" x="48" y="186" width="604" height="660" rx="4"/>
+        <text class="t-group c-inst" x="64" y="210">메인 서버 · EC2 t3.xlarge · 4 vCPU · 16GB</text>
+
+        <rect class="box" x="68" y="228" width="170" height="56" rx="6"/>
+        <text class="t-head" x="153" y="251" text-anchor="middle">Nginx 443 입구</text>
+        <text class="t-sub" x="153" y="270" text-anchor="middle">도메인 이름(SNI)으로 나눔</text>
+        <rect class="box" x="253" y="228" width="170" height="56" rx="6"/>
+        <text class="t-head" x="338" y="251" text-anchor="middle">Nginx HTTPS</text>
+        <text class="t-mono t-muted" x="338" y="270" text-anchor="middle">/ · /be/ · /admin/</text>
+        <rect class="box" x="438" y="228" width="170" height="56" rx="6"/>
+        <text class="t-head" x="523" y="251" text-anchor="middle">FE · Next.js</text>
+        <text class="t-sub" x="523" y="270" text-anchor="middle">BE는 서버에서만 호출</text>
+
+        <rect class="box" x="68" y="318" width="170" height="56" rx="6"/>
+        <text class="t-head" x="153" y="341" text-anchor="middle">PostgreSQL</text>
+        <text class="t-sub" x="153" y="360" text-anchor="middle">메인 DB · BE만 접근</text>
+        <rect class="box" x="253" y="318" width="170" height="56" rx="6"/>
+        <text class="t-head" x="338" y="341" text-anchor="middle">BE · Spring</text>
+        <text class="t-sub" x="338" y="360" text-anchor="middle">토큰 · 녹화 · 결과 저장</text>
+        <rect class="box" x="438" y="318" width="170" height="56" rx="6"/>
+        <text class="t-head" x="523" y="341" text-anchor="middle">AI 작업자 ×3</text>
+        <text class="t-sub" x="523" y="360" text-anchor="middle">GMS 호출 · 녹화 합치기</text>
+
+        <rect class="box" x="438" y="408" width="170" height="56" rx="6"/>
+        <text class="t-head" x="523" y="431" text-anchor="middle">Redis</text>
+        <text class="t-sub" x="523" y="450" text-anchor="middle">작업 · 결과 큐 · psrpc</text>
+
+        <rect class="box" x="68" y="498" width="540" height="70" rx="6"/>
+        <text class="t-head" x="338" y="526" text-anchor="middle">LiveKit · TURN (셀프 호스팅)</text>
+        <text class="t-sub" x="338" y="548" text-anchor="middle">시그널링 7880 · 미디어 UDP 7882 / TCP 7881 · TURN UDP 3478 · TURN/TLS</text>
+
+        <rect class="g-vpc" x="68" y="600" width="540" height="100" rx="4"/>
+        <text class="t-group" x="80" y="620">모니터링</text>
+        <rect class="box" x="80" y="632" width="120" height="54" rx="6"/>
+        <text class="t-head" x="140" y="654" text-anchor="middle">Prometheus</text>
+        <text class="t-sub" x="140" y="673" text-anchor="middle">원격 쓰기 받음</text>
+        <rect class="box" x="212" y="632" width="120" height="54" rx="6"/>
+        <text class="t-head" x="272" y="654" text-anchor="middle">Loki</text>
+        <text class="t-sub" x="272" y="673" text-anchor="middle">로그 7일</text>
+        <rect class="box" x="344" y="632" width="120" height="54" rx="6"/>
+        <text class="t-head" x="404" y="654" text-anchor="middle">Grafana</text>
+        <text class="t-sub" x="404" y="673" text-anchor="middle">대시보드 · 알림 → Mattermost</text>
+        <rect class="box" x="476" y="632" width="120" height="54" rx="6"/>
+        <text class="t-head" x="536" y="654" text-anchor="middle">Alloy · exporter</text>
+        <text class="t-sub" x="536" y="673" text-anchor="middle">메인 서버 수집</text>
+
+        <rect class="box" x="68" y="722" width="540" height="48" rx="6"/>
+        <text class="t-head" x="338" y="742" text-anchor="middle">GitLab 러너 (protected, shell)</text>
+        <text class="t-sub" x="338" y="760" text-anchor="middle">Docker Hub에서 pull → docker compose up → 에이전트 ASG 새로 고침</text>
+
+        <rect class="box-off" x="68" y="784" width="540" height="48" rx="6"/>
+        <text class="t-head t-muted" x="338" y="804" text-anchor="middle">꺼 둠: a301-prod-ai-agent · a301-prod-egress</text>
+        <text class="t-sub" x="338" y="822" text-anchor="middle">되돌릴 때만 켬 (agent-on-main · egress-on-main 프로필)</text>
+
+        <!-- 가운데: Tailscale 사설망 -->
+        <rect class="band" x="690" y="190" width="70" height="656" rx="8"/>
+        <text class="t-group c-ts" x="0" y="0" text-anchor="middle" transform="translate(730 518) rotate(-90)">Tailscale · WireGuard 사설망</text>
+
+        <!-- 오른쪽: 우리 AWS 계정 -->
+        <rect class="g-account" x="780" y="150" width="590" height="710" rx="4"/>
+        <text class="t-group" x="796" y="172">우리 AWS 계정 · 기본 VPC (서울 2a · 2b)</text>
+
+        <rect class="g-asg" x="800" y="190" width="550" height="215" rx="4"/>
+        <text class="t-group c-asg" x="816" y="212">에이전트 ASG · t3.small · 최소 1 · 최대 3</text>
+        <text class="t-sub" x="816" y="230">평균 CPU 40%로 확장 · 면접 중인 대는 축소 보호 · 종료 대기 최대 3900초</text>
+        <rect class="box" x="818" y="248" width="160" height="140" rx="6"/>
+        <text class="t-head" x="898" y="270" text-anchor="middle">EC2 t3.small</text>
+        <rect class="box-inner" x="830" y="282" width="136" height="32" rx="4"/>
+        <text class="t-mono" x="898" y="303" text-anchor="middle">a301-ai-agent</text>
+        <text class="t-sub" x="898" y="342" text-anchor="middle">Alloy · 감시 스크립트</text>
+        <text class="t-sub" x="898" y="364" text-anchor="middle">40%에 대당 약 7건</text>
+        <rect class="box" x="996" y="248" width="160" height="140" rx="6"/>
+        <text class="t-head" x="1076" y="270" text-anchor="middle">EC2 t3.small</text>
+        <rect class="box-inner" x="1008" y="282" width="136" height="32" rx="4"/>
+        <text class="t-mono" x="1076" y="303" text-anchor="middle">a301-ai-agent</text>
+        <text class="t-sub" x="1076" y="342" text-anchor="middle">Alloy · 감시 스크립트</text>
+        <text class="t-sub" x="1076" y="364" text-anchor="middle">40%에 대당 약 7건</text>
+        <rect class="box-off" x="1174" y="248" width="160" height="140" rx="6"/>
+        <text class="t-head t-muted" x="1254" y="310" text-anchor="middle">더 늘어나는 대</text>
+        <text class="t-sub" x="1254" y="332" text-anchor="middle">최대 3대까지</text>
+
+        <rect class="g-asg" x="800" y="425" width="550" height="180" rx="4"/>
+        <text class="t-group c-asg" x="816" y="447">Egress ASG · t3.medium · 최소 1 · 최대 2</text>
+        <text class="t-sub" x="816" y="465">평균 CPU 40%로 확장 · 녹화 중인 대는 축소 보호 · 녹화를 마친 뒤 종료</text>
+        <rect class="box" x="818" y="480" width="160" height="110" rx="6"/>
+        <text class="t-head" x="898" y="502" text-anchor="middle">EC2 t3.medium</text>
+        <rect class="box-inner" x="830" y="512" width="136" height="30" rx="4"/>
+        <text class="t-mono" x="898" y="532" text-anchor="middle">a301-egress</text>
+        <text class="t-sub" x="898" y="560" text-anchor="middle">Alloy · 감시 스크립트</text>
+        <text class="t-sub" x="898" y="578" text-anchor="middle">40%에 대당 약 7건</text>
+        <rect class="box-off" x="996" y="480" width="160" height="110" rx="6"/>
+        <text class="t-head t-muted" x="1076" y="530" text-anchor="middle">몰릴 때 2대째</text>
+        <text class="t-sub" x="1076" y="552" text-anchor="middle">평균 CPU 40% 넘으면</text>
+
+        <rect class="box" x="815" y="620" width="170" height="26" rx="13"/>
+        <text class="t-sub t-strong" x="900" y="638" text-anchor="middle">S3로 바로 업로드</text>
+        <rect class="box" x="800" y="662" width="270" height="118" rx="6"/>
+        <text class="t-head" x="816" y="686">S3 · hanggeut-a301-prod</text>
+        <text class="t-mono" x="816" y="710">recordings/raw/</text>
+        <text class="t-sub" x="936" y="710">트랙 원본</text>
+        <text class="t-mono" x="816" y="732">recordings/</text>
+        <text class="t-sub" x="936" y="732">합친 mp4</text>
+        <text class="t-mono" x="816" y="754">profile/ · backup/</text>
+
+        <rect class="box" x="1100" y="662" width="250" height="52" rx="6"/>
+        <text class="t-head" x="1225" y="684" text-anchor="middle">SSM Parameter Store</text>
+        <text class="t-sub" x="1225" y="703" text-anchor="middle">이미지 태그 · 비밀값 (부팅 때 읽음)</text>
+        <rect class="box" x="1100" y="726" width="250" height="52" rx="6"/>
+        <text class="t-head" x="1225" y="748" text-anchor="middle">CloudWatch</text>
+        <text class="t-sub" x="1225" y="767" text-anchor="middle">평균 CPU → 대수 조절(확장 정책)</text>
+
+        <!-- 우리 계정: 회사 카드 공용 버킷(파이프라인이 올리고 BE가 읽음) -->
+        <rect class="box" x="1100" y="792" width="250" height="54" rx="6"/>
+        <text class="t-head" x="1225" y="814" text-anchor="middle">S3 · hanggeut-a301-company</text>
+        <text class="t-sub" x="1225" y="833" text-anchor="middle">회사 카드 · manifest (공용 버킷)</text>
+
+        <!-- 아래: 회사 카드 파이프라인(교보재 EC2, 고도화) -->
+        <rect class="g-account" x="30" y="940" width="640" height="200" rx="4"/>
+        <text class="t-group" x="46" y="962">SSAFY 계정 · 회사 카드 파이프라인 (고도화)</text>
+        <rect class="g-inst" x="48" y="974" width="604" height="152" rx="4"/>
+        <text class="t-group c-inst" x="64" y="996">교보재 EC2 · t3.medium · 2 vCPU · 4GB</text>
+
+        <rect class="box" x="68" y="1008" width="170" height="56" rx="6"/>
+        <text class="t-head" x="153" y="1031" text-anchor="middle">카드 확인 화면</text>
+        <text class="t-sub" x="153" y="1050" text-anchor="middle">pipeline. · Tunnel + Access</text>
+        <rect class="box" x="253" y="1008" width="170" height="56" rx="6"/>
+        <text class="t-head" x="338" y="1031" text-anchor="middle">MinIO</text>
+        <text class="t-sub" x="338" y="1050" text-anchor="middle">공시 · 기사 · 인재상 원문</text>
+        <rect class="box" x="438" y="1008" width="170" height="56" rx="6"/>
+        <text class="t-head" x="523" y="1031" text-anchor="middle">Airflow 3.3</text>
+        <text class="t-sub" x="523" y="1050" text-anchor="middle">매일 13:00 · ▶ 카드 전체</text>
+
+        <rect class="box" x="68" y="1074" width="540" height="44" rx="6"/>
+        <text class="t-head" x="338" y="1092" text-anchor="middle">GitLab 러너 (pipeline-deploy)</text>
+        <text class="t-sub" x="338" y="1110" text-anchor="middle">develop 병합 → 코드 복사 → docker compose up</text>
+
+        <rect class="g-ext" x="700" y="940" width="670" height="104" rx="4"/>
+        <text class="t-group" x="712" y="960">회사 카드 원천 (외부)</text>
+        <rect class="box" x="712" y="972" width="150" height="60" rx="6"/>
+        <text class="t-head" x="787" y="997" text-anchor="middle">DART OpenAPI</text>
+        <text class="t-sub" x="787" y="1016" text-anchor="middle">사업보고서 · 고유번호</text>
+        <rect class="box" x="874" y="972" width="150" height="60" rx="6"/>
+        <text class="t-head" x="949" y="997" text-anchor="middle">네이버 뉴스 API</text>
+        <text class="t-sub" x="949" y="1016" text-anchor="middle">최근 30일 기사</text>
+        <rect class="box" x="1036" y="972" width="150" height="60" rx="6"/>
+        <text class="t-head" x="1111" y="997" text-anchor="middle">회사 인재상 페이지</text>
+        <text class="t-sub" x="1111" y="1016" text-anchor="middle">회사 목록에 복사해 둠</text>
+        <rect class="box" x="1198" y="972" width="150" height="60" rx="6"/>
+        <text class="t-head" x="1273" y="997" text-anchor="middle">SSAFY GMS</text>
+        <text class="t-sub" x="1273" y="1016" text-anchor="middle">항목별 요약 · 임베딩</text>
+
+        <!-- 웹 요청(초록) -->
+        <path class="f f-web" d="M120 100 V228" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="128" y="132">HTTPS · TLS 443 (서버 공인 IP)</text>
+        <path class="f f-web" d="M238 256 H253" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M262 284 V296 H245 V498" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="0" y="0" text-anchor="middle" transform="translate(245 440) rotate(-90)">rtc 시그널링</text>
+        <path class="f f-web" d="M423 256 H438" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M470 284 V301 H360 V318" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="415" y="297" text-anchor="middle">API</text>
+        <path class="f f-web" d="M253 346 H238" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M400 374 V436 H438" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M523 374 V408" marker-end="url(#a-web)"/>
+        <path class="f f-web" d="M300 374 V498" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="308" y="446">방 · 배정 · 자동 녹화</text>
+        <path class="f f-web" d="M560 464 V498" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="567" y="486">psrpc</text>
+        <path class="f f-web" d="M68 270 H58 V524 H68" marker-end="url(#a-web)"/>
+        <text class="t-flow c-web" x="0" y="0" text-anchor="middle" transform="translate(62 400) rotate(-90)">TURN/TLS (turn.)</text>
+
+        <!-- 미디어(파랑) -->
+        <path class="f f-media" d="M40 82 H20 V548 H68" marker-end="url(#a-media)"/>
+        <text class="t-flow c-media" x="0" y="0" text-anchor="middle" transform="translate(16 330) rotate(-90)">미디어 UDP 7882 · TURN UDP 3478 (공인 IP)</text>
+        <path class="f f-media" d="M580 568 V586 H772 V340 H800" marker-end="url(#a-media)"/>
+        <path class="f f-media" d="M772 560 H800" marker-end="url(#a-media)"/>
+        <text class="t-flow c-media" x="612" y="582">미디어 · 공인 IP UDP 7882</text>
+
+        <!-- Tailscale(보라): 에이전트 · Egress가 메인 서버로 연결한다 -->
+        <path class="f f-ts" d="M690 436 H608" marker-end="url(#a-ts)"/>
+        <text class="t-flow c-ts" x="649" y="430" text-anchor="middle">6379</text>
+        <path class="f f-ts" d="M690 520 H608" marker-end="url(#a-ts)"/>
+        <text class="t-flow c-ts" x="649" y="514" text-anchor="middle">7880</text>
+        <path class="f f-ts" d="M690 652 H608" marker-end="url(#a-ts)"/>
+        <text class="t-flow c-ts" x="649" y="646" text-anchor="middle">9090 · 3100</text>
+        <path class="f f-ts" d="M800 300 H760" marker-end="url(#a-ts)"/>
+        <path class="f f-ts" d="M800 515 H760" marker-end="url(#a-ts)"/>
+
+        <!-- 외부 API(빨강) -->
+        <path class="f f-api" d="M1180 190 V124" marker-end="url(#a-api)"/>
+        <text class="t-flow c-api" x="1188" y="182">음성 인식 · 합성 · 리액션 · 꼬리질문</text>
+
+        <!-- 저장(주황) -->
+        <path class="f f-store" d="M900 605 V620" />
+        <path class="f f-store" d="M900 646 V662" marker-end="url(#a-store)"/>
+        <path class="f f-store" d="M608 370 H650 V884 H935 V780" marker-end="url(#a-store)"/>
+        <text class="t-flow c-store" x="792" y="878" text-anchor="middle">녹화 합치기 · 프로필 · 백업 (앱 키)</text>
+        <path class="f f-store" d="M120 36 V10 H1385 V908 H985 V780" marker-end="url(#a-store)"/>
+        <text class="t-flow c-store" x="1185" y="902" text-anchor="middle">다시보기 · 사진 업로드 (Presigned URL, 브라우저가 직접)</text>
+
+        <!-- 배포(회색 점선) -->
+        <path class="f f-deploy" d="M570 68 H595" marker-end="url(#a-deploy)"/>
+        <text class="t-flow c-deploy" x="582" y="60" text-anchor="middle">push</text>
+        <path class="f f-deploy" d="M490 100 V186" marker-end="url(#a-deploy)"/>
+        <text class="t-flow c-deploy" x="496" y="134">prod-deploy ▶</text>
+        <path class="f f-deploy" d="M630 100 V186" marker-end="url(#a-deploy)"/>
+        <text class="t-flow c-deploy" x="636" y="134">pull</text>
+        <path class="f f-deploy" d="M720 100 V118 H845 V190" marker-end="url(#a-deploy)"/>
+        <text class="t-flow c-deploy" x="782" y="112" text-anchor="middle">부팅 때 pull</text>
+        <path class="f f-deploy" d="M1225 662 V605" marker-end="url(#a-deploy)"/>
+        <text class="t-flow c-deploy" x="1231" y="638">부팅 때 읽음</text>
+        <path class="f f-deploy" d="M1350 752 H1362 V300 H1350" marker-end="url(#a-deploy)"/>
+        <path class="f f-deploy" d="M1362 515 H1350" marker-end="url(#a-deploy)"/>
+
+        <!-- 회사 카드 파이프라인 -->
+        <path class="f f-api" d="M608 1020 H710" marker-end="url(#a-api)"/>
+        <text class="t-flow c-api" x="659" y="1012" text-anchor="middle">수집 · 요약</text>
+        <path class="f f-store" d="M438 1036 H425" marker-end="url(#a-store)"/>
+        <path class="f f-store" d="M560 1008 V926 H1225 V848" marker-end="url(#a-store)"/>
+        <text class="t-flow c-store" x="900" y="930" text-anchor="middle">카드 · manifest 올리기 (매일 작업 끝)</text>
+        <path class="f f-store" d="M1100 819 H1088 V872 H664 V309 H400 V318" marker-end="url(#a-store)"/>
+        <text class="t-flow c-store" x="0" y="0" text-anchor="middle" transform="translate(668 760) rotate(-90)">BE가 매시 manifest를 읽어 DB에 적재</text>
+      </svg>
+    </div>
+    <div class="legend" aria-label="선 색 범례">
+      <span class="l-web"><i></i><b>웹 요청 · 서버 안 호출</b></span>
+      <span class="l-media"><i></i><b>미디어(WebRTC, 공인 IP)</b></span>
+      <span class="l-ts"><i></i><b>Tailscale 사설망</b></span>
+      <span class="l-api"><i></i><b>외부 API</b></span>
+      <span class="l-store"><i></i><b>S3 저장 · 재생</b></span>
+      <span class="l-deploy"><i class="dash"></i><b>배포 · 설정 · 확장</b></span>
+    </div>
+    <figcaption>사용자는 서버 443으로 바로 들어옵니다(11/06 Cloudflare 프록시 제거, Cloudflare는 DNS만). Nginx 443 입구가 TLS를 풀지 않고 도메인 이름만 보고 웹 · rtc · grafana는 Nginx HTTPS로, turn은 LiveKit TURN/TLS로 넘깁니다. 브라우저가 Nginx 말고 직접 붙는 곳은 LiveKit 미디어 포트와 S3(Presigned URL)뿐입니다. 에이전트와 Egress는 받는 포트 없이 메인 서버 쪽으로만 연결합니다. 시그널링 · 큐 · 지표 · 로그는 Tailscale로, 음성 · 영상은 사용자와 같은 공인 IP UDP 7882로 갑니다. AI 작업자도 GMS를 부르지만 선은 생략했습니다. 맨 아래 회사 카드 파이프라인은 메인 서버와 직접 이어지지 않고, 우리 계정 공용 버킷(<code>hanggeut-a301-company</code>)을 사이에 두고 카드를 넘깁니다.</figcaption>
+  </figure>
+
+  <section class="cards" aria-label="구조 설명">
+    <div class="card">
+      <h2>메인 서버에 남는 것 · 빠지는 것</h2>
+      <ul>
+        <li>남음: LiveKit · TURN, Nginx(443 입구 · HTTPS) · FE · BE, PostgreSQL · Redis, AI 작업자 3개(질문 생성 · 채점 · 녹화 합치기), 모니터링</li>
+        <li>빠짐: <code>a301-prod-ai-agent</code>, <code>a301-prod-egress</code>. 지우지 않고 프로필로 꺼 두었다가 되돌릴 때 켭니다</li>
+        <li>메인 서버는 여전히 단일 장애점입니다. LiveKit · Redis · BE가 이 한 대에 있습니다</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>세 가지 연결</h2>
+      <ul>
+        <li><b>Tailscale</b>: 7880 시그널링, 6379 Redis(비밀번호 필수), 9090 · 3100 지표 · 로그. 태그 <code>tag:a301-agent</code> · <code>tag:a301-egress</code>만 메인 서버로 들어갑니다</li>
+        <li><b>공인 IP</b>: UDP 7882 미디어. 사설 IP로 고정하면 TURN으로 들어오는 브라우저가 연결되지 못했습니다</li>
+        <li><b>S3</b>: Egress가 BE가 녹화 요청에 담아 준 키로 바로 올립니다. 버킷에 IP 조건을 넣을 때 S3 게이트웨이 엔드포인트와 <code>aws:SourceVpc</code> 조건을 붙입니다(아직 없음)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>대수와 확장</h2>
+      <table>
+        <thead><tr><th></th><th>에이전트</th><th>Egress</th></tr></thead>
+        <tbody>
+          <tr><td>종류</td><td><code>t3.small</code></td><td><code>t3.medium</code></td></tr>
+          <tr><td>대수</td><td>1 ~ 3</td><td>1 ~ 2</td></tr>
+          <tr><td>확장</td><td>평균 CPU 40%</td><td>평균 CPU 40%</td></tr>
+          <tr><td>대당 면접(40%)</td><td>약 7건</td><td>약 7건</td></tr>
+          <tr><td>줄일 때</td><td>면접이 끝날 때까지</td><td>녹화가 끝날 때까지</td></tr>
+        </tbody>
+      </table>
+      <p class="src">11/06 · 11/07 테스트 서버 실측에서 늘려 잡은 값입니다. 에이전트는 10건에 CPU 43%, Egress는 10건 동시 시작에 57%였고, 대당 약 13건부터 새 면접 · 녹화를 거절합니다.</p>
+    </div>
+    <div class="card">
+      <h2>새 버전 반영</h2>
+      <ol>
+        <li>master 병합 → <code>prod-build</code>가 <code>ai-&lt;SHA&gt;</code> 이미지를 Docker Hub에 올립니다</li>
+        <li><code>prod-deploy</code> ▶로 메인 서버를 먼저 바꿉니다</li>
+        <li>이어서 같은 잡이 SSM의 에이전트 이미지 태그를 같은 SHA로 바꿉니다(<code>ci-agent-refresh.sh</code>)</li>
+        <li>에이전트 ASG 인스턴스 새로 고침도 자동으로 시작합니다. 새 대가 먼저 뜨고, 옛 대는 면접을 마친 뒤 내려갑니다</li>
+      </ol>
+      <p class="src">키트(<code>deploy/asg/</code>)를 바꾸면 CI가 반영하지 않으므로 시작 템플릿 새 버전과 새로 고침을 손으로 합니다. Egress는 LiveKit 버전을 올릴 때만 바꿉니다.</p>
+    </div>
+    <div class="card">
+      <h2>회사 카드 파이프라인 (고도화)</h2>
+      <ol>
+        <li>교보재 EC2의 Airflow가 매일 13:00(KST) 목록의 회사마다 기사를 모아 최근 이슈를 갱신합니다. 카드 전체 생성(인재상 · 사업 방향 · 경쟁 · 최근 이슈)은 ▶ 버튼으로 돌립니다</li>
+        <li>공시(DART) · 기사(네이버) · 인재상 원문은 MinIO에 쌓고, 항목마다 GMS로 요약한 뒤 원문에 글자 그대로 있는 인용만 남깁니다</li>
+        <li>작업 끝에 카드와 <code>manifest.json</code>을 우리 계정 공용 버킷 <code>hanggeut-a301-company</code>에 올립니다. 개발 · 운영 BE가 같은 버킷을 읽습니다</li>
+        <li>BE가 매시 정각 manifest를 확인해 바뀐 카드만 DB에 넣습니다(해시가 같으면 건너뜀)</li>
+        <li>지원서의 회사에 카드가 있으면 BE가 질문 생성 작업(PLAN)에 카드를 담고, AI 작업자가 질문에 반영합니다</li>
+      </ol>
+      <p class="src">develop에 <code>company-pipeline/</code> 변경이 병합되면 CI(<code>pipeline-deploy</code>)가 교보재 EC2에 배포합니다. 화면은 <code>pipeline.hangguet.co.kr</code>(Cloudflare Tunnel + Access)이나 SSH 터널로만 봅니다.</p>
+    </div>
+  </section>
+</div>

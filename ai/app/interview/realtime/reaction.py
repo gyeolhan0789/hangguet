@@ -128,6 +128,9 @@ class Judgment:
     # 질문 이탈 확률.
     # 질문하지 않았거나 판단하지 못했으면 None이다
     off_topic: float | None = None
+    # Jev가 판단하지 못해 직전 태도를 그대로 담았으면 False다.
+    # 오리 면접관의 칭찬은 판단하지 못한 결과로 선택하지 않는다(AI 명세 6.2 호응)
+    judged: bool = True
 
 
 @dataclass(frozen=True)

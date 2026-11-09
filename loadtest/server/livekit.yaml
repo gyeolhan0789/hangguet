@@ -10,7 +10,7 @@ turn:
   enabled: true
   domain: turn-lt.hangguet.co.kr # 프록시 끈 DNS로 탄력적 IP를 바로 가리킨다
   udp_port: 3478 # TURN/UDP
-  tls_port: 443 # TURN/TLS: SSAFY 와이파이처럼 바깥 TCP를 443만 허용하는 곳용
+  tls_port: 443 # TURN/TLS: SSAFY 와이파이처럼 바깥 TCP를 443만 허용하는 곳용. 서버 443은 Nginx가 받아 SNI로 이 포트에 넘긴다(운영과 같음)
   cert_file: /etc/letsencrypt/live/turn-lt.hangguet.co.kr/fullchain.pem
   key_file: /etc/letsencrypt/live/turn-lt.hangguet.co.kr/privkey.pem
 redis:

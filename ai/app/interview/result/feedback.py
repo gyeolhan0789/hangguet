@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from app.common.answer import SttGap
 from app.common.gms import (
     STRUCTURE_RETRIES,
     Chat,
@@ -20,7 +21,7 @@ from app.common.gms import (
 )
 from app.common.session import Persona
 from app.common.versions import REGISTRY, VersionKind
-from app.interview.scoring.judge import Criterion, StructureBrokenError
+from app.interview.scoring.judge import Criterion, StructureBrokenError, gap_lines
 from app.interview.talent import (
     ALL_CRITERIA,
     EXECUTIVE_CRITERIA,
@@ -29,7 +30,7 @@ from app.interview.talent import (
     criteria_names,
 )
 
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v6")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "evaluate-feedback-v7")
 # BE의 코멘트·총평 검증과 동일하게 유니코드 코드 포인트 수를 제한한다.
 MAX_TEXT_LENGTH = 255
 # 결과 화면 맨 위 한 줄 총평의 저장 길이(interview_sessions.headline)
@@ -119,6 +120,11 @@ def feedback_system(persona: Persona) -> str:
 
 
 _LEVEL_NAMES = {1: "아쉬워요", 2: "보통", 3: "좋아요"}
+# 끊긴 구간이 있는 답변에만 추가한다(판정 프롬프트와 같은 이유)
+_GAP_NOTE = (
+    "이 구간의 말은 답변 글에 없다. "
+    "지원자가 일으킨 것이 아니므로 그 앞뒤의 말 중단·반복을 개선할 점으로 작성하지 않는다."
+)
 
 
 @dataclass(frozen=True)
@@ -129,6 +135,9 @@ class AnswerForFeedback:
     content: str
     # 자소서 대조가 확정된 판정을 사용해야 임시 판정에 따른 피드백을 방지한다.
     criteria: Mapping[str, Mapping[str, Any]]
+    # STT가 끊겨 인식하지 못한 구간(AI 명세 4장).
+    # 끊긴 적이 없으면 비어 있다
+    stt_gaps: Sequence[SttGap] = ()
 
 
 @dataclass(frozen=True)
@@ -164,9 +173,15 @@ def build_feedback_messages(session: SessionForFeedback) -> list[dict[str, str]]
     parts = []
     for answer in sorted(session.answers, key=lambda a: a.seq):
         judged = "\n".join(_judged_line(c, answer.criteria[c.value]) for c in Criterion)
+        gaps = (
+            f"[음성 인식이 끊긴 구간 {answer.seq}(답변 시작 기준)]\n{gap_lines(answer.stt_gaps)}\n"
+            f"{_GAP_NOTE}\n"
+            if answer.stt_gaps
+            else ""
+        )
         parts.append(
             f"[질문 {answer.seq}]\n{answer.question}\n[답변 {answer.seq}]\n{answer.content}\n"
-            f"[판정 {answer.seq}]\n{judged}"
+            f"{gaps}[판정 {answer.seq}]\n{judged}"
         )
     parts.append(
         "[항목별 점수(100점)]\n" + "\n".join(f"- {c.value}: {session.scores[c]}" for c in Criterion)

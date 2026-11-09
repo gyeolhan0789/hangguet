@@ -376,11 +376,11 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
     expect(loading()).toBeNull();
     expect(createInterviewerScene).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: {
+        model: expect.objectContaining({
           glb: "/interview/devil/interviewer.glb",
           faceRules: "/interview/devil/face-rules.json",
           staticPose: true,
-        },
+        }),
       }),
     );
   });

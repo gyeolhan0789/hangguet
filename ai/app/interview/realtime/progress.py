@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from app.common.answer import SpeechToken, VoiceMetrics, is_java_blank
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics, is_java_blank
 from app.common.results import KST, ResultPublisher, ResultType
 from app.common.session import MAX_SEQ, MIN_SEQ
 from app.interview.realtime.transcript import MAX_ANSWER_TOKENS
@@ -29,6 +29,7 @@ class EndReason(StrEnum):
 
     AUTO_SUBMIT = "AUTO_SUBMIT"  # 마지막 발화 뒤 침묵으로 자동 제출
     MANUAL_SUBMIT = "MANUAL_SUBMIT"  # 지원자가 [답변 완료]를 누름
+    STT_FAILED = "STT_FAILED"  # STT에 다시 연결하지 못해 그때까지 인식된 글로 제출(AI 명세 6.5)
 
 
 class ProgressMessageError(ValueError):
@@ -132,6 +133,7 @@ def answer_completed(
     *,
     trailing_off_at_ms: tuple[int, ...] | None = None,
     impressions: Mapping[str, Any] | None = None,
+    stt_gaps: tuple[SttGap, ...] = (),
 ) -> ProgressMessage:
     """화상 답변의 전사 결과와 실시간 음성 지표를 전달한다.
 
@@ -141,6 +143,7 @@ def answer_completed(
     tokens가 None이면 null로 전달하고, 이 경우 BE에서 말하기 지표만 비게 된다.
     speech가 None이면 두 지표를 모두 null로 전달한다.
     다시보기 타임라인용 trailing_off_at_ms·impressions는 speech에 함께 담고, 없으면 null이다.
+    STT가 끊겨 인식하지 못한 구간은 sttGaps로 담고, 끊긴 적이 없으면 null이다(AI 명세 6.2).
     """
     _check_target(session_id, seq)
     # BE가 answer.completed 답변 글을 String.isBlank로 검사하므로(AiResultService),
@@ -164,6 +167,7 @@ def answer_completed(
                 else _trailing_json(trailing_off_at_ms),
                 "impressions": impressions,
             },
+            "sttGaps": [gap.to_json() for gap in stt_gaps] if stt_gaps else None,
             "endReason": EndReason(end_reason).value,
         },
     )

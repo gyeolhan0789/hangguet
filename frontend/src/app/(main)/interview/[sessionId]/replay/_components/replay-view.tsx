@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useEffectEvent, useRef, useState, useTransition } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { useMediaQuery } from "@/components/use-media-query";
@@ -29,25 +29,39 @@ import { PLAYBACK_RATES, PlayerControls, VideoScreen, type PlayerState } from ".
 // · 사용자 결정(2026-10-27: 채팅 면접도 영상 자리를 두고 '채팅 면접은 녹화 영상이 없어요'를 보여 준다. 모바일 배치도 화상과 같다)
 // · API 명세 6.4 videoStatus(READY일 때만 videoUrl. MERGING이면 플레이어 자리에 처리 중 안내 + 10초마다(임시 값) 6.4 다시 조회,
 //   FAILED면 불러오지 못했다고 안내. 두 경우 모두 질문 목록과 답변은 보여 준다) · S15P31A301-259
+// · 사용자 결정(2026-11-05: S07 [자세히 보기](q = 질문 순서)로 들어오면 그 질문을 펼치고 영상도 그 질문 시점에서 시작한다)
 
 /** 녹화를 합치는 중(MERGING)일 때 6.4를 다시 조회하는 간격(API 명세 6.4 임시 값) */
 export const REPLAY_POLL_MS = 10_000;
 
-/** S07-1 면접 다시보기 화면 */
+/**
+ * S07-1 면접 다시보기 화면. 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 새로 들어올 때마다(push · replace)
+ * 새로 그려 주소의 질문(q)을 펼친다. 뒤로 · 앞으로 가기로 돌아오면 펼친 질문 · 재생 위치를 그대로 둔다(Next useRouter().bfcacheId).
+ */
 export function ReplayView({ replay }: { replay: ReplayResponse }) {
+  const { bfcacheId } = useRouter();
+  const seq = Number(useSearchParams().get("q"));
+  const initial = replay.items.findIndex((item) => item.seq === seq);
+  return <Replay key={bfcacheId} replay={replay} initial={initial} />;
+}
+
+/** @param initial 처음에 펼칠 질문. 없으면 -1 */
+function Replay({ replay, initial }: { replay: ReplayResponse; initial: number }) {
   const persona = PERSONAS.find((info) => info.persona === replay.persona);
   // 영상 0초 기준. 녹화 시작 시각이 없으면(채팅 · 이전 면접) 면접 시작 시각을 쓴다(API 명세 6.4)
   const recordingStart = replay.recordingStartedAt ?? replay.startedAt;
   const offsets = replay.items.map((item) => questionOffset(recordingStart, item));
   const video = useRef<HTMLVideoElement>(null);
+  // 처음에 펼친 질문이 있으면 영상도 그 질문 시점에서 시작한다
+  const startTime = initial >= 0 && replay.videoUrl !== null ? offsets[initial] : 0;
   const [player, setPlayer] = useState<PlayerState>({
-    time: 0,
+    time: startTime,
     duration: 0,
     playing: false,
     rate: 1,
   });
   // 펼친 질문(눌러서 연다). 없으면 -1
-  const [opened, setOpened] = useState(-1);
+  const [opened, setOpened] = useState(initial);
   // 영상 자리는 화상 · 채팅 모두 둔다. 재생은 영상이 준비됐을 때(READY · videoUrl)만 하고, 그 밖에는 자리에 안내를 둔다.
   const hasVideo = replay.videoUrl !== null;
   const pendingStatus: VideoNotice | null =
@@ -78,6 +92,12 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
     if (video.current) video.current.currentTime = time;
     setPlayer((state) => ({ ...state, time }));
   }
+
+  // 영상 정보를 받기 전에 위치를 정해도 받은 뒤 그 위치에서 시작한다(HTML 표준 default playback start position)
+  const seekStart = useEffectEvent(() => {
+    if (startTime > 0 && video.current) video.current.currentTime = startTime;
+  });
+  useEffect(() => seekStart(), []);
 
   function togglePlay() {
     const element = video.current;

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.offset;
 
 import com.ssafy.a301.auth.jwt.AuthProperties;
+import com.ssafy.a301.common.crypto.Hashes;
+import com.ssafy.a301.user.domain.User;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -50,6 +53,7 @@ class RedisAuthIntegrationTest {
             redis.delete(tokenKeys);
         }
         for (String email : emails) {
+            redis.delete(loginFailKey(email));
             jdbc.update(
                     "DELETE FROM password_changes WHERE user_id IN (SELECT id FROM users WHERE"
                             + " email = ?)",
@@ -349,23 +353,7 @@ class RedisAuthIntegrationTest {
                         null);
         String other = remember(body(otherDevice).path("refreshToken").asText());
 
-        var changed =
-                http.send(
-                        HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
-                                .timeout(Duration.ofSeconds(10))
-                                .header("Content-Type", "application/json")
-                                .header("Authorization", "Bearer " + account.access())
-                                .method(
-                                        "PATCH",
-                                        HttpRequest.BodyPublishers.ofString(
-                                                json.writeValueAsString(
-                                                        Map.of(
-                                                                "currentPassword",
-                                                                "testPass1234",
-                                                                "newPassword",
-                                                                "newPass5678"))))
-                                .build(),
-                        HttpResponse.BodyHandlers.ofString());
+        var changed = changePassword(account.access());
         assertThat(changed.statusCode()).isEqualTo(200);
         String next = remember(body(changed).path("refreshToken").asText());
         assertThat(get("/api/v1/users/me", body(changed).path("accessToken").asText()).statusCode())
@@ -386,6 +374,116 @@ class RedisAuthIntegrationTest {
         var refreshed = post("/api/v1/auth/token/refresh", Map.of("refreshToken", next), null);
         assertThat(refreshed.statusCode()).isEqualTo(200);
         remember(body(refreshed).path("refreshToken").asText());
+    }
+
+    @Test
+    void passwordChangeRejectsAccessTokensIssuedBeforeIt() throws Exception {
+        Account account = signup();
+        var otherDevice =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        String otherAccess = body(otherDevice).path("accessToken").asText();
+        remember(body(otherDevice).path("refreshToken").asText());
+        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 구분하지 못한다. 다음 초로 넘긴다
+        Thread.sleep(1_100);
+
+        var changed = changePassword(account.access());
+        assertThat(changed.statusCode()).isEqualTo(200);
+        remember(body(changed).path("refreshToken").asText());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT password_changed_at IS NOT NULL FROM users WHERE id = ?",
+                                Boolean.class,
+                                account.id()))
+                .isTrue();
+
+        // 바꾸기 전 액세스 토큰은 이 기기 것도, 다른 기기 것도 만료 전에 401
+        for (String old : List.of(account.access(), otherAccess)) {
+            var rejected = get("/api/v1/users/me", old);
+            assertThat(rejected.statusCode()).isEqualTo(401);
+            assertThat(body(rejected).path("code").asText()).isEqualTo("UNAUTHORIZED");
+        }
+        // 응답으로 받은 새 토큰은 바로 쓸 수 있다
+        assertThat(get("/api/v1/users/me", body(changed).path("accessToken").asText()).statusCode())
+                .isEqualTo(200);
+    }
+
+    @Test
+    void fiveWrongPasswordsLockLoginEvenWithRightPasswordUntilKeyExpires() throws Exception {
+        Account account = signup();
+        for (int i = 0; i < 5; i++) {
+            var wrong =
+                    post(
+                            "/api/v1/auth/login",
+                            Map.of("email", account.email(), "password", "wrongPass1234"),
+                            null);
+            assertThat(wrong.statusCode()).isEqualTo(401);
+            assertThat(body(wrong).path("code").asText()).isEqualTo("LOGIN_FAILED");
+        }
+
+        var locked =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of(
+                                "email",
+                                account.email().toUpperCase(Locale.ROOT),
+                                "password",
+                                "testPass1234"),
+                        null);
+        assertThat(locked.statusCode()).isEqualTo(429);
+        assertThat(body(locked).path("code").asText()).isEqualTo("LOGIN_LOCKED");
+        long retryAfter = Long.parseLong(locked.headers().firstValue("Retry-After").orElseThrow());
+        assertThat(retryAfter).isBetween(890L, 900L);
+        assertThat(body(locked).path("retryAfterSeconds").asLong()).isEqualTo(retryAfter);
+        // 잠긴 동안의 시도는 세지 않는다
+        assertThat(redis.opsForValue().get(loginFailKey(account.email()))).isEqualTo("5");
+
+        // 15분이 지난 것처럼 키를 지우면 다시 로그인한다
+        redis.delete(loginFailKey(account.email()));
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(login.statusCode()).isEqualTo(200);
+        remember(body(login).path("refreshToken").asText());
+    }
+
+    @Test
+    void successfulLoginResetsFailures() throws Exception {
+        Account account = signup();
+        for (int i = 0; i < 4; i++) {
+            post(
+                    "/api/v1/auth/login",
+                    Map.of("email", account.email(), "password", "wrongPass1234"),
+                    null);
+        }
+        var login =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", account.email(), "password", "testPass1234"),
+                        null);
+        assertThat(login.statusCode()).isEqualTo(200);
+        remember(body(login).path("refreshToken").asText());
+        assertThat(redis.hasKey(loginFailKey(account.email()))).isFalse();
+    }
+
+    @Test
+    void unknownEmailIsLockedTheSameWay() throws Exception {
+        String email = "redis-it-unknown-" + UUID.randomUUID() + "@example.com";
+        emails.add(email);
+        for (int i = 0; i < 5; i++) {
+            post("/api/v1/auth/login", Map.of("email", email, "password", "wrongPass1234"), null);
+        }
+        var locked =
+                post(
+                        "/api/v1/auth/login",
+                        Map.of("email", email, "password", "wrongPass1234"),
+                        null);
+        assertThat(locked.statusCode()).isEqualTo(429);
+        assertThat(body(locked).path("code").asText()).isEqualTo("LOGIN_LOCKED");
     }
 
     private Account signup() throws Exception {
@@ -435,6 +533,10 @@ class RedisAuthIntegrationTest {
                                         .digest(token.getBytes(StandardCharsets.UTF_8)));
     }
 
+    private static String loginFailKey(String email) {
+        return "login-fail:" + Hashes.sha256Hex(User.normalizeEmail(email));
+    }
+
     private static String userKey(long userId) {
         return "refresh-user:" + userId;
     }
@@ -461,6 +563,25 @@ class RedisAuthIntegrationTest {
             throws Exception {
         return http.send(
                 request(endpoint, payload, accessToken), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> changePassword(String accessToken) throws Exception {
+        return http.send(
+                HttpRequest.newBuilder(uri("/api/v1/users/me/password"))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .method(
+                                "PATCH",
+                                HttpRequest.BodyPublishers.ofString(
+                                        json.writeValueAsString(
+                                                Map.of(
+                                                        "currentPassword",
+                                                        "testPass1234",
+                                                        "newPassword",
+                                                        "newPass5678"))))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private HttpResponse<String> get(String endpoint, String accessToken) throws Exception {

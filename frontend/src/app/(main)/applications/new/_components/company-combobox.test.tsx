@@ -10,7 +10,8 @@ import { CompanyCombobox } from "./company-combobox";
 
 // 기준: Swagger 4.7 회사 목록 예시(영문 다음 한글 가나다순, aliases는 띄어쓰기 · (주) 등을 빼고 소문자로 맞춘 값)
 // · 사용자 결정(2026-11-03: 비어 있으면 전체, 입력하면 회사명 · 별칭에 든 회사만, 별칭으로 찾으면 이름 옆에 별칭,
-//   없으면 아직 수집되지 않은 회사라는 안내, 목록을 못 불러오면 일반 입력칸) · WAI-ARIA APG Combobox(방향키 · Enter · Esc)
+//   목록을 못 불러오면 일반 입력칸) · 사용자 결정(2026-11-05: 맞는 회사가 없으면 목록 창을 띄우지 않음)
+// · WAI-ARIA APG Combobox(방향키 · Enter · Esc)
 // 지원서 쓰기 폼에서는 서버 액션 경계만 바꾼다. 실제 4.7 · 4.1 요청은 E2E(applications.spec.ts)가 본다.
 
 const createApplication = vi.hoisted(() => vi.fn());
@@ -115,16 +116,13 @@ describe("CompanyCombobox (지원서 쓰기 회사명)", () => {
     expect(options()).toEqual(["카카오"]);
   });
 
-  it("맞는 회사가 없으면 목록 대신 아직 수집되지 않은 회사라는 안내를 보여 주고, 방향키 · Enter로 아무것도 고르지 않는다", () => {
+  it("맞는 회사가 없으면 목록 창을 띄우지 않고, 방향키 · Enter로 아무것도 고르지 않는다", () => {
     render(<Harness />);
 
     type("○○전자");
 
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(input().getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByRole("status").textContent).toBe(
-      "아직 데이터가 수집되지 않은 회사입니다. 추후 업데이트를 기다려주세요",
-    );
     key("ArrowUp");
     key("ArrowDown");
     expect(key("Enter")).toBe(true);
@@ -229,7 +227,6 @@ describe("CompanyCombobox (지원서 쓰기 회사명)", () => {
     expect(input().getAttribute("role")).toBeNull();
     expect(input().value).toBe("○○전자");
     expect(screen.queryByRole("listbox")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 

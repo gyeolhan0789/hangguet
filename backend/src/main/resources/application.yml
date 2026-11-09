@@ -27,6 +27,18 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/a301}
     username: ${DB_USERNAME:a301}
     password: ${DB_PASSWORD:a301-local}
+  # 비밀번호 찾기(1.8) 메일. 계정 · 앱 비밀번호는 환경 변수로만 받는다. 계정이 없으면 메일을 보내지 않고 경고만 남긴다
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
   jpa:
     open-in-view: false
     hibernate:
@@ -42,11 +54,26 @@ management:
     health:
       # 전체 상태(UP/DOWN)에 DB 연결 상태가 포함된다. 세부 정보는 노출하지 않는다.
       show-details: never
+  health:
+    mail:
+      # 메일 서버(Gmail) 연결을 상태 확인에 넣지 않는다. 메일이 안 돼도 서비스는 살아 있고, 배포 상태 확인이 외부 SMTP에 달리지 않게 한다
+      enabled: false
 
 auth:
   jwt-secret: ${JWT_SECRET}
   access-ttl: 9h
   refresh-ttl: 30d
+
+# 비밀번호 찾기(API 명세 1.8 · 1.9)
+password-reset:
+  # 재설정 링크 유효 시간(한 번만 쓸 수 있음)
+  token-ttl: 30m
+  # 같은 이메일로 다시 요청할 수 있는 간격. 그 안의 요청은 메일을 보내지 않는다
+  resend-interval: 30s
+  # 메일 링크가 여는 FE 화면. 뒤에 ?token=을 붙인다
+  link-url: ${PASSWORD_RESET_URL:http://localhost:3000/password-reset}
+  # 보내는 사람(Gmail 계정과 같게). 비어 있으면 메일을 보내지 않는다
+  mail-from: ${MAIL_USERNAME:}
 
 # 소셜 로그인(API 명세 1.6 · 1.7). 키는 환경 변수로만 받는다. 클라이언트 id가 없으면 그 로그인은 503 SOCIAL_LOGIN_UNAVAILABLE
 oauth:
@@ -97,9 +124,30 @@ livekit:
     bucket: ${S3_BUCKET:a301-local}
     region: ${AWS_REGION:ap-northeast-2}
 
+# 화상 면접 동시 진행 상한(BE 설계 5.2). 넘으면 5.4 · 10.7이 503 INTERVIEW_CAPACITY_FULL
+interview:
+  capacity:
+    # Soniox 실시간 인식 연결 한도(계정당 10개)를 개발 · 운영이 나눠 쓴다. 운영 8, 개발 2로 둔다
+    max-video: ${INTERVIEW_MAX_VIDEO:8}
+    # 이 시간 안에 시작한 면접만 센다. 화면을 닫고 떠난 면접이 IN_PROGRESS로 남아 자리를 계속 차지하지 않게 한다.
+    # 가장 긴 화상 면접(그룹 3명 약 60분, docs/그룹면접-설계.md)보다 길게 둔다
+    count-window: 90m
+  # 개인 면접 시작 뒤 면접관이 첫 질문을 시작하는지 확인한다(AI 명세 6.5). 못 하면 면접방을 닫고 START_FAILED로 바꾼다. 모두 임시 값이다
+  start-watch:
+    # 확인 주기
+    interval: 5s
+    # 시작 뒤 이 시간이 지나도 면접방에 면접관이 없으면 실패. LiveKit이 배정에 응답할 에이전트를 기다리는 10초에 입장 여유를 더했다
+    interviewer-timeout: 15s
+    # 지원자가 입장한 뒤 이 시간이 지나도 첫 질문이 없으면 실패
+    first-question-timeout: 30s
+  # 개인 화상 면접의 첫 질문 뒤 이 시간이 지나면 트랙 녹화가 모두 시작됐는지 확인하고, 빠진 트랙만 녹화를 다시 요청한다. 임시 값이다
+  recording-check:
+    # 트랙이 올라온 직후에는 자동 녹화가 아직 시작 중이라 목록에 없을 수 있어 조금 기다린다
+    delay: 10s
+
 # 같은 Idempotency-Key 요청이 처리 중일 때 끝나기를 기다리는 최대 시간. 넘으면 409 IDEMPOTENCY_KEY_REUSED
 idempotency:
-  # 같은 요청이 처리 중이면 기다리는 최대 시간. 5.4가 면접방을 여는 최대 시간(15초)보다 길게 둔다.
+  # 같은 요청이 처리 중이면 기다리는 최대 시간. 5.4 · 10.7이 면접방을 여는 최대 시간(15초)보다 길게 둔다.
   # 짧으면 처리 중인데 409를 받은 화면이 새 키로 다시 보낸다
   wait-timeout: 20s
 
@@ -115,6 +163,21 @@ ai-job:
 ai-result:
   consumer-enabled: true
   retry-delay: 5s
+
+# 그룹 면접(docs/그룹면접-설계.md). 모두 임시 값이다
+group:
+  # 대기 중인 그룹을 만든 지 이 시간이 지나면 조회 때 취소한다
+  waiting-expiry: 1h
+  # 방장이 대기실 조회(10.4)를 이 시간 넘게 멈추면 다른 참가자의 조회 때 방장을 넘긴다
+  lobby-host-timeout: 10s
+  # 시작(10.7) 뒤 에이전트가 이 시간 안에 첫 질문을 시작하지 않으면 정체로 본다(docs/그룹면접-설계.md 5.2, 임시 값)
+  asking-timeout: 20s
+  # 안전장치(docs/그룹면접-설계.md 6.11). 시작한 지 화상 · 채팅 상한이 지났고 마지막 진행 뒤 멈춘 시간이 지난 그룹의 남은 세션을 끝낸다
+  cleanup:
+    interval: 1m
+    video-limit: 60m
+    chat-limit: 100m
+    stall-limit: 5m
 
 # 회사 카드 적재(docs/ERD-회사카드.md). 파이프라인이 카드를 올리는 공용 버킷(개발·운영 같은 버킷)의 manifest를 매시 정각에 확인한다.
 # 버킷이 없으면(로컬·테스트) 적재하지 않는다. 읽기는 storage.s3와 같은 앱 키·리전을 쓴다

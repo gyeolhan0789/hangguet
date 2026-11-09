@@ -4,7 +4,10 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.jwt.JwtSupport;
 import com.ssafy.a301.common.error.FilterExceptionFilter;
+import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -46,13 +49,16 @@ public class SecurityConfig {
                 NimbusJwtDecoder.withSecretKey(JwtSupport.hmacKey(properties))
                         .macAlgorithm(MacAlgorithm.HS256)
                         .build();
+        // 탈퇴하지 않은 회원의 토큰이고, 비밀번호를 바꾼 뒤에 발급한 토큰이어야 한다
         OAuth2TokenValidator<Jwt> activeUser =
                 jwt -> {
                     try {
                         long id = Long.parseLong(jwt.getSubject());
                         if (jwt.getExpiresAt() != null
                                 && jwt.getIssuedAt() != null
-                                && users.findByIdAndDeletedAtIsNull(id).isPresent()) {
+                                && users.findByIdAndDeletedAtIsNull(id)
+                                        .filter(user -> issuedAfterPasswordChange(jwt, user))
+                                        .isPresent()) {
                             return OAuth2TokenValidatorResult.success();
                         }
                     } catch (NumberFormatException ex) {
@@ -66,6 +72,17 @@ public class SecurityConfig {
                         activeUser,
                         JwtSupport.notExpired()));
         return decoder;
+    }
+
+    /**
+     * 토큰 발급 시각(iat)은 초 단위로 내려 담기므로 변경 시각도 초 단위로 내려 비교한다. 그래서 바꾼 뒤 바로 받은 새 토큰(2.3 응답)은 막히지 않고, 같은 초
+     * 안에 바꾸기 직전 발급한 토큰만 남을 수 있다
+     */
+    private static boolean issuedAfterPasswordChange(Jwt jwt, User user) {
+        OffsetDateTime changedAt = user.getPasswordChangedAt();
+        return changedAt == null
+                || !jwt.getIssuedAt()
+                        .isBefore(changedAt.toInstant().truncatedTo(ChronoUnit.SECONDS));
     }
 
     @Bean
@@ -93,7 +110,9 @@ public class SecurityConfig {
                                                 "/api/v1/auth/signup",
                                                 "/api/v1/auth/login",
                                                 "/api/v1/auth/token/refresh",
-                                                "/api/v1/auth/oauth/*")
+                                                "/api/v1/auth/oauth/*",
+                                                "/api/v1/auth/password-reset",
+                                                "/api/v1/auth/password-reset/confirm")
                                         .permitAll()
                                         // 9. 문의: 비회원도 작성 · 조회 · 이어서 쓰기 · 종료 · 사진 올리기를 한다(토큰을 보내면 회원
                                         // 문의). 9.2 목록은 회원만

@@ -16,9 +16,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from app.common.answer import SpeechToken, TimelineInput
+from app.common.answer import SpeechToken, SttGap, TimelineInput
 from app.common.rounding import round_half_up_float
-from app.interview.speech import LONG_PAUSE_MS, ends_sentence, group_words, is_filler
+from app.interview.speech import group_words, is_filler, long_pauses
 
 STEP_MS = 1_000
 # 얼굴로 볼 기준(AI 명세 6.6). 이보다 낮은 사진은 인상에서 뺀다
@@ -71,6 +71,9 @@ class TimelineAnswer:
     answer_id: int
     tokens: tuple[SpeechToken, ...] | None
     timeline: TimelineInput | None
+    # STT가 끊겨 인식하지 못한 구간이다.
+    # 그 구간과 겹치는 쉼은 긴 멈춤으로 표시하지 않는다(AI 명세 3장)
+    stt_gaps: tuple[SttGap, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -118,12 +121,11 @@ def _events(answer: TimelineAnswer) -> dict[Metric, list[tuple[int, float]] | No
     if answer.tokens is None:
         return {Metric.TRAILING_OFF: trailing, Metric.FILLER: None, Metric.LONG_PAUSE: None}
     words = group_words([token.to_json() for token in answer.tokens])
-    # AI 명세 3장: 문장 중간에서 앞 단어 끝부터 다음 단어 시작까지 2초 이상이면 긴 멈춤.
+    # AI 명세 3장 긴 멈춤과 같은 규칙이다(STT가 끊긴 구간과 겹치는 쉼은 제외).
     # 오래 멈출수록 곡선이 더 내려가도록 멈춘 초를 값으로 쓴다
     pauses = [
         (cur.end_ms, (nxt.start_ms - cur.end_ms) / STEP_MS)
-        for cur, nxt in zip(words, words[1:], strict=False)
-        if nxt.start_ms - cur.end_ms >= LONG_PAUSE_MS and not ends_sentence(cur.text)
+        for cur, nxt in long_pauses(words, answer.stt_gaps)
     ]
     return {
         Metric.TRAILING_OFF: trailing,

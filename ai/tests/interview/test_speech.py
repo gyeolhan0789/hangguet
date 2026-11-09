@@ -1,5 +1,6 @@
 import pytest
 
+from app.common.answer import SttGap
 from app.interview.speech import (
     LONG_PAUSE_MS,
     aggregate_speech_metrics,
@@ -349,3 +350,18 @@ def test_session_overflow_clears_only_affected_metric(caplog: pytest.LogCaptureF
     assert metrics["longPauseCount"] == 2
     assert metrics["pitchRangeSt"] == 6.0
     assert "fillerPerMin" in caplog.text
+
+
+def test_pause_touching_stt_gap_is_not_long_pause_and_not_speaking_time() -> None:
+    """AI 명세 3장: 끊긴 구간과 겹치는 쉼은 긴 멈춤으로 집계하지 않고 발화 시간에서도 제외한다."""
+    tokens = [tok("캐시를", 0, 500), tok(" 도입한", 6_000, 6_500), tok(" 이유는", 9_000, 9_500)]
+    metrics = speech_metrics(tokens, (SttGap(1_000, 5_000),))
+    assert metrics is not None
+    # 500~6000 쉼은 끊긴 구간과 겹치므로 제외하고, 6500~9000 쉼은 그대로 긴 멈춤이다
+    assert metrics["longPauseCount"] == 1
+    assert metrics["speakingMs"] == 9_500 - 5_500 - 2_500
+
+
+def test_gap_outside_answer_words_changes_nothing() -> None:
+    tokens = [tok("캐시를", 1_000, 1_500), tok(" 도입한", 4_000, 4_500)]
+    assert speech_metrics(tokens, (SttGap(0, 500),)) == speech_metrics(tokens)

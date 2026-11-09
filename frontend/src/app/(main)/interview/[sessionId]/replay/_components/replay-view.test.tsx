@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NO_ANSWER } from "@/lib/result/format";
@@ -49,11 +50,18 @@ vi.mock("motion/react", async (importOriginal) => {
 });
 
 // 다시 그리기(6.4 다시 조회)는 경계다. 부른 횟수만 본다.
+// 주소의 질문(q)과 bfcacheId(새로 들어올 때마다 바뀌고 뒤로 · 앞으로 가기에는 그대로)는 테스트가 정한다.
 const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+const nav = vi.hoisted(() => ({ bfcacheId: "entry-1", query: "" }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, bfcacheId: nav.bfcacheId }),
+  useSearchParams: () => new URLSearchParams(nav.query),
+}));
 
 beforeEach(() => {
   refresh.mockReset();
+  nav.bfcacheId = "entry-1";
+  nav.query = "";
   motion.reduced = true;
   // 흔들기(animate) 기록과 남은 once 구현을 테스트마다 비우고 실제 animate로 되돌린다.
   motion.animate
@@ -136,6 +144,48 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       "Q410:01아쉬워요백엔드 직무에 지원한 이유는?",
       "Q514:26좋아요대용량 트래픽 처리 방법은?",
     ]);
+  });
+
+  // 기준: 사용자 결정(2026-11-05: S07 [자세히 보기](q = 질문 순서)로 들어오면 그 질문을 펼치고 영상도 그 시점에서 시작)
+  describe("S07 [자세히 보기]로 들어올 때(q)", () => {
+    it("그 질문을 펼치고, 영상도 그 질문 시점에서 시작한다", () => {
+      nav.query = "q=3";
+      render(<ReplayView replay={REPLAY} />);
+
+      expect(card("기술적 문제는").getAttribute("aria-expanded")).toBe("true");
+      expect((screen.getByLabelText("녹화 영상") as HTMLVideoElement).currentTime).toBe(368.88);
+      expect(overlay()).toBe("Q3가장 큰 기술적 문제는?");
+    });
+
+    it("영상이 없으면(채팅) 그 질문만 펼친다", () => {
+      nav.query = "q=5";
+      render(<ReplayView replay={{ ...REPLAY, videoStatus: null, videoUrl: null }} />);
+
+      expect(card("트래픽 처리").getAttribute("aria-expanded")).toBe("true");
+      expect(highlighted()).toEqual(["Q5"]);
+    });
+
+    it("없는 질문 순서면 아무것도 펼치지 않는다", () => {
+      nav.query = "q=9";
+      render(<ReplayView replay={REPLAY} />);
+
+      expect(screen.getAllByRole("button", { expanded: false })).toHaveLength(5);
+    });
+
+    // Next.js는 한 번 본 화면을 숨겨 두었다가 다시 보여 주므로(Activity) 펼친 질문이 남는다.
+    it("새로 들어오면(bfcacheId가 바뀜) 주소의 질문을 펼치고, 뒤로 가기로 돌아오면(같은 bfcacheId) 펼쳐 둔 질문을 그대로 둔다", () => {
+      const { rerender } = render(<ReplayView replay={REPLAY} />);
+      fireEvent.click(card("1분 자기소개"));
+
+      rerender(<ReplayView replay={REPLAY} />);
+      expect(card("1분 자기소개").getAttribute("aria-expanded")).toBe("true");
+
+      nav.bfcacheId = "entry-2";
+      nav.query = "q=4";
+      rerender(<ReplayView replay={REPLAY} />);
+      expect(card("지원한 이유는").getAttribute("aria-expanded")).toBe("true");
+      expect(screen.queryByRole("button", { name: /1분 자기소개/ })).toBeNull();
+    });
   });
 
   describe("영상이 있을 때(화상)", () => {
@@ -285,6 +335,54 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       state.paused = true;
       fireEvent.pause(video);
       expect(screen.getByRole("button", { name: "재생" })).toBeDefined();
+    });
+
+    // 사용자 결정(2026-11-05): 받는 중이라 멈췄으면(버퍼링) 멈춘 것과 구분되게 로딩을 보인다
+    it("재생하다 데이터를 기다리면(waiting) 영상 위에 로딩을 보이고, 다시 재생되면(playing) 없앤다", () => {
+      render(<ReplayView replay={REPLAY} />);
+      const { video, state } = fakeVideo();
+      state.paused = false;
+      fireEvent.play(video);
+
+      fireEvent.waiting(video);
+      expect(screen.getByRole("status", { name: "영상을 불러오는 중" })).toBeDefined();
+      // 버퍼링은 멈춘 것이 아니라 [일시정지]가 그대로다
+      expect(screen.getByRole("button", { name: "일시정지" })).toBeDefined();
+
+      fireEvent.playing(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+    });
+
+    it("기다리는 중에 멈추거나(pause) 옮긴 위치를 받으면(seeked) 로딩을 없앤다", () => {
+      render(<ReplayView replay={REPLAY} />);
+      const { video } = fakeVideo();
+
+      fireEvent.waiting(video);
+      fireEvent.pause(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+
+      fireEvent.waiting(video);
+      fireEvent.seeked(video);
+      expect(screen.queryByRole("status", { name: "영상을 불러오는 중" })).toBeNull();
+    });
+
+    // Next.js는 다른 화면으로 가면 이 화면을 <Activity>로 숨긴다(Preserving UI State). 숨겨도 영상은 저절로 멈추지 않는다.
+    // 돌아왔을 때 보던 위치가 남는지는 실제 영상이 있어야 해서 E2E가 본다.
+    it("다른 화면으로 가 숨겨지면 영상을 멈춘다", () => {
+      const { rerender } = render(
+        <Activity mode="visible">
+          <ReplayView replay={REPLAY} />
+        </Activity>,
+      );
+      const { pause } = fakeVideo();
+
+      rerender(
+        <Activity mode="hidden">
+          <ReplayView replay={REPLAY} />
+        </Activity>,
+      );
+
+      expect(pause).toHaveBeenCalledTimes(1);
     });
 
     it("배속 칩은 누를 때마다 1x → 1.5x → 2x → 1x로 바꾼다", () => {

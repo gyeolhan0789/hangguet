@@ -20,7 +20,7 @@ import {
   QUESTION_RECHECK_MS,
   SESSION_POLL_MS,
 } from "./interview-room";
-import { PAUSE_AFTER_MS } from "./room-alerts";
+import { PAUSE_AFTER_MS, RESTART_WAIT_SECONDS } from "./room-alerts";
 import { SAVE_WAIT_MS } from "./use-save-confirmed";
 
 const FRONT: GazeSample = { headYaw: 0, headPitch: 0, eyeYaw: 0, eyePitch: 0, blinking: false };
@@ -1168,6 +1168,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
 describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)", () => {
   const banner = () => screen.queryByText(/^연결이 불안정해요/);
   const paused = () => screen.queryByRole("alertdialog", { name: "면접이 잠시 멈췄어요" });
+  // [다시 시작]은 모달이 열린 뒤 RESTART_WAIT_SECONDS가 지나야 누를 수 있다(room-alerts)
+  const waitRestart = () => act(() => vi.advanceTimersByTime(RESTART_WAIT_SECONDS * 1000));
   const startFailedRoom = () => (
     <InterviewRoom session={{ ...SESSION, status: "START_FAILED" }} currentQuestion={QUESTION} />
   );
@@ -1213,6 +1215,7 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
 
   it("[다시 시작]은 5.4를 보내고, 성공하면 면접방에 처음부터 다시 들어간다", async () => {
     render(startFailedRoom());
+    waitRestart();
     expect(room.mounts).toBe(1);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시작" })));
     expect(startSession).toHaveBeenCalledExactlyOnceWith(
@@ -1227,6 +1230,7 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
       .mockResolvedValueOnce({ formError: "다시 시작하지 못했어요", keySpent: false })
       .mockResolvedValueOnce({ formError: "다시 시작하지 못했어요", keySpent: true });
     render(startFailedRoom());
+    waitRestart();
     const restart = () => screen.getByRole("button", { name: "다시 시작" });
 
     await act(async () => fireEvent.click(restart()));
@@ -1244,6 +1248,7 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
     let finish!: (value: object) => void;
     startSession.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
     render(startFailedRoom());
+    waitRestart();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시작" })));
     expect(screen.getByRole("button", { name: "다시 시작" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "나가기" })).toHaveProperty("disabled", true);

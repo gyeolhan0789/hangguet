@@ -3,6 +3,7 @@ package com.ssafy.a301.auth.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,6 +11,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,11 +21,17 @@ import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.jwt.AccessTokens;
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.auth.service.PasswordResetService;
 import com.ssafy.a301.auth.service.SocialAuthService;
+import com.ssafy.a301.common.error.ApiException;
+import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,9 +58,11 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
             "auth.refresh-ttl=30d"
         })
 class AuthControllerTest {
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     @Autowired private MockMvc mvc;
     @MockitoBean private AuthService service;
     @MockitoBean private SocialAuthService social;
+    @MockitoBean private PasswordResetService passwordReset;
     @MockitoBean private UserRepository users;
     @Autowired private JwtEncoder encoder;
     @Autowired private AuthProperties properties;
@@ -80,6 +90,68 @@ class AuthControllerTest {
                                 .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void lockedLoginIsTooManyRequestsWithRetryAfter() throws Exception {
+        // 남은 시간은 초 단위로 올린다
+        when(service.login(any()))
+                .thenThrow(new ApiException(ErrorCode.LOGIN_LOCKED, Duration.ofMillis(60_500)));
+        mvc.perform(
+                        post("/api/v1/auth/login")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"a@test.com\",\"password\":\"abcd1234\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After", "61"))
+                .andExpect(jsonPath("$.code").value("LOGIN_LOCKED"))
+                .andExpect(jsonPath("$.retryAfterSeconds").value(61));
+    }
+
+    @Test
+    void passwordResetIsPublic() throws Exception {
+        mvc.perform(
+                        post("/api/v1/auth/password-reset")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"a@test.com\"}"))
+                .andExpect(status().isNoContent());
+        verify(passwordReset).request("a@test.com");
+
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"token-1\",\"newPassword\":\"efgh5678\"}"))
+                .andExpect(status().isNoContent());
+        verify(passwordReset).confirm("token-1", "efgh5678");
+    }
+
+    @Test
+    void passwordResetValidatesEmailAndNewPasswordRule() throws Exception {
+        mvc.perform(
+                        post("/api/v1/auth/password-reset")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"email\":\"not-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("email"));
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"token-1\",\"newPassword\":\"onlyletters\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("newPassword"));
+        verify(passwordReset, never()).confirm(anyString(), anyString());
+    }
+
+    @Test
+    void usedResetTokenIsBadRequest() throws Exception {
+        doThrow(new ApiException(ErrorCode.PASSWORD_RESET_TOKEN_INVALID))
+                .when(passwordReset)
+                .confirm("used", "efgh5678");
+        mvc.perform(
+                        post("/api/v1/auth/password-reset/confirm")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"token\":\"used\",\"newPassword\":\"efgh5678\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("PASSWORD_RESET_TOKEN_INVALID"));
     }
 
     @Test
@@ -208,6 +280,43 @@ class AuthControllerTest {
     }
 
     // 실제 서명한 JWT를 Authorization 헤더로 보내 Security 필터(검증·오류 응답)를 그대로 거친다.
+    @Test
+    void tokenIssuedBeforePasswordChangeIsUnauthorized() throws Exception {
+        Instant issuedAt = Instant.now().minus(Duration.ofMinutes(10));
+        var user = new User("a@test.com", "hash", "회원");
+        user.changePassword("new-hash", OffsetDateTime.ofInstant(issuedAt.plusSeconds(1), KST));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+        mvc.perform(logoutWith(tokenIssuedAt(issuedAt)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        verify(service, never()).logout(anyLong(), anyString());
+    }
+
+    @Test
+    void tokenIssuedRightAfterPasswordChangeInSameSecondPasses() throws Exception {
+        // 발급 시각(iat)은 초 단위로 내려 담기므로 변경 시각(밀리초)보다 앞서 보여도 같은 초면 받는다
+        Instant second =
+                Instant.now().minus(Duration.ofMinutes(10)).truncatedTo(ChronoUnit.SECONDS);
+        var user = new User("a@test.com", "hash", "회원");
+        user.changePassword("new-hash", OffsetDateTime.ofInstant(second.plusMillis(500), KST));
+        when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.of(user));
+        mvc.perform(logoutWith(tokenIssuedAt(second.plusMillis(700))))
+                .andExpect(status().isNoContent());
+    }
+
+    private String tokenIssuedAt(Instant issuedAt) {
+        return encoder.encode(
+                        JwtEncoderParameters.from(
+                                JwsHeader.with(MacAlgorithm.HS256).build(),
+                                JwtClaimsSet.builder()
+                                        .issuer("a301")
+                                        .subject("7")
+                                        .issuedAt(issuedAt)
+                                        .expiresAt(issuedAt.plus(Duration.ofHours(1)))
+                                        .build()))
+                .getTokenValue();
+    }
+
     private static MockHttpServletRequestBuilder logoutWith(String accessToken) {
         return post("/api/v1/auth/logout")
                 .header("Authorization", "Bearer " + accessToken)

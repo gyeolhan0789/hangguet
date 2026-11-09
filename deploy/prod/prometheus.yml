@@ -51,10 +51,20 @@ scrape_configs:
         replacement: a301-prod-blackbox:9115
 
   # AI 면접 에이전트: 진행 중 면접 수, Soniox · ElevenLabs · Jev 사용량(ai/app/agent/metrics.py)
-  # 에이전트를 ASG로 떼어 내면 에이전트 쪽 Alloy가 원격 쓰기로 보낸다(이해준/agent_autoscale_plan 8장). 그때 이 job을 지운다
+  # 메인 서버 compose에 에이전트 컨테이너가 있을 때만 긁는다. Docker 내장 DNS로 이름을 찾아, 컨테이너가 없으면 대상이 사라진다.
+  # 왜: 에이전트를 ASG로 옮기면(AGENT_ASG_ENABLED=true) 이 컨테이너가 없어 고정 대상이면 up=0이 남고
+  #     "지표 수집 실패" 알림이 계속 울린다(11/07). 되돌리기로 컨테이너가 다시 뜨면 30초 안에 다시 긁는다(설정 파일을 바꾸지 않는다).
+  # ASG 에이전트는 인스턴스의 Alloy가 같은 job 이름으로 원격 쓰기를 보낸다(instance_id 라벨, 이해준/agent_autoscale_plan 8장)
   - job_name: a301-ai-agent
-    static_configs:
-      - targets: [a301-prod-ai-agent:9464]
+    dns_sd_configs:
+      - names: [a301-prod-ai-agent]
+        type: A
+        port: 9464
+        refresh_interval: 30s
+    relabel_configs:
+      # 대상 주소는 컨테이너 IP가 되므로 instance는 예전과 같은 이름으로 둔다(대시보드 · 알림이 그대로 읽게)
+      - target_label: instance
+        replacement: a301-prod-ai-agent:9464
 
   # 서버 CPU · 메모리 · 디스크 · 네트워크
   - job_name: a301-node
@@ -72,9 +82,18 @@ scrape_configs:
       - targets: [a301-prod-livekit:6789]
 
   # 녹화 상태(compose.yml EGRESS_CONFIG_BODY prometheus_port)
+  # 에이전트(a301-ai-agent)와 같다. 메인 서버에 Egress 컨테이너가 있을 때만 긁고, Egress ASG로 옮기면(EGRESS_ASG_ENABLED=true)
+  # 대상이 사라진다. ASG Egress는 인스턴스의 Alloy가 같은 job 이름으로 원격 쓰기를 보낸다(instance_id 라벨)
   - job_name: a301-egress
-    static_configs:
-      - targets: [a301-prod-egress:9090]
+    dns_sd_configs:
+      - names: [a301-prod-egress]
+        type: A
+        port: 9090
+        refresh_interval: 30s
+    relabel_configs:
+      # 대상 주소는 컨테이너 IP가 되므로 instance는 예전과 같은 이름으로 둔다(대시보드 · 알림이 그대로 읽게)
+      - target_label: instance
+        replacement: a301-prod-egress:9090
 
   # Redis 메모리 · 연결 · 명령
   - job_name: a301-redis

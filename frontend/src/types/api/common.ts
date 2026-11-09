@@ -18,12 +18,14 @@ export type ErrorCode =
   | "INTERNAL_ERROR"
   // 인증 · 회원
   | "LOGIN_FAILED"
+  | "LOGIN_LOCKED"
   | "REFRESH_TOKEN_INVALID"
   | "AGREEMENT_REQUIRED"
   | "EMAIL_DUPLICATED"
   | "PASSWORD_MISMATCH"
   | "FILE_NOT_FOUND"
   | "PASSWORD_NOT_SET"
+  | "PASSWORD_RESET_TOKEN_INVALID"
   // 소셜 로그인
   | "SOCIAL_EMAIL_REQUIRED"
   | "SOCIAL_LOGIN_FAILED"
@@ -87,6 +89,8 @@ export interface ProblemDetail {
   code?: ErrorCode | (string & {});
   /** 400 VALIDATION_FAILED일 때만. 칸별 실패 사유 */
   errors?: FieldError[];
+  /** 429 LOGIN_LOCKED일 때만. 다시 시도할 수 있을 때까지 남은 초(Retry-After 헤더와 같음) */
+  retryAfterSeconds?: number;
 }
 
 /** 페이지 목록 응답(웹 Swagger 4.3 · 4.6 · 5.13 · 7.2 · 9.2). `number`는 0부터 */

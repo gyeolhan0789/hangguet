@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import pytest
 
+from app.common.answer import SttGap
 from app.common.gms import GmsBadOutputError, GmsClient, GmsResult, GmsUnavailableError
 from app.common.session import Persona
 from app.common.versions import REGISTRY, VersionKind
@@ -88,7 +89,7 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v6"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v7"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(면접관의 2장 인재상 기준 중 답변에 드러난 것을 중심으로,
@@ -467,3 +468,17 @@ def test_earlier_summaries_of_the_day_are_sent() -> None:
     user = build_feedback_messages(session)[1]["content"]
     assert "[같은 날 앞선 면접의 다음에 해볼 것]\n- 결론부터 말해 보세요." in user
     assert "앞선 면접" not in build_feedback_messages(SESSION)[1]["content"]
+
+
+def test_stt_gaps_are_shown_with_instruction_not_to_criticize() -> None:
+    """AI 명세 4장: 끊긴 구간 앞뒤의 말 중단·반복은 고칠 점으로 작성하지 않는다."""
+    gapped = replace(SESSION.answers[1], stt_gaps=(SttGap(3000, 8500),))
+    session = replace(SESSION, answers=[SESSION.answers[0], gapped])
+    system, prompt = (m["content"] for m in build_feedback_messages(session))
+    assert "[음성 인식이 끊긴 구간 1(답변 시작 기준)]\n- 3.0~8.5초" in prompt
+    assert "앞뒤의 말 중단·반복을 개선할 점으로 작성하지 않는다" in prompt
+    assert "끊긴 구간 2" not in prompt
+    assert "음성 인식" not in system
+    without = build_feedback_messages(SESSION)
+    assert all("음성 인식" not in m["content"] for m in without)
+    assert all("앞뒤의 말 중단·반복" not in m["content"] for m in without)

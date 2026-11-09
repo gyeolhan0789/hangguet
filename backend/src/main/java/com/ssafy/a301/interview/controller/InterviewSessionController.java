@@ -88,7 +88,8 @@ public class InterviewSessionController {
             summary = "5.8 면접 끝내기",
             description =
                     "면접을 끝낸다. 답변이 1개 이상이면 결과 분석을 시작하고(202), 없으면 결과 없이 끝난다(200). 본문은 선택이며,"
-                            + " 화상 면접이면 브라우저가 잰 시선 비율을 함께 보낸다.")
+                            + " 화상 면접이면 브라우저가 잰 시선 비율을 함께 보낸다. 그룹 면접은 내 면접만 끝내고 나머지는 계속하며,"
+                            + " 마지막 사람이 끝내면 그룹이 끝난다(API 명세 10.10).")
     @ApiResponse(
             responseCode = "202",
             description = "답변 ≥1. status ANALYZING",
@@ -207,7 +208,8 @@ public class InterviewSessionController {
             summary = "5.4 면접 시작",
             description =
                     "면접을 시작하고 면접방을 연다. 에이전트를 배정하고 화상이면 녹화를 시작한다. 질문은 에이전트가 면접방에서 낸다."
-                            + " 에이전트가 배정을 거절해 START_FAILED가 되면 같은 질문으로 다시 시작한다.")
+                            + " 에이전트가 배정을 거절하거나 면접관이 들어오지 않거나 첫 질문을 시작하지 못해 START_FAILED가 되면 같은"
+                            + " 질문으로 다시 시작한다.")
     @ApiResponse(
             responseCode = "200",
             description = "시작(status IN_PROGRESS, room = 입장 정보, currentQuestion = null)")
@@ -217,7 +219,11 @@ public class InterviewSessionController {
             description =
                     "PLAN_NOT_READY: 플랜 생성 중이거나 실패 · INVALID_SESSION_STATE: READY·START_FAILED가 아님"
                             + " · IDEMPOTENCY_KEY_REUSED")
-    @ApiResponse(responseCode = "503", description = "ROOM_UNAVAILABLE: 면접방을 열지 못함(상태 그대로, 다시 시도)")
+    @ApiResponse(
+            responseCode = "503",
+            description =
+                    "ROOM_UNAVAILABLE: 면접방을 열지 못함(상태 그대로, 다시 시도) · INTERVIEW_CAPACITY_FULL: 화상"
+                            + " 면접 동시 진행 상한(상태 그대로, 자동으로 다시 보내지 않음)")
     @Idempotent
     @PostMapping("/{sessionId}/start")
     public SessionResponse start(

@@ -108,14 +108,14 @@ def test_unregistered_prompt_is_rejected_before_calling_jev() -> None:
     ],
 )
 def test_failure_keeps_previous_attitude_without_reaction(session: MagicMock) -> None:
-    assert judge_with(session) == Judgment(None, PREVIOUS)
+    assert judge_with(session) == Judgment(None, PREVIOUS, judged=False)
 
 
 @pytest.mark.parametrize("error", [aiohttp.ClientConnectionError(), ValueError("json")])
 def test_network_and_decode_errors_keep_previous_attitude(error: Exception) -> None:
     session = http_session()
     session.post.return_value.json = AsyncMock(side_effect=error)
-    assert judge_with(session) == Judgment(None, PREVIOUS)
+    assert judge_with(session) == Judgment(None, PREVIOUS, judged=False)
 
 
 def test_slow_response_keeps_previous_attitude() -> None:
@@ -126,7 +126,7 @@ def test_slow_response_keeps_previous_attitude() -> None:
         return body()
 
     session.post.return_value.json = never
-    assert judge_with(session, timeout_seconds=0.01) == Judgment(None, PREVIOUS)
+    assert judge_with(session, timeout_seconds=0.01) == Judgment(None, PREVIOUS, judged=False)
 
 
 def test_connection_is_reused_and_closed() -> None:

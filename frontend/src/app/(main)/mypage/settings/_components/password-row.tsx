@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
-import { useState, useTransition } from "react";
+import { useLayoutEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 
 import { Field, PasswordInput } from "@/components/form";
@@ -40,6 +40,15 @@ export function PasswordRow() {
     form.reset();
     setOpen(false);
   }
+  // 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 떠날 때 접고 입력한 비밀번호를 지운다
+  const { reset } = form;
+  useLayoutEffect(
+    () => () => {
+      reset();
+      setOpen(false);
+    },
+    [reset],
+  );
 
   const submit = form.handleSubmit((values) =>
     startTransition(async () => {

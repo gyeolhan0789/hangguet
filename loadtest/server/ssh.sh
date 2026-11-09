@@ -2,7 +2,7 @@
 # 부하 테스트 서버 접속(README.md). 로컬 PC(Git Bash)에서 레포 루트 기준으로 실행한다.
 #   bash loadtest/server/ssh.sh            # 접속
 #   bash loadtest/server/ssh.sh <명령>     # 서버에서 명령 하나 실행(예: 'docker ps')
-#   bash loadtest/server/ssh.sh upload     # deploy/prod · loadtest/server를 서버 ~/a301에 올린다(README.md 5단계, .env는 올리지 않는다)
+#   bash loadtest/server/ssh.sh upload     # deploy/prod · deploy/asg · loadtest/server를 서버 ~/a301에 올린다(README.md 5단계, .env는 올리지 않는다)
 #
 # 값(환경 변수 또는 loadtest/server/.env.ssh, 커밋하지 않는다)
 # - LOADTEST_HOST: 탄력적 IP
@@ -28,7 +28,7 @@ TARGET="${LOADTEST_USER}@${LOADTEST_HOST}"
 if [ "${1:-}" = "upload" ]; then
   # 레포와 같은 구조로 둔다(compose.loadtest.yml이 ../../loadtest/server/를 가리킨다). 서버의 .env는 덮어쓰지 않는다
   ssh "${SSH_OPTS[@]}" "$TARGET" 'mkdir -p ~/a301/deploy ~/a301/loadtest/server'
-  scp "${SSH_OPTS[@]}" -r "${REPO_ROOT}/deploy/prod" "${TARGET}:~/a301/deploy/"
+  scp "${SSH_OPTS[@]}" -r "${REPO_ROOT}/deploy/prod" "${REPO_ROOT}/deploy/asg" "${TARGET}:~/a301/deploy/"
   ( cd "${SERVER_DIR}" && tar --exclude='.env' --exclude='.env.ssh' -cf - . ) \
     | ssh "${SSH_OPTS[@]}" "$TARGET" 'tar -xf - -C ~/a301/loadtest/server'
   echo "OK: ${TARGET}:~/a301에 올림"

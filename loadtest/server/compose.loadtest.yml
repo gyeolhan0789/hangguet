@@ -4,6 +4,10 @@
 #     -f deploy/prod/compose.yml -f loadtest/server/compose.loadtest.yml up -d
 # 외부 주소: https://lt.hangguet.co.kr (FE), wss://rtc-lt.hangguet.co.kr (LiveKit 시그널링), https://grafana-lt.hangguet.co.kr
 #   Tunnel(a301-loadtest)의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다(README.md 3단계).
+# 서버 443은 운영처럼 Nginx가 받아 도메인 이름(SNI)으로 나눈다(11/06 운영 Cloudflare 프록시 제거). 테스트 도메인은 Nginx의
+#   웹 이름에 없으므로 모두 LiveKit TURN/TLS(turn-lt)로 간다. 웹은 그대로 Tunnel → Nginx 컨테이너 80으로 받는다.
+#   운영 Nginx 설정이 /etc/letsencrypt/live/hangguet.co.kr/의 인증서를 요구해 setup.sh가 그 자리에 테스트 인증서를 받아 둔다.
+#   cloudflared는 운영 compose의 a301-prod-cloudflared를 그대로 쓴다. 운영에서 그 서비스를 지우면 이 파일에 옮겨 온다.
 #
 # - 컨테이너 이름은 운영과 같다(a301-prod-*). Grafana 대시보드 · Alloy · Prometheus 설정을 그대로 쓰기 위해서다
 # - 상대 경로는 첫 번째 파일(deploy/prod/compose.yml)의 폴더 기준이다. 그래서 이 폴더의 파일은 ../../loadtest/server/로 붙인다
@@ -51,23 +55,6 @@ services:
   a301-prod-livekit:
     volumes:
       - ../../loadtest/server/livekit.yaml:/etc/livekit.yaml:ro
-
-  # 녹화 수락 판정 조정 시험(loadtest/report/s5-2026-11-02.md 7장 안 A). 운영 설정과 같은 내용에 cpu_cost만 더했다.
-  # 기본값(track_cpu_cost 0.5를 15초 예약, 4코어 × 0.8)이면 15초에 트랙 녹화 약 6개만 받는다. 실제 사용은 1개 약 0.03코어
-  # 환경 변수 하나에 설정 전체가 들어가므로 운영 쪽(deploy/prod/compose.yml)이 바뀌면 여기도 맞춘다
-  a301-prod-egress:
-    environment:
-      EGRESS_CONFIG_BODY: |
-        log_level: info
-        api_key: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}
-        api_secret: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}
-        ws_url: ws://a301-prod-livekit:7880
-        redis:
-          address: a301-prod-redis:6379
-        health_port: 8080
-        prometheus_port: 9090
-        cpu_cost:
-          track_cpu_cost: 0.1
 
   a301-prod-grafana:
     environment:

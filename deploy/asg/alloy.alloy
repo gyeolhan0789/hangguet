@@ -1,0 +1,100 @@
+// ASG 인스턴스 지표 · 로그 수집(Grafana Alloy, 이해준/agent_autoscale_plan 8장). bootstrap.sh가 @@…@@를 채워 /etc/a301/alloy.alloy로 쓴다.
+// 메인 서버가 늘고 주는 인스턴스 목록을 알 필요가 없도록, 인스턴스가 메인 서버로 보낸다(push).
+// 메인 Prometheus는 --web.enable-remote-write-receiver, Loki는 3100을 Tailscale IP에만 연다(compose.asg.yml).
+
+// 역할 컨테이너의 지표. job은 메인 서버가 직접 긁던 이름(a301-ai-agent · a301-egress)과 같게 해 기존 패널을 그대로 쓴다
+prometheus.scrape "role" {
+  targets         = [{"__address__" = "@@METRICS_TARGET@@"}]
+  job_name        = "@@JOB@@"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.main.receiver]
+}
+
+// 인스턴스 CPU · 메모리 · 디스크. 확장 기준(CPU 40%)과 대당 부하를 Grafana에서 instance_id별로 본다(11/07)
+// 컨테이너 안에서 돌므로 호스트의 /proc · /sys · /를 /host/* 로 읽는다(bootstrap.sh start_alloy가 마운트한다)
+prometheus.exporter.unix "host" {
+  set_collectors = ["cpu", "loadavg", "meminfo", "filesystem"]
+  procfs_path    = "/host/proc"
+  sysfs_path     = "/host/sys"
+  rootfs_path    = "/host/root"
+}
+
+// job은 메인 서버 node-exporter(a301-node)와 다르게 둔다. 같으면 메인 서버 CPU 패널에 인스턴스 값이 섞인다
+// exporter 대상에는 job="integrations/unix"가 미리 붙어 있어 scrape의 job_name이 무시된다(11/07 운영에서 확인). 여기서 덮어쓴다
+discovery.relabel "host" {
+  targets = prometheus.exporter.unix.host.targets
+
+  rule {
+    target_label = "job"
+    replacement  = "a301-asg-node"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = discovery.relabel.host.output
+  job_name        = "a301-asg-node"
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.main.receiver]
+}
+
+// 어느 인스턴스의 값인지 구분한다. 인스턴스마다 instance 라벨(127.0.0.1:…)이 같으므로 instance_id로 나눈다
+prometheus.remote_write "main" {
+  endpoint {
+    url = "@@METRICS_WRITE_URL@@"
+  }
+
+  external_labels = {
+    env         = "@@ENV@@",
+    role        = "@@ROLE@@",
+    instance_id = "@@INSTANCE_ID@@",
+    az          = "@@AZ@@",
+  }
+}
+
+discovery.docker "role" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+
+  filter {
+    name   = "name"
+    values = ["@@CONTAINER@@"]
+  }
+}
+
+// 메인 서버 로그와 같은 라벨(container · service)을 붙여 같은 로그 대시보드에서 본다
+discovery.relabel "role" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // service는 메인 서버 compose의 서비스 이름(a301-prod-ai-agent · a301-prod-egress)과 같게 둔다. 로그 대시보드가 이 이름으로 찾는다.
+  // 컨테이너 이름(a301-ai-agent)을 그대로 쓰면 ASG로 옮긴 뒤 대시보드의 에이전트 로그 패널이 비었다(11/07)
+  rule {
+    target_label = "service"
+    replacement  = "@@SERVICE@@"
+  }
+}
+
+loki.source.docker "role" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.role.targets
+  relabel_rules    = discovery.relabel.role.rules
+  refresh_interval = "15s"
+  forward_to       = [loki.write.main.receiver]
+}
+
+loki.write "main" {
+  endpoint {
+    url = "@@LOKI_URL@@"
+  }
+
+  external_labels = {
+    env         = "@@ENV@@",
+    role        = "@@ROLE@@",
+    instance_id = "@@INSTANCE_ID@@",
+  }
+}

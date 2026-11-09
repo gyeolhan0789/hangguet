@@ -10,6 +10,8 @@
 # 복원: pg_restore로 되살린다(custom 형식). 예)
 #   docker exec -i a301-prod-postgres pg_restore -U a301 -d a301 --clean --if-exists < a301-YYYYMMDD-HHMMSS.dump
 set -eu
+# 덤프에는 회원 정보가 들어 있으므로 러너 계정만 읽게 만든다(권한 600). 업로드하는 aws-cli 컨테이너는 root라 그대로 읽는다
+umask 077
 
 ENV_FILE=/opt/a301/backup.env
 BACKUP_DIR=/opt/a301/backup

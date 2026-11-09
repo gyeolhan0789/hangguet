@@ -66,11 +66,20 @@ public class InterviewSession {
     @Column(length = 255)
     private String summary;
 
+    // 그룹 면접 참가자의 면접이면 그룹 id, 개인 면접은 null(docs/그룹면접-설계.md 4.3)
+    @Column(name = "group_id")
+    private Long groupId;
+
     @Column(name = "started_at")
     private OffsetDateTime startedAt;
 
     @Column(name = "ended_at")
     private OffsetDateTime endedAt;
+
+    // 그룹 세션이 끝난 이유. 개인 면접은 null이다
+    @Enumerated(EnumType.STRING)
+    @Column(name = "end_reason", length = 20)
+    private EndReason endReason;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -95,6 +104,20 @@ public class InterviewSession {
         this.status = SessionStatus.READY;
     }
 
+    // 그룹 면접 참가자의 면접(API 명세 10.1 · 10.3). 면접 방식 · 면접관은 그룹 값이다
+    public static InterviewSession ofGroup(
+            User user,
+            Application application,
+            CompanyCard companyCard,
+            Persona persona,
+            InterviewMode mode,
+            long groupId) {
+        InterviewSession session =
+                new InterviewSession(user, application, companyCard, persona, mode);
+        session.groupId = groupId;
+        return session;
+    }
+
     // 5.4. 면접 플랜 준비 여부(Redis)는 서비스가 먼저 확인한다. 배정 거절(START_FAILED) 뒤에도 같은 플랜으로 다시 시작한다
     public void start(OffsetDateTime now) {
         if (!canStart()) {
@@ -108,7 +131,7 @@ public class InterviewSession {
         return status == SessionStatus.READY || status == SessionStatus.START_FAILED;
     }
 
-    // 에이전트가 배정을 거절함(AI 명세 1.4). 질문을 내기 전인지는 결과 처리가 확인한다
+    // 에이전트가 배정을 거절했거나 면접관이 첫 질문을 시작하지 못함(AI 명세 1.4 · 6.5). 질문을 내기 전인지는 부르는 쪽이 확인한다
     public void failStart() {
         requireStatus(SessionStatus.IN_PROGRESS);
         this.status = SessionStatus.START_FAILED;
@@ -116,7 +139,13 @@ public class InterviewSession {
 
     // 5.8. 답변이 있으면 결과 생성(ANALYZING), 없으면 결과 없이 종료(ABORTED). 연습으로 인정되면 true
     public boolean end(OffsetDateTime now, int answeredCount) {
+        return end(now, answeredCount, null);
+    }
+
+    // 그룹 세션은 끝난 이유를 남긴다(docs/그룹면접-설계.md 6.10)
+    public boolean end(OffsetDateTime now, int answeredCount, EndReason reason) {
         requireStatus(SessionStatus.IN_PROGRESS);
+        this.endReason = reason;
         this.endedAt = now;
         this.status = answeredCount > 0 ? SessionStatus.ANALYZING : SessionStatus.ABORTED;
         return answeredCount > 0;
@@ -140,6 +169,10 @@ public class InterviewSession {
     public void retryAnalysis() {
         requireStatus(SessionStatus.FAILED);
         this.status = SessionStatus.ANALYZING;
+    }
+
+    public boolean isGroup() {
+        return groupId != null;
     }
 
     public boolean isVideo() {

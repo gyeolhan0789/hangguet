@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from livekit import rtc
-from livekit.agents import AutoSubscribe
+from livekit.agents import AgentServer, AutoSubscribe
 
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.assignment import parse_assignment
@@ -16,7 +16,9 @@ from app.agent.main import (
     RoomCapture,
     accept_request,
     audio_chunks,
+    create_server,
     entrypoint,
+    idle_process_options,
     job_assignment,
     main,
     question_speaker,
@@ -26,7 +28,7 @@ from app.agent.main import (
     transcribe_participant,
     transcribe_room,
 )
-from app.agent.stt import SttSettings
+from app.agent.stt import SttSettings, SttState
 from app.common.results import ResultPublishError, ResultType
 from app.common.settings import load_settings
 
@@ -145,7 +147,9 @@ def test_answer_capture_reads_candidate_mic_in_100ms_chunks() -> None:
         ):
             captured = CapturedAnswer(datetime(2026, 11, 4, tzinfo=UTC), "답변", None, b"")
             capture.return_value.run = AsyncMock(return_value=captured)
-            answer = await RoomCapture(room, "candidate", SttSettings("test"), Mock(), Mock()).run()
+            answer = await RoomCapture(
+                room, "candidate", SttSettings("test"), Mock(), Mock(), Mock()
+            ).run()
         assert answer == captured
         assert streams.call_args.kwargs["sample_rate"] == 16000
         assert streams.call_args.kwargs["frame_size_ms"] == 100
@@ -325,6 +329,44 @@ def test_request_without_be_assignment_is_accepted(metadata: str | None) -> None
     request.reject.assert_not_awaited()
 
 
+def test_server_keeps_library_default_idle_processes() -> None:
+    """환경 변수가 없으면 미리 실행해 두는 프로세스 수를 지정하지 않는다.
+
+    0이면 라이브러리가 진행 중인 면접이 없을 때 준비 중인 면접 하나를 70% 부하로 추정해,
+    빈 서버에서 동시에 시작한 두 번째 면접의 배정을 거절한다.
+    """
+    assert server._num_idle_processes == AgentServer._default_num_idle_processes
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        pytest.param({}, {}, id="unset"),
+        pytest.param({"AGENT_IDLE_PROCESSES": ""}, {}, id="empty"),
+        pytest.param({"AGENT_IDLE_PROCESSES": "2"}, {"num_idle_processes": 2}, id="two"),
+        pytest.param({"AGENT_IDLE_PROCESSES": " 4 "}, {"num_idle_processes": 4}, id="spaces"),
+        pytest.param({"AGENT_IDLE_PROCESSES": "0"}, {"num_idle_processes": 0}, id="zero"),
+    ],
+)
+def test_idle_processes_come_from_environment(
+    env: dict[str, str], expected: dict[str, int]
+) -> None:
+    assert idle_process_options(env) == expected
+
+
+def test_server_uses_idle_processes_from_environment() -> None:
+    created = create_server({"AGENT_IDLE_PROCESSES": "2"})
+    assert created._num_idle_processes == 2
+
+
+@pytest.mark.parametrize("value", ["-1", "1.5", "two", "２"])
+def test_invalid_idle_processes_stop_agent(value: str) -> None:
+    """잘못된 값으로 라이브러리 기본값을 조용히 사용하지 않도록 시작 단계에서 실패한다."""
+    env = {"AGENT_IDLE_PROCESSES": value}
+    with pytest.raises(ValueError, match="AGENT_IDLE_PROCESSES"):
+        idle_process_options(env)
+
+
 def test_request_with_valid_assignment_is_accepted() -> None:
     request = Mock(accept=AsyncMock(), reject=AsyncMock())
     request.job.metadata = ASSIGNMENT_JSON
@@ -492,3 +534,19 @@ def test_reactions_are_skipped_without_jev_key() -> None:
     """Jev 키가 없으면 Jev 실패와 같이 리액션 없이 진행한다(AI 명세 6.5)."""
     assert reaction_judge(load_settings({})) is None
     assert isinstance(reaction_judge(load_settings({"JEV_API_KEY": "jev-key"})), JevJudge)
+
+
+def test_room_capture_resends_subtitles_and_forwards_stt_state() -> None:
+    """재연결에 성공하면 자막을 바로 다시 전송하고, 상태는 면접 진행에 그대로 전달한다."""
+    states: list[SttState] = []
+    with (
+        patch("app.agent.main.TranscriptPublisher") as publisher,
+        patch("app.agent.main.AnswerCapture") as capture,
+    ):
+        RoomCapture(Mock(), "candidate", SttSettings("test"), Mock(), Mock(), states.append)
+        on_stt_state = capture.call_args.kwargs["on_stt_state"]
+        on_stt_state(SttState.RECONNECTING)
+        publisher.return_value.reconnected.assert_not_called()
+        on_stt_state(SttState.RECONNECTED)
+        publisher.return_value.reconnected.assert_called_once_with()
+    assert states == [SttState.RECONNECTING, SttState.RECONNECTED]

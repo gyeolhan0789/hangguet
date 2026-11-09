@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.common.answer import SpeechToken, VoiceMetrics
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics
 from app.common.gms import (
     Chat,
     GmsBadOutputError,
@@ -47,6 +47,9 @@ class AnswerInput:
     content: str
     tokens: Sequence[SpeechToken] | None
     voice: VoiceMetrics | None
+    # STT가 끊겨 인식하지 못한 구간(AI 명세 3장).
+    # 끊긴 적이 없으면 비어 있다
+    stt_gaps: Sequence[SttGap] = ()
 
 
 def score_answer_input(job: ScoreAnswerJob) -> AnswerInput:
@@ -58,6 +61,7 @@ def score_answer_input(job: ScoreAnswerJob) -> AnswerInput:
         content=job.content,
         tokens=job.tokens,
         voice=job.speech,
+        stt_gaps=job.stt_gaps,
     )
 
 
@@ -72,7 +76,8 @@ def answer_speech(answer: AnswerInput) -> dict[str, Any] | None:
         "syllablesPerMin": None,
     }
     if answer.tokens:
-        speech.update(speech_metrics([token.to_json() for token in answer.tokens]) or {})
+        tokens = [token.to_json() for token in answer.tokens]
+        speech.update(speech_metrics(tokens, answer.stt_gaps) or {})
     speech.update((answer.voice or VoiceMetrics(None, None)).to_json())
     return speech
 
@@ -80,7 +85,9 @@ def answer_speech(answer: AnswerInput) -> dict[str, Any] | None:
 def build_evaluation(answer: AnswerInput, chat: Chat) -> dict[str, Any]:
     """채점 결과를 생성하며 호출·검증 실패는 호출 측으로 전파한다."""
     speech = answer_speech(answer)
-    messages = build_judge_messages(answer.question, answer.criteria, answer.content, speech)
+    messages = build_judge_messages(
+        answer.question, answer.criteria, answer.content, speech, answer.stt_gaps
+    )
 
     def attempt() -> tuple[GmsResult, dict[Criterion, Judgement]]:
         result = chat(messages)

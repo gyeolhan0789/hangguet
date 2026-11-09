@@ -16,6 +16,7 @@ import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.domain.SpeechMetric;
+import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.dto.AiResultMessage;
 import com.ssafy.a301.interview.dto.AiResultMessage.CriterionScore;
 import com.ssafy.a301.interview.dto.AiResultMessage.EvaluatedAnswer;
@@ -29,6 +30,7 @@ import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
 import com.ssafy.a301.interview.repository.SpeechMetricRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
+import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
@@ -40,6 +42,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.JacksonException;
@@ -63,8 +66,9 @@ public class AiResultService {
     // 말하기 지표 컬럼 NUMERIC(5, 2)
     private static final BigDecimal MAX_METRIC = new BigDecimal("999.99");
     // 배정 거절 이유(AI 명세 1.4). 이유로 처리를 나누지는 않지만 모르는 값은 실패 목록으로 보낸다
-    private static final Set<String> REJECT_REASONS =
-            Set.of("INVALID_ASSIGNMENT", "CAPACITY_EXCEEDED");
+    private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
+    // 면접의 첫 질문 순서(AI 명세 2장)
+    private static final int FIRST_SEQ = 1;
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {
@@ -82,6 +86,7 @@ public class AiResultService {
     private final SessionRuntimeStore runtimes;
     private final AiJobService aiJobs;
     private final InterviewRoom rooms;
+    private final ApplicationEventPublisher events;
     private final TransactionTemplate transactions;
 
     public AiResultService(
@@ -95,6 +100,7 @@ public class AiResultService {
             SessionRuntimeStore runtimes,
             AiJobService aiJobs,
             InterviewRoom rooms,
+            ApplicationEventPublisher events,
             TransactionTemplate transactions) {
         this.sessions = sessions;
         this.questions = questions;
@@ -106,6 +112,7 @@ public class AiResultService {
         this.runtimes = runtimes;
         this.aiJobs = aiJobs;
         this.rooms = rooms;
+        this.events = events;
         this.transactions = transactions;
     }
 
@@ -147,24 +154,31 @@ public class AiResultService {
         return Outcome.SAVED;
     }
 
-    // 이미 플랜이 있거나 GENERATING이 아니면(재생성 전 늦게 온 결과, 시간 초과로 실패 처리됨) 버린다
+    // 이미 플랜이 있거나 GENERATING이 아니면(재생성 전 늦게 온 결과, 시간 초과로 실패 처리됨) 버린다.
+    // 질문 수는 개인 면접 5개, 그룹 면접 2개다(AI 명세 2장 questionCount)
     private Outcome planCompleted(long sessionId, AiResultMessage message) {
         List<PlanQuestion> planQuestions = required(message.questions(), "questions");
-        boolean seqOneToFive =
-                planQuestions.size() == InterviewPlan.QUESTION_COUNT
-                        && IntStream.rangeClosed(1, InterviewPlan.QUESTION_COUNT)
+        InterviewSession session = sessions.findById(sessionId).orElse(null);
+        if (session == null) {
+            return Outcome.DISCARDED;
+        }
+        int count = InterviewPlan.questionCount(session);
+        boolean seqOneToCount =
+                planQuestions.size() == count
+                        && IntStream.rangeClosed(1, count)
                                 .allMatch(
                                         seq ->
                                                 planQuestions.stream()
                                                         .anyMatch(q -> q.seq() == seq));
-        if (!seqOneToFive) {
-            throw new InvalidAiResultException("질문은 seq 1~5로 5개여야 한다: session=" + sessionId);
+        if (!seqOneToCount) {
+            throw new InvalidAiResultException(
+                    "질문은 seq 1~%d로 %d개여야 한다: session=%d".formatted(count, count, sessionId));
         }
         // 질문 글·채점 기준이 비면 저장은 되지만 질문을 낼 때(question.started) 저장할 수 없다
         if (planQuestions.stream().anyMatch(q -> isBlank(q.content()) || isBlank(q.criteria()))) {
             throw new InvalidAiResultException("질문 글·채점 기준이 비었다: session=" + sessionId);
         }
-        if (!isPlanGenerating(sessionId) || !sessions.existsById(sessionId)) {
+        if (!isPlanGenerating(sessionId)) {
             return Outcome.DISCARDED;
         }
         if (plans.existsById(sessionId)) {
@@ -205,8 +219,10 @@ public class AiResultService {
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
+                    // 시작 시각보다 이른 질문은 시작 실패(AI 명세 6.5) 뒤 다시 시작하기 전 시도의 것이다(AI 명세 1.4)
                     if (session == null
-                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()) {
+                            || questions.findBySessionIdAndSeq(sessionId, seq).isPresent()
+                            || startedAt.isBefore(session.getStartedAt())) {
                         return Outcome.DISCARDED;
                     }
                     questions.save(
@@ -218,6 +234,10 @@ public class AiResultService {
                                     message.promptVersion(),
                                     message.modelVersion(),
                                     startedAt));
+                    // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다. 그룹 면접은 다루지 않는다
+                    if (seq == FIRST_SEQ && session.isVideo() && session.getGroupId() == null) {
+                        events.publishEvent(new FirstQuestionStarted(sessionId));
+                    }
                     return Outcome.SAVED;
                 });
     }
@@ -240,6 +260,7 @@ public class AiResultService {
         }
         OffsetDateTime answerStartedAt = required(message.answerStartedAt(), "answerStartedAt");
         AnswerSpeech speech = validTimeline(message.speech(), sessionId, seq);
+        List<SttGap> sttGaps = validSttGaps(message.sttGaps(), sessionId, seq);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lockInProgress(sessionId);
@@ -254,7 +275,12 @@ public class AiResultService {
                     Answer answer =
                             answers.save(
                                     Answer.voice(
-                                            question, content, tokens, speech, answerStartedAt));
+                                            question,
+                                            content,
+                                            tokens,
+                                            speech,
+                                            sttGaps,
+                                            answerStartedAt));
                     aiJobs.enqueue(AiJob.scoreAnswer(sessionId, answer.getId()));
                     return Outcome.SAVED;
                 });
@@ -585,6 +611,28 @@ public class AiResultService {
             LOG.warn("answer.completed 타임라인 값이 범위를 벗어나 버린다: session={} seq={}", sessionId, seq);
         }
         return valid;
+    }
+
+    // 끊긴 구간이 0 ≤ startMs ≤ endMs · 시각 순이 아니면 구간만 버린다. 답변은 저장하고 채점은 끊긴 구간 없이 한다(AI 명세 6.2)
+    private static List<SttGap> validSttGaps(List<SttGap> gaps, long sessionId, int seq) {
+        if (gaps == null) {
+            return null;
+        }
+        boolean valid =
+                gaps.size() <= MAX_TOKEN_COUNT
+                        && gaps.stream()
+                                .allMatch(
+                                        g ->
+                                                g != null
+                                                        && g.startMs() >= 0
+                                                        && g.startMs() <= g.endMs())
+                        && IntStream.range(1, gaps.size())
+                                .allMatch(i -> gaps.get(i - 1).startMs() <= gaps.get(i).startMs());
+        if (!valid) {
+            LOG.warn("answer.completed sttGaps 형식이 맞지 않아 버린다: session={} seq={}", sessionId, seq);
+            return null;
+        }
+        return gaps.isEmpty() ? null : gaps;
     }
 
     private static AiResultMessage parse(String raw) {

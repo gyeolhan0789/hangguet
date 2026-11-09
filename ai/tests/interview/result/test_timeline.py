@@ -1,6 +1,6 @@
 """다시보기 타임라인 곡선 · 낮은 체크포인트 시험(AI 명세 4장 다시보기 타임라인)."""
 
-from app.common.answer import ImpressionSample, SpeechToken, TimelineInput
+from app.common.answer import ImpressionSample, SpeechToken, SttGap, TimelineInput
 from app.interview.result.timeline import (
     LOW_LIMIT,
     MIN_GAP_MS,
@@ -179,3 +179,18 @@ def test_window_text_is_words_within_five_seconds() -> None:
 
     assert window_text(tokens, 12_000) == "가운데"
     assert window_text(None, 0) == ""
+
+
+def test_pause_inside_stt_gap_is_not_a_long_pause_event() -> None:
+    """다시보기 타임라인도 AI 명세 3장 긴 멈춤과 같이 끊긴 구간의 쉼을 제외한다."""
+    tokens = speech_with_pauses(60, {30: 3})
+    samples = tuple(sample(s, **dict.fromkeys(KEYS, 60.0 + s * 3 % 7 * 2)) for s in range(63))
+    answer = TimelineAnswer(1, tokens, TimelineInput(None, samples), (SttGap(30_500, 33_500),))
+
+    found = build_timelines([answer])[1]
+
+    assert all(
+        reason.metric is not Metric.LONG_PAUSE
+        for checkpoint in found.checkpoints
+        for reason in checkpoint.reasons
+    )

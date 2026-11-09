@@ -8,6 +8,7 @@ import pytest
 from app.common.answer import (
     ImpressionSample,
     SpeechToken,
+    SttGap,
     TimelineInput,
     VoiceMetrics,
     is_java_blank,
@@ -786,3 +787,40 @@ def test_evaluate_reads_earlier_summaries_of_the_day() -> None:
     assert isinstance(old, EvaluateJob) and old.earlier_summaries == ()
     with pytest.raises(InvalidJobError):
         parse_job(evaluate(earlierSummaries=[1]))
+
+
+def test_stt_gaps_are_parsed_for_scoring_and_evaluation() -> None:
+    """AI 명세 3·4장: 채점·결과 생성 작업이 끊긴 구간을 해석한다."""
+    gaps = [{"startMs": 1200, "endMs": 4800}]
+    scored = parse_job(score(sttGaps=gaps))
+    evaluated = parse_job(evaluate(mode="VIDEO", answers=[answer(sttGaps=gaps)]))
+    assert isinstance(scored, ScoreAnswerJob)
+    assert isinstance(evaluated, EvaluateJob)
+    assert scored.stt_gaps == (SttGap(1200, 4800),)
+    assert evaluated.answers[0].stt_gaps == (SttGap(1200, 4800),)
+
+
+def test_missing_stt_gaps_from_earlier_messages_is_empty() -> None:
+    scored = parse_job(score())
+    assert isinstance(scored, ScoreAnswerJob)
+    assert scored.stt_gaps == ()
+
+
+@pytest.mark.parametrize(
+    "gaps",
+    [
+        "1200~4800",
+        [{"startMs": 4800, "endMs": 1200}],
+        [{"startMs": -1, "endMs": 10}],
+        [{"startMs": True, "endMs": 10}],
+        [[1200, 4800]],
+    ],
+)
+def test_invalid_stt_gaps_are_ignored_without_failing_job(
+    gaps: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """형식이 틀린 sttGaps는 무시하고 채점을 실패시키지 않는다."""
+    scored = parse_job(score(sttGaps=gaps))
+    assert isinstance(scored, ScoreAnswerJob)
+    assert scored.stt_gaps == ()
+    assert "sttGaps 형식이 틀려" in caplog.text

@@ -13,7 +13,6 @@ import {
   AGREEMENT_ITEMS,
   emailSchema,
   PASSWORD_MAX,
-  PASSWORD_RULES,
   signupSchema,
   type SignupValues,
 } from "@/lib/auth/schemas";
@@ -21,45 +20,13 @@ import { ROUTES } from "@/lib/routes";
 
 import { AgreementsFieldset } from "../../_components/agreements-fieldset";
 import { KakaoButton } from "../../_components/kakao-button";
+import { PasswordRules } from "../../_components/password-rules";
 
 const EMAIL_CHECK_DELAY_MS = 400;
 /** 서버가 돌려준 칸별 오류(VALIDATION_FAILED · EMAIL_DUPLICATED)의 react-hook-form 오류 type */
 const SERVER_ERROR = "server";
 
 type EmailCheck = { email: string; available: boolean | null };
-
-function PasswordRules({ password }: { password: string }) {
-  return (
-    <ul className="flex gap-2.5">
-      {PASSWORD_RULES.map(({ label, test }) => {
-        const passed = test(password);
-        return (
-          <li key={label} className="flex items-center gap-1">
-            <motion.span
-              className="flex"
-              initial={false}
-              animate={passed ? { scale: [0.4, 1.2, 1] } : { scale: 1 }}
-              transition={{ duration: 0.25 }}
-            >
-              <Image
-                src={passed ? "/auth/icon-check-rule.svg" : "/auth/icon-circle-rule.svg"}
-                alt=""
-                width={12}
-                height={12}
-              />
-            </motion.span>
-            <span
-              className={`text-xs leading-normal font-semibold ${passed ? "text-success" : "text-text-3"}`}
-            >
-              {label}
-              <span className="sr-only">{passed ? " 충족" : " 미충족"}</span>
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
 
 export function SignupForm({ onComplete }: { onComplete: () => void }) {
   const [formError, setFormError] = useState<string>();

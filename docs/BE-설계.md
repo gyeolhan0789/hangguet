@@ -33,12 +33,13 @@
 com.ssafy.a301
 ├─ auth
 │  ├─ controller   AuthController
-│  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7)
+│  ├─ service      AuthService, SocialAuthService(소셜 로그인·가입, 1.6 · 1.7), PasswordResetService(비밀번호 찾기, 1.8 · 1.9)
 │  ├─ dto          회원가입·로그인·재발급 등의 요청·응답 record(각각 별도 파일)
 │  ├─ jwt          AccessTokens, AuthProperties, JwtSupport(서명 키·만료 판정·401 응답, 회원·관리자 체인 공용)
 │  ├─ oauth        SocialLoginClient · KakaoLoginClient · GoogleLoginClient(인가 코드 → 제공자 회원 정보), SocialProfile, OAuthProperties
-│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore
-│  └─ config       SecurityConfig, OAuthConfig
+│  ├─ reset        PasswordResetMailer(재설정 링크 메일, Gmail SMTP), PasswordResetProperties
+│  ├─ repository   RefreshTokenStore, RedisRefreshTokenStore, SocialSignupStore, RedisSocialSignupStore, LoginAttemptStore, RedisLoginAttemptStore, PasswordResetTokenStore, RedisPasswordResetTokenStore
+│  └─ config       SecurityConfig, OAuthConfig, PasswordResetConfig
 ├─ user
 │  ├─ controller   UserController, SocialAccountController(2.12 · 2.13)
 │  ├─ service      UserService, PasswordChangeService(비밀번호 변경 · 기록 · 다른 기기 로그아웃, 2.3 · 9.10), SocialAccountService(이메일 회원의 카카오 연결 · 해제)
@@ -152,7 +153,7 @@ com.ssafy.a301
 
 | 엔티티 | 테이블 | 연관 | 비고 |
 |---|---|---|---|
-| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]**. 소셜 회원은 `password_hash`가 null(V12) |
+| `User` | `users` | - | 탈퇴는 soft delete: `deleted_at`만 기록하고 행·관련 데이터·파일은 남긴 채 조회에서 제외. 이메일은 **탈퇴하지 않은 회원끼리만** 중복 불가(부분 UNIQUE 인덱스). 저장할 때 소문자로 바꾸고, 가입 전 확인·로그인은 대소문자를 구분하지 않고 찾는다(`lower(email)` 인덱스, V7). 대소문자 무시 중복은 코드가 막는다. 기존 데이터에 대소문자만 다른 이메일이 있어도 배포가 실패하지 않도록 DB 유일 제약은 걸지 않았다 **[결정]**. 소셜 회원은 `password_hash`가 null(V12). `password_changed_at`은 마지막 비밀번호 변경 시각으로, 이보다 먼저 발급된 액세스 토큰을 거절한다(V24, 바꾼 적 없으면 null) |
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V13) **[결정]** |
 | `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V13). V13 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
@@ -197,6 +198,8 @@ com.ssafy.a301
 |---|---|---|---|---|
 | `READY` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | 플랜 `READY`(Redis) 아니면 409 `PLAN_NOT_READY` |
 | `IN_PROGRESS` | 결과 메시지 `assignment.rejected` | `START_FAILED` | `failStart()` | 질문 행이 없고, 거절 시각(`occurredAt`)이 시작 시각 이후일 때만. 면접방을 닫는다(5.5) |
+| `IN_PROGRESS` | 배정 요청을 마친 뒤 15초(임시 값) 동안 면접방에 면접관(`interviewer`) 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 질문 행이 없을 때만. 기준 시각은 5.4에서 배정 요청(`CreateDispatch`)이 성공한 시각이다. 면접관 여부는 LiveKit `ListParticipants`로 확인한다. 면접방을 닫는다(5.5) |
+| `IN_PROGRESS` | 지원자(`candidate`) 입장 30초(임시 값) 뒤 질문 행 없음(AI 명세 6.5) | `START_FAILED` | `failStart()` | 입장 시각은 LiveKit `ListParticipants`의 `joinedAt`. 지원자가 입장하지 않았으면 판단하지 않는다. 면접방을 닫는다(5.5) |
 | `START_FAILED` | 5.4 시작 | `IN_PROGRESS` | `start(now)` | `READY`와 같은 조건. 같은 플랜으로 다시 배정하고 시작 시각을 새로 남긴다 |
 | `IN_PROGRESS` | 5.8 끝내기(답변 ≥1) | `ANALYZING` | `end(now, answeredCount)` → true | 연습 기록 남김(6.1) |
 | `IN_PROGRESS` | 5.8 끝내기(답변 0) | `ABORTED` | `end(now, 0)` → false | 결과·연습 인정 없음 |
@@ -225,17 +228,20 @@ com.ssafy.a301
 5. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 실제로 출제한 질문(꼬리질문 포함)을 넣는다 **[결정]**(5.2)
 
 ### 5.2 면접 시작 · 질문 출제 (5.4, 5.5, 5.14)
-1. 5.4 한 트랜잭션(면접 행 잠금): `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+1. 5.4 한 트랜잭션(면접 행 잠금): (화상) 동시 진행 상한 확인 → `start(now)` → 면접방 열기(5.6) → 입장 토큰을 응답 `room`에 담는다
+   - 동시 진행 상한(화상만, `InterviewCapacity`) **[결정]**: 에이전트는 화상 면접의 답변마다 Soniox 실시간 인식 연결을 하나 연다. 연결 한도는 계정당 10개이고 개발 · 운영이 같은 키를 쓰므로 운영 8 · 개발 2로 나눈다(`interview.capacity.max-video`, 환경 변수 `INTERVIEW_MAX_VIDEO`, 기본 8). 진행 중인 화상 면접이 상한 이상이면 503 `INTERVIEW_CAPACITY_FULL`이고 상태는 그대로다. 채팅은 STT를 쓰지 않아 세지 않는다
+   - 세는 기준: `IN_PROGRESS`이고 최근 90분(`interview.capacity.count-window`) 안에 시작한 화상 면접. 그룹 참가자의 면접은 그룹마다 하나로 센다(에이전트가 답변자 한 명만 인식, AI 명세 6.7). 지원자가 면접 도중 나가면 에이전트는 STT 연결을 바로 닫지만 면접은 `IN_PROGRESS`로 남으므로, 오래전에 시작한 면접은 세지 않는다. 90분은 가장 긴 화상 면접(그룹 3명 약 60분, 그룹 면접 설계)보다 길게 둔 값이다. 실제 사용 수보다 많게 셀 수는 있어도 적게 세지는 않는다
+   - 동시에 들어온 시작이 같은 빈자리로 함께 통과하지 않게, 상한 확인부터 커밋까지 트랜잭션 잠금(`pg_advisory_xact_lock`)을 건다. 그래서 화상 면접 시작(5.4 · 10.7)은 한 번에 하나씩 처리된다(잠금은 방 열기까지 포함해 최대 15초). 이 잠금은 면접 · 그룹 행 잠금 다음에 마지막으로 잡는다(교착 방지)
    - 방을 만들고(화상이면 트랙 자동 녹화를 켬) AI 에이전트를 배정한다. 배정 정보에 `interview_plans`의 질문 5개·채점 기준과 `currentSeq` 1을 담는다(AI 명세 6.1)
    - 질문 행은 만들지 않는다. 응답 `currentQuestion`은 null **[결정]**(API 명세 B-16)
    - 방 만들기·배정이 실패하면 만든 방을 지우고 503 `ROOM_UNAVAILABLE`, 트랜잭션은 롤백해 이전 상태(`READY`·`START_FAILED`)로 둔다 **[결정]**. 방을 연 뒤 커밋이 실패해도 방을 지운다(`TransactionSynchronization`)
    - 외부 호출을 행 잠금 안에서 하는 이유: 같은 면접을 두 번 시작해 방이 둘 생기지 않게 한다. 호출 시간 제한은 호출마다 5초(연결·읽기·전체)라 방 만들기·배정·실패 시 방 지우기까지 최대 15초 잠근다. 멱등 대기(20초)는 이보다 길게 둔다
-2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`) → `InterviewQuestion(seq, content, criteria, prompt_version, model_version, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있으면 버린다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
+2. 질문 행은 에이전트가 질문을 말하기 시작할 때 만든다: 결과 메시지 `question.started`(`seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`) → `InterviewQuestion(seq, content, criteria, prompt_version, model_version, created_at = startedAt)` 저장. 같은 `(session_id, seq)`가 이미 있거나, `startedAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 질문이 늦게 도착) 폐기한다. 이 `created_at`이 다시보기 마커 기준이다 **[결정]**
 3. 5.5는 답이 없는 마지막 질문 행을 준다. 아직 질문 행이 없으면(시작 직후 포함) 202 `QUESTION_GENERATING`("아직 내지 않음", B-16), 5개에 모두 답했으면 409 `INVALID_SESSION_STATE`
 4. 5.14는 `IN_PROGRESS`일 때 입장 토큰만 새로 만든다(재접속용)
 
 ### 5.3 답변 저장 (화상 `answer.completed`, 채팅 5.7)
-1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). `speech`의 타임라인용 값(`trailingOffAtMs` 10,000개 이하·0 이상, `impressions` 3,600개 이하·`atMs` 0 이상·`face` 0~1·점수 0~100·버전 1~100자)이 범위를 벗어나면 그 값만 null로 바꾸고 답변은 저장한다. 저장만 하고 채점·결과에 쓰지 않는 값이기 때문이다. SCORE_ANSWER·EVALUATE 작업 메시지의 `speech`에는 `trailingOffRatio`·`pitchRangeSt`만 담는다(AI 명세 3장). 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다. 화면이 저장을 확인한 뒤 5.8을 호출한다(API 명세 5.8)
+1. **화상**: 결과 메시지 `answer.completed`(`seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `sttGaps`, `endReason`)를 받아 한 트랜잭션에서 질문 행 확인 → `Answer` 저장(`content`·`tokens`·`speech`·`stt_gaps`·`started_at`) → SCORE_ANSWER enqueue. `content` 1~10,000자, `tokens` 10,000개 이하·`0 ≤ startMs ≤ endMs`, `answerStartedAt` 필수이며 어기면 실패 목록으로 옮긴다(5.5-6). `speech`의 타임라인용 값(`trailingOffAtMs` 10,000개 이하·0 이상, `impressions` 3,600개 이하·`atMs` 0 이상·`face` 0~1·점수 0~100·버전 1~100자)이 범위를 벗어나면 그 값만 null로 바꾸고 답변은 저장한다. 저장만 하고 채점·결과에 쓰지 않는 값이기 때문이다. SCORE_ANSWER·EVALUATE 작업 메시지의 `speech`에는 `trailingOffRatio`·`pitchRangeSt`만 담는다(AI 명세 3장). `sttGaps`(STT가 끊겨 인식하지 못한 구간)는 `0 ≤ startMs ≤ endMs`·시각 순이 아니면 구간만 버리고 경고 로그를 남긴 뒤 답변은 저장한다. 에이전트가 이미 한 STT 재연결을 다시 할 수 없고, AI 작업자도 끊긴 구간 없이 채점할 수 있기 때문이다. 저장한 `sttGaps`는 SCORE_ANSWER·EVALUATE 작업 메시지에 그대로 담고, 없으면 넣지 않는다(AI 명세 3·4장). `endReason`(`STT_FAILED` 포함)은 따로 처리하지 않는다. 같은 질문에 답변이 이미 있으면(`answers.question_id` UNIQUE) 버린다. 면접이 `IN_PROGRESS`가 아니면 버린다. 화면이 저장을 확인한 뒤 5.8을 호출한다(API 명세 5.8)
 2. **채팅**: 5.7 한 트랜잭션에서 질문 소유·현재 질문 확인 → `Answer` 저장 → SCORE_ANSWER enqueue. 다음 질문으로 넘어가는 신호는 화면이 에이전트에 보낸다(API 명세 면접방 메시지) **[제안]**
 3. 답변 음성 파일을 따로 받지 않는다. 채점용 답변별 음성은 **[미정]**(API 명세 B-19)
 
@@ -248,6 +254,7 @@ com.ssafy.a301
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
    - 답변 ≥1이면 EVALUATE enqueue → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue하고 합친 녹화 행을 `MERGING`으로 저장한다(5.9에서는 다시 하지 않음)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
+   - 그룹 세션은 `GroupEndService`가 그룹 행 → 참가자 면접 행 순서로 잠그고 같은 종료 처리(`SessionEnder`)를 한다. 녹화 합치기와 면접방 정리는 그룹 단위로 한다(그룹 면접 설계 6.10)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
    - 최대 대기 10분(`ai-job.analysis-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`analysisStartedAt`)부터 10분이 지나도 ANALYZING이면 5.2 조회 때 면접 행을 잠그고 FAILED로 바꾼다(AI 명세 5장). 그 사이 결과가 저장돼 COMPLETED가 됐으면 그대로 둔다. 잠근 뒤 시간 초과를 다시 확인해, 그 사이 5.9로 다시 시작한 시도는 실패시키지 않는다. 시작 시각(Redis)이 TTL 만료·재시작으로 없으면 면접 종료 시각(`ended_at`, DB)으로 판단해 ANALYZING에 계속 남지 않게 한다
    - 채점·피드백 계산은 AI 분석 작업자가 하고, 저장은 BE가 `evaluation.completed`를 받아 한다([AI 명세](AI-명세.md) 3·4장) **[결정]**
@@ -272,7 +279,7 @@ com.ssafy.a301
    - 채팅이거나 `speechMetrics`가 null이면 `speech_metrics` 행을 만들지 않는다
 10. `evaluation.failed`: 같은 조건에서 `FAILED`, `analysisStep` 지움. `evaluation.progress`: 같은 조건에서 `analysisStep`만 갱신
 11. `recording.merged`: `objectKey`가 그 면접의 `recordings/{sessionId}.mp4`가 아니면 실패 목록. 화상 면접이면 합친 녹화 행을 `READY`로 변경하고 `recordingStartedAt`(null 가능)을 저장한다(면접 상태와 무관). 이미 `READY`이면 버리고, 행이 없으면(V10 이전에 끝난 면접) `READY`로 만든다. 앞서 `FAILED`였어도 파일이 올라왔으므로 `READY`로 변경한다. `recording.mergeFailed`는 화상 면접의 `MERGING` 행을 `FAILED`로 변경한다(API 명세 6.4 `videoStatus: FAILED`). 이미 `READY`이거나 행이 없으면 버린다
-12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`·`CAPACITY_EXCEEDED`가 아니거나 `occurredAt`이 없으면 실패 목록
+12. `assignment.rejected`(AI 명세 1.4): 면접 행을 잠그고 `IN_PROGRESS`이며 질문 행이 없을 때만 `START_FAILED`로 바꾸고 면접방을 지운다. `occurredAt`이 면접 시작 시각보다 이르면(다시 시작하기 전 시도의 거절이 늦게 옴) 버린다. 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작(5.4)해 연 방을 지울 수 있기 때문이다. `reason`이 `INVALID_ASSIGNMENT`가 아니거나 `occurredAt`이 없으면 실패 목록
 
 ### 5.6 면접방 (LiveKit)
 - 구현: `InterviewRoom`(`LiveKitInterviewRoom`), 서버 SDK `io.livekit:livekit-server` 0.16.0(운영 서버 v1.13.10보다 먼저 나온 버전). 설정은 `livekit.*`, 주소·키·시크릿은 환경 변수 `LIVEKIT_URL`(서버 API용)·`LIVEKIT_PUBLIC_URL`(브라우저에 알려 줄 주소, 없으면 `LIVEKIT_URL`)·`LIVEKIT_API_KEY`·`LIVEKIT_API_SECRET`(배포 계획 7장과 같은 이름). 값이 없으면 5.4·5.14가 503 `ROOM_UNAVAILABLE`. 브라우저용 주소의 설정 이름은 `livekit.public-url`이다. `livekit.url`로 두면 Spring이 환경 변수 `LIVEKIT_URL`을 그 이름으로 읽어 공개 주소를 내부 주소로 덮어쓴다(운영에서 두 주소가 다르다)
@@ -280,9 +287,10 @@ com.ssafy.a301
 - 방 만들기: `RoomService.CreateRoom`. 빈 방은 10분 뒤 닫힌다(`empty_timeout`·`departure_timeout`)
 - 에이전트 배정: `AgentDispatchService.CreateDispatch`(에이전트 이름 `a301-interviewer`·방 이름·배정 정보, AI 명세 6.1)
 - 면접 종료(5.8 커밋 뒤): `RoomService.DeleteRoom`. 에이전트가 나가고 녹화도 끝난다. 실패해도 5.8은 성공으로 두고 로그만 남긴다
-- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{publisher_identity}-{track_type}`이다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
+- 녹화(화상만): 방을 만들 때 트랙 자동 녹화(`RoomEgress.tracks`)를 켠다 **[결정]**. 방을 만들 때는 아직 트랙이 없어 트랙마다 녹화를 시작할 수 없기 때문이다. 파일 경로 설정은 `recordings/raw/{sessionId}/{startedAtMs}/{publisher_identity}-{track_type}`이고, `startedAtMs`는 면접 시작 시각(`started_at`)의 유닉스 밀리초다. 시작 시각은 밀리초로 잘라 기록해, 방을 만들 때와 합치기 작업을 만들 때 같은 값을 사용한다. 시작 실패 뒤 다시 시작(5.4)하면 시작 시각이 새로 기록되므로 이전 시도의 트랙과 다른 위치에 녹화되고, 합치기 작업에는 마지막 시도의 위치를 전달한다. 이 경로를 적용하기 전에 녹화한 원본(`recordings/raw/{sessionId}/` 바로 아래)은 `recordings/raw/{sessionId}/{startedAtMs}/`로 복사한다. 그 면접의 `started_at`은 원본을 녹화한 마지막 시도의 시각이기 때문이다. 새 경로를 쓰는 BE를 배포하기 전에 한 번 복사하고, 배포 전에 시작해 배포 뒤에 끝난 면접의 원본도 옮기도록 그 면접이 모두 끝난 뒤 한 번 더 복사한다. 그 사이 합치기에 실패한 면접은 다시 합치기(API 명세 6.5)로 복구한다. 기존 위치의 원본은 복사와 합치기가 정상인지 확인한 뒤 삭제한다. LiveKit 서버(v1.13.10 `getFilePath`)가 경로에 `{track_id}`가 없으면 `-{track_id}`를 붙이고, Egress가 코덱에 맞춰 확장자를 붙인다. 그래서 실제 파일은 `candidate-video-TR_…mp4`·`candidate-audio-TR_…ogg`·`interviewer-audio-TR_…ogg`이고, 재접속으로 트랙을 다시 올리면 같은 종류 파일이 하나 더 생긴다(덮어쓰지 않음). 합치기 작업은 `rawPrefix` 아래 파일을 이름 앞부분으로 찾는다 **[결정]**(AI 명세 7장). 에이전트는 참가자 이름 `interviewer`로 들어온다(AI 명세 6.1)
   - `{track_type}`은 `video`·`audio`(소문자, Egress `track_worker.go`)
   - S3 키는 `LIVEKIT_EGRESS_S3_ACCESS_KEY`·`LIVEKIT_EGRESS_S3_SECRET`(버킷·리전은 `S3_BUCKET`·`AWS_REGION`)로 요청에 담는다. LiveKit Cloud(개발)는 저장소가 없으면 방 만들기를 400 `egress request missing output`으로 거절한다(확인함). 키가 없으면 Egress 서버 설정의 저장소를 쓴다(셀프 호스팅, 운영 배포 계획 6.2)
+  - 녹화 확인: 개인 화상 면접의 첫 `question.started`를 저장하고 10초(임시 값) 뒤 `ListParticipants`·`ListEgress`로 지원자 영상·음성, 면접관 음성 트랙이 녹화 중(`EGRESS_STARTING`·`EGRESS_ACTIVE`)인지 본다. 녹화 중이 아닌 트랙은 경고 로그를 남기고 `StartTrackEgress`로 그 트랙만 다시 녹화한다. 파일 이름은 자동 녹화와 같은 규칙에 `-retry`를 붙여(`{participant}-{track_type}-{track_id}-retry`) 자동 녹화가 늦게 시작해도 덮어쓰지 않는다. 다시 요청도 실패하면 면접은 그대로 진행한다(녹화만 빠진다)
 - LiveKit 웹훅은 쓰지 않는다 **[제안]**(팀원 안 「Egress 종료 웹훅으로 녹화 등록」과 다름). 원본 위치는 BE가 녹화를 시작할 때 정하므로 종료 알림 없이도 합치기 작업에 넣을 수 있다
 
 ## 6. 계산 규칙 (저장하지 않음)
@@ -347,12 +355,15 @@ com.ssafy.a301
 | `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 큐별 길이만 지표로 본다(`AiQueueMetrics`, 대기 · 처리 중 지표에 `queue` 태그로 큐 이름) |
 | `ai:results` | List. AI 결과 메시지 JSON(AI 명세 1.4). AI `LPUSH`, BE `BLMOVE`로 `ai:results:processing`에 옮겨 처리 | 없음 | 5.5 |
 | `ai:results:failed` | List. 다시 처리해도 저장할 수 없는 결과 메시지 원문 **[결정]** | 없음(확인 후 수동 정리) | 5.5 |
+| `login-fail:{SHA-256(정규화한 이메일)}` | 성공하지 못한 로그인 시도 횟수 | 시도할 때마다 15분으로 다시 맞춤 | 1.3. 비밀번호를 확인하기 전에 Lua 스크립트로 잠김 확인과 세기를 한 번에 한다(동시에 보낸 요청이 5번을 넘지 못하게). 5 이상이면 세지 않고 남은 시간으로 429 `LOGIN_LOCKED`. 로그인에 성공하면 지운다 (`RedisLoginAttemptStore`) |
 | `social-signup:{SHA-256(token)}` | `SocialProfile` JSON(제공자 · 제공자 회원 번호 · 이메일 · 닉네임) | `oauth.signup-token-ttl`(10분) | 1.6에서 처음 온 사람에게 가입 토큰을 줄 때 넣고, 1.7에서 읽은 뒤 가입에 성공하면 지운다(실패하면 남겨 다시 보낼 수 있게) |
+| `password-reset:{SHA-256(token)}` | `userId:발급 시각(epoch 밀리초)` | `password-reset.token-ttl`(30분) | 1.8에서 이메일 회원마다 넣고, 1.9에서 GETDEL로 한 번만 쓴다. 발급 시각 뒤에 비밀번호가 바뀌었으면 쓸 수 없다 |
+| `password-reset-wait:{SHA-256(정규화한 이메일)}` | `1` | `password-reset.resend-interval`(30초) | 1.8. SET NX로 같은 이메일의 재요청을 막는다(가입하지 않은 이메일도 같게) |
 | `admin-logout:{SHA-256(token)}` | `1`. 로그아웃한 관리자 액세스 토큰 | 그 토큰의 남은 유효 시간 | 8.2에서 넣고, 관리자 API 인증 때 있으면 거절 |
 | `upload:{objectKey}` | userId · 용도(문의 사진은 용도만) | Presigned 만료와 같게(문의 사진은 1시간) | 2.5에서 "본인에게 발급된 키"인지, 9.1 · 9.4에서 "발급했고 아직 안 쓴 키"인지 확인 |
 | `idem:{userId}:{Idempotency-Key}` | `IdempotencyRecord` JSON: 요청 지문(메서드·경로·본문 SHA-256) + 첫 성공 응답(상태·Content-Type·본문) | 처리 중 1분, 끝난 응답 24시간 **[결정]** | 5.1·5.4·5.7·5.8 (8장) |
 
-ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제외라 지금은 쓰지 않는다.
+ERD 메모의 "비밀번호 재설정 토큰"은 DB 테이블이 아니라 Redis `password-reset:` 키로 둔다.
 
 ## 8. 멱등성 **[결정]**
 
@@ -376,11 +387,19 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 - 재발급은 제출한 토큰만 소비·회전하며 다른 기기의 토큰에는 영향을 주지 않는다. Redis GETDEL로 같은 토큰의 동시 재사용을 막는다.
 - 탈퇴(2.7)는 비밀번호를 확인하고(소셜 회원은 확인하지 않고 소셜 연결도 탈퇴 처리) `deleted_at`을 기록한 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·JWT 검증은 탈퇴 회원을 조회하지 않아 막힌다(액세스 토큰도 만료 전에 401).
 - 토큰 폐기가 실패해도 탈퇴는 성공으로 둔다. 남은 토큰은 재발급에서 탈퇴 회원으로 거절된다. 이 집합이 생기기 전에 발급된 토큰도 같은 이유로 쓸 수 없다.
-- 비밀번호 변경(2.3 회원 · 9.10 관리자)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 2.3은 폐기한 뒤 바꾼 기기에 새 액세스·리프레시 토큰을 준다. 새 리프레시 토큰의 로그인 시각은 변경 기록 시각(밀리초로 맞춤)과 같아 재발급에서 막히지 않는다. 액세스 토큰은 만료까지 쓸 수 있다. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
+- 비밀번호 변경(2.3 회원 · 9.10 관리자)은 회원 행을 잠그고 비밀번호를 바꾼 뒤 변경 기록을 남기고, 커밋 뒤 `refresh-user:{userId}`로 모든 기기의 리프레시 토큰을 폐기한다(`PasswordChangeService`). 2.3은 폐기한 뒤 바꾼 기기에 새 액세스·리프레시 토큰을 준다. 새 리프레시 토큰의 로그인 시각은 변경 기록 시각(밀리초로 맞춤)과 같아 재발급에서 막히지 않는다. 변경 시각은 회원 행의 `password_changed_at`(V24)에도 남기고, 회원 토큰 검증이 이미 읽는 회원 행에서 액세스 토큰 발급 시각(`iat`)이 이보다 이르면 401 `UNAUTHORIZED`로 거절한다(요청마다 쿼리를 늘리지 않음). `iat`는 초 단위라 변경 시각도 초 단위로 내려 비교한다. 그래서 2.3 응답의 새 토큰은 막히지 않고, 같은 초 안에 바꾸기 직전 발급된 토큰만 남을 수 있다 **[결정]**. 폐기가 실패해도 변경은 성공으로 둔다. 재발급(1.4)은 리프레시 토큰의 로그인 시각이 마지막 비밀번호 변경 기록보다 이르면 401 `REFRESH_TOKEN_INVALID`로 거절하므로, 폐기가 실패하거나 재발급과 겹쳐도 변경 전 기기는 다음 재발급에서 막힌다
+- 로그인(1.3)은 같은 이메일로 5번 연속 틀리면 15분 동안 막는다(429 `LOGIN_LOCKED`, `Retry-After` · `retryAfterSeconds`). 이메일별로 세므로 IP를 바꿔도 막히고, 가입하지 않은 이메일도 같게 세어 잠김으로 가입 여부가 드러나지 않는다. 남이 일부러 틀려 잠글 수 있어 영구 잠금 대신 15분으로 둔다 **[결정]**
 - 로그인(1.3)이 옛 비밀번호를 확인한 직후 비밀번호가 바뀌면, 그 로그인 토큰은 변경 쪽 폐기보다 늦게 생겨 남을 수 있다. 그래서 로그인은 토큰을 만든 뒤 회원을 다시 읽어, 비밀번호가 바뀌었거나 탈퇴했으면 그 토큰을 지우고 401 `LOGIN_FAILED`로 응답한다. 다시 읽을 때 아직 그대로였다면 토큰이 먼저 생긴 것이라 변경 쪽 폐기가 지운다
 - 문의(9.1 · 9.3 ~ 9.5)는 로그인 없이도 부를 수 있다(`SecurityConfig` permitAll). 토큰을 보내면 검증을 거쳐 회원으로 처리하고, 무효한 토큰이면 다른 API처럼 401이다
 - 액세스 토큰의 `nickname` 클레임은 발급 시점 값이다. 닉네임 변경(2.2)은 새 액세스 토큰을 함께 주고 리프레시 토큰은 유지한다. 다른 기기의 토큰은 다음 재발급 때 바뀐 값이 된다.
 - Redis 키에는 토큰 원문 대신 SHA-256 해시를 사용하고, 값에 회원 ID를 저장하고 키에 TTL을 설정한다.
+
+### 비밀번호 찾기 (1.8 · 1.9) **[결정]**
+
+- 메일은 Gmail SMTP(`spring.mail.*`)로 보낸다. 계정 · 앱 비밀번호는 환경 변수 `MAIL_USERNAME` · `MAIL_PASSWORD`로만 받고, 링크가 여는 FE 화면 주소는 `PASSWORD_RESET_URL`이다. `MAIL_USERNAME`이 없으면 메일을 보내지 않고 경고만 남긴다(로컬 개발). 메일 서버 연결은 상태 확인(`/actuator/health`)에 넣지 않는다(`management.health.mail.enabled: false`)
+- 1.8은 가입 여부를 드러내지 않는다. 결과와 관계없이 204이고, 메일은 가상 스레드로 따로 보내 메일 서버를 기다리는 시간이 응답에 드러나지 않게 한다. 재요청 간격(30초)은 가입하지 않은 이메일에도 똑같이 건다
+- 1.9는 `PasswordChangeService.changeByReset`이 회원 행을 잠그고, 링크 발급 시각 뒤에 비밀번호가 바뀌지 않은 이메일 회원일 때만 바꾼다. 변경 기록은 `RESET`, 2.3 · 9.10처럼 `password_changed_at`을 남기고 모든 리프레시 토큰을 폐기해 바꾸기 전 액세스 토큰도 401이 된다. 로그인 잠금 키(`login-fail:`)도 지운다
+- 링크 토큰은 GETDEL로 꺼내므로 같은 링크를 동시에 보내도 한 번만 바뀐다. 꺼낸 뒤 검사에서 실패해도 그 링크는 다시 쓸 수 없다
 
 ### 소셜 로그인 (1.6 · 1.7) **[결정]**
 
@@ -423,7 +442,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 비밀번호 찾기가 MVP 제�
 |---|---|---|---|
 | 프로필 사진 | `profile/{userId}/{uuid}.{ext}` | 2.4 Presigned PUT(JPG·PNG, 5MB) | 응답마다 Presigned GET |
 | 문의 사진 | `inquiry/{uuid}.{ext}` | 9.11 Presigned PUT(JPG·PNG, 5MB, 한 번에 5장) | 9.3 · 9.7 응답마다 Presigned GET |
-| 면접 녹화 원본 | `recordings/raw/{sessionId}/…`(트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
+| 면접 녹화 원본 | `recordings/raw/{sessionId}/{startedAtMs}/…`(시작 시도별·트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
 | 면접 녹화 | `recordings/{sessionId}.mp4` | AI 분석 작업자가 합쳐 올림(`recording.merged`) | 6.4 Presigned GET |
 | 답변 음성 | **[미정]**(트랙에서 잘라 쓸지 따로 저장할지, API 명세 B-19) | - | 분석에서만 사용 |
 

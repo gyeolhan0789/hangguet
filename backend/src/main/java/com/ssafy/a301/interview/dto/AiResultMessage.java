@@ -7,6 +7,7 @@ import com.ssafy.a301.interview.domain.AnswerToken;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
+import com.ssafy.a301.interview.domain.SttGap;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -31,10 +32,11 @@ import java.util.Map;
  * @param criteria question.started 실제로 출제한 질문의 채점 기준
  * @param tokens answer.completed 확정 토큰과 말한 시각
  * @param speech answer.completed 말끝 흐림·억양 폭
- * @param endReason answer.completed AUTO_SUBMIT · MANUAL_SUBMIT
+ * @param sttGaps answer.completed STT가 끊겨 인식하지 못한 구간. 끊긴 적이 없으면 null
+ * @param endReason answer.completed AUTO_SUBMIT · MANUAL_SUBMIT · STT_FAILED
  * @param answerId answer.scored 채점한 답변
  * @param evaluation answer.scored 채점 결과(AI 명세 3장)
- * @param reason plan.failed 등 실패 이유. assignment.rejected는 INVALID_ASSIGNMENT · CAPACITY_EXCEEDED
+ * @param reason plan.failed 등 실패 이유. assignment.rejected는 INVALID_ASSIGNMENT
  * @param analysisStep evaluation.progress 결과 생성 단계
  * @param answers evaluation.completed 답변별 점수·피드백(AI 명세 4장)
  * @param sessionScores evaluation.completed 기준별 점수·코멘트
@@ -62,6 +64,7 @@ public record AiResultMessage(
         String criteria,
         List<AnswerToken> tokens,
         AnswerSpeech speech,
+        List<SttGap> sttGaps,
         String endReason,
         Long answerId,
         Map<String, Object> evaluation,

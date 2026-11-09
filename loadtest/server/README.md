@@ -8,7 +8,7 @@
 | 파일 | 내용 |
 |---|---|
 | `compose.agent-split.yml` | 에이전트 분리 때만 더하는 덮어쓰기: 메인 서버의 에이전트 끄기, LiveKit 7880 · Redis 6379를 사설 IP에만 열기([../agent/README.md](../agent/README.md)) |
-| `compose.loadtest.yml` | 운영 compose 덮어쓰기: 주소(`lt.` · `rtc-lt.` · `grafana-lt.`), 테스트 버킷, GMS 주소, 회사 카드 적재 끔, 테스트용 LiveKit 설정, Egress 녹화 수락 판정 조정(`track_cpu_cost: 0.1`, 지금은 운영과 같은 값. S5 보고서 7 · 9장) |
+| `compose.loadtest.yml` | 운영 compose 덮어쓰기: 주소(`lt.` · `rtc-lt.` · `grafana-lt.`), 테스트 버킷, GMS 주소, 회사 카드 적재 끔, 테스트용 LiveKit 설정 |
 | `livekit.yaml` | 운영 LiveKit 설정에서 TURN 도메인 · 인증서만 `turn-lt.hangguet.co.kr`로 바꾼 것 |
 | `.env.example` | 서버에서 새로 만들 비밀값 이름. 서버에서 `.env`로 복사해 채운다(커밋하지 않는다) |
 | `setup.sh` | 서버 기본 셋팅(시간대 · 스왑 · Docker · 로그 · TURN 인증서). 운영 서버와 같게 맞춘다 |
@@ -42,7 +42,7 @@ EC2 → 인스턴스 시작:
 | TCP 7881 | 0.0.0.0/0 | 미디어 예비 경로 |
 | UDP 7882 | 0.0.0.0/0 | 미디어 |
 | UDP 3478 | 0.0.0.0/0 | TURN/UDP |
-| TCP 443 | 0.0.0.0/0 | TURN/TLS |
+| TCP 443 | 0.0.0.0/0 | TURN/TLS(Nginx가 받아 LiveKit으로 넘긴다) |
 
 웹 · 시그널링 · Grafana는 Tunnel로만 받으므로 80 · 7880 · 3000은 열지 않는다(운영과 같음).
 
@@ -111,6 +111,8 @@ CERTBOT_EMAIL=<메일> CF_DNS_API_TOKEN=<2-4의 토큰> sudo -E bash setup.sh
 exit   # docker 그룹을 적용하려고 다시 접속한다
 ```
 
+11/06 전에 만든 서버는 `setup.sh`를 한 번 더 실행한다(`CERTBOT_EMAIL`만 주면 된다. DNS 토큰은 `/root/.secrets`에 남아 있다). 운영 Nginx 설정이 `/etc/letsencrypt/live/hangguet.co.kr/` 인증서를 요구해, 그 자리에 `lt.hangguet.co.kr` 인증서를 받아 둔다(`compose.loadtest.yml` 머리말).
+
 ### 6. 띄우기
 
 서버에서:
@@ -131,6 +133,8 @@ $COMPOSE up -d
 
 `IMAGE_TAG`는 **운영에 떠 있는 태그**를 쓴다. 운영 서버에서 `docker inspect a301-prod-be --format '{{.Config.Image}}'`로 보거나, GitLab Deployments → Environments → `prod/app`의 마지막 배포 커밋을 본다.
 
+설정 해시(`A301_*_CONFIG_HASH`)는 `.env.example`의 고정값(`loadtest`) 그대로 둔다. 운영 compose가 필수로 받는 값이라 비우면 `$COMPOSE` 명령이 모두 멈춘다. 운영은 `deploy.sh`가 설정 파일 해시를 넣어 바뀐 서비스만 다시 만들지만, 테스트 서버는 값이 고정이라 `livekit.yaml` 같은 설정 파일을 고쳐도 `up -d`가 컨테이너를 그대로 둔다. 고쳤으면 그 서비스를 `$COMPOSE up -d --force-recreate <서비스>`로 다시 만든다.
+
 ### 7. 확인
 
 ```bash
@@ -140,7 +144,7 @@ curl -s 127.0.0.1:18082/api/health                      # FE
 curl -s 127.0.0.1:18083/health                          # AI
 docker logs a301-prod-cloudflared 2>&1 | grep -m1 'Registered tunnel connection'
 curl -s https://lt.hangguet.co.kr/api/health            # 바깥 주소 한 바퀴(로컬 PC에서)
-sudo ss -tulpn | grep -E '0.0.0.0|\[::\]'               # 바깥에 열린 포트가 22 · 443 · 3478 · 7881 · 7882뿐인지
+sudo ss -tulpn | grep -E '0.0.0.0|\[::\]'               # 바깥에 열린 포트가 22 · 80 · 443 · 3478 · 7881 · 7882뿐인지(80은 보안 그룹에서 닫혀 있다)
 ```
 
 그다음 브라우저로 `https://lt.hangguet.co.kr`에서 가입 → 지원서 → 화상 면접 1건을 끝까지 하고, 결과와 다시보기(녹화 합치기)까지 되는지 본다(계획 7.2의 0단계).

@@ -48,6 +48,7 @@ const LOOKS = {
     headBone: "DEF-spine.006",
     model: {
       glb: "/interview/devil/interviewer.glb",
+      glbBytes: 12_555_468,
       faceRules: "/interview/devil/face-rules.json",
       // 사용자 요청(2026-11-06): 읽는 자세를 GLB에 고정하고 사용하지 않는 자세 전환을 제거.
       // 표정 · 입 모양과 headBone의 작은 끄덕임 · 갸웃은 계속 별도로 제어한다.
@@ -64,6 +65,7 @@ const LOOKS = {
     headBone: "Head",
     model: {
       glb: "/interview/coffee-chat/interviewer.glb",
+      glbBytes: 413_868,
       faceRules: "/interview/coffee-chat/face-rules.json",
       animation: "/interview/coffee-chat/animation.json",
     },
@@ -93,6 +95,7 @@ const LOOKS = {
     // 머리는 동작 클립(끄덕임 · 말하기)이 움직이므로 고개 제어를 쓰지 않는다
     model: {
       glb: "/interview/duck/interviewer.glb",
+      glbBytes: 2_222_604,
       faceRules: "/interview/duck/face-rules.json",
       clips: {
         idle: "Duck_Folded_Idle",

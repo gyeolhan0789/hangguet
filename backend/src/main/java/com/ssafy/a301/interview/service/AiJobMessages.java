@@ -74,6 +74,10 @@ public class AiJobMessages {
         if (session.getCompanyCard() != null) {
             message.put("companyCard", session.getCompanyCard().getCard());
         }
+        // 그룹 면접만 보낸다. 없으면 AI가 5개를 만든다(개인 면접은 지금과 같다)
+        if (session.isGroup()) {
+            message.put("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
+        }
     }
 
     // 자기소개서 문항을 순서대로(AI 명세 2장 · 4장)
@@ -155,7 +159,8 @@ public class AiJobMessages {
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }
 
-    // seq·question·criteria·content와 화상이면 tokens·speech. speech는 채점에 쓰는 지표 2개만 보낸다(AI 명세 3장).
+    // seq·question·criteria·content와 화상이면 tokens·speech·sttGaps(AI 명세 3 · 4장).
+    // speech는 채점에 쓰는 지표 2개만 보낸다. sttGaps는 끊긴 적이 있을 때만 담는다.
     // 질문 글·채점 기준은 실제로 출제한 질문 행의 값이다(꼬리질문은 플랜과 다르다, AI 명세 2.2)
     private static Map<String, Object> answerContent(Answer answer) {
         InterviewQuestion question = answer.getQuestion();
@@ -169,6 +174,9 @@ public class AiJobMessages {
         }
         if (answer.getSpeech() != null) {
             content.put("speech", answer.getSpeech().metrics());
+        }
+        if (answer.getSttGaps() != null) {
+            content.put("sttGaps", answer.getSttGaps());
         }
         return content;
     }

@@ -1,5 +1,6 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
+import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useToastStore } from "@/stores/toast-store";
@@ -63,6 +64,39 @@ afterEach(() => {
 const account = () => within(screen.getByRole("region", { name: "계정" }));
 
 describe("SettingsView 카카오 줄 · 비밀번호 변경", () => {
+  // Next.js는 다른 화면으로 가면 이 화면을 지우지 않고 <Activity>로 숨긴다(Preserving UI State). 다시 와도 펼쳐 둔 편집칸 ·
+  // 입력한 비밀번호가 남지 않아야 한다(사용자 결정 2026-11-05).
+  it("화면이 숨겨지면 비밀번호 변경 · 닉네임 편집을 접고, 입력한 비밀번호를 지운다", async () => {
+    const view = (mode: "visible" | "hidden") => (
+      <Activity mode={mode}>
+        <SettingsView me={EMAIL_MEMBER} alarm={ALARM} />
+      </Activity>
+    );
+    const { rerender } = render(view("visible"));
+    fireEvent.click(account().getByRole("button", { name: /비밀번호 변경/ }));
+    fireEvent.change(screen.getByLabelText("지금 비밀번호", { selector: "input" }), {
+      target: { value: "abcd1234" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /닉네임/ }));
+    expect(screen.getByRole("textbox", { name: "닉네임" })).toBeTruthy();
+
+    rerender(view("hidden"));
+    rerender(view("visible"));
+
+    const password = account().getByRole("button", { name: /비밀번호 변경/ });
+    expect(password.getAttribute("aria-expanded")).toBe("false");
+    // 편집칸이 접히면 닉네임 줄(버튼)이 다시 나온다(jsdom은 사라지는 연출이 끝나지 않아 입력칸 자리가 남을 수 있다)
+    await waitFor(() =>
+      expect(screen.getAllByRole("button").some((b) => b.textContent?.startsWith("닉네임"))).toBe(
+        true,
+      ),
+    );
+    fireEvent.click(password);
+    expect(
+      (screen.getByLabelText("지금 비밀번호", { selector: "input" }) as HTMLInputElement).value,
+    ).toBe("");
+  });
+
   it("이메일 회원: 카카오 '연결하기' 줄을 누를 수 있고, 비밀번호 변경도 누를 수 있다", () => {
     render(<SettingsView me={EMAIL_MEMBER} alarm={ALARM} />);
 

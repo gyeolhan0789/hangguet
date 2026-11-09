@@ -111,7 +111,7 @@ cd backend && ./gradlew contractTest
 
 - 검증 대상은 배포된 서버가 아니다. 로컬로 띄운 BE에 검증한다(`@SpringBootTest(RANDOM_PORT)` + `HttpTestTarget`). **[공식]** [Verifying Pacts](https://docs.pact.io/provider)
 - 가짜로 바꾸는 것은 BE 밖으로 나가는 연결뿐이다. BE 코드 자체는 가짜로 바꾸지 않는다. **[공식]** 같음
-  - 지금 바꾸는 것: `CoverLetterCheckQueue` · `AiJobQueue` · `InterviewRoom`(LiveKit) · `S3FileStorage`(`@MockitoBean`)
+  - 지금 바꾸는 것: `CoverLetterCheckQueue` · `AiJobQueue` · `InterviewRoom`(LiveKit) · `S3FileStorage` · `JavaMailSender`(비밀번호 찾기 메일, `@MockitoBean`)
 - DB는 로컬 PostgreSQL · Redis를 그대로 쓴다. **[공식]** 같음(가벼운 로컬 DB는 써도 된다)
 
 ### 3.2 상황(`@State`)
@@ -119,7 +119,7 @@ cd backend && ./gradlew contractTest
 - 상황 이름은 FE 계약의 `given`과 글자까지 같아야 한다. **[공식]** [Provider states](https://docs.pact.io/getting_started/provider_states)
 - 매개변수는 `Map`으로 받는다. 요청에 넣을 값(id · 토큰 · 날짜)은 `Map`으로 돌려준다. **[공식]** [JVM Provider JUnit](https://docs.pact.io/implementation_guides/jvm/provider/junit)
 - 데이터는 BE 서비스(비즈니스 로직)를 불러 만든다. 저장소 · SQL로 직접 넣지 않는다. **[팀]**
-- 서비스로 만들 수 없는 경우만 예외로 하고, 메서드 주석에 이유를 적는다. 지금 예외는 아래 네 가지다.
+- 서비스로 만들 수 없는 경우만 예외로 하고, 메서드 주석에 이유를 적는다. 지금 예외는 아래 다섯 가지다.
 
 | 상황 | 방법 | 이유 |
 | --- | --- | --- |
@@ -127,6 +127,7 @@ cd backend && ./gradlew contractTest
 | 어제 본 면접 | 서비스로 만든 뒤 날짜만 SQL로 하루 앞당김 | 서비스는 언제나 오늘 날짜로 저장한다 |
 | 관리자 | repository로 생성 | 관리자 가입 서비스가 없다 |
 | 다른 요청에 쓴 멱등 키 | `IdempotencyStore`에 직접 기록 | 멱등 처리는 HTTP 인터셉터에만 있다 |
+| 비밀번호 재설정 링크 | `PasswordResetTokenStore.issue`로 token 생성 | 서비스(1.8)는 token을 메일로만 보내고 돌려주지 않는다 |
 
 ### 3.3 상호작용마다 격리한다
 
@@ -134,7 +135,7 @@ cd backend && ./gradlew contractTest
 - 상호작용이 끝날 때마다 `@AfterEach`가 그 상호작용이 만든 데이터를 지운다(`ContractData`). **[구현]**
   - 재생된 요청이 만든 데이터도 지운다(회원가입이 만든 회원, 비회원 문의).
 - 같은 로컬 DB를 쓰는 다른 테스트 · 개발 데이터를 지우지 않게, 지울 범위를 좁힌다(예: 비회원 문의는 `GUEST_EMAIL` + 상호작용 시작 시각 이후). **[구현]**
-- `ContractData`는 PostgreSQL 행만 지운다. Redis의 멱등 키 · 면접 진행 키는 지우지 않고 만료 시간(TTL)이 지나면 사라진다. 상황마다 회원 · 면접 id가 새로 생겨 다음 상호작용과 겹치지 않는다. 그러니 이전 실행의 Redis 값에 기대는 계약은 만들지 않는다. **[구현]**
+- `ContractData`는 PostgreSQL 행만 지운다. Redis의 멱등 키 · 면접 진행 키 · 로그인 잠금 키(`login-fail:`, 15분) · 비밀번호 재설정 키(`password-reset:` 30분 · `password-reset-wait:` 30초)는 지우지 않고 만료 시간(TTL)이 지나면 사라진다. 상황마다 회원 · 면접 id · 이메일이 새로 생겨 다음 상호작용과 겹치지 않는다. 그러니 이전 실행의 Redis 값에 기대는 계약은 만들지 않는다. **[구현]**
 
 ## 4. CI와 계약 파일
 
@@ -167,6 +168,7 @@ cd backend && ./gradlew contractTest
 | 상황 데이터를 지우지 않았다 | 비회원 문의가 로컬 DB에 쌓여 다음 실행 · 다른 테스트에 섞였다 | 상호작용마다 `@AfterEach`로 정리한다 **[구현]** |
 | 상황마다 값이 달라지는 목록 enum을 `equal`로 고정했다 | 데이터 순서 · 개수가 바뀌면 실패한다 | `oneOf` **[구현]** |
 | 계약 파일을 Gradle 입력으로 선언하지 않았다 | 계약이 바뀌어도 캐시된 지난 결과로 통과한다 | `inputs.dir(../frontend/pacts)` **[구현]** |
+| 429에 `Retry-After`(900초)를 주는 응답을 검증했다 | 검증 클라이언트가 그만큼 기다렸다 다시 보내 잠금이 풀린 뒤의 200과 비교했다(검증이 15분 걸리고 실패) | `HttpTestTarget`에 다시 보내지 않는 클라이언트(`disableAutomaticRetries`)를 넘긴다 **[구현]** |
 | 만료 → 재발급 → 재시도를 한 상호작용으로 만들려 했다 | 상호작용 하나에는 요청 · 응답 한 쌍만 담을 수 있다 | 계약에서 빼고 단위 테스트로 검사한다 **[구현]** |
 
 ## 6. MR 전 Checklist

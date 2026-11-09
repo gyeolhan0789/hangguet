@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AnimatePresence, motion } from "motion/react";
-import { useState, useTransition } from "react";
+import { useLayoutEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 
 import { changeNickname } from "@/lib/user/actions";
@@ -38,6 +38,15 @@ export function NicknameRow({ nickname }: { nickname: string }) {
     form.clearErrors();
     setEditing(false);
   }
+  // 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 떠날 때 편집칸을 접는다(다시 열면 지금 닉네임으로 시작)
+  const { clearErrors } = form;
+  useLayoutEffect(
+    () => () => {
+      clearErrors();
+      setEditing(false);
+    },
+    [clearErrors],
+  );
 
   const submit = form.handleSubmit((values) =>
     startTransition(async () => {

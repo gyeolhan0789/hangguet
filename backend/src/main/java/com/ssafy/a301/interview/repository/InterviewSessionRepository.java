@@ -224,6 +224,22 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
             @Param("from") OffsetDateTime from,
             @Param("before") OffsetDateTime before);
 
+    /**
+     * 동시 진행 상한(BE 설계 5.2). :since 뒤에 시작한 진행 중인 화상 면접 수. 그룹 참가자의 면접은 그룹마다 하나로 센다(에이전트가 답변자 한 명만
+     * 인식한다, AI 명세 6.7).
+     */
+    @Query(
+            value =
+                    """
+                    select count(*) filter (where s.group_id is null) + count(distinct s.group_id)
+                    from interview_sessions s
+                    where s.status = 'IN_PROGRESS'
+                      and s.mode = 'VIDEO'
+                      and s.started_at >= :since
+                    """,
+            nativeQuery = true)
+    long countRunningVideo(@Param("since") OffsetDateTime since);
+
     /** 응답에 회사명·직무가 필요한 조회. 지원서를 함께 가져온다(BE 설계 3장). */
     @Query(
             "select s from InterviewSession s join fetch s.application"
@@ -242,4 +258,25 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from InterviewSession s where s.id = :id")
     Optional<InterviewSession> findByIdForUpdate(@Param("id") long id);
+
+    /**
+     * 시작한 지 before보다 오래됐는데 아직 질문 행이 없는 개인 면접(AI 명세 6.5 면접관 미입장 · 첫 질문 기한 초과 확인 대상). 최근에 시작한 면접부터
+     * 준다.
+     */
+    @Query(
+            """
+            select s from InterviewSession s
+             where s.status = com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS
+               and s.groupId is null
+               and s.startedAt <= :before
+               and not exists (select q.id from InterviewQuestion q where q.session = s)
+             order by s.startedAt desc
+            """)
+    List<InterviewSession> findAwaitingFirstQuestion(
+            @Param("before") OffsetDateTime before, Limit limit);
+
+    /** 그룹 면접 참가자들의 면접을 id 순서로 잠근다(잠금 순서: 그룹 → 면접, docs/그룹면접-설계.md 9장) */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from InterviewSession s where s.id in :ids order by s.id")
+    List<InterviewSession> findAllForUpdate(@Param("ids") Collection<Long> ids);
 }

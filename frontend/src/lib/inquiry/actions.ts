@@ -1,7 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
-import { redirect, unstable_rethrow } from "next/navigation";
+import { redirect, RedirectType, unstable_rethrow } from "next/navigation";
 
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
@@ -116,7 +116,8 @@ export async function createInquiry(
     unstable_rethrow(error);
     return withPhotoReason(error, toFormActionResult(error, INQUIRY_FIELDS));
   }
-  redirect(inquiryPath(data.id));
+  // 기록을 바꿔치기(replace)해, 뒤로 가기로 보낸 내용이 든 문의하기에 돌아가 같은 문의를 또 보내지 않게 한다(지원서 저장과 같음)
+  redirect(inquiryPath(data.id), RedirectType.replace);
 }
 
 export interface GuestInquiryCreated {

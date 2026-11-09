@@ -10,11 +10,13 @@ Soniox 시각은 연결마다 0부터 다시 시작하므로,
 토큰마다 더한다.
 화면 자막(AI 명세 6.3 interview.stt)은 확정 글과 최신 미확정 글을 함께 표시하므로 둘 다 제공한다.
 미확정 글은 다음 응답에서 변경될 수 있어 답변 글과 답변 토큰에는 포함하지 않는다.
+다만 연결이 끊기면 그 연결의 미확정 글은 더 변경되지 않으므로 확정 글로 남긴다(keep_interim).
+Soniox는 말한 뒤 몇 초가 지나야 확정하므로, 폐기하면 끊기기 직전에 말한 내용이 답변에서 누락된다.
 """
 
 import math
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.common.answer import SpeechToken
@@ -82,6 +84,10 @@ class Transcript:
 
     def __init__(self) -> None:
         self._finals: list[_FinalToken] = []
+        # 다시 연결한 뒤 첫 확정 토큰 앞에 공백을 추가해야 하는지
+        self._separate_next = False
+        # 마지막 응답의 미확정 토큰. 연결이 끊기면 확정 토큰으로 옮긴다
+        self._interim_tokens: list[_FinalToken] = []
         self._interim = ""
         self._has_interim = False
         self._offset_ms = 0.0
@@ -132,6 +138,9 @@ class Transcript:
             raise ValueError("offset_ms는 0 이상이어야 한다")
         self._offset_ms = offset_ms
         self._connection += 1
+        # 새 연결의 첫 토큰은 앞 연결의 마지막 말과 이어지지 않으므로 공백으로 구분한다
+        self._separate_next = bool(self._finals)
+        self._interim_tokens = []
         self._interim = ""
         self._has_interim = False
         self._speech_end_ms = None
@@ -141,27 +150,43 @@ class Transcript:
 
         확정 토큰은 답변에 연결하고, 미확정 토큰은 화면 자막용 글로만 보관한다.
         """
-        interim: list[str] = []
-        has_interim = False
+        interim: list[_FinalToken] = []
         for token in tokens:
             if token.text in SPECIAL_TOKENS:
                 continue
+            kept = _FinalToken(
+                token.text, token.start_ms, token.end_ms, self._offset_ms, self._connection
+            )
             if token.is_final:
-                self._finals.append(
-                    _FinalToken(
-                        token.text, token.start_ms, token.end_ms, self._offset_ms, self._connection
-                    )
-                )
+                self._finals.append(self._separated(kept))
             else:
-                interim.append(token.text)
-                has_interim = True
+                interim.append(kept)
             if token.text.strip() and token.end_ms is not None:
                 current = self._speech_end_ms
                 self._speech_end_ms = (
                     token.end_ms if current is None else max(current, token.end_ms)
                 )
-        self._interim = "".join(interim)
-        self._has_interim = has_interim
+        self._interim_tokens = interim
+        self._interim = "".join(token.text for token in interim)
+        self._has_interim = bool(interim)
+
+    def _separated(self, token: _FinalToken) -> _FinalToken:
+        if not self._separate_next or not token.text.strip():
+            return token
+        self._separate_next = False
+        if token.text[:1].isspace() or self.confirmed_text[-1:].isspace():
+            return token
+        return replace(token, text=f" {token.text}")
+
+    def keep_interim(self) -> None:
+        """연결이 끊겼을 때 그 연결의 미확정 토큰을 확정 토큰으로 옮긴다.
+
+        끊긴 연결은 더 응답하지 않으므로 미확정 글이 변경되지 않는다.
+        """
+        self._finals.extend(self._interim_tokens)
+        self._interim_tokens = []
+        self._interim = ""
+        self._has_interim = False
 
     def confirmed_since(self, start: int) -> str:
         """start번째 확정 토큰부터의 확정 글."""

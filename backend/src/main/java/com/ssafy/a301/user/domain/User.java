@@ -52,6 +52,10 @@ public class User {
     @Column(name = "deleted_at")
     private OffsetDateTime deletedAt;
 
+    // 마지막 비밀번호 변경 시각(2.3 · 9.10). 이보다 먼저 발급한 액세스 토큰은 받지 않는다. 바꾼 적 없으면 null
+    @Column(name = "password_changed_at")
+    private OffsetDateTime passwordChangedAt;
+
     public User(String email, String passwordHash, String nickname) {
         this.email = normalizeEmail(email);
         this.passwordHash = passwordHash;
@@ -72,8 +76,9 @@ public class User {
         this.nickname = nickname;
     }
 
-    public void changePasswordHash(String passwordHash) {
+    public void changePassword(String passwordHash, OffsetDateTime changedAt) {
         this.passwordHash = passwordHash;
+        this.passwordChangedAt = changedAt;
     }
 
     public void changeProfileImage(String profileImageKey) {

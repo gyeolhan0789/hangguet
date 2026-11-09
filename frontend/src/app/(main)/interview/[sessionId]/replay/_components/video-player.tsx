@@ -1,9 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useEffectEvent, type RefObject } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useState, type RefObject } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
+import { Spinner } from "@/components/spinner";
 import { formatElapsed } from "@/lib/interview/questions";
 import { NO_ANSWER } from "@/lib/result/format";
 import type { ReplayItem } from "@/types/api";
@@ -18,6 +19,9 @@ import type { ReplayItem } from "@/types/api";
 // · 웹 Swagger 6.4(화상은 녹화 영상과 질문별 시점) · 재생 중 자막은 재생 위치가 속한 질문의 answer · ReplayResponse.videoUrl
 // · 사용자 결정(2026-10-22: 내 화면(PiP)은 녹화 영상에 합쳐져 있다고 보고 따로 그리지 않는다, 배속 1x → 1.5x → 2x → 1x,
 //   자막은 단어 하이라이트 없이 답변 단위)
+// · Next.js 16 Preserving UI State(다른 화면으로 가면 이 화면을 없애지 않고 숨기는데, 숨겨도 <video>는 계속 재생되므로 직접 멈춘다)
+// · 사용자 결정(2026-11-05: 받는 중이라 재생이 멈췄으면(버퍼링) 멈춘 것과 구분되게 영상 가운데에 로딩을 보인다. Figma에 없어
+//   같은 화면 녹화 처리 중 안내(video-pending)의 스피너를 쓰고, 잠깐 끊기는 정도에는 깜빡이지 않게 조금 늦게 보인다)
 
 /** 배속 칩을 누를 때마다 바뀌는 순서 */
 export const PLAYBACK_RATES = [1, 1.5, 2] as const;
@@ -60,6 +64,16 @@ export function VideoScreen({
   });
   useEffect(() => readLoaded(), []);
 
+  // 재생하려는데 데이터를 기다리는 중(waiting)이면 true. 다시 재생되거나 멈추거나 옮긴 위치를 받으면 false
+  const [buffering, setBuffering] = useState(false);
+  const settle = () => setBuffering(false);
+
+  // 다른 화면으로 가 이 화면이 숨겨지면 영상을 멈춘다(돌아오면 멈춘 위치에 그대로 있다).
+  useLayoutEffect(() => {
+    const element = video.current;
+    return () => element?.pause();
+  }, [video]);
+
   return (
     <div className="relative aspect-[860/452] w-full overflow-hidden rounded-[20px] bg-night">
       <video
@@ -73,10 +87,31 @@ export function VideoScreen({
         onLoadedMetadata={(event) => onDuration(event.currentTarget.duration)}
         onDurationChange={(event) => onDuration(event.currentTarget.duration)}
         onPlay={() => onPlaying(true)}
-        onPause={() => onPlaying(false)}
+        onPause={() => {
+          settle();
+          onPlaying(false);
+        }}
+        onWaiting={() => setBuffering(true)}
+        onPlaying={settle}
+        onCanPlay={settle}
+        onSeeked={settle}
         onRateChange={(event) => onRate(event.currentTarget.playbackRate)}
       />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[33.6%] bg-gradient-to-b from-[rgba(11,13,20,0)] to-[rgba(11,13,20,0.8)]" />
+      <AnimatePresence>
+        {buffering && (
+          <motion.div
+            role="status"
+            aria-label="영상을 불러오는 중"
+            className="pointer-events-none absolute inset-0 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { delay: 0.3, duration: reduce ? 0 : 0.2 } }}
+            exit={{ opacity: 0, transition: { duration: reduce ? 0 : 0.15 } }}
+          >
+            <Spinner size={28} className="bg-white/70" />
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {item && (
           <motion.p

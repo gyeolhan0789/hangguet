@@ -12,11 +12,13 @@ LiveKit에 등록하고 배정받은 면접방에서 질문 5개를 진행한다
 | `LIVEKIT_API_KEY` | 해당 서버 API 키 |
 | `LIVEKIT_API_SECRET` | 해당 서버 API 시크릿 |
 | `LIVEKIT_AGENT_NAME` | 선택. 기본 `a301-interviewer` |
+| `AGENT_IDLE_PROCESSES` | 선택. 미리 실행해 두는 프로세스 수(0 이상의 정수). 없으면 라이브러리 기본값(운영 모드는 CPU 수, `dev`는 0) |
 | `SONIOX_API_KEY` | Soniox API 키. 없으면 에이전트 실행 실패 |
 | `SONIOX_STT_MODEL` | 선택. 기본 `stt-rt-v5` |
 | `ELEVENLABS_API_KEY` | 질문 음성 합성 키. 없으면 질문 음성 없이 `question`에 `failed`를 보낸다 |
 | `JEV_API_KEY` | 리액션·인상 판단(Jev) 키. 없으면 리액션·인상 판단 없이 진행한다 |
 | `REDIS_HOST`·`REDIS_PORT` | `question.started`·`answer.completed`를 전송할 결과 큐(BE와 같은 Redis). 기본 `localhost:6379` |
+| `REDIS_PASSWORD` | 선택. Redis `requirepass` 비밀번호. 없으면 비밀번호 없이 연결한다 |
 | `LLM_CHAT_URL`·`LLM_MODEL` | 꼬리질문을 생성할 GMS 주소와 모델 ID(분석 작업자와 같은 값). 하나라도 없거나 등록되지 않은 모델이면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
 | `LLM_API_KEY` | GMS 키. 없으면 꼬리질문을 생성하지 않고 예비 질문으로 진행한다 |
 
@@ -26,6 +28,8 @@ uv run python -m app.agent.main dev
 ```
 
 배포 시에는 같은 명령의 `dev`를 `start`로 바꾼다. FastAPI와 별도 프로세스로 실행한다.
+
+미리 실행해 두는 프로세스 수를 0으로 두면 빈 서버에서 동시에 시작한 두 번째 면접의 배정을 거절한다(이유는 `main.py` 주석).
 
 등록만 하면 방에 자동 입장하지 않는다. LiveKit의 명시적 배정 기능으로 위 에이전트 이름과 방 이름을 지정해야 한다. 배정 후 `LiveKit 방 참가 완료` 로그를 확인한다. 방을 닫으면 연결이 정리된다.
 
@@ -45,7 +49,11 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - 인식 결과는 AI 명세 6.3의 `interview.stt` 형식으로 지원자에게만 전송한다.
 - 전송 대기 결과는 최신 하나로 합쳐 느린 수신자가 Soniox 수신을 막지 않게 한다. 종료할 때 마지막 결과 전송을 제한 시간 동안 기다리고 전송 태스크를 정리한다.
 - 답변마다 Soniox 연결을 새로 연다. Soniox 시각은 연결마다 0부터 시작하므로 토큰 시각이 `answerStartedAt`(AI 명세 6.2) 기준이 된다.
-- 지원자 퇴장·재입장과 STT 오류의 처리 규칙은 AI 명세 6.5에 있다. 시험 방에서는 마지막 확정 응답을 기다린 뒤 캡처를 정리하고 새 `streamId`로 다시 시작한다. 방 종료·작업 종료 시에는 대기도 정리한다. STT 자동 재연결은 아직 구현하지 않았다.
+- 지원자 퇴장·재입장과 STT 오류의 처리 규칙은 AI 명세 6.5에 있다. 시험 방에서는 마지막 확정 응답을 기다린 뒤 캡처를 정리하고 새 `streamId`로 다시 시작한다. 방 종료·작업 종료 시에는 대기도 정리한다.
+- Soniox 연결이 실패하거나 끊기거나, 음성을 전송했는데 5초 동안 응답이 없으면 다시 연결한다(최대 3회, AI 명세 6.5). 다시 연결하는 동안의 음성은 전송하지 않고, 인식하지 못한 구간은 `answer.completed`의 `sttGaps`로 전달한다. 다시 연결하지 못하면 그때까지 인식된 글을 `STT_FAILED`로 제출하고(글이 없으면 전송하지 않음) 다음 질문으로 진행한다.
+- `Soniox STT 다시 연결 n/3: 이유, 마지막 응답 뒤 n초`·`Soniox STT 다시 연결 완료` 로그로 재연결을, `답변 음성 인식 실패` 로그의 호출 경로로 실패 원인을 확인한다.
+- 재연결 로그의 `reason` 필드는 끊긴 원인이다: `connect_failed`(연결 실패), `no_response`(음성을 전송했는데 응답 없음), `soniox_error`(Soniox 오류 응답, `detail`에 오류 코드), `closed`(종료 응답 없이 연결이 닫힘), `receive_failed`·`send_failed`·`keepalive_failed`(수신·전송·연결 유지 오류), `finished_early`(음성을 다 전송하기 전에 종료 응답).
+- 답변이 끝나면 `Soniox STT 답변 종료: 결과` 로그를 한 줄 남긴다. `result`는 `completed`·`reconnect_failed`·`audio_failed`(지원자 음성 읽기 실패)·`failed`·`cancelled`이고, `audio_ms`(읽은 음성)·`sent_ms`(전송한 음성)·`responses`(수신한 응답 수)·`final_tokens`·`first_audio_ms`·`first_response_ms`·`reconnects`·`gap_ms`·`failures`(끊긴 원인 순서)를 함께 남긴다. 인식 결과가 비었으면 `audio_ms`가 0인지(음성 미도착), `responses`가 0인지(Soniox 무응답), `final_tokens`가 0인지(빈 응답)로 원인을 구분한다.
 - `Soniox STT 연결 완료`·`STT 확정 토큰 수신` 로그로 연결·결과 수신을 구분한다. 답변 원문과 키는 로그에 남기지 않는다. 실제 인식 확인은 테스트 음성을 입력하고 수집된 `text`·`transcript`를 검사해야 한다.
 
 ## 질문 음성(TTS)
@@ -53,12 +61,13 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - 에이전트 참가자 이름은 AI 명세 6.1의 `interviewer`다.
 - BE 배정 정보(`ctx.job.metadata`)의 `currentSeq` 질문과 다음 질문을, 앞 질문의 합성이 끝난 뒤 하나씩 `POST /v1/text-to-speech/{voice_id}/with-timestamps`(`output_format=pcm_24000`)로 미리 합성한다. 배정 정보가 없으면(`connect --room` 테스트) 질문하지 않는다. 배정 정보 형식이 틀리면 방에 들어가지 않고 배정을 거절하며, BE가 면접을 시작 실패로 처리하도록 `assignment.rejected`(`INVALID_ASSIGNMENT`)를 전송한다(AI 명세 6.5).
 - 질문 시작(`question.started`)과 화면 메시지(`interview.question`)는 AI 명세 6.2·6.3대로 전송한다. `question.started`는 음성 송출을 시작하는 시점(음성이 없으면 `failed`를 전송하기 직전)에 질문마다 한 번 별도 작업으로 전송하고, 음성은 마이크 트랙(`interviewer-voice`)으로 송출한다.
+- 오리 면접관은 답변을 전달하고 효과음 길이(1초)만큼 기다린 뒤 칭찬 한 문장을 같은 트랙으로 송출하고 다음 질문으로 진행한다(AI 명세 6.2). 칭찬 음성은 `duck_praise/`에 미리 합성해 둔 PCM(오리 면접관 음성 id, `eleven_multilingual_v2`, `pcm_24000`)이며, 문장(`app/interview/realtime/praise.py`)을 변경하면 같은 설정으로 다시 합성해 교체한다. 선택한 칭찬은 `칭찬 praise=` 로그로 확인한다.
 - 질문 시작(`question.started`) 전송이 재시도 후에도 실패해도 질문은 그대로 진행하고, 전송에 성공하거나 면접이 끝날 때까지 4초 간격으로 다시 전송한다. 화상 답변은 그 질문의 `question.started`를 전송한 뒤에만 `answer.completed`로 전달하고, 전송하지 못했으면 `submitFailed`를 알린다(AI 명세 6.5).
 
 ## 꼬리질문
 
 - 출제 순서·입력·생성 지침·예비 질문·버전 규칙은 AI 명세 2.2를 따른다. 면접관별 지침은 질문 생성과 같은 `app/interview/interviewer.py`를, 생성 요청과 출력 검증은 `app/interview/realtime/followup.py`를 사용한다.
-- 생성은 답변 전달을 막지 않는다. 다음 질문 음성 준비가 생성 결과를 기다리므로 답변 전달과 오리 면접관의 효과음 1초 대기는 생성 시간과 겹쳐 계산된다. 생성한 질문은 앞 질문의 음성 합성이 끝난 뒤 합성한다(ElevenLabs 동시 요청을 하나로 유지).
+- 생성은 답변 전달을 막지 않는다. 다음 질문 음성 준비가 생성 결과를 기다리므로 답변 전달과 오리 면접관의 효과음 1초 대기·칭찬은 생성 시간과 겹쳐 계산된다. 생성한 질문은 앞 질문의 음성 합성이 끝난 뒤 합성한다(ElevenLabs 동시 요청을 하나로 유지).
 - 대기 상한은 `FOLLOWUP_TIMEOUT`에 두고, GMS 요청도 재시도 없이 같은 시간 제한으로 전송한다.
 - `currentSeq`로 이어 시작해 직전 답변이 없으면 예비 질문을 출제한다.
 - 요청에 답변이 담기므로 질문 글과 답변은 로그에 남기지 않는다. `꼬리질문 생성 완료 ms=…`와 실패 경고 로그로 소요 시간과 대체 여부를 확인한다.

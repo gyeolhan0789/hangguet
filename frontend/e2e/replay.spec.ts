@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Page } from "@playwright/test";
 
 import { PROBLEM, REPLAY, RESULT, SESSION_INTERVIEW } from "./mocks/data";
-import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
+import { api, expect, http, HttpResponse, hydrated, problemResponse, test } from "./test";
 
 // S07-1 면접 다시보기
 // 근거: Figma S07-1(18:4478) · 기획 메모 S07-1(18:3638: 질문 목록 클릭 → 영상이 해당 질문 시점으로 점프, 재생 중인 질문 강조
@@ -89,6 +89,44 @@ test.describe("S07-1 면접 다시보기", () => {
 
     await expect(page.getByRole("heading", { name: "질문" })).toBeVisible();
     await expect(questions.getByRole("button")).toHaveCount(5);
+  });
+  // 사용자 결정(2026-11-05: S07 [자세히 보기](q = 질문 순서)로 들어오면 그 질문을 펼치고 영상도 그 시점에서 시작한다)
+  test("화상: 주소에 질문(q)이 있으면 그 질문을 펼치고 영상도 그 질문 시점에서 시작한다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(`${S07_1}?q=3`);
+
+    await expect(page.getByText("06:08 / 18:00")).toBeVisible();
+    await expect(page.getByLabel("녹화 영상")).toHaveJSProperty("currentTime", 368.88);
+    await expect(card(page, "가장 큰 기술적 문제는")).toHaveAttribute("aria-expanded", "true");
+  });
+  // 사용자 결정(2026-11-05): 받는 중이라 멈췄으면(버퍼링) 멈춘 것과 구분되게 영상 가운데에 로딩을 보인다.
+  // 영상이 오지 않게 붙잡아 두면 [재생]을 눌러도 브라우저는 데이터를 기다린다(waiting).
+  test("화상: 재생하려는데 영상을 받는 중이면 로딩을 보이고, [일시정지]는 그대로다", async ({
+    page,
+    msw,
+  }) => {
+    await page.route(VIDEO_URL, () => {});
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    const play = page.getByRole("button", { name: "재생", exact: true });
+    await hydrated(play);
+
+    await play.click();
+
+    await expect(page.getByRole("status", { name: "영상을 불러오는 중" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "일시정지" })).toBeVisible();
   });
   test("화상: [재생]으로 재생하고 [일시정지]로 멈추며, 배속 칩은 1x → 1.5x로 바꾼다", async ({
     page,
@@ -304,6 +342,40 @@ test.describe("S07-1 면접 다시보기", () => {
       .getByLabel("녹화 영상")
       .evaluate((video: HTMLVideoElement) => video.currentTime);
     expect(Math.abs(time - 623.25)).toBeLessThan(2);
+  });
+
+  // Next.js는 다른 화면으로 가도 이 화면을 없애지 않고 숨긴다(Preserving UI State). 숨겨도 영상은 저절로 멈추지 않는다.
+  test("화상: 재생 중에 헤더 [홈]으로 가면 숨겨진 다시보기 영상이 멈추고, 뒤로 돌아오면 멈춘 위치에 그대로 있다", async ({
+    page,
+    msw,
+  }) => {
+    await serveVideo(page);
+    msw.use(
+      http.get(api("/interview-sessions/:sessionId/replay"), () =>
+        HttpResponse.json({ ...REPLAY, videoUrl: VIDEO_URL }),
+      ),
+    );
+    await page.goto(S07_1);
+    await expect(page.getByText("00:00 / 18:00")).toBeVisible();
+    await page.getByRole("button", { name: "재생", exact: true }).click();
+    const video = page.locator('video[aria-label="녹화 영상"]');
+    await expect(video).toHaveJSProperty("paused", false);
+
+    await page.getByRole("banner").getByRole("link", { name: "홈", exact: true }).click();
+
+    await expect(page).toHaveURL("/home");
+    // 숨겨진 채 남아 있는 영상이 멈춰 있다.
+    await expect(video).toBeHidden();
+    await expect(video).toHaveJSProperty("paused", true);
+    const stoppedAt = await video.evaluate((element: HTMLVideoElement) => element.currentTime);
+    expect(stoppedAt).toBeGreaterThan(0);
+
+    await page.goBack();
+
+    await expect(page).toHaveURL(S07_1);
+    await expect(video).toBeVisible();
+    await expect(video).toHaveJSProperty("currentTime", stoppedAt);
+    await expect(video).toHaveJSProperty("paused", true);
   });
 
   test("'‹ 결과로'를 누르면 S07 피드백 결과로 돌아간다", async ({ page, msw }) => {

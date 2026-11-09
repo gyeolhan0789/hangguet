@@ -389,3 +389,63 @@ def test_interrupt_is_handed_to_runner_for_notice_voice() -> None:
 
     run(scenario)
     assert interrupts == ["TOO_LONG"]
+
+
+# 기준: AI 명세 6.2 호응(칭찬은 그 답변에서 Jev가 판단한 마지막 결과로 선택한다)
+def test_last_judgment_keeps_latest_judged_result_until_next_answer() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream.start(1, "candidate")
+        h.stream.submit("첫째.", 0.0, "첫째.")
+        await h.settle()
+        h.judge.finish(0, Judgment(SMILE, Attitude(0.8, 0.6)))
+        await h.settle()
+        h.stream.submit("둘째.", 0.0, "첫째. 둘째.")
+        await h.settle()
+        h.judge.finish(1, Judgment(None, Attitude(0.8, 0.6), judged=False))
+        await h.settle()
+        await h.stream.stop()
+        assert h.stream.last_judgment == Judgment(SMILE, Attitude(0.8, 0.6))
+        h.stream.start(2, "candidate")
+        assert h.stream.last_judgment is None
+
+    run(scenario)
+
+
+def test_too_long_interrupt_is_not_a_judgment_for_praise() -> None:
+    async def scenario(h: Harness) -> None:
+        h.stream = video_stream(h, Persona.DUCK)
+        h.stream.start(1, "candidate")
+        h.stream.speaking(LONG_TOKENS)
+        await h.settle()
+        assert h.stream.last_judgment is None
+
+    run(scenario)
+
+
+def test_chat_last_judgment_ignores_older_input_result() -> None:
+    async def main() -> Harness:
+        h = Harness()
+        h.stream = ReactionStream(
+            55,
+            h.judge,
+            h.send,
+            question=lambda seq: "질문",
+            criteria=lambda seq: "기준",
+            latest_only=True,
+        )
+        h.stream.start(1, "candidate")
+        h.stream.submit("지운 글", 0.0, "지운 글")
+        await h.settle()
+        h.judge.finish(0, Judgment(SMILE, Attitude(0.9, 0.9)))
+        await h.settle()
+        h.stream.submit("고친 글", 0.0, "고친 글")
+        h.stream.submit("다시 고친 글", 0.0, "다시 고친 글")
+        await h.settle()
+        h.judge.finish(1, Judgment(None, Attitude(0.1, 0.1)))
+        await h.settle()
+        await h.stream.stop()
+        return h
+
+    h = asyncio.run(main())
+    # 마지막 입력의 판단이 끝나기 전에 답변이 끝났으므로 앞서 적용한 판단이 남는다
+    assert h.stream.last_judgment == Judgment(SMILE, Attitude(0.9, 0.9))

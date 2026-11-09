@@ -83,7 +83,7 @@ class JevJudge:
             JEV_REQUESTS.labels(result="ok").inc()
             log.info("Jev 판단 완료 ms=%d", elapsed_ms(started, self._timer()))
             return judgment
-        return Judgment(None, context.attitude)
+        return Judgment(None, context.attitude, judged=False)
 
     async def aclose(self) -> None:
         if self._session is not None:

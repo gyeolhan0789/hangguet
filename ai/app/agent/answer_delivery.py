@@ -62,6 +62,7 @@ class AnswerDelivery:
                 finished.end_reason,
                 trailing_off_at_ms=trailing,
                 impressions=impressions,
+                stt_gaps=answer.stt_gaps,
             )
         except ProgressMessageError as e:
             log.error(

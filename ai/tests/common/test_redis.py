@@ -1,4 +1,7 @@
+from collections.abc import Callable
+
 import pytest
+from redis import Redis
 from redis.connection import Connection
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -8,7 +11,7 @@ from app.common.redis import (
     create_publisher_redis,
     create_redis,
 )
-from app.common.settings import load_settings
+from app.common.settings import Settings, load_settings
 
 
 def test_redis_client_uses_settings() -> None:
@@ -28,6 +31,22 @@ def test_publisher_client_uses_settings_and_short_timeouts() -> None:
     assert kwargs["decode_responses"] is True
     assert kwargs["socket_timeout"] == PUBLISH_TIMEOUT_SECONDS
     assert kwargs["socket_connect_timeout"] == PUBLISH_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize("create", [create_redis, create_publisher_redis])
+def test_clients_use_password_when_set(create: Callable[[Settings], Redis]) -> None:
+    """Redis에 requirepass를 켜면(오토스케일링 계획 5.2) 비밀번호로 붙는다."""
+    client = create(load_settings({"REDIS_HOST": "redis", "REDIS_PASSWORD": "redis-password"}))
+
+    assert client.connection_pool.connection_kwargs["password"] == "redis-password"
+
+
+@pytest.mark.parametrize("create", [create_redis, create_publisher_redis])
+def test_clients_connect_without_password_when_unset(create: Callable[[Settings], Redis]) -> None:
+    """비밀번호가 없거나 compose에서 빈 값이면 지금처럼 비밀번호 없이 연결한다."""
+    client = create(load_settings({"REDIS_HOST": "redis", "REDIS_PASSWORD": ""}))
+
+    assert client.connection_pool.connection_kwargs.get("password") is None
 
 
 def test_publisher_client_tries_to_connect_only_once(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -9,7 +9,11 @@
 - 비공백 토큰 끝 시각의 최댓값이 증가한 응답을 수신하면 on_speech를 호출한다.
   답변 끝 판단이 이 시점을 발화로 보고 7초를 계산한다(app.interview.realtime.answer_end).
 - STT 오류가 발생해도 그때까지 인식된 글은 snapshot으로 제공한다.
-  STT 오류 뒤 발화가 있었으면 [답변 완료]로 그 글을 제출하기 때문이다(AI 명세 6.5).
+  STT에 다시 연결하지 못해도 발화가 있었으면 그 글을 제출하기 때문이다(AI 명세 6.5).
+- STT에 다시 연결하면 발화 판단 기준(토큰 끝 시각의 최댓값)을 초기화한다.
+  새 연결의 Soniox 시각은 0부터 다시 시작하므로,
+  이전 연결의 최댓값과 비교하면 발화를 감지하지 못한다.
+- 인식하지 못한 구간(sttGaps)을 답변 결과에 담는다(AI 명세 6.2).
 - 끝 감지(<end>)를 수신할 때 문장 끝이면 on_sentence에 문장과 지금까지의 답변 글을 전달한다.
   면접관 리액션은 문장이 끝날 때마다 판단하기 때문이다(AI 명세 6.2 3번).
 """
@@ -20,8 +24,8 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.agent.stt import SonioxSTT
-from app.common.answer import SpeechToken
+from app.agent.stt import SonioxSTT, SttState
+from app.common.answer import SpeechToken, SttGap
 from app.common.results import KST
 from app.interview.realtime.impression import TimedImpression
 from app.interview.realtime.sentence import Sentence, SentenceTracker
@@ -45,9 +49,11 @@ class CapturedAnswer:
     pcm: bytes
     # 답변을 듣는 동안 받은 인상 판단(AI 명세 6.6). 판단하지 않았으면 비어 있다
     impressions: tuple[TimedImpression, ...] = ()
+    # STT가 끊겨 인식하지 못한 구간(AI 명세 6.2 sttGaps). 끊긴 적이 없으면 비어 있다
+    stt_gaps: tuple[SttGap, ...] = ()
 
 
-SttFactory = Callable[[Callable[[str, str], None]], SonioxSTT]
+SttFactory = Callable[[Callable[[str, str], None], Callable[[SttState], None]], SonioxSTT]
 
 
 class AnswerCapture:
@@ -58,16 +64,18 @@ class AnswerCapture:
         on_speech: Callable[[], None],
         on_update: Callable[[str, str], None] | None = None,
         on_sentence: Callable[[Sentence, str], None] | None = None,
+        on_stt_state: Callable[[SttState], None] | None = None,
         clock: Callable[[], datetime] = _now,
     ) -> None:
         self._on_speech = on_speech
         self._on_update = on_update
         self._on_sentence = on_sentence
+        self._on_stt_state = on_stt_state
         self._clock = clock
         self._speech_end_ms: float | None = None
         self._pcm = bytearray()
         self._started_at: datetime | None = None
-        self._stt = stt_factory(self._updated)
+        self._stt = stt_factory(self._updated, self._stt_state)
         self._sentences = SentenceTracker(self._stt.transcript)
 
     async def run(self, audio: AsyncIterable[bytes]) -> CapturedAnswer:
@@ -92,6 +100,7 @@ class AnswerCapture:
             content=transcript.content(),
             tokens=transcript.answer_tokens() or None,
             pcm=bytes(self._pcm),
+            stt_gaps=self._stt.gaps,
         )
 
     def answer_tokens(self) -> tuple[SpeechToken, ...] | None:
@@ -105,6 +114,12 @@ class AnswerCapture:
         async for chunk in audio:
             self._pcm.extend(chunk)
             yield chunk
+
+    def _stt_state(self, state: SttState) -> None:
+        if state is SttState.RECONNECTED:
+            self._speech_end_ms = None
+        if self._on_stt_state is not None:
+            self._on_stt_state(state)
 
     def _updated(self, confirmed: str, interim: str) -> None:
         if self._on_update is not None:

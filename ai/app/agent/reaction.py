@@ -171,10 +171,22 @@ class ReactionStream:
         self._listening: int | None = None
         self._generation = 0
         self._tasks: set[asyncio.Task[None]] = set()
+        # 지금 답변에서 Jev가 판단한 마지막 결과.
+        # 오리 면접관이 답변 뒤 칭찬을 선택할 때 사용한다
+        self._last_judgment: Judgment | None = None
 
     @property
     def listening(self) -> bool:
         return self._listening is not None
+
+    @property
+    def last_judgment(self) -> Judgment | None:
+        """지금 답변에서 Jev가 판단한 마지막 결과를 반환한다.
+
+        판단한 적이 없으면 None이다.
+        답변이 끝난 뒤에도 다음 답변을 듣기 시작할 때까지 유지한다.
+        """
+        return self._last_judgment
 
     def start(self, question_seq: int, destination: str) -> None:
         """답변을 듣기 시작할 때(채팅은 질문을 말하기 시작할 때) 호출한다."""
@@ -186,6 +198,7 @@ class ReactionStream:
         # 재입장하면 답변을 처음부터 다시 들으므로 발화 중단도 새 답변 기준으로 판단한다
         self._issued.clear()
         self._speaking = None
+        self._last_judgment = None
         self._generation += 1
         self._listening = self._generation
 
@@ -243,6 +256,8 @@ class ReactionStream:
             return
         if self._latest_only and seq != self._seq:
             return
+        if judgment.judged:
+            self._last_judgment = judgment
         await self._emit(seq, judgment, self._interrupt(judgment.off_topic))
 
     def _interrupt(self, off_topic: float | None) -> Interrupt | None:

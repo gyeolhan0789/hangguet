@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -71,8 +71,23 @@ describe("면접관별 3D 모델 · 배경", () => {
 
   it("커피챗 면접관의 모델 · 정지 그림 · 배경 그림 파일이 public에 있다", () => {
     const look = interviewerLook("COFFEE_CHAT")!;
-    for (const file of [...Object.values(look.model), look.still, look.background]) {
+    for (const file of [
+      look.model.glb,
+      look.model.faceRules,
+      look.model.animation,
+      look.still,
+      look.background,
+    ]) {
       expect(existsSync(join(process.cwd(), "public", file!)), file).toBe(true);
     }
   });
+
+  // 받은 비율을 이 크기로 센다(gzip 응답은 전체 크기를 알려 주지 않는다). 모델 파일을 바꾸면 크기도 같이 바꿔야 한다.
+  it.each(["DEVIL", "COFFEE_CHAT", "DUCK"] as const)(
+    "%s 모델의 원본 크기(glbBytes)가 public의 실제 파일 크기와 같다",
+    (persona) => {
+      const { model } = interviewerLook(persona)!;
+      expect(model.glbBytes).toBe(statSync(join(process.cwd(), "public", model.glb)).size);
+    },
+  );
 });

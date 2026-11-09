@@ -22,6 +22,7 @@ import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AiJobRepository;
 import com.ssafy.a301.interview.repository.AnswerRepository;
@@ -29,6 +30,7 @@ import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
+import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted;
 import com.ssafy.a301.user.domain.User;
 import jakarta.persistence.EntityManager;
 import java.time.OffsetDateTime;
@@ -42,12 +44,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.event.ApplicationEvents;
+import org.springframework.test.context.event.RecordApplicationEvents;
 import org.springframework.transaction.annotation.Transactional;
 
 /** 실제 PostgreSQL로 결과 메시지 종류별 저장과 버림 조건(상태·중복)을 확인한다. Redis 진행 상태는 메모리 저장소다. */
 @SpringBootTest
 @Transactional
 @Import(InMemorySessionRuntimeStore.Config.class)
+@RecordApplicationEvents
 class AiResultServiceTest {
     private static final OffsetDateTime STARTED_AT =
             OffsetDateTime.parse("2026-10-15T12:01:00+09:00");
@@ -61,6 +66,7 @@ class AiResultServiceTest {
     @Autowired private EntityManager em;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private InterviewRoom rooms;
+    @Autowired private ApplicationEvents events;
 
     @BeforeEach
     void setUp() {
@@ -152,6 +158,41 @@ class AiResultServiceTest {
         assertThat(results.handle(questionStarted(session, 2))).isEqualTo(Outcome.DISCARDED);
     }
 
+    // 기준: BE 파트 요청 2(첫 question.started 때 트랙 녹화가 모두 시작됐는지 확인)
+    @Test
+    void firstVideoQuestionSchedulesTrackRecordingCheckOnce() {
+        InterviewSession video = startedSession(InterviewMode.VIDEO);
+
+        assertThat(results.handle(questionStarted(video, 1))).isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(questionStarted(video, 2))).isEqualTo(Outcome.SAVED);
+        // 같은 첫 질문이 다시 오면 버리고 다시 확인하지 않는다
+        assertThat(results.handle(questionStarted(video, 1))).isEqualTo(Outcome.DISCARDED);
+
+        assertThat(events.stream(FirstQuestionStarted.class))
+                .containsExactly(new FirstQuestionStarted(video.getId()));
+    }
+
+    @Test
+    void chatQuestionDoesNotCheckTrackRecording() {
+        InterviewSession chat = startedSession(InterviewMode.CHAT);
+
+        assertThat(results.handle(questionStarted(chat, 1))).isEqualTo(Outcome.SAVED);
+
+        assertThat(events.stream(FirstQuestionStarted.class)).isEmpty();
+    }
+
+    // 기준: AI 명세 1.4 · 6.5(시작 실패 뒤 다시 시작하면 이전 시도의 질문이 늦게 올 수 있다)
+    @Test
+    void questionStartedFromAttemptBeforeRestartIsDiscarded() {
+        InterviewSession session = newSession(InterviewMode.VIDEO);
+        savePlan(session);
+        session.start(STARTED_AT.plusSeconds(1));
+        em.flush();
+
+        assertThat(results.handle(questionStarted(session, 1))).isEqualTo(Outcome.DISCARDED);
+        assertThat(questions.findBySessionIdAndSeq(session.getId(), 1)).isEmpty();
+    }
+
     // 기준: AI 명세 1.4·2.2, BE 설계 5.4(질문 행은 플랜이 아니라 실제로 출제한 질문의 글·채점 기준·버전으로 만든다)
     @Test
     void questionStartedSavesFollowUpQuestionAsAsked() {
@@ -218,6 +259,7 @@ class AiResultServiceTest {
         assertThat(answer.getContent()).isEqualTo("조회 쿼리를");
         assertThat(answer.getTokens()).hasSize(1);
         assertThat(answer.getSpeech()).isEqualTo(new AnswerSpeech(12.5, null));
+        assertThat(answer.getSttGaps()).isNull();
         assertThat(answer.getStartedAt())
                 .isEqualTo(OffsetDateTime.parse("2026-10-15T12:01:05.250+09:00"));
         assertThat(jobs.findAll())
@@ -274,6 +316,46 @@ class AiResultServiceTest {
                     // 시각만 틀린 경우는 인상이 남고, 인상이 틀린 경우는 인상만 버린다
                     assertThat(speech.impressions() != null).as(timeline).isEqualTo(!kept);
                 });
+    }
+
+    @Test
+    void sttGapsAreSavedWithAnswer() {
+        InterviewSession session = startedSession(InterviewMode.VIDEO);
+        results.handle(questionStarted(session, 1));
+
+        assertThat(
+                        results.handle(
+                                answerCompletedWithSttGaps(
+                                        session,
+                                        "[{\"startMs\":21400,\"endMs\":23950},"
+                                                + "{\"startMs\":30000,\"endMs\":30000}]")))
+                .isEqualTo(Outcome.SAVED);
+
+        assertThat(answers.findWithQuestionBySessionId(session.getId()).getFirst().getSttGaps())
+                .containsExactly(new SttGap(21400, 23950), new SttGap(30000, 30000));
+    }
+
+    @Test
+    void invalidSttGapsAreDroppedButAnswerIsSaved() {
+        // 끊긴 구간이 틀려도 답변은 남긴다. 채점은 끊긴 구간 없이 한다(AI 명세 6.2)
+        for (String gaps :
+                List.of(
+                        "[{\"startMs\":-1,\"endMs\":100}]",
+                        "[{\"startMs\":500,\"endMs\":100}]",
+                        "[{\"startMs\":3000,\"endMs\":4000},{\"startMs\":1000,\"endMs\":2000}]",
+                        "[null]",
+                        "[]")) {
+            InterviewSession session = startedSession(InterviewMode.VIDEO);
+            results.handle(questionStarted(session, 1));
+
+            assertThat(results.handle(answerCompletedWithSttGaps(session, gaps)))
+                    .as(gaps)
+                    .isEqualTo(Outcome.SAVED);
+
+            Answer answer = answers.findWithQuestionBySessionId(session.getId()).getFirst();
+            assertThat(answer.getContent()).isEqualTo("답");
+            assertThat(answer.getSttGaps()).as(gaps).isNull();
+        }
     }
 
     @Test
@@ -337,7 +419,7 @@ class AiResultServiceTest {
         assertThat(
                         results.handle(
                                 assignmentRejected(
-                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                                        session, "INVALID_ASSIGNMENT", afterStart(session))))
                 .isEqualTo(Outcome.SAVED);
         assertThat(session.getStatus()).isEqualTo(SessionStatus.START_FAILED);
         verify(rooms).close(session.getId());
@@ -346,7 +428,7 @@ class AiResultServiceTest {
         assertThat(
                         results.handle(
                                 assignmentRejected(
-                                        session, "CAPACITY_EXCEEDED", afterStart(session))))
+                                        session, "INVALID_ASSIGNMENT", afterStart(session))))
                 .isEqualTo(Outcome.DISCARDED);
     }
 
@@ -365,13 +447,13 @@ class AiResultServiceTest {
         InterviewSession restarted = startedSession(InterviewMode.CHAT);
         String late =
                 assignmentRejected(
-                        restarted, "CAPACITY_EXCEEDED", restarted.getStartedAt().minusSeconds(1));
+                        restarted, "INVALID_ASSIGNMENT", restarted.getStartedAt().minusSeconds(1));
         assertThat(results.handle(late)).isEqualTo(Outcome.DISCARDED);
         assertThat(restarted.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);
 
         // 시작 전이면 버린다
         InterviewSession ready = newSession(InterviewMode.CHAT);
-        assertThat(results.handle(assignmentRejected(ready, "CAPACITY_EXCEEDED", STARTED_AT)))
+        assertThat(results.handle(assignmentRejected(ready, "INVALID_ASSIGNMENT", STARTED_AT)))
                 .isEqualTo(Outcome.DISCARDED);
         verify(rooms, never()).close(anyLong());
     }
@@ -379,12 +461,14 @@ class AiResultServiceTest {
     @Test
     void assignmentRejectedWithoutReasonOrTimeIsInvalid() {
         InterviewSession session = startedSession(InterviewMode.VIDEO);
-        String valid = assignmentRejected(session, "CAPACITY_EXCEEDED", afterStart(session));
+        String valid = assignmentRejected(session, "INVALID_ASSIGNMENT", afterStart(session));
 
         for (String raw :
                 List.of(
-                        valid.replace("CAPACITY_EXCEEDED", "BUSY"),
-                        valid.replace("\"reason\":\"CAPACITY_EXCEEDED\",", ""),
+                        valid.replace("INVALID_ASSIGNMENT", "BUSY"),
+                        // 에이전트가 더 이상 보내지 않는 이유(AI 명세 1.4)
+                        valid.replace("INVALID_ASSIGNMENT", "CAPACITY_EXCEEDED"),
+                        valid.replace("\"reason\":\"INVALID_ASSIGNMENT\",", ""),
                         valid.replaceAll(",\"occurredAt\":\"[^\"]+\"", ""))) {
             assertThatThrownBy(() -> results.handle(raw))
                     .as(raw)
@@ -420,10 +504,11 @@ class AiResultServiceTest {
         return session;
     }
 
+    // 결과 메시지의 시각(STARTED_AT)보다 먼저 시작한다. 시작 시각보다 이른 질문은 버리기 때문이다
     private InterviewSession startedSession(InterviewMode mode) {
         InterviewSession session = newSession(mode);
         savePlan(session);
-        session.start(OffsetDateTime.now());
+        session.start(STARTED_AT.minusMinutes(1));
         em.flush();
         return session;
     }
@@ -511,6 +596,17 @@ class AiResultServiceTest {
          "speech":{"trailingOffRatio":12.5,"pitchRangeSt":null,%s},"endReason":"AUTO_SUBMIT"}
         """
                 .formatted(session.getId(), timeline);
+    }
+
+    // AI 명세 6.2 answer.completed 예시처럼 STT를 다시 연결하지 못해 제출한 답변
+    private static String answerCompletedWithSttGaps(InterviewSession session, String sttGaps) {
+        return """
+        {"type":"answer.completed","sessionId":%d,"seq":1,
+         "answerStartedAt":"2026-10-15T12:01:05.250+09:00","content":"답",
+         "tokens":[{"text":"조회","startMs":0,"endMs":280}],
+         "speech":null,"sttGaps":%s,"endReason":"STT_FAILED"}
+        """
+                .formatted(session.getId(), sttGaps);
     }
 
     private static String answerScored(long sessionId, long answerId, String scoreMethod) {

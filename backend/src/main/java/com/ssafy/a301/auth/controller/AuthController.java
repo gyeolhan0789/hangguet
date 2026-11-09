@@ -3,6 +3,8 @@ package com.ssafy.a301.auth.controller;
 import com.ssafy.a301.auth.dto.EmailAvailabilityResponse;
 import com.ssafy.a301.auth.dto.LoginRequest;
 import com.ssafy.a301.auth.dto.LogoutRequest;
+import com.ssafy.a301.auth.dto.PasswordResetConfirmRequest;
+import com.ssafy.a301.auth.dto.PasswordResetRequest;
 import com.ssafy.a301.auth.dto.RefreshRequest;
 import com.ssafy.a301.auth.dto.RefreshResponse;
 import com.ssafy.a301.auth.dto.SignupRequest;
@@ -11,6 +13,7 @@ import com.ssafy.a301.auth.dto.SocialLoginResponse;
 import com.ssafy.a301.auth.dto.SocialSignupRequest;
 import com.ssafy.a301.auth.dto.TokenResponse;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.auth.service.PasswordResetService;
 import com.ssafy.a301.auth.service.SocialAuthService;
 import com.ssafy.a301.common.web.CurrentUserId;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,10 +41,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService service;
     private final SocialAuthService social;
+    private final PasswordResetService passwordReset;
 
-    public AuthController(AuthService service, SocialAuthService social) {
+    public AuthController(
+            AuthService service, SocialAuthService social, PasswordResetService passwordReset) {
         this.service = service;
         this.social = social;
+        this.passwordReset = passwordReset;
     }
 
     @Operation(summary = "1.1 이메일 사용 가능 여부")
@@ -62,6 +68,15 @@ public class AuthController {
 
     @Operation(summary = "1.3 로그인")
     @SecurityRequirements
+    @ApiResponse(responseCode = "200", description = "이메일·비밀번호 일치")
+    @ApiResponse(
+            responseCode = "401",
+            description = "LOGIN_FAILED: 이메일 없음·비밀번호 틀림·탈퇴 회원·소셜 회원. 구분 없이 같은 문구")
+    @ApiResponse(
+            responseCode = "429",
+            description =
+                    "LOGIN_LOCKED: 같은 이메일로 5번 연속 틀려 15분 동안 잠김. 남은 시간은 Retry-After 헤더 ·"
+                            + " retryAfterSeconds(초)")
     @PostMapping("/login")
     public TokenResponse login(@Valid @RequestBody LoginRequest request) {
         return service.login(request);
@@ -114,5 +129,32 @@ public class AuthController {
     @ResponseStatus(HttpStatus.CREATED)
     public TokenResponse socialSignup(@Valid @RequestBody SocialSignupRequest request) {
         return social.signup(request);
+    }
+
+    @Operation(
+            summary = "1.8 비밀번호 찾기 메일 요청",
+            description =
+                    "이메일 회원에게 30분 동안 한 번 쓸 수 있는 재설정 링크를 메일로 보낸다. 가입 여부를 드러내지 않도록 없는 이메일 · 소셜 회원도"
+                            + " 같은 204이고 메일은 보내지 않는다. 같은 이메일은 30초 안에 다시 보내지 않는다.")
+    @SecurityRequirements
+    @ApiResponse(responseCode = "204", description = "요청 받음(메일 발송 여부와 관계없이)")
+    @PostMapping("/password-reset")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void requestPasswordReset(@Valid @RequestBody PasswordResetRequest request) {
+        passwordReset.request(request.email());
+    }
+
+    @Operation(
+            summary = "1.9 비밀번호 재설정",
+            description = "메일 링크의 token으로 새 비밀번호를 정한다. 모든 기기가 로그아웃되므로 새 비밀번호로 다시 로그인(1.3)한다.")
+    @SecurityRequirements
+    @ApiResponse(responseCode = "204", description = "변경")
+    @ApiResponse(
+            responseCode = "400",
+            description = "PASSWORD_RESET_TOKEN_INVALID: 없거나 만료됐거나 이미 쓴 링크 · VALIDATION_FAILED")
+    @PostMapping("/password-reset/confirm")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordReset.confirm(request.token(), request.newPassword());
     }
 }
