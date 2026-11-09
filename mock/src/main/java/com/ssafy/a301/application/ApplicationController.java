@@ -81,11 +81,11 @@ public class ApplicationController {
                 { "id": 54, "companyName": "△△소프트", "jobTitle": "서버 개발자",
                   "persona": "COFFEE_CHAT", "mode": "CHAT", "status": "ANALYZING",
                   "startedAt": "2026-10-21T19:30:00+09:00", "endedAt": "2026-10-21T19:42:00+09:00",
-                  "answeredCount": 3, "summary": null, "criterionGrades": [] },
+                  "answeredCount": 3, "summary": null, "criterionGrades": [], "groupId": null },
                 { "id": 53, "companyName": "△△소프트", "jobTitle": "서버 개발자",
                   "persona": "COFFEE_CHAT", "mode": "VIDEO", "status": "FAILED",
                   "startedAt": "2026-10-20T21:00:00+09:00", "endedAt": "2026-10-20T21:22:00+09:00",
-                  "answeredCount": 5, "summary": null, "criterionGrades": [] } ],
+                  "answeredCount": 5, "summary": null, "criterionGrades": [], "groupId": null } ],
               "page": { "size": 10, "number": 0, "totalElements": 2, "totalPages": 1 } }\
             """;
     private static final String NO_SESSIONS =

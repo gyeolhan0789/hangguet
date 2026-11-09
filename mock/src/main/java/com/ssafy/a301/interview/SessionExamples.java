@@ -19,15 +19,15 @@ public final class SessionExamples {
                   { "criterion": "JOB_FIT", "grade": "GOOD" },
                   { "criterion": "COVER_LETTER", "grade": "WEAK" },
                   { "criterion": "LOGIC", "grade": "GOOD" },
-                  { "criterion": "DELIVERY", "grade": "NORMAL" } ] },
+                  { "criterion": "DELIVERY", "grade": "NORMAL" } ], "groupId": null },
               { "id": 54, "companyName": "△△소프트", "jobTitle": "서버 개발자",
                 "persona": "COFFEE_CHAT", "mode": "CHAT", "status": "ANALYZING",
                 "startedAt": "2026-10-21T19:30:00+09:00", "endedAt": "2026-10-21T19:42:00+09:00",
-                "answeredCount": 3, "summary": null, "criterionGrades": [] },
+                "answeredCount": 3, "summary": null, "criterionGrades": [], "groupId": null },
               { "id": 53, "companyName": "△△소프트", "jobTitle": "서버 개발자",
                 "persona": "COFFEE_CHAT", "mode": "VIDEO", "status": "FAILED",
                 "startedAt": "2026-10-20T21:00:00+09:00", "endedAt": "2026-10-20T21:22:00+09:00",
-                "answeredCount": 5, "summary": null, "criterionGrades": [] },
+                "answeredCount": 5, "summary": null, "criterionGrades": [], "groupId": null },
               { "id": 52, "companyName": "○○전자", "jobTitle": "백엔드 개발자",
                 "persona": "DEVIL", "mode": "CHAT", "status": "COMPLETED",
                 "startedAt": "2026-10-20T20:00:00+09:00", "endedAt": "2026-10-20T20:10:00+09:00",
@@ -36,7 +36,7 @@ public final class SessionExamples {
                   { "criterion": "JOB_FIT", "grade": "NORMAL" },
                   { "criterion": "COVER_LETTER", "grade": "NORMAL" },
                   { "criterion": "LOGIC", "grade": "GOOD" },
-                  { "criterion": "DELIVERY", "grade": "NORMAL" } ] }
+                  { "criterion": "DELIVERY", "grade": "NORMAL" } ], "groupId": null }
             ]
             """;
 }

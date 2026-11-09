@@ -15,6 +15,7 @@ import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionGroup;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
@@ -156,7 +157,11 @@ public class GroupEndService {
                             if (!groupEnded && group.getStatus() == GroupStatus.IN_PROGRESS) {
                                 continueWithout(group, active, sessionId, now);
                             }
-                            return new Ended(response, groupEnded);
+                            // 마지막 사람이면 그룹이 끝났으므로 그룹 상태는 끝낸 뒤에 붙인다
+                            return new Ended(
+                                    response.withGroup(
+                                            new SessionGroup(groupId, group.getStatus())),
+                                    groupEnded);
                         });
         if (ended == null) {
             return null;

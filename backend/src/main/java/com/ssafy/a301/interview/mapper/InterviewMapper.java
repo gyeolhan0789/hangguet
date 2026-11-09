@@ -13,6 +13,7 @@ import com.ssafy.a301.interview.dto.InterviewDtos.CriterionGrade;
 import com.ssafy.a301.interview.dto.InterviewDtos.CurrentQuestion;
 import com.ssafy.a301.interview.dto.InterviewDtos.QuestionResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
+import com.ssafy.a301.interview.dto.InterviewDtos.SessionGroup;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionListItem;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionResponse;
 import java.time.OffsetDateTime;
@@ -52,6 +53,22 @@ public final class InterviewMapper {
             OffsetDateTime now,
             Boolean leveledUp,
             RoomResponse room) {
+        return toSessionResponse(
+                session, runtime, currentQuestion, answeredCount, now, leveledUp, room, null);
+    }
+
+    /**
+     * @param group 그룹 면접의 그룹 정보. 개인 면접은 null
+     */
+    public static SessionResponse toSessionResponse(
+            InterviewSession session,
+            SessionRuntime runtime,
+            InterviewQuestion currentQuestion,
+            int answeredCount,
+            OffsetDateTime now,
+            Boolean leveledUp,
+            RoomResponse room,
+            SessionGroup group) {
         boolean generating = runtime.planStatus() == PlanStatus.GENERATING;
         boolean analyzing = session.getStatus() == SessionStatus.ANALYZING;
         boolean inProgress = session.getStatus() == SessionStatus.IN_PROGRESS;
@@ -73,7 +90,8 @@ public final class InterviewMapper {
                 session.getEndedAt(),
                 session.getCreatedAt(),
                 leveledUp,
-                room);
+                room,
+                group);
     }
 
     public static CurrentQuestion toCurrentQuestion(InterviewQuestion question) {
@@ -123,6 +141,7 @@ public final class InterviewMapper {
                 session.getEndedAt(),
                 answeredCount,
                 completed ? session.getHeadline() : null,
-                criterionGrades);
+                criterionGrades,
+                session.getGroupId());
     }
 }
