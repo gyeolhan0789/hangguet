@@ -26,6 +26,7 @@ import com.ssafy.a301.interview.service.SessionRuntimeService;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -100,7 +101,8 @@ public class GroupStartService {
      * 10.4에서 IN_PROGRESS를 보고 5.14로 받는다.
      */
     public GroupResponse start(long userId, long groupId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        // 녹화 원본 위치는 시작 시각의 밀리초다(6.12). DB에 저장하며 마이크로초로 반올림돼도 밀리초가 바뀌지 않게 미리 자른다
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MILLIS);
         return transactions.execute(
                 status -> {
                     InterviewGroup group =
@@ -139,7 +141,8 @@ public class GroupStartService {
                             groupId,
                             video,
                             assignment(group, ordered),
-                            JSON.writeValueAsString(GroupMapper.toRoomInfo(group, active, now)));
+                            JSON.writeValueAsString(GroupMapper.toRoomInfo(group, active, now)),
+                            now);
                     closeRoomOnRollback(groupId);
                     roomUpdates.markOpenedAfterCommit(group);
                     return responses.of(

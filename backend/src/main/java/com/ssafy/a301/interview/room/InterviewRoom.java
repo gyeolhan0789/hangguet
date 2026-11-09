@@ -70,8 +70,14 @@ public interface InterviewRoom {
      *
      * @param assignment 에이전트 배정 정보(공통 질문 · 참가자별 개인 질문)
      * @param metadata 면접방 정보(API 명세 10.11) JSON
+     * @param startedAt 이번 시작 시도의 시각. 녹화 원본 위치를 시도마다 나눈다
      */
-    void openGroup(long groupId, boolean video, Map<String, Object> assignment, String metadata);
+    void openGroup(
+            long groupId,
+            boolean video,
+            Map<String, Object> assignment,
+            String metadata,
+            OffsetDateTime startedAt);
 
     /** 그룹 면접방을 지운다. close와 같이 실패해도 던지지 않는다 */
     void closeGroup(long groupId);

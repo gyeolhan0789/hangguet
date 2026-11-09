@@ -257,10 +257,14 @@ public class LiveKitInterviewRoom implements InterviewRoom {
 
     @Override
     public void openGroup(
-            long groupId, boolean video, Map<String, Object> assignment, String metadata) {
+            long groupId,
+            boolean video,
+            Map<String, Object> assignment,
+            String metadata,
+            OffsetDateTime startedAt) {
         open(
                 groupRoomName(groupId),
-                Recording.groupRawPrefix(groupId),
+                Recording.groupRawPrefix(groupId, startedAt),
                 video,
                 assignment,
                 metadata);

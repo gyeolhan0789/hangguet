@@ -47,8 +47,23 @@ class ReplayVideoStatusTest {
         assertThat(status(null, DEADLINE)).isEqualTo(VideoStatus.FAILED);
     }
 
+    // 그룹 면접은 그룹이 끝난 뒤 합치므로 그룹이 끝나기 전에는 MERGING이고, 기다리는 시간은 그룹 종료부터 센다(docs/그룹면접-설계.md 6.12)
+    @Test
+    void groupMergeWaitCountsFromGroupEnd() {
+        assertThat(ResultService.videoStatus(null, null, DEADLINE.plusHours(1)))
+                .isEqualTo(VideoStatus.MERGING);
+        OffsetDateTime groupEnded = ENDED.plusMinutes(20);
+        OffsetDateTime groupDeadline = groupEnded.plus(ResultService.MERGE_WAIT);
+        assertThat(
+                        ResultService.videoStatus(
+                                RecordingStatus.MERGING, groupEnded, groupDeadline.minusSeconds(1)))
+                .isEqualTo(VideoStatus.MERGING);
+        assertThat(ResultService.videoStatus(RecordingStatus.MERGING, groupEnded, groupDeadline))
+                .isEqualTo(VideoStatus.FAILED);
+    }
+
     private static VideoStatus status(RecordingStatus recording, OffsetDateTime now) {
-        return ResultService.videoStatus(endedSession(), recording, now);
+        return ResultService.videoStatus(recording, endedSession().getEndedAt(), now);
     }
 
     private static InterviewSession endedSession() {

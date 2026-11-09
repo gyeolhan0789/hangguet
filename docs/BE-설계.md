@@ -446,6 +446,7 @@ ERD 메모의 "비밀번호 재설정 토큰"은 DB 테이블이 아니라 Redis
 | 프로필 사진 | `profile/{userId}/{uuid}.{ext}` | 2.4 Presigned PUT(JPG·PNG, 5MB) | 응답마다 Presigned GET |
 | 문의 사진 | `inquiry/{uuid}.{ext}` | 9.11 Presigned PUT(JPG·PNG, 5MB, 한 번에 5장) | 9.3 · 9.7 응답마다 Presigned GET |
 | 면접 녹화 원본 | `recordings/raw/{sessionId}/{startedAtMs}/…`(시작 시도별·트랙별 파일) | LiveKit Egress가 서버에서 바로 올림(화상만) | AI 분석 작업자가 합치기에 사용 |
+| 그룹 면접 녹화 원본 | `recordings/raw/group-{groupId}/{startedAtMs}/…`(그룹 시작 시도별, 참가자 · 트랙별 파일) | 위와 같음 | 그룹이 끝난 뒤 참가자마다 본인 답변 구간만 합친다(그룹면접-설계 6.12) |
 | 면접 녹화 | `recordings/{sessionId}.mp4` | AI 분석 작업자가 합쳐 올림(`recording.merged`) | 6.4 Presigned GET |
 | 답변 음성 | **[미정]**(트랙에서 잘라 쓸지 따로 저장할지, API 명세 B-19) | - | 분석에서만 사용 |
 

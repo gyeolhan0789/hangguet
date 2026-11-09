@@ -179,8 +179,8 @@ public class GroupResultService {
                                 message.modelVersion(),
                                 startedAt));
             } else if (isAbandoned(asked.get())) {
-                // 답변 중 나갔다 돌아온 사람에게 같은 질문을 다시 묻는다(6.9). 질문 행은 처음 낸 것을 그대로 둔다
-                asked.get().reask();
+                // 답변 중 나갔다 돌아온 사람에게 같은 질문을 다시 묻는다(6.9). 질문 글은 처음 낸 것을 그대로 둔다
+                asked.get().reask(startedAt);
             } else {
                 return false;
             }

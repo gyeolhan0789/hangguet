@@ -55,8 +55,8 @@ public class InterviewQuestion {
     @Column(name = "model_version", length = 100)
     private String modelVersion;
 
-    // 질문을 낸 시각. 메시지가 늦게 처리돼도 말하기 시작한 시각을 남기도록 직접 정한다
-    @Column(name = "created_at", nullable = false, updatable = false)
+    // 질문을 낸 시각. 메시지가 늦게 처리돼도 말하기 시작한 시각을 남기도록 직접 정한다. 그룹 면접에서 다시 물으면 다시 물은 시각이다
+    @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
     // 그룹 면접의 질문 종류(docs/그룹면접-설계.md 4.3). 개인 면접은 null
@@ -74,6 +74,10 @@ public class InterviewQuestion {
     // 그룹 면접에서 답 없이 마감한 시각
     @Column(name = "closed_at")
     private OffsetDateTime closedAt;
+
+    // 그룹 면접에서 답변 중 면접방을 나간 시각. 본인 답변 구간의 끝이다(docs/그룹면접-설계.md 6.12). 다시 물으면 null
+    @Column(name = "interrupted_at")
+    private OffsetDateTime interruptedAt;
 
     public InterviewQuestion(InterviewSession session, int seq, String content) {
         this(session, seq, content, OffsetDateTime.now());
@@ -124,10 +128,17 @@ public class InterviewQuestion {
         this.deadlineAt = deadlineAt;
     }
 
-    /** 그룹 면접에서 답변 중 나갔던 질문을 다시 묻는다(docs/그룹면접-설계.md 6.9). 답변 시간은 새로 센다 */
-    public void reask() {
+    /** 그룹 면접에서 답변 중 면접방을 나갔다(docs/그룹면접-설계.md 6.9). 질문은 닫지 않고 두어 돌아오면 다시 묻는다 */
+    public void interrupt(OffsetDateTime now) {
+        this.interruptedAt = now;
+    }
+
+    /** 그룹 면접에서 답변 중 나갔던 질문을 다시 묻는다(docs/그룹면접-설계.md 6.9). 낸 시각 · 답변 시간을 새로 센다 */
+    public void reask(OffsetDateTime askedAt) {
+        this.createdAt = askedAt;
         this.spokenAt = null;
         this.deadlineAt = null;
+        this.interruptedAt = null;
     }
 
     /** 10.8 답변 시간 연장 */

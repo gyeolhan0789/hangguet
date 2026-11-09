@@ -2,10 +2,13 @@ package com.ssafy.a301.result.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.group.domain.InterviewGroup;
+import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
+import com.ssafy.a301.interview.domain.RecordingSegment;
 import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -46,6 +49,7 @@ public class ResultService {
     private final SessionScoreRepository scores;
     private final SpeechMetricRepository speechMetrics;
     private final RecordingRepository recordings;
+    private final InterviewGroupRepository groups;
     private final S3FileStorage storage;
 
     public ResultService(
@@ -55,6 +59,7 @@ public class ResultService {
             SessionScoreRepository scores,
             SpeechMetricRepository speechMetrics,
             RecordingRepository recordings,
+            InterviewGroupRepository groups,
             S3FileStorage storage) {
         this.sessions = sessions;
         this.questions = questions;
@@ -62,6 +67,7 @@ public class ResultService {
         this.scores = scores;
         this.speechMetrics = speechMetrics;
         this.recordings = recordings;
+        this.groups = groups;
         this.storage = storage;
     }
 
@@ -89,7 +95,10 @@ public class ResultService {
                 session.isVideo() ? speechMetrics.findById(sessionId).orElse(null) : null);
     }
 
-    /** 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화의 상태·영상 0초 시각을 주고, READY일 때만 주소를 준다 */
+    /**
+     * 6.4. 낸 질문은 답변이 없어도 넣는다. 화상은 합친 녹화의 상태·영상 0초 시각을 주고, READY일 때만 주소를 준다. 그룹 화상 면접은 본인 답변 구간만 이어
+     * 붙인 영상이라 구간 목록을 주고, 합치기는 그룹이 끝난 뒤 시작하므로 기다리는 시간도 그룹 종료부터 센다(docs/그룹면접-설계.md 6.12).
+     */
     @Transactional(readOnly = true)
     public ReplayResponse replay(long userId, long sessionId) {
         InterviewSession session = completedSession(userId, sessionId);
@@ -107,10 +116,16 @@ public class ResultService {
         }
         String key = Recording.sessionVideoKey(session.getId());
         Recording recording = recordings.findByObjectKey(key).orElse(null);
+        OffsetDateTime mergeFrom =
+                session.isGroup()
+                        ? groups.findById(session.getGroupId())
+                                .map(InterviewGroup::getEndedAt)
+                                .orElse(null)
+                        : session.getEndedAt();
         VideoStatus videoStatus =
                 videoStatus(
-                        session,
                         recording == null ? null : recording.getStatus(),
+                        mergeFrom,
                         OffsetDateTime.now());
         String videoUrl = videoStatus == VideoStatus.READY ? storage.presignDownload(key) : null;
         return ResultMapper.toReplay(
@@ -118,18 +133,27 @@ public class ResultService {
                 items,
                 videoStatus,
                 videoUrl,
-                recording == null ? null : recording.getRecordingStartedAt());
+                recording == null ? null : recording.getRecordingStartedAt(),
+                session.isGroup()
+                        ? RecordingSegment.of(
+                                items.stream().map(QuestionAndAnswer::question).toList(),
+                                answerByQuestion,
+                                session.getEndedAt())
+                        : null);
     }
 
     // 합치는 중(행이 없는 녹화 상태 추가 이전 면접 포함)이어도 종료 후 MERGE_WAIT가 지나면 실패로 본다.
     // 작업자 장애로 합치기 결과가 오지 않아도 MERGING에 계속 남지 않게 하기 위함이다(API 명세 6.4)
+    /**
+     * @param mergeFrom 합치기를 시작하는 시각(개인 면접은 면접 종료, 그룹 면접은 그룹 종료). 그룹이 아직 끝나지 않았으면 null이고 합치는 중으로 본다
+     */
     static VideoStatus videoStatus(
-            InterviewSession session, RecordingStatus recording, OffsetDateTime now) {
+            RecordingStatus recording, OffsetDateTime mergeFrom, OffsetDateTime now) {
         if (recording == RecordingStatus.READY) {
             return VideoStatus.READY;
         }
         if (recording == RecordingStatus.FAILED
-                || !now.isBefore(session.getEndedAt().plus(MERGE_WAIT))) {
+                || (mergeFrom != null && !now.isBefore(mergeFrom.plus(MERGE_WAIT)))) {
             return VideoStatus.FAILED;
         }
         return VideoStatus.MERGING;

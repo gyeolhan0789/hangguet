@@ -69,9 +69,12 @@ public class Recording {
         return "recordings/raw/" + sessionId + "/";
     }
 
-    /** 그룹 면접방의 녹화 원본 위치. 참가자마다 candidate-{sessionId}로 시작한다(docs/그룹면접-설계.md 6.12) */
-    public static String groupRawPrefix(long groupId) {
-        return "recordings/raw/group-" + groupId + "/";
+    /**
+     * 그룹 면접방의 녹화 원본 위치(docs/그룹면접-설계.md 6.12). 시작 실패 뒤 다시 시작하면 이전 시도의 트랙과 섞이지 않게 시작 시각(유닉스 밀리초)마다
+     * 나눈다(개인 면접 BE 설계 5.6과 같은 규칙). 그 안의 파일은 참가자마다 candidate-{sessionId}로 시작한다.
+     */
+    public static String groupRawPrefix(long groupId, OffsetDateTime startedAt) {
+        return "recordings/raw/group-" + groupId + "/" + startedAt.toInstant().toEpochMilli() + "/";
     }
 
     /** 원본 트랙을 합친 mp4 위치(AI 명세 7장) */

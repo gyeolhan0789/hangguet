@@ -25,6 +25,7 @@ import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.RecordingSegment;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
@@ -46,6 +47,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 /** 엔티티 → 응답 DTO 변환이 명세의 값 규칙(상태별 null, 정렬, 3단계)을 따르는지 확인한다. */
 class MapperTest {
@@ -194,6 +196,12 @@ class MapperTest {
         assertThat(replay.recordingStartedAt()).isEqualTo(T0.plusSeconds(3));
     }
 
+    // 낸 시각을 그대로 두고 id만 넣는다(withId는 created_at도 바꾼다)
+    private static InterviewQuestion askedAt(InterviewQuestion question, long id) {
+        ReflectionTestUtils.setField(question, "id", id);
+        return question;
+    }
+
     // AI 명세 4장 answers[].evaluation.timeline(답변 기준 밀리초)
     private static Map<String, Object> aiTimeline(String metric) {
         Map<String, Object> filler = new HashMap<>();
@@ -299,6 +307,75 @@ class MapperTest {
                             assertThat(c.start()).isEqualTo(82.13);
                             assertThat(c.end()).isEqualTo(82.13);
                         });
+    }
+
+    // 그룹 화상 면접(docs/그룹면접-설계.md 6.12): 영상은 본인 답변 구간만 이어 붙인 파일이다.
+    // 구간 위치는 앞 구간 길이의 합이고, 타임라인은 그 구간 기준으로 옮기며 구간 밖 점은 뺀다
+    @Test
+    void groupReplayMovesTimelineToJoinedSegments() {
+        InterviewSession s = session(InterviewMode.VIDEO);
+        s.start(T0);
+        var q1 = askedAt(new InterviewQuestion(s, 1, "자기소개", T0.plusSeconds(10)), 301);
+        var a1 = withId(Answer.voice(q1, "답", null, null, null, T0.plusSeconds(40)), 901);
+        a1.recordEndedAt(T0.plusSeconds(100));
+        // 다른 사람 차례 뒤의 질문. 답 없이 닫혔다
+        var q2 = askedAt(new InterviewQuestion(s, 2, "역할은?", T0.plusSeconds(300)), 302);
+        q2.close(T0.plusSeconds(400));
+        var q3 = askedAt(new InterviewQuestion(s, 3, "장점은?", T0.plusSeconds(500)), 303);
+        var a3 = withId(Answer.voice(q3, "답", null, null, null, T0.plusSeconds(520)), 903);
+        a3.recordEndedAt(T0.plusSeconds(521));
+        a3.completeEvaluation(85, "좋음", "아쉬움", aiTimeline("CONFIDENCE"));
+        List<QuestionAndAnswer> items =
+                List.of(
+                        new QuestionAndAnswer(q1, a1),
+                        new QuestionAndAnswer(q2, null),
+                        new QuestionAndAnswer(q3, a3));
+
+        ReplayResponse replay =
+                ResultMapper.toReplay(
+                        s,
+                        items,
+                        ResultDtos.VideoStatus.READY,
+                        "https://video",
+                        T0.plusSeconds(10),
+                        RecordingSegment.of(
+                                List.of(q1, q2, q3), Map.of(301L, a1, 303L, a3), T0.plusHours(1)));
+
+        assertThat(replay.segments())
+                .containsExactly(
+                        new ResultDtos.ReplaySegment(1, 0.0, 90.0, T0.plusSeconds(10)),
+                        new ResultDtos.ReplaySegment(2, 90.0, 190.0, T0.plusSeconds(300)),
+                        new ResultDtos.ReplaySegment(3, 190.0, 211.0, T0.plusSeconds(500)));
+        // 답변 3은 구간 3(영상 190초 = 원래 500초)에서 20초 뒤에 시작했다. 1초 뒤 점까지 구간 안이다
+        ResultDtos.ReplayTimeline timeline = replay.items().get(2).timeline();
+        assertThat(timeline.points())
+                .extracting(ResultDtos.TimelinePoint::at)
+                .containsExactly(210.0, 211.0);
+        assertThat(timeline.checkpoints()).singleElement().extracting(c -> c.at()).isEqualTo(211.0);
+
+        // 구간이 1초 짧으면 그 밖의 점 · 체크포인트는 뺀다
+        a3.recordEndedAt(T0.plusSeconds(520).plusNanos(500_000_000));
+        ResultDtos.ReplayTimeline cut =
+                ResultMapper.toReplay(
+                                s,
+                                items,
+                                ResultDtos.VideoStatus.READY,
+                                "https://video",
+                                null,
+                                RecordingSegment.of(
+                                        List.of(q1, q2, q3),
+                                        Map.of(301L, a1, 303L, a3),
+                                        T0.plusHours(1)))
+                        .items()
+                        .get(2)
+                        .timeline();
+        assertThat(cut.points()).extracting(ResultDtos.TimelinePoint::at).containsExactly(210.0);
+        assertThat(cut.checkpoints()).isEmpty();
+        // 개인 면접은 구간이 없다
+        assertThat(
+                        ResultMapper.toReplay(s, items, ResultDtos.VideoStatus.READY, null, null)
+                                .segments())
+                .isNull();
     }
 
     @Test
