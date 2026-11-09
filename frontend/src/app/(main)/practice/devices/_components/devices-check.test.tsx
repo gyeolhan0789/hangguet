@@ -8,7 +8,7 @@ import type { SessionCreateRequest } from "@/types/api";
 
 import { DevicesCheck } from "./devices-check";
 import type { DeviceCheck } from "./use-device-check";
-import type { VoiceCheck } from "./use-voice-check";
+import type { VoiceCheck } from "@/components/use-voice-check";
 
 // 기준: 기획 메모 S05(18:752: 생성 완료 + 장치 모두 ✓일 때만 [면접 시작] 활성화) · Figma S05 · S05-E
 // · Swagger 5.4 면접 시작 · 5.1 면접 만들기(Idempotency-Key, 409 IDEMPOTENCY_KEY_REUSED면 새 키)
@@ -19,7 +19,7 @@ import type { VoiceCheck } from "./use-voice-check";
 let devices: DeviceCheck;
 let voice: VoiceCheck;
 vi.mock("./use-device-check", () => ({ useDeviceCheck: () => devices }));
-vi.mock("./use-voice-check", () => ({ useVoiceCheck: () => voice }));
+vi.mock("@/components/use-voice-check", () => ({ useVoiceCheck: () => voice }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 const startSession = vi.fn<(sessionId: number, key: string) => Promise<SessionActionResult>>();

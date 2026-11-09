@@ -5,7 +5,9 @@ import { useEffect, useState, useTransition, type FormEvent, type ReactNode } fr
 
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
+import { useVoiceCheck, type VoiceCheck } from "@/components/use-voice-check";
 import type { CheckStatus } from "@/lib/devices/media";
+import { PLAY_TEXT, RECORD_TEXT } from "@/lib/devices/voice-text";
 import { createSession, startSession } from "@/lib/interview/actions";
 import { preloadInterviewer } from "@/lib/interviewer/preload";
 import { modePath } from "@/lib/routes";
@@ -17,7 +19,6 @@ import { CheckRow, RowButton, type RowState } from "./check-row";
 import { PermissionModal } from "./permission-modal";
 import { PlanProgress } from "./plan-progress";
 import { useDeviceCheck, type NetworkStatus } from "./use-device-check";
-import { useVoiceCheck, type VoiceCheck } from "./use-voice-check";
 
 // 기준: Figma S05 장치 점검(18:2333: 단계 4 · 왼쪽 카메라 미리보기 600 · 오른쪽 체크 목록(제목 26 · 카메라 · 마이크 · 스피커
 // · 네트워크 · 질문 준비) · [← 면접 방식] · [면접 시작 →]) · S05-E 권한 거부(18:4013)
@@ -38,22 +39,6 @@ const FAILURE_TEXT: Record<Exclude<CheckStatus, "checking" | "ok">, string> = {
   ended: "연결이 끊겼어요",
   unsupported: "이 브라우저에서는 확인할 수 없어요",
 };
-
-/** 마이크 줄: 녹음 전 · 녹음 중 · 녹음 실패 문구(Figma에 없어 새로 정함). 녹음이 끝나면 Figma 문구 '목소리가 잘 들려요' */
-const RECORD_TEXT = {
-  idle: "녹음해서 목소리를 확인해요",
-  recording: "지금 말해 보세요",
-  failed: "녹음하지 못했어요",
-} as const;
-
-/** 스피커 줄: 재생 전 · 재생 중 · 재생 끝(확인 묻기) · 확인함 · 재생 실패 문구(Figma '면접관 목소리를 들어보세요' 대신 녹음한 목소리를 들려준다) */
-const PLAY_TEXT = {
-  ready: "녹음한 목소리를 들어보세요",
-  playing: "재생하고 있어요",
-  played: "잘 들렸나요?",
-  confirmed: "잘 들려요",
-  failed: "소리를 재생하지 못했어요",
-} as const;
 
 const NETWORK_TEXT: Record<NetworkStatus, string> = {
   checking: "확인하고 있어요",
