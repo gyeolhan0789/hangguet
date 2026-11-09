@@ -67,6 +67,9 @@ def group_words(tokens: list[dict[str, Any]]) -> list[Word]:
     새 단어의 시작은 토큰 앞의 공백(" 응답")이나 공백만 있는 토큰(" ")으로 표시된다.
     두 경우 모두 단어 경계로 간주한다.
     단어 시각은 첫 토큰의 startMs부터 마지막 토큰의 endMs까지다.
+    문장 부호만 있는 토큰(".", "," 등)은 글에만 붙이고 단어 끝 시각은 늘리지 않는다.
+    Soniox는 문장 중간에 멈추면 문장 부호를 멈춤이 끝난 시각에 두므로,
+    그 시각을 단어 끝으로 쓰면 멈춘 시간이 단어 안에 들어가 긴 멈춤으로 집계되지 않는다.
     """
     words: list[Word] = []
     text, start, end = "", 0, 0
@@ -80,8 +83,10 @@ def group_words(tokens: list[dict[str, Any]]) -> list[Word]:
             continue
         if not text:
             start = int(token["startMs"])
+        punctuation_only = bool(text) and _MARKS.fullmatch(body) is not None
         text += body
-        end = int(token["endMs"])
+        if not punctuation_only:
+            end = int(token["endMs"])
         if piece[-1:].isspace():
             words.append(Word(text, start, end))
             text = ""
