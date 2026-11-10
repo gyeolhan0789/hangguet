@@ -7,12 +7,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.admin.config.AdminPasswordEncoder;
 import com.ssafy.a301.admin.domain.Admin;
 import com.ssafy.a301.admin.jwt.AdminTokens;
+import com.ssafy.a301.admin.repository.AdminLoginAttemptStore;
 import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.service.StreakFreezeGrantService;
 import com.ssafy.a301.auth.jwt.AccessTokens;
@@ -55,6 +57,8 @@ class AdminIntegrationTest {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final String PASSWORD = "admin-it-pass";
 
+    private static final String BLOCKED_IP = "203.0.113.10";
+    private static final String OTHER_IP = "203.0.113.20";
     @Autowired private MockMvc mvc;
     @Autowired private AdminRepository admins;
     @Autowired private UserRepository users;
@@ -63,6 +67,7 @@ class AdminIntegrationTest {
     @Autowired private JwtEncoder jwtEncoder;
     @Autowired private StreakFreezeGrantService grantService;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private AdminLoginAttemptStore loginAttempts;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
     private Admin admin;
@@ -92,6 +97,8 @@ class AdminIntegrationTest {
                 adminId);
         jdbc.update("DELETE FROM notices WHERE admin_id = ?", adminId);
         jdbc.update("DELETE FROM admins WHERE id = ?", adminId);
+        loginAttempts.reset(admin.getLoginId(), BLOCKED_IP);
+        loginAttempts.reset(admin.getLoginId(), OTHER_IP);
         for (long id : userIds) {
             jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM users WHERE id = ?", id);
@@ -151,6 +158,33 @@ class AdminIntegrationTest {
                                                 .formatted(admin.getLoginId())))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("ADMIN_LOGIN_FAILED"));
+    }
+
+    // 기준: 관리자 로그인 무작위 대입 방어(같은 아이디 · 같은 IP로 5번 틀리면 15분 동안 429 ADMIN_LOGIN_LOCKED)
+    @Test
+    void fiveWrongPasswordsFromOneIpLockOnlyThatIp() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(adminLogin("틀림", BLOCKED_IP)).andExpect(status().isUnauthorized());
+        }
+        // 잠긴 동안은 맞는 비밀번호도 막고 남은 시간을 알린다
+        mvc.perform(adminLogin(PASSWORD, BLOCKED_IP))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("ADMIN_LOGIN_LOCKED"))
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER));
+        // 다른 곳의 관리자는 그대로 들어온다
+        mvc.perform(adminLogin(PASSWORD, OTHER_IP)).andExpect(status().isOk());
+    }
+
+    @Test
+    void successfulLoginClearsFailures() throws Exception {
+        for (int i = 0; i < 4; i++) {
+            mvc.perform(adminLogin("틀림", BLOCKED_IP)).andExpect(status().isUnauthorized());
+        }
+        mvc.perform(adminLogin(PASSWORD, BLOCKED_IP)).andExpect(status().isOk());
+        for (int i = 0; i < 4; i++) {
+            mvc.perform(adminLogin("틀림", BLOCKED_IP)).andExpect(status().isUnauthorized());
+        }
+        mvc.perform(adminLogin(PASSWORD, BLOCKED_IP)).andExpect(status().isOk());
     }
 
     @Test
@@ -651,6 +685,16 @@ class AdminIntegrationTest {
 
     private static List<Long> noticeIds(JsonNode notices) {
         return notices.get("content").valueStream().map(n -> n.get("id").asLong()).toList();
+    }
+
+    // Nginx가 넣는 것과 같이 X-Forwarded-For로 요청 IP를 보낸다
+    private MockHttpServletRequestBuilder adminLogin(String password, String ip) {
+        return post("/api/v1/admin/auth/login")
+                .header("X-Forwarded-For", ip)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                        "{\"loginId\":\"%s\",\"password\":\"%s\"}"
+                                .formatted(admin.getLoginId(), password));
     }
 
     private String login() throws Exception {

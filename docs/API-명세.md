@@ -765,6 +765,7 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 
 - **200**: 로그인. `accessToken`·`expiresIn`(초)·`admin{ id, loginId, name }`
 - **401 / ADMIN_LOGIN_FAILED**: 아이디 없음·비밀번호 틀림. 구분 없이 같은 문구
+- **429 / ADMIN_LOGIN_LOCKED**: 같은 아이디로 같은 IP에서 5번 연속 틀려 15분 동안 잠김(비밀번호가 맞아도, 없는 아이디도 같게 셈). 남은 시간은 `Retry-After` 헤더 · `retryAfterSeconds`. 로그인하면 틀린 횟수를 지운다
 
 #### 8.2 관리자 로그아웃
 
@@ -1166,6 +1167,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `RESULT_NOT_READY` · `NO_RESULT` | 409 | 6.3, 6.4 |
 | `GROWTH_REVIEW_NOT_FOUND` | 404 | 7.1 |
 | `ADMIN_LOGIN_FAILED` | 401 | 8.1 |
+| `ADMIN_LOGIN_LOCKED` | 429 | 8.1 |
 | `NOTICE_NOT_FOUND` | 404 | 8.5·8.6·8.7·8.9 |
 | `USER_NOT_FOUND` | 404 | 8.11, 9.10 |
 | `STREAK_FREEZE_NOT_FOUND` · `STREAK_FREEZE_NOT_AVAILABLE` · `STREAK_FREEZE_DATE_NOT_ALLOWED` | 404 · 409 · 409 | 8.14 |

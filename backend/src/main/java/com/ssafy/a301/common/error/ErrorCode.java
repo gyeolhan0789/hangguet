@@ -70,6 +70,7 @@ public enum ErrorCode {
 
     // 관리자·공지·스트릭 유지권
     ADMIN_LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호를 확인해 주세요."),
+    ADMIN_LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요."),
     NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공지를 찾을 수 없어요."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없어요."),
     STREAK_FREEZE_NOT_FOUND(HttpStatus.NOT_FOUND, "유지권을 찾을 수 없어요."),
