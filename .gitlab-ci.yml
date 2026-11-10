@@ -17,17 +17,19 @@ variables:
       - "mock"
     description: "개발 서버 FE가 볼 API (be: 실제 BE, mock: 목 서버). develop 수동 실행의 fe-deploy에 적용됩니다."
 
-# MR 파이프라인, develop push · 수동 실행 파이프라인, master push 파이프라인만 만듭니다.
+# MR 파이프라인, develop push · 수동 실행 · 스케줄 파이프라인, master push 파이프라인만 만듭니다.
 # - MR: 규칙 검사 · 빌드 · 테스트 · 소나큐브
 # - develop push(MR 병합): 목 서버·개발 서버 배포만 돕니다. 검사는 MR에서 끝냈으므로 다른 잡은 rules에서 뺍니다.
 #   개발 서버 FE가 볼 API를 바꾸는 버튼(fe-use-mock·fe-use-be)도 여기에 생깁니다.
 # - develop 수동 실행(Build > Pipelines > Run pipeline): 개발 서버 FE만 다시 빌드·실행합니다(fe-deploy).
+# - develop 스케줄(Build > Pipeline schedules, 매일 9시 KST): BE · FE · AI 빌드 · 테스트 · 소나큐브 정기 분석만 돕니다.
 # - master push(Release MR 병합): 운영 이미지 빌드(prod-build)가 돌고, 운영 배포(prod-deploy)는 ▶ 버튼으로 남습니다.
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $RELEASE_BRANCH'
 
 # 모든 잡은 이 프로젝트에 할당한 러너(태그 s15p31a301)에서만 돕니다.
@@ -149,6 +151,9 @@ commit-message:
 ### 빌드·테스트·소나큐브 분석 ###
 # 파트 폴더나 이 파일이 바뀐 MR에서만 해당 파트 잡이 돕니다.
 # develop push 파이프라인에서는 돌지 않습니다.
+# 예외: develop 스케줄 파이프라인(매일 9시 소나큐브 정기 분석)에서는 BE · FE · AI의 빌드 · 테스트 · 소나큐브가 모두 돕니다.
+#   소나 잡이 테스트 잡의 커버리지 리포트를 받아야 해서 빌드 · 테스트도 함께 돌립니다.
+#   Pact · 목 서버 · 회사 카드 파이프라인 · 배포 잡은 스케줄에서 돌지 않습니다.
 # 순서: build(format·lint·빌드) → test(테스트·커버리지) → sonar(분석 결과 업로드)
 # SonarQube 서버 주소와 토큰은 GitLab CI/CD Variables의 SONAR_HOST_URL, SONAR_TOKEN에서 주입합니다.
 # 프로젝트는 파트마다 따로 둡니다: A301-be, A301-fe, A301-ai
@@ -156,6 +161,7 @@ commit-message:
 # 파트별 실행 조건
 .be-rules:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -164,6 +170,7 @@ commit-message:
 
 .fe-rules:
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -206,8 +213,20 @@ commit-message:
 # rules 안에서 when: manual을 쓰면 allow_failure 기본값이 false가 되어
 # 버튼을 누르기 전까지 파이프라인이 끝나지 않으므로 allow_failure: true를 함께 적습니다.
 # 병합 전에 버튼을 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 합니다.
+# 예외: develop 스케줄 파이프라인(매일 9시 KST)에서는 버튼 없이 자동으로 돌아 develop 전체를 분석합니다.
+#   MR 정보가 없으므로 Mattermost 알림에 정기 분석임을 표시하도록 SONAR_MR_* 변수를 채웁니다.
+#   소나 잡은 이 변수가 비어 있으면(MR 파이프라인) CI_MERGE_REQUEST_* 값을 씁니다.
+.sonar-schedule-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      variables:
+        SONAR_MR_TITLE: "정기 분석 (develop)"
+        SONAR_MR_URL: "$CI_PIPELINE_URL"
+        SONAR_AUTHOR: "스케줄"
+
 .be-sonar-rules:
   rules:
+    - !reference [.sonar-schedule-rules, rules]
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -218,6 +237,7 @@ commit-message:
 
 .fe-sonar-rules:
   rules:
+    - !reference [.sonar-schedule-rules, rules]
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -228,6 +248,7 @@ commit-message:
 
 .ai-sonar-rules:
   rules:
+    - !reference [.sonar-schedule-rules, rules]
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -240,6 +261,7 @@ commit-message:
 # - 분석 결과를 업로드하면 잡은 바로 끝납니다. 품질 게이트 판정은 서버가 따로 처리하고,
 #   판정이 끝나면 SonarQube Webhook이 Mattermost로 결과를 알립니다.
 #   알림에 어느 MR의 결과인지 표시하도록 sonar.analysis.* 속성으로 MR 정보를 함께 보냅니다.
+#   스케줄 파이프라인에서는 .sonar-schedule-rules가 채운 SONAR_MR_* 값(정기 분석 · 파이프라인 링크)을 대신 보냅니다.
 # - 미니PC에서 도는 서버가 꺼져 있어도 MR이 막히지 않도록 실패를 허용합니다.
 # - New Code(최근 30일) 판정에 git blame이 필요해 전체 이력을 받습니다.
 # - 이미지에 Java가 있어 스캐너가 서버에서 JRE를 내려받지 않게 합니다(sonar.scanner.skipJreProvisioning).
@@ -394,9 +416,9 @@ be-sonar:
       -Dsonar.projectName=A301-be
       -Dsonar.scanner.skipJreProvisioning=true
       -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
-      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+      -Dsonar.analysis.mrTitle="${SONAR_MR_TITLE:-$CI_MERGE_REQUEST_TITLE}"
+      -Dsonar.analysis.mrUrl="${SONAR_MR_URL:-$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID}"
+      -Dsonar.analysis.author="${SONAR_AUTHOR:-$GITLAB_USER_NAME}"
 
 ## MOCK ##
 
@@ -1073,9 +1095,9 @@ fe-sonar:
       -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
       -Dsonar.sourceEncoding=UTF-8
       -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
-      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+      -Dsonar.analysis.mrTitle="${SONAR_MR_TITLE:-$CI_MERGE_REQUEST_TITLE}"
+      -Dsonar.analysis.mrUrl="${SONAR_MR_URL:-$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID}"
+      -Dsonar.analysis.author="${SONAR_AUTHOR:-$GITLAB_USER_NAME}"
 
 ## AI ##
 
@@ -1086,6 +1108,10 @@ fe-sonar:
 # 운영 이미지(ai/Dockerfile)와 같은 Debian apt의 ffmpeg라 시험한 버전과 운영 버전이 같습니다.
 ai-test:
   rules:
+    # develop 스케줄(소나큐브 정기 분석)은 전체 커버리지를 재도록 ffmpeg까지 설치합니다.
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+      variables:
+        INSTALL_FFMPEG: "1"
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
@@ -1154,9 +1180,9 @@ ai-sonar:
       -Dsonar.python.coverage.reportPaths=coverage.xml
       -Dsonar.sourceEncoding=UTF-8
       -Dsonar.analysis.mrIid="$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.mrTitle="$CI_MERGE_REQUEST_TITLE"
-      -Dsonar.analysis.mrUrl="$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID"
-      -Dsonar.analysis.author="$GITLAB_USER_NAME"
+      -Dsonar.analysis.mrTitle="${SONAR_MR_TITLE:-$CI_MERGE_REQUEST_TITLE}"
+      -Dsonar.analysis.mrUrl="${SONAR_MR_URL:-$CI_MERGE_REQUEST_PROJECT_URL/-/merge_requests/$CI_MERGE_REQUEST_IID}"
+      -Dsonar.analysis.author="${SONAR_AUTHOR:-$GITLAB_USER_NAME}"
 
 ## 회사 카드 파이프라인 ##
 

@@ -521,12 +521,13 @@ SonarQube를 사용할 수 있으면 중복·복잡도·잠재 결함과 Coverag
 
 ### 12.4 자동 검사·배포(CI)
 
-CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(MR 병합)될 때 실행된다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다. 배포 Job만 미니PC의 배포 전용 Runner(태그 `a301-mock-deploy`)에서 실행된다.
+CI는 MR을 열거나 MR에 Commit을 Push할 때, `develop`에 Push(MR 병합)될 때, 그리고 매일 9시 `develop` 스케줄로 실행된다. 설정은 [`.gitlab-ci.yml`](../.gitlab-ci.yml)에 있고, 프로젝트에 할당한 Runner(태그 `s15p31a301`)에서 실행된다. 배포 Job만 미니PC의 배포 전용 Runner(태그 `a301-mock-deploy`)에서 실행된다.
 
 `convention` → `build` → `test` → `sonar` → `deploy` 순서로 돈다.
 
 - MR: 규칙 검사는 모든 MR에서, 파트 Job은 해당 폴더(`backend/`, `frontend/`, `ai/`, `mock/`)나 `.gitlab-ci.yml`이 바뀐 MR에서만 실행된다. Pact 계약 Job(`fe-pact` · `be-pact`)은 FE의 API 호출 코드(`frontend/src/lib/`) · API 타입(`frontend/src/types/api/`) · 계약 테스트 설정 · FE 의존성(`package.json` · `package-lock.json`)이나 `backend/` · `.gitlab-ci.yml`이 바뀐 MR에서 함께 실행된다.
 - `develop` Push: `mock/`이나 `deploy/mock/`이 바뀌면 목 서버를 배포한다. 검사는 MR에서 끝냈으므로 다른 Job은 실행되지 않는다.
+- `develop` 스케줄(매일 9시 KST): BE · FE · AI의 빌드 · 테스트 · `sonar` Job만 실행해 `develop` 전체를 SonarQube로 정기 분석한다. 규칙 검사 · Pact · 목 서버 · 배포 Job은 실행되지 않는다. 스케줄은 GitLab의 Build → Pipeline schedules에서 관리한다(Interval `0 9 * * *`, Timezone `Asia/Seoul`, Target `develop`).
 
 | Job | 검사 내용 | 기준 |
 | --- | --- | --- |
@@ -538,12 +539,12 @@ CI는 MR을 열거나 MR에 Commit을 Push할 때, 그리고 `develop`에 Push(M
 | `ai-test` | Ruff·mypy, pytest·coverage | [12.2 Part별 도구](#122-part별-도구) |
 | `mock-build` · `mock-test` | Spotless·Checkstyle·빌드, 테스트 | [12.2 Part별 도구](#122-part별-도구)의 BE와 같음 |
 | `fe-pact` · `be-pact` | FE 조회 · 서버 액션 함수로 Pact 계약을 만들고(`npm run test:pact`), 실제로 띄운 BE로 검증(`./gradlew contractTest`) | FE가 기대하는 요청 · 응답과 BE가 다르면 실패 |
-| `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`). 수동 실행 | 보조 지표. 실패해도 MR을 막지 않는다 |
+| `be-sonar` · `fe-sonar` · `ai-sonar` | SonarQube 분석 결과 업로드 (`A301-be`, `A301-fe`, `A301-ai`). MR은 수동 실행, `develop` 스케줄은 자동 실행 | 보조 지표. 실패해도 MR을 막지 않는다 |
 | `mock-deploy` | `develop` 병합 시 목 서버 이미지 빌드·배포, Health 확인 (빌드·테스트 Job을 다시 돌리지 않음) | [목 서버 배포](../mock/README.md#배포) |
 
 실패하면 Job Log에 위반 항목과 올바른 형식이 출력된다. Commit 메시지는 `git commit --amend` 또는 `git rebase -i`로 고친 뒤 `git push --force-with-lease`로 다시 올린다. Branch 이름이 틀렸다면 올바른 이름으로 새 Branch를 만들어 MR을 다시 연다.
 
-`sonar` Job은 자동으로 돌지 않고, 파이프라인의 ▶ 버튼을 눌러야 실행된다. 병합 전에 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 한다. 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 MR 결과가 보인다. MR별 판정은 Mattermost 알림으로 확인한다.
+MR 파이프라인의 `sonar` Job은 자동으로 돌지 않고, 파이프라인의 ▶ 버튼을 눌러야 실행된다. 병합 전에 누르면 분석이 끝날 때까지 파이프라인이 다시 running이 되어 병합을 기다려야 한다. 분석 결과를 업로드하면 Quality Gate 판정을 기다리지 않고 끝난다. `allow_failure: true`라서 SonarQube 서버에 접속하지 못해도 경고(주황)로만 표시된다. Quality Gate 판정은 서버가 처리한 뒤 Webhook으로 Mattermost에 알리며, 알림에는 MR 번호·제목·작성자가 함께 표시된다. SonarQube Community Build는 Branch를 하나만 저장하므로 대시보드에는 마지막으로 분석한 결과가 보인다. 매일 9시 `develop` 정기 분석이 돌면 대시보드는 `develop` 기준으로 바뀌고, 그 뒤 MR에서 ▶를 누르면 다음 정기 분석 전까지 그 MR 결과가 보인다. 정기 분석 알림에는 MR 번호 대신 제목 `정기 분석 (develop)`, 작성자 `스케줄`, 파이프라인 링크가 표시된다. MR별 판정은 Mattermost 알림으로 확인한다. 미니PC의 SonarQube 서버나 Runner가 꺼져 있으면 정기 분석이 실패하고 알림도 오지 않는다.
 
 `fe-pact` · `be-pact`는 FE와 BE가 주고받는 요청 · 응답이 어긋나는 것을 막는다. 작성 방법 · 근거 · Bad Case는 [Pact 계약 테스트 가이드](Pact-계약-테스트-가이드.md)를 따른다. 계약은 FE의 `*.pact.test.ts`가 정한다. FE가 실제로 부르는 API와 FE가 읽는 필드만 넣는다. 오류는 API마다 FE의 처리 분기(이동 · 다시 그리기 · 화면 상태 등)마다 예시 하나를 넣고(`code`를 값까지 비교), 서버 문구만 보여 주는 오류는 그 API에 다른 오류 예시가 없을 때만 하나 넣는다(`code`는 모양만 비교). 한 요청에 여러 요청이 이어지는 흐름(로그아웃 중 토큰 만료 → 재발급 → 다시 로그아웃)은 Pact 상호작용 하나로 표현할 수 없어 넣지 않는다. 응답은 모양(타입)으로 비교하되 FE가 값으로 분기하는 값(면접 · 문의 · 홈 상태, 첫 연습 여부, null 여부, 오류 `code` · `errors[].field` 등)만 값까지 비교한다. 요청은 정확한 값으로 비교하되, BE 상황이 만드는 값(id · 토큰 · 이메일 · 날짜)은 상황이 돌려준 값을 넣는다. 상황(`given`)에 맞는 데이터는 BE 검증 테스트(`backend/src/test/java/com/ssafy/a301/contract/`)가 BE 서비스를 불러 만든다. 계약 파일은 저장소에 커밋하지 않고 같은 파이프라인에서 `fe-pact` 결과물로 `be-pact`에 넘긴다. 로컬에서는 `frontend`에서 `npm run test:pact` 뒤 `backend`에서 `./gradlew contractTest`(PostgreSQL · Redis 필요)로 확인한다.
 
