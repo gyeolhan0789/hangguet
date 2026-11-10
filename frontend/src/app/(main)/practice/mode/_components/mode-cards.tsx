@@ -15,11 +15,11 @@ function ModeCard({
   info,
   checked,
   onSelect,
-}: {
+}: Readonly<{
   info: ModeInfo;
   checked: boolean;
   onSelect: (mode: Mode) => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
 
   return (
@@ -87,10 +87,10 @@ function ModeCard({
 export function ModeCards({
   selected,
   onSelect,
-}: {
+}: Readonly<{
   selected: Mode | null;
   onSelect: (mode: Mode) => void;
-}) {
+}>) {
   return (
     <fieldset className="isolate flex flex-col gap-5 sm:flex-row sm:items-start">
       <legend className="sr-only">면접 방식</legend>

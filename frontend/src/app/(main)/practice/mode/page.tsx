@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "면접 방식 선택 · 한끗" };
 
 // S05-1 면접 방식 선택(연습 시작 3단계). 기준: Figma S05-1(18:2219) · Swagger 4.2 지원서 조회
 // 지원서가 없으면 S03으로, 면접관을 고르지 않았으면 S04로 돌려보낸다.
-async function Mode({ searchParams }: Pick<PageProps<"/practice/mode">, "searchParams">) {
+async function Mode({ searchParams }: Readonly<Pick<PageProps<"/practice/mode">, "searchParams">>) {
   const params = await searchParams;
   const applicationId = parseApplicationId(params.applicationId);
   const application = applicationId === null ? null : await getApplication(applicationId);

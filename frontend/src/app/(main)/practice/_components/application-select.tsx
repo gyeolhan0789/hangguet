@@ -32,16 +32,25 @@ type SelectProps = {
 };
 
 /**
+ * 줄이 처음 나타나는 모습. 지원서 쓰기에서 저장하고 돌아왔으면 새 지원서 줄만 위에서 내려오고(나머지는 그대로),
+ * 아니면 모든 줄이 아래에서 올라온다(모션 메모 S03 지원서 선택).
+ */
+function entrance(added: boolean, isNew: boolean) {
+  if (!added) return { y: 16, opacity: 0 };
+  return isNew && { y: -8, opacity: 0 };
+}
+
+/**
  * S03 지원서 선택. 한 번 본 화면은 고른 값을 살려 다시 보여 주므로(cacheComponents · Activity), 새로 들어올 때마다
  * (push · replace) 새로 그려 첫 등장 연출과 '아무것도 고르지 않음([다음] 회색)'부터 시작한다. 뒤로 · 앞으로 가기로
  * 돌아오면 고른 값을 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식).
  */
-export function ApplicationSelect(props: SelectProps) {
+export function ApplicationSelect(props: Readonly<SelectProps>) {
   const { bfcacheId } = useRouter();
   return <Select key={bfcacheId} {...props} />;
 }
 
-function Select({ applications, initialSelected, added }: SelectProps) {
+function Select({ applications, initialSelected, added }: Readonly<SelectProps>) {
   const reduce = useReducedMotion();
   const [picked, setPicked] = useState(initialSelected);
   // 한 번 본 화면은 고른 값이 남으므로(Activity), 그사이 목록에서 빠진 지원서(삭제 등)는 고르지 않은 것으로 본다.
@@ -78,18 +87,14 @@ function Select({ applications, initialSelected, added }: SelectProps) {
                     <motion.li
                       key={application.id}
                       className="border-b border-line last:border-b-0"
-                      initial={
-                        reduce
-                          ? false
-                          : added
-                            ? application.id === initialSelected && { y: -8, opacity: 0 }
-                            : { y: 16, opacity: 0 }
-                      }
+                      initial={reduce ? false : entrance(added, application.id === initialSelected)}
                       animate={{ y: 0, opacity: 1 }}
                       transition={{ duration: 0.3, ease: "easeOut", delay: added ? 0 : i * 0.06 }}
                     >
+                      {/* 라디오(왼쪽, 두 줄 가운데) · 회사 · 직무(위) · 작성일(아래)의 두 칸 격자. 글이 라벨 바로 아래에 있어야
+                          보조기기 · 검사 도구가 라벨 이름으로 읽는다 */}
                       <label
-                        className={`-mx-3 flex cursor-pointer items-center gap-3.5 rounded-xl px-3 py-[18px] transition-colors duration-200 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand ${on ? "bg-surface" : ""}`}
+                        className={`-mx-3 grid cursor-pointer grid-cols-[22px_minmax(0,1fr)] items-center gap-x-3.5 gap-y-0.5 rounded-xl px-3 py-[18px] transition-colors duration-200 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand ${on ? "bg-surface" : ""}`}
                       >
                         <input
                           type="radio"
@@ -101,7 +106,7 @@ function Select({ applications, initialSelected, added }: SelectProps) {
                         />
                         <span
                           aria-hidden
-                          className={`flex size-[22px] shrink-0 items-center justify-center rounded-full border-solid transition-colors ${on ? "border-2 border-brand-strong" : "border-[1.5px] border-line"}`}
+                          className={`row-span-2 flex size-[22px] items-center justify-center rounded-full border-solid transition-colors ${on ? "border-2 border-brand-strong" : "border-[1.5px] border-line"}`}
                         >
                           <motion.span
                             className="size-2.5 rounded-full bg-brand-strong"
@@ -110,13 +115,11 @@ function Select({ applications, initialSelected, added }: SelectProps) {
                             transition={{ type: "spring", stiffness: 400, damping: 30 }}
                           />
                         </span>
-                        <span className="flex min-w-0 flex-col gap-0.5">
-                          <span className="truncate text-base leading-normal font-semibold text-text-1">
-                            {application.companyName} · {application.jobTitle}
-                          </span>
-                          <span className="text-[13px] leading-normal font-medium text-text-3">
-                            {applicationDate(application.createdAt)}
-                          </span>
+                        <span className="truncate text-base leading-normal font-semibold text-text-1">
+                          {application.companyName} · {application.jobTitle}
+                        </span>
+                        <span className="text-[13px] leading-normal font-medium text-text-3">
+                          {applicationDate(application.createdAt)}
                         </span>
                       </label>
                     </motion.li>

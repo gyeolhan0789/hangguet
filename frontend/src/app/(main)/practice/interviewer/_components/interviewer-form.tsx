@@ -27,12 +27,12 @@ interface InterviewerFormProps {
  * S04 면접관 선택. 한 번 본 화면은 고른 값을 살려 다시 보여 주므로(cacheComponents · Activity), 다른 지원서로 들어와도 지난번
  * 면접관이 골라져 있지 않게 새로 들어올 때마다(push · replace) 새로 그리고, 뒤로 · 앞으로 가기로 돌아오면 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식). 고른 면접관은 주소(persona, S05-1 [← 면접관 선택])로만 미리 고른다.
  */
-export function InterviewerForm(props: InterviewerFormProps) {
+export function InterviewerForm(props: Readonly<InterviewerFormProps>) {
   const { bfcacheId } = useRouter();
   return <Interviewer key={bfcacheId} {...props} />;
 }
 
-function Interviewer({ application, initialPersona }: InterviewerFormProps) {
+function Interviewer({ application, initialPersona }: Readonly<InterviewerFormProps>) {
   const [persona, setPersona] = useState<Persona | null>(initialPersona);
 
   return (
