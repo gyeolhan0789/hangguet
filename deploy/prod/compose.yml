@@ -5,9 +5,7 @@
 #   설정 해시까지 맞춰 넣어야 하므로 서버에서는 deploy.sh로 띄운다(deploy/prod/README.md 「배포」)
 # 외부 주소: https://hangguet.co.kr (FE), wss://rtc.hangguet.co.kr (LiveKit 시그널링), https://grafana.hangguet.co.kr
 # 외부 요청 경로: 서버 443 → a301-prod-nginx(도메인 이름으로 나눔) → FE · BE · 관리 페이지 · a301-prod-livekit:7880 · a301-prod-grafana:3000,
-#   turn.hangguet.co.kr은 a301-prod-livekit:443(TURN/TLS). Cloudflare는 DNS만 쓴다(프록시 끔, 배포 계획 5.1).
-#   전환 기간에는 Cloudflare Tunnel(a301-prod-cloudflared) → a301-prod-nginx:80 · a301-prod-livekit:7880 · a301-prod-grafana:3000 길도 남아 있다.
-#   Tunnel의 호스트 이름 → 컨테이너 주소 연결은 Cloudflare 대시보드에 있다. DNS를 서버 IP로 바꾼 뒤 cloudflared와 함께 지운다.
+#   turn.hangguet.co.kr은 a301-prod-livekit:443(TURN/TLS). Cloudflare는 DNS만 쓴다(프록시 · Tunnel 없음, 배포 계획 5.1).
 #
 # 네트워크: 프로젝트 전용 네트워크(a301-prod) 하나. 바깥에 여는 포트는 Nginx의 웹(80 · 443)과 LiveKit의 미디어 · TURN 포트뿐이다(배포 계획 5.2).
 #   Docker가 연 포트는 ufw를 거치지 않으므로, 나머지는 ports를 쓰지 않거나 127.0.0.1에만 연다.
@@ -342,7 +340,7 @@ services:
       net.mptcp.enabled: "0"
     ports:
       - "443:443/tcp"     # 웹 HTTPS + TURN/TLS(SNI로 나눔)
-      - "80:8080/tcp"     # http → https. 컨테이너 80(Tunnel 입구)은 서버에 연결하지 않는다
+      - "80:8080/tcp"     # http → https. 컨테이너 80은 아래 healthcheck 전용(루프백)이라 서버에 연결하지 않는다
     volumes:
       # stream 블록이 필요해 conf.d가 아니라 nginx.conf 전체를 바꾼다
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
@@ -361,19 +359,6 @@ services:
     # 64m → 256m: Cloudflare를 뺀 뒤 HTTPS를 Nginx가 직접 풀어 연결마다 수십 KB를 쓴다.
     # 연결 한도만 올리면 사람이 몰릴 때 메모리 상한에 걸려 Nginx가 강제 종료될 수 있다(배포 계획 3.2)
     mem_limit: 256m
-    networks:
-      - internal
-    logging: *logging
-
-  # Cloudflare Tunnel(a301-prod). 바깥으로 나가는 연결만 쓴다
-  a301-prod-cloudflared:
-    image: cloudflare/cloudflared:2026.10.3
-    container_name: a301-prod-cloudflared
-    restart: unless-stopped
-    command: ["tunnel", "--no-autoupdate", "run"]
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN CI/CD variable is required}
-    mem_limit: 64m
     networks:
       - internal
     logging: *logging

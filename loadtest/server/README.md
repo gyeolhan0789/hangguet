@@ -3,6 +3,8 @@
 운영과 같은 사양 · 같은 이미지 · 같은 compose로 띄우는 부하 테스트 전용 서버다. 기준 문서는 [부하 테스트 계획](../../이해준/load_test_plan/README.md) 3.1 · 3.7이다.
 운영 compose(`deploy/prod/compose.yml`)에 이 폴더의 덮어쓰기 파일만 더해 띄운다. 운영 서버 · 운영 설정은 건드리지 않는다.
 
+> **주의(S15P31A301-450 이후)**: 운영이 Cloudflare Tunnel을 지우면서 운영 `nginx.conf`의 Tunnel 입구(컨테이너 80)가 없어졌다. 그 뒤의 `deploy/prod/nginx.conf`를 올려 Nginx를 다시 띄우면 `lt.hangguet.co.kr`(웹)이 열리지 않는다. `rtc-lt.` · `grafana-lt.`는 Tunnel이 LiveKit · Grafana로 바로 넘겨 그대로다. 테스트 서버를 다시 쓰려면 Tunnel 입구(`listen 80`)가 있는 Nginx 설정을 이 폴더에 두고 `compose.loadtest.yml`에서 붙인다. cloudflared 서비스는 운영 compose에서 `compose.loadtest.yml`로 옮겼다.
+
 ## 파일
 
 | 파일 | 내용 |
