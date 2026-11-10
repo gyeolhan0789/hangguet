@@ -220,10 +220,10 @@ class LiveKitInterviewRoomTest {
     void failedGroupDispatchDeletesGroupRoom() throws Exception {
         statuses.put("/twirp/livekit.AgentDispatchService/CreateDispatch", 500);
 
-        assertThatThrownBy(
-                        () ->
-                                room(apiUrl)
-                                        .openGroup(7L, false, Map.of(), "{}", OffsetDateTime.now()))
+        LiveKitInterviewRoom room = room(apiUrl);
+        Map<String, Object> assignment = Map.of();
+        OffsetDateTime now = OffsetDateTime.now();
+        assertThatThrownBy(() -> room.openGroup(7L, false, assignment, "{}", now))
                 .isInstanceOf(ApiException.class);
         assertThat(
                         DeleteRoomRequest.parseFrom(
@@ -285,8 +285,8 @@ class LiveKitInterviewRoomTest {
         assertThat(room(apiUrl).presence(55L)).isEqualTo(new Presence(false, null));
 
         statuses.put(LIST_PARTICIPANTS, 500);
-        assertThatThrownBy(() -> room(apiUrl).presence(55L))
-                .isInstanceOf(UncheckedIOException.class);
+        LiveKitInterviewRoom room = room(apiUrl);
+        assertThatThrownBy(() -> room.presence(55L)).isInstanceOf(UncheckedIOException.class);
     }
 
     // 기준: docs/그룹면접-설계.md 6.9(면접관과 들어와 있는 지원자의 면접 id를 ListParticipants로 본다)
@@ -304,8 +304,8 @@ class LiveKitInterviewRoomTest {
                 .isEqualTo("group-7");
 
         statuses.put(LIST_PARTICIPANTS, 500);
-        assertThatThrownBy(() -> room(apiUrl).groupPresence(7L))
-                .isInstanceOf(UncheckedIOException.class);
+        LiveKitInterviewRoom room = room(apiUrl);
+        assertThatThrownBy(() -> room.groupPresence(7L)).isInstanceOf(UncheckedIOException.class);
     }
 
     // 기준: BE 파트 요청 2(녹화가 진행 중이 아닌 트랙만 같은 S3 설정 · 파일 이름 규칙으로 다시 요청한다)
@@ -375,10 +375,10 @@ class LiveKitInterviewRoomTest {
     @Test
     void closeIgnoresFailures() {
         statuses.put("/twirp/livekit.RoomService/DeleteRoom", 500);
-        room(apiUrl).close(55L);
+        assertThatCode(() -> room(apiUrl).close(55L)).doesNotThrowAnyException();
 
         server.stop(0);
-        room(apiUrl).close(55L);
+        assertThatCode(() -> room(apiUrl).close(55L)).doesNotThrowAnyException();
     }
 
     @Test

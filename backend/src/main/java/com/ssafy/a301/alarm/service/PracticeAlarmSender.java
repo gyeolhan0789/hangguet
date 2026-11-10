@@ -106,7 +106,7 @@ public class PracticeAlarmSender {
         PracticeAlarm alarm = null;
         try {
             Integer claimed = transactions.execute(status -> alarms.claimToday(userId, today));
-            if (claimed == null || claimed == 0) {
+            if (claimed == 0) {
                 return false;
             }
             alarm = alarms.findById(userId).filter(PracticeAlarm::isEnabled).orElse(null);
@@ -117,15 +117,7 @@ public class PracticeAlarmSender {
             String text = message(practices.currentStreak(userId));
             boolean fresh = alarm.getKakaoAccessExpiresAt().isAfter(now.plus(ACCESS_TOKEN_MARGIN));
             String accessToken = fresh ? alarm.getKakaoAccessToken() : renew(alarm, now);
-            try {
-                kakao.sendToMe(accessToken, text);
-            } catch (KakaoApiException ex) {
-                // 만료 시각 전에 무효가 된 토큰(카카오 쪽 로그아웃 등)은 한 번만 새로 받아 다시 보낸다
-                if (ex.kind() != KakaoApiException.Kind.TOKEN_EXPIRED || !fresh) {
-                    throw ex;
-                }
-                kakao.sendToMe(renew(alarm, now), text);
-            }
+            send(alarm, accessToken, fresh, text, now);
             return true;
         } catch (KakaoApiException ex) {
             if (alarm != null) {
@@ -135,6 +127,23 @@ public class PracticeAlarmSender {
         } catch (RuntimeException ex) {
             LOG.warn("회원 {}에게 연습 알림을 보내지 못했다", userId, ex);
             return false;
+        }
+    }
+
+    // 만료 시각 전에 무효가 된 토큰(카카오 쪽 로그아웃 등)은 한 번만 새로 받아 다시 보낸다
+    private void send(
+            PracticeAlarm alarm,
+            String accessToken,
+            boolean fresh,
+            String text,
+            OffsetDateTime now) {
+        try {
+            kakao.sendToMe(accessToken, text);
+        } catch (KakaoApiException ex) {
+            if (ex.kind() != KakaoApiException.Kind.TOKEN_EXPIRED || !fresh) {
+                throw ex;
+            }
+            kakao.sendToMe(renew(alarm, now), text);
         }
     }
 

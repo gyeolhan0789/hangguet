@@ -57,13 +57,13 @@ public class RedisIdempotencyStore implements IdempotencyStore {
     }
 
     @Override
-    public void complete(long userId, UUID key, IdempotencyRecord record) {
+    public void complete(long userId, UUID key, IdempotencyRecord stored) {
         Long saved =
                 redis.execute(
                         COMPLETE,
                         List.of(key(userId, key)),
-                        JSON.writeValueAsString(IdempotencyRecord.processing(record.fingerprint())),
-                        JSON.writeValueAsString(record),
+                        JSON.writeValueAsString(IdempotencyRecord.processing(stored.fingerprint())),
+                        JSON.writeValueAsString(stored),
                         Long.toString(COMPLETED_TTL.toMillis()));
         if (saved == null || saved == 0) {
             LOG.warn("멱등 키의 처리 중 표시가 다른 요청 것이라 응답을 저장하지 않았다: user={} key={}", userId, key);

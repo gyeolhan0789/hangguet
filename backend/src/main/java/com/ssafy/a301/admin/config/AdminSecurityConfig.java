@@ -37,8 +37,7 @@ public class AdminSecurityConfig {
             HttpSecurity http,
             AuthProperties properties,
             AdminRepository admins,
-            AdminTokenStore revokedTokens)
-            throws Exception {
+            AdminTokenStore revokedTokens) {
         NimbusJwtDecoder decoder = decoder(properties, admins, revokedTokens);
         http.securityMatcher("/api/v1/admin/**")
                 .addFilterBefore(new FilterExceptionFilter(), BearerTokenAuthenticationFilter.class)

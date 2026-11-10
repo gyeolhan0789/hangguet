@@ -2,6 +2,7 @@ package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
@@ -81,7 +82,7 @@ public class InterviewGroupService {
 
     /** 10.1. 그룹(WAITING, 초대 코드) → 방장 면접(그룹용 PLAN 작업) → 참가자 행을 한 트랜잭션에서 만든다. */
     public GroupResponse create(long userId, GroupCreateRequest request) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         GroupResponse response =
                 transactions.execute(
                         status -> {
@@ -105,13 +106,13 @@ public class InterviewGroupService {
                                             now));
                             return response(group, userId, null, now);
                         });
-        touch(() -> presence.record(response.groupId(), userId, now.toInstant()));
+        touch(() -> presence.markSeen(response.groupId(), userId, now.toInstant()));
         return response;
     }
 
     /** 10.2. 대기 중이고 오래되지 않은 그룹만 보여 준다. 그 밖에는 없는 코드와 같이 404다. */
     public InviteResponse invite(String inviteCode) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewGroup group =
@@ -126,7 +127,7 @@ public class InterviewGroupService {
 
     /** 10.3. 정원 확인과 면접 만들기를 그룹 행 잠금 안에서 해 마지막 자리에 두 명이 동시에 들어오지 못하게 한다. */
     public GroupResponse join(long userId, GroupJoinRequest request) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         GroupResponse response =
                 transactions.execute(
                         status -> {
@@ -159,7 +160,7 @@ public class InterviewGroupService {
                                     request.jobCategory() != group.getJobCategory(),
                                     now);
                         });
-        touch(() -> presence.record(response.groupId(), userId, now.toInstant()));
+        touch(() -> presence.markSeen(response.groupId(), userId, now.toInstant()));
         return response;
     }
 
@@ -168,7 +169,7 @@ public class InterviewGroupService {
      * 가장 먼저 들어온 사람에게 방장을 넘긴다(6.1). 바꿀 일이 있을 때만 그룹 행을 잠근다.
      */
     public GroupResponse get(long userId, long groupId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         boolean needsUpdate =
                 Boolean.TRUE.equals(
                         transactions.execute(
@@ -180,7 +181,7 @@ public class InterviewGroupService {
                                     if (group.getStatus().isLobby()) {
                                         touch(
                                                 () ->
-                                                        presence.record(
+                                                        presence.markSeen(
                                                                 groupId, userId, now.toInstant()));
                                     }
                                     return group.isExpired(now, waitingExpiry)
@@ -203,7 +204,7 @@ public class InterviewGroupService {
 
     /** 10.5. 대기실 · 시작 실패 상태에서만. 다시 보내도 결과가 같다. */
     public GroupResponse changeReady(long userId, long groupId, boolean ready) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewGroup group = lock(groupId);
@@ -223,7 +224,7 @@ public class InterviewGroupService {
      * 참가자가 없거나 시작 실패 뒤 1명 이하면 그룹을 취소한다(5.1).
      */
     public void leave(long userId, long groupId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         transactions.executeWithoutResult(
                 status -> {
                     InterviewGroup group = lock(groupId);

@@ -1,5 +1,6 @@
 package com.ssafy.a301.interview.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.AnalysisStep;
 import com.ssafy.a301.interview.domain.Answer;
@@ -56,6 +57,7 @@ import tools.jackson.databind.json.JsonMapper;
 public class AiResultService {
     private static final Logger LOG = LoggerFactory.getLogger(AiResultService.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final String JOB_ID = "jobId";
     // 총평·기준 코멘트(VARCHAR(255), 글자 수)
     private static final int MAX_COMMENT_LENGTH = 255;
     // interview_sessions.headline 길이. AI가 30자를 넘기면 자르지만(AI 명세 4장) 저장이 실패하지 않게 BE도 자른다
@@ -299,7 +301,7 @@ public class AiResultService {
     // 결과 생성 중이고 마지막으로 보낸 EVALUATE의 결과일 때만 단계를 남긴다
     private Outcome evaluationProgress(long sessionId, AiResultMessage message) {
         AnalysisStep step = required(message.analysisStep(), "analysisStep");
-        String jobId = required(message.jobId(), "jobId");
+        String jobId = required(message.jobId(), JOB_ID);
         boolean analyzing =
                 sessions.findById(sessionId)
                         .filter(session -> session.getStatus() == SessionStatus.ANALYZING)
@@ -313,7 +315,7 @@ public class AiResultService {
 
     // 한 트랜잭션에서 이 면접의 결과를 지우고 다시 쓴 뒤 COMPLETED로 바꾼다(AI 명세 4장)
     private Outcome evaluationCompleted(long sessionId, AiResultMessage message) {
-        String jobId = required(message.jobId(), "jobId");
+        String jobId = required(message.jobId(), JOB_ID);
         String summary = withinCommentLength(required(message.summary(), "summary"), "summary");
         if (summary.isBlank()) {
             throw new InvalidAiResultException("총평이 비었다: session=" + sessionId);
@@ -391,7 +393,7 @@ public class AiResultService {
     }
 
     private Outcome evaluationFailed(long sessionId, AiResultMessage message) {
-        String jobId = required(message.jobId(), "jobId");
+        String jobId = required(message.jobId(), JOB_ID);
         LOG.warn("결과 생성 실패: session={} reason={}", sessionId, message.reason());
         Outcome outcome =
                 transactions.execute(
@@ -499,7 +501,7 @@ public class AiResultService {
                         return Outcome.DISCARDED;
                     }
                     LOG.info("면접방이 닫혀 면접을 끝낸다: session={}", sessionId);
-                    ender.end(session, OffsetDateTime.now(), null, null, true);
+                    ender.end(session, OffsetDateTime.now(KoreaTime.ZONE), null, null, true);
                     return Outcome.SAVED;
                 });
     }

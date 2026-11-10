@@ -144,14 +144,18 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @Override
     protected ResponseEntity<Object> createResponseEntity(
             Object body, HttpHeaders headers, HttpStatusCode statusCode, WebRequest request) {
-        if (body instanceof ProblemDetail pd
-                && (pd.getProperties() == null || !pd.getProperties().containsKey("code"))) {
+        if (body instanceof ProblemDetail pd && !hasCode(pd)) {
             String code = defaultCode(statusCode);
             pd.setProperty("code", code);
             // Spring 기본 문구는 영어 내부 메시지(경로 등)라 사용자용 문구로 바꾼다
             pd.setDetail(defaultDetail(code));
         }
         return super.createResponseEntity(body, headers, statusCode, request);
+    }
+
+    private static boolean hasCode(ProblemDetail pd) {
+        Map<String, Object> properties = pd.getProperties();
+        return properties != null && properties.containsKey("code");
     }
 
     private ResponseEntity<Object> validationFailed(List<Map<String, String>> errors) {

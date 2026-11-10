@@ -331,8 +331,8 @@ class IdempotencyInterceptorTest {
         }
 
         @Override
-        public void complete(long userId, UUID key, IdempotencyRecord record) {
-            records.put(userId + ":" + key, record);
+        public void complete(long userId, UUID key, IdempotencyRecord stored) {
+            records.put(userId + ":" + key, stored);
         }
 
         @Override

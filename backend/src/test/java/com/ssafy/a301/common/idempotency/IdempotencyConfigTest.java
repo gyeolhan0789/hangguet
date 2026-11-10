@@ -37,8 +37,12 @@ class IdempotencyConfigTest {
 
     static class Sample {
         @Idempotent
-        void idempotent() {}
+        void idempotent() {
+            // 문서에 헤더가 붙는지만 확인하므로 본문은 필요 없다
+        }
 
-        void plain() {}
+        void plain() {
+            // 헤더가 붙지 않는 비교 대상이라 본문은 필요 없다
+        }
     }
 }

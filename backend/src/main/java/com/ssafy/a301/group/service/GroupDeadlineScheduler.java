@@ -1,5 +1,6 @@
 package com.ssafy.a301.group.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import java.time.OffsetDateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,7 @@ public class GroupDeadlineScheduler {
             initialDelayString = "${group.deadline.interval:1s}")
     public void processDeadlines() {
         try {
-            deadlines.tick(OffsetDateTime.now());
+            deadlines.tick(OffsetDateTime.now(KoreaTime.ZONE));
         } catch (RuntimeException ex) {
             LOG.warn("그룹 면접 마감 처리가 실패했다", ex);
         }
@@ -43,7 +44,7 @@ public class GroupDeadlineScheduler {
             initialDelayString = "${group.presence-check.interval:15s}")
     public void checkPresence() {
         try {
-            absences.reconcile(OffsetDateTime.now());
+            absences.reconcile(OffsetDateTime.now(KoreaTime.ZONE));
         } catch (RuntimeException ex) {
             LOG.warn("그룹 면접방 참가자 맞추기가 실패했다", ex);
         }
@@ -54,7 +55,7 @@ public class GroupDeadlineScheduler {
             initialDelayString = "${group.cleanup.interval:1m}")
     public void cleanupStalled() {
         try {
-            int cleaned = groupEnds.cleanupStalled(OffsetDateTime.now());
+            int cleaned = groupEnds.cleanupStalled(OffsetDateTime.now(KoreaTime.ZONE));
             if (cleaned > 0) {
                 LOG.info("멈춘 그룹 면접 {}건 정리", cleaned);
             }

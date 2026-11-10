@@ -79,10 +79,12 @@ class InquiryAttachmentsTest {
     void notIssuedOrOtherPrefixKeyIsRejectedWithoutUsingAny() {
         issued(A);
 
-        assertThatThrownBy(() -> attachments.claim(List.of(A, B)))
+        List<String> notIssued = List.of(A, B);
+        assertThatThrownBy(() -> attachments.claim(notIssued))
                 .isInstanceOf(FieldValidationException.class);
         // 프로필 사진 키 등 다른 경로는 발급 여부도 보지 않는다
-        assertThatThrownBy(() -> attachments.claim(List.of("profile/7/a.png")))
+        List<String> otherPrefix = List.of("profile/7/a.png");
+        assertThatThrownBy(() -> attachments.claim(otherPrefix))
                 .isInstanceOf(FieldValidationException.class);
         verify(keys, never()).use(anyString(), eq(PURPOSE));
     }
@@ -91,7 +93,8 @@ class InquiryAttachmentsTest {
     void sameKeyTwiceIsRejected() {
         issued(A);
 
-        assertThatThrownBy(() -> attachments.claim(List.of(A, A)))
+        List<String> sameTwice = List.of(A, A);
+        assertThatThrownBy(() -> attachments.claim(sameTwice))
                 .isInstanceOf(FieldValidationException.class);
         verify(keys, never()).use(anyString(), eq(PURPOSE));
     }
@@ -102,7 +105,8 @@ class InquiryAttachmentsTest {
         when(storage.find(A)).thenReturn(Optional.of(new StoredFile("image/png", 100L)));
         when(storage.find(B)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> attachments.claim(List.of(A, B)))
+        List<String> objectKeys = List.of(A, B);
+        assertThatThrownBy(() -> attachments.claim(objectKeys))
                 .isInstanceOfSatisfying(
                         ApiException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.FILE_NOT_FOUND));
@@ -115,7 +119,8 @@ class InquiryAttachmentsTest {
         when(storage.find(A)).thenReturn(Optional.of(new StoredFile("image/png", 100L)));
         when(keys.use(A, PURPOSE)).thenReturn(false);
 
-        assertThatThrownBy(() -> attachments.claim(List.of(A)))
+        List<String> objectKeys = List.of(A);
+        assertThatThrownBy(() -> attachments.claim(objectKeys))
                 .isInstanceOf(FieldValidationException.class);
     }
 

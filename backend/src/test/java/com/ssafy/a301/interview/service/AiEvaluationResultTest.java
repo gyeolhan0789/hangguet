@@ -78,7 +78,8 @@ class AiEvaluationResultTest {
         assertThat(results.handle(progress(session, UUID.randomUUID(), "WRITING_FEEDBACK")))
                 .isEqualTo(Outcome.DISCARDED);
         assertThat(analysisStep(session)).isEqualTo(AnalysisStep.SCORING);
-        assertThatThrownBy(() -> results.handle(progress(session, JOB_ID, "UNKNOWN")))
+        String unknownStep = progress(session, JOB_ID, "UNKNOWN");
+        assertThatThrownBy(() -> results.handle(unknownStep))
                 .isInstanceOf(InvalidAiResultException.class);
     }
 
@@ -209,7 +210,8 @@ class AiEvaluationResultTest {
             Map<String, Object> message = completed(session, JOB_ID, answered);
             breaker.accept(message);
 
-            assertThatThrownBy(() -> results.handle(json(message)))
+            String raw = json(message);
+            assertThatThrownBy(() -> results.handle(raw))
                     .as(message.toString())
                     .isInstanceOf(InvalidAiResultException.class);
         }
@@ -248,7 +250,8 @@ class AiEvaluationResultTest {
                         });
 
         // 다른 면접의 위치는 받지 않는다
-        assertThatThrownBy(() -> results.handle(merged(session.getId(), "recordings/1.mp4")))
+        String otherSession = merged(session.getId(), "recordings/1.mp4");
+        assertThatThrownBy(() -> results.handle(otherSession))
                 .isInstanceOf(InvalidAiResultException.class);
     }
 

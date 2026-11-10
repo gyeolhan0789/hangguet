@@ -26,7 +26,7 @@ class RedisGroupPresenceStoreTest {
 
     @Test
     void recordStoresEpochMillisPerUserAndRefreshesTtl() {
-        store.record(7L, 3L, Instant.ofEpochMilli(1_000L));
+        store.markSeen(7L, 3L, Instant.ofEpochMilli(1_000L));
 
         verify(hashes).put("group:7:presence", "3", "1000");
         verify(redis).expire("group:7:presence", RedisGroupPresenceStore.TTL);

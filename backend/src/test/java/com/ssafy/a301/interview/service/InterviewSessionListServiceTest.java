@@ -149,8 +149,7 @@ class InterviewSessionListServiceTest {
                         eq(7L), any(), from.capture(), to.capture(), requestedPage.capture());
         assertThat(from.getValue()).isEqualTo("2026-10-21T00:00+09:00");
         assertThat(to.getValue()).isEqualTo("2026-10-22T00:00+09:00");
-        assertThat(requestedPage.getValue().getSort().toString())
-                .isEqualTo("startedAt: DESC,id: DESC");
+        assertThat(requestedPage.getValue().getSort()).hasToString("startedAt: DESC,id: DESC");
     }
 
     @Test

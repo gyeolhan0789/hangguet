@@ -121,16 +121,13 @@ class AiResultServiceTest {
         InterviewSession session = newSession(InterviewMode.CHAT);
         runtimes.startPlan(session.getId(), STARTED_AT.toInstant());
 
-        assertThatThrownBy(() -> results.handle(planCompleted(session, 4)))
+        String wrongCount = planCompleted(session, 4);
+        assertThatThrownBy(() -> results.handle(wrongCount))
                 .isInstanceOf(InvalidAiResultException.class);
         // 질문 글이 비면 저장해도 질문을 낼 수 없다
-        assertThatThrownBy(
-                        () ->
-                                results.handle(
-                                        planCompleted(session, 5)
-                                                .replace(
-                                                        "\"content\":\"질문3\"",
-                                                        "\"content\":\" \"")))
+        String blankQuestion =
+                planCompleted(session, 5).replace("\"content\":\"질문3\"", "\"content\":\" \"");
+        assertThatThrownBy(() -> results.handle(blankQuestion))
                 .isInstanceOf(InvalidAiResultException.class);
         assertThat(plans.existsById(session.getId())).isFalse();
 
@@ -366,7 +363,8 @@ class AiResultServiceTest {
 
         InterviewSession video = startedSession(InterviewMode.VIDEO);
         assertThat(results.handle(answerCompleted(video, 3, "답"))).isEqualTo(Outcome.DISCARDED);
-        assertThatThrownBy(() -> results.handle(answerCompleted(video, 1, " ")))
+        String blankAnswer = answerCompleted(video, 1, " ");
+        assertThatThrownBy(() -> results.handle(blankAnswer))
                 .isInstanceOf(InvalidAiResultException.class);
     }
 
@@ -467,11 +465,9 @@ class AiResultServiceTest {
         assertThat(ready.getStatus()).isEqualTo(SessionStatus.READY);
 
         // 닫힌 시각이 없으면 처리할 수 없다
-        assertThatThrownBy(
-                        () ->
-                                results.handle(
-                                        "{\"type\":\"room.closed\",\"sessionId\":%d}"
-                                                .formatted(restarted.getId())))
+        String withoutClosedAt =
+                "{\"type\":\"room.closed\",\"sessionId\":%d}".formatted(restarted.getId());
+        assertThatThrownBy(() -> results.handle(withoutClosedAt))
                 .isInstanceOf(InvalidAiResultException.class);
     }
 

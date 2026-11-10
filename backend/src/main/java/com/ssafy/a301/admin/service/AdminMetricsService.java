@@ -59,7 +59,7 @@ public class AdminMetricsService {
 
     @Transactional(readOnly = true)
     public AdminMetricsResponse metrics() {
-        return metrics(KoreaTime.today(), KoreaTime.now());
+        return collect(KoreaTime.today(), KoreaTime.now());
     }
 
     /**
@@ -68,6 +68,10 @@ public class AdminMetricsService {
      */
     @Transactional(readOnly = true)
     public AdminMetricsResponse metrics(LocalDate today, OffsetDateTime now) {
+        return collect(today, now);
+    }
+
+    private AdminMetricsResponse collect(LocalDate today, OffsetDateTime now) {
         return new AdminMetricsResponse(
                 today,
                 users(today),

@@ -89,12 +89,16 @@ public class GrowthReviewService {
     /** 그날 리뷰가 없으면 404 GROWTH_REVIEW_NOT_FOUND */
     @Transactional(readOnly = true)
     public GrowthReviewResponse review(long userId, LocalDate practiceDate) {
-        return findReview(userId, practiceDate)
+        return reviewOf(userId, practiceDate)
                 .orElseThrow(() -> new ApiException(ErrorCode.GROWTH_REVIEW_NOT_FOUND));
     }
 
     @Transactional(readOnly = true)
     public Optional<GrowthReviewResponse> findReview(long userId, LocalDate practiceDate) {
+        return reviewOf(userId, practiceDate);
+    }
+
+    private Optional<GrowthReviewResponse> reviewOf(long userId, LocalDate practiceDate) {
         List<ReviewDay> days = reviewDays(userId, practiceDate.plusDays(1));
         if (days.isEmpty() || !days.get(days.size() - 1).date().equals(practiceDate)) {
             return Optional.empty();

@@ -58,7 +58,7 @@ public class StreakFreezeService {
                                                     new ApiException(
                                                             ErrorCode.STREAK_FREEZE_NOT_FOUND));
                     freeze.use(now);
-                    if (!practices.record(userId, freeze.getFillableDate())) {
+                    if (!practices.recordPractice(userId, freeze.getFillableDate())) {
                         throw new ApiException(ErrorCode.STREAK_FREEZE_DATE_NOT_ALLOWED);
                     }
                     int available =

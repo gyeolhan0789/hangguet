@@ -55,7 +55,7 @@ public class CompanyCardImporter {
             return Optional.empty();
         }
         CompanyCardManifest manifest = JSON.readValue(raw.get(), CompanyCardManifest.class);
-        if (manifest.format() != CompanyCardManifest.FORMAT) {
+        if (manifest.format() != CompanyCardManifest.SUPPORTED_FORMAT) {
             LOG.warn("모르는 manifest 형식이라 적재하지 않았다: format {}", manifest.format());
             return Optional.empty();
         }

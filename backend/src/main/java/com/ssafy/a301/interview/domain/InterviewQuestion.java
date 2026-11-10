@@ -1,5 +1,6 @@
 package com.ssafy.a301.interview.domain;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.TurnKind;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -80,7 +81,7 @@ public class InterviewQuestion {
     private OffsetDateTime interruptedAt;
 
     public InterviewQuestion(InterviewSession session, int seq, String content) {
-        this(session, seq, content, OffsetDateTime.now());
+        this(session, seq, content, OffsetDateTime.now(KoreaTime.ZONE));
     }
 
     public InterviewQuestion(
@@ -105,19 +106,26 @@ public class InterviewQuestion {
         this.createdAt = askedAt;
     }
 
+    /** AI가 만든 질문 글 · 평가 기준과 만든 프롬프트 · 모델 버전 */
+    public record Generated(
+            String content, String criteria, String promptVersion, String modelVersion) {}
+
     /** 그룹 면접의 질문(question.started, docs/그룹면접-설계.md 6.4) */
     public static InterviewQuestion groupTurn(
             InterviewSession session,
             int seq,
             TurnKind kind,
-            String content,
-            String criteria,
-            String promptVersion,
-            String modelVersion,
+            Generated generated,
             OffsetDateTime askedAt) {
         InterviewQuestion question =
                 new InterviewQuestion(
-                        session, seq, content, criteria, promptVersion, modelVersion, askedAt);
+                        session,
+                        seq,
+                        generated.content(),
+                        generated.criteria(),
+                        generated.promptVersion(),
+                        generated.modelVersion(),
+                        askedAt);
         question.kind = kind;
         return question;
     }

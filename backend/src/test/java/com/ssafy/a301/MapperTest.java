@@ -403,7 +403,9 @@ class MapperTest {
                         null,
                         null,
                         null);
-        assertThat(replay.items()).allSatisfy(item -> assertThat(item.timeline()).isNull());
+        assertThat(replay.items())
+                .isNotEmpty()
+                .allSatisfy(item -> assertThat(item.timeline()).isNull());
 
         InterviewSession chat = session(InterviewMode.CHAT);
         chat.start(T0);

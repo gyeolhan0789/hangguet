@@ -2,6 +2,7 @@ package com.ssafy.a301.auth.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.offset;
+import static org.awaitility.Awaitility.await;
 
 import com.ssafy.a301.auth.jwt.AuthProperties;
 import com.ssafy.a301.common.crypto.Hashes;
@@ -106,7 +107,7 @@ class RedisAuthIntegrationTest {
                 post("/api/v1/auth/token/refresh", Map.of("refreshToken", account.refresh()), null);
         assertThat(response.statusCode()).isEqualTo(200);
         String next = remember(body(response).path("refreshToken").asText());
-        assertThat(next.equals(account.refresh())).isFalse();
+        assertThat(next).isNotEqualTo(account.refresh());
         assertThat(redis.hasKey(key(account.refresh()))).isFalse();
         // 재발급해도 로그인 시각은 이어진다
         assertThat(redis.opsForValue().get(key(next))).isEqualTo(loggedIn);
@@ -233,7 +234,7 @@ class RedisAuthIntegrationTest {
                         null);
         assertThat(secondLogin.statusCode()).isEqualTo(200);
         String secondToken = remember(body(secondLogin).path("refreshToken").asText());
-        assertThat(secondToken.equals(first.refresh())).isFalse();
+        assertThat(secondToken).isNotEqualTo(first.refresh());
         assertThat(redis.hasKey(key(first.refresh()))).isTrue();
         assertThat(redis.hasKey(key(secondToken))).isTrue();
 
@@ -386,8 +387,10 @@ class RedisAuthIntegrationTest {
                         null);
         String otherAccess = body(otherDevice).path("accessToken").asText();
         remember(body(otherDevice).path("refreshToken").asText());
-        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 구분하지 못한다. 다음 초로 넘긴다
-        Thread.sleep(1_100);
+        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 구분하지 못한다. 다음 초가 될 때까지 기다린다
+        long issuedSecond = Instant.now().getEpochSecond();
+        await().atMost(Duration.ofSeconds(2))
+                .until(() -> Instant.now().getEpochSecond() > issuedSecond);
 
         var changed = changePassword(account.access());
         assertThat(changed.statusCode()).isEqualTo(200);

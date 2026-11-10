@@ -20,7 +20,7 @@ public class RedisGroupPresenceStore implements GroupPresenceStore {
     }
 
     @Override
-    public void record(long groupId, long userId, Instant now) {
+    public void markSeen(long groupId, long userId, Instant now) {
         String key = key(groupId);
         redis.opsForHash().put(key, String.valueOf(userId), String.valueOf(now.toEpochMilli()));
         redis.expire(key, TTL);

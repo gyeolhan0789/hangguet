@@ -2,6 +2,7 @@ package com.ssafy.a301.result.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.Answer;
@@ -116,7 +117,8 @@ public class ResultService {
         }
         String key = Recording.sessionVideoKey(session.getId());
         Recording recording = recordings.findByObjectKey(key).orElse(null);
-        VideoStatus videoStatus = replayVideoStatus(session, recording, OffsetDateTime.now());
+        VideoStatus videoStatus =
+                replayVideoStatus(session, recording, OffsetDateTime.now(KoreaTime.ZONE));
         String videoUrl = videoStatus == VideoStatus.READY ? storage.presignDownload(key) : null;
         return ResultMapper.toReplay(
                 session,

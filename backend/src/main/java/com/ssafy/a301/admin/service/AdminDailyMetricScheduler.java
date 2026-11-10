@@ -35,7 +35,7 @@ public class AdminDailyMetricScheduler {
     public void run() {
         OffsetDateTime now = KoreaTime.now();
         try {
-            daily.record(now.toLocalDate().minusDays(1), now);
+            daily.recordDay(now.toLocalDate().minusDays(1), now);
         } catch (RuntimeException ex) {
             LOG.warn("전날 관리자 메트릭을 남기지 못했다", ex);
         }

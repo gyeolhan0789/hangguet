@@ -13,7 +13,7 @@ public interface IdempotencyStore {
     IdempotencyRecord begin(long userId, UUID key, String fingerprint);
 
     /** 처리가 끝난 응답을 저장한다. 같은 키의 재요청은 이 응답을 받는다. */
-    void complete(long userId, UUID key, IdempotencyRecord record);
+    void complete(long userId, UUID key, IdempotencyRecord stored);
 
     /** 처리에 실패해 같은 키로 다시 시도할 수 있게 처리 중 표시를 지운다. 끝난 기록은 지우지 않는다. */
     void release(long userId, UUID key, String fingerprint);

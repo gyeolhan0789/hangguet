@@ -2,6 +2,7 @@ package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
@@ -97,8 +98,7 @@ public class GroupEndService {
      * 5.8. 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10). 질문을 모두 마친 뒤면 ALL_ANSWERED, 아니면 USER_ENDED로 남긴다. 이미
      * 끝났거나 진행 중이 아니면 409 INVALID_SESSION_STATE. 면접의 소유는 부르는 쪽(InterviewSessionService)이 확인한다.
      */
-    public SessionResponse endByUser(
-            long userId, long groupId, long sessionId, BigDecimal gazeRatio) {
+    public SessionResponse endByUser(long groupId, long sessionId, BigDecimal gazeRatio) {
         return endSession(groupId, sessionId, gazeRatio, Trigger.USER);
     }
 
@@ -126,7 +126,7 @@ public class GroupEndService {
     // BE가 끝내는 경우는 조건을 잠근 뒤 다시 보고 맞지 않으면 null을 돌려주고, 5.8은 409를 던진다
     private SessionResponse endSession(
             long groupId, long sessionId, BigDecimal gazeRatio, Trigger trigger) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         Ended ended =
                 transactions.execute(
                         status -> {

@@ -27,7 +27,22 @@ public class AdminDailyMetricService {
 
     /** date의 집계를 now 시각으로 남긴다. 이미 있으면 덮어쓴다 */
     @Transactional
-    public void record(LocalDate date, OffsetDateTime now) {
+    public void recordDay(LocalDate date, OffsetDateTime now) {
+        saveDay(date, now);
+    }
+
+    /** 0시에 서버가 꺼져 있었으면 기동할 때 전날 기록을 채운다. 이미 있으면 그대로 둔다(0시에 잰 값을 지키려고) */
+    @Transactional
+    public boolean recordYesterdayIfAbsent(OffsetDateTime now) {
+        LocalDate yesterday = KoreaTime.dateOf(now).minusDays(1);
+        if (daily.existsById(yesterday)) {
+            return false;
+        }
+        saveDay(yesterday, now);
+        return true;
+    }
+
+    private void saveDay(LocalDate date, OffsetDateTime now) {
         AdminMetricsResponse m = metrics.metrics(date, now);
         AdminDailyMetric row = new AdminDailyMetric(date, now);
         UserMetrics users = m.users();
@@ -47,17 +62,6 @@ public class AdminDailyMetricService {
                 m.streakFreezes().granted(),
                 m.streakFreezes().used());
         daily.save(row);
-    }
-
-    /** 0시에 서버가 꺼져 있었으면 기동할 때 전날 기록을 채운다. 이미 있으면 그대로 둔다(0시에 잰 값을 지키려고) */
-    @Transactional
-    public boolean recordYesterdayIfAbsent(OffsetDateTime now) {
-        LocalDate yesterday = KoreaTime.dateOf(now).minusDays(1);
-        if (daily.existsById(yesterday)) {
-            return false;
-        }
-        record(yesterday, now);
-        return true;
     }
 
     /** 어제까지 최근 days일의 기록. 기록이 없는 날은 빠진다 */

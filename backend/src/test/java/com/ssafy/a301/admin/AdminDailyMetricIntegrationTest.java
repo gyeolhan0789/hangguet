@@ -110,7 +110,7 @@ class AdminDailyMetricIntegrationTest {
         // 2.20 가입 · 3.3(주간 전날)에만 연습 → 주간에 들지 않는다
         practiced(joinedOn(LocalDate.of(2001, 2, 20), 12), DAY.minusDays(7));
 
-        record(DAY, OffsetDateTime.now(KST));
+        recordDay(DAY, OffsetDateTime.now(KST));
 
         assertThat(row(DAY))
                 .containsEntry("users_joined", 2)
@@ -148,7 +148,7 @@ class AdminDailyMetricIntegrationTest {
     @Test
     void recordAgainOverwritesButStartupFillKeepsExistingRow() {
         OffsetDateTime first = DAY.plusDays(1).atStartOfDay(KST).toOffsetDateTime();
-        record(DAY, first);
+        recordDay(DAY, first);
         jdbc.update("UPDATE admin_daily_metrics SET users_total = -1 WHERE metric_date = ?", DAY);
 
         // 기동 때 채우기는 전날(3.10) 기록이 있으면 그대로 둔다
@@ -157,7 +157,7 @@ class AdminDailyMetricIntegrationTest {
 
         // 0시 기록은 같은 날을 덮어쓴다(기록 시각도 바뀐다)
         OffsetDateTime second = first.plusMinutes(5);
-        daily.record(DAY, second);
+        daily.recordDay(DAY, second);
         assertThat(row(DAY))
                 .containsEntry("users_total", metrics.metrics(DAY, second).users().total());
         assertThat(recordedAt(DAY)).isEqualTo(second.toInstant());
@@ -216,27 +216,7 @@ class AdminDailyMetricIntegrationTest {
                         .filter(d -> d.get("date").asString().equals(inside.toString()))
                         .findFirst()
                         .orElseThrow();
-        assertThat(item.get("usersTotal").asInt()).isEqualTo(11);
-        assertThat(item.get("usersJoined").asInt()).isEqualTo(12);
-        assertThat(item.get("usersWithdrawn").asInt()).isEqualTo(13);
-        assertThat(item.get("usersInterviewed").asInt()).isEqualTo(14);
-        assertThat(item.get("practicedUsers").asInt()).isEqualTo(15);
-        assertThat(item.get("practicedWeek").asInt()).isEqualTo(16);
-        assertThat(item.get("d1Eligible").asInt()).isEqualTo(17);
-        assertThat(item.get("d1Returned").asInt()).isEqualTo(18);
-        assertThat(item.get("d3Eligible").asInt()).isEqualTo(19);
-        assertThat(item.get("d3Returned").asInt()).isEqualTo(20);
-        assertThat(item.get("d7Eligible").asInt()).isEqualTo(21);
-        assertThat(item.get("d7Returned").asInt()).isEqualTo(22);
-        assertThat(item.get("interviewsTotal").asInt()).isEqualTo(23);
-        assertThat(item.get("interviewsCompleted").asInt()).isEqualTo(24);
-        assertThat(item.get("interviewsFailed").asInt()).isEqualTo(25);
-        assertThat(item.get("interviewsAborted").asInt()).isEqualTo(26);
-        assertThat(item.get("interviewsStuck").asInt()).isEqualTo(27);
-        assertThat(item.get("applications").asInt()).isEqualTo(28);
-        assertThat(item.get("inquiriesWaiting").asInt()).isEqualTo(29);
-        assertThat(item.get("freezesGranted").asInt()).isEqualTo(30);
-        assertThat(item.get("freezesUsed").asInt()).isEqualTo(31);
+        assertEachFieldReadsItsOwnColumn(item);
     }
 
     @Test
@@ -273,9 +253,34 @@ class AdminDailyMetricIntegrationTest {
         }
     }
 
-    private void record(LocalDate date, OffsetDateTime now) {
+    // insert(inside, 11)로 넣은 값(usersTotal 11 ~ freezesUsed 31)이 응답 필드마다 그대로 나오는지 본다
+    private static void assertEachFieldReadsItsOwnColumn(JsonNode item) {
+        assertThat(item.get("usersTotal").asInt()).isEqualTo(11);
+        assertThat(item.get("usersJoined").asInt()).isEqualTo(12);
+        assertThat(item.get("usersWithdrawn").asInt()).isEqualTo(13);
+        assertThat(item.get("usersInterviewed").asInt()).isEqualTo(14);
+        assertThat(item.get("practicedUsers").asInt()).isEqualTo(15);
+        assertThat(item.get("practicedWeek").asInt()).isEqualTo(16);
+        assertThat(item.get("d1Eligible").asInt()).isEqualTo(17);
+        assertThat(item.get("d1Returned").asInt()).isEqualTo(18);
+        assertThat(item.get("d3Eligible").asInt()).isEqualTo(19);
+        assertThat(item.get("d3Returned").asInt()).isEqualTo(20);
+        assertThat(item.get("d7Eligible").asInt()).isEqualTo(21);
+        assertThat(item.get("d7Returned").asInt()).isEqualTo(22);
+        assertThat(item.get("interviewsTotal").asInt()).isEqualTo(23);
+        assertThat(item.get("interviewsCompleted").asInt()).isEqualTo(24);
+        assertThat(item.get("interviewsFailed").asInt()).isEqualTo(25);
+        assertThat(item.get("interviewsAborted").asInt()).isEqualTo(26);
+        assertThat(item.get("interviewsStuck").asInt()).isEqualTo(27);
+        assertThat(item.get("applications").asInt()).isEqualTo(28);
+        assertThat(item.get("inquiriesWaiting").asInt()).isEqualTo(29);
+        assertThat(item.get("freezesGranted").asInt()).isEqualTo(30);
+        assertThat(item.get("freezesUsed").asInt()).isEqualTo(31);
+    }
+
+    private void recordDay(LocalDate date, OffsetDateTime now) {
         metricDates.add(date);
-        daily.record(date, now);
+        daily.recordDay(date, now);
     }
 
     private Map<String, Object> row(LocalDate date) {

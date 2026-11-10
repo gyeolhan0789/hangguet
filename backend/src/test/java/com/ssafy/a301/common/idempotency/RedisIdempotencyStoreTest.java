@@ -79,7 +79,7 @@ class RedisIdempotencyStoreTest {
                         eq(json(IdempotencyRecord.processing("fp"))));
     }
 
-    private static String json(IdempotencyRecord record) {
-        return JSON.writeValueAsString(record);
+    private static String json(IdempotencyRecord stored) {
+        return JSON.writeValueAsString(stored);
     }
 }

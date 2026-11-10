@@ -121,9 +121,9 @@ public class CompanyCardWriter {
             }
             if (aliases.existsByAlias(name)) {
                 LOG.warn("다른 회사가 쓰는 별칭이라 넣지 않았다: {} ({})", name, company.getCorpCode());
-                continue;
+            } else {
+                aliases.save(new CompanyAlias(company, name));
             }
-            aliases.save(new CompanyAlias(company, name));
         }
     }
 

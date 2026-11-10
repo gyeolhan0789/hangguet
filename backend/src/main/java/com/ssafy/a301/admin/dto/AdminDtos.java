@@ -17,6 +17,9 @@ import java.util.Optional;
 
 public final class AdminDtos {
 
+    // 한 줄이고 공백만은 아닌 글. 되돌아가며 다시 맞춰 보지 않도록 소유 수량자(*+)로 쓴다
+    private static final String SINGLE_LINE_NOT_BLANK = "[ \\t\\x0B\\f]*+\\S.*+";
+
     private AdminDtos() {}
 
     // 8.1 · 8.2 관리자 인증
@@ -69,7 +72,7 @@ public final class AdminDtos {
                             maxLength = 100,
                             nullable = true)
                     @Size(min = 1, max = 100, message = "1~100자입니다.")
-                    @Pattern(regexp = ".*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")
+                    @Pattern(regexp = SINGLE_LINE_NOT_BLANK, message = "공백만으로는 바꿀 수 없습니다.")
                     String title,
             @Schema(description = "공지 본문", nullable = true)
                     @Pattern(regexp = "(?s).*\\S.*", message = "공백만으로는 바꿀 수 없습니다.")

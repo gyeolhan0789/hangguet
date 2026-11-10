@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -300,7 +301,7 @@ class AuthServiceTest {
     void logoutPassesAuthenticatedOwnerForRevocation() {
         service.logout(7L, "token");
         service.logout(7L, "token");
-        verify(refresh, org.mockito.Mockito.times(2)).revoke("token", 7L);
+        verify(refresh, times(2)).revoke("token", 7L);
     }
 
     private static void assertCode(Runnable operation, ErrorCode expected) {
