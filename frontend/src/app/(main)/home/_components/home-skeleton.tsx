@@ -1,7 +1,7 @@
 const bone = "bg-surface";
 
 /** Figma S02-1 Home Skeleton. withHeader면 헤더 자리까지 그린다(인트로가 화면 전체를 덮을 때). */
-export function HomeSkeleton({ withHeader = false }: { withHeader?: boolean }) {
+export function HomeSkeleton({ withHeader = false }: Readonly<{ withHeader?: boolean }>) {
   return (
     <div aria-hidden className="flex w-full flex-col items-center gap-6 bg-bg pb-16">
       {withHeader && (
