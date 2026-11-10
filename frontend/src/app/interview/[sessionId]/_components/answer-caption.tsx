@@ -18,15 +18,14 @@ export function AnswerCaption({
   interimText,
   locked = false,
   children,
-}: {
+}: Readonly<{
   status: InterviewRoomStatus;
   confirmedText: string;
   interimText: string;
   /** 면접관이 질문을 말하는 중이라 답변을 받지 않는다(question started ~ ended · failed) */
   locked?: boolean;
   children?: ReactNode;
-}) {
-  const empty = !confirmedText && !interimText;
+}>) {
   return (
     <section
       aria-label="내 답변 음성 인식"
@@ -44,22 +43,33 @@ export function AnswerCaption({
         aria-atomic="true"
         className="max-h-36 overflow-y-auto text-[15px] leading-normal font-medium break-words whitespace-pre-wrap text-white sm:text-lg"
       >
-        {locked ? (
-          <span className="text-white/50">질문이 끝나면 말씀해 주세요</span>
-        ) : empty ? (
-          <span className="text-white/50">
-            {status === "idle" || status === "connecting"
-              ? "음성 인식에 연결하고 있어요."
-              : "말씀하신 내용이 여기에 표시돼요."}
-          </span>
-        ) : (
-          <>
-            {confirmedText}
-            <span className="text-white/50">{interimText}</span>
-          </>
-        )}
+        {captionContent(status, confirmedText, interimText, locked)}
       </p>
       {children}
     </section>
+  );
+}
+
+/** 상자 글: 질문 중이면 기다림 안내, 아직 말이 없으면 연결 · 대기 안내, 있으면 확정 글 + 흐린 미확정 글 */
+function captionContent(
+  status: InterviewRoomStatus,
+  confirmedText: string,
+  interimText: string,
+  locked: boolean,
+): ReactNode {
+  if (locked) return <span className="text-white/50">질문이 끝나면 말씀해 주세요</span>;
+  if (!confirmedText && !interimText) {
+    const connecting = status === "idle" || status === "connecting";
+    return (
+      <span className="text-white/50">
+        {connecting ? "음성 인식에 연결하고 있어요." : "말씀하신 내용이 여기에 표시돼요."}
+      </span>
+    );
+  }
+  return (
+    <>
+      {confirmedText}
+      <span className="text-white/50">{interimText}</span>
+    </>
   );
 }

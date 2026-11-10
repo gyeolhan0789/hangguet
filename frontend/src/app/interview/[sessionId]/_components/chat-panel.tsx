@@ -42,7 +42,7 @@ export function ChatPanel({
   onChatInput,
   inputQuestionSeq,
   onSubmitStart,
-}: {
+}: Readonly<{
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
@@ -55,7 +55,7 @@ export function ChatPanel({
   inputQuestionSeq?: number;
   /** [답변 완료]로 5.7을 요청하는 때(오리 면접관은 이때 호응 효과음을 낸다, API 명세 면접방 메시지) */
   onSubmitStart?: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
   const setLeveledUp = useInterviewStore((state) => state.setLeveledUp);
@@ -115,7 +115,7 @@ export function ChatPanel({
     setFormError(undefined);
     const saved = answerKey.current;
     const key =
-      saved && saved.questionId === question.id && saved.content === values.content
+      saved?.questionId === question.id && saved.content === values.content
         ? saved.key
         : crypto.randomUUID();
     answerKey.current = { questionId: question.id, content: values.content, key };

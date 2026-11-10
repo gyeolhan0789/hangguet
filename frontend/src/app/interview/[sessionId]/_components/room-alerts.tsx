@@ -4,6 +4,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
+
 // 기준: Figma S06-F 연결 끊김(18:4323: Reconnect Banner 600×48 · 위 80 · #ffb547 · 둥글기 999 · wifi-off 18 · 15 Bold #3d2600
 // '연결이 불안정해요 · 다시 연결하는 중… N초' / Dim rgba(11,13,20,.6) · Modal 420 · 흰색 · 둥글기 24 · 패딩 32 · 간격 16
 // · 그림자 0 20 48 rgba(25,33,40,.25) · Icon Tile 56(#fff6dd · 둥글기 20 · pause 28) · 제목 22 Bold #191f28 · 본문 15 Medium #4e5968
@@ -20,7 +22,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 export const PAUSE_AFTER_MS = 5000;
 
 /** 연결이 불안정할 때 화면 위 배너. 다시 연결하기 시작한 뒤 지난 초를 센다. */
-export function ReconnectBanner({ seconds }: { seconds: number }) {
+export function ReconnectBanner({ seconds }: Readonly<{ seconds: number }>) {
   const reduce = useReducedMotion();
   return (
     <motion.div
@@ -86,13 +88,13 @@ function RoomModal({
   title,
   children,
   buttons,
-}: {
+}: Readonly<{
   open: boolean;
   icon: ReactNode;
   title: string;
   children: ReactNode;
   buttons: ReactNode;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const dialog = useRef<HTMLDivElement>(null);
 
@@ -103,16 +105,7 @@ function RoomModal({
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key !== "Tab" || !dialog.current) return;
     const items = [...dialog.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, items);
   }
 
   return (
@@ -171,11 +164,11 @@ export function PausedModal({
   open,
   onEnd,
   onRetry,
-}: {
+}: Readonly<{
   open: boolean;
   onEnd: () => void;
   onRetry: () => void;
-}) {
+}>) {
   return (
     <RoomModal
       open={open}
@@ -207,14 +200,14 @@ export function StartFailedModal({
   error,
   onLeave,
   onRestart,
-}: {
+}: Readonly<{
   open: boolean;
   restarting: boolean;
   /** 다시 시작(5.4)이 실패했을 때 서버 문구 */
   error?: string;
   onLeave: () => void;
   onRestart: () => void;
-}) {
+}>) {
   const waitLeft = useCountdown(open, RESTART_WAIT_SECONDS);
   const waiting = waitLeft > 0;
   return (

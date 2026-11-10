@@ -54,9 +54,7 @@ describe("TopBar (S06 · S06-B 위 막대)", () => {
     expect(screen.getByText("악마 면접관")).toBeTruthy();
     expect(screen.getByText("○○전자 백엔드 개발자")).toBeTruthy();
     expect(screen.getByText("질문 3 / 5")).toBeTruthy();
-    expect(
-      screen.getByRole("progressbar", { name: "질문 진행" }).getAttribute("aria-valuenow"),
-    ).toBe("3");
+    expect(screen.getByRole("progressbar", { name: "질문 진행" }).getAttribute("value")).toBe("3");
     expect(screen.getByText("08:42")).toBeTruthy();
   });
 

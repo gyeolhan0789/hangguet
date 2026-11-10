@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { endSession } from "@/lib/interview/actions";
 import { gazeRatio } from "@/lib/interview/gaze";
 import { TOTAL_QUESTIONS } from "@/lib/interview/questions";
@@ -35,12 +36,12 @@ export function EndModal({
   sessionId,
   answeredCount,
   video,
-}: {
+}: Readonly<{
   sessionId: number;
   answeredCount: number;
   /** 화상 면접. 마지막 답변 뒤 면접 화면이 5.8을 보내고 실패해도 다시 보낸다 */
   video: boolean;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const open = useInterviewStore((state) => state.endOpen);
   const closeEnd = useInterviewStore((state) => state.closeEnd);
@@ -134,16 +135,7 @@ export function EndModal({
     const buttons = [
       ...dialog.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
     ];
-    if (buttons.length === 0) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, buttons);
   }
 
   const noAnswer = answeredCount === 0;
@@ -224,12 +216,9 @@ export function EndModal({
               </button>
             </div>
             {saving && (
-              <p
-                role="status"
-                className="text-center text-[13px] leading-normal font-medium text-[#4e5968]"
-              >
+              <output className="block text-center text-[13px] leading-normal font-medium text-[#4e5968]">
                 답변을 저장하는 중이에요
-              </p>
+              </output>
             )}
             {error && (
               <p

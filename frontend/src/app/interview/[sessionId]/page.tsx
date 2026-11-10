@@ -16,7 +16,9 @@ export const metadata: Metadata = { title: "면접 · 한끗" };
 // 결과가 나오면(COMPLETED) S07 피드백 결과로 넘어간다(Figma 흐름 S06 → S07 · 웹 Swagger 5.2 status COMPLETED '결과 있음').
 // 답변 없이 끝난 면접(ABORTED)은 홈으로(웹 Swagger 5.8 200 예시 '답변 0개 → 홈'), 시작 전 화상 면접(READY)은 S05 장치 점검으로
 // 보낸다(화상은 S05에서 [면접 시작](5.4)을 눌러 시작한다).
-async function Interview({ params }: Pick<PageProps<"/interview/[sessionId]">, "params">) {
+async function Interview({
+  params,
+}: Readonly<Pick<PageProps<"/interview/[sessionId]">, "params">>) {
   // 면접은 요청할 때마다 새로 그린다(5.2 · 5.5는 매번 달라 미리 그려 둘 수 없다). 동적 경로(sessionId)라 이것이 없으면
   // Next가 요청 때 셸을 한 번 더 그리면서 5.2 · 5.5를 두 번씩 부른다(E2E로 확인).
   await connection();

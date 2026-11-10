@@ -220,7 +220,7 @@ test.describe("S06 면접 화면", () => {
     await expect(page.getByText("○○전자 백엔드 개발자")).toBeVisible();
     await expect(page.getByText("질문 3 / 5")).toBeVisible();
     await expect(page.getByRole("progressbar", { name: "질문 진행" })).toHaveAttribute(
-      "aria-valuenow",
+      "value",
       "3",
     );
     // 5.2 elapsedSeconds 522초(08:42)에서 시작해 1초마다 는다. 화면을 보여 주느라 진행한 시간만큼은 이미 늘었을 수 있어

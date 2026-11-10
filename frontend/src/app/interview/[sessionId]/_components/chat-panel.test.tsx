@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInterviewStore } from "@/stores/interview-store";
+import { flushPromises } from "@/test/flush";
 import type { CurrentQuestion } from "@/types/api";
 
 import { CHAT_INPUT_PAUSE_MS, ChatPanel } from "./chat-panel";
@@ -124,10 +125,10 @@ afterEach(() => {
 
 const input = () => screen.getByRole("textbox", { name: "답변" }) as HTMLTextAreaElement;
 const type = (value: string) => fireEvent.input(input(), { target: { value } });
-const enter = (init: Partial<KeyboardEventInit & { isComposing: boolean }> = {}) =>
-  act(async () => {
-    fireEvent.keyDown(input(), { key: "Enter", ...init });
-  });
+const enter = async (init: Partial<KeyboardEventInit & { isComposing: boolean }> = {}) => {
+  fireEvent.keyDown(input(), { key: "Enter", ...init });
+  await flushPromises();
+};
 
 describe("ChatPanel (S06-B 채팅 답변)", () => {
   it.each([false, true])(
@@ -161,9 +162,8 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
       (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     await enter();
-    await act(async () => {
-      fireEvent.submit(input().closest("form")!);
-    });
+    fireEvent.submit(input().closest("form")!);
+    await flushPromises();
     expect(submitTextAnswer).not.toHaveBeenCalled();
     expect(input().value).toBe("답변을 작성합니다.");
     rerender(<ChatPanel sessionId={55} question={QUESTION} submissionLocked={false} />);
@@ -207,7 +207,8 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     render(<ChatPanel sessionId={55} question={QUESTION} />);
     type("답");
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "답변 보내기" })));
+    fireEvent.click(screen.getByRole("button", { name: "답변 보내기" }));
+    await flushPromises();
 
     expect(submitTextAnswer).toHaveBeenCalledTimes(1);
   });
@@ -354,7 +355,8 @@ describe("ChatPanel (S06-B 채팅 답변)", () => {
     expect(onChatInput).toHaveBeenCalledWith(4, 1, "먼저 쓴 답", expect.any(Number));
     expect(screen.getByRole("button", { name: "답변 보내기" })).toHaveProperty("disabled", true);
     await enter();
-    await act(async () => fireEvent.submit(input().closest("form")!));
+    fireEvent.submit(input().closest("form")!);
+    await flushPromises();
     expect(submitTextAnswer).not.toHaveBeenCalled();
 
     rerender(

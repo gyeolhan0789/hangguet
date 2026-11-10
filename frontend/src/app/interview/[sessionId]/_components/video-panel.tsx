@@ -30,7 +30,7 @@ const WAVE_MIN_RATIO = 0.25;
 export const SILENT_TOAST_MS = 10_000;
 
 /** S06 화상: 오른쪽 위 내 카메라. 카메라가 없으면 사람 아이콘을 둔다. */
-export function SelfCamera({ stream }: { stream: MediaStream | null }) {
+export function SelfCamera({ stream }: Readonly<{ stream: MediaStream | null }>) {
   const video = useRef<HTMLVideoElement>(null);
   const cameraOn = Boolean(stream?.getVideoTracks().length);
 
@@ -76,7 +76,7 @@ export function VideoControls({
   submitting = false,
   locked = false,
   onSubmit,
-}: {
+}: Readonly<{
   level: MotionValue<number>;
   /** [답변 완료]를 누를 수 있다(질문이 있고 인식된 답변 글이 있으며 내는 중이 아님) */
   canSubmit?: boolean;
@@ -85,7 +85,7 @@ export function VideoControls({
   /** 면접관이 질문을 말하는 중(파형을 흐리게) */
   locked?: boolean;
   onSubmit?: () => void;
-}) {
+}>) {
   return (
     <div className="flex w-full items-center justify-end gap-3">
       <span className={locked ? "opacity-30" : undefined}>
@@ -108,7 +108,7 @@ export function VideoControls({
 }
 
 /** 마이크 소리 크기에 맞춰 움직이는 파형 */
-function Waveform({ level }: { level: MotionValue<number> }) {
+function Waveform({ level }: Readonly<{ level: MotionValue<number> }>) {
   return (
     <span aria-hidden data-testid="waveform" className="flex h-8 items-center gap-1">
       {WAVE_HEIGHTS.map((height, i) => (
@@ -118,7 +118,7 @@ function Waveform({ level }: { level: MotionValue<number> }) {
   );
 }
 
-function WaveBar({ height, level }: { height: number; level: MotionValue<number> }) {
+function WaveBar({ height, level }: Readonly<{ height: number; level: MotionValue<number> }>) {
   const scaled = useTransform(
     level,
     (value) => height * (WAVE_MIN_RATIO + (1 - WAVE_MIN_RATIO) * value),
@@ -140,7 +140,7 @@ export function MicToast({
   answering,
   unavailable = false,
   onCheck,
-}: {
+}: Readonly<{
   level: MotionValue<number>;
   /** 사용자가 답할 차례다. 이때만 소리 없는 시간을 센다 */
   answering: boolean;
@@ -148,7 +148,7 @@ export function MicToast({
   unavailable?: boolean;
   /** [마이크 확인]: 장치 점검 미니 모달을 연다 */
   onCheck: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [silent, setSilent] = useState(false);
   // 답할 차례가 바뀌면 떠 있던 토스트를 내린다(렌더 중 이전 값과 비교해 상태를 맞추는 React 권장 방식)
@@ -184,13 +184,10 @@ export function MicToast({
   }, [level, answering]);
 
   return (
-    <div
-      role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-11 z-30 flex justify-center px-4"
-    >
+    <output className="pointer-events-none fixed inset-x-0 bottom-11 z-30 flex justify-center px-4">
       <AnimatePresence>
         {(silent || unavailable) && answering && (
-          <motion.div
+          <motion.span
             className="flex h-14 w-full max-w-[500px] items-center gap-2.5 rounded-2xl bg-[#191f28] px-[18px]"
             initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
@@ -209,10 +206,10 @@ export function MicToast({
             >
               마이크 확인
             </button>
-          </motion.div>
+          </motion.span>
         )}
       </AnimatePresence>
-    </div>
+    </output>
   );
 }
 
@@ -223,10 +220,10 @@ export function MicToast({
 export function AnswerNotice({
   message,
   action,
-}: {
+}: Readonly<{
   message: string;
   action?: { label: string; onClick: () => void; disabled?: boolean };
-}) {
+}>) {
   const reduce = useReducedMotion();
   return (
     <motion.div
