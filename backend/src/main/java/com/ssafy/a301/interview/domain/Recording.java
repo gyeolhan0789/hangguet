@@ -82,14 +82,17 @@ public class Recording {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    /** Egress가 원본 트랙을 저장하는 위치(AI 명세 7장). 녹화를 시작할 때와 합치기 작업이 같은 값을 쓴다 */
-    public static String rawPrefix(long sessionId) {
-        return "recordings/raw/" + sessionId + "/";
+    /**
+     * Egress가 원본 트랙을 저장하는 위치(AI 명세 7장, BE 설계 5.6). 시작 실패 뒤 다시 시작하면 이전 시도의 트랙과 섞이지 않게 시작 시각(유닉스
+     * 밀리초)마다 나눈다. 녹화를 시작할 때와 합치기 작업이 같은 값을 쓴다
+     */
+    public static String rawPrefix(long sessionId, OffsetDateTime startedAt) {
+        return "recordings/raw/" + sessionId + "/" + startedAt.toInstant().toEpochMilli() + "/";
     }
 
     /**
-     * 그룹 면접방의 녹화 원본 위치(docs/그룹면접-설계.md 6.12). 시작 실패 뒤 다시 시작하면 이전 시도의 트랙과 섞이지 않게 시작 시각(유닉스 밀리초)마다
-     * 나눈다(개인 면접 BE 설계 5.6과 같은 규칙). 그 안의 파일은 참가자마다 candidate-{sessionId}로 시작한다.
+     * 그룹 면접방의 녹화 원본 위치(docs/그룹면접-설계.md 6.12). 개인 면접과 같이 시작 시각(유닉스 밀리초)마다 나눈다. 그 안의 파일은 참가자마다
+     * candidate-{sessionId}로 시작한다.
      */
     public static String groupRawPrefix(long groupId, OffsetDateTime startedAt) {
         return "recordings/raw/group-" + groupId + "/" + startedAt.toInstant().toEpochMilli() + "/";

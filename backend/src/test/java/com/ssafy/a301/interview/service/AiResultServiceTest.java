@@ -165,8 +165,15 @@ class AiResultServiceTest {
         // 같은 첫 질문이 다시 오면 버리고 다시 확인하지 않는다
         assertThat(results.handle(questionStarted(video, 1))).isEqualTo(Outcome.DISCARDED);
 
+        // 방을 열 때와 같은 녹화 위치에 다시 요청하도록 시작 시각을 함께 넘긴다
         assertThat(events.stream(FirstQuestionStarted.class))
-                .containsExactly(new FirstQuestionStarted(video.getId()));
+                .singleElement()
+                .satisfies(
+                        event -> {
+                            assertThat(event.sessionId()).isEqualTo(video.getId());
+                            assertThat(event.startedAt())
+                                    .isAtSameInstantAs(STARTED_AT.minusMinutes(1));
+                        });
     }
 
     @Test

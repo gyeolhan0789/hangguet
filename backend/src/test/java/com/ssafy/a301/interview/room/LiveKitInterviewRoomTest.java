@@ -56,6 +56,9 @@ class LiveKitInterviewRoomTest {
     private static final String LIST_PARTICIPANTS = "/twirp/livekit.RoomService/ListParticipants";
     private static final String LIST_EGRESS = "/twirp/livekit.Egress/ListEgress";
     private static final String START_TRACK_EGRESS = "/twirp/livekit.Egress/StartTrackEgress";
+    // 녹화 위치는 밀리초까지만 쓴다(1794272400123)
+    private static final OffsetDateTime STARTED_AT =
+            OffsetDateTime.parse("2026-11-10T10:00:00.123456+09:00");
 
     private final Map<String, byte[]> requests = new ConcurrentHashMap<>();
     private final Map<String, Integer> statuses = new ConcurrentHashMap<>();
@@ -128,13 +131,13 @@ class LiveKitInterviewRoomTest {
 
     @Test
     void openCreatesRecordedRoomAndDispatchesAgent() throws Exception {
-        room(apiUrl).open(55L, true, Map.of("sessionId", 55, "currentSeq", 1));
+        room(apiUrl).open(55L, true, Map.of("sessionId", 55, "currentSeq", 1), STARTED_AT);
 
         CreateRoomRequest created =
                 CreateRoomRequest.parseFrom(requests.get("/twirp/livekit.RoomService/CreateRoom"));
         assertThat(created.getName()).isEqualTo("interview-55");
         assertThat(created.getEgress().getTracks().getFilepath())
-                .isEqualTo("recordings/raw/55/{publisher_identity}-{track_type}");
+                .isEqualTo("recordings/raw/55/1794272400123/{publisher_identity}-{track_type}");
         assertThat(created.getEgress().getTracks().getS3().getBucket()).isEqualTo("bucket");
         CreateAgentDispatchRequest dispatch =
                 CreateAgentDispatchRequest.parseFrom(
@@ -152,7 +155,7 @@ class LiveKitInterviewRoomTest {
 
     @Test
     void chatRoomIsNotRecorded() throws Exception {
-        room(apiUrl).open(55L, false, Map.of());
+        room(apiUrl).open(55L, false, Map.of(), STARTED_AT);
 
         assertThat(
                         CreateRoomRequest.parseFrom(
@@ -165,7 +168,7 @@ class LiveKitInterviewRoomTest {
     void failedDispatchDeletesRoomAndIsUnavailable() throws Exception {
         statuses.put("/twirp/livekit.AgentDispatchService/CreateDispatch", 500);
 
-        assertThatThrownBy(() -> room(apiUrl).open(55L, true, Map.of()))
+        assertThatThrownBy(() -> room(apiUrl).open(55L, true, Map.of(), STARTED_AT))
                 .isInstanceOfSatisfying(
                         ApiException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.ROOM_UNAVAILABLE));
@@ -326,7 +329,7 @@ class LiveKitInterviewRoomTest {
                         egress("TR_IA", EgressStatus.EGRESS_STARTING),
                         egress("TR_CA", EgressStatus.EGRESS_FAILED)));
 
-        room(apiUrl).ensureTrackRecording(55L);
+        room(apiUrl).ensureTrackRecording(55L, STARTED_AT);
 
         ListEgressRequest list = ListEgressRequest.parseFrom(requests.get(LIST_EGRESS));
         assertThat(list.getRoomName()).isEqualTo("interview-55");
@@ -335,7 +338,7 @@ class LiveKitInterviewRoomTest {
         assertThat(restart.getRoomName()).isEqualTo("interview-55");
         assertThat(restart.getTrackId()).isEqualTo("TR_CA");
         assertThat(restart.getFile().getFilepath())
-                .isEqualTo("recordings/raw/55/candidate-audio-TR_CA-retry");
+                .isEqualTo("recordings/raw/55/1794272400123/candidate-audio-TR_CA-retry");
         assertThat(restart.getFile().getDisableManifest()).isTrue();
         assertThat(restart.getFile().getS3().getBucket()).isEqualTo("bucket");
         JsonNode video =
@@ -352,7 +355,7 @@ class LiveKitInterviewRoomTest {
                 participants(participant("candidate", track("TR_CV", TrackType.VIDEO))));
         bodies.put(LIST_EGRESS, egresses(egress("TR_CV", EgressStatus.EGRESS_ACTIVE)));
 
-        room(apiUrl).ensureTrackRecording(55L);
+        room(apiUrl).ensureTrackRecording(55L, STARTED_AT);
 
         assertThat(requests).containsKey(LIST_EGRESS).doesNotContainKey(START_TRACK_EGRESS);
     }
@@ -360,7 +363,8 @@ class LiveKitInterviewRoomTest {
     @Test
     void ensureTrackRecordingOnlyLogsFailures() {
         statuses.put(LIST_PARTICIPANTS, 500);
-        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L)).doesNotThrowAnyException();
+        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L, STARTED_AT))
+                .doesNotThrowAnyException();
         assertThat(requests).doesNotContainKey(START_TRACK_EGRESS);
 
         statuses.remove(LIST_PARTICIPANTS);
@@ -368,7 +372,8 @@ class LiveKitInterviewRoomTest {
                 LIST_PARTICIPANTS,
                 participants(participant("interviewer", track("TR_IA", TrackType.AUDIO))));
         statuses.put(START_TRACK_EGRESS, 500);
-        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L)).doesNotThrowAnyException();
+        assertThatCode(() -> room(apiUrl).ensureTrackRecording(55L, STARTED_AT))
+                .doesNotThrowAnyException();
         assertThat(requests).containsKey(START_TRACK_EGRESS);
     }
 
@@ -449,10 +454,12 @@ class LiveKitInterviewRoomTest {
                         "r");
 
         assertThatThrownBy(() -> unset.issueAccess(55L, true)).isInstanceOf(ApiException.class);
-        assertThatThrownBy(() -> unset.open(55L, true, Map.of())).isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> unset.open(55L, true, Map.of(), STARTED_AT))
+                .isInstanceOf(ApiException.class);
         unset.close(55L);
         // 녹화 확인은 면접을 막지 않으므로 설정이 없으면 아무것도 하지 않는다
-        assertThatCode(() -> unset.ensureTrackRecording(55L)).doesNotThrowAnyException();
+        assertThatCode(() -> unset.ensureTrackRecording(55L, STARTED_AT))
+                .doesNotThrowAnyException();
         // 참가자 맞추기도 보낼 곳이 없으면 하지 않는다
         assertThat(unset.groupPresence(7L)).isEmpty();
     }

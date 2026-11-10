@@ -132,8 +132,17 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     }
 
     @Override
-    public void open(long sessionId, boolean video, Map<String, Object> assignment) {
-        open(roomName(sessionId), Recording.rawPrefix(sessionId), video, assignment, null);
+    public void open(
+            long sessionId,
+            boolean video,
+            Map<String, Object> assignment,
+            OffsetDateTime startedAt) {
+        open(
+                roomName(sessionId),
+                Recording.rawPrefix(sessionId, startedAt),
+                video,
+                assignment,
+                null);
     }
 
     @Override
@@ -162,7 +171,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
     }
 
     @Override
-    public void ensureTrackRecording(long sessionId) {
+    public void ensureTrackRecording(long sessionId, OffsetDateTime startedAt) {
         if (!isConfigured()) {
             return;
         }
@@ -182,7 +191,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
                 }
                 published.stream()
                         .filter(track -> !recording.contains(track.getSid()))
-                        .forEach(track -> restartTrackEgress(sessionId, expected, track.getSid()));
+                        .forEach(
+                                track ->
+                                        restartTrackEgress(
+                                                sessionId, startedAt, expected, track.getSid()));
             }
         } catch (IOException | RuntimeException ex) {
             LOG.warn("트랙 녹화 상태를 확인하지 못했다: room={}", room, ex);
@@ -191,7 +203,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
 
     // 녹화가 시작되지 않은 트랙만 녹화를 다시 요청한다. 실패하면 녹화 없이 면접을 진행한다.
     // 파일 이름은 자동 녹화와 같은 규칙({참가자}-{종류}-{트랙 id})에 -retry를 붙인다. 자동 녹화가 늦게 시작해도 같은 파일을 덮어쓰지 않는다
-    private void restartTrackEgress(long sessionId, RecordedTrack expected, String trackId) {
+    private void restartTrackEgress(
+            long sessionId, OffsetDateTime startedAt, RecordedTrack expected, String trackId) {
         String room = roomName(sessionId);
         LOG.warn(
                 "녹화가 시작되지 않은 트랙의 녹화를 다시 요청한다: room={} track={} trackId={}",
@@ -201,7 +214,7 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         DirectFileOutput.Builder output =
                 DirectFileOutput.newBuilder()
                         .setFilepath(
-                                Recording.rawPrefix(sessionId)
+                                Recording.rawPrefix(sessionId, startedAt)
                                         + expected.filePrefix()
                                         + trackId
                                         + "-retry")
@@ -443,9 +456,9 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         }
     }
 
-    // 트랙마다 {원본 위치}{참가자}-{종류}-{트랙 id}.{확장자}로 올린다. 원본 위치는 recordings/raw/{sessionId}/(그룹은
-    // recordings/raw/group-{groupId}/), 종류는 video·audio(소문자), 트랙 id는 LiveKit 서버가 붙이고(같은 트랙을 다시 올려도
-    // 덮어쓰지 않음) 확장자는 Egress가 코덱에 맞춰 붙인다(H.264 mp4, Opus ogg)
+    // 트랙마다 {원본 위치}{참가자}-{종류}-{트랙 id}.{확장자}로 올린다. 원본 위치는 recordings/raw/{sessionId}/{startedAtMs}/
+    // (그룹은 recordings/raw/group-{groupId}/{startedAtMs}/), 종류는 video·audio(소문자), 트랙 id는 LiveKit 서버가
+    // 붙이고(같은 트랙을 다시 올려도 덮어쓰지 않음) 확장자는 Egress가 코덱에 맞춰 붙인다(H.264 mp4, Opus ogg)
     private AutoTrackEgress trackEgress(String rawPrefix) {
         AutoTrackEgress.Builder egress =
                 AutoTrackEgress.newBuilder()

@@ -33,6 +33,7 @@ import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -199,7 +200,8 @@ public class InterviewSessionService {
      * 상태를 그대로 두고 503을 준다. 커밋하지 못하면 연 방을 지운다.
      */
     public SessionResponse start(long userId, long sessionId) {
-        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
+        // 녹화 원본 위치는 시작 시각의 밀리초다(BE 설계 5.6). DB에 저장하며 마이크로초로 반올림돼도 밀리초가 바뀌지 않게 미리 자른다
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE).truncatedTo(ChronoUnit.MILLIS);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
@@ -224,7 +226,11 @@ public class InterviewSessionService {
                         capacity.reserveVideo(now);
                     }
                     session.start(now);
-                    rooms.open(sessionId, session.isVideo(), assignment(session, plan));
+                    rooms.open(
+                            sessionId,
+                            session.isVideo(),
+                            assignment(session, plan),
+                            session.getStartedAt());
                     closeRoomOnRollback(sessionId);
                     return InterviewMapper.toSessionResponse(
                             session,

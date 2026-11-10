@@ -631,7 +631,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 - **시작** 5.8(화상). 면접 중이 아니라 끝난 뒤 큐 작업으로 하므로 면접 중 CPU를 쓰지 않는다
 - **입력(작업 메시지)**
-  - `rawPrefix`: 원본 트랙 위치. S3 `recordings/raw/{sessionId}/`로 시작하고, BE가 녹화를 시작할 때 정한다. 시작 실패 뒤 다시 시작(API 명세 5.4)하면 시도마다 위치가 다르며, BE는 마지막 시도의 위치를 전달한다. 그룹 면접은 `recordings/raw/group-{groupId}/{startedAtMs}/`(그룹 시작 시도마다, BE 구현됨) **[제안]**
+  - `rawPrefix`: 원본 트랙 위치. S3 `recordings/raw/{sessionId}/`로 시작하고, BE가 녹화를 시작할 때 정한다. 시작 실패 뒤 다시 시작(API 명세 5.4)하면 시도마다 위치가 다르며, BE는 마지막 시도의 위치를 전달한다. 개인 면접은 `recordings/raw/{sessionId}/{startedAtMs}/`(시작 시도마다, BE 구현됨), 그룹 면접은 `recordings/raw/group-{groupId}/{startedAtMs}/`(그룹 시작 시도마다, BE 구현됨) **[제안]**
   - 그룹 면접만 **[제안]**: `roomName`(`group-{groupId}`, 녹화 목록 조회용), `candidateIdentity`(`candidate-{sessionId}`), `segments[]`(`start` · `end`, ISO 8601 밀리초. 본인 답변 구간, 시간 순). 이 필드가 없으면 지금 개인 면접 규칙 그대로다
   - `objectKey`: 결과 위치 `recordings/{sessionId}.mp4`
   - 다른 면접의 녹화를 읽거나 덮어쓰지 않도록, 두 값이 그 작업 `sessionId`의 위치가 아니면 형식 오류(1.3)로 처리한다. 그룹 면접은 `rawPrefix`가 `roomName`의 그룹 위치(`recordings/raw/group-{groupId}/`로 시작)이고 `candidateIdentity`가 그 `sessionId`일 때만 받는다
