@@ -2,6 +2,7 @@ package com.ssafy.a301.result.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
@@ -58,7 +59,7 @@ public class RecordingRetryService {
                 recordings
                         .findByObjectKeyForUpdate(Recording.sessionVideoKey(sessionId))
                         .orElse(null);
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         if (results.replayVideoStatus(session, recording, now) != VideoStatus.FAILED) {
             throw new ApiException(ErrorCode.RECORDING_NOT_FAILED);
         }

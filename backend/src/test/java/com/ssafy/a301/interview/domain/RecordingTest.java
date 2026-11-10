@@ -39,7 +39,9 @@ class RecordingTest {
             recording.markMergeFailed(job.toString());
         }
 
-        assertThatThrownBy(() -> recording.retryMerge(UUID.randomUUID(), NOW.plusHours(1)))
+        UUID nextJob = UUID.randomUUID();
+        OffsetDateTime later = NOW.plusHours(1);
+        assertThatThrownBy(() -> recording.retryMerge(nextJob, later))
                 .isInstanceOf(ApiException.class)
                 .extracting(e -> ((ApiException) e).errorCode())
                 .isEqualTo(ErrorCode.RETRY_LIMIT_EXCEEDED);

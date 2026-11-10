@@ -6,6 +6,7 @@ import com.ssafy.a301.auth.jwt.JwtSupport;
 import com.ssafy.a301.common.error.FilterExceptionFilter;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -80,9 +81,13 @@ public class SecurityConfig {
      */
     private static boolean issuedAfterPasswordChange(Jwt jwt, User user) {
         OffsetDateTime changedAt = user.getPasswordChangedAt();
-        return changedAt == null
-                || !jwt.getIssuedAt()
-                        .isBefore(changedAt.toInstant().truncatedTo(ChronoUnit.SECONDS));
+        if (changedAt == null) {
+            return true;
+        }
+        // 우리가 발급한 토큰에는 항상 iat가 있다. 없으면 막는다
+        Instant issuedAt = jwt.getIssuedAt();
+        return issuedAt != null
+                && !issuedAt.isBefore(changedAt.toInstant().truncatedTo(ChronoUnit.SECONDS));
     }
 
     @Bean
