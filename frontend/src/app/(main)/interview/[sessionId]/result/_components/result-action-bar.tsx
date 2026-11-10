@@ -20,12 +20,12 @@ export function ResultActionBar({
   sessionId,
   reviewDate,
   end,
-}: {
+}: Readonly<{
   sessionId: number;
   /** 면접을 시작한 날(한국 시간 YYYY-MM-DD). 이날의 성장 리뷰로 간다 */
   reviewDate: string;
   end: RefObject<HTMLElement | null>;
-}) {
+}>) {
   const reduce = useReducedMotion();
   // 아래 막대(높이 96)에 가려진 동안은 끝에 닿지 않은 것으로 본다.
   const reached = useInView(end, { once: true, margin: "0px 0px -96px 0px" });

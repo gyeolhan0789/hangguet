@@ -40,7 +40,7 @@ export function ReplayTimeline({
   offsets,
   time,
   onSeek,
-}: {
+}: Readonly<{
   points: ChartPoint[];
   checkpoints: TimelineCheckpoint[];
   /** 영상 길이(초) */
@@ -50,7 +50,7 @@ export function ReplayTimeline({
   /** 재생 위치(초) */
   time: number;
   onSeek: (time: number) => void;
-}) {
+}>) {
   // 평균으로 이어지는 구간도 선과 같이 칠해야 색이 끊기지 않는다
   const data = points.map((point) => ({
     time: point.time,
@@ -74,12 +74,12 @@ export function ReplayTimeline({
         </h2>
         <span className="flex-1" />
         <span className="flex items-center gap-1 text-xs font-semibold text-text-3">
-          <span className="size-2 rounded-full bg-success" />
-          평소보다 좋음
+          <span aria-hidden className="size-2 rounded-full bg-success" />
+          <span>평소보다 좋음</span>
         </span>
         <span className="flex items-center gap-1 text-xs font-semibold text-text-3">
-          <span className="size-2 rounded-full bg-danger" />
-          평소보다 아쉬움
+          <span aria-hidden className="size-2 rounded-full bg-danger" />
+          <span>평소보다 아쉬움</span>
         </span>
       </div>
 

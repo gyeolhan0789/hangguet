@@ -20,7 +20,7 @@ export const metadata: Metadata = { title: "성장 리뷰 · 한끗" };
 async function Review({
   params,
   searchParams,
-}: Pick<PageProps<"/reviews/[practiceDate]">, "params" | "searchParams">) {
+}: Readonly<Pick<PageProps<"/reviews/[practiceDate]">, "params" | "searchParams">>) {
   // 요청할 때마다 그린다(오늘 날짜 · 7.1은 미리 그려 둘 수 없다).
   await connection();
   const [{ practiceDate }, query] = await Promise.all([params, searchParams]);

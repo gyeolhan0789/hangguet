@@ -13,25 +13,25 @@ import type { VideoStatus } from "@/types/api";
 /** 플레이어 자리 안내. 영상이 아직 없거나(MERGING) 불러오지 못했거나(FAILED) 채팅 면접이라 영상이 없을 때(NONE) */
 export type VideoNotice = Exclude<VideoStatus, "READY"> | "NONE";
 
+const NOTICE_TEXT: Record<VideoNotice, string> = {
+  MERGING: "영상을 업로드하는 중이에요",
+  FAILED: "녹화를 불러오지 못했어요",
+  NONE: "채팅 면접은 녹화 영상이 없어요",
+};
+
 /** 녹화 영상 대신 플레이어 자리에 두는 안내 */
-export function VideoPending({ status }: { status: VideoNotice }) {
+export function VideoPending({ status }: Readonly<{ status: VideoNotice }>) {
+  // 채팅은 바뀌지 않는 설명이라 상태 알림(output, 암묵 역할 status)으로 읽어 주지 않는다
+  const Container = status === "NONE" ? "div" : "output";
   return (
-    <div
-      // 채팅은 바뀌지 않는 설명이라 상태 알림(status)으로 읽어 주지 않는다
-      role={status === "NONE" ? undefined : "status"}
-      className="flex aspect-[860/452] w-full flex-col items-center justify-center gap-3 rounded-[20px] bg-night px-6 text-center"
-    >
+    <Container className="flex aspect-[860/452] w-full flex-col items-center justify-center gap-3 rounded-[20px] bg-night px-6 text-center">
       {status === "MERGING" && <Spinner size={28} className="bg-white/70" />}
       {status === "FAILED" && (
         <Image src="/interview/icon-circle-alert.svg" alt="" width={28} height={28} />
       )}
-      <p className="text-base leading-normal font-bold tracking-[-0.2px] text-white">
-        {status === "MERGING"
-          ? "영상을 업로드하는 중이에요"
-          : status === "FAILED"
-            ? "녹화를 불러오지 못했어요"
-            : "채팅 면접은 녹화 영상이 없어요"}
-      </p>
-    </div>
+      <span className="text-base leading-normal font-bold tracking-[-0.2px] text-white">
+        {NOTICE_TEXT[status]}
+      </span>
+    </Container>
   );
 }

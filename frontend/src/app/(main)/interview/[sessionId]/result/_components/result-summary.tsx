@@ -17,7 +17,7 @@ const sentence: Variants = { hidden: {}, shown: { transition: { staggerChildren:
 const word: Variants = { hidden: { opacity: 0, y: "0.4em" }, shown: { opacity: 1, y: 0 } };
 
 /** 결과 맨 위: 면접관 · 회사 직무 · 면접 시간, 한 줄 총평, 면접관 썸네일 */
-export function ResultSummary({ result }: { result: ResultResponse }) {
+export function ResultSummary({ result }: Readonly<{ result: ResultResponse }>) {
   const reduce = useReducedMotion();
   const persona = PERSONAS.find((info) => info.persona === result.persona);
   const minutes = durationMinutes(result.startedAt, result.endedAt);

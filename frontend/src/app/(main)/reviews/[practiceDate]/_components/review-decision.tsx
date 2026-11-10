@@ -13,7 +13,7 @@ import { ROUTES } from "@/lib/routes";
 // · 사용자 결정(2026-10-22: 지난 날짜는 '오늘' 문구를 그날에 맞게 — '오늘도 연습해 볼까요?' · [홈으로] · [면접 연습하기])
 
 /** 한 번 더 할지 묻는 버튼 2개 */
-export function ReviewDecision({ today }: { today: boolean }) {
+export function ReviewDecision({ today }: Readonly<{ today: boolean }>) {
   const reduce = useReducedMotion();
   return (
     <div className="flex w-full flex-col items-center gap-3.5">

@@ -24,7 +24,21 @@ import type { ReplayItem } from "@/types/api";
 //   같은 화면 녹화 처리 중 안내(video-pending)의 스피너를 쓰고, 잠깐 끊기는 정도에는 깜빡이지 않게 조금 늦게 보인다)
 
 /** 배속 칩을 누를 때마다 바뀌는 순서 */
-export const PLAYBACK_RATES = [1, 1.5, 2] as const;
+export const PLAYBACK_RATES: readonly number[] = [1, 1.5, 2];
+
+/** 타임라인의 질문 점: 지금 질문 · 지나간 질문 · 아직 오지 않은 질문 */
+type MarkerState = "current" | "past" | "upcoming";
+
+const MARKER_CLASS: Record<MarkerState, string> = {
+  current: "border-[3px] border-brand-strong bg-white",
+  past: "border-2 border-line bg-brand",
+  upcoming: "border-2 border-line bg-white",
+};
+
+function markerState(isCurrent: boolean, offset: number, time: number): MarkerState {
+  if (isCurrent) return "current";
+  return offset <= time ? "past" : "upcoming";
+}
 
 export interface PlayerState {
   /** 재생 위치(초) */
@@ -44,7 +58,7 @@ export function VideoScreen({
   onDuration,
   onPlaying,
   onRate,
-}: {
+}: Readonly<{
   videoUrl: string;
   video: RefObject<HTMLVideoElement | null>;
   /** 재생 위치가 속한 질문. 첫 질문 전이면 null */
@@ -53,7 +67,7 @@ export function VideoScreen({
   onDuration: (duration: number) => void;
   onPlaying: (playing: boolean) => void;
   onRate: (rate: number) => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
 
   // 화면이 이벤트를 듣기 전(하이드레이션 전)에 영상 정보를 이미 받았으면 loadedmetadata를 놓치므로, 처음에 한 번 읽어 둔다.
@@ -144,7 +158,7 @@ export function PlayerControls({
   onSeek,
   onTogglePlay,
   onNextRate,
-}: {
+}: Readonly<{
   state: PlayerState;
   items: ReplayItem[];
   /** 질문마다 영상 속 위치(초) */
@@ -154,7 +168,7 @@ export function PlayerControls({
   onSeek: (time: number) => void;
   onTogglePlay: () => void;
   onNextRate: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const item = current >= 0 ? items[current] : null;
   const ratio = (time: number) => (state.duration > 0 ? Math.min(1, time / state.duration) : 0);
@@ -182,25 +196,22 @@ export function PlayerControls({
             style={{ width: `${ratio(state.time) * 100}%` }}
           />
           {state.duration > 0 &&
-            offsets.map((offset, i) => (
-              // 지금 질문이 되면 새로 그려 한 번 팝 한다(1.4 → 1).
-              <motion.span
-                key={`${items[i].questionId}-${i === current}`}
-                aria-hidden
-                data-marker={i === current ? "current" : offset <= state.time ? "past" : "upcoming"}
-                className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ${
-                  i === current
-                    ? "border-[3px] border-brand-strong bg-white"
-                    : offset <= state.time
-                      ? "border-2 border-line bg-brand"
-                      : "border-2 border-line bg-white"
-                }`}
-                style={{ left: `${ratio(offset) * 100}%` }}
-                initial={i === current && !reduce ? { scale: 1.4 } : false}
-                animate={{ scale: 1 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              />
-            ))}
+            offsets.map((offset, i) => {
+              const marker = markerState(i === current, offset, state.time);
+              return (
+                // 지금 질문이 되면 새로 그려 한 번 팝 한다(1.4 → 1).
+                <motion.span
+                  key={`${items[i].questionId}-${i === current}`}
+                  aria-hidden
+                  data-marker={marker}
+                  className={`absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full ${MARKER_CLASS[marker]}`}
+                  style={{ left: `${ratio(offset) * 100}%` }}
+                  initial={i === current && !reduce ? { scale: 1.4 } : false}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                />
+              );
+            })}
           <input
             type="range"
             aria-label="재생 위치"

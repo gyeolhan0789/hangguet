@@ -22,14 +22,14 @@ export function ReviewWeek({
   streak,
   first,
   today,
-}: {
+}: Readonly<{
   days: ReviewDay[];
   /** 그날 스트릭(오늘 칸 테두리 색) */
   streak: number;
   first: boolean;
   /** 오늘 리뷰인지(지난 날이면 내일 칸을 깜빡여 부르지 않는다) */
   today: boolean;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const ring = tierOf(streak).from;
   return (

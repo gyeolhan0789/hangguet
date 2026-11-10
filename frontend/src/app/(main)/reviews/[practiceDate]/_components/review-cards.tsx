@@ -46,12 +46,12 @@ function CardLabel({
   icon,
   text,
   tone,
-}: {
+}: Readonly<{
   id: string;
   icon: string;
   text: string;
   tone: string;
-}) {
+}>) {
   return (
     <p
       id={id}
@@ -64,7 +64,7 @@ function CardLabel({
 }
 
 /** +N이 0부터 올라간다 */
-function CountUp({ value }: { value: number }) {
+function CountUp({ value }: Readonly<{ value: number }>) {
   const reduce = useReducedMotion();
   const count = useMotionValue(reduce ? value : 0);
   const text = useTransform(count, (current) => `+${Math.round(current)}`);
@@ -82,7 +82,10 @@ function CountUp({ value }: { value: number }) {
 }
 
 /** S08 '오늘 나아진 점' */
-export function ImprovedCard({ criteria, today }: { criteria: CriterionReview[]; today: boolean }) {
+export function ImprovedCard({
+  criteria,
+  today,
+}: Readonly<{ criteria: CriterionReview[]; today: boolean }>) {
   const reduce = useReducedMotion();
   const labelId = useId();
   return (
@@ -131,7 +134,10 @@ export function ImprovedCard({ criteria, today }: { criteria: CriterionReview[];
 }
 
 /** S08-C '오늘의 기준점': 첫 연습일이라 비교 대신 기준 4개의 등급을 보여 준다 */
-export function BaselineCard({ criteria, today }: { criteria: CriterionReview[]; today: boolean }) {
+export function BaselineCard({
+  criteria,
+  today,
+}: Readonly<{ criteria: CriterionReview[]; today: boolean }>) {
   const reduce = useReducedMotion();
   const labelId = useId();
   return (
@@ -175,7 +181,7 @@ export function BaselineCard({ criteria, today }: { criteria: CriterionReview[];
 }
 
 /** '다음에 해볼 것' */
-export function NextActionCard({ actions }: { actions: string[] }) {
+export function NextActionCard({ actions }: Readonly<{ actions: string[] }>) {
   const reduce = useReducedMotion();
   const labelId = useId();
   return (

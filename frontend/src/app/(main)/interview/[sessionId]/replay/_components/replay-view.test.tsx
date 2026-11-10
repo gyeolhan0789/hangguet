@@ -3,6 +3,7 @@ import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NO_ANSWER } from "@/lib/result/format";
+import { flushPromises } from "@/test/flush";
 import { REPLAY } from "@/test/result-examples";
 
 import { REPLAY_POLL_MS, ReplayView } from "./replay-view";
@@ -326,9 +327,8 @@ describe("ReplayView (S07-1 면접 다시보기)", () => {
       expect(play).toHaveBeenCalledTimes(1);
 
       state.paused = false;
-      await act(async () => {
-        fireEvent.play(video);
-      });
+      fireEvent.play(video);
+      await flushPromises();
       fireEvent.click(screen.getByRole("button", { name: "일시정지" }));
       expect(pause).toHaveBeenCalledTimes(1);
 
