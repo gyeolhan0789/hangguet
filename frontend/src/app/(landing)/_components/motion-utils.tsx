@@ -14,7 +14,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { seeded } from "@/lib/seeded";
 
 /** 운영체제의 "동작 줄이기"를 켜면 이동·확대 애니메이션을 끄고 페이드만 남긴다. */
-export function LandingMotion({ children }: { children: ReactNode }) {
+export function LandingMotion({ children }: Readonly<{ children: ReactNode }>) {
   return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
 }
 
@@ -23,11 +23,11 @@ export function Reveal({
   children,
   className,
   delay = 0,
-}: {
+}: Readonly<{
   children: ReactNode;
   className?: string;
   delay?: number;
-}) {
+}>) {
   return (
     <motion.div
       className={className}
@@ -46,11 +46,11 @@ export function CountUp({
   to,
   prefix = "",
   duration = 1.2,
-}: {
+}: Readonly<{
   to: number;
   prefix?: string;
   duration?: number;
-}) {
+}>) {
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true, amount: 0.6 });
   const reduce = useReducedMotion();
@@ -78,11 +78,11 @@ export function Embers({
   embers,
   width,
   height,
-}: {
+}: Readonly<{
   embers: readonly Ember[];
   width: number;
   height: number;
-}) {
+}>) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref);
   const reduce = useReducedMotion();
@@ -94,7 +94,8 @@ export function Embers({
         const duration = 4 + seeded(i, 1) * 5;
         return (
           <motion.span
-            key={i}
+            // 불씨마다 자리(Figma 좌표)가 다르다
+            key={`${cx}:${cy}`}
             className={`absolute rounded-full bg-[#ffb27a] will-change-transform ${i % 2 ? "hidden sm:block" : ""}`}
             style={{
               left: `${(cx / width) * 100}%`,

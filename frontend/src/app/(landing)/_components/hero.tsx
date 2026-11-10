@@ -75,13 +75,13 @@ function FloatChip({
   className,
   delay,
   duration,
-}: {
+}: Readonly<{
   icon: string;
   label: string;
   className: string;
   delay: number;
   duration: number;
-}) {
+}>) {
   const reduce = useReducedMotion();
   return (
     <motion.div
@@ -107,7 +107,7 @@ const PORTRAIT_MEDIA = "(max-aspect-ratio: 3/4)";
  * 기준: Next 문서 Image › Art direction(getImageProps + <picture>) · 사용자 결정(2026-11-10: 세로 화면용 크롭)
  * 미리 받기는 화면에 따라 LCP 후보가 달라지므로 preload 대신 맨 앞 층에 fetchPriority high를 건다(Next 문서 Image › preload).
  */
-function HeroLayerImage({ name, lcp }: { name: string; lcp: boolean }) {
+function HeroLayerImage({ name, lcp }: Readonly<{ name: string; lcp: boolean }>) {
   const common = {
     alt: "",
     fill: true,
