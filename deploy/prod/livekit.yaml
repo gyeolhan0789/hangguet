@@ -1,5 +1,5 @@
 # 운영 LiveKit 서버 설정(배포 계획 4.1 · 4.2). compose.yml의 a301-prod-livekit이 읽는다.
-# API 키는 파일에 쓰지 않고 환경 변수 LIVEKIT_KEYS("키: 시크릿")로 넣는다.
+# API 키는 파일에 쓰지 않고 환경 변수 LIVEKIT_KEYS("키: 시크릿")로 넣는다. 웹훅의 키 이름만 deploy.sh가 채운다(아래 webhook).
 port: 7880 # 시그널링(WebSocket). Nginx(rtc.hangguet.co.kr)로만 받는다
 log_level: info
 rtc:
@@ -16,3 +16,10 @@ turn:
 redis:
   address: a301-prod-redis:6379 # Egress와 주고받는 데 필요하다
 prometheus_port: 6789 # 지표(내부 전용, Prometheus가 수집)
+# 참가자 입장 · 퇴장을 BE에 바로 알린다(그룹 면접 이탈 감지, docs/그룹면접-설계.md 6.9). 내부 네트워크로 보낸다.
+# BE는 자기 LIVEKIT_API_KEY · LIVEKIT_API_SECRET으로 서명을 확인하므로 같은 키로 서명해야 한다.
+# yaml은 환경 변수를 읽지 못해 키 이름 자리를 비워 두고, deploy.sh가 서버에 복사한 파일에 LIVEKIT_API_KEY를 채운다
+webhook:
+  api_key: __LIVEKIT_API_KEY__
+  urls:
+    - http://a301-prod-be:8080/api/v1/webhooks/livekit

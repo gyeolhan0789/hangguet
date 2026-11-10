@@ -8,7 +8,7 @@
 # 2. Docker Hub 로그인(pull 토큰, 임시 폴더. 끝나면 로그아웃하고 지운다)
 # 3. 체크아웃의 compose로 설정 검사 · pull. 여기까지 실패하면 서버는 예전 그대로다
 # 4. 백업 준비: backup.sh 복사, S3 키 파일(backup.env, 600) 쓰기
-# 5. 배포 파일을 /opt/a301/prod로 복사 → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
+# 5. 배포 파일을 /opt/a301/prod로 복사(livekit.yaml 웹훅 키 이름 채우기) → up -d. 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다
 #    Redis만 다시 만들어지면 BE를 다시 시작한다(예전 Redis IP를 붙잡기 때문)
 # 6. 확인: 모든 서비스 실행 · healthy, BE · FE · AI HTTP 상태, 바깥 주소 3개(앱 · LiveKit · Grafana),
 #    서버 443 · 80 직접 접속(같은 3개 + TURN/TLS SNI 분기 + http → https), 20초 동안 재시작 없음
@@ -18,6 +18,9 @@ set -euo pipefail
 
 : "${IMAGE_TAG:?IMAGE_TAG가 필요합니다}"
 : "${DOCKERHUB_PULL_TOKEN:?DOCKERHUB_PULL_TOKEN이 필요합니다(범위 prod/*, master에서만 읽힘)}"
+: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY가 필요합니다}"
+# livekit.yaml에 sed로 넣으므로 키 이름에 다른 글자가 섞이면 파일을 망가뜨리기 전에 멈춘다(LiveKit 키 이름은 영문 · 숫자)
+[[ "$LIVEKIT_API_KEY" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "FAIL: LIVEKIT_API_KEY에 영문 · 숫자 · _ · - 외의 글자가 있습니다"; exit 1; }
 export IMAGE_TAG
 
 DOCKERHUB_USER="${DOCKERHUB_USER:-hanggeut}"
@@ -124,6 +127,10 @@ install -m 750 "${SRC_DIR}/backup.sh" "${BACKUP_HOME}/backup.sh"
 log "배포 파일 복사 → ${PROD_DIR}"
 mkdir -p "$PROD_DIR"
 rsync -a --delete "${SRC_DIR}/" "${PROD_DIR}/"
+# LiveKit 웹훅 서명 키 이름(livekit.yaml webhook.api_key). yaml은 환경 변수를 읽지 못해 복사한 파일에 채운다.
+# 해시는 채우기 전 파일로 계산하지만, 키가 바뀌면 LIVEKIT_KEYS 환경 변수도 바뀌어 LiveKit이 어차피 다시 만들어진다
+sed -i "s|__LIVEKIT_API_KEY__|${LIVEKIT_API_KEY}|" "${PROD_DIR}/livekit.yaml"
+if grep -q '__LIVEKIT_API_KEY__' "${PROD_DIR}/livekit.yaml"; then fail "livekit.yaml 웹훅 키 이름을 채우지 못했습니다"; fi
 
 log "서비스 띄우기"
 # BE가 붙는 저장소(Redis · PostgreSQL)가 다시 만들어지는지 보려고 up 전의 컨테이너 ID를 적어 둔다(아래 BE 다시 시작)

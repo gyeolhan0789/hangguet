@@ -9,7 +9,7 @@
 |---|---|
 | `compose.yml` | 운영 서비스 전체(프로젝트 `a301-prod`, 네트워크 `a301-prod`). Redis는 비밀번호(`REDIS_PASSWORD`)를 켠다 |
 | `compose.asg.yml` | 에이전트 ASG 전환 덮어쓰기. `deploy.sh`가 GitLab 변수 `AGENT_ASG_ENABLED=true`일 때만 더한다: 메인 서버 에이전트 끄기, LiveKit 7880 · Redis 6379 · Prometheus 9090 · Loki 3100을 Tailscale IP에만 열기, LiveKit `tcp_retries2=8`([키트 README](../asg/README.md) 「메인 서버 전환」) |
-| `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis). 키는 환경 변수 `LIVEKIT_KEYS` |
+| `livekit.yaml` | LiveKit 서버 설정(단일 UDP 포트, 내장 TURN, Redis, 참가자 입장 · 퇴장 웹훅 → `http://a301-prod-be:8080/api/v1/webhooks/livekit`). 키는 환경 변수 `LIVEKIT_KEYS`. 웹훅 서명 키 이름(`__LIVEKIT_API_KEY__`)은 `deploy.sh`가 복사한 파일에 `LIVEKIT_API_KEY`로 채운다(BE가 같은 키로 서명을 확인한다) |
 | `nginx.conf` | Nginx 전체 설정(`/etc/nginx/nginx.conf`). 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. 앱은 `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로 규칙), Swagger 경로는 404 |
 | `prometheus.yml` · `blackbox.yml` | 지표 수집. 앱 job 이름은 개발 서버와 같고 서버 · 컨테이너 · LiveKit · Egress · Redis · PostgreSQL을 더 모은다 |
 | `loki.yml` · `alloy.alloy` | 로그 수집(Alloy가 `a301-prod-*` 컨테이너 로그를 Loki에 7일 보관). 개발 서버와 같고 보관 기간 · 이름만 다르다 |
@@ -71,7 +71,7 @@ develop → Release MR → master 병합
 2. Docker Hub 로그인: 임시 폴더에서 pull 토큰으로 하고, 끝나면 성공 · 실패와 관계없이 로그아웃하고 지운다
 3. 설정 검사 · 이미지 받기: 체크아웃의 `deploy/prod/compose.yml`로 `config --quiet` → `pull`. 서버의 배포 파일은 아직 바꾸지 않으므로, 여기서 실패하면 설정 파일 · 컨테이너가 모두 예전 그대로 남는다(먼저 복사해 두면 예전 컨테이너가 재시작될 때 새 설정 파일을 읽어 예전 이미지와 섞인다)
 4. 백업 준비: `backup.sh`를 `/opt/a301/backup.sh`로 복사하고, `/opt/a301/backup.env`(권한 600)에 S3 키를 쓴다
-5. 배포 파일 복사 → `up -d --remove-orphans`: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다. 설정이 그대로면 LiveKit을 다시 띄우지 않는다
+5. 배포 파일 복사 → `up -d --remove-orphans`: `deploy/prod/` → `/opt/a301/prod/`(compose를 여기서 실행해 설정 파일 경로가 체크아웃 위치와 관계없이 같다). 복사한 `livekit.yaml`의 웹훅 키 이름 자리에 `LIVEKIT_API_KEY`를 채운다(yaml은 환경 변수를 읽지 못한다). 이미지 · 환경 변수 · 설정 해시가 바뀐 서비스만 compose가 다시 만든다. 설정이 그대로면 LiveKit을 다시 띄우지 않는다
 6. 확인(실패하면 해당 서비스 로그를 남기고 잡을 실패시킨다)
    - 모든 서비스가 실행 중이고, healthcheck가 있는 서비스는 healthy(180초)
    - BE `127.0.0.1:18084/actuator/health` · FE `127.0.0.1:18082/api/health` · AI `127.0.0.1:18083/health`가 `UP`

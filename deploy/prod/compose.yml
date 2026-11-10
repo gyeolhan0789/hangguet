@@ -363,7 +363,8 @@ services:
       - internal
     logging: *logging
 
-  # 미디어 서버 + TURN(배포 계획 4.1 · 4.2). 설정은 livekit.yaml, 키는 환경 변수 LIVEKIT_KEYS
+  # 미디어 서버 + TURN(배포 계획 4.1 · 4.2). 설정은 livekit.yaml, 키는 환경 변수 LIVEKIT_KEYS.
+  # 참가자 입장 · 퇴장 웹훅을 a301-prod-be로 보낸다(livekit.yaml webhook, 키 이름은 deploy.sh가 채운다)
   a301-prod-livekit:
     image: livekit/livekit-server:v1.13.10
     container_name: a301-prod-livekit
