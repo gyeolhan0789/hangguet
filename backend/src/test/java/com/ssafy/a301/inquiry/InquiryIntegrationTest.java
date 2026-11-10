@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,6 +58,7 @@ class InquiryIntegrationTest {
     @Autowired private AccessTokens accessTokens;
     @Autowired private RefreshTokenStore refreshTokens;
     @Autowired private JdbcTemplate jdbc;
+    @Autowired private StringRedisTemplate redis;
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
     private final List<Long> inquiryIds = new ArrayList<>();
@@ -75,6 +77,7 @@ class InquiryIntegrationTest {
     @AfterEach
     void cleanup() {
         for (long id : inquiryIds) {
+            redis.delete("inquiry-fail:" + id);
             jdbc.update("DELETE FROM password_changes WHERE inquiry_id = ?", id);
             jdbc.update("DELETE FROM inquiry_messages WHERE inquiry_id = ?", id);
             jdbc.update("DELETE FROM inquiries WHERE id = ?", id);
@@ -182,6 +185,38 @@ class InquiryIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("평문 제목"))
                 .andExpect(jsonPath("$.messages[0].content").value("원하는 비밀번호는 secret99"));
+    }
+
+    // 기준: 비회원 문의 조회 비밀번호 무작위 대입 방어(5번 틀리면 15분 동안 맞는 비밀번호도 404)
+    @Test
+    void guestInquiryLocksAfterFiveWrongPasswords() throws Exception {
+        long id = guestInquiry("1234");
+
+        // 맞히면 센 횟수를 지우므로 4번 틀린 뒤 맞혀도 다시 처음부터 센다
+        for (int i = 0; i < 4; i++) {
+            mvc.perform(get("/api/v1/inquiries/" + id).header(ACCESS, "000" + i))
+                    .andExpect(status().isNotFound());
+        }
+        mvc.perform(get("/api/v1/inquiries/" + id).header(ACCESS, "1234"))
+                .andExpect(status().isOk());
+
+        for (int i = 0; i < 5; i++) {
+            mvc.perform(get("/api/v1/inquiries/" + id).header(ACCESS, "000" + i))
+                    .andExpect(status().isNotFound());
+        }
+        // 잠긴 동안은 맞는 비밀번호도 없는 문의와 같고, 쓰기 · 종료도 막힌다
+        mvc.perform(get("/api/v1/inquiries/" + id).header(ACCESS, "1234"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("INQUIRY_NOT_FOUND"));
+        message(post("/api/v1/inquiries/" + id + "/messages").header(ACCESS, "1234"), "더 있어요")
+                .andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/inquiries/" + id + "/close").header(ACCESS, "1234"))
+                .andExpect(status().isNotFound());
+
+        // 15분이 지나면(잠금 키가 사라지면) 다시 열린다
+        redis.delete("inquiry-fail:" + id);
+        mvc.perform(get("/api/v1/inquiries/" + id).header(ACCESS, "1234"))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -424,5 +459,19 @@ class InquiryIntegrationTest {
                         .get("accessToken")
                         .asString();
         return request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
+    }
+
+    private long guestInquiry(String accessPassword) throws Exception {
+        return created(
+                mvc.perform(
+                                post("/api/v1/inquiries")
+                                        .contentType(MediaType.APPLICATION_JSON)
+                                        .content(
+                                                """
+                                                {"title":"잠금 확인","content":"내용",
+                                                 "email":"guest@example.com","accessPassword":"%s"}\
+                                                """
+                                                        .formatted(accessPassword)))
+                        .andExpect(status().isCreated()));
     }
 }
