@@ -6,6 +6,9 @@
   답변을 시작할 때 연결을 열면 토큰 시각이 answerStartedAt 기준이 된다.
 - 전송한 음성은 PCM으로 함께 보관한다.
   말끝 흐림·억양 폭을 그 답변의 음성으로 계산하기 위함이다.
+  답변 시작부터 10분까지만 보관한다. 발화 전에는 timedOut 뒤에도 같은 질문에서 계속 들으므로,
+  대기가 길어져도 메모리가 계속 늘지 않게 하기 위함이다.
+  발화는 3분이 지나면 제출하므로(answer_end) 보통은 넘지 않는다.
 - 비공백 토큰 끝 시각의 최댓값이 증가한 응답을 수신하면 on_speech를 호출한다.
   답변 끝 판단이 이 시점을 발화로 보고 7초를 계산한다(app.interview.realtime.answer_end).
 - STT 오류가 발생해도 그때까지 인식된 글은 snapshot으로 제공한다.
@@ -24,11 +27,15 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.agent.stt import SonioxSTT, SttState
+from app.agent.stt import BYTES_PER_SAMPLE, SAMPLE_RATE, SonioxSTT, SttState
 from app.common.answer import SpeechToken, SttGap
 from app.common.results import KST
 from app.interview.realtime.impression import TimedImpression
 from app.interview.realtime.sentence import Sentence, SentenceTracker
+
+# 답변 하나에서 보관하는 음성의 최대 길이(밀리초)와 바이트 수
+MAX_PCM_MS = 600_000
+MAX_PCM_BYTES = MAX_PCM_MS * SAMPLE_RATE * BYTES_PER_SAMPLE // 1000
 
 
 def _now() -> datetime:
@@ -112,7 +119,10 @@ class AnswerCapture:
 
     async def _recorded(self, audio: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
         async for chunk in audio:
-            self._pcm.extend(chunk)
+            # 상한을 넘은 음성은 보관하지 않는다. 음성 지표는 음성이 없는 문장을 건너뛴다(voice.py)
+            room = MAX_PCM_BYTES - len(self._pcm)
+            if room > 0:
+                self._pcm.extend(chunk[:room])
             yield chunk
 
     def _stt_state(self, state: SttState) -> None:

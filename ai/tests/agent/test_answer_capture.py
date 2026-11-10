@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from app.agent.answer_capture import AnswerCapture
+from app.agent.answer_capture import MAX_PCM_BYTES, AnswerCapture
 from app.agent.stt import SonioxSTT, SttError, SttSettings, SttState
 from app.common.answer import SttGap
 from app.common.results import KST
@@ -187,3 +187,35 @@ def test_speech_after_reconnect_is_detected_and_gap_is_reported() -> None:
     assert states == [SttState.RECONNECTING, SttState.RECONNECTED]
     assert answer.stt_gaps == (SttGap(900, 2000),)
     assert answer.content == "앞 뒤"
+
+
+class CountingSTT(ReplaySTT):
+    """받은 음성 조각 수만 센다."""
+
+    def __init__(self, on_update: Callable[[str, str], None]) -> None:
+        super().__init__(on_update, [])
+        self.sent = 0
+
+    async def run(self, audio: AsyncIterable[bytes]) -> None:
+        async for _chunk in audio:
+            self.sent += 1
+
+
+def test_audio_kept_for_metrics_stops_at_limit() -> None:
+    """발화 전 대기가 길어져도 답변 음성은 상한까지만 보관하고, STT로는 계속 보낸다."""
+    chunk = bytes([1, 0]) * 1_600
+    count = MAX_PCM_BYTES // len(chunk) + 3
+    stt: list[CountingSTT] = []
+
+    def make(on_update: Callable[[str, str], None], _on_state: object) -> CountingSTT:
+        stt.append(CountingSTT(on_update))
+        return stt[0]
+
+    async def audio() -> AsyncIterator[bytes]:
+        for _ in range(count):
+            yield chunk
+
+    made = AnswerCapture(make, on_speech=lambda: None, clock=lambda: STARTED_AT)
+    result = asyncio.run(made.run(audio()))
+    assert len(result.pcm) == MAX_PCM_BYTES
+    assert stt[0].sent == count

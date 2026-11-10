@@ -10,6 +10,7 @@ from app.common.session import InterviewMode
 from app.interview.realtime.answer_end import (
     AUTO_SUBMIT_SILENCE_MS,
     INITIAL_STATE,
+    MAX_ANSWER_SPEECH_MS,
     NO_SPEECH_TIMEOUT_MS,
     AnswerEndEvent,
     AnswerEndState,
@@ -95,7 +96,11 @@ def test_reconnect_before_speech_does_not_set_seven_seconds() -> None:
 def test_speech_during_reconnect_only_records_spoke() -> None:
     state, _ = run([START, Reconnecting(), Speech(3_000)])
     assert state == AnswerEndState(
-        phase=Phase.RECONNECTING, spoke=True, listen_started_at=0, silence_started_at=None
+        phase=Phase.RECONNECTING,
+        spoke=True,
+        speech_started_at=3_000,
+        listen_started_at=0,
+        silence_started_at=None,
     )
     events = [
         START,
@@ -243,7 +248,11 @@ def test_answer_started_resets_spoke() -> None:
 
 def test_stt_error_clears_seven_second_count() -> None:
     assert run([START, Speech(1_000), SttError()])[0] == AnswerEndState(
-        phase=Phase.ERROR, spoke=True, listen_started_at=0, silence_started_at=None
+        phase=Phase.ERROR,
+        spoke=True,
+        speech_started_at=1_000,
+        listen_started_at=0,
+        silence_started_at=None,
     )
 
 
@@ -375,9 +384,13 @@ def test_deadline_after_speech_is_seven_seconds_from_last_speech() -> None:
     assert next_deadline(run([START, Speech(3_000), Speech(5_000)])[0]) == 12_000
 
 
-def test_deadline_during_reconnect_keeps_only_sixty_seconds() -> None:
+def test_deadline_during_reconnect_keeps_sixty_seconds_or_three_minutes() -> None:
     assert next_deadline(run([START, Reconnecting()])[0]) == 60_000
-    assert next_deadline(run([START, Speech(1_000), Reconnecting()])[0]) is None
+    # 발화 뒤 재연결 중에는 7초를 멈추고 3분 상한만 남는다
+    assert (
+        next_deadline(run([START, Speech(1_000), Reconnecting()])[0])
+        == 1_000 + MAX_ANSWER_SPEECH_MS
+    )
 
 
 def test_deadline_after_stt_error() -> None:
@@ -405,7 +418,7 @@ def test_notice_pauses_seven_seconds_and_restarts_from_its_end() -> None:
         [START, Speech(1_000), NoticeStarted(), Tick(1_000 + AUTO_SUBMIT_SILENCE_MS + 1)]
     )
     assert decisions == ["wait"]
-    assert next_deadline(state) is None
+    assert next_deadline(state) == 1_000 + MAX_ANSWER_SPEECH_MS
     state, decisions = run([NoticeEnded(9_000), Tick(9_000 + AUTO_SUBMIT_SILENCE_MS - 1)], state)
     assert decisions == ["wait"]
     assert next_deadline(state) == 9_000 + AUTO_SUBMIT_SILENCE_MS
@@ -415,7 +428,7 @@ def test_notice_pauses_seven_seconds_and_restarts_from_its_end() -> None:
 
 def test_speech_during_notice_does_not_start_seven_seconds() -> None:
     state, _ = run([START, Speech(1_000), NoticeStarted(), Speech(2_000)])
-    assert next_deadline(state) is None
+    assert next_deadline(state) == 1_000 + MAX_ANSWER_SPEECH_MS
     state, _ = run([NoticeEnded(3_000)], state)
     assert next_deadline(state) == 3_000 + AUTO_SUBMIT_SILENCE_MS
 
@@ -431,3 +444,34 @@ def test_notice_events_outside_video_answer_change_nothing() -> None:
     assert next_answer_end(chat, NoticeStarted()).state == chat
     state, _ = run([START, Speech(1_000)])
     assert next_answer_end(state, NoticeEnded(5_000)).state == state
+
+
+def test_answer_is_submitted_three_minutes_after_first_speech() -> None:
+    """말이 이어져 7초 침묵이 오지 않아도, 처음 발화한 뒤 3분이 지나면 자동 제출한다."""
+    limit = 2_000 + MAX_ANSWER_SPEECH_MS
+    talking = [Speech(at) for at in range(2_000, limit, 5_000)]
+    state, decisions = run([START, *talking, Tick(limit - 1)])
+    assert decisions[-1] == "wait"
+    assert next_deadline(state) == limit
+    state, decisions = run([Tick(limit)], state)
+    assert decisions == ["submit"]
+    assert state.phase is Phase.SUBMITTING
+
+
+def test_three_minutes_count_from_first_speech_not_answer_start() -> None:
+    """발화 전에 오래 기다렸어도 말하기 시작한 때부터 3분을 센다."""
+    state, decisions = run(
+        [START, Tick(NO_SPEECH_TIMEOUT_MS), Speech(400_000), Tick(400_000 + 6_000)]
+    )
+    assert decisions == ["timeout", "wait"]
+    assert next_deadline(state) == 400_000 + AUTO_SUBMIT_SILENCE_MS
+
+
+def test_three_minutes_apply_during_reconnect() -> None:
+    _, decisions = run([START, Speech(1_000), Reconnecting(), Tick(1_000 + MAX_ANSWER_SPEECH_MS)])
+    assert decisions == ["submit"]
+
+
+def test_chat_has_no_three_minute_limit() -> None:
+    state, _ = run([AnswerStarted(0, InterviewMode.CHAT), Speech(1_000)])
+    assert next_deadline(state) is None

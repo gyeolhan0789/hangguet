@@ -3,6 +3,9 @@
 기준: AI 명세 6.2 답변 끝·채팅, 6.3 면접방 메시지(answerState·answerSubmit), 6.5 실패 처리,
 API 명세 면접방 메시지의 화상 답변 끝 판단.
 - 7초는 마지막 발화가 인식된 때부터 계산하고, 그 안에 다시 발화하면 처음부터 계산한다.
+- 처음 발화한 뒤 3분이 지나면 말이 이어져도 자동으로 제출한다.
+  주변 소리가 계속 인식되면 7초 침묵이 오지 않아 답변이 끝나지 않고,
+  그동안 STT 과금과 답변 음성이 계속 늘어나기 때문이다.
 - 발화를 시작하지 않았으면 자동으로 제출하지 않고,
   발화를 시작하지 않은 채 60초가 지나면 timedOut이다.
 - timedOut은 한 번만 알리고 같은 질문에서 계속 듣는다.
@@ -39,6 +42,9 @@ AUTO_SUBMIT_SILENCE_MS = 7_000
 # 임시 값(AI 명세 6.2): 발화를 시작하지 않은 채 timedOut으로 처리하기까지
 NO_SPEECH_TIMEOUT_MS = 60_000
 
+# 임시 값(AI 명세 6.2): 처음 발화한 뒤 이 시간이 지나면 말이 이어져도 자동 제출한다
+MAX_ANSWER_SPEECH_MS = 180_000
+
 
 class Phase(StrEnum):
     """답변 진행 단계."""
@@ -54,7 +60,7 @@ class Phase(StrEnum):
 class Decision(StrEnum):
     """호출 측이 할 일."""
 
-    SUBMIT = "submit"  # 7초 자동 제출(answerState autoSubmitted)
+    SUBMIT = "submit"  # 7초 · 3분 자동 제출(answerState autoSubmitted)
     TIMEOUT = "timeout"  # 60초 timedOut(answerState timedOut)
     WAIT = "wait"  # 할 일 없음
     ACCEPT = "accept"  # [답변 완료]를 받아 제출(answerSubmit 응답 accepted true)
@@ -69,6 +75,8 @@ class AnswerEndState:
     mode: InterviewMode = InterviewMode.VIDEO
     # 이 답변에서 발화를 시작했는지
     spoke: bool = False
+    # 이 답변에서 처음 발화한 시각. 3분 상한을 계산한다
+    speech_started_at: int | None = None
     # 60초를 계산하기 시작한 시각(답변 시작)
     listen_started_at: int | None = None
     # 7초를 계산하기 시작한 시각: 마지막 발화 또는 발화 시작 후 재연결.
@@ -192,7 +200,10 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
             # 발화 시작 상태만 기록한다
             listening = state.phase is Phase.LISTENING and not state.notice_playing
             silence = at if listening else None
-            return AnswerEndStep(replace(state, spoke=True, silence_started_at=silence))
+            first = at if state.speech_started_at is None else state.speech_started_at
+            return AnswerEndStep(
+                replace(state, spoke=True, speech_started_at=first, silence_started_at=silence)
+            )
 
         case Reconnecting():
             if not _is_video(state) or state.phase is not Phase.LISTENING:
@@ -246,6 +257,11 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
             return AnswerEndStep(replace(state, phase=Phase.SUBMIT_FAILED))
 
         case Tick(now=now):
+            # 재연결 중이거나 안내 음성 재생 중이어도 3분이 지나면 제출한다
+            limit = _max_speech_deadline(state)
+            if limit is not None and now >= limit:
+                submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
+                return AnswerEndStep(submitting, Decision.SUBMIT)
             if (
                 state.phase is Phase.LISTENING
                 and state.silence_started_at is not None
@@ -262,14 +278,29 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
             return AnswerEndStep(state)
 
 
+def _max_speech_deadline(state: AnswerEndState) -> int | None:
+    """3분 상한으로 제출할 시각이다. 화상 답변 중 발화를 시작한 뒤에만 계산한다."""
+    if not _is_video(state) or not _is_active(state.phase) or state.speech_started_at is None:
+        return None
+    return state.speech_started_at + MAX_ANSWER_SPEECH_MS
+
+
 def next_deadline(state: AnswerEndState) -> int | None:
     """다음 Tick을 보내야 하는 시각(밀리초)이다.
 
-    7초는 발화 뒤에만, 60초는 발화 전에만 계산하므로 둘 중 하나만 해당한다.
+    7초와 3분은 발화 뒤에만, 60초는 발화 전에만 계산한다. 7초와 3분은 이른 쪽이다.
     계산할 것이 없으면 None이다.
     """
-    if state.phase is Phase.LISTENING and state.silence_started_at is not None:
-        return state.silence_started_at + AUTO_SUBMIT_SILENCE_MS
     if _counts_no_speech(state) and state.listen_started_at is not None:
         return state.listen_started_at + NO_SPEECH_TIMEOUT_MS
-    return None
+    deadlines = [
+        deadline
+        for deadline in (
+            state.silence_started_at + AUTO_SUBMIT_SILENCE_MS
+            if state.phase is Phase.LISTENING and state.silence_started_at is not None
+            else None,
+            _max_speech_deadline(state),
+        )
+        if deadline is not None
+    ]
+    return min(deadlines) if deadlines else None

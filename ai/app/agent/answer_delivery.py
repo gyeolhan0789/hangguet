@@ -9,7 +9,8 @@
 - 재시도 후에도 전송하지 못하면 ResultPublishError를 전파한다.
   호출 측이 submitFailed를 알리고 [답변 완료]를 수신하면 같은 답변을 다시 전달한다.
 - BE가 저장할 수 없는 답변(10,000자 초과 등)은 다시 전달해도 결과가 같으므로
-  전달하지 않고 False를 반환한다.
+  전달하지 않고 False를 반환한다. 글은 음성 지표를 계산하기 전에 확인한다.
+  저장하지 못할 답변의 음성 지표를 계산하지 않기 위함이다.
 """
 
 import asyncio
@@ -19,7 +20,11 @@ from app.agent.interview import FinishedAnswer
 from app.common.answer import SpeechToken, VoiceMetrics
 from app.common.results import ResultPublisher
 from app.interview.realtime.impression import impressions_json
-from app.interview.realtime.progress import ProgressMessageError, answer_completed
+from app.interview.realtime.progress import (
+    ProgressMessageError,
+    answer_completed,
+    check_answer_content,
+)
 from app.interview.realtime.voice import pcm16_samples, trailing_off_at_ms, voice_metrics
 
 log = logging.getLogger(__name__)
@@ -43,6 +48,13 @@ class AnswerDelivery:
     async def deliver(self, finished: FinishedAnswer) -> bool:
         """답변을 전달하면 True, BE가 저장할 수 없는 답변이라 전달하지 않았으면 False다."""
         answer = finished.answer
+        try:
+            check_answer_content(answer.content)
+        except ProgressMessageError as e:
+            log.error(
+                "답변 글을 저장할 수 없어 전달하지 않는다: %s", e, extra={"seq": finished.seq}
+            )
+            return False
         speech, trailing = await asyncio.to_thread(
             _voice, answer.pcm, self._sample_rate, answer.tokens
         )
