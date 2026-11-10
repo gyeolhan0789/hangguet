@@ -57,6 +57,17 @@ class ApiSpecTest {
     }
 
     @Test
+    void recordingRetryStartsMerging() {
+        assertThat(mockMvc.post().uri("/api/v1/interview-sessions/55/recording/retry"))
+                .hasStatus(HttpStatus.ACCEPTED)
+                .bodyJson()
+                .extractingPath("$.videoStatus")
+                .isEqualTo("MERGING");
+        assertThat(mockMvc.post().uri("/api/v1/interview-sessions/0/recording/retry"))
+                .hasStatus(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void signupWithAllAgreementsSucceeds() {
         String body =
                 """

@@ -1,7 +1,7 @@
 # A301 API 명세
 
 > API별 요청·응답 형식과 예시는 백엔드 Swagger에서 본다(1.x~9.x 모두 구현). 이 문서는 Swagger에 담지 않는 **공통 규약, 업무 규칙, 화면 대응, 오류 코드, 보류 목록**을 적는다.
-> 그룹 면접은 10.1~10.9를 구현해 Swagger에 있다. 10.10(기존 API의 그룹 규칙)과 10.11(면접방 정보 · 메시지)은 이 문서가 기준이다. 6.5는 아직 구현 전이라 Swagger에 없고, 구현할 때까지 이 문서가 요청·응답 기준이다. 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
+> 그룹 면접은 10.1~10.9를 구현해 Swagger에 있다. 10.10(기존 API의 그룹 규칙)과 10.11(면접방 정보 · 메시지)은 이 문서가 기준이다. 설계 배경은 [그룹 면접 설계](그룹면접-설계.md)에 있다.
 >
 > - Swagger: https://hangguet.yobistory.com/be/docs (로컬: `backend/`에서 `./gradlew bootRun` → http://localhost:8080/docs). 목 서버 https://hangguet.yobistory.com/mock/be/docs 는 같은 계약의 예시 응답만 준다
 > - 화면 번호(S00~S09·C01)는 화면 설계 기준
@@ -87,7 +87,7 @@
 | 5.15 | 월별 연습 면접 횟수 | `GET /interview-sessions/calendar` | 연습 기록(`/records`) 달력 |
 | 6.3 | 면접 결과 | `GET /interview-sessions/{sessionId}/result` | S07 |
 | 6.4 | 다시보기 | `GET /interview-sessions/{sessionId}/replay` | S07-1 |
-| 6.5 | 녹화 다시 합치기 **[예정]** | `POST /interview-sessions/{sessionId}/recording/retry` | S07-1 |
+| 6.5 | 녹화 다시 합치기 | `POST /interview-sessions/{sessionId}/recording/retry` | S07-1 |
 | 7.1 | 날짜별 성장 리뷰 | `GET /growth-reviews/{practiceDate}` | S08, S08-C, S09, S02 |
 | 7.2 | 최근 성장 리뷰 | `GET /growth-reviews` | S02 |
 | 8.1 | 관리자 로그인 | `POST /admin/auth/login` | 관리자 |
@@ -720,15 +720,15 @@ API 번호가 없는, 면접 중 화면과 AI 에이전트가 면접방 안에�
 - **404 / SESSION_NOT_FOUND**
 - **409 / RESULT_NOT_READY** · **NO_RESULT**: 6.3과 같음
 
-#### 6.5 녹화 다시 합치기 **[예정]**
+#### 6.5 녹화 다시 합치기
 
 **화면 — S07-1 녹화를 불러오지 못함 › [다시 시도]**
 
-`videoStatus`가 `FAILED`인 화상 면접의 녹화 합치기를 다시 요청한다. 원본 트랙은 지우지 않으므로 같은 원본으로 다시 합친다. 성공하면 `videoStatus`가 `MERGING`이 되고, 화면은 6.4를 10초마다(임시 값) 다시 조회한다. 그룹 면접에서 먼저 만들지만 개인 면접에도 쓸 수 있다. 개인 면접 화면에 붙일지는 **[미정]**(B-24).
+`videoStatus`가 `FAILED`인 화상 면접의 녹화 합치기를 다시 요청한다. 원본 트랙은 지우지 않으므로 같은 원본으로 다시 합친다. 성공하면 `videoStatus`가 `MERGING`이 되고, 화면은 6.4를 10초마다(임시 값) 다시 조회한다. 6.4의 15분 대기는 이 요청 시각부터 다시 센다. 같은 면접의 요청이 겹치면 하나만 받고 나머지는 409 `RECORDING_NOT_FAILED`다(이미 합치는 중). 그룹 면접에서 먼저 만들지만 개인 면접에도 쓸 수 있다. 개인 면접 화면에 붙일지는 **[미정]**(B-24).
 
-- **202**: 다시 합치기 시작(`videoStatus: MERGING`)
+- **202**: 다시 합치기 시작. 본문 `{ "videoStatus": "MERGING" }`
 - **404 / SESSION_NOT_FOUND**
-- **409 / RECORDING_NOT_FAILED**: 채팅이거나 `videoStatus`가 `FAILED`가 아님
+- **409 / RECORDING_NOT_FAILED**: 채팅이거나 답변 없이 끝남(`ABORTED`), 또는 `videoStatus`가 `FAILED`가 아님(합치는 중 포함)
 - **409 / RETRY_LIMIT_EXCEEDED**: 한 면접에서 3번(임시 값) 다시 시도함
 
 ### 7. 성장 리뷰
@@ -1176,7 +1176,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `INQUIRY_NOT_FOUND` | 404 | 9.3·9.4·9.5, 9.7·9.8·9.9·9.10 |
 | `INQUIRY_CLOSED` | 409 | 9.4, 9.8 |
 | `QUESTION_GENERATING` | 202(오류 아님) | 5.5 |
-| `RECORDING_NOT_FAILED` · `RETRY_LIMIT_EXCEEDED` | 409 | 6.5 **[예정]** |
+| `RECORDING_NOT_FAILED` · `RETRY_LIMIT_EXCEEDED` | 409 | 6.5 |
 | `GROUP_NOT_FOUND` | 404 | 10.2~10.8 |
 | `GROUP_FULL` · `ALREADY_IN_GROUP` | 409 | 10.3(`ALREADY_IN_GROUP`는 10.1도) |
 | `INVALID_GROUP_STATE` | 409 | 10.5~10.7 |

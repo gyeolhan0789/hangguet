@@ -13,6 +13,13 @@ public final class ResultDtos {
 
     private ResultDtos() {}
 
+    /** 6.5 녹화 다시 합치기 응답 */
+    public record RecordingRetryResponse(
+            @Schema(
+                            description = "다시 합치기를 시작해 언제나 MERGING이다. 화면은 6.4를 다시 조회한다",
+                            example = "MERGING")
+                    VideoStatus videoStatus) {}
+
     public enum VideoStatus {
         READY,
         MERGING,

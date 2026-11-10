@@ -424,7 +424,8 @@ public class AiResultService {
                     if (session == null || !session.isVideo()) {
                         return Outcome.DISCARDED;
                     }
-                    Recording recording = recordings.findByObjectKey(objectKey).orElse(null);
+                    Recording recording =
+                            recordings.findByObjectKeyForUpdate(objectKey).orElse(null);
                     if (recording == null) {
                         recordings.save(
                                 Recording.mergedSessionVideo(
@@ -440,7 +441,8 @@ public class AiResultService {
     }
 
     // 다시보기(API 명세 6.4)가 FAILED로 응답하도록 MERGING 행을 FAILED로 변경한다.
-    // 이미 READY이거나 행이 없으면(V10 이전에 끝남) 버린다. 행이 없는 면접은 6.4가 종료 시각으로 판단한다
+    // 이미 READY이거나 행이 없으면(V10 이전에 끝남) 버린다. 행이 없는 면접은 6.4가 종료 시각으로 판단한다.
+    // 다시 합치기(6.5) 전에 넣은 작업의 실패가 늦게 오면 진행 중인 새 시도를 실패로 덮지 않게 버린다
     private Outcome recordingMergeFailed(long sessionId, AiResultMessage message) {
         LOG.warn("녹화 합치기 실패: session={} reason={}", sessionId, message.reason());
         return transactions.execute(
@@ -450,8 +452,8 @@ public class AiResultService {
                         return Outcome.DISCARDED;
                     }
                     return recordings
-                            .findByObjectKey(Recording.sessionVideoKey(sessionId))
-                            .filter(Recording::markMergeFailed)
+                            .findByObjectKeyForUpdate(Recording.sessionVideoKey(sessionId))
+                            .filter(recording -> recording.markMergeFailed(message.jobId()))
                             .map(recording -> Outcome.SAVED)
                             .orElse(Outcome.DISCARDED);
                 });

@@ -164,4 +164,11 @@ public final class ResultDtos {
                     double videoStart,
             @Schema(description = "이어 붙인 영상에서 구간이 끝나는 위치(초)", example = "95.42") double videoEnd,
             @Schema(description = "구간이 시작한 원래 시각(질문을 낸 시각)") OffsetDateTime startedAt) {}
+
+    /** 6.5 녹화 다시 합치기 응답 */
+    public record RecordingRetryResponse(
+            @Schema(
+                            description = "다시 합치기를 시작해 언제나 MERGING이다. 화면은 6.4를 다시 조회한다",
+                            example = "MERGING")
+                    VideoStatus videoStatus) {}
 }

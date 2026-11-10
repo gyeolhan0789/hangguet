@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.auth.config.SecurityConfig;
+import com.ssafy.a301.result.service.RecordingRetryService;
 import com.ssafy.a301.result.service.ResultService;
 import com.ssafy.a301.user.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class ResultControllerTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private ResultService results;
+    @MockitoBean private RecordingRetryService recordingRetries;
     @MockitoBean private UserRepository users;
 
     @Test

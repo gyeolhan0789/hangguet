@@ -1,16 +1,21 @@
 package com.ssafy.a301.result.controller;
 
 import com.ssafy.a301.common.web.CurrentUserId;
+import com.ssafy.a301.result.dto.ResultDtos.RecordingRetryResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.dto.ResultDtos.ResultResponse;
+import com.ssafy.a301.result.service.RecordingRetryService;
 import com.ssafy.a301.result.service.ResultService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "6. 결과 · 다시보기")
@@ -18,9 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/interview-sessions/{sessionId}")
 public class ResultController {
     private final ResultService results;
+    private final RecordingRetryService recordingRetries;
 
-    public ResultController(ResultService results) {
+    public ResultController(ResultService results, RecordingRetryService recordingRetries) {
         this.results = results;
+        this.recordingRetries = recordingRetries;
     }
 
     @Operation(
@@ -54,5 +61,25 @@ public class ResultController {
             @CurrentUserId long userId,
             @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
         return results.replay(userId, sessionId);
+    }
+
+    @Operation(
+            summary = "6.5 녹화 다시 합치기",
+            description =
+                    "videoStatus가 FAILED인 화상 면접의 녹화를 같은 원본으로 다시 합친다. 성공하면 videoStatus가 MERGING이 되고,"
+                            + " 합치기 결과를 이 요청 시각부터 15분 기다린다. 화면은 6.4를 다시 조회한다.")
+    @ApiResponse(responseCode = "202", description = "다시 합치기 시작(videoStatus MERGING)")
+    @ApiResponse(responseCode = "404", description = "SESSION_NOT_FOUND: 없거나 남의 면접")
+    @ApiResponse(
+            responseCode = "409",
+            description =
+                    "RECORDING_NOT_FAILED: 채팅이거나 videoStatus가 FAILED가 아님(이미 다시 합치는 중 포함) ·"
+                            + " RETRY_LIMIT_EXCEEDED: 한 면접에서 3번 다시 합침")
+    @PostMapping("/recording/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public RecordingRetryResponse retryRecording(
+            @CurrentUserId long userId,
+            @Parameter(description = "면접 id", example = "55") @PathVariable long sessionId) {
+        return recordingRetries.retry(userId, sessionId);
     }
 }

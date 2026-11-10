@@ -1625,6 +1625,37 @@ class InterviewGroupIntegrationTest {
                 .isBefore(OffsetDateTime.parse(segment.path("end").asString()));
         assertThat(segment.path("start").asString())
                 .matches(".*T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}\\+09:00");
+
+        // 합치기가 실패하면 6.5로 다시 합친다. 새 작업도 같은 원본 위치 · 참가자 · 구간으로 나간다
+        jdbc.update("UPDATE recordings SET status = 'FAILED' WHERE session_id = ?", a);
+        mvc.perform(as(users.get(a), post("/api/v1/interview-sessions/" + a + "/recording/retry")))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.videoStatus").value("MERGING"));
+        long retryJobs =
+                jdbc.queryForObject(
+                        "SELECT count(*) FROM ai_job_outbox WHERE session_id = ? AND job_type ="
+                                + " 'MERGE_RECORDING'",
+                        Long.class,
+                        a);
+        assertThat(retryJobs).isEqualTo(2);
+        UUID retryJobId =
+                jdbc.queryForObject(
+                        "SELECT merge_job_id FROM recordings WHERE session_id = ?", UUID.class, a);
+        assertThat(retryJobId).isNotEqualTo(jobId);
+        JsonNode retried =
+                json.valueToTree(
+                        transactions.execute(
+                                status ->
+                                        jobMessages.of(
+                                                aiJobRepository
+                                                        .findById(retryJobId)
+                                                        .orElseThrow())));
+        for (String field :
+                new String[] {
+                    "rawPrefix", "roomName", "candidateIdentity", "objectKey", "segments"
+                }) {
+            assertThat(retried.path(field)).isEqualTo(message.path(field));
+        }
     }
 
     private String rejected(long groupId, OffsetDateTime occurredAt) {

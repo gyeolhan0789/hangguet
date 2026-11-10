@@ -234,7 +234,7 @@ class AiEvaluationResultTest {
     @Test
     void mergedRecordingChangesMergingToReadyOnce() {
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(session));
+        em.persist(Recording.mergingSessionVideo(session, JOB_ID));
 
         assertThat(results.handle(merged(session))).isEqualTo(Outcome.SAVED);
         assertThat(results.handle(merged(session))).isEqualTo(Outcome.DISCARDED);
@@ -267,10 +267,10 @@ class AiEvaluationResultTest {
     @Test
     void mergedRecordingKeepsRecordingStartedAt() {
         InterviewSession merging = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(merging));
+        em.persist(Recording.mergingSessionVideo(merging, JOB_ID));
         InterviewSession withoutRow = analyzing(InterviewMode.VIDEO, 1);
         InterviewSession appended = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(appended));
+        em.persist(Recording.mergingSessionVideo(appended, JOB_ID));
 
         assertThat(results.handle(merged(merging, "2026-11-04T10:00:03.250+09:00")))
                 .isEqualTo(Outcome.SAVED);
@@ -306,7 +306,7 @@ class AiEvaluationResultTest {
     void mergedAgainAfterReadyKeepsFirstRecordingStartedAt() {
         // 이미 READY이면 버리므로 늦게 온 같은 결과가 0초 시각을 바꾸지 않는다
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(session));
+        em.persist(Recording.mergingSessionVideo(session, JOB_ID));
         results.handle(merged(session, "2026-11-04T10:00:03.250+09:00"));
 
         assertThat(results.handle(merged(session, "2026-11-04T10:09:00.000+09:00")))
@@ -326,8 +326,38 @@ class AiEvaluationResultTest {
     @Test
     void mergeFailedChangesMergingToFailed() {
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(session));
+        em.persist(Recording.mergingSessionVideo(session, JOB_ID));
 
+        assertThat(results.handle(mergeFailed(session))).isEqualTo(Outcome.SAVED);
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.FAILED));
+    }
+
+    // 다시 합치기(API 명세 6.5)로 새 작업(JOB_ID)을 기다리는 중에 이전 작업의 실패가 늦게 오면 버린다. 성공은 파일이 있으므로 받는다
+    @Test
+    void lateMergeFailedOfPreviousJobIsDiscardedAfterRetry() {
+        InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
+        Recording recording = Recording.mergingSessionVideo(session, UUID.randomUUID());
+        recording.markMergeFailed(null);
+        recording.retryMerge(JOB_ID, OffsetDateTime.now());
+        em.persist(recording);
+        String previousFailed =
+                json(
+                        Map.of(
+                                "type",
+                                "recording.mergeFailed",
+                                "sessionId",
+                                session.getId(),
+                                "jobId",
+                                UUID.randomUUID().toString(),
+                                "reason",
+                                "TRACK_NOT_FOUND"));
+
+        assertThat(results.handle(previousFailed)).isEqualTo(Outcome.DISCARDED);
+        assertThat(sessionVideos(session))
+                .singleElement()
+                .satisfies(r -> assertThat(r.getStatus()).isEqualTo(RecordingStatus.MERGING));
         assertThat(results.handle(mergeFailed(session))).isEqualTo(Outcome.SAVED);
         assertThat(sessionVideos(session))
                 .singleElement()
@@ -338,7 +368,7 @@ class AiEvaluationResultTest {
     void mergedAfterFailureBecomesReady() {
         // 파일이 올라왔으면 앞서 받은 실패보다 우선한다
         InterviewSession session = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(session));
+        em.persist(Recording.mergingSessionVideo(session, JOB_ID));
         results.handle(mergeFailed(session));
 
         assertThat(results.handle(merged(session))).isEqualTo(Outcome.SAVED);
@@ -350,7 +380,7 @@ class AiEvaluationResultTest {
     @Test
     void mergeFailedIsDiscardedWhenReadyOrWithoutRow() {
         InterviewSession ready = analyzing(InterviewMode.VIDEO, 1);
-        em.persist(Recording.mergingSessionVideo(ready));
+        em.persist(Recording.mergingSessionVideo(ready, JOB_ID));
         results.handle(merged(ready));
         assertThat(results.handle(mergeFailed(ready))).isEqualTo(Outcome.DISCARDED);
         assertThat(sessionVideos(ready))
