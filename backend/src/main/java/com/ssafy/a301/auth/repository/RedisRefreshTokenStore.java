@@ -45,7 +45,7 @@ public class RedisRefreshTokenStore implements RefreshTokenStore {
         String userKey = userKey(userId);
         long now = Instant.now().getEpochSecond();
         redis.opsForZSet().removeRangeByScore(userKey, Double.NEGATIVE_INFINITY, now);
-        redis.opsForZSet().add(userKey, key, now + properties.refreshTtl().toSeconds());
+        redis.opsForZSet().add(userKey, key, (double) now + properties.refreshTtl().toSeconds());
         redis.expire(userKey, properties.refreshTtl());
         return token;
     }

@@ -2,6 +2,7 @@ package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.CommonQuestion;
 import com.ssafy.a301.group.domain.CommonQuestionType;
 import com.ssafy.a301.group.domain.GroupCommonQuestion;
@@ -102,7 +103,7 @@ public class GroupStartService {
      */
     public GroupResponse start(long userId, long groupId) {
         // 녹화 원본 위치는 시작 시각의 밀리초다(6.12). DB에 저장하며 마이크로초로 반올림돼도 밀리초가 바뀌지 않게 미리 자른다
-        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MILLIS);
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE).truncatedTo(ChronoUnit.MILLIS);
         return transactions.execute(
                 status -> {
                     InterviewGroup group =

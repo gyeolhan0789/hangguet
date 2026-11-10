@@ -66,7 +66,7 @@ class PracticeAlarmSenderTest {
         assertThat(sender.sendDue(NOW)).isEqualTo(1);
 
         verify(alarms).claimToday(1L, TODAY);
-        verify(kakao).sendToMe(eq("access-1"), eq(PracticeAlarmSender.message(2)));
+        verify(kakao).sendToMe("access-1", PracticeAlarmSender.message(2));
         assertThat(PracticeAlarmSender.message(2)).contains("3일 연속");
         verify(kakao, never()).refresh(anyString());
     }

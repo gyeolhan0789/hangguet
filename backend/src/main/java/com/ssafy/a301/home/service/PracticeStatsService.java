@@ -28,14 +28,17 @@ public class PracticeStatsService {
         this.interviewStats = interviewStats;
     }
 
-    // 아래 stats(userId, today)를 같은 객체 안에서 부르면 그쪽 @Transactional이 적용되지 않으므로 여기에도 둔다(3.1 홈과 같음)
     @Transactional(readOnly = true)
     public StatsResponse stats(long userId) {
-        return stats(userId, KoreaTime.today());
+        return build(userId, KoreaTime.today());
     }
 
     @Transactional(readOnly = true)
     public StatsResponse stats(long userId, LocalDate today) {
+        return build(userId, today);
+    }
+
+    private StatsResponse build(long userId, LocalDate today) {
         Streaks streaks = practices.streaks(userId, today);
         Totals totals = interviewStats.totals(userId);
         return new StatsResponse(

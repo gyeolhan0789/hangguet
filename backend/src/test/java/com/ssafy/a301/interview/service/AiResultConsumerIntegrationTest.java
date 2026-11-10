@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.timeout;
@@ -12,7 +13,6 @@ import com.ssafy.a301.interview.repository.RedisAiResultQueue;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -130,11 +130,10 @@ class AiResultConsumerIntegrationTest {
         verify(results, times(1)).handle("broken");
     }
 
-    private void awaitEmpty(String key) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (redis.opsForList().size(key) > 0) {
-            assertThat(System.nanoTime()).as(key + " 비우기 대기").isLessThan(deadline);
-            Thread.sleep(20);
-        }
+    private void awaitEmpty(String key) {
+        await().alias(key + " 비우기 대기")
+                .atMost(Duration.ofSeconds(5))
+                .pollInterval(Duration.ofMillis(20))
+                .until(() -> redis.opsForList().size(key) == 0);
     }
 }

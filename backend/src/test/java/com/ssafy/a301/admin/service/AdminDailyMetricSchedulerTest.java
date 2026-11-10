@@ -23,7 +23,7 @@ class AdminDailyMetricSchedulerTest {
     void midnightRunRecordsKoreanYesterday() {
         scheduler.run();
 
-        verify(daily).record(eq(LocalDate.now(KST).minusDays(1)), any());
+        verify(daily).recordDay(eq(LocalDate.now(KST).minusDays(1)), any());
     }
 
     @Test
@@ -37,7 +37,7 @@ class AdminDailyMetricSchedulerTest {
 
     @Test
     void failureIsLoggedNotThrown() {
-        doThrow(new IllegalStateException("DB 끊김")).when(daily).record(any(), any());
+        doThrow(new IllegalStateException("DB 끊김")).when(daily).recordDay(any(), any());
         when(daily.recordYesterdayIfAbsent(any())).thenThrow(new IllegalStateException("DB 끊김"));
 
         assertThatCode(scheduler::run).doesNotThrowAnyException();

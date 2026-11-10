@@ -42,8 +42,8 @@ class AccessTokensTest {
         when(users.findByIdAndDeletedAtIsNull(7L)).thenReturn(Optional.empty());
         String token =
                 new AccessTokens(security.jwtEncoder(properties), properties).issue(7L, "회원");
-        assertThatThrownBy(() -> security.jwtDecoder(properties, users).decode(token))
-                .isInstanceOf(JwtException.class);
+        var decoder = security.jwtDecoder(properties, users);
+        assertThatThrownBy(() -> decoder.decode(token)).isInstanceOf(JwtException.class);
     }
 
     @Test
@@ -54,7 +54,7 @@ class AccessTokensTest {
                         Duration.ofHours(1),
                         Duration.ofDays(30));
         String token = new AccessTokens(security.jwtEncoder(other), other).issue(7L, "회원");
-        assertThatThrownBy(() -> security.jwtDecoder(properties, users).decode(token))
-                .isInstanceOf(JwtException.class);
+        var decoder = security.jwtDecoder(properties, users);
+        assertThatThrownBy(() -> decoder.decode(token)).isInstanceOf(JwtException.class);
     }
 }

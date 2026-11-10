@@ -1,5 +1,6 @@
 package com.ssafy.a301.interview.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.repository.AiJobQueue;
 import com.ssafy.a301.interview.repository.AiJobRepository;
@@ -84,10 +85,10 @@ public class AiJobPublisher {
         } catch (IllegalStateException ex) {
             // 다시 보내도 만들 수 없는 작업이다. 다른 작업을 막지 않도록 보낸 것으로 두고 남긴다
             LOG.error("AI 작업 메시지를 만들 수 없어 보내지 않는다: {}", job.getId(), ex);
-            job.markPublished(OffsetDateTime.now());
+            job.markPublished(OffsetDateTime.now(KoreaTime.ZONE));
             return;
         }
         queue.push(message);
-        job.markPublished(OffsetDateTime.now());
+        job.markPublished(OffsetDateTime.now(KoreaTime.ZONE));
     }
 }

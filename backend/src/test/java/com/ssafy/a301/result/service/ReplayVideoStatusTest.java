@@ -19,7 +19,8 @@ class ReplayVideoStatusTest {
 
     @Test
     void mergeWaitIsFifteenMinutes() {
-        assertThat(DEADLINE).isEqualTo(OffsetDateTime.parse("2026-10-27T10:25:00+09:00"));
+        assertThat(ENDED.plus(ResultService.MERGE_WAIT))
+                .isEqualTo(OffsetDateTime.parse("2026-10-27T10:25:00+09:00"));
     }
 
     @Test

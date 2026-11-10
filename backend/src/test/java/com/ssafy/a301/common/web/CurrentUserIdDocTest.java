@@ -22,8 +22,9 @@ class CurrentUserIdDocTest {
         String docs =
                 mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString();
 
-        assertThat(docs).contains("/api/v1/users/me", "/api/v1/admin/notices");
-        assertThat(docs).doesNotContain("\"name\":\"userId\",\"in\":\"query\"");
-        assertThat(docs).doesNotContain("\"name\":\"adminId\",\"in\":\"query\"");
+        assertThat(docs)
+                .contains("/api/v1/users/me", "/api/v1/admin/notices")
+                .doesNotContain("\"name\":\"userId\",\"in\":\"query\"")
+                .doesNotContain("\"name\":\"adminId\",\"in\":\"query\"");
     }
 }

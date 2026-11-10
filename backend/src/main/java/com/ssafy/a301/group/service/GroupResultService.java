@@ -1,5 +1,6 @@
 package com.ssafy.a301.group.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
@@ -110,7 +111,7 @@ public class GroupResultService {
                     case "followup.decided" -> followupDecided(message);
                     default -> throw new InvalidAiResultException("처리하지 않는 결과 종류: " + type);
                 };
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         Optional<Long> groupId = sessions.findGroupIdById(sessionId);
         Outcome outcome =
                 groupId.isEmpty()
@@ -173,10 +174,11 @@ public class GroupResultService {
                                 turn.session(),
                                 turn.seq(),
                                 group.getTurnKind(),
-                                message.content(),
-                                message.criteria(),
-                                message.promptVersion(),
-                                message.modelVersion(),
+                                new InterviewQuestion.Generated(
+                                        message.content(),
+                                        message.criteria(),
+                                        message.promptVersion(),
+                                        message.modelVersion()),
                                 startedAt));
             } else if (isAbandoned(asked.get())) {
                 // 답변 중 나갔다 돌아온 사람에게 같은 질문을 다시 묻는다(6.9). 질문 글은 처음 낸 것을 그대로 둔다
@@ -258,7 +260,11 @@ public class GroupResultService {
         boolean needed = required(message.needed(), "needed");
         return (turn, current) -> {
             boolean deciding = current && turn.group().isPhase(GroupPhase.DECIDING);
-            recordDecision(turn, deciding ? (needed ? "needed" : "not_needed") : "late");
+            String decision = "late";
+            if (deciding) {
+                decision = needed ? "needed" : "not_needed";
+            }
+            recordDecision(turn, decision);
             LOG.info(
                     "꼬리질문 판단: session={} seq={} needed={} receivedAt={} generationMs={}",
                     turn.session() == null ? null : turn.session().getId(),

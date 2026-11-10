@@ -732,7 +732,7 @@ class AdminIntegrationTest {
             LocalDate fillable,
             int quantity)
             throws Exception {
-        String userIds = ids == null ? "null" : ids.toString();
+        String userIdsJson = ids == null ? "null" : ids.toString();
         return mvc.perform(
                 post("/api/v1/admin/streak-freeze-grants")
                         .header(HttpHeaders.AUTHORIZATION, bearer(token))
@@ -744,7 +744,7 @@ class AdminIntegrationTest {
                                 """
                                         .formatted(
                                                 targetType,
-                                                userIds,
+                                                userIdsJson,
                                                 quantity,
                                                 grantDate,
                                                 fillable)));

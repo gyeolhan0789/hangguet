@@ -2,6 +2,7 @@ package com.ssafy.a301.interview.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.error.ApiException;
@@ -147,12 +148,9 @@ class InterviewCapacityTest {
         }
     }
 
+    // 잠금을 쥔 채 100ms 머문다. 기다릴 조건이 없어 시간만 흘려보낸다
     private static void sleep() {
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        await().pollDelay(Duration.ofMillis(100)).until(() -> true);
     }
 
     private InterviewCapacity capacity(long maxVideo) {

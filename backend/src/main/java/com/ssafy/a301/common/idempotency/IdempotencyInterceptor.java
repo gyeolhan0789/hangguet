@@ -69,22 +69,23 @@ public class IdempotencyInterceptor implements HandlerInterceptor {
             HttpServletResponse response,
             Object handler,
             Exception ex) {
-        if (!(request.getAttribute(ATTRIBUTE) instanceof Pending pending)) {
+        if (!(request.getAttribute(ATTRIBUTE)
+                instanceof Pending(long userId, UUID key, String fingerprint))) {
             return;
         }
         ContentCachingResponseWrapper body =
                 WebUtils.getNativeResponse(response, ContentCachingResponseWrapper.class);
         int status = response.getStatus();
         if (ex != null || body == null || status < 200 || status >= 300) {
-            store.getObject().release(pending.userId(), pending.key(), pending.fingerprint());
+            store.getObject().release(userId, key, fingerprint);
             return;
         }
         store.getObject()
                 .complete(
-                        pending.userId(),
-                        pending.key(),
+                        userId,
+                        key,
                         IdempotencyRecord.completed(
-                                pending.fingerprint(),
+                                fingerprint,
                                 status,
                                 response.getContentType(),
                                 new String(body.getContentAsByteArray(), StandardCharsets.UTF_8)));
@@ -131,13 +132,13 @@ public class IdempotencyInterceptor implements HandlerInterceptor {
                 body);
     }
 
-    private static void replay(HttpServletResponse response, IdempotencyRecord record)
+    private static void replay(HttpServletResponse response, IdempotencyRecord stored)
             throws IOException {
-        response.setStatus(record.status());
-        if (record.contentType() != null) {
-            response.setContentType(record.contentType());
+        response.setStatus(stored.status());
+        if (stored.contentType() != null) {
+            response.setContentType(stored.contentType());
         }
-        response.getOutputStream().write(record.body().getBytes(StandardCharsets.UTF_8));
+        response.getOutputStream().write(stored.body().getBytes(StandardCharsets.UTF_8));
     }
 
     private record Pending(long userId, UUID key, String fingerprint) {}

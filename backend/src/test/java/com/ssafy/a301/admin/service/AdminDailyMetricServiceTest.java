@@ -40,7 +40,7 @@ class AdminDailyMetricServiceTest {
     void recordPutsEachAggregateIntoItsOwnColumn() {
         when(metrics.metrics(DAY, NOW)).thenReturn(response());
 
-        service.record(DAY, NOW);
+        service.recordDay(DAY, NOW);
 
         AdminDailyMetric row = saved();
         assertThat(row.getMetricDate()).isEqualTo(DAY);

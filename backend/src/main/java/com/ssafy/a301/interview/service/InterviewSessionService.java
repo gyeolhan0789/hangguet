@@ -4,6 +4,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.group.service.GroupEndService;
@@ -107,7 +108,7 @@ public class InterviewSessionService {
      * 생성(5.3 다시 만들기 포함)에 같은 카드를 쓴다(AI 명세 8장).
      */
     public SessionResponse create(long userId, SessionCreateRequest request) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     Application application =
@@ -166,7 +167,7 @@ public class InterviewSessionService {
      * 결과를 저장했으면 그대로 둔다.
      */
     public SessionResponse get(long userId, long sessionId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         InterviewSession session =
                 sessions.findWithApplication(sessionId, userId)
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
@@ -178,7 +179,7 @@ public class InterviewSessionService {
 
     /** 5.3. 플랜 생성이 실패했을 때만 다시 만든다. */
     public SessionResponse retryPlan(long userId, long sessionId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
@@ -187,15 +188,8 @@ public class InterviewSessionService {
                         throw new ApiException(ErrorCode.PLAN_NOT_FAILED);
                     }
                     startPlan(sessionId, now);
-                    return InterviewMapper.toSessionResponse(
-                            session,
-                            SessionRuntime.generating(),
-                            null,
-                            0,
-                            now,
-                            null,
-                            null,
-                            groupOf(session));
+                    return InterviewMapper.toGroupSessionResponse(
+                            session, SessionRuntime.generating(), null, 0, now, groupOf(session));
                 });
     }
 
@@ -205,7 +199,7 @@ public class InterviewSessionService {
      * 상태를 그대로 두고 503을 준다. 커밋하지 못하면 연 방을 지운다.
      */
     public SessionResponse start(long userId, long sessionId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
@@ -330,9 +324,9 @@ public class InterviewSessionService {
                         .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
         // 그룹 세션은 내 면접만 끝내고 나머지는 계속한다(API 명세 10.10, 잠금 순서: 그룹 → 면접)
         if (found.isGroup()) {
-            return groupEnds.endByUser(userId, found.getGroupId(), sessionId, gazeRatio);
+            return groupEnds.endByUser(found.getGroupId(), sessionId, gazeRatio);
         }
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         SessionResponse response =
                 transactions.execute(
                         status -> ender.end(lock(userId, sessionId), now, gazeRatio, null, true));
@@ -343,20 +337,18 @@ public class InterviewSessionService {
 
     /** 5.9. 결과 생성이 실패한 면접만 다시 만든다. */
     public SessionResponse retryAnalysis(long userId, long sessionId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewSession session = lock(userId, sessionId);
                     session.retryAnalysis();
                     startAnalysis(sessionId, now);
-                    return InterviewMapper.toSessionResponse(
+                    return InterviewMapper.toGroupSessionResponse(
                             session,
                             runtimes.current(sessionId, now.toInstant()),
                             null,
                             answers.countByQuestionSessionId(sessionId),
                             now,
-                            null,
-                            null,
                             groupOf(session));
                 });
     }
@@ -400,14 +392,12 @@ public class InterviewSessionService {
                 questions.findFirstBySessionIdOrderBySeqDesc(session.getId()).orElse(null);
         InterviewQuestion current =
                 last != null && !answers.existsByQuestionId(last.getId()) ? last : null;
-        return InterviewMapper.toSessionResponse(
+        return InterviewMapper.toGroupSessionResponse(
                 session,
                 runtime,
                 current,
                 answers.countByQuestionSessionId(session.getId()),
                 now,
-                null,
-                null,
                 groupOf(session));
     }
 

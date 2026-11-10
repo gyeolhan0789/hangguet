@@ -87,7 +87,7 @@ class InquiryAttachmentIntegrationTest {
                 jdbc.queryForMap(
                         "SELECT content_type, size FROM inquiry_attachments WHERE object_key = ?",
                         keys.get(1));
-        assertThat(row.get("content_type")).isEqualTo("image/jpeg");
+        assertThat(row).containsEntry("content_type", "image/jpeg");
         assertThat(((Number) row.get("size")).longValue()).isEqualTo(200L);
 
         String next = uploaded("image/png").get(0);

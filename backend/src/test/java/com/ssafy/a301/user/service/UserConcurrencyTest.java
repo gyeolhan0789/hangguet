@@ -13,6 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,7 +66,9 @@ class UserConcurrencyTest {
         assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
 
         var change = CompletableFuture.supplyAsync(() -> service.changeNickname(userId, "새닉네임"));
-        Thread.sleep(300);
+        // 탈퇴 트랜잭션이 잠금을 쥐고 있는 동안 닉네임 변경은 끝나지 않는다
+        assertThatThrownBy(() -> change.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
         assertThat(change).isNotDone();
         release.countDown();
         withdrawal.get(5, TimeUnit.SECONDS);
@@ -98,7 +101,9 @@ class UserConcurrencyTest {
         assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
 
         var withdrawal = CompletableFuture.runAsync(() -> service.withdraw(userId, "abcd1234"));
-        Thread.sleep(300);
+        // 닉네임 변경 트랜잭션이 잠금을 쥐고 있는 동안 탈퇴는 끝나지 않는다
+        assertThatThrownBy(() -> withdrawal.get(300, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
         assertThat(withdrawal).isNotDone();
         release.countDown();
         change.get(5, TimeUnit.SECONDS);

@@ -457,7 +457,7 @@ class InterviewGroupIntegrationTest {
         mvc.perform(as(third, get("/api/v1/interview-groups/" + groupId)))
                 .andExpect(jsonPath("$.hostUserId").value(host));
 
-        presence.record(groupId, host, Instant.now().minusSeconds(11));
+        presence.markSeen(groupId, host, Instant.now().minusSeconds(11));
         mvc.perform(as(third, get("/api/v1/interview-groups/" + groupId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.hostUserId").value(second))
@@ -568,7 +568,8 @@ class InterviewGroupIntegrationTest {
         long host = newUser("방장");
         long sessionId = create(host, 2).path("mySessionId").asLong();
 
-        assertThatThrownBy(() -> results.handle(planCompleted(sessionId, 5)))
+        String tooManyQuestions = planCompleted(sessionId, 5);
+        assertThatThrownBy(() -> results.handle(tooManyQuestions))
                 .isInstanceOf(InvalidAiResultException.class);
         assertThat(results.handle(planCompleted(sessionId, 2))).isEqualTo(Outcome.SAVED);
         assertThat(runtimes.find(sessionId).orElseThrow().planStatus()).isEqualTo(PlanStatus.READY);
@@ -646,23 +647,9 @@ class InterviewGroupIntegrationTest {
                                 .toEpochMilli())
                 .isEqualTo(startedAt.getValue().toInstant().toEpochMilli());
         verify(rooms, never()).open(anyLong(), anyBoolean(), anyMap());
-        JsonNode dispatched = json.valueToTree(assignment.getValue());
-        assertThat(dispatched.path("kind").asString()).isEqualTo("GROUP");
-        assertThat(dispatched.path("groupId").asLong()).isEqualTo(group.groupId());
-        assertThat(dispatched.path("commonQuestions").size()).isEqualTo(2);
-        assertThat(dispatched.path("commonQuestions").get(0).path("content").asString())
-                .contains("자기소개");
-        JsonNode firstParticipant = dispatched.path("participants").get(0);
-        assertThat(firstParticipant.path("sessionId").asLong()).isEqualTo(first);
-        assertThat(firstParticipant.path("identity").asString()).isEqualTo("candidate-" + first);
-        assertThat(firstParticipant.path("personalQuestions").size()).isEqualTo(2);
-        assertThat(firstParticipant.path("personalQuestions").get(0).path("content").asString())
-                .isEqualTo("질문1");
+        assertGroupAssignment(json.valueToTree(assignment.getValue()), group.groupId(), first);
         // 면접방 정보는 응답의 turn과 같은 형식이다
-        JsonNode roomInfo = json.readTree(metadata.getValue());
-        assertThat(roomInfo.path("turnVersion").asInt()).isEqualTo(1);
-        assertThat(roomInfo.path("turn").path("sessionId").asLong()).isEqualTo(first);
-        assertThat(roomInfo.path("serverTime").isString()).isTrue();
+        assertFirstTurnRoomInfo(json.readTree(metadata.getValue()), first);
         verify(rooms).issueGroupAccess(group.groupId(), hostSession, true);
 
         // 다른 참가자는 10.4로 시작을 보고 5.14로 같은 방의 자기 입장 정보를 받는다
@@ -682,6 +669,26 @@ class InterviewGroupIntegrationTest {
         mvc.perform(startRequest(group.host(), group.groupId()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+    }
+
+    private void assertGroupAssignment(JsonNode dispatched, long groupId, long first) {
+        assertThat(dispatched.path("kind").asString()).isEqualTo("GROUP");
+        assertThat(dispatched.path("groupId").asLong()).isEqualTo(groupId);
+        assertThat(dispatched.path("commonQuestions").size()).isEqualTo(2);
+        assertThat(dispatched.path("commonQuestions").get(0).path("content").asString())
+                .contains("자기소개");
+        JsonNode firstParticipant = dispatched.path("participants").get(0);
+        assertThat(firstParticipant.path("sessionId").asLong()).isEqualTo(first);
+        assertThat(firstParticipant.path("identity").asString()).isEqualTo("candidate-" + first);
+        assertThat(firstParticipant.path("personalQuestions").size()).isEqualTo(2);
+        assertThat(firstParticipant.path("personalQuestions").get(0).path("content").asString())
+                .isEqualTo("질문1");
+    }
+
+    private void assertFirstTurnRoomInfo(JsonNode roomInfo, long first) {
+        assertThat(roomInfo.path("turnVersion").asInt()).isEqualTo(1);
+        assertThat(roomInfo.path("turn").path("sessionId").asLong()).isEqualTo(first);
+        assertThat(roomInfo.path("serverTime").isString()).isTrue();
     }
 
     @Test
@@ -956,39 +963,54 @@ class InterviewGroupIntegrationTest {
     void chatGroupGoesThroughRoundsWithFollowupAndEndsAllAnswered() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
 
         // 라운드 1 공통(자기소개): 첫 사람은 질문 전체, 꼬리질문은 같은 사람
         assertTurn(group.groupId(), 1, a, 1, "COMMON", "FULL");
-        chatTurn(group.groupId(), users.get(a), a, 1, true);
+        chatTurn(group.groupId(), owner.get(a), a, 1, true);
         assertTurn(group.groupId(), 1, a, 2, "FOLLOWUP", "FULL");
-        chatTurn(group.groupId(), users.get(a), a, 2, false);
+        chatTurn(group.groupId(), owner.get(a), a, 2, false);
         assertTurn(group.groupId(), 1, b, 1, "COMMON", "CALL");
-        chatTurn(group.groupId(), users.get(b), b, 1, false);
+        chatTurn(group.groupId(), owner.get(b), b, 1, false);
+        answerRemainingChatRounds(group.groupId(), owner, a, b);
+
+        assertAllAnswered(group.groupId(), a, b);
+
+        mvc.perform(endRequest(owner.get(a), a)).andExpect(status().isAccepted());
+        assertThat(endReason(a)).isEqualTo("ALL_ANSWERED");
+        mvc.perform(endRequest(owner.get(b), b)).andExpect(status().isAccepted());
+        assertThat(endReason(b)).isEqualTo("ALL_ANSWERED");
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+    }
+
+    private void answerRemainingChatRounds(long groupId, Map<Long, Long> owner, long a, long b)
+            throws Exception {
         // 라운드 2 개인 → 3 공통(인성) → 4 개인
-        assertTurn(group.groupId(), 2, a, 3, "PERSONAL", "FULL");
-        chatTurn(group.groupId(), users.get(a), a, 3, false);
-        assertTurn(group.groupId(), 2, b, 2, "PERSONAL", "FULL");
-        chatTurn(group.groupId(), users.get(b), b, 2, false);
-        assertTurn(group.groupId(), 3, a, 4, "COMMON", "FULL");
-        chatTurn(group.groupId(), users.get(a), a, 4, false);
-        assertTurn(group.groupId(), 3, b, 3, "COMMON", "CALL");
-        chatTurn(group.groupId(), users.get(b), b, 3, false);
-        assertTurn(group.groupId(), 4, a, 5, "PERSONAL", "FULL");
-        chatTurn(group.groupId(), users.get(a), a, 5, false);
+        assertTurn(groupId, 2, a, 3, "PERSONAL", "FULL");
+        chatTurn(groupId, owner.get(a), a, 3, false);
+        assertTurn(groupId, 2, b, 2, "PERSONAL", "FULL");
+        chatTurn(groupId, owner.get(b), b, 2, false);
+        assertTurn(groupId, 3, a, 4, "COMMON", "FULL");
+        chatTurn(groupId, owner.get(a), a, 4, false);
+        assertTurn(groupId, 3, b, 3, "COMMON", "CALL");
+        chatTurn(groupId, owner.get(b), b, 3, false);
+        assertTurn(groupId, 4, a, 5, "PERSONAL", "FULL");
+        chatTurn(groupId, owner.get(a), a, 5, false);
         // 기본 질문을 모두 마친 사람은 완료(DONE)이고 5.5는 409다
         assertThat(doneAt(a)).isNotNull();
-        mvc.perform(as(users.get(a), get("/api/v1/interview-sessions/" + a + "/questions/current")))
+        mvc.perform(as(owner.get(a), get("/api/v1/interview-sessions/" + a + "/questions/current")))
                 .andExpect(status().isConflict());
-        assertTurn(group.groupId(), 4, b, 4, "PERSONAL", "FULL");
-        chatTurn(group.groupId(), users.get(b), b, 4, false);
+        assertTurn(groupId, 4, b, 4, "PERSONAL", "FULL");
+        chatTurn(groupId, owner.get(b), b, 4, false);
+    }
 
+    private void assertAllAnswered(long groupId, long a, long b) {
         // 남은 질문이 없으면 차례를 비우고 모두 DONE으로 알린다
-        assertThat(groupRow(group.groupId()).get("turn_session_id")).isNull();
-        JsonNode info = lastRoomInfo(group.groupId());
+        assertThat(groupRow(groupId).get("turn_session_id")).isNull();
+        JsonNode info = lastRoomInfo(groupId);
         assertThat(info.path("turn").isNull()).isTrue();
         assertThat(info.path("participants").get(0).path("state").asString()).isEqualTo("DONE");
         assertThat(info.path("participants").get(1).path("state").asString()).isEqualTo("DONE");
@@ -1004,12 +1026,6 @@ class InterviewGroupIntegrationTest {
                                 Long.class,
                                 a))
                 .isEqualTo(5L);
-
-        mvc.perform(endRequest(users.get(a), a)).andExpect(status().isAccepted());
-        assertThat(endReason(a)).isEqualTo("ALL_ANSWERED");
-        mvc.perform(endRequest(users.get(b), b)).andExpect(status().isAccepted());
-        assertThat(endReason(b)).isEqualTo("ALL_ANSWERED");
-        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
     }
 
     // 6.7: 작성 중인 글은 지금 내 차례의 답변 중인 질문에만 남고, 직접 제출하면 지운다. 그 뒤 제출 · 저장은 409다
@@ -1017,41 +1033,41 @@ class InterviewGroupIntegrationTest {
     void chatDraftAndSubmitOnlyForCurrentOpenQuestion() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
         handle(questionStarted(a, 1, turnVersion(group.groupId())));
         long questionId = questionId(a, 1);
         // 질문 음성이 끝나기 전(SPEAKING)에는 받지 않는다
-        mvc.perform(draftRequest(users.get(a), a, questionId, "작성 중"))
+        mvc.perform(draftRequest(owner.get(a), a, questionId, "작성 중"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("QUESTION_CLOSED"));
         handle(questionSpoken(a, 1, turnVersion(group.groupId())));
         // 5.5는 지금 답할 질문을 준다. 차례를 기다리는 사람은 202
-        mvc.perform(as(users.get(a), get("/api/v1/interview-sessions/" + a + "/questions/current")))
+        mvc.perform(as(owner.get(a), get("/api/v1/interview-sessions/" + a + "/questions/current")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(questionId));
-        mvc.perform(as(users.get(b), get("/api/v1/interview-sessions/" + b + "/questions/current")))
+        mvc.perform(as(owner.get(b), get("/api/v1/interview-sessions/" + b + "/questions/current")))
                 .andExpect(status().isAccepted());
 
-        mvc.perform(draftRequest(users.get(a), a, questionId, "작성 중"))
+        mvc.perform(draftRequest(owner.get(a), a, questionId, "작성 중"))
                 .andExpect(status().isNoContent());
         assertThat(redis.opsForValue().get("group-draft:" + a + ":" + questionId))
                 .isEqualTo("작성 중");
         // 남의 면접 · 남의 질문
-        mvc.perform(draftRequest(users.get(b), a, questionId, "남의 글"))
+        mvc.perform(draftRequest(owner.get(b), a, questionId, "남의 글"))
                 .andExpect(status().isNotFound());
-        mvc.perform(draftRequest(users.get(b), b, questionId, "남의 질문"))
+        mvc.perform(draftRequest(owner.get(b), b, questionId, "남의 질문"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("QUESTION_NOT_FOUND"));
 
-        mvc.perform(chatAnswerRequest(users.get(a), a, questionId, "최종 답변"))
+        mvc.perform(chatAnswerRequest(owner.get(a), a, questionId, "최종 답변"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.isLastQuestion").value(false));
         assertThat(redis.hasKey("group-draft:" + a + ":" + questionId)).isFalse();
         assertThat(jobTypes(a)).contains("SCORE_ANSWER");
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("DECIDING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "DECIDING");
         // 꼬리질문 판단용으로 최종 답변을 에이전트에게 보낸다
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(rooms).sendGroupAnswer(eq(group.groupId()), payload.capture());
@@ -1061,10 +1077,10 @@ class InterviewGroupIntegrationTest {
         assertThat(sent.path("content").asString()).isEqualTo("최종 답변");
         assertThat(sent.path("turnVersion").asInt()).isEqualTo(turnVersion(group.groupId()));
 
-        mvc.perform(chatAnswerRequest(users.get(a), a, questionId, "또 냄"))
+        mvc.perform(chatAnswerRequest(owner.get(a), a, questionId, "또 냄"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("ANSWER_ALREADY_SUBMITTED"));
-        mvc.perform(draftRequest(users.get(a), a, questionId, "늦은 글"))
+        mvc.perform(draftRequest(owner.get(a), a, questionId, "늦은 글"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("QUESTION_CLOSED"));
     }
@@ -1074,7 +1090,7 @@ class InterviewGroupIntegrationTest {
     void videoTurnIgnoresStaleMessagesAndExtendsOnce() throws Exception {
         ReadyGroup group = readyGroup(2);
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
@@ -1084,39 +1100,20 @@ class InterviewGroupIntegrationTest {
         assertThat(handle(questionStarted(b, 1, version))).isEqualTo(Outcome.DISCARDED);
         assertThat(handle(questionStarted(a, 1, version))).isEqualTo(Outcome.SAVED);
         assertThat(handle(questionStarted(a, 1, version))).isEqualTo(Outcome.DISCARDED);
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "SPEAKING");
         // 차례 안에서는 단계가 바뀌어도 차례를 정한 뒤의 버전이면 받는다
         assertThat(handle(questionSpoken(a, 1, version))).isEqualTo(Outcome.SAVED);
         Map<String, Object> answering = groupRow(group.groupId());
-        assertThat(answering.get("phase")).isEqualTo("ANSWERING");
+        assertThat(answering).containsEntry("phase", "ANSWERING");
         assertThat(answering.get("deadline_at")).isNotNull();
         assertThat(lastRoomInfo(group.groupId()).path("turn").path("deadlineAt").isString())
                 .isTrue();
 
-        // 남은 시간이 30초를 넘으면 · 답변자가 아니면 연장할 수 없다
-        mvc.perform(extendRequest(users.get(a), group.groupId()))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("EXTEND_NOT_ALLOWED"));
-        jdbc.update(
-                "UPDATE interview_groups SET deadline_at = now() + interval '20 seconds' WHERE"
-                        + " id = ?",
-                group.groupId());
-        mvc.perform(extendRequest(users.get(b), group.groupId())).andExpect(status().isConflict());
-        mvc.perform(extendRequest(users.get(a), group.groupId()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.deadlineAt").exists());
-        assertThat(
-                        jdbc.queryForObject(
-                                "SELECT deadline_at > now() + interval '70 seconds' AND extended"
-                                        + " FROM interview_groups WHERE id = ?",
-                                Boolean.class,
-                                group.groupId()))
-                .isTrue();
-        mvc.perform(extendRequest(users.get(a), group.groupId())).andExpect(status().isConflict());
+        extendOnlyOnceNearDeadline(group.groupId(), owner.get(a), owner.get(b));
 
         assertThat(handle(answerCompleted(a, 1, turnVersion(group.groupId()))))
                 .isEqualTo(Outcome.SAVED);
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("DECIDING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "DECIDING");
         assertThat(jobTypes(a)).contains("SCORE_ANSWER");
         assertThat(handle(answerCompleted(a, 1, turnVersion(group.groupId()))))
                 .isEqualTo(Outcome.DISCARDED);
@@ -1146,25 +1143,51 @@ class InterviewGroupIntegrationTest {
                                                 "criteria",
                                                 "기준"))))
                 .isEqualTo(Outcome.DISCARDED);
+        assertMalformedMessagesRejected(b, deciding);
+    }
+
+    private void extendOnlyOnceNearDeadline(long groupId, long answerer, long other)
+            throws Exception {
+        // 남은 시간이 30초를 넘으면 · 답변자가 아니면 연장할 수 없다
+        mvc.perform(extendRequest(answerer, groupId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EXTEND_NOT_ALLOWED"));
+        jdbc.update(
+                "UPDATE interview_groups SET deadline_at = now() + interval '20 seconds' WHERE"
+                        + " id = ?",
+                groupId);
+        mvc.perform(extendRequest(other, groupId)).andExpect(status().isConflict());
+        mvc.perform(extendRequest(answerer, groupId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deadlineAt").exists());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT deadline_at > now() + interval '70 seconds' AND extended"
+                                        + " FROM interview_groups WHERE id = ?",
+                                Boolean.class,
+                                groupId))
+                .isTrue();
+        mvc.perform(extendRequest(answerer, groupId)).andExpect(status().isConflict());
+    }
+
+    private void assertMalformedMessagesRejected(long sessionId, int turnVersion) {
         // 형식이 틀린 메시지는 다시 처리해도 안 되므로 실패 목록으로 보낸다
-        assertThatThrownBy(() -> handle(questionStarted(b, 7, deciding)))
-                .isInstanceOf(InvalidAiResultException.class);
-        assertThatThrownBy(() -> handle(questionSpoken(b, 1, deciding).replace("ENDED", "PLAYING")))
-                .isInstanceOf(InvalidAiResultException.class);
-        assertThatThrownBy(
-                        () ->
-                                handle(
-                                        json.writeValueAsString(
-                                                Map.of(
-                                                        "type",
-                                                        "assignment.unknown",
-                                                        "sessionId",
-                                                        b,
-                                                        "seq",
-                                                        1,
-                                                        "turnVersion",
-                                                        deciding))))
-                .isInstanceOf(InvalidAiResultException.class);
+        String badSeq = questionStarted(sessionId, 7, turnVersion);
+        assertThatThrownBy(() -> handle(badSeq)).isInstanceOf(InvalidAiResultException.class);
+        String badStatus = questionSpoken(sessionId, 1, turnVersion).replace("ENDED", "PLAYING");
+        assertThatThrownBy(() -> handle(badStatus)).isInstanceOf(InvalidAiResultException.class);
+        String unknownType =
+                json.writeValueAsString(
+                        Map.of(
+                                "type",
+                                "assignment.unknown",
+                                "sessionId",
+                                sessionId,
+                                "seq",
+                                1,
+                                "turnVersion",
+                                turnVersion));
+        assertThatThrownBy(() -> handle(unknownType)).isInstanceOf(InvalidAiResultException.class);
     }
 
     // 6.10 3: 지금 답변자가 면접을 끝내면 다음 사람 차례로 넘어가고 면접방 정보를 바꾼다
@@ -1172,11 +1195,11 @@ class InterviewGroupIntegrationTest {
     void endingCurrentAnswererMovesTurnToNextParticipant() throws Exception {
         ReadyGroup group = readyGroup(3, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         handle(questionStarted(order.get(0), 1, turnVersion(group.groupId())));
 
-        mvc.perform(endRequest(users.get(order.get(0)), order.get(0)))
+        mvc.perform(endRequest(owner.get(order.get(0)), order.get(0)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ABORTED"));
         assertThat(endReason(order.get(0))).isEqualTo("USER_ENDED");
@@ -1189,7 +1212,7 @@ class InterviewGroupIntegrationTest {
 
         // 답변자가 아닌 사람이 끝내도 차례는 그대로이고 버전만 올린다
         int version = turnVersion(group.groupId());
-        mvc.perform(endRequest(users.get(order.get(2)), order.get(2))).andExpect(status().isOk());
+        mvc.perform(endRequest(owner.get(order.get(2)), order.get(2))).andExpect(status().isOk());
         assertTurn(group.groupId(), 1, order.get(1), 1, "COMMON", "FULL");
         assertThat(turnVersion(group.groupId())).isEqualTo(version + 1);
         assertThat(lastRoomInfo(group.groupId()).path("upcoming").size()).isZero();
@@ -1201,23 +1224,23 @@ class InterviewGroupIntegrationTest {
     void chatDeadlinesStartAnsweringSubmitDraftAndSkipMissingDecision() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         handle(questionStarted(a, 1, turnVersion(group.groupId())));
         // 기한 전이면 아무것도 하지 않는다
         deadlines.expire(group.groupId(), OffsetDateTime.now());
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "SPEAKING");
 
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(30));
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("ANSWERING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "ANSWERING");
         long questionId = questionId(a, 1);
-        mvc.perform(draftRequest(users.get(a), a, questionId, "마감 전 글"))
+        mvc.perform(draftRequest(owner.get(a), a, questionId, "마감 전 글"))
                 .andExpect(status().isNoContent());
 
         // 채팅 마감(5분) 뒤: 작성 중인 글을 최종 답변으로 확정하고 꼬리질문 판단을 기다린다
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(6));
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("DECIDING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "DECIDING");
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT content FROM answers WHERE question_id = ?",
@@ -1269,7 +1292,7 @@ class InterviewGroupIntegrationTest {
 
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(21));
         assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("ASKING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "ASKING");
         verify(rooms).updateGroupInfo(eq(group.groupId()), anyString());
 
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(31));
@@ -1286,11 +1309,11 @@ class InterviewGroupIntegrationTest {
     void agentStallingAfterQuestionsEndsGroupAsAiFailure() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
-        chatTurn(group.groupId(), users.get(a), a, 1, false);
+        chatTurn(group.groupId(), owner.get(a), a, 1, false);
         assertTurn(group.groupId(), 1, b, 1, "COMMON", "CALL");
 
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(31));
@@ -1356,14 +1379,14 @@ class InterviewGroupIntegrationTest {
     void failedRoomInfoAndAnswerAreResentUntilDelivered() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         long a = sessionIdsByTurnOrder(group.groupId()).get(0);
         // 면접방을 열 때 넣은 정보는 보낸 것으로 남긴다
         assertThat(roomVersion(group.groupId())).isEqualTo(turnVersion(group.groupId()));
 
         handle(questionStarted(a, 1, turnVersion(group.groupId())));
         handle(questionSpoken(a, 1, turnVersion(group.groupId())));
-        mvc.perform(chatAnswerRequest(users.get(a), a, questionId(a, 1), "답변"))
+        mvc.perform(chatAnswerRequest(owner.get(a), a, questionId(a, 1), "답변"))
                 .andExpect(status().isAccepted());
         // 가짜 면접방은 false(보내기 실패)를 돌려준다
         assertThat(roomVersion(group.groupId())).isLessThan(turnVersion(group.groupId()));
@@ -1390,7 +1413,7 @@ class InterviewGroupIntegrationTest {
     void answererLeavingSkipsTurnAndGetsSameQuestionAfterReturning() throws Exception {
         ReadyGroup group = readyGroup(3, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
@@ -1427,11 +1450,11 @@ class InterviewGroupIntegrationTest {
                                 .asString())
                 .isEqualTo("PRESENT");
 
-        chatTurn(group.groupId(), users.get(b), b, 1, false);
+        chatTurn(group.groupId(), owner.get(b), b, 1, false);
         assertTurn(group.groupId(), 1, a, 1, "COMMON", "CALL");
         assertThat(handle(questionStarted(a, 1, turnVersion(group.groupId()))))
                 .isEqualTo(Outcome.SAVED);
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("SPEAKING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "SPEAKING");
         assertThat(questionKinds(a)).hasSize(1);
         // 다시 물은 시각이 질문을 낸 시각이고, 녹화 구간도 거기서 다시 시작한다(6.12)
         assertThat(askedAt(questionId(a, 1))).isAfter(firstAsked);
@@ -1443,7 +1466,7 @@ class InterviewGroupIntegrationTest {
                                 questionId(a, 1)))
                 .isTrue();
         handle(questionSpoken(a, 1, turnVersion(group.groupId())));
-        mvc.perform(chatAnswerRequest(users.get(a), a, questionId(a, 1), "다시 답변"))
+        mvc.perform(chatAnswerRequest(owner.get(a), a, questionId(a, 1), "다시 답변"))
                 .andExpect(status().isAccepted());
         handle(followupDecided(a, 1, turnVersion(group.groupId()), false));
         assertTurn(group.groupId(), 1, c, 1, "COMMON", "CALL");
@@ -1454,28 +1477,28 @@ class InterviewGroupIntegrationTest {
     void waitingForAbsentParticipantUntilReturnOrDisconnect() throws Exception {
         ReadyGroup group = readyGroup(2, "CHAT");
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
         absences.left(group.groupId(), b, OffsetDateTime.now());
-        mvc.perform(endRequest(users.get(a), a)).andExpect(status().isOk());
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("WAITING");
+        mvc.perform(endRequest(owner.get(a), a)).andExpect(status().isOk());
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "WAITING");
         assertThat(lastRoomInfo(group.groupId()).path("turn").isNull()).isTrue();
 
-        mvc.perform(as(users.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
+        mvc.perform(as(owner.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
                 .andExpect(status().isOk());
         absences.returned(group.groupId(), b, OffsetDateTime.now());
         assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
 
         // 질문을 시작하기 전에 다시 나가면 다시 기다린다
         absences.left(group.groupId(), b, OffsetDateTime.now());
-        assertThat(groupRow(group.groupId()).get("phase")).isEqualTo("WAITING");
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "WAITING");
         jdbc.update(
                 "UPDATE interview_group_participants SET absent_since = now() - interval '3"
                         + " minutes' WHERE session_id = ?",
                 b);
-        mvc.perform(as(users.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
+        mvc.perform(as(owner.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
                 .andExpect(status().isConflict());
         deadlines.tick(OffsetDateTime.now());
         assertThat(endReason(b)).isEqualTo("DISCONNECTED");
@@ -1567,7 +1590,7 @@ class InterviewGroupIntegrationTest {
     void videoGroupMergesRecordingsWithOwnSegmentsWhenGroupEnds() throws Exception {
         ReadyGroup group = readyGroup(2);
         mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
-        Map<Long, Long> users = usersBySession(group);
+        Map<Long, Long> owner = usersBySession(group);
         List<Long> order = sessionIdsByTurnOrder(group.groupId());
         long a = order.get(0);
         long b = order.get(1);
@@ -1577,15 +1600,15 @@ class InterviewGroupIntegrationTest {
                 .isEqualTo(Outcome.SAVED);
         handle(followupDecided(a, 1, turnVersion(group.groupId()), false));
 
-        mvc.perform(endRequest(users.get(a), a)).andExpect(status().isAccepted());
+        mvc.perform(endRequest(owner.get(a), a)).andExpect(status().isAccepted());
         assertThat(jobTypes(a)).doesNotContain("MERGE_RECORDING");
         jdbc.update("UPDATE interview_sessions SET status = 'COMPLETED' WHERE id = ?", a);
-        ReplayResponse waiting = resultService.replay(users.get(a), a);
+        ReplayResponse waiting = resultService.replay(owner.get(a), a);
         assertThat(waiting.videoStatus()).isEqualTo(VideoStatus.MERGING);
         assertThat(waiting.segments()).extracting(ReplaySegment::seq).containsExactly(1);
 
         // 답변이 없는 b는 결과가 없어 합치지 않는다
-        mvc.perform(endRequest(users.get(b), b)).andExpect(status().isOk());
+        mvc.perform(endRequest(owner.get(b), b)).andExpect(status().isOk());
         assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
         assertThat(jobTypes(a)).contains("MERGE_RECORDING");
         assertThat(jobTypes(b)).doesNotContain("MERGE_RECORDING");
@@ -1628,7 +1651,7 @@ class InterviewGroupIntegrationTest {
 
         // 합치기가 실패하면 6.5로 다시 합친다. 새 작업도 같은 원본 위치 · 참가자 · 구간으로 나간다
         jdbc.update("UPDATE recordings SET status = 'FAILED' WHERE session_id = ?", a);
-        mvc.perform(as(users.get(a), post("/api/v1/interview-sessions/" + a + "/recording/retry")))
+        mvc.perform(as(owner.get(a), post("/api/v1/interview-sessions/" + a + "/recording/retry")))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.videoStatus").value("MERGING"));
         long retryJobs =
@@ -1685,7 +1708,7 @@ class InterviewGroupIntegrationTest {
                 .isEqualTo(Outcome.SAVED);
         mvc.perform(chatAnswerRequest(userId, sessionId, questionId(sessionId, seq), "답변 " + seq))
                 .andExpect(status().isAccepted());
-        assertThat(groupRow(groupId).get("phase")).isEqualTo("DECIDING");
+        assertThat(groupRow(groupId)).containsEntry("phase", "DECIDING");
         assertThat(handle(followupDecided(sessionId, seq, turnVersion(groupId), followup)))
                 .isEqualTo(Outcome.SAVED);
     }
@@ -1693,12 +1716,12 @@ class InterviewGroupIntegrationTest {
     private void assertTurn(
             long groupId, int round, long sessionId, int seq, String kind, String announce) {
         Map<String, Object> row = groupRow(groupId);
-        assertThat(row.get("round")).isEqualTo(round);
-        assertThat(row.get("phase")).isEqualTo("ASKING");
+        assertThat(row).containsEntry("round", round);
+        assertThat(row).containsEntry("phase", "ASKING");
         assertThat(((Number) row.get("turn_session_id")).longValue()).isEqualTo(sessionId);
-        assertThat(row.get("turn_seq")).isEqualTo(seq);
-        assertThat(row.get("turn_kind")).isEqualTo(kind);
-        assertThat(row.get("turn_announce")).isEqualTo(announce);
+        assertThat(row).containsEntry("turn_seq", seq);
+        assertThat(row).containsEntry("turn_kind", kind);
+        assertThat(row).containsEntry("turn_announce", announce);
         // 면접방 정보도 같은 차례로 바꾼다
         JsonNode info = lastRoomInfo(groupId);
         assertThat(info.path("turnVersion").asInt()).isEqualTo(row.get("turn_version"));
@@ -1736,12 +1759,12 @@ class InterviewGroupIntegrationTest {
     }
 
     private Map<Long, Long> usersBySession(ReadyGroup group) {
-        Map<Long, Long> users = new HashMap<>();
-        users.put(group.sessionIds().get(0), group.host());
+        Map<Long, Long> owner = new HashMap<>();
+        owner.put(group.sessionIds().get(0), group.host());
         for (int i = 0; i < group.guests().size(); i++) {
-            users.put(group.sessionIds().get(i + 1), group.guests().get(i));
+            owner.put(group.sessionIds().get(i + 1), group.guests().get(i));
         }
-        return users;
+        return owner;
     }
 
     private long questionId(long sessionId, int seq) {

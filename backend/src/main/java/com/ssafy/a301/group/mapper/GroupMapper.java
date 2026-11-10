@@ -72,6 +72,8 @@ public final class GroupMapper {
         boolean followup = group.getTurnKind() == TurnKind.FOLLOWUP;
         // 꼬리질문 판단(DECIDING)은 지금 질문을 끝낸 뒤라 끝낸 기본 질문 수에 이미 들어 있다
         int answering = group.getPhase() == GroupPhase.DECIDING ? 0 : 1;
+        Integer baseIndex =
+                followup ? null : current.map(p -> p.getBaseDone() + answering).orElse(null);
         TurnInfo turn =
                 group.getTurnSessionId() == null
                         ? null
@@ -79,10 +81,7 @@ public final class GroupMapper {
                                 group.getTurnSessionId(),
                                 group.getTurnSeq(),
                                 group.getTurnKind(),
-                                followup
-                                        ? null
-                                        : current.map(p -> p.getBaseDone() + answering)
-                                                .orElse(null),
+                                baseIndex,
                                 group.getTurnAnnounce(),
                                 group.getDeadlineAt(),
                                 group.isExtended(),

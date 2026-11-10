@@ -72,7 +72,8 @@ class AiJobOutboxTest {
 
     @Test
     void enqueueNeedsBusinessTransaction() {
-        assertThatThrownBy(() -> service.enqueue(AiJob.plan(-55L)))
+        AiJob job = AiJob.plan(-55L);
+        assertThatThrownBy(() -> service.enqueue(job))
                 .isInstanceOf(IllegalTransactionStateException.class);
     }
 

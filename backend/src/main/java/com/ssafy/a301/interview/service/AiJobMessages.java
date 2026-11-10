@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class AiJobMessages {
+    private static final String PERSONA = "persona";
     private static final DateTimeFormatter MILLIS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSXXX");
 
@@ -80,7 +81,7 @@ public class AiJobMessages {
         message.put("companyName", application.getCompanyName());
         message.put("jobTitle", application.getJobTitle());
         message.put("coverLetterItems", coverLetterItems(application));
-        message.put("persona", session.getPersona().name());
+        message.put(PERSONA, session.getPersona().name());
         // 회사를 찾지 못했거나 카드가 없으면 넣지 않는다(AI 명세 8장)
         if (session.getCompanyCard() != null) {
             message.put("companyCard", session.getCompanyCard().getCard());
@@ -109,7 +110,7 @@ public class AiJobMessages {
         Answer answer = answers.findById(job.getAnswerId()).orElseThrow(() -> missing(job, "답변"));
         message.put("answerId", answer.getId());
         message.put("mode", session.getMode().name());
-        message.put("persona", session.getPersona().name());
+        message.put(PERSONA, session.getPersona().name());
         message.putAll(answerContent(answer));
     }
 
@@ -117,7 +118,7 @@ public class AiJobMessages {
     private void putEvaluate(Map<String, Object> message, AiJob job, InterviewSession session) {
         InterviewPlan plan = plan(job);
         message.put("mode", session.getMode().name());
-        message.put("persona", session.getPersona().name());
+        message.put(PERSONA, session.getPersona().name());
         message.put("coverLetterItems", coverLetterItems(session.getApplication()));
         message.put("claims", plan.getClaims());
         List<Map<String, Object>> answered =

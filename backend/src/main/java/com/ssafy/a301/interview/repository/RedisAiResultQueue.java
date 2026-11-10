@@ -22,7 +22,7 @@ public class RedisAiResultQueue implements AiResultQueue {
     static final String FAILED = "ai:results:failed";
 
     private final StringRedisTemplate redis;
-    private final String key;
+    private final String queueKey;
     private final String processing;
 
     @Autowired
@@ -32,7 +32,7 @@ public class RedisAiResultQueue implements AiResultQueue {
 
     private RedisAiResultQueue(StringRedisTemplate redis, String key) {
         this.redis = redis;
-        this.key = key;
+        this.queueKey = key;
         this.processing = key + ":processing";
     }
 
@@ -45,7 +45,7 @@ public class RedisAiResultQueue implements AiResultQueue {
     public Optional<String> take(Duration timeout) {
         return Optional.ofNullable(
                 redis.opsForList()
-                        .move(MoveFrom.fromTail(key), MoveTo.toHead(processing), timeout));
+                        .move(MoveFrom.fromTail(queueKey), MoveTo.toHead(processing), timeout));
     }
 
     @Override

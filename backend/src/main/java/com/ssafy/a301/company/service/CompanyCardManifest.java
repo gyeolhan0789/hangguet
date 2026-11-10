@@ -12,7 +12,7 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record CompanyCardManifest(
         int format, @JsonProperty("run_id") String runId, List<Entry> companies) {
-    public static final int FORMAT = 1;
+    public static final int SUPPORTED_FORMAT = 1;
 
     /** 회사 하나. aliases는 파이프라인이 정규화한 이름, sha256은 card_key 파일 내용의 해시다 */
     @JsonIgnoreProperties(ignoreUnknown = true)

@@ -16,6 +16,8 @@ import org.springframework.context.annotation.Configuration;
 /** Swagger 문서의 기본 정보, 오류 응답 스키마, 목록 정렬을 정한다. 명세는 docs/API-명세.md에 둔다. */
 @Configuration
 public class OpenApiConfig {
+    private static final String BEARER = "bearer";
+    private static final String STRING = "string";
 
     private static final String DESCRIPTION =
             """
@@ -33,12 +35,12 @@ public class OpenApiConfig {
                 .components(
                         new Components()
                                 .addSecuritySchemes(
-                                        "bearer",
+                                        BEARER,
                                         new SecurityScheme()
                                                 .type(SecurityScheme.Type.HTTP)
-                                                .scheme("bearer")
+                                                .scheme(BEARER)
                                                 .bearerFormat("JWT")))
-                .addSecurityItem(new SecurityRequirement().addList("bearer"));
+                .addSecurityItem(new SecurityRequirement().addList(BEARER));
     }
 
     /** 오류 응답 스키마(ProblemDetail)를 등록한다. 공통 오류(401·400·500)는 첫 화면에 한 번만 적고 API마다 붙이지 않는다. */
@@ -66,11 +68,11 @@ public class OpenApiConfig {
     private static Schema problemDetail() {
         return typed("object")
                 .description("실패 응답(RFC 9457). `type`은 기본값 about:blank라 생략")
-                .addProperty("title", typed("string").description("HTTP 상태 이름"))
+                .addProperty("title", typed(STRING).description("HTTP 상태 이름"))
                 .addProperty("status", typed("integer").description("HTTP 상태 코드"))
-                .addProperty("detail", typed("string").description("사용자에게 보여 줄 문구"))
-                .addProperty("instance", typed("string").description("요청 경로"))
-                .addProperty("code", typed("string").description("오류 종류. 화면 분기는 이 값으로 한다"))
+                .addProperty("detail", typed(STRING).description("사용자에게 보여 줄 문구"))
+                .addProperty("instance", typed(STRING).description("요청 경로"))
+                .addProperty("code", typed(STRING).description("오류 종류. 화면 분기는 이 값으로 한다"))
                 .addProperty(
                         "errors",
                         typed("array")
@@ -79,10 +81,10 @@ public class OpenApiConfig {
                                         typed("object")
                                                 .addProperty(
                                                         "field",
-                                                        typed("string").description("요청 필드명"))
+                                                        typed(STRING).description("요청 필드명"))
                                                 .addProperty(
                                                         "reason",
-                                                        typed("string").description("요구 조건"))));
+                                                        typed(STRING).description("요구 조건"))));
     }
 
     // OpenAPI 3.1 문서는 type 대신 types로 써야 JSON에 나간다

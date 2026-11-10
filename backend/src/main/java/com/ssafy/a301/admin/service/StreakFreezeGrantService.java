@@ -185,14 +185,12 @@ public class StreakFreezeGrantService {
 
     /** 기간이 지난 사용 가능 유지권을 EXPIRED로 바꾼다(매일 0시, 기동할 때). 조회·사용은 이 작업과 상관없이 만료 시각으로 판단한다 */
     public int expireFreezes() {
-        Integer expired =
-                newTransaction.execute(
-                        status ->
-                                freezes.expire(
-                                        StreakFreezeStatus.AVAILABLE,
-                                        StreakFreezeStatus.EXPIRED,
-                                        KoreaTime.now()));
-        return expired == null ? 0 : expired;
+        return newTransaction.execute(
+                status ->
+                        freezes.expire(
+                                StreakFreezeStatus.AVAILABLE,
+                                StreakFreezeStatus.EXPIRED,
+                                KoreaTime.now()));
     }
 
     // 트랜잭션 안에서 부른다. 배포 행은 이미 저장(flush)돼 있어야 한다

@@ -390,14 +390,14 @@ class InquiryIntegrationTest {
                 .andExpect(status().isUnauthorized());
         assertThat(refreshTokens.consume(phone)).isNull();
         assertThat(refreshTokens.consume(laptop)).isNull();
-        Map<String, Object> record =
+        Map<String, Object> change =
                 jdbc.queryForMap(
                         "SELECT changed_by, admin_id, inquiry_id FROM password_changes WHERE"
                                 + " user_id = ?",
                         user);
-        assertThat(record.get("changed_by")).isEqualTo("ADMIN");
-        assertThat(((Number) record.get("admin_id")).longValue()).isEqualTo(admin.getId());
-        assertThat(((Number) record.get("inquiry_id")).longValue()).isEqualTo(inquiry);
+        assertThat(change).containsEntry("changed_by", "ADMIN");
+        assertThat(((Number) change.get("admin_id")).longValue()).isEqualTo(admin.getId());
+        assertThat(((Number) change.get("inquiry_id")).longValue()).isEqualTo(inquiry);
 
         changePassword(0, "{\"newPassword\":\"efgh5678\"}")
                 .andExpect(status().isNotFound())

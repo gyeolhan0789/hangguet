@@ -1,6 +1,7 @@
 package com.ssafy.a301.auth.integration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -12,6 +13,8 @@ import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.crypto.Hashes;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -68,8 +71,10 @@ class PasswordResetIntegrationTest {
             login(user.getEmail(), "wrongPass1234").andExpect(status().isUnauthorized());
         }
         login(user.getEmail(), "testPass1234").andExpect(status().isTooManyRequests());
-        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 기존 토큰과 구분하지 못한다
-        Thread.sleep(1_100);
+        // 발급 시각(iat)은 초 단위라 같은 초 안에 바꾸면 기존 토큰과 구분하지 못한다. 다음 초가 될 때까지 기다린다
+        long issuedSecond = Instant.now().getEpochSecond();
+        await().atMost(Duration.ofSeconds(2))
+                .until(() -> Instant.now().getEpochSecond() > issuedSecond);
         String token = resetTokens.issue(user.getId());
 
         confirm(token, "newPass5678").andExpect(status().isNoContent());
@@ -96,7 +101,10 @@ class PasswordResetIntegrationTest {
     void olderLinkCannotBeUsedAfterPasswordChangedWithAnotherLink() throws Exception {
         User user = emailUser();
         String first = resetTokens.issue(user.getId());
-        Thread.sleep(5);
+        // 발급 시각은 밀리초 단위라 다음 밀리초가 된 뒤 두 번째 링크를 만든다
+        long firstMillis = Instant.now().toEpochMilli();
+        await().atMost(Duration.ofSeconds(1))
+                .until(() -> Instant.now().toEpochMilli() > firstMillis);
         String second = resetTokens.issue(user.getId());
 
         confirm(second, "newPass5678").andExpect(status().isNoContent());

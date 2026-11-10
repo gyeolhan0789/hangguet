@@ -9,6 +9,7 @@ import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.user.domain.User;
+import java.time.OffsetDateTime;
 import org.junit.jupiter.api.Test;
 
 /** 면접 상태 전이, 경과 시간, 점수 → 3단계 변환을 확인한다. */
@@ -58,7 +59,8 @@ class InterviewSessionTest {
         s.failStart();
         assertThat(s.getStatus()).isEqualTo(SessionStatus.START_FAILED);
         assertThat(s.canStart()).isTrue();
-        assertThatThrownBy(() -> s.end(T0.plusMinutes(1), 0)).isInstanceOf(ApiException.class);
+        OffsetDateTime endedAt = T0.plusMinutes(1);
+        assertThatThrownBy(() -> s.end(endedAt, 0)).isInstanceOf(ApiException.class);
 
         s.start(T0.plusMinutes(1));
         assertThat(s.getStatus()).isEqualTo(SessionStatus.IN_PROGRESS);

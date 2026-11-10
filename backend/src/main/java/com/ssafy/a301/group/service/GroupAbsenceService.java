@@ -1,5 +1,6 @@
 package com.ssafy.a301.group.service;
 
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.GroupStatus;
 import com.ssafy.a301.group.domain.InterviewGroup;
@@ -91,7 +92,7 @@ public class GroupAbsenceService {
             return;
         }
         try {
-            OffsetDateTime now = OffsetDateTime.now();
+            OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
             boolean left = event.type() == GroupRoomEvent.Type.LEFT;
             if (event.isInterviewer()) {
                 if (left) {

@@ -73,9 +73,13 @@ class GlobalExceptionHandlerTest {
     @RestController
     static class SampleController {
         @PostMapping("/sample")
-        void create(@RequestBody SampleRequest request) {}
+        void create(@RequestBody SampleRequest request) {
+            // 요청 본문을 읽다 실패할 때의 오류 응답만 확인한다
+        }
 
         @GetMapping("/sample/{sampleId}")
-        void get(@PathVariable long sampleId) {}
+        void get(@PathVariable long sampleId) {
+            // 경로 값을 바꾸다 실패할 때의 오류 응답만 확인한다
+        }
     }
 }

@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
 import com.ssafy.a301.application.repository.ApplicationRepository;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
 import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.group.service.GroupEndService;
@@ -121,7 +122,7 @@ class InterviewSessionPracticeDateTest {
         when(practiceLogs.insertIfAbsent(1, START_DATE)).thenReturn(1);
 
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
-            time.when(OffsetDateTime::now).thenReturn(END);
+            time.when(() -> OffsetDateTime.now(KoreaTime.ZONE)).thenReturn(END);
             var result = service.end(1, 55, null);
             assertThat(result.leveledUp()).isTrue();
             assertThat(result.endedAt()).isEqualTo(END);
@@ -136,7 +137,7 @@ class InterviewSessionPracticeDateTest {
         when(practiceLogs.findPracticeDatesByUserId(1)).thenReturn(List.of(START_DATE));
         when(practiceLogs.insertIfAbsent(1, START_DATE)).thenReturn(0);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
-            time.when(OffsetDateTime::now).thenReturn(END);
+            time.when(() -> OffsetDateTime.now(KoreaTime.ZONE)).thenReturn(END);
             assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
     }
@@ -149,7 +150,7 @@ class InterviewSessionPracticeDateTest {
                 .thenReturn(List.of(oldDate.minusDays(2), oldDate.minusDays(1)));
         when(practiceLogs.insertIfAbsent(1, oldDate)).thenReturn(1);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
-            time.when(OffsetDateTime::now).thenReturn(END);
+            time.when(() -> OffsetDateTime.now(KoreaTime.ZONE)).thenReturn(END);
             assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
         verify(practiceLogs).insertIfAbsent(1, oldDate);
@@ -159,7 +160,7 @@ class InterviewSessionPracticeDateTest {
     void interviewWithoutAnswersDoesNotRecordAnyPracticeDate() {
         session(END.minusHours(1), 0);
         try (var time = mockStatic(OffsetDateTime.class, CALLS_REAL_METHODS)) {
-            time.when(OffsetDateTime::now).thenReturn(END);
+            time.when(() -> OffsetDateTime.now(KoreaTime.ZONE)).thenReturn(END);
             assertThat(service.end(1, 55, null).leveledUp()).isFalse();
         }
         verify(practiceLogs, never()).insertIfAbsent(anyLong(), any());

@@ -35,14 +35,17 @@ public class HomeService {
         this.growthReviews = growthReviews;
     }
 
-    // 아래 home(userId, today)를 같은 객체 안에서 부르면 그쪽 @Transactional이 적용되지 않으므로 여기에도 둔다
     @Transactional(readOnly = true)
     public HomeResponse home(long userId) {
-        return home(userId, KoreaTime.today());
+        return build(userId, KoreaTime.today());
     }
 
     @Transactional(readOnly = true)
     public HomeResponse home(long userId, LocalDate today) {
+        return build(userId, today);
+    }
+
+    private HomeResponse build(long userId, LocalDate today) {
         Streaks streaks = practices.streaks(userId, today);
         List<LocalDate> practiceDates = practices.recentPracticeDates(userId, today);
         DailyPractice todayPractice = interviewStats.daily(userId, today);

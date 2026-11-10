@@ -2,6 +2,7 @@ package com.ssafy.a301.group.service;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.group.domain.GroupPhase;
 import com.ssafy.a301.group.domain.InterviewGroup;
 import com.ssafy.a301.group.domain.InterviewGroupParticipant;
@@ -83,7 +84,7 @@ public class GroupTurnService {
      */
     public AnswerResponse submitChat(
             long groupId, long sessionId, long questionId, String content) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     Locked locked = lock(groupId, sessionId);
@@ -118,7 +119,7 @@ public class GroupTurnService {
      * @return 새 마감
      */
     public OffsetDateTime extend(long userId, long groupId) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         return transactions.execute(
                 status -> {
                     InterviewGroup group =
@@ -156,7 +157,7 @@ public class GroupTurnService {
      * 확정은 잠근 뒤 마지막으로 저장된 글을 쓴다).
      */
     public void saveDraft(long groupId, long sessionId, long questionId, String content) {
-        OffsetDateTime now = OffsetDateTime.now();
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
         InterviewQuestion question = requireQuestion(sessionId, questionId);
         InterviewGroup group =
                 groups.findById(groupId)
@@ -224,7 +225,7 @@ public class GroupTurnService {
     public void requireRejoinable(long sessionId) {
         participants
                 .findBySessionId(sessionId)
-                .filter(p -> p.isAbsentTooLong(OffsetDateTime.now()))
+                .filter(p -> p.isAbsentTooLong(OffsetDateTime.now(KoreaTime.ZONE)))
                 .ifPresent(
                         p -> {
                             throw new ApiException(ErrorCode.INVALID_SESSION_STATE);

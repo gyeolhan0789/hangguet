@@ -42,7 +42,9 @@ public class PracticeService {
     /** 그날 포함 최근 7일 중 연습한 날, 날짜 오름차순 */
     @Transactional(readOnly = true)
     public List<LocalDate> recentPracticeDates(long userId, LocalDate date) {
-        return logsBetween(userId, date.minusDays(RECENT_DAYS - 1L), date.plusDays(1)).stream()
+        return practiceLogs
+                .findInRange(userId, date.minusDays(RECENT_DAYS - 1L), date.plusDays(1))
+                .stream()
                 .map(PracticeLog::getPracticeDate)
                 .toList();
     }
@@ -55,20 +57,24 @@ public class PracticeService {
 
     /** 그날 처음일 때만 연습 기록을 남긴다. 남겼으면 true(이미 있으면 false) */
     @Transactional
-    public boolean record(long userId, LocalDate practiceDate) {
-        return practiceLogs.insertIfAbsent(userId, practiceDate) > 0;
+    public boolean recordPractice(long userId, LocalDate practiceDate) {
+        return insertIfAbsent(userId, practiceDate);
     }
 
     /** 5.8. 연습 기록을 남기고, 이번에 남겨 오늘 기준 스트릭 뱃지 구간이 바뀌었으면 true(레벨업) */
     @Transactional
     public boolean recordAndCheckLevelUp(long userId, LocalDate practiceDate, LocalDate today) {
         List<LocalDate> before = practiceLogs.findPracticeDatesByUserId(userId);
-        if (!record(userId, practiceDate)) {
+        if (!insertIfAbsent(userId, practiceDate)) {
             return false;
         }
         List<LocalDate> after = new ArrayList<>(before);
         after.add(practiceDate);
         return Streak.badgeLevel(Streak.current(before, today))
                 != Streak.badgeLevel(Streak.current(after, today));
+    }
+
+    private boolean insertIfAbsent(long userId, LocalDate practiceDate) {
+        return practiceLogs.insertIfAbsent(userId, practiceDate) > 0;
     }
 }

@@ -38,8 +38,13 @@ public final class InterviewMapper {
             int answeredCount,
             OffsetDateTime now,
             Boolean leveledUp) {
-        return toSessionResponse(
-                session, runtime, currentQuestion, answeredCount, now, leveledUp, null);
+        return build(
+                session,
+                runtime,
+                currentQuestion,
+                answeredCount,
+                now,
+                new Extras(leveledUp, null, null));
     }
 
     /**
@@ -53,22 +58,44 @@ public final class InterviewMapper {
             OffsetDateTime now,
             Boolean leveledUp,
             RoomResponse room) {
-        return toSessionResponse(
-                session, runtime, currentQuestion, answeredCount, now, leveledUp, room, null);
+        return build(
+                session,
+                runtime,
+                currentQuestion,
+                answeredCount,
+                now,
+                new Extras(leveledUp, room, null));
     }
 
     /**
      * @param group 그룹 면접의 그룹 정보. 개인 면접은 null
      */
-    public static SessionResponse toSessionResponse(
+    public static SessionResponse toGroupSessionResponse(
             InterviewSession session,
             SessionRuntime runtime,
             InterviewQuestion currentQuestion,
             int answeredCount,
             OffsetDateTime now,
-            Boolean leveledUp,
-            RoomResponse room,
             SessionGroup group) {
+        return build(
+                session,
+                runtime,
+                currentQuestion,
+                answeredCount,
+                now,
+                new Extras(null, null, group));
+    }
+
+    // 응답마다 있을 때만 넣는 값: 레벨업 여부(5.8) · 면접방 입장 정보(5.4) · 그룹 정보
+    private record Extras(Boolean leveledUp, RoomResponse room, SessionGroup group) {}
+
+    private static SessionResponse build(
+            InterviewSession session,
+            SessionRuntime runtime,
+            InterviewQuestion currentQuestion,
+            int answeredCount,
+            OffsetDateTime now,
+            Extras extras) {
         boolean generating = runtime.planStatus() == PlanStatus.GENERATING;
         boolean analyzing = session.getStatus() == SessionStatus.ANALYZING;
         boolean inProgress = session.getStatus() == SessionStatus.IN_PROGRESS;
@@ -89,9 +116,9 @@ public final class InterviewMapper {
                 session.getStartedAt(),
                 session.getEndedAt(),
                 session.getCreatedAt(),
-                leveledUp,
-                room,
-                group);
+                extras.leveledUp(),
+                extras.room(),
+                extras.group());
     }
 
     public static CurrentQuestion toCurrentQuestion(InterviewQuestion question) {

@@ -61,7 +61,7 @@ public class RedisCoverLetterCheckQueue implements CoverLetterCheckQueue {
         }
     }
 
-    // {"usable": true|false} 또는 {"error": "CHECK_FAILED"}
+    // 결과에는 쓸 수 있는지(usable, 참·거짓)가 오거나, 검증에 실패하면 error 값 CHECK_FAILED가 온다
     static Verdict verdict(JsonNode result) {
         JsonNode usable = result.get("usable");
         if (usable == null || !usable.isBoolean()) {

@@ -360,8 +360,8 @@ class AiJobMessagesTest {
                 .doesNotContainKey("persona");
 
         InterviewSession chat = newSession(InterviewMode.CHAT);
-        assertThatThrownBy(() -> messages.of(withId(AiJob.mergeRecording(chat.getId()))))
-                .isInstanceOf(IllegalStateException.class);
+        AiJob chatMerge = withId(AiJob.mergeRecording(chat.getId()));
+        assertThatThrownBy(() -> messages.of(chatMerge)).isInstanceOf(IllegalStateException.class);
     }
 
     // 기준: AI 명세 1.3 persona(면접을 만들 때 고른 면접관)
@@ -383,9 +383,10 @@ class AiJobMessagesTest {
     void jobWithoutPlanCannotBeSent() {
         InterviewSession session = newSession(InterviewMode.CHAT);
 
-        assertThatThrownBy(() -> messages.of(withId(AiJob.evaluate(session.getId()))))
-                .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> messages.of(withId(AiJob.plan(-1L))))
+        AiJob evaluate = withId(AiJob.evaluate(session.getId()));
+        assertThatThrownBy(() -> messages.of(evaluate)).isInstanceOf(IllegalStateException.class);
+        AiJob planOfMissingSession = withId(AiJob.plan(-1L));
+        assertThatThrownBy(() -> messages.of(planOfMissingSession))
                 .isInstanceOf(IllegalStateException.class);
     }
 
