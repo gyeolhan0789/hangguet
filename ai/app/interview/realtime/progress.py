@@ -122,6 +122,19 @@ def question_started(
     )
 
 
+def check_answer_content(content: str) -> None:
+    """BE가 저장할 수 있는 답변 글인지 확인한다.
+
+    빈 글이나 10,000자를 넘는 글이면 ProgressMessageError다.
+    """
+    # BE가 answer.completed 답변 글을 String.isBlank로 검사하므로(AiResultService),
+    # NBSP만 있는 글은 거부하지 않는다
+    if is_java_blank(content):
+        raise ProgressMessageError("답변 글이 비었다")
+    if _java_length(content) > MAX_CONTENT_LENGTH:
+        raise ProgressMessageError(f"답변 글이 {MAX_CONTENT_LENGTH:,}자를 넘는다")
+
+
 def answer_completed(
     session_id: int,
     seq: int,
@@ -146,12 +159,7 @@ def answer_completed(
     STT가 끊겨 인식하지 못한 구간은 sttGaps로 담고, 끊긴 적이 없으면 null이다(AI 명세 6.2).
     """
     _check_target(session_id, seq)
-    # BE가 answer.completed 답변 글을 String.isBlank로 검사하므로(AiResultService),
-    # NBSP만 있는 글은 거부하지 않는다
-    if is_java_blank(content):
-        raise ProgressMessageError("답변 글이 비었다")
-    if _java_length(content) > MAX_CONTENT_LENGTH:
-        raise ProgressMessageError(f"답변 글이 {MAX_CONTENT_LENGTH:,}자를 넘는다")
+    check_answer_content(content)
     return ProgressMessage(
         ResultType.ANSWER_COMPLETED,
         session_id,

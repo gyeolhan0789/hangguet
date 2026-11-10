@@ -2,14 +2,16 @@ import { z } from "zod";
 
 // 기준: Swagger 9.1 문의 작성(InquiryCreateRequest: title 필수 · 최대 100자, content 필수, 비회원은 email(형식 · 최대 255자)
 // · accessPassword(4~20자) 필수) · 9.4 이어서 쓰기(InquiryQuestionRequest: content 필수) · 9.3 문의 조회(경로 문의 id · X-Inquiry-Password)
-// · 9.11 사진 업로드 주소(AttachmentFile: JPG · PNG, 1바이트~5MB, 한 번에 1~5장) · attachmentKeys 최대 5개
+// · 본문(content) 최대 2,000자(9.1 · 9.4 · 9.8 공통) · 9.11 사진 업로드 주소(AttachmentFile: JPG · PNG, 1바이트~5MB, 한 번에 1~5장) · attachmentKeys 최대 5개
 // 오류 문구는 서버(400 VALIDATION_FAILED errors[].reason)와 같다. 폼(클라이언트)과 서버 액션이 같이 쓴다.
 
 export const INQUIRY_TITLE_MAX = 100;
+/** 문의 본문 최대 글자 수(9.1 · 9.4 content, 서버와 같음) */
+export const INQUIRY_CONTENT_MAX = 2000;
 const REQUIRED = "필수 값입니다.";
 
 const title = z.string().trim().min(1, REQUIRED).max(INQUIRY_TITLE_MAX, "최대 100자입니다.");
-const content = z.string().trim().min(1, REQUIRED);
+const content = z.string().trim().min(1, REQUIRED).max(INQUIRY_CONTENT_MAX, "최대 2,000자입니다.");
 const accessPassword = z.string().min(1, REQUIRED).min(4, "4~20자입니다.").max(20, "4~20자입니다.");
 
 /** I01 문의하기(회원) */

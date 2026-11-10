@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -33,9 +34,16 @@ public class AdminAuthController {
     @SecurityRequirements
     @ApiResponse(responseCode = "200", description = "로그인")
     @ApiResponse(responseCode = "401", description = "ADMIN_LOGIN_FAILED: 아이디 또는 비밀번호 틀림")
+    @ApiResponse(
+            responseCode = "429",
+            description =
+                    "ADMIN_LOGIN_LOCKED: 같은 아이디로 같은 IP에서 5번 연속 틀려 15분 동안 잠김. 남은 시간은 Retry-After 헤더"
+                            + " · retryAfterSeconds")
     @PostMapping("/login")
-    public AdminTokenResponse login(@Valid @RequestBody AdminLoginRequest request) {
-        return service.login(request.loginId(), request.password());
+    public AdminTokenResponse login(
+            @Valid @RequestBody AdminLoginRequest request, HttpServletRequest http) {
+        // Nginx가 넣은 X-Forwarded-For를 요청 IP로 읽는다(forward-headers-strategy: framework)
+        return service.login(request.loginId(), request.password(), http.getRemoteAddr());
     }
 
     @Operation(summary = "8.2 관리자 로그아웃", description = "이 토큰은 만료 전이라도 더 쓸 수 없다.")

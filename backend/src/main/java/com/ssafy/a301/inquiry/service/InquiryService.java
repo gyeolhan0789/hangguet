@@ -15,6 +15,7 @@ import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryListItem;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryQuestionRequest;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryResponse;
 import com.ssafy.a301.inquiry.mapper.InquiryMapper;
+import com.ssafy.a301.inquiry.repository.InquiryAttemptStore;
 import com.ssafy.a301.inquiry.repository.InquiryMessageRepository;
 import com.ssafy.a301.inquiry.repository.InquiryRepository;
 import com.ssafy.a301.inquiry.service.InquiryAttachments.Claimed;
@@ -33,8 +34,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 9.1 ~ 9.5 회원 · 비회원 문의. 로그인했으면(userId) 회원 문의, 아니면 비회원 문의다.
  *
  * <p>접근: 회원 문의는 그 회원만, 비회원 문의는 조회 비밀번호(X-Inquiry-Password)가 맞을 때만 볼 수 있다. 없는 문의 · 남의 문의 · 틀린 조회
- * 비밀번호는 모두 같은 응답 코드(404 INQUIRY_NOT_FOUND)로 답한다. 쓰기 · 종료는 접근을 먼저 확인한 뒤(조회 비밀번호 해시 비교는 느려 잠그기 전에 한다)
- * 문의 행을 잠그고 한다.
+ * 비밀번호는 모두 같은 응답 코드(404 INQUIRY_NOT_FOUND)로 답한다. 비회원 문의의 조회 비밀번호를 5번 틀리면 그 문의는 15분 동안 맞는 비밀번호도 404로
+ * 답한다(InquiryAttemptStore). 쓰기 · 종료는 접근을 먼저 확인한 뒤(조회 비밀번호 해시 비교는 느려 잠그기 전에 한다) 문의 행을 잠그고 한다.
  */
 @Service
 public class InquiryService {
@@ -49,6 +50,7 @@ public class InquiryService {
     // 조회 비밀번호는 회원 비밀번호와 같은 방식으로 해시한다
     private final PasswordEncoder passwords;
     private final InquiryAttachments attachments;
+    private final InquiryAttemptStore attempts;
     private final TransactionTemplate transactions;
 
     public InquiryService(
@@ -57,12 +59,14 @@ public class InquiryService {
             UserRepository users,
             PasswordEncoder passwords,
             InquiryAttachments attachments,
+            InquiryAttemptStore attempts,
             TransactionTemplate transactions) {
         this.inquiries = inquiries;
         this.messages = messages;
         this.users = users;
         this.passwords = passwords;
         this.attachments = attachments;
+        this.attempts = attempts;
         this.transactions = transactions;
     }
 
@@ -168,13 +172,23 @@ public class InquiryService {
     private Inquiry allowed(Inquiry inquiry, Long userId, String accessPassword) {
         boolean ok =
                 inquiry.isGuest()
-                        ? accessPassword != null
-                                && passwords.matches(
-                                        accessPassword, inquiry.getAccessPasswordHash())
+                        ? guestPasswordMatches(inquiry, accessPassword)
                         : userId != null && userId.equals(inquiry.getUser().getId());
         if (!ok) {
             throw new ApiException(ErrorCode.INQUIRY_NOT_FOUND);
         }
         return inquiry;
+    }
+
+    // 조회 비밀번호를 보낸 시도만 센다. 잠겨 있으면 해시를 비교하지 않는다
+    private boolean guestPasswordMatches(Inquiry inquiry, String accessPassword) {
+        if (accessPassword == null || attempts.locked(inquiry.getId())) {
+            return false;
+        }
+        boolean matches = passwords.matches(accessPassword, inquiry.getAccessPasswordHash());
+        if (matches) {
+            attempts.reset(inquiry.getId());
+        }
+        return matches;
     }
 }

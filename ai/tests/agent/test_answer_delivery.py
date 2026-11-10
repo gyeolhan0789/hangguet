@@ -130,7 +130,10 @@ def test_publish_failure_is_raised_for_resubmit() -> None:
 
 
 def test_answer_that_cannot_be_saved_is_not_delivered() -> None:
+    """저장할 수 없는 답변은 음성 지표를 계산하지 않고 바로 버린다."""
     results = Mock(spec=ResultPublisher)
-    saved = asyncio.run(AnswerDelivery(55, results, 16_000).deliver(finished("가" * 10_001)))
+    with patch("app.agent.answer_delivery.voice_metrics") as measure:
+        saved = asyncio.run(AnswerDelivery(55, results, 16_000).deliver(finished("가" * 10_001)))
     assert not saved
+    measure.assert_not_called()
     results.publish.assert_not_called()
