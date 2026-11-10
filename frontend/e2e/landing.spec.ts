@@ -152,6 +152,44 @@ test.describe("S00 랜딩 · 히어로 면접관 배경", () => {
     }
   });
 
+  // 근거: 사용자 결정(2026-11-10: 세로 화면은 좌우가 잘려 가운데만 보이므로 가운데를 자른 세로용 그림을 받는다,
+  //   화면을 돌리면 그 비율에 맞는 그림으로 바뀐다) · Next 문서 Image › Art direction
+  /** 층마다 브라우저가 고른 그림(세로용이면 hero-sky-portrait처럼 -portrait가 붙는다) */
+  const chosen = (page: Page) =>
+    layers(page)
+      .locator("img")
+      .evaluateAll((elements) =>
+        elements.map(
+          (image) => /hero-[\w-]+(?=\.webp)/.exec((image as HTMLImageElement).currentSrc)?.[0],
+        ),
+      );
+  const PORTRAIT = ["hero-sky-portrait", "hero-interior-portrait", "hero-devil-portrait"];
+  const LANDSCAPE = ["hero-sky", "hero-interior", "hero-devil"];
+
+  test("세로 화면(폰)은 가운데를 자른 세로용 그림을, 가로 화면은 원본을 받는다", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/");
+    await expect.poll(() => chosen(page)).toEqual(PORTRAIT);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+    await expect.poll(() => chosen(page)).toEqual(LANDSCAPE);
+  });
+
+  test("폰을 가로로 돌리면 가로용으로, 다시 세로로 돌리면 세로용으로 바뀐다", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/");
+    await expect.poll(() => chosen(page)).toEqual(PORTRAIT);
+
+    await page.setViewportSize({ width: 812, height: 375 });
+    await expect.poll(() => chosen(page)).toEqual(LANDSCAPE);
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await expect.poll(() => chosen(page)).toEqual(PORTRAIT);
+  });
+
   test("배경은 천천히 커졌다 작아진다(scale 1 → 1.04 → 1, 한 번에 4초씩 왕복)", async ({
     page,
   }) => {

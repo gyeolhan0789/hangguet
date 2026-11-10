@@ -10,7 +10,7 @@ import {
   useSpring,
   useTransform,
 } from "motion/react";
-import Image from "next/image";
+import Image, { getImageProps } from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, type MouseEvent } from "react";
 
@@ -94,6 +94,47 @@ function FloatChip({
         {label}
       </span>
     </motion.div>
+  );
+}
+
+/** 세로 화면용 이미지를 쓰는 화면 비율(가로:세로 3:4 이하 — 폰 · 태블릿 세로) */
+const PORTRAIT_MEDIA = "(max-aspect-ratio: 3/4)";
+
+/**
+ * 배경 한 층의 이미지. 세로 화면에서는 가로 그림(1672×941)의 좌우가 잘려 가운데만 보이므로,
+ * 가운데 절반을 미리 자른 세로용 그림(836×941, public/landing/*-portrait.webp)을 받는다(아트 디렉션).
+ * 세로용은 비율이 0.89라 세로 틀(비율 0.82 이하)을 object-cover로 채우면 높이에 맞춰 그려져 보이는 모습이 원본과 같다.
+ * 기준: Next 문서 Image › Art direction(getImageProps + <picture>) · 사용자 결정(2026-11-10: 세로 화면용 크롭)
+ * 미리 받기는 화면에 따라 LCP 후보가 달라지므로 preload 대신 맨 앞 층에 fetchPriority high를 건다(Next 문서 Image › preload).
+ */
+function HeroLayerImage({ name, lcp }: { name: string; lcp: boolean }) {
+  const common = {
+    alt: "",
+    fill: true,
+    className: "object-cover",
+    loading: "eager",
+    fetchPriority: lcp ? "high" : undefined,
+  } as const;
+  const {
+    props: { srcSet: portrait, sizes: portraitSizes },
+  } = getImageProps({
+    ...common,
+    src: `/landing/${name}-portrait.webp`,
+    // 세로 틀(층은 화면보다 6%쯤 크다)을 높이에 맞춰 채우므로 폭은 높이의 0.89배 남짓이다.
+    sizes: "100vh",
+  });
+  const { props } = getImageProps({
+    ...common,
+    src: `/landing/${name}.webp`,
+    // 가로 화면도 틀을 object-cover로 채우면 높이에 맞춰 커질 수 있어, 넉넉한 크기를 고르게 한다.
+    sizes: "(min-width: 1024px) 100vw, 200vh",
+  });
+  return (
+    <picture>
+      <source media={PORTRAIT_MEDIA} srcSet={portrait} sizes={portraitSizes} />
+      {/* getImageProps로 만든 props를 그대로 쓴다(Next 문서 Art direction) */}
+      <img {...props} alt="" />
+    </picture>
   );
 }
 
@@ -194,29 +235,19 @@ export function Hero() {
           >
             {(
               [
-                { src: "/landing/hero-sky.webp", depth: sky, lcp: false },
-                { src: "/landing/hero-interior.webp", depth: interior, lcp: false },
-                { src: "/landing/hero-devil.webp", depth: devil, lcp: true },
+                { name: "hero-sky", depth: sky, lcp: false },
+                { name: "hero-interior", depth: interior, lcp: false },
+                { name: "hero-devil", depth: devil, lcp: true },
               ] as const
-            ).map(({ src, depth, lcp }) => (
+            ).map(({ name, depth, lcp }) => (
               // 층이 움직여도 가장자리가 비지 않게 조금 크게 깐다(좁은 화면에서도 마우스 패럴랙스 최대 12px보다 크게).
               <motion.div
-                key={src}
+                key={name}
                 data-testid="hero-layer"
                 className="absolute -inset-[max(3%,16px)]"
                 style={{ x: depth.x, y: depth.y }}
               >
-                <Image
-                  src={src}
-                  alt=""
-                  fill
-                  // 맨 앞 면접관 층만 미리 받고(LCP 후보), 나머지 층도 바로 받는다(Next 문서: preload는 한 장에만).
-                  preload={lcp}
-                  loading={lcp ? undefined : "eager"}
-                  // 세로로 긴 틀을 object-cover로 채우면 높이에 맞춰 커지므로, 넉넉한 크기를 고르게 한다.
-                  sizes="(min-width: 1024px) 100vw, 200vh"
-                  className="object-cover"
-                />
+                <HeroLayerImage name={name} lcp={lcp} />
               </motion.div>
             ))}
           </motion.div>
