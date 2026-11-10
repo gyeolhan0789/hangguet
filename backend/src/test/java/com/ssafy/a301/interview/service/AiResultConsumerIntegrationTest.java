@@ -60,7 +60,7 @@ class AiResultConsumerIntegrationTest {
     }
 
     @Test
-    void savedMessageIsRemovedFromProcessing() throws Exception {
+    void savedMessageIsRemovedFromProcessing() {
         when(results.handle("m1")).thenReturn(Outcome.SAVED);
         consumer.start();
 
@@ -71,7 +71,7 @@ class AiResultConsumerIntegrationTest {
     }
 
     @Test
-    void invalidMessageMovesToFailedList() throws Exception {
+    void invalidMessageMovesToFailedList() {
         when(results.handle("bad")).thenThrow(new InvalidAiResultException("형식 오류"));
         consumer.start();
 
@@ -83,7 +83,7 @@ class AiResultConsumerIntegrationTest {
     }
 
     @Test
-    void leftOverMessagesAreProcessedFirstInOrder() throws Exception {
+    void leftOverMessagesAreProcessedFirstInOrder() {
         // 지난번에 처리 도중 멈췄다: 처리 중 목록은 앞에 넣으므로 m-old가 먼저 들어온 것이다
         redis.opsForList().leftPush("ai:results:processing", "m-old");
         redis.opsForList().leftPush("ai:results:processing", "m-new");
@@ -99,7 +99,7 @@ class AiResultConsumerIntegrationTest {
     }
 
     @Test
-    void temporaryFailureIsRetriedWithSameMessage() throws Exception {
+    void temporaryFailureIsRetriedWithSameMessage() {
         when(results.handle("m1"))
                 .thenThrow(new QueryTimeoutException("DB 응답 시간 초과"))
                 .thenReturn(Outcome.SAVED);
@@ -114,7 +114,7 @@ class AiResultConsumerIntegrationTest {
     }
 
     @Test
-    void unexpectedFailureMovesToFailedListAndDoesNotBlockNext() throws Exception {
+    void unexpectedFailureMovesToFailedListAndDoesNotBlockNext() {
         // 예: 질문 글이 null이라 NOT NULL 위반. 다시 해도 같으므로 뒤의 메시지를 막지 않는다
         when(results.handle("broken"))
                 .thenThrow(new DataIntegrityViolationException("not-null 위반"));

@@ -116,15 +116,18 @@ public class CompanyCardWriter {
             }
         }
         for (String name : names) {
-            if (kept.contains(name)) {
-                continue;
-            }
-            if (aliases.existsByAlias(name)) {
-                LOG.warn("다른 회사가 쓰는 별칭이라 넣지 않았다: {} ({})", name, company.getCorpCode());
-            } else {
-                aliases.save(new CompanyAlias(company, name));
+            if (!kept.contains(name)) {
+                addAlias(company, name);
             }
         }
+    }
+
+    private void addAlias(Company company, String name) {
+        if (aliases.existsByAlias(name)) {
+            LOG.warn("다른 회사가 쓰는 별칭이라 넣지 않았다: {} ({})", name, company.getCorpCode());
+            return;
+        }
+        aliases.save(new CompanyAlias(company, name));
     }
 
     private static void validate(CompanyCardManifest.Entry entry) {
