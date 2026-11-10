@@ -66,12 +66,12 @@ function Field({
   htmlFor,
   error,
   children,
-}: {
+}: Readonly<{
   label: string;
   htmlFor: string;
   error?: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-2">
       <label
@@ -102,11 +102,11 @@ function AnswerField({
   index,
   length,
   registration,
-}: {
+}: Readonly<{
   index: number;
   length: number;
   registration: UseFormRegisterReturn;
-}) {
+}>) {
   const countId = `${useId()}-count`;
   return (
     <>
@@ -133,16 +133,19 @@ function AnswerField({
 export function ApplicationWriteForm({
   from,
   companies = [],
-}: {
+}: Readonly<{
   from: ApplicationWriteFrom;
   /** 4.7 회사 목록. 비어 있으면 회사명은 일반 입력칸이다 */
   companies?: CompanyItem[];
-}) {
+}>) {
   const { bfcacheId } = useRouter();
   return <WriteForm key={bfcacheId} from={from} companies={companies} />;
 }
 
-function WriteForm({ from, companies }: { from: ApplicationWriteFrom; companies: CompanyItem[] }) {
+function WriteForm({
+  from,
+  companies,
+}: Readonly<{ from: ApplicationWriteFrom; companies: CompanyItem[] }>) {
   const reduce = useReducedMotion();
   const [formError, setFormError] = useState<string>();
   // 자기소개서 거절 문구. setError(root)는 isValid를 false로 만들어 같은 내용으로 다시 저장할 수 없게 하므로 따로 둔다.
@@ -241,18 +244,13 @@ function WriteForm({ from, companies }: { from: ApplicationWriteFrom; companies:
             </Field>
           </div>
 
-          <div
-            role="group"
-            aria-labelledby="coverLetter-label"
+          <fieldset
             aria-describedby={coverLetterError ? "coverLetter-error" : undefined}
             className="flex min-w-0 flex-col gap-2"
           >
-            <span
-              id="coverLetter-label"
-              className="text-sm leading-normal font-bold tracking-[-0.2px] text-text-2"
-            >
+            <legend className="mb-2 text-sm leading-normal font-bold tracking-[-0.2px] text-text-2">
               자기소개서
-            </span>
+            </legend>
             {/* 상자 사이 간격 8은 각 상자 아래 여백(pb-2)으로 두고, 마지막 상자 아래는 묶음 간격(gap-2)과 겹치지 않게 뺀다. */}
             <ol className="-mb-2 flex flex-col">
               <AnimatePresence initial={false}>
@@ -343,7 +341,7 @@ function WriteForm({ from, companies }: { from: ApplicationWriteFrom; companies:
                 </motion.p>
               )}
             </AnimatePresence>
-          </div>
+          </fieldset>
 
           <AnimatePresence initial={false}>
             {formError && (

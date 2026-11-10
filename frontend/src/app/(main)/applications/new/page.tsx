@@ -25,7 +25,9 @@ async function loadCompanies(): Promise<CompanyItem[]> {
   }
 }
 
-async function WriteForm({ searchParams }: Pick<PageProps<"/applications/new">, "searchParams">) {
+async function WriteForm({
+  searchParams,
+}: Readonly<Pick<PageProps<"/applications/new">, "searchParams">>) {
   const [params, companies] = await Promise.all([searchParams, loadCompanies()]);
   const from: ApplicationWriteFrom = params.from === "practice" ? "practice" : "applications";
   return <ApplicationWriteForm from={from} companies={companies} />;

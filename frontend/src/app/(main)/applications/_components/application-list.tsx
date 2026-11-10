@@ -14,7 +14,10 @@ import type { ApplicationListItem } from "@/types/api";
 // · 모션 메모 지원 관리 · 목록(첫 등장: 줄마다 y 16→0 · opacity, stagger 0.06s, 첫 진입 때 한 번만 / 줄 hover: 배경 살짝 진해지고
 //   ›가 x 0→4 0.15s / 페이지 넘기기: 목록이 넘기는 방향으로 짧게 슬라이드 x ±24 · 0.2s)
 
-export function ApplicationList({ items, page }: { items: ApplicationListItem[]; page: number }) {
+export function ApplicationList({
+  items,
+  page,
+}: Readonly<{ items: ApplicationListItem[]; page: number }>) {
   const reduce = useReducedMotion();
   // 처음 그릴 때는 줄이 차례로 떠오르고, 페이지를 넘기면 목록 전체가 넘기는 방향에서 들어온다.
   // 바뀐 page를 받은 그 렌더에서 방향을 정한다(props가 바뀔 때 state를 맞추는 React 방식).

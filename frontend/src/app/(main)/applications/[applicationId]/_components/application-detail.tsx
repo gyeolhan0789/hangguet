@@ -61,12 +61,12 @@ type DetailProps = {
  * 상세를 새로 그려 진입 등장(제목 → 자기소개서 → 면접 기록)과 페이지 끝 통통을 다시 보여 준다. 뒤로 · 앞으로 가기로
  * 돌아오면 그대로 둔다(Next useRouter().bfcacheId — 지원서 쓰기와 같은 방식).
  */
-export function ApplicationDetail(props: DetailProps) {
+export function ApplicationDetail(props: Readonly<DetailProps>) {
   const { bfcacheId } = useRouter();
   return <Detail key={bfcacheId} {...props} />;
 }
 
-function Detail({ application, sessions }: DetailProps) {
+function Detail({ application, sessions }: Readonly<DetailProps>) {
   const reduce = useReducedMotion();
   const end = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
@@ -270,7 +270,7 @@ function Detail({ application, sessions }: DetailProps) {
 }
 
 /** 면접 기록 한 줄. 결과가 나온 면접만 상세 피드백 · 다시보기로 가고, 분석 중 · 실패는 상태만 보여 준다. */
-function SessionRow({ item }: { item: SessionListItem }) {
+function SessionRow({ item }: Readonly<{ item: SessionListItem }>) {
   const title = applicationSessionTitle(item);
   const pending = pendingLabel(item);
   return (
@@ -299,7 +299,7 @@ function SessionRow({ item }: { item: SessionListItem }) {
   );
 }
 
-function SessionLink({ href, children }: { href: string; children: string }) {
+function SessionLink({ href, children }: Readonly<{ href: string; children: string }>) {
   return (
     <Link
       href={href}
@@ -320,10 +320,10 @@ function SessionLink({ href, children }: { href: string; children: string }) {
 function ApplicationActionBar({
   applicationId,
   end,
-}: {
+}: Readonly<{
   applicationId: number;
   end: RefObject<HTMLElement | null>;
-}) {
+}>) {
   const reduce = useReducedMotion();
   // 아래 막대(높이 96)에 가려진 동안은 끝에 닿지 않은 것으로 본다.
   const reached = useInView(end, { once: true, margin: "0px 0px -96px 0px" });
