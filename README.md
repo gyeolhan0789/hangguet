@@ -119,8 +119,7 @@
 
 ## 시스템 아키텍처
 
-<!-- TODO: 배포 계획 2장 「전체 구조」를 그림으로 -->
-![시스템 아키텍처](assets/system-architecture.png)
+![시스템 아키텍처](assets/system-architecture.webp)
 
 - **화면 · CRUD**: 브라우저 → Nginx → FE(Next.js) → BE → PostgreSQL · Redis. 브라우저는 BE만 보고, AI 서버나 외부 API에 직접 붙지 않습니다.
 - **면접방**: BE가 LiveKit 입장 토큰을 발급하고 AI 에이전트를 방에 배정합니다. 에이전트가 사용자 음성을 받아 STT → 반응 판단 → TTS로 면접을 진행합니다.
