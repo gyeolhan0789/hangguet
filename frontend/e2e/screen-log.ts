@@ -11,7 +11,7 @@ declare global {
 
 /**
  * 이 페이지에 나온 화면을 나온 차례대로 적는다. 같은 화면은 한 번만 적는다.
- * - 'status:…' : role="status"의 aria-label(예: 'N일째 달성!' 불 전환)
+ * - 'status:…' : 상태 알림(output, 암묵 역할 status)의 글(예: 'N일째 달성!' 불 전환)
  * - 'dialog:…' : 대화상자의 이름(aria-labelledby가 가리키는 글, 예: 레벨업 '○○ 달성!')
  * - 'h1:…' : 페이지 제목(예: 리뷰 'N일째 연습 완료!')
  */
@@ -23,8 +23,9 @@ export async function recordScreens(page: Page) {
       if (!seen.includes(entry)) seen.push(entry);
     };
     const scan = () => {
-      document.querySelectorAll("[role=status][aria-label]").forEach((element) => {
-        note(`status:${element.getAttribute("aria-label")}`);
+      document.querySelectorAll("output").forEach((element) => {
+        const text = element.textContent?.trim();
+        if (text) note(`status:${text}`);
       });
       document.querySelectorAll("[role=dialog][aria-labelledby]").forEach((element) => {
         const title = document.getElementById(element.getAttribute("aria-labelledby") ?? "");

@@ -149,12 +149,15 @@ export function useInterviewRoom(
     const reactionSequences = new Map<number, number>();
     closedQuestions.current.clear();
 
-    room.registerRpcMethod(REACTION_METHOD, async (data) => {
-      if (disposed || !room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+    // 면접관(에이전트)이 보낸 RPC만 받는다. 응답은 늘 빈 글이고(에이전트는 응답을 쓰지 않는다), 받아들일지는 아래 함수들이 정한다.
+    const fromAgent = (identity: string) => Boolean(room.remoteParticipants.get(identity)?.isAgent);
+
+    /** 면접관 리액션. 지금 질문의 것이 아니거나, 질문을 말하는 중 · 답을 낸 뒤이거나, 늦게 온 것은 버린다 */
+    function acceptReaction(payload: string) {
       try {
-        if (new TextEncoder().encode(data.payload).length > 15 * 1024) return "";
-        const parsed = reactionMessageSchema.safeParse(JSON.parse(data.payload));
-        if (!parsed.success || parsed.data.sessionId !== sessionId) return "";
+        if (new TextEncoder().encode(payload).length > 15 * 1024) return;
+        const parsed = reactionMessageSchema.safeParse(JSON.parse(payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return;
         const message = parsed.data;
         const active = Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0);
         if (
@@ -163,29 +166,28 @@ export function useInterviewRoom(
           closedQuestions.current.has(active) ||
           pendingSubmissions.current.has(room)
         )
-          return "";
-        if (listenOnly && message.interrupt !== null) return "";
-        if (message.seq <= (reactionSequences.get(active) ?? 0)) return "";
+          return;
+        if (listenOnly && message.interrupt !== null) return;
+        if (message.seq <= (reactionSequences.get(active) ?? 0)) return;
         reactionSequences.set(active, message.seq);
         setReaction({ message, receivedAt: performance.now() });
       } catch {
         // 형식이 잘못된 리액션은 면접 진행에 반영하지 않는다.
       }
-      return "";
-    });
+    }
 
-    room.registerRpcMethod(QUESTION_METHOD, async (data) => {
-      if (disposed || !room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+    /** 면접관 질문. 앞선 질문이거나, 같은 질문의 말하기 시작이 아닌 소식이 다시 온 것은 버린다 */
+    function acceptQuestion(payload: string) {
       try {
-        const parsed = questionMessageSchema.safeParse(JSON.parse(data.payload));
-        if (!parsed.success || parsed.data.sessionId !== sessionId) return "";
+        const parsed = questionMessageSchema.safeParse(JSON.parse(payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return;
         const message = parsed.data;
         if (
           latestQuestion &&
           (message.seq < latestQuestion.seq ||
             (message.seq === latestQuestion.seq && latestQuestion.speech !== "started"))
         )
-          return "";
+          return;
         latestQuestion = message;
         if (message.speech === "started") {
           setReaction(null);
@@ -196,6 +198,14 @@ export function useInterviewRoom(
       } catch {
         // 잘못된 본문은 화면에 반영하지 않는다.
       }
+    }
+
+    room.registerRpcMethod(REACTION_METHOD, async (data) => {
+      if (!disposed && fromAgent(data.callerIdentity)) acceptReaction(data.payload);
+      return "";
+    });
+    room.registerRpcMethod(QUESTION_METHOD, async (data) => {
+      if (!disposed && fromAgent(data.callerIdentity)) acceptQuestion(data.payload);
       return "";
     });
 
@@ -304,10 +314,9 @@ export function useInterviewRoom(
     });
 
     // 에이전트의 답변 상태(자동 제출 · 제출됨 · 제출 실패 등). 화면이 할 일은 받은 쪽이 정한다.
-    room.registerRpcMethod(ANSWER_STATE_METHOD, async (data) => {
-      if (!room.remoteParticipants.get(data.callerIdentity)?.isAgent) return "";
+    function acceptAnswerState(payload: string) {
       try {
-        const parsed = answerStateSchema.safeParse(JSON.parse(data.payload));
+        const parsed = answerStateSchema.safeParse(JSON.parse(payload));
         if (!disposed && parsed.success && parsed.data.sessionId === sessionId) {
           if (parsed.data.seq === Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0))
             setListening(null);
@@ -324,6 +333,9 @@ export function useInterviewRoom(
       } catch {
         // 잘못된 메시지는 버린다.
       }
+    }
+    room.registerRpcMethod(ANSWER_STATE_METHOD, async (data) => {
+      if (fromAgent(data.callerIdentity)) acceptAnswerState(data.payload);
       return "";
     });
 

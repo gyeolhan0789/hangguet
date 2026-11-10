@@ -14,6 +14,12 @@ import { ThemeToggle } from "./theme-toggle";
 const HEADER_HEIGHT = 72;
 /** Tailwind sm. 이보다 좁으면 메뉴를 햄버거 안으로 모은다 */
 const DESKTOP_QUERY = "(min-width: 640px)";
+/** 햄버거 막대 세 개(위 · 가운데 · 아래)가 메뉴를 열면 바뀌는 모양: 위아래는 X로 기울고 가운데는 사라진다 */
+const MENU_BARS_OPEN = [
+  "translate-y-[7px] rotate-45",
+  "opacity-0",
+  "-translate-y-[7px] -rotate-45",
+] as const;
 
 interface HeaderProps {
   /**
@@ -30,7 +36,7 @@ interface HeaderProps {
 // Figma C/App Header · S00 Landing Nav
 // 모바일(sm 미만)은 Figma 설계가 없어 사용자 결정(2026-10-26)을 따른다: 로고 + 햄버거만 두고, 기존 메뉴 · 프로필 메뉴 · 다크 모드 토글은
 // 햄버거를 열면 헤더 아래 전체 폭 패널에 보인다. 바깥(dim) · Esc · 항목 선택 · 햄버거 다시 누르기로 닫힌다. sm 이상은 그대로다.
-export function Header({ overlay = false, children, menu }: HeaderProps) {
+export function Header({ overlay = false, children, menu }: Readonly<HeaderProps>) {
   const { scrollY } = useScroll();
   const [onHero, setOnHero] = useState(overlay);
   const desktop = useMediaQuery(DESKTOP_QUERY);
@@ -90,19 +96,11 @@ export function Header({ overlay = false, children, menu }: HeaderProps) {
           aria-controls={open ? "mobile-menu" : undefined}
           className="-mr-2.5 flex size-11 cursor-pointer flex-col items-center justify-center gap-[5px] sm:hidden"
         >
-          {[0, 1, 2].map((bar) => (
+          {MENU_BARS_OPEN.map((openClass) => (
             <span
-              key={bar}
+              key={openClass}
               aria-hidden
-              className={`h-0.5 w-[22px] rounded-full bg-text-1 transition-[transform,opacity] duration-200 ease-out group-data-[overlay=true]/header:bg-white motion-reduce:transition-none ${
-                open
-                  ? bar === 0
-                    ? "translate-y-[7px] rotate-45"
-                    : bar === 1
-                      ? "opacity-0"
-                      : "-translate-y-[7px] -rotate-45"
-                  : ""
-              }`}
+              className={`h-0.5 w-[22px] rounded-full bg-text-1 transition-[transform,opacity] duration-200 ease-out group-data-[overlay=true]/header:bg-white motion-reduce:transition-none ${open ? openClass : ""}`}
             />
           ))}
         </button>

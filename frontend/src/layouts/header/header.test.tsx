@@ -3,6 +3,7 @@ import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMobileMenuStore } from "@/stores/mobile-menu-store";
+import { flushPromises } from "@/test/flush";
 import type { NoticeItem } from "@/types/api";
 
 import { Header } from "./header";
@@ -145,9 +146,8 @@ describe("Header 모바일 메뉴", () => {
     expect(screen.getByRole("dialog", { name: "10월 점검 안내" })).not.toBeNull();
     expect(overflow()).toBe("hidden");
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "확인" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    await flushPromises();
     expect(readNotice).toHaveBeenCalledWith(3);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(overflow()).toBe("");

@@ -48,7 +48,7 @@ export function StreakIntro({
   backdrop,
   stayCovered = false,
   onDone,
-}: {
+}: Readonly<{
   tier: StreakTier;
   copy: IntroCopy;
   /** 원이 덮기 전까지 보이는 화면(예: 홈 스켈레톤). 없으면 지금 화면이 그대로 비친다. */
@@ -56,7 +56,7 @@ export function StreakIntro({
   /** 끝난 뒤 원을 걷지 않고 덮은 채로 둔다(이어서 레벨업을 띄울 때) */
   stayCovered?: boolean;
   onDone?: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [visible, setVisible] = useState(true);
   const [covered, setCovered] = useState(false);
@@ -150,10 +150,11 @@ export function StreakIntro({
   return (
     <div
       ref={overlayRef}
-      role="status"
-      aria-label={`${copy.count ?? ""}${copy.text} ${copy.sub}`}
+      data-testid="streak-intro"
       className="fixed inset-0 z-[70] overflow-hidden"
     >
+      {/* 보조기기에는 문구를 상태 알림으로 읽어 준다. 화면의 숫자 굴리기 · 글씨(badge)는 연출이라 숨긴다 */}
+      <output className="sr-only">{`${copy.count ?? ""}${copy.text} ${copy.sub}`}</output>
       {!covered && backdrop && (
         <div className="absolute inset-0 overflow-hidden bg-bg">{backdrop}</div>
       )}
@@ -165,6 +166,7 @@ export function StreakIntro({
       <div
         ref={badgeRef}
         aria-hidden
+        data-testid="streak-badge"
         className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-6 text-center opacity-0"
         style={{ color: tier.ink }}
       >

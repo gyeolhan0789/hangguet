@@ -29,10 +29,10 @@ const CLOSED_TEXT = "종료한 문의예요.";
 function MessagePhotos({
   attachments,
   align,
-}: {
+}: Readonly<{
   attachments: InquiryAttachment[];
   align: "start" | "end";
-}) {
+}>) {
   if (attachments.length === 0) return null;
   return (
     <ul
@@ -65,12 +65,12 @@ export function InquiryThread({
   back,
   onSend,
   onClose,
-}: {
+}: Readonly<{
   inquiry: InquiryResponse;
   back: { label: string; href?: string; onClick?: () => void };
   onSend: (question: InquiryQuestionRequest) => Promise<InquiryWriteResult>;
   onClose: () => Promise<InquiryWriteResult>;
-}) {
+}>) {
   const closed = inquiry.status === "CLOSED";
   const [confirming, setConfirming] = useState(false);
   const [sendError, setSendError] = useState<string>();

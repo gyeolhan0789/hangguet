@@ -1,6 +1,9 @@
 // 동의 줄 오른쪽 [보기]. 기준: Figma S01-1 동의 줄의 '보기'(13 SemiBold text-3). 가입 · 비회원 문의 폼이 함께 쓴다.
 
-export function LegalViewButton({ title, onClick }: { title: string; onClick: () => void }) {
+export function LegalViewButton({
+  title,
+  onClick,
+}: Readonly<{ title: string; onClick: () => void }>) {
   return (
     <button
       type="button"

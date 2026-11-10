@@ -15,13 +15,13 @@ export const TOAST_MS = 2000;
 
 /**
  * 화면 아래 가운데 토스트. 띄우기는 useToastStore().show로 한다. 화면마다 하나만 둔다.
- * 화면 읽기 프로그램에도 읽히도록 role="status" 안에 둔다.
+ * 화면 읽기 프로그램에도 읽히도록 상태 알림 요소(output, 암묵 역할 status) 안에 둔다.
  */
 export function Toast({
   bottom = "bottom-10",
-}: {
+}: Readonly<{
   /** 화면 아래에서 떨어진 거리(Tailwind bottom-*) */ bottom?: string;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const toast = useToastStore((state) => state.toast);
   const hide = useToastStore((state) => state.hide);
@@ -36,13 +36,12 @@ export function Toast({
   useEffect(() => hide, [hide]);
 
   return (
-    <div
-      role="status"
+    <output
       className={`pointer-events-none fixed inset-x-0 z-50 flex justify-center px-4 ${bottom}`}
     >
       <AnimatePresence>
         {toast && (
-          <motion.p
+          <motion.span
             key={toast.id}
             className="flex h-14 items-center gap-2.5 rounded-2xl bg-night-2 px-[18px] text-[15px] leading-normal font-semibold tracking-[-0.2px] text-white"
             initial={reduce ? false : { opacity: 0, y: 8 }}
@@ -52,9 +51,9 @@ export function Toast({
           >
             {toast.icon && <MaskIcon src={toast.icon} size={18} className="bg-white" />}
             {toast.text}
-          </motion.p>
+          </motion.span>
         )}
       </AnimatePresence>
-    </div>
+    </output>
   );
 }

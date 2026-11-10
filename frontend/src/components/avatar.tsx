@@ -14,13 +14,13 @@ export function Avatar({
   size,
   icon,
   iconSize,
-}: {
+}: Readonly<{
   imageUrl: string | null;
   size: number;
   /** 사진이 없을 때 아이콘(Figma 자리마다 다르다) */
   icon: string;
   iconSize: number;
-}) {
+}>) {
   return (
     <span
       className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface"

@@ -12,10 +12,12 @@ describe("StreakCelebration 실제 연출", () => {
     const onDone = vi.fn();
     render(<StreakCelebration days={8} leveledUp onDone={onDone} />);
 
-    const status = screen.getByRole("status");
-    expect(status.textContent).toContain("7일째 달성!");
+    // 보조기기에는 바뀐 뒤의 문구를 처음부터 읽어 주고, 화면의 큰 글씨만 N-1 → N으로 굴러 바뀐다
+    expect(screen.getByRole("status").textContent).toContain("8일째 달성!");
+    const badge = screen.getByTestId("streak-badge");
+    expect(badge.textContent).toContain("7일째 달성!");
 
-    await waitFor(() => expect(status.textContent).toContain("8일째 달성!"), { timeout: 4_000 });
+    await waitFor(() => expect(badge.textContent).toContain("8일째 달성!"), { timeout: 4_000 });
     expect(await screen.findByRole("dialog", {}, { timeout: 4_000 })).toBeDefined();
     expect(screen.queryByRole("status")).toBeNull();
     expect(onDone).not.toHaveBeenCalled();

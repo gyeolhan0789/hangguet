@@ -19,7 +19,7 @@ import { api, expect, http, HttpResponse, problemResponse, test } from "./test";
 const TODAY = "2026-10-19";
 test.use({ extraHTTPHeaders: { [E2E_TODAY_HEADER]: TODAY } });
 
-const intro = (page: Page) => page.getByRole("status");
+const intro = (page: Page) => page.getByTestId("streak-intro");
 
 /** 인트로에서 화면을 덮는 원 */
 const wipe = (page: Page) => page.getByTestId("streak-wipe");
@@ -40,7 +40,7 @@ async function recordIntroTimeline(page: Page) {
     Object.assign(window, { __introTimeline: timeline });
     new MutationObserver(() => {
       const now = performance.now();
-      const overlay = document.querySelector('[role="status"]');
+      const overlay = document.querySelector('[data-testid="streak-intro"]');
       // 인트로가 뜨면 뒤 화면 스크롤을 막는다. 그 순간을 시작으로 본다.
       if (timeline.start === undefined && document.documentElement.style.overflow === "hidden") {
         timeline.start = now;
@@ -83,7 +83,8 @@ async function expectCountUp(
   from: number,
   to: number,
 ) {
-  await expect(intro(page)).toContainText(`${from}일째!`);
+  // 보조기기용 문구(<output>)에는 처음부터 to가 들어 있으므로, 화면에 보이는 배지 글만 본다
+  await expect(page.getByTestId("streak-badge")).toContainText(`${from}일째!`);
   await waitForIntro(page);
   const { textAt, endAt } = await timeline();
   expect(textAt(`${to}일째!`)).toBeGreaterThan(1.9);
@@ -107,7 +108,9 @@ test.describe("S02-1 홈 진입 인트로", () => {
     const timeline = await recordIntroTimeline(page);
     await page.goto("/home");
 
-    await expect(intro(page)).toHaveAttribute("aria-label", "7일째! 황금 불꽃! 오늘도 태워볼까요?");
+    await expect(intro(page).getByRole("status")).toHaveText(
+      "7일째! 황금 불꽃! 오늘도 태워볼까요?",
+    );
     await expectCountUp(page, timeline, 6, 7);
     await expect(page.getByRole("heading", { level: 1, name: "7일째" })).toBeInViewport();
   });
@@ -137,7 +140,7 @@ test.describe("S02-1 홈 진입 인트로", () => {
     msw.use(http.get(api("/home"), () => HttpResponse.json(HOME.FIRST_VISIT)));
     await page.goto("/home");
 
-    await expect(intro(page)).toHaveAttribute("aria-label", "0일째! 첫 연습을 시작해볼까요?");
+    await expect(intro(page).getByRole("status")).toHaveText("0일째! 첫 연습을 시작해볼까요?");
     await expectWipe(page, "#8B95A1");
 
     await waitForIntro(page);
@@ -203,8 +206,7 @@ test.describe("S02-1 홈 진입 인트로 · 불꽃 단계 경계값", () => {
       const timeline = await recordIntroTimeline(page);
       await page.goto("/home");
 
-      await expect(intro(page)).toHaveAttribute(
-        "aria-label",
+      await expect(intro(page).getByRole("status")).toHaveText(
         `${days}일째! ${name}! 오늘도 태워볼까요?`,
       );
       await expectWipe(page, color);
@@ -237,8 +239,7 @@ test.describe("S02-1 홈 진입 인트로 · 불꽃 단계 경계값", () => {
     msw.use(http.get(api("/home"), () => HttpResponse.json(HOME.BROKEN)));
     await page.goto("/home");
 
-    await expect(intro(page)).toHaveAttribute(
-      "aria-label",
+    await expect(intro(page).getByRole("status")).toHaveText(
       "다시 1일째부터! 지난 최고 기록 7일 · 다시 넘어봐요",
     );
     await expectWipe(page, "#8B95A1");

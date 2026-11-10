@@ -45,6 +45,87 @@ const NOD_START_MS = 300;
 
 type StageState = "loading" | "ready" | "failed";
 
+/** 받은 리액션이 아직 끝나지 않았다 */
+function reactionActive(shown: ReactionSnapshot | null): boolean {
+  const reaction = shown?.message.reaction;
+  return !!shown && !!reaction && shown.receivedAt + reaction.durationMs > performance.now();
+}
+
+/**
+ * 리액션(표정 · 고개)을 남은 시간 동안 그린다. 동작 줄이기면 가운데 시점의 표정만 두었다가 끝나면 onEnd로 되돌린다.
+ * 그리기를 멈추는 함수를 돌려준다(그릴 리액션이 없으면 아무것도 하지 않는다).
+ */
+function playReaction(
+  current: InterviewerScene,
+  shown: ReactionSnapshot | null,
+  options: { reduce: boolean | null; clipped: boolean; onEnd: () => void },
+): () => void {
+  const reaction = shown?.message.reaction;
+  if (!shown || !reaction) return () => {};
+  const duration = reaction.durationMs;
+  const remaining = shown.receivedAt + duration - performance.now();
+  if (remaining <= 0) return () => {};
+  if (options.reduce) {
+    const target = reactionFrame(shown, shown.receivedAt + duration / 2);
+    current.setFace({ emotion: target.emotion, emotionWeight: target.emotionWeight });
+    const timer = setTimeout(options.onEnd, remaining);
+    return () => clearTimeout(timer);
+  }
+  // 끄덕임은 반응을 받은 직후 한 번만 한다(반응 도중 효과가 다시 실행돼도 또 끄덕이지 않게)
+  if (
+    options.clipped &&
+    isNodReaction(shown) &&
+    performance.now() - shown.receivedAt < NOD_START_MS
+  ) {
+    current.nod();
+  }
+  let frame = 0;
+  const draw = () => {
+    const now = performance.now();
+    const next = reactionFrame(shown, now);
+    current.setFace({ emotion: next.emotion, emotionWeight: next.emotionWeight });
+    if (!options.clipped) current.setHead(next.pitch, next.roll);
+    if (now < shown.receivedAt + duration) frame = requestAnimationFrame(draw);
+  };
+  frame = requestAnimationFrame(draw);
+  return () => cancelAnimationFrame(frame);
+}
+
+/**
+ * 듣는 중 끄덕임: 말이 멈추고 LISTENING_PAUSE_MS 뒤에 한 번 끄덕인다. 동작 클립 면접관은 끄덕임 동작을 한 번 하고,
+ * 자세 면접관은 고개를 직접 끄덕인다. 끄덕일 때가 이미 지났으면 하지 않는다. 그리기를 멈추는 함수를 돌려준다.
+ */
+function playListeningNod(
+  current: InterviewerScene,
+  listening: ListeningActivity,
+  clipped: boolean,
+): () => void {
+  const startAt = listening.speechAt + LISTENING_PAUSE_MS;
+  const endAt = startAt + LISTENING_NOD_DURATION_MS;
+  if (performance.now() >= endAt) return () => {};
+  let frame = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const draw = clipped
+    ? () => current.nod()
+    : () => {
+        const now = performance.now();
+        current.setHead(listeningNodPitch(listening, now), 0);
+        if (now < endAt) frame = requestAnimationFrame(draw);
+      };
+  const remaining = startAt - performance.now();
+  if (remaining > 0) {
+    timer = setTimeout(() => {
+      frame = requestAnimationFrame(draw);
+    }, remaining);
+  } else {
+    frame = requestAnimationFrame(draw);
+  }
+  return () => {
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  };
+}
+
 /** 화면 전체에 깔리는 면접관 3D 장면. 3D 모델이 없는 면접관이면 아무것도 그리지 않는다. */
 export function InterviewerStage({
   persona,
@@ -52,14 +133,14 @@ export function InterviewerStage({
   speaking = false,
   listening = null,
   question = null,
-}: {
+}: Readonly<{
   persona: Persona;
   feedback?: ReactionSnapshot | null;
   speaking?: boolean;
   listening?: ListeningActivity | null;
   /** 지금 질문 메시지. 음성이 시작되면(started) 발음 시각대로 입을 움직인다 */
   question?: QuestionMessage | null;
-}) {
+}>) {
   const look = interviewerLook(persona);
   // 동작 클립 면접관(오리)은 고개를 직접 돌리지 않고 동작(말하기 · 끄덕임)을 재생한다
   const clipped = !!look?.model.clips;
@@ -128,65 +209,22 @@ export function InterviewerStage({
   useEffect(() => {
     if (state !== "ready" || !scene.current) return;
     const current = scene.current;
-    let frame = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     const reset = () => {
       current.setFace({ emotion: "neutral", emotionWeight: 0 });
       current.setHead(0, 0);
     };
     reset();
     const shown = clipped ? gentleReaction(feedback) : feedback;
-    const duration = shown?.message.reaction?.durationMs ?? 0;
-    const reacting = !!shown?.message.reaction && shown.receivedAt + duration > performance.now();
-    if (!speaking && shown?.message.reaction) {
-      const remaining = shown.receivedAt + duration - performance.now();
-      if (remaining > 0) {
-        if (reduce) {
-          const target = reactionFrame(shown, shown.receivedAt + duration / 2);
-          current.setFace({ emotion: target.emotion, emotionWeight: target.emotionWeight });
-          timer = setTimeout(reset, remaining);
-        } else {
-          // 끄덕임은 반응을 받은 직후 한 번만 한다(반응 도중 효과가 다시 실행돼도 또 끄덕이지 않게)
-          if (
-            clipped &&
-            isNodReaction(shown) &&
-            performance.now() - shown.receivedAt < NOD_START_MS
-          )
-            current.nod();
-          const draw = () => {
-            const now = performance.now();
-            const next = reactionFrame(shown, now);
-            current.setFace({ emotion: next.emotion, emotionWeight: next.emotionWeight });
-            if (!clipped) current.setHead(next.pitch, next.roll);
-            if (now < shown.receivedAt + duration) frame = requestAnimationFrame(draw);
-          };
-          frame = requestAnimationFrame(draw);
-        }
-      }
-    }
+    // 리액션이 끝나기 전에는 듣는 중 끄덕임을 하지 않으므로, 둘이 함께 그려지지 않는다.
+    // '리액션 중인가'는 리액션의 남은 시간보다 먼저 잰다(나중에 재면 그 사이 끝난 리액션과 끄덕임이 함께 시작된다).
+    const reacting = reactionActive(shown);
+    const stops: (() => void)[] = [];
+    if (!speaking) stops.push(playReaction(current, shown, { reduce, clipped, onEnd: reset }));
     if (!speaking && !reduce && listening && !reacting) {
-      const startAt = listening.speechAt + LISTENING_PAUSE_MS;
-      const endAt = startAt + LISTENING_NOD_DURATION_MS;
-      // 동작 클립 면접관은 끄덕임 동작을 한 번 하고, 자세 면접관은 고개를 직접 끄덕인다
-      const draw = clipped
-        ? () => current.nod()
-        : () => {
-            const now = performance.now();
-            current.setHead(listeningNodPitch(listening, now), 0);
-            if (now < endAt) frame = requestAnimationFrame(draw);
-          };
-      if (performance.now() < endAt) {
-        const remaining = startAt - performance.now();
-        if (remaining > 0)
-          timer = setTimeout(() => {
-            frame = requestAnimationFrame(draw);
-          }, remaining);
-        else frame = requestAnimationFrame(draw);
-      }
+      stops.push(playListeningNod(current, listening, clipped));
     }
     return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
+      stops.forEach((stop) => stop());
       reset();
     };
   }, [state, feedback, speaking, listening, reduce, clipped]);
@@ -277,13 +315,12 @@ export function InterviewerStage({
       )}
       {state === "loading" && (
         // 면접관 얼굴 자리(Figma 장면에서 얼굴 가운데 화면 위 32%)에 S06-1과 같은 '생각 중' 아바타를 둔다.
-        <div
-          role="status"
+        <output
           aria-label="면접관을 불러오는 중"
           className="absolute top-[32%] left-1/2 -translate-x-1/2 -translate-y-1/2"
         >
           <ThinkingAvatar persona={persona} />
-        </div>
+        </output>
       )}
       {state === "failed" && (
         // eslint-disable-next-line @next/next/no-img-element -- 화면 전체를 덮는 배경 그림이라 크기를 정할 수 없다.

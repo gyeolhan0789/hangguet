@@ -26,7 +26,7 @@ export function Field({
   hint,
   messageClass,
   children,
-}: {
+}: Readonly<{
   label: string;
   htmlFor: string;
   variant?: FieldVariant;
@@ -36,10 +36,12 @@ export function Field({
   /** 안내 문구 글자 크기 · 굵기를 화면 설계대로 바꿀 때(기본: lg 13 · md 12, SemiBold) */
   messageClass?: string;
   children: ReactNode;
-}) {
+}>) {
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const reduce = useReducedMotion();
   const errorText = message?.tone === "error" ? message.text : undefined;
+  const defaultMessageClass =
+    variant === "lg" ? "font-semibold text-[13px]" : "font-semibold text-xs";
 
   useEffect(() => {
     if (errorText && !reduce && scope.current) {
@@ -63,7 +65,7 @@ export function Field({
             key={message.text}
             id={`${htmlFor}-message`}
             role={message.tone === "error" ? "alert" : undefined}
-            className={`leading-normal ${messageClass ?? `font-semibold ${variant === "lg" ? "text-[13px]" : "text-xs"}`} ${TONE_CLASS[message.tone]}`}
+            className={`leading-normal ${messageClass ?? defaultMessageClass} ${TONE_CLASS[message.tone]}`}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
