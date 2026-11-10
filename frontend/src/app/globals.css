@@ -6,7 +6,7 @@
 /* Figma "Color" 변수 컬렉션(Light/Dark)과 이름을 맞춘다. 예: bg-surface, text-text-1 */
 @theme {
   --font-sans:
-    var(--font-pretendard), Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
+    "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui,
     "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
 
   --color-brand: #ff8a3d;
