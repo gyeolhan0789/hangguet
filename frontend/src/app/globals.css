@@ -72,7 +72,9 @@
     min-height: 100%;
     display: flex;
     flex-direction: column;
-    overflow-x: hidden;
+    /* hidden이면 메뉴 · 모달이 html을 잠글 때(use-lock-scroll) body가 스크롤 영역이 되어 sticky 헤더가 문서 맨 위로 돌아간다.
+       clip은 스크롤 영역을 만들지 않아 평소처럼 가로 넘침만 자른다. */
+    overflow-x: clip;
     background: var(--color-bg);
     color: var(--color-text-1);
     font-family: var(--font-sans);
