@@ -151,6 +151,7 @@ export function InquiryDetailPage({ inquiryId }: { inquiryId: number }) {
               id="answer"
               className="input"
               placeholder="답변을 적어 주세요"
+              maxLength={2000}
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               style={{ height: 140, padding: '14px 16px', resize: 'vertical' }}

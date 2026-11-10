@@ -4,6 +4,7 @@ import {
   guestInquiryFormSchema,
   guestInquirySchema,
   guestLookupSchema,
+  inquiryMessageSchema,
   inquirySchema,
 } from "./schemas";
 
@@ -29,6 +30,18 @@ describe("inquirySchema (I01 회원)", () => {
     expect(inquirySchema.safeParse({ title: "가".repeat(100), content: "내용" }).success).toBe(
       true,
     );
+  });
+
+  it("내용은 최대 2,000자", () => {
+    expect(issues(inquirySchema.safeParse({ title: "제목", content: "가".repeat(2001) }))).toEqual({
+      content: "최대 2,000자입니다.",
+    });
+    expect(inquirySchema.safeParse({ title: "제목", content: "가".repeat(2000) }).success).toBe(
+      true,
+    );
+    expect(issues(inquiryMessageSchema.safeParse({ content: "가".repeat(2001) }))).toEqual({
+      content: "최대 2,000자입니다.",
+    });
   });
 });
 

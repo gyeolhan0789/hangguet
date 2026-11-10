@@ -219,6 +219,34 @@ class InquiryIntegrationTest {
                 .andExpect(status().isOk());
     }
 
+    // 기준: 문의 · 답변 본문 최대 2,000자(9.1 · 9.4 · 9.8)
+    @Test
+    void contentOver2000CharactersIsRejected() throws Exception {
+        String tooLong = "가".repeat(2_001);
+        mvc.perform(
+                        post("/api/v1/inquiries")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"title":"길이","content":"%s",
+                                         "email":"guest@example.com","accessPassword":"1234"}\
+                                        """
+                                                .formatted(tooLong)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("content"))
+                .andExpect(jsonPath("$.errors[0].reason").value("최대 2,000자입니다."));
+
+        long id = guestInquiry("1234");
+        message(post("/api/v1/inquiries/" + id + "/messages").header(ACCESS, "1234"), tooLong)
+                .andExpect(status().isBadRequest());
+        message(asAdmin(post("/api/v1/admin/inquiries/" + id + "/messages")), tooLong)
+                .andExpect(status().isBadRequest());
+        message(
+                        post("/api/v1/inquiries/" + id + "/messages").header(ACCESS, "1234"),
+                        "가".repeat(2_000))
+                .andExpect(status().isCreated());
+    }
+
     @Test
     void guestCreateRequiresEmailAndAccessPassword() throws Exception {
         mvc.perform(

@@ -879,7 +879,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 #### 9.1 문의 작성
 
-제목(최대 100자)과 첫 질문으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다. 사진은 `attachmentKeys`(선택).
+제목(최대 100자)과 첫 질문(최대 2,000자)으로 문의를 남긴다(`WAITING`). 비회원은 `email`·`accessPassword`(4~20자)가 필수이고, 회원이 보낸 둘은 쓰지 않는다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 저장. 메시지는 첫 질문 하나
 - **400 / VALIDATION_FAILED**: 비회원인데 `email`·`accessPassword` 없음, 형식·길이 오류
@@ -901,9 +901,10 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 #### 9.4 문의 이어서 쓰기
 
-같은 문의에 질문을 하나 더 단다. 상태는 `WAITING`이 된다. 사진은 `attachmentKeys`(선택).
+같은 문의에 질문(최대 2,000자)을 하나 더 단다. 상태는 `WAITING`이 된다. 사진은 `attachmentKeys`(선택).
 
 - **201**: 단 메시지
+- **400 / VALIDATION_FAILED**(`content`): 비었거나 2,000자 초과
 - **400 / VALIDATION_FAILED**(`attachmentKeys`): 발급되지 않았거나 이미 쓴 키, 같은 키를 두 번 보냄, 6장 이상
 - **404 / INQUIRY_NOT_FOUND**: 9.3과 같음
 - **404 / FILE_NOT_FOUND**: 키는 맞지만 S3에 사진이 없음(키는 쓰지 않아 올린 뒤 다시 보낼 수 있다)
@@ -929,9 +930,10 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 
 #### 9.8 문의 답변
 
-상태는 `ANSWERED`가 된다.
+답변은 최대 2,000자. 상태는 `ANSWERED`가 된다.
 
 - **201**: 단 답변
+- **400 / VALIDATION_FAILED**(`content`): 비었거나 2,000자 초과
 - **404 / INQUIRY_NOT_FOUND**
 - **409 / INQUIRY_CLOSED**: 종료한 문의
 

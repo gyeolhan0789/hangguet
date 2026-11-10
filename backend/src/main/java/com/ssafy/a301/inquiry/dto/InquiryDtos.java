@@ -19,6 +19,8 @@ import java.util.List;
 public final class InquiryDtos {
 
     public static final int MAX_ATTACHMENTS = 5;
+    // 문의 · 답변 본문 최대 글자 수. 칼럼은 TEXT라 막지 않으면 요청 크기 제한(Nginx 1MB)까지 들어온다
+    public static final int MAX_CONTENT_LENGTH = 2_000;
 
     private static final String ATTACHMENT_KEYS =
             "붙일 사진. 9.11에서 받은 objectKey(올린 뒤 1시간 안, 한 번만 쓴다). 없으면 보내지 않는다";
@@ -35,8 +37,12 @@ public final class InquiryDtos {
                     @NotBlank(message = "필수 값입니다.")
                     @Size(max = 100, message = "최대 100자입니다.")
                     String title,
-            @Schema(description = "첫 질문 본문", example = "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.")
+            @Schema(
+                            description = "첫 질문 본문(최대 2,000자)",
+                            example = "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
+                            maxLength = MAX_CONTENT_LENGTH)
                     @NotBlank(message = "필수 값입니다.")
+                    @Size(max = MAX_CONTENT_LENGTH, message = "최대 2,000자입니다.")
                     String content,
             @Schema(
                             description = "비회원만: 답변 확인 · 본인 확인에 쓰는 이메일",
@@ -60,7 +66,12 @@ public final class InquiryDtos {
 
     @Schema(description = "9.4 문의한 사람이 이어서 쓰는 질문")
     public record InquiryQuestionRequest(
-            @Schema(description = "질문 본문", example = "확인 부탁드려요.") @NotBlank(message = "필수 값입니다.")
+            @Schema(
+                            description = "질문 본문(최대 2,000자)",
+                            example = "확인 부탁드려요.",
+                            maxLength = MAX_CONTENT_LENGTH)
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = MAX_CONTENT_LENGTH, message = "최대 2,000자입니다.")
                     String content,
             @Schema(description = ATTACHMENT_KEYS, nullable = true)
                     @Size(max = MAX_ATTACHMENTS, message = "사진은 5장까지 붙일 수 있습니다.")
@@ -102,7 +113,12 @@ public final class InquiryDtos {
 
     @Schema(description = "9.8 관리자 답변")
     public record InquiryMessageRequest(
-            @Schema(description = "답변 본문", example = "확인 부탁드려요.") @NotBlank(message = "필수 값입니다.")
+            @Schema(
+                            description = "답변 본문(최대 2,000자)",
+                            example = "확인 부탁드려요.",
+                            maxLength = MAX_CONTENT_LENGTH)
+                    @NotBlank(message = "필수 값입니다.")
+                    @Size(max = MAX_CONTENT_LENGTH, message = "최대 2,000자입니다.")
                     String content) {}
 
     @Schema(description = "문의 메시지 하나(질문 또는 답변)")
