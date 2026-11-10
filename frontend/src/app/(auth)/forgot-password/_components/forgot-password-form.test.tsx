@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
+
 import { ForgotPasswordForm, RESEND_WAIT_SECONDS } from "./forgot-password-form";
 
 // 서버 액션 경계만 바꾼다. 1.8 요청 본문 · 오류 변환은 actions.test.ts · auth.pact.test.ts가 본다.
@@ -24,12 +26,10 @@ afterEach(() => {
 });
 
 async function submit(email: string) {
-  await act(async () => {
-    fireEvent.change(screen.getByLabelText("이메일"), { target: { value: email } });
-  });
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "재설정 링크 보내기" }));
-  });
+  fireEvent.change(screen.getByLabelText("이메일"), { target: { value: email } });
+  await flushPromises();
+  fireEvent.click(screen.getByRole("button", { name: "재설정 링크 보내기" }));
+  await flushPromises();
 }
 
 async function passSeconds(seconds: number) {
@@ -68,9 +68,8 @@ describe("ForgotPasswordForm", () => {
     expect(screen.getByText("다시 보내기 (1초 후)")).toBeTruthy();
     await passSeconds(1);
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "다시 보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "다시 보내기" }));
+    await flushPromises();
     expect(requestPasswordReset).toHaveBeenLastCalledWith({ email: "a@ssafy.com" });
     expect(requestPasswordReset).toHaveBeenCalledTimes(2);
     expect(screen.getByText(`다시 보내기 (${RESEND_WAIT_SECONDS}초 후)`)).toBeTruthy();
@@ -83,9 +82,8 @@ describe("ForgotPasswordForm", () => {
     await passSeconds(RESEND_WAIT_SECONDS);
     requestPasswordReset.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "다시 보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "다시 보내기" }));
+    await flushPromises();
 
     expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
     expect(screen.getByRole("button", { name: "다시 보내기" })).toBeTruthy();
@@ -111,9 +109,8 @@ describe("ForgotPasswordForm", () => {
   it("이메일 형식이 맞아야 보낼 수 있다", async () => {
     render(<ForgotPasswordForm />);
 
-    await act(async () => {
-      fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "not-email" } });
-    });
+    fireEvent.change(screen.getByLabelText("이메일"), { target: { value: "not-email" } });
+    await flushPromises();
 
     expect(
       (screen.getByRole("button", { name: "재설정 링크 보내기" }) as HTMLButtonElement).disabled,

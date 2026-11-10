@@ -8,7 +8,10 @@ import { PanelCard } from "../../_components/auth-shell";
 const NEXT_DAYS = ["+1", "+2", "+3", "+4", "+5", "+6"] as const;
 
 // Figma S01-1 Start Card. 가입이 끝나면 '오늘' 링이 주황으로 채워지고, 다 채워지면 onFilled를 부른다.
-export function StartCard({ completed, onFilled }: { completed: boolean; onFilled?: () => void }) {
+export function StartCard({
+  completed,
+  onFilled,
+}: Readonly<{ completed: boolean; onFilled?: () => void }>) {
   return (
     <PanelCard caption="가입하면 바로" title="첫 스트릭이 시작돼요" gap="gap-[18px]">
       <div className="flex gap-2.5">

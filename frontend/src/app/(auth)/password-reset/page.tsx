@@ -11,7 +11,9 @@ export const metadata: Metadata = { title: "비밀번호 재설정 · 한끗", r
 // 비밀번호 재설정(1.9). 재설정 메일의 링크(`/password-reset?token=…`, BE PASSWORD_RESET_URL)로 들어온다.
 // 기준: Swagger 1.9 비밀번호 재설정 · PasswordResetConfirmRequest · 사용자 결정(2026-11-08: Figma 시안이 없어 회원가입과 같은 틀,
 // 왼쪽 패널은 비밀번호 찾기와 같게)
-async function ResetForm({ searchParams }: Pick<PageProps<"/password-reset">, "searchParams">) {
+async function ResetForm({
+  searchParams,
+}: Readonly<Pick<PageProps<"/password-reset">, "searchParams">>) {
   const { token } = await searchParams;
   return <PasswordResetView token={typeof token === "string" ? token : ""} />;
 }

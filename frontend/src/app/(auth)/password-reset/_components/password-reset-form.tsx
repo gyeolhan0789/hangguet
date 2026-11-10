@@ -24,7 +24,7 @@ const primaryLinkClass =
 /** 서버가 돌려준 칸 오류(VALIDATION_FAILED)의 react-hook-form 오류 type */
 const SERVER_ERROR = "server";
 
-export function PasswordResetForm({ token }: { token: string }) {
+export function PasswordResetForm({ token }: Readonly<{ token: string }>) {
   const [done, setDone] = useState(false);
   const [linkInvalid, setLinkInvalid] = useState(!token);
   const [formError, setFormError] = useState<string>();

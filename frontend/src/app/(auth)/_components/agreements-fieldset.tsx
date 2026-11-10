@@ -31,14 +31,14 @@ export function AgreementsFieldset({
   checked,
   register,
   onToggleAll,
-}: {
+}: Readonly<{
   /** 줄마다 체크했는지 */
   checked: Record<AgreementType, boolean>;
   /** 그 줄의 체크박스를 폼에 연결한다 */
   register: (type: AgreementType) => UseFormRegisterReturn;
   /** 전체 동의를 누르면 모든 줄을 같은 값으로 */
   onToggleAll: (next: boolean) => void;
-}) {
+}>) {
   const [viewing, setViewing] = useState<LegalDocument | null>(null);
   const allAgreed = AGREEMENT_ITEMS.every(({ type }) => checked[type]);
 
