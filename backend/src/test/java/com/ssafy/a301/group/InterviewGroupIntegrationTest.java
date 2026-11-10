@@ -646,7 +646,7 @@ class InterviewGroupIntegrationTest {
                                 .toInstant()
                                 .toEpochMilli())
                 .isEqualTo(startedAt.getValue().toInstant().toEpochMilli());
-        verify(rooms, never()).open(anyLong(), anyBoolean(), anyMap());
+        verify(rooms, never()).open(anyLong(), anyBoolean(), anyMap(), any());
         assertGroupAssignment(json.valueToTree(assignment.getValue()), group.groupId(), first);
         // 면접방 정보는 응답의 turn과 같은 형식이다
         assertFirstTurnRoomInfo(json.readTree(metadata.getValue()), first);

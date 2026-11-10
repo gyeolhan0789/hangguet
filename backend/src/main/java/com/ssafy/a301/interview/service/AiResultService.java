@@ -241,7 +241,8 @@ public class AiResultService {
                                     startedAt));
                     // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다
                     if (seq == FIRST_SEQ && session.isVideo()) {
-                        events.publishEvent(new FirstQuestionStarted(sessionId));
+                        events.publishEvent(
+                                new FirstQuestionStarted(sessionId, session.getStartedAt()));
                     }
                     return Outcome.SAVED;
                 });

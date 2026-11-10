@@ -279,7 +279,7 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("PLAN_NOT_READY"));
-        verify(rooms, never()).open(anyLong(), anyBoolean(), any());
+        verify(rooms, never()).open(anyLong(), anyBoolean(), any(), any());
 
         planReady(sessionId);
         mvc.perform(as(user, idempotent(post(start))))
@@ -295,7 +295,7 @@ class InterviewSessionIntegrationTest {
 
         // 화상 면접: 녹화를 켜고 질문 5개를 1번부터 배정한다
         ArgumentCaptor<Map<String, Object>> assignment = ArgumentCaptor.forClass(Map.class);
-        verify(rooms).open(eq(sessionId), eq(true), assignment.capture());
+        verify(rooms).open(eq(sessionId), eq(true), assignment.capture(), any());
         assertThat(assignment.getValue())
                 .containsEntry("sessionId", sessionId)
                 .containsEntry("mode", "VIDEO")
@@ -323,7 +323,7 @@ class InterviewSessionIntegrationTest {
         doThrow(new ApiException(ErrorCode.ROOM_UNAVAILABLE))
                 .doNothing()
                 .when(rooms)
-                .open(eq(sessionId), anyBoolean(), any());
+                .open(eq(sessionId), anyBoolean(), any(), any());
 
         mvc.perform(as(user, idempotent(post(start))))
                 .andExpect(status().isServiceUnavailable())
@@ -351,7 +351,7 @@ class InterviewSessionIntegrationTest {
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("INTERVIEW_CAPACITY_FULL"));
         // 면접방을 열지 않고 상태도 그대로라 잠시 후 다시 시작할 수 있다
-        verify(rooms, never()).open(anyLong(), anyBoolean(), any());
+        verify(rooms, never()).open(anyLong(), anyBoolean(), any(), any());
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(jsonPath("$.status").value("READY"));
     }
@@ -398,7 +398,10 @@ class InterviewSessionIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.room.token").value("token-" + sessionId));
-        verify(rooms, times(2)).open(eq(sessionId), eq(true), any());
+        // 다시 시작하면 시작 시각이 새로 기록돼 이전 시도와 다른 위치에 녹화한다
+        ArgumentCaptor<OffsetDateTime> startedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(rooms, times(2)).open(eq(sessionId), eq(true), any(), startedAt.capture());
+        assertThat(startedAt.getAllValues().get(1)).isAfter(startedAt.getAllValues().get(0));
     }
 
     @Test
@@ -513,7 +516,7 @@ class InterviewSessionIntegrationTest {
                                                         + "/start"))))
                 .andExpect(status().isInternalServerError());
 
-        verify(rooms).open(eq(sessionId), anyBoolean(), any());
+        verify(rooms).open(eq(sessionId), anyBoolean(), any(), any());
         verify(rooms).close(sessionId);
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(jsonPath("$.status").value("READY"));
@@ -721,13 +724,28 @@ class InterviewSessionIntegrationTest {
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("ANALYZING"));
 
+        // 합치기 작업은 방을 열 때 정한 녹화 위치를 그대로 쓴다
+        ArgumentCaptor<OffsetDateTime> startedAt = ArgumentCaptor.forClass(OffsetDateTime.class);
+        verify(rooms).open(eq(sessionId), eq(true), any(), startedAt.capture());
+        // 시작 시각을 밀리초로 잘라 저장하므로 DB에서 읽어도 같은 위치가 된다
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT started_at FROM interview_sessions WHERE id = ?",
+                                OffsetDateTime.class,
+                                sessionId))
+                .isAtSameInstantAs(startedAt.getValue());
+        String rawPrefix =
+                "recordings/raw/"
+                        + sessionId
+                        + "/"
+                        + startedAt.getValue().toInstant().toEpochMilli()
+                        + "/";
         verify(queue)
                 .push(
                         argThat(
                                 job ->
                                         "MERGE_RECORDING".equals(job.get("jobType"))
-                                                && ("recordings/raw/" + sessionId + "/")
-                                                        .equals(job.get("rawPrefix"))
+                                                && rawPrefix.equals(job.get("rawPrefix"))
                                                 && ("recordings/" + sessionId + ".mp4")
                                                         .equals(job.get("objectKey"))));
         // 다시보기가 합치는 중으로 응답하도록 합친 녹화 행을 MERGING으로 만든다

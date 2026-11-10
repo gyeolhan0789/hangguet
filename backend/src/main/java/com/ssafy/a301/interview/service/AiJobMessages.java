@@ -179,7 +179,7 @@ public class AiJobMessages {
                             .map(s -> Map.of("start", millis(s.start()), "end", millis(s.end())))
                             .toList());
         } else {
-            message.put("rawPrefix", Recording.rawPrefix(session.getId()));
+            message.put("rawPrefix", Recording.rawPrefix(session.getId(), session.getStartedAt()));
         }
         message.put("objectKey", Recording.sessionVideoKey(session.getId()));
     }

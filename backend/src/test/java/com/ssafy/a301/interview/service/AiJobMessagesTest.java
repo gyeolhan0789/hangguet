@@ -352,10 +352,13 @@ class AiJobMessagesTest {
     @Test
     void mergeRecordingMessageHasTrackAndResultLocations() {
         InterviewSession session = newSession(InterviewMode.VIDEO);
+        // 원본 위치는 마지막 시작 시도의 시각(밀리초까지)으로 나뉜다
+        session.start(OffsetDateTime.parse("2026-11-10T10:00:00.123456+09:00"));
+        em.flush();
 
         assertThat(messages.of(withId(AiJob.mergeRecording(session.getId()))))
                 .containsEntry("jobType", "MERGE_RECORDING")
-                .containsEntry("rawPrefix", "recordings/raw/" + session.getId() + "/")
+                .containsEntry("rawPrefix", "recordings/raw/" + session.getId() + "/1794272400123/")
                 .containsEntry("objectKey", "recordings/" + session.getId() + ".mp4")
                 .doesNotContainKey("persona");
 

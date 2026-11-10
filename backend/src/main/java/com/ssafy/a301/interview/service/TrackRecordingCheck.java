@@ -3,6 +3,7 @@ package com.ssafy.a301.interview.service;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
@@ -32,9 +33,10 @@ public class TrackRecordingCheck {
     @TransactionalEventListener
     public void onFirstQuestionStarted(FirstQuestionStarted event) {
         scheduler.schedule(
-                () -> rooms.ensureTrackRecording(event.sessionId()), Instant.now().plus(delay));
+                () -> rooms.ensureTrackRecording(event.sessionId(), event.startedAt()),
+                Instant.now().plus(delay));
     }
 
-    /** 개인 화상 면접의 첫 질문을 저장했다 */
-    public record FirstQuestionStarted(long sessionId) {}
+    /** 개인 화상 면접의 첫 질문을 저장했다. startedAt은 면접 시작 시각(녹화 위치) */
+    public record FirstQuestionStarted(long sessionId, OffsetDateTime startedAt) {}
 }

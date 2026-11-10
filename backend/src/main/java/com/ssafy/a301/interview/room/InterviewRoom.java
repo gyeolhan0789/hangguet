@@ -39,8 +39,13 @@ public interface InterviewRoom {
      * 방을 만들고(화상이면 트랙 자동 녹화) 에이전트를 배정한다(AI 명세 6.1). 실패하면 만든 방을 지우고 503 ROOM_UNAVAILABLE을 던진다.
      *
      * @param assignment 에이전트 배정 정보(질문 5개·채점 기준·currentSeq)
+     * @param startedAt 면접 시작 시각. 녹화 위치를 시작 시도마다 나눈다(Recording.rawPrefix)
      */
-    void open(long sessionId, boolean video, Map<String, Object> assignment);
+    void open(
+            long sessionId,
+            boolean video,
+            Map<String, Object> assignment,
+            OffsetDateTime startedAt);
 
     /** 방을 지운다. 에이전트가 나가고 녹화도 끝난다. 실패해도 던지지 않고 로그만 남긴다 */
     void close(long sessionId);
@@ -55,8 +60,10 @@ public interface InterviewRoom {
     /**
      * 개인 화상 면접방의 트랙(지원자 영상 · 음성, 면접관 음성)이 모두 녹화 중인지 보고, 녹화가 시작되지 않은 트랙만 녹화를 다시 요청한다. 다시 요청도 실패하면 녹화
      * 없이 면접을 진행한다. 실패해도 던지지 않고 로그만 남긴다
+     *
+     * @param startedAt 면접 시작 시각. 방을 열 때와 같은 녹화 위치에 다시 요청한다
      */
-    void ensureTrackRecording(long sessionId);
+    void ensureTrackRecording(long sessionId, OffsetDateTime startedAt);
 
     /** 면접방 참가자 현황 */
     record Presence(boolean interviewer, OffsetDateTime candidateJoinedAt) {}
