@@ -22,7 +22,7 @@
         "label": "서비스",
         "type": "custom",
         "description": "Fixed list of a301-prod-* compose services. All also matches services not listed here",
-        "query": "a301-prod-be,a301-prod-fe,a301-prod-admin,a301-prod-ai,a301-prod-ai-agent,a301-prod-ai-analysis,a301-prod-ai-plan,a301-prod-ai-recording,a301-prod-nginx,a301-prod-cloudflared,a301-prod-livekit,a301-prod-egress,a301-prod-postgres,a301-prod-redis,a301-prod-prometheus,a301-prod-blackbox,a301-prod-node-exporter,a301-prod-cadvisor,a301-prod-redis-exporter,a301-prod-postgres-exporter,a301-prod-loki,a301-prod-alloy,a301-prod-grafana",
+        "query": "a301-prod-be,a301-prod-fe,a301-prod-admin,a301-prod-ai,a301-prod-ai-agent,a301-prod-ai-analysis,a301-prod-ai-plan,a301-prod-ai-recording,a301-prod-nginx,a301-prod-livekit,a301-prod-egress,a301-prod-postgres,a301-prod-redis,a301-prod-prometheus,a301-prod-blackbox,a301-prod-node-exporter,a301-prod-cadvisor,a301-prod-redis-exporter,a301-prod-postgres-exporter,a301-prod-loki,a301-prod-alloy,a301-prod-grafana",
         "includeAll": true,
         "multi": true,
         "allValue": ".+",
@@ -83,11 +83,6 @@
           {
             "text": "a301-prod-nginx",
             "value": "a301-prod-nginx",
-            "selected": false
-          },
-          {
-            "text": "a301-prod-cloudflared",
-            "value": "a301-prod-cloudflared",
             "selected": false
           },
           {

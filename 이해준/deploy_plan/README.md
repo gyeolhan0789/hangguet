@@ -166,7 +166,6 @@ AI와 BE는 서로 HTTP로 부르지 않고 Redis 큐(`ai:jobs` 작업, `ai:resu
 
 | 컨테이너 | 역할 | 외부 노출 | 메모리 상한 **[제안]** |
 |---|---|---|---|
-| `a301-prod-cloudflared` | Cloudflare Tunnel(`hangguet.co.kr`, `rtc.hangguet.co.kr`, `grafana.hangguet.co.kr`). DNS를 서버 IP로 바꾸는 동안만 둔다(5.1) | 밖으로 나가는 연결만 | 64m |
 | `a301-prod-nginx` | 바깥 웹 입구. 443을 도메인 이름(SNI)으로 나눠 웹 3개는 직접 HTTPS로 받고 그 밖(`turn.`)은 LiveKit TURN/TLS로 넘긴다. 80은 https로 보낸다. `/` → FE, `/be/` → BE, `/admin/` → 관리 페이지(개발 서버와 같은 경로). 관리 페이지가 `/be/api/v1`을 부르므로 `/be/`는 연다. Swagger는 **공개하지 않는다** **[결정]**: BE에서 끄고(`SPRINGDOC_*_ENABLED=false`) Nginx에서도 `/be/docs` · `/be/swagger-ui` · `/be/v3/api-docs`를 404로 막는다. 왜: 운영 API 구조를 바깥에 드러낼 이유가 없고, 확인은 개발 서버 Swagger로 한다 | TCP 443, TCP 80 | 256m(HTTPS를 직접 풀어 64m에서 올림, 5.2 「보안 설정」) |
 | `a301-prod-admin` | 관리 페이지 정적 파일 | 없음 | 64m |
 | `a301-prod-ai` | AI 상태 확인(`/health`)만 하는 HTTP. 개발 서버와 같다 | 없음 | 256m |
@@ -369,7 +368,7 @@ UDP 7882와 TCP 7881이 모두 막힌 네트워크(학교 · 회사 와이파이
 
 - 443은 TURN/TLS와 같이 쓴다. TURN을 다른 포트로 옮기면 SSAFY 와이파이(바깥 TCP 80 · 443 · 8080만 허용)에서 면접방에 못 들어온다(4.2)
 - 개발 서버(미니PC)와 목 서버는 이중 NAT 뒤라 들어오는 포트를 열 수 없어 Tunnel을 그대로 쓴다(4.0)
-- 전환 순서: 웹 인증서 발급 → Nginx 443 배포(Tunnel 입구인 컨테이너 80은 남김) → 서버로 직접 시험 → Cloudflare DNS를 회색 A 레코드로 교체 · Tunnel 호스트 이름 삭제 → 하루 지켜본 뒤 cloudflared · 컨테이너 80 입구 제거. 마지막 단계 전까지는 Tunnel 호스트 이름을 다시 추가하면 되돌릴 수 있다
+- 전환 순서: 웹 인증서 발급 → Nginx 443 배포(Tunnel 입구인 컨테이너 80은 남김) → 서버로 직접 시험 → Cloudflare DNS를 회색 A 레코드로 교체 · Tunnel 호스트 이름 삭제 → 하루 지켜본 뒤 cloudflared · 컨테이너 80 입구 제거. 마지막 단계 전까지는 Tunnel 호스트 이름을 다시 추가하면 되돌릴 수 있다. 마지막 단계(cloudflared · 컨테이너 80 입구 제거)는 S15P31A301-450에서 했다. 컨테이너 80은 Nginx 상태 확인 전용으로 루프백에만 남는다
 
 ### 5.2 열 포트 **[결정]**
 
@@ -419,6 +418,7 @@ Cloudflare 프록시를 빼면서(5.1) 바깥 요청을 서버가 직접 받게 
 | Nginx 연결 한도 · 메모리 | `worker_connections 4096` · `worker_rlimit_nofile 16384`(기본 1024), 컨테이너 `ulimits nofile 65536`, 메모리 상한 64m → 256m | `deploy/prod/nginx.conf` · `compose.yml` | 바깥 연결 하나가 Nginx 안에서 연결 4개를 쓴다(바깥 → 443 stream → 8443 HTTPS → FE · BE, TURN/TLS도 면접 내내). 기본값이면 바깥 연결 약 1000개가 서버 전체의 한계였다. HTTPS를 Nginx가 직접 풀어 연결마다 메모리를 더 쓰므로 상한도 올렸다(로컬 시험에서 부하 중 약 56MB) |
 | 요청 본문 | 앱 1MB(넘으면 413) | `deploy/prod/nginx.conf` | 파일은 브라우저가 S3로 바로 올려 큰 본문이 올 일이 없다. Nginx 기본값 · Next 서버 액션 기본 상한과 같은 값을 명시했다 |
 | 스캐너 경로 | `/.env` · `/.git` 등 점으로 시작하는 경로(`/.well-known` 제외), WordPress · phpMyAdmin · CGI 경로, `.php` · `.sql` · `.yml` 등 쓰지 않는 확장자 → 응답 없이 끊음(444), 접속 기록도 남기지 않음 | `deploy/prod/nginx.conf` | 자동 스캐너 요청이 매일 들어온다. 앱까지 보내지 않아 부하와 로그 잡음을 줄인다 |
+| 내부 HTTPS 포트 · 모르는 Host | HTTPS 서버(8443)는 컨테이너 루프백에만 연다. 8443의 기본 서버는 응답 없이 끊는다(444). 사용자 IP는 PROXY protocol 값만 쓰고 요청 헤더(`CF-Connecting-IP` 등)는 믿지 않는다 | `deploy/prod/nginx.conf` | 8443을 모든 주소에 열면 같은 Docker 네트워크의 컨테이너가 443 분기를 건너뛰고 붙어 PROXY protocol 헤더로 사용자 IP를 지어낼 수 있었다(IP당 요청 제한 회피, 로컬 시험에서 재현). 443 분기는 SNI만 보므로, SNI는 우리 도메인으로 맺고 Host만 다른 이름을 적은 요청이 앱 서버로 가 그 Host가 FE · BE에 넘어갔다(S15P31A301-450) |
 | 대량 트래픽 공격(DDoS) | 서버에서는 막지 못한다. AWS에 기본 적용되는 AWS Shield Standard(네트워크 계층)만 있다 | — | 회선을 채우는 공격은 서버에 닿기 전에 막아야 한다. 큰 공격이 오면 Cloudflare 프록시(주황 구름)를 다시 켜는 것이 가장 빠르다. 이때는 사용자 IP가 Cloudflare IP로 보여 요청 수 제한이 Cloudflare IP 단위로 걸리므로 실제 사용자 IP 설정이 같이 필요하다 |
 | MPTCP | Nginx · LiveKit 컨테이너에서 끔(`sysctls: net.mptcp.enabled: "0"`) | `deploy/prod/compose.yml` | 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연)의 수정 커널이 아직 정식 업데이트에 없다. LiveKit(Go)이 7881/tcp를 MPTCP로 열고 있었다. 설정이 컨테이너마다 따로라 서버 설정으로는 안 된다 |
 | DB 백업 파일 | 권한 600(`umask 077`) | `deploy/prod/backup.sh` | 회원 정보가 든 덤프가 664로 만들어지고 있었다 |
@@ -511,7 +511,6 @@ GitLab CI/CD Variables. 비밀값은 Protected · Masked, 환경 범위 `prod/*`
 | `ELEVENLABS_API_KEY` | O | AI 에이전트(질문 음성). 없으면 질문 글로만 진행한다. 범위 All(위 예외) |
 | `JEV_API_KEY` | O | AI 에이전트(답변 리액션). 없으면 리액션 없이 진행한다. 범위 All(위 예외) |
 | `LLM_API_KEY` | O | AI(GMS). 이름은 공시 파이프라인([`company-pipeline/pipeline/README.md`](../../company-pipeline/pipeline/README.md))과 같게 한다 |
-| `CLOUDFLARE_TUNNEL_TOKEN` | O | cloudflared |
 | Cloudflare DNS API 토큰 | O | certbot(TURN 인증서, DNS 편집 권한만). 서버에 파일로 둔다(권한 600) |
 | `GRAFANA_ADMIN_PASSWORD` | O | Grafana(개발 · 운영 같은 이름, 범위 All). Grafana 볼륨을 처음 만들 때만 적용된다 |
 | `LIVEKIT_EGRESS_S3_ACCESS_KEY` · `LIVEKIT_EGRESS_S3_SECRET` | O | BE(녹화 요청에 담아 Egress에 넘김). IAM `a301-prod-egress`(6.2) |
@@ -587,13 +586,14 @@ docker image prune -f
 
 Docker Hub에는 ECR 같은 자동 정리 정책이 없다. 서비스마다 최근 10개 정도만 남기고 오래된 태그는 Docker Hub API나 화면에서 지운다(주기 **[미정]**).
 
-LiveKit · Egress · PostgreSQL · Redis · cloudflared · Prometheus · Grafana · cAdvisor · node-exporter는 공식 이미지를 버전 고정으로 쓴다. 왜: `latest`를 쓰면 다시 배포할 때 모르는 사이 버전이 바뀌어 동작이 달라질 수 있다.
+LiveKit · Egress · PostgreSQL · Redis · Prometheus · Grafana · cAdvisor · node-exporter는 공식 이미지를 버전 고정으로 쓴다. 왜: `latest`를 쓰면 다시 배포할 때 모르는 사이 버전이 바뀌어 동작이 달라질 수 있다.
 
 ### 8.3 롤백 **[제안]**
 
 - GitLab Deployments > Environments > `prod/app`에서 되돌릴 배포를 Re-deploy 한다. 그 커밋의 `prod-deploy`가 그 커밋의 이미지 · `deploy/prod/` 설정 · `deploy.sh`로 다시 돈다. 왜: 이미지 태그가 커밋 SHA라 Docker Hub에 모두 남아 있고, 설정까지 그 시점과 맞게 되돌아간다
   - master에서 Run pipeline에 `IMAGE_TAG`를 넘기는 방법(처음 안)은 쓸 수 없다. `workflow.rules`가 수동 실행 파이프라인을 develop에서만 만든다
   - S15P31A301-391 이전 커밋으로 되돌리면 예전 `deploy.sh`의 터널 확인이 SIGPIPE로 실패할 수 있다(14장). 컨테이너는 바뀌므로 잡 결과 대신 서버 상태 · 바깥 주소로 확인한다([`deploy/prod/README.md`](../../deploy/prod/README.md) 「배포」)
+  - S15P31A301-450(Tunnel 제거) 이전 커밋으로 되돌리면 그 커밋의 compose가 `CLOUDFLARE_TUNNEL_TOKEN`을 필수로 받고 cloudflared를 다시 띄운다. GitLab 변수나 `a301-prod` 터널을 지운 뒤에는 그 커밋으로 되돌릴 수 없다
 - BE는 기동할 때 Flyway 마이그레이션을 적용하므로 DB는 되돌아가지 않는다. 마이그레이션은 이전 버전 코드와도 맞게(추가 먼저, 삭제는 나중에) 만든다. 왜: 그래야 이미지만 되돌려도 이전 코드가 새 DB에서 동작한다
 
 ## 9. 백업
@@ -720,7 +720,7 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 녹화 · 백업 보관 기간 | **[미정]** |
 | 구조도 | 새 구조로 다시 그린다. `architecture-draft.webp`는 이전 초안 |
 | LiveKit Cloud 무료 구간 정확한 값(대략은 4.0) · 팀 계정 소유자 | 대시보드 요금 화면에서 확인 (인프라) |
-| Cloudflare 정리(5.1 전환 마지막 단계) | DNS 교체 후 하루 지켜보고 cloudflared · 컨테이너 80 입구 · `CLOUDFLARE_TUNNEL_TOKEN` · `a301-prod` 터널 삭제 (인프라) |
+| Cloudflare 정리(5.1 전환 마지막 단계) | cloudflared · 컨테이너 80 입구는 지웠다(S15P31A301-450). 남은 것: 배포가 안정된 뒤 GitLab 변수 `CLOUDFLARE_TUNNEL_TOKEN` · Cloudflare `a301-prod` 터널 삭제. 지우면 450 이전 커밋으로 롤백할 수 없다(8.3) (인프라) |
 | 개인정보처리방침 국외 이전 표의 Cloudflare 행 | DNS만 쓰면 요청 내용이 Cloudflare를 거치지 않는다. 행을 빼고 개정일을 어떻게 할지 **[미정]** (팀) |
 | 개발 서버 LiveKit을 미니PC 셀프 호스팅으로 바꿀지 | 앞 장비(통신사 공유기) 관리자 계정을 알게 되면 DMZ(→ ipTIME `192.168.45.235`) 설정 후 전환 |
 
@@ -767,3 +767,5 @@ AWS Budgets 알림 설정 완료 **[결정]**.
 | 인프라 | 5.2 | 「보안 설정」에 Nginx 부하 방어 추가(S15P31A301-413): 443 연결 IP당 1000개 · 동시 처리 요청 IP당 200개(정적 파일 제외), Nginx 연결 한도 4096 · 메모리 상한 256m, 화면 GET 요청 수 제한(초당 100회, 정적 파일 제외), 요청 본문 1MB 명시, 스캐너 경로 444. 대량 트래픽 공격은 서버에서 막지 못한다는 점과 비상시 Cloudflare 프록시를 다시 켤 때 주의점을 적음 | Cloudflare를 빼서 한 IP의 연결 · 요청 폭주를 서버가 직접 받게 됐다. 화면 GET은 FE · BE를 함께 써서 제한이 없으면 새로고침 폭주에 약하다. 자동 스캐너 요청이 매일 들어온다 |
 | 인프라 | 7 | 운영 변수에 `REDIS_PASSWORD` · `AGENT_ASG_ENABLED` · `MAIN_TAILSCALE_IP` · `AGENT_REFRESH_AWS_*` 추가. Redis 비밀번호를 운영 compose에 늘 켬, `deploy.sh`가 `AGENT_ASG_ENABLED=true`일 때 `compose.asg.yml`을 더함(오토스케일링 계획 10.1) | 에이전트 ASG 전환을 서버에서 compose를 손으로 고치지 않고 GitLab 변수 하나로 켜고 끄게 했다 |
 | 인프라 | 2 · 3.2 · 3.3 · 4.1 · 4.3 · 5.2 · 8.1 · 10 | 에이전트 · Egress ASG 운영 반영(11/07)을 문서에 맞춤: 2장 구조 그림 · 흐름(ASG 두 개, Tailscale), 3.2 두 컨테이너를 "ASG로 옮겨 꺼짐"으로 · ASG 표 · 메모리 합계 7.4GB, 3.3 ASG Alloy · 알림 목록(에이전트 없음 · Egress 없음), 4.1 Tailscale 주소 · `tcp_retries2`, 4.3 Egress 위치, 5.2 Tailscale IP에만 여는 포트, 8.1 CI의 에이전트 ASG 새로 고침 · 키트 수동 반영, 10장 ASG 비용 | 오토스케일링 계획 10.1의 13. 문서가 두 컨테이너를 메인 서버에 둔 구조로 적혀 있어 실제 운영과 달랐다 |
+| 인프라 | 3.2 · 5.1 · 7 · 8.2 · 8.3 · 13 | Cloudflare Tunnel 제거(S15P31A301-450): 운영 compose에서 cloudflared, Nginx에서 Tunnel 입구(컨테이너 80)와 `CF-Connecting-IP` 헤더로 사용자 IP를 정하던 부분을 지움. Nginx 상태 확인은 컨테이너 루프백 80 전용 서버로 옮김. cloudflared 서비스는 부하 테스트 덮어쓰기 파일로 옮기고, 테스트 서버 웹 입구는 맞추지 않음(`loadtest/server/README.md` 주의) | DNS가 서버 IP를 직접 가리켜(11/10 확인) Tunnel로 오는 요청이 없다. 남겨 두면 같은 Docker 네트워크에서 TLS 없이 앱에 닿고, 헤더를 지어내 IP당 요청 제한을 피할 수 있는 입구가 된다 |
+| 인프라 | 5.2 | 「보안 설정」에 내부 HTTPS 포트 · 모르는 Host 행 추가(S15P31A301-450): Nginx HTTPS 서버(8443)를 루프백에만 열고, 8443 기본 서버를 444로 끊음 | 8443에 다른 컨테이너가 직접 붙어 PROXY protocol 헤더로 사용자 IP를 지어낼 수 있었고(로컬 시험에서 재현), 모르는 Host가 앱 서버로 가 FE · BE에 그대로 넘어갔다. Tunnel 입구를 지운 것과 같은 이유다 |

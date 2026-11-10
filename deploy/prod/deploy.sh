@@ -200,7 +200,7 @@ if [ "$healthy" -ne 1 ]; then
   fail "180초 안에 모든 서비스가 준비되지 않았습니다."
 fi
 
-# 재시작 반복 확인의 기준. healthcheck가 없는 서비스(livekit · egress · prometheus · loki · alloy · grafana · cloudflared · exporter 등)는
+# 재시작 반복 확인의 기준. healthcheck가 없는 서비스(livekit · egress · prometheus · loki · alloy · grafana · exporter 등)는
 # 설정이 틀려 뜨자마자 죽어도 restart로 다시 떠, 위 확인이 running인 순간을 보면 통과한다.
 # 여기서 재시작 수를 적어 두고, 아래 HTTP 확인이 끝난 뒤 STABLE_WAIT초가 지났을 때 다시 본다(개발 모니터링 잡과 같은 확인)
 restart_counts() {
@@ -224,11 +224,10 @@ check_http "BE" "http://127.0.0.1:18084/actuator/health" a301-prod-be
 check_http "FE" "http://127.0.0.1:18082/api/health" a301-prod-fe
 check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
-# 바깥 주소로 한 바퀴. 도메인 3개를 모두 본다(배포 계획 5.1). DNS가 Tunnel을 가리키는 동안은 터널 연결도 이 확인으로 본다.
-# cloudflared 로그의 「Registered tunnel connection」은 컨테이너를 다시 만들지 않은 배포에서는 예전 기동 때 줄이라 지금 연결을 뜻하지 않고,
-# 로그가 회전되면 연결이 멀쩡해도 없어서 확인 기준으로 쓰지 않는다. 또 pipefail에서 `docker logs | grep -q`는 로그가 길면
-# grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어, 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패).
-# 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다. 실패하면 cloudflared와 그 경로 서비스의 로그를 남긴다
+# 바깥 주소로 한 바퀴. 도메인 3개를 모두 본다(배포 계획 5.1). DNS(서버 IP) → 서버 443 → Nginx 길로 간다.
+# 확인을 `docker logs | grep -q`로 하지 않는다: pipefail에서 로그가 길면 grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어,
+# 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패). 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다.
+# 실패하면 그 경로 서비스의 로그를 남긴다
 # check_public <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
 check_public() {
   local name="$1" url="$2" pattern="$3"
@@ -237,12 +236,12 @@ check_public() {
     if curl -fsS --max-time 10 "$url" 2>/dev/null | grep -Eq "$pattern"; then echo "OK: ${name} (${url})"; return 0; fi
     sleep 2
   done
-  for svc in a301-prod-cloudflared "$@"; do
+  for svc in "$@"; do
     echo "---- ${svc} 로그"; "${COMPOSE[@]}" logs --tail 40 "$svc" || true
   done
-  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). DNS가 가리키는 곳(Tunnel이면 터널 연결 · CLOUDFLARE_TUNNEL_TOKEN) · 해당 서비스를 확인하세요."
+  fail "${name}가 120초 안에 응답하지 않았습니다(${url}). DNS가 가리키는 곳 · 해당 서비스를 확인하세요."
 }
-# 앱: DNS가 가리키는 길(Tunnel이면 Cloudflare → Tunnel → Nginx:80, 직접이면 서버 443 → Nginx) → FE
+# 앱: 서버 443 → Nginx → FE
 check_public "바깥 주소" "${PUBLIC_URL}/api/health" '"UP"' a301-prod-nginx
 # 면접방 시그널링: 브라우저가 LiveKit에 붙는 경로. LiveKit은 /에 OK로 답한다
 check_public "LiveKit 바깥 주소" "${RTC_URL}/" '^OK$' a301-prod-livekit
@@ -250,7 +249,7 @@ check_public "LiveKit 바깥 주소" "${RTC_URL}/" '^OK$' a301-prod-livekit
 check_public "Grafana 바깥 주소" "${GRAFANA_URL}/api/health" '"database": *"ok"' a301-prod-grafana
 
 # 서버 443 · 80으로 직접(DNS · Cloudflare를 거치지 않고) 한 바퀴. 서버 안에서 127.0.0.1로 붙되 도메인 이름(SNI · Host)은 진짜로 보낸다.
-# DNS가 아직 Tunnel을 가리켜도, 바꾼 뒤에도 사용자가 들어올 길이 살아 있는지 본다(인증서 · SNI 분기 · 각 서비스)
+# DNS에 문제가 있어도 서버 안의 길(인증서 · SNI 분기 · 각 서비스)이 살아 있는지 따로 본다
 # check_direct <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
 check_direct() {
   local name="$1" url="$2" pattern="$3" host port
