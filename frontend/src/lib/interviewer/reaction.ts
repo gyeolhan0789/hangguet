@@ -54,15 +54,15 @@ export function isNodReaction(snapshot: ReactionSnapshot | null): boolean {
 
 export function reactionFrame(snapshot: ReactionSnapshot | null, now: number) {
   const neutral = { emotion: "neutral" as Emotion, emotionWeight: 0, pitch: 0, roll: 0 };
-  if (!snapshot || !snapshot.message.reaction) return neutral;
+  if (!snapshot?.message.reaction) return neutral;
   const elapsed = now - snapshot.receivedAt;
   const duration = snapshot.message.reaction.durationMs;
   if (elapsed < 0 || elapsed >= duration) return neutral;
   const progress = elapsed / duration;
   const envelope = Math.sin(Math.PI * progress);
   const { reaction, attitude } = snapshot.message;
-  let emotion: Emotion = "neutral";
-  let weight = 0;
+  let emotion: Emotion;
+  let weight: number;
   let pitch = (attitude.interest - 0.5) * 2 * ATTITUDE_PITCH;
   let roll = 0;
   if (reaction.type === "expression") {

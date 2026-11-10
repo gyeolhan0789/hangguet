@@ -56,8 +56,10 @@ export const ROUTES = {
  * S04 면접관 선택. S03에서 고른 지원서의 id를 들고 간다. S05-1 [← 면접관 선택]으로 돌아갈 때는 고른 면접관도 넘긴다.
  * 면접 만들기(5.1)는 면접관 · 면접 방식까지 고른 뒤라, 그때까지 고른 값은 주소로 넘긴다.
  */
-export const interviewerPath = (applicationId: number, persona?: Persona) =>
-  `${ROUTES.practiceInterviewer}?applicationId=${applicationId}${persona ? `&persona=${persona}` : ""}`;
+export function interviewerPath(applicationId: number, persona?: Persona) {
+  const personaQuery = persona ? `&persona=${persona}` : "";
+  return `${ROUTES.practiceInterviewer}?applicationId=${applicationId}${personaQuery}`;
+}
 
 /** S05-1 면접 방식 선택. S05 [← 면접 방식]으로 돌아갈 때 그 면접의 지원서 · 면접관을 넘긴다. */
 export const modePath = (applicationId: number, persona: Persona) =>
@@ -77,8 +79,10 @@ export const resultPath = (sessionId: number) => `/interview/${sessionId}/result
  * S07-1 면접 다시보기(6.4). S07 [면접 다시보기]로 들어온다. S07 질문별 피드백의 [자세히 보기]는 그 질문 순서(seq)를 q로 붙여
  * 그 질문을 펼친 채로 연다.
  */
-export const replayPath = (sessionId: number, seq?: number) =>
-  `/interview/${sessionId}/replay${seq === undefined ? "" : `?q=${seq}`}`;
+export function replayPath(sessionId: number, seq?: number) {
+  const query = seq === undefined ? "" : `?q=${seq}`;
+  return `/interview/${sessionId}/replay${query}`;
+}
 
 /**
  * S03 지원서 선택을 그 지원서를 골라 둔 채로 연다. S04 [← 지원서 선택] · 지원서 쓰기(S03에서 온 경우) 저장 뒤에 쓴다.
@@ -95,8 +99,10 @@ export const applicationsPath = (page = 0) =>
  * 지원서 상세(4.2). 지원 관리 목록 줄 · 지원서 쓰기 저장 뒤(지원 관리에서 온 경우)로 들어온다.
  * page(0부터)는 면접 기록(4.6)의 쪽이다. 첫 쪽은 page를 붙이지 않는다.
  */
-export const applicationPath = (applicationId: number, page = 0) =>
-  `${ROUTES.applications}/${applicationId}${page > 0 ? `?page=${page}` : ""}`;
+export function applicationPath(applicationId: number, page = 0) {
+  const query = page > 0 ? `?page=${page}` : "";
+  return `${ROUTES.applications}/${applicationId}${query}`;
+}
 
 /** 지원서 쓰기를 어디서 열었는지. 저장 뒤 · [← 뒤로]가 이곳으로 돌아간다(사용자 결정 2026-10-29) */
 export type ApplicationWriteFrom = "applications" | "practice";
@@ -112,8 +118,10 @@ export const mypagePath = (month: string) => `${ROUTES.mypage}?month=${month}`;
  * 연습 기록을 date(YYYY-MM-DD, 면접 시작일) 날짜 · page(0부터) 페이지로 연다. 첫 페이지는 page를 붙이지 않는다.
  * S09 스트릭 달력 날짜도 여기로 온다.
  */
-export const recordsPath = (date: string, page = 0) =>
-  `${ROUTES.records}?date=${date}${page > 0 ? `&page=${page}` : ""}`;
+export function recordsPath(date: string, page = 0) {
+  const pageQuery = page > 0 ? `&page=${page}` : "";
+  return `${ROUTES.records}?date=${date}${pageQuery}`;
+}
 
 /** S09 프로필 사진 ✎ → S09-1 설정의 프로필 사진 줄(모션 메모 S09) */
 export const PROFILE_IMAGE_ANCHOR = "profile-image";

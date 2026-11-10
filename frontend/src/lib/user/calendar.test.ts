@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   buildCalendar,
   formatMinutes,
+  monthDirection,
   monthLabel,
   monthOf,
   parseMonth,
   shiftMonth,
   startedLabel,
+  weekCells,
   type CalendarDay,
 } from "./calendar";
 
@@ -76,6 +78,53 @@ describe("buildCalendar (스트릭 달력)", () => {
   it("2월 말일(윤년 29일)까지 그린다", () => {
     const days = buildCalendar("2028-02", new Set(), "2028-03-01").flat().filter(Boolean);
     expect(days).toHaveLength(29);
+  });
+});
+
+describe("weekCells (칸 key)", () => {
+  const weeks = buildCalendar("2026-10", FIGMA_PRACTICED, "2026-10-13");
+
+  it("1일 앞 빈칸은 그 자리의 지난달 날짜, 그달 칸은 그 날짜다(2026년 10월 1일은 목요일)", () => {
+    expect(weekCells(weeks[0])).toEqual([
+      { date: "2026-09-27", day: null },
+      { date: "2026-09-28", day: null },
+      { date: "2026-09-29", day: null },
+      { date: "2026-09-30", day: null },
+      { date: "2026-10-01", day: dayOf(weeks, 1) },
+      { date: "2026-10-02", day: dayOf(weeks, 2) },
+      { date: "2026-10-03", day: dayOf(weeks, 3) },
+    ]);
+  });
+
+  it("말일 뒤 빈칸은 그 자리의 다음 달 날짜다(2026년 11월 30일은 월요일)", () => {
+    const nov = buildCalendar("2026-11", new Set(), "2026-10-13");
+    expect(nov).toHaveLength(5);
+    expect(weekCells(nov[4]).map((cell) => cell.date)).toEqual([
+      "2026-11-29",
+      "2026-11-30",
+      "2026-12-01",
+      "2026-12-02",
+      "2026-12-03",
+      "2026-12-04",
+      "2026-12-05",
+    ]);
+  });
+
+  it("달력 전체에서 칸 날짜가 겹치지 않는다", () => {
+    const dates = buildCalendar("2026-08", new Set(), "2026-10-13").flatMap((week) =>
+      weekCells(week).map((cell) => cell.date),
+    );
+    expect(new Set(dates).size).toBe(dates.length);
+  });
+});
+
+describe("monthDirection (달 넘김 방향)", () => {
+  it("이전 달로 가면 -1, 다음 달 · 같은 달이면 1이고, 해가 바뀌어도 맞다", () => {
+    expect(monthDirection("2026-10", "2026-09")).toBe(-1);
+    expect(monthDirection("2026-10", "2026-11")).toBe(1);
+    expect(monthDirection("2026-01", "2025-12")).toBe(-1);
+    expect(monthDirection("2025-12", "2026-01")).toBe(1);
+    expect(monthDirection("2026-10", "2026-10")).toBe(1);
   });
 });
 

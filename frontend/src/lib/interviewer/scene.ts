@@ -217,6 +217,119 @@ const disposeMaterial = (material: Material) => {
   material.dispose();
 };
 
+/** 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점(poseEndpoints.read)에 멈춰 둔다. */
+function holdReadingPose(
+  mixer: AnimationMixer,
+  animations: GLTF["animations"],
+  pose: InterviewerAssets["pose"],
+) {
+  if (!pose) throw new Error("모델에 자세 구간이 없다");
+  const tracks = animations.flatMap((clip) => clip.tracks);
+  if (tracks.length === 0) throw new Error("모델에 동작이 없다");
+  const start = Math.min(...tracks.map((track) => track.times[0]));
+  const end = Math.max(...tracks.map((track) => track.times[track.times.length - 1]));
+  const action: AnimationAction = mixer.clipAction(new AnimationClip("Pose", end, tracks));
+  action.setLoop(LoopOnce, 1);
+  action.clampWhenFinished = true;
+  action.play();
+  action.paused = true;
+  const [readRoute, readProgress] = pose.poseEndpoints.read;
+  const readSegment = pose.segments[readRoute];
+  action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
+}
+
+/** 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다. */
+function addShadows(
+  scene: Scene,
+  key: DirectionalLight,
+  model: Object3D,
+  shadow: NonNullable<SceneLights["shadow"]>,
+) {
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.bias = -0.0005;
+  key.shadow.normalBias = 0.02;
+  const box = key.shadow.camera;
+  box.left = -1.5;
+  box.right = 1.5;
+  box.top = 1.5;
+  box.bottom = -1.5;
+  box.near = 0.1;
+  box.far = 8;
+  box.updateProjectionMatrix();
+  // 그림자는 소품(책상 · 컵 · 종이 · 바닥)만 받는다. 면접관 몸(스킨 메시)까지 받으면 안경 · 머리카락 그림자가 얼굴에 줄처럼 진다.
+  model.traverse((object) => {
+    const mesh = object as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = true;
+    mesh.receiveShadow = !(mesh as SkinnedMeshLike).isSkinnedMesh;
+  });
+  model.updateMatrixWorld(true);
+  const floor = new Mesh(
+    new PlaneGeometry(8, 8),
+    new ShadowMaterial({ color: shadow.color, opacity: shadow.opacity }),
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = new Box3().setFromObject(model).min.y;
+  floor.receiveShadow = true;
+  scene.add(floor);
+}
+
+/** 이름에서 영문 · 숫자만 남기고 소문자로 맞춘다(내보낸 노드 이름의 구분자 · 대소문자 차이를 없앤다) */
+const nodeName = (name: string) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+/** 표정 규칙의 메시 이름마다 모델에서 WEB_<이름>(또는 WEB_<이름>_…) 노드 아래에 있는 셰이프 키 메시를 찾는다. 없는 이름은 뺀다 */
+function findFaceMeshes(model: Object3D, names: readonly string[]): Record<string, Mesh[]> {
+  const faceMeshes: Record<string, Mesh[]> = {};
+  for (const name of names) {
+    const wanted = nodeName(`WEB_${name}`);
+    const under = (node: Object3D) => {
+      const n = nodeName(node.name);
+      return n === wanted || n.startsWith(`${wanted}_`);
+    };
+    const found: Mesh[] = [];
+    model.traverse((object) => {
+      const mesh = object as Mesh;
+      if (mesh.isMesh && mesh.morphTargetDictionary && hasAncestor(mesh, model, under)) {
+        found.push(mesh);
+      }
+    });
+    if (found.length) faceMeshes[name] = found;
+  }
+  return faceMeshes;
+}
+
+/** node 자신부터 root 바로 아래까지 올라가며 match에 맞는 노드가 있는지 */
+function hasAncestor(node: Object3D, root: Object3D, match: (node: Object3D) => boolean): boolean {
+  for (let parent: Object3D | null = node; parent && parent !== root; parent = parent.parent) {
+    if (match(parent)) return true;
+  }
+  return false;
+}
+
+/**
+ * 얼굴 조명: 표정 메시(얼굴 · 눈썹 등)를 감싼 상자의 가운데를 겨누고, 그 상자만큼만 퍼지게 원뿔 각을 잡는다(가장자리는 부드럽게).
+ * 표정 메시가 없으면 두지 않는다.
+ */
+function addFaceLight(
+  scene: Scene,
+  faceLight: NonNullable<SceneLights["face"]>,
+  faceParts: readonly Mesh[],
+) {
+  if (faceParts.length === 0) return;
+  const bounds = new Box3();
+  faceParts.forEach((mesh) => bounds.expandByObject(mesh));
+  const center = bounds.getCenter(new Vector3());
+  const radius = bounds.getSize(new Vector3()).length() / 2;
+  const spot = new SpotLight(faceLight.color, faceLight.intensity);
+  spot.position.set(...faceLight.position);
+  spot.target.position.copy(center);
+  spot.angle = Math.atan(radius / spot.position.distanceTo(center));
+  spot.penumbra = 1;
+  spot.decay = 0;
+  scene.add(spot, spot.target);
+}
+
 /**
  * 면접관 장면을 만든다. 모델을 다 불러오면 첫 장면을 그리고 돌려준다.
  * 자세는 내보낸 poseEndpoints.read에 맞춰 종이를 들고 읽는 자세로 둔다(Figma S06 · S06-B 면접관 장면).
@@ -320,20 +433,7 @@ export async function createInterviewerScene({
       // 동작 클립 면접관: 기본 자세 클립을 걸어 두고, 말하기 · 끄덕임 때만 움직인다.
       clips = createClipPlayer(mixer, gltf.animations, model.clips);
     } else if (!model.staticPose) {
-      // 자세: 내보낸 동작을 한 클립으로 묶고, 읽는 자세 시점에 멈춰 둔다.
-      if (!pose) throw new Error("모델에 자세 구간이 없다");
-      const tracks = gltf.animations.flatMap((clip) => clip.tracks);
-      if (tracks.length === 0) throw new Error("모델에 동작이 없다");
-      const start = Math.min(...tracks.map((track) => track.times[0]));
-      const end = Math.max(...tracks.map((track) => track.times[track.times.length - 1]));
-      const action: AnimationAction = mixer.clipAction(new AnimationClip("Pose", end, tracks));
-      action.setLoop(LoopOnce, 1);
-      action.clampWhenFinished = true;
-      action.play();
-      action.paused = true;
-      const [readRoute, readProgress] = pose.poseEndpoints.read;
-      const readSegment = pose.segments[readRoute];
-      action.time = start + MathUtils.lerp(readSegment.start, readSegment.end, readProgress);
+      holdReadingPose(mixer, gltf.animations, pose);
     }
     const startMixer = mixer;
     moveWithLift(() => startMixer.update(0));
@@ -342,78 +442,13 @@ export async function createInterviewerScene({
     if (model.staticPose) resetStaticHead = () => moveHead(0, 0);
 
     // 주광 그림자: 면접관 · 책상 · 컵이 서로와 바닥에 그림자를 드리운다. 바닥은 모델 맨 아래(의자 · 신발 바닥) 높이다.
-    if (shadow) {
-      key.castShadow = true;
-      key.shadow.mapSize.set(2048, 2048);
-      key.shadow.bias = -0.0005;
-      key.shadow.normalBias = 0.02;
-      const box = key.shadow.camera;
-      box.left = -1.5;
-      box.right = 1.5;
-      box.top = 1.5;
-      box.bottom = -1.5;
-      box.near = 0.1;
-      box.far = 8;
-      box.updateProjectionMatrix();
-      // 그림자는 소품(책상 · 컵 · 종이 · 바닥)만 받는다. 면접관 몸(스킨 메시)까지 받으면 안경 · 머리카락 그림자가 얼굴에 줄처럼 진다.
-      gltf.scene.traverse((object) => {
-        const mesh = object as Mesh;
-        if (!mesh.isMesh) return;
-        mesh.castShadow = true;
-        mesh.receiveShadow = !(mesh as SkinnedMeshLike).isSkinnedMesh;
-      });
-      gltf.scene.updateMatrixWorld(true);
-      const floor = new Mesh(
-        new PlaneGeometry(8, 8),
-        new ShadowMaterial({ color: shadow.color, opacity: shadow.opacity }),
-      );
-      floor.rotation.x = -Math.PI / 2;
-      floor.position.y = new Box3().setFromObject(gltf.scene).min.y;
-      floor.receiveShadow = true;
-      scene.add(floor);
-    }
+    if (shadow) addShadows(scene, key, gltf.scene, shadow);
 
     // 표정: 규칙에 있는 메시(WEB_<이름> 아래)를 찾아 셰이프 키 세기를 넣는다.
-    const normal = (name: string) => name.replace(/[^a-z0-9]/gi, "").toLowerCase();
-    const faceMeshes: Record<string, Mesh[]> = {};
-    for (const name of Object.keys(rules.rules)) {
-      const wanted = normal(`WEB_${name}`);
-      const found: Mesh[] = [];
-      gltf.scene.traverse((object) => {
-        const mesh = object as Mesh;
-        if (!mesh.isMesh || !mesh.morphTargetDictionary) return;
-        for (
-          let parent: Object3D | null = mesh;
-          parent && parent !== gltf.scene;
-          parent = parent.parent
-        ) {
-          const n = normal(parent.name);
-          if (n === wanted || n.startsWith(`${wanted}_`)) {
-            found.push(mesh);
-            break;
-          }
-        }
-      });
-      if (found.length) faceMeshes[name] = found;
-    }
-    const surfaces = Object.values(faceMeshes).map(createFaceSurface);
-
-    // 얼굴 조명: 표정 메시(얼굴 · 눈썹 등)를 감싼 상자의 가운데를 겨누고, 그 상자만큼만 퍼지게 원뿔 각을 잡는다(가장자리는 부드럽게).
+    const faceMeshes = findFaceMeshes(gltf.scene, Object.keys(rules.rules));
+    const surfaces = Object.values(faceMeshes).map((meshes) => createFaceSurface(meshes));
     const faceLight = stormVideo ? undefined : lights.face;
-    const faceParts = Object.values(faceMeshes).flat();
-    if (faceLight && faceParts.length > 0) {
-      const bounds = new Box3();
-      faceParts.forEach((mesh) => bounds.expandByObject(mesh));
-      const center = bounds.getCenter(new Vector3());
-      const radius = bounds.getSize(new Vector3()).length() / 2;
-      const spot = new SpotLight(faceLight.color, faceLight.intensity);
-      spot.position.set(...faceLight.position);
-      spot.target.position.copy(center);
-      spot.angle = Math.atan(radius / spot.position.distanceTo(center));
-      spot.penumbra = 1;
-      spot.decay = 0;
-      scene.add(spot, spot.target);
-    }
+    if (faceLight) addFaceLight(scene, faceLight, Object.values(faceMeshes).flat());
 
     let face: FaceControls = NEUTRAL_FACE;
     let dirty = true;
