@@ -4,7 +4,7 @@ import { useEffect } from "react";
 
 import { reportBrowserError } from "@/lib/monitoring/browser-events";
 
-import { pretendard } from "./fonts";
+import "./fonts/pretendard/pretendardvariable-dynamic-subset.css";
 import "./globals.css";
 
 /** 루트 레이아웃까지 실패했을 때. 레이아웃을 대신하므로 html · body와 전역 스타일을 직접 불러온다. */
@@ -21,7 +21,7 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="ko" className={pretendard.variable}>
+    <html lang="ko">
       <body>
         <main className="flex min-h-svh flex-col items-center justify-center gap-4 bg-bg px-6 text-center">
           <h1 className="text-2xl leading-normal font-extrabold text-text-1">
