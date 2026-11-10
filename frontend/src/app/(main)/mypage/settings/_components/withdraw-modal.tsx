@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useForm } from "react-hook-form";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { Field, PasswordInput } from "@/components/form";
 import { useLockScroll } from "@/components/use-lock-scroll";
 import { withdraw, withdrawSocial } from "@/lib/user/actions";
@@ -27,12 +28,12 @@ export function WithdrawModal({
   open,
   social = false,
   onClose,
-}: {
+}: Readonly<{
   open: boolean;
   /** 소셜 회원(2.1 socialProvider가 null이 아님)이면 비밀번호 칸을 두지 않는다 */
   social?: boolean;
   onClose: () => void;
-}) {
+}>) {
   const [pending, startTransition] = useTransition();
   const dialog = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -82,15 +83,7 @@ export function WithdrawModal({
     }
     if (event.key !== "Tab" || !dialog.current) return;
     const items = [...dialog.current.querySelectorAll<HTMLElement>("input, button:not(:disabled)")];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, items);
   }
 
   return (

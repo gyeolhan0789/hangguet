@@ -9,9 +9,11 @@ import { dateInMonth, monthDayLabel } from "@/lib/records/format";
 import { growthReviewPath, recordsPath } from "@/lib/routes";
 import {
   buildCalendar,
+  monthDirection,
   monthLabel,
   monthOf,
   shiftMonth,
+  weekCells,
   type CalendarDay,
 } from "@/lib/user/calendar";
 
@@ -39,7 +41,7 @@ export function DayCalendarCard({
   today,
   interviewCount,
   practicedDates,
-}: {
+}: Readonly<{
   /** 고른 날(YYYY-MM-DD, 면접 시작일) */
   date: string;
   today: string;
@@ -47,13 +49,13 @@ export function DayCalendarCard({
   interviewCount: number;
   /** 고른 날이 든 달의 연습한 날(5.15 content 중 interviewCount가 1 이상인 practiceDate) */
   practicedDates: string[];
-}) {
+}>) {
   const reduce = useReducedMotion();
   const month = monthOf(date);
   // 넘기는 방향(이전 달이면 왼쪽에서, 다음 달이면 오른쪽에서 들어온다). 직전에 보여 준 달과 비교한다.
   const [shown, setShown] = useState({ month, direction: 1 });
-  if (shown.month !== month) setShown({ month, direction: month < shown.month ? -1 : 1 });
-  const direction = shown.month === month ? shown.direction : month < shown.month ? -1 : 1;
+  if (shown.month !== month) setShown({ month, direction: monthDirection(shown.month, month) });
+  const direction = shown.month === month ? shown.direction : monthDirection(shown.month, month);
 
   const weeks = buildCalendar(month, new Set(practicedDates), today);
   const label = monthLabel(month);
@@ -122,19 +124,22 @@ export function DayCalendarCard({
                 exit={reduce ? undefined : "exit"}
                 transition={MONTH_SPRING}
               >
-                {weeks.map((week, row) => (
-                  <div key={row} role="row" className="flex">
-                    {week.map((day, column) => (
-                      <div
-                        key={column}
-                        role="gridcell"
-                        className="relative h-[52px] min-w-0 flex-1"
-                      >
-                        {day && <DayCell day={day} selected={day.date === date} />}
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                {weeks.map((week) => {
+                  const cells = weekCells(week);
+                  return (
+                    <div key={cells[0].date} role="row" className="flex">
+                      {cells.map(({ date: cellDate, day }) => (
+                        <div
+                          key={cellDate}
+                          role="gridcell"
+                          className="relative h-[52px] min-w-0 flex-1"
+                        >
+                          {day && <DayCell day={day} selected={day.date === date} />}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -144,7 +149,11 @@ export function DayCalendarCard({
   );
 }
 
-function MonthLink({ date, label, icon }: { date: string | null; label: string; icon: string }) {
+function MonthLink({
+  date,
+  label,
+  icon,
+}: Readonly<{ date: string | null; label: string; icon: string }>) {
   if (!date) {
     return (
       <span aria-hidden className="flex">
@@ -164,22 +173,22 @@ function MonthLink({ date, label, icon }: { date: string | null; label: string; 
   );
 }
 
-function DayCell({ day, selected }: { day: CalendarDay; selected: boolean }) {
+/** 날짜 글자 모양: 오늘(테두리 원) → 고른 날 → 연습한 날 → 지난날 → 앞날 순으로 고른다 */
+function dayTone(day: CalendarDay, selected: boolean): string {
+  if (day.state === "today")
+    return "size-9 border-2 border-brand bg-bg-sub font-extrabold text-brand-ink";
+  if (selected) return "font-extrabold text-brand-ink";
+  if (day.practiced) return "font-extrabold text-text-1";
+  return day.state === "past" ? "font-medium text-text-2" : "font-medium text-text-3";
+}
+
+function DayCell({ day, selected }: Readonly<{ day: CalendarDay; selected: boolean }>) {
   const today = day.state === "today";
   const [, monthNumber] = day.date.split("-").map(Number);
   const name = `${monthNumber}월 ${day.day}일${day.practiced ? " 연습함" : ""}${today ? " 오늘" : ""}`;
 
-  const tone = today
-    ? "size-9 border-2 border-brand bg-bg-sub font-extrabold text-brand-ink"
-    : selected
-      ? "font-extrabold text-brand-ink"
-      : day.practiced
-        ? "font-extrabold text-text-1"
-        : day.state === "past"
-          ? "font-medium text-text-2"
-          : "font-medium text-text-3";
   // 오늘은 테두리 원 36, 나머지는 34(누르는 자리)
-  const className = `absolute top-1/2 left-1/2 flex ${today ? "" : "size-[34px]"} -translate-1/2 items-center justify-center rounded-full text-[15px] leading-normal tracking-[-0.2px] ${tone}`;
+  const className = `absolute top-1/2 left-1/2 flex ${today ? "" : "size-[34px]"} -translate-1/2 items-center justify-center rounded-full text-[15px] leading-normal tracking-[-0.2px] ${dayTone(day, selected)}`;
 
   return (
     <>
@@ -202,7 +211,7 @@ function DayCell({ day, selected }: { day: CalendarDay; selected: boolean }) {
 }
 
 /** 연습한 날의 스트릭 띠. 이어진 쪽은 칸 끝까지, 끊긴 쪽은 숫자 둘레에서 둥글게 끝난다(주가 바뀌면 끊김). */
-function Band({ day }: { day: CalendarDay }) {
+function Band({ day }: Readonly<{ day: CalendarDay }>) {
   return (
     <span
       aria-hidden

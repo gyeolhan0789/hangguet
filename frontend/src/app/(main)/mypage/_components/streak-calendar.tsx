@@ -6,7 +6,14 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
-import { buildCalendar, monthLabel, shiftMonth, type CalendarDay } from "@/lib/user/calendar";
+import {
+  buildCalendar,
+  monthDirection,
+  monthLabel,
+  shiftMonth,
+  weekCells,
+  type CalendarDay,
+} from "@/lib/user/calendar";
 import { mypagePath, recordsPath } from "@/lib/routes";
 
 // 기준: Figma S09 Streak Calendar(18:2930: 폭 560 · bg-sub · 둥글기 24 · 패딩 24 · 간격 12 · '스트릭 달력' 18 ExtraBold
@@ -26,19 +33,19 @@ export function StreakCalendar({
   practicedDates,
   today,
   currentStreak,
-}: {
+}: Readonly<{
   /** 보여 줄 달(YYYY-MM) */
   month: string;
   /** 그달 연습한 날(3.3 content의 practiceDate) */
   practicedDates: string[];
   today: string;
   currentStreak: number;
-}) {
+}>) {
   const reduce = useReducedMotion();
   // 월 이동 방향(이전 달이면 왼쪽에서, 다음 달이면 오른쪽에서 들어온다). 직전에 보여 준 달과 비교한다.
   const [shown, setShown] = useState({ month, direction: 1 });
-  if (shown.month !== month) setShown({ month, direction: month < shown.month ? -1 : 1 });
-  const direction = shown.month === month ? shown.direction : month < shown.month ? -1 : 1;
+  if (shown.month !== month) setShown({ month, direction: monthDirection(shown.month, month) });
+  const direction = shown.month === month ? shown.direction : monthDirection(shown.month, month);
 
   const weeks = buildCalendar(month, new Set(practicedDates), today);
   const label = monthLabel(month);
@@ -93,15 +100,18 @@ export function StreakCalendar({
             exit={reduce ? undefined : { x: direction * -40, opacity: 0 }}
             transition={{ duration: 0.25, ease: "easeOut" }}
           >
-            {weeks.map((week, row) => (
-              <div key={row} role="row" className="flex">
-                {week.map((day, column) => (
-                  <div key={column} role="gridcell" className="relative h-10 min-w-0 flex-1">
-                    {day && <DayCell day={day} order={day.day} reduce={reduce} />}
-                  </div>
-                ))}
-              </div>
-            ))}
+            {weeks.map((week) => {
+              const cells = weekCells(week);
+              return (
+                <div key={cells[0].date} role="row" className="flex">
+                  {cells.map(({ date, day }) => (
+                    <div key={date} role="gridcell" className="relative h-10 min-w-0 flex-1">
+                      {day && <DayCell day={day} order={day.day} reduce={reduce} />}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -114,7 +124,11 @@ export function StreakCalendar({
   );
 }
 
-function MonthLink({ month, label, icon }: { month: string; label: string; icon: string }) {
+function MonthLink({
+  month,
+  label,
+  icon,
+}: Readonly<{ month: string; label: string; icon: string }>) {
   return (
     <Link
       href={mypagePath(month)}
@@ -127,15 +141,22 @@ function MonthLink({ month, label, icon }: { month: string; label: string; icon:
   );
 }
 
+/** 날짜 글자 모양: 연습한 날 → 오늘(테두리) → 지난날 → 앞날 순으로 고른다 */
+function dayTone(day: CalendarDay): string {
+  if (day.practiced) return "font-extrabold text-white";
+  if (day.state === "today") return "border-2 border-brand font-extrabold text-brand-ink";
+  return day.state === "past" ? "font-medium text-text-2" : "font-medium text-text-3";
+}
+
 function DayCell({
   day,
   order,
   reduce,
-}: {
+}: Readonly<{
   day: CalendarDay;
   order: number;
   reduce: boolean | null;
-}) {
+}>) {
   const delay = reduce ? 0 : order * FILL_STAGGER;
   const today = day.state === "today";
   const [, monthNumber] = day.date.split("-").map(Number);
@@ -166,13 +187,7 @@ function DayCell({
     </>
   );
 
-  const tone = day.practiced
-    ? "font-extrabold text-white"
-    : today
-      ? "border-2 border-brand font-extrabold text-brand-ink"
-      : day.state === "past"
-        ? "font-medium text-text-2"
-        : "font-medium text-text-3";
+  const tone = dayTone(day);
 
   return (
     <>
@@ -198,11 +213,11 @@ function Band({
   side,
   delay,
   reduce,
-}: {
+}: Readonly<{
   side: "left" | "right";
   delay: number;
   reduce: boolean | null;
-}) {
+}>) {
   return (
     <motion.span
       aria-hidden

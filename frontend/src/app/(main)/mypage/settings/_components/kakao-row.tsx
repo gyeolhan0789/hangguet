@@ -22,11 +22,11 @@ const statusText = "text-[15px] leading-normal font-medium tracking-[-0.2px] tex
 export function KakaoRow({
   me,
   linked = false,
-}: {
+}: Readonly<{
   me: MeResponse;
   /** 카카오 동의 화면에서 2.12로 연결하고 막 돌아왔다(콜백이 쿠키로 넘긴다). 완료 안내 모달을 한 번 띄운다 */
   linked?: boolean;
-}) {
+}>) {
   if (me.socialProvider === "KAKAO") {
     return (
       <div className="flex items-center gap-2.5 py-[18px]">
@@ -39,7 +39,7 @@ export function KakaoRow({
   return <EmailMemberRow connected={me.linkedProvider === "KAKAO"} linked={linked} />;
 }
 
-function EmailMemberRow({ connected, linked }: { connected: boolean; linked: boolean }) {
+function EmailMemberRow({ connected, linked }: Readonly<{ connected: boolean; linked: boolean }>) {
   const notify = useToastStore((state) => state.show);
   const [unlinking, startUnlinking] = useTransition();
   const [confirming, setConfirming] = useState(false);
@@ -144,7 +144,7 @@ function EmailMemberRow({ connected, linked }: { connected: boolean; linked: boo
 }
 
 /** 이메일 회원의 '연결하기 ›'. 누르면 카카오 동의 화면으로 넘어가고, 넘어가는 동안 다시 누를 수 없다 */
-function LinkButton({ ref }: { ref: Ref<HTMLButtonElement> }) {
+function LinkButton({ ref }: Readonly<{ ref: Ref<HTMLButtonElement> }>) {
   const notify = useToastStore((state) => state.show);
   const [linking, startLinking] = useTransition();
 

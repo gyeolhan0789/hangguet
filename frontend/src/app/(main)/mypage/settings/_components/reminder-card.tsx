@@ -23,7 +23,7 @@ import { OutlineButton, RowArrow, RowError, TextButton } from "./settings-ui";
 // 꺼진 상태도 시간 ›는 누를 수 있음, 오류는 토스트(S09-2 유지권 오류와 같은 방식) · 토글 · 시각은 그대로)
 // · 모션 메모 S09-1(18:3261: available false면 비활성 · 누르면 아무 일 없음, 알림 시간 ›는 닉네임처럼 행에서 인라인 편집)
 
-export function ReminderCard({ alarm }: { alarm: PracticeAlarmResponse }) {
+export function ReminderCard({ alarm }: Readonly<{ alarm: PracticeAlarmResponse }>) {
   const { available } = alarm;
   // 카카오 동의 화면에서 뒤로 가기로 돌아오면 브라우저가 페이지를 그대로 되살려(bfcache) 토글이 진행 중인 채 굳는다.
   // 그때는 줄을 새로 만들어 다시 누를 수 있게 한다.
@@ -86,7 +86,7 @@ export function ReminderCard({ alarm }: { alarm: PracticeAlarmResponse }) {
 }
 
 /** 카카오로 가입하지 않은 회원(2.8 available false): 시간 · 토글을 누를 수 없다 */
-function DisabledRow({ time }: { time: string }) {
+function DisabledRow({ time }: Readonly<{ time: string }>) {
   return (
     <div className="flex w-full items-center gap-2.5 rounded-xl bg-bg-sub px-4 py-3 tracking-[-0.2px] opacity-50">
       <span className="text-[15px] leading-normal font-semibold text-text-1">알림 시간</span>
@@ -97,7 +97,7 @@ function DisabledRow({ time }: { time: string }) {
   );
 }
 
-function TimeRow({ alarm }: { alarm: PracticeAlarmResponse }) {
+function TimeRow({ alarm }: Readonly<{ alarm: PracticeAlarmResponse }>) {
   const notify = useToastStore((state) => state.show);
   const [editing, setEditing] = useState(false);
   const [toggling, startToggle] = useTransition();
@@ -231,14 +231,14 @@ function Toggle({
   pending = false,
   describedBy,
   onClick,
-}: {
+}: Readonly<{
   on: boolean;
   disabled?: boolean;
   pending?: boolean;
   /** 누를 수 없는 이유를 읽어 줄 설명 문구 id */
   describedBy?: string;
   onClick?: () => void;
-}) {
+}>) {
   return (
     <button
       type="button"

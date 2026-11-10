@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Toast } from "@/components/toast";
 import { useToastStore } from "@/stores/toast-store";
+import { flushPromises } from "@/test/flush";
 import type { PracticeAlarmResponse } from "@/types/api";
 
 import { ReminderCard } from "./reminder-card";
@@ -118,7 +119,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     startKakaoAlarm.mockReturnValue(pending().promise);
     renderCard(ALARM_OFF);
 
-    await act(async () => fireEvent.click(toggle()));
+    fireEvent.click(toggle());
+    await flushPromises();
 
     expect(startKakaoAlarm).toHaveBeenCalledWith();
     expect(disablePracticeAlarm).not.toHaveBeenCalled();
@@ -130,7 +132,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     disablePracticeAlarm.mockResolvedValue({});
     renderCard(ALARM_ON);
 
-    await act(async () => fireEvent.click(toggle()));
+    fireEvent.click(toggle());
+    await flushPromises();
 
     expect(disablePracticeAlarm).toHaveBeenCalledWith();
     expect(startKakaoAlarm).not.toHaveBeenCalled();
@@ -149,7 +152,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     action.mockResolvedValue({ error });
     renderCard(alarm);
 
-    await act(async () => fireEvent.click(toggle()));
+    fireEvent.click(toggle());
+    await flushPromises();
 
     expect(screen.getByRole("status").textContent).toBe(error);
     expect(toggle().getAttribute("aria-checked")).toBe(String(alarm.enabled));
@@ -164,7 +168,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     expect(input.value).toBe("07:30");
     expect(document.activeElement).toBe(input);
     fireEvent.change(input, { target: { value: "22:30" } });
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "저장" })));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await flushPromises();
 
     expect(changePracticeAlarmTime).toHaveBeenCalledWith({ time: "22:30" });
     await waitFor(() => expect(timeInput()).toBeNull());
@@ -178,7 +183,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     renderCard(ALARM_ON);
 
     fireEvent.click(timeButton());
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "저장" })));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await flushPromises();
 
     expect(screen.getByRole("status").textContent).toBe(
       "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
@@ -191,7 +197,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
 
     fireEvent.click(timeButton());
     fireEvent.change(timeInput()!, { target: { value: "" } });
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "저장" })));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await flushPromises();
 
     expect(changePracticeAlarmTime).not.toHaveBeenCalled();
     const input = timeInput()!;
@@ -220,7 +227,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     renderCard(ALARM_ON);
 
     fireEvent.click(timeButton());
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "저장" })));
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+    await flushPromises();
     fireEvent.keyDown(timeInput()!, { key: "Escape" });
     // 닫혔다면 사라지는 모션까지 끝난 뒤에 본다
     await flushFrames();
@@ -233,7 +241,8 @@ describe("S09-1-B 카카오로 가입한 회원(2.8 available true)", () => {
     startKakaoAlarm.mockReturnValue(pending().promise);
     renderCard(ALARM_OFF);
 
-    await act(async () => fireEvent.click(toggle()));
+    fireEvent.click(toggle());
+    await flushPromises();
     expect((toggle() as HTMLButtonElement).disabled).toBe(true);
 
     // 일반 pageshow(처음 열 때)는 아무것도 바꾸지 않는다

@@ -22,7 +22,7 @@ import { OutlineButton, TextButton } from "./settings-ui";
 /** 사진을 바꾼 뒤 체크 토스트 문구(Figma에 문구가 없어 새로 정함) */
 export const PHOTO_CHANGED_TOAST = "프로필 사진을 바꿨어요";
 
-export function ProfilePhotoRow({ imageUrl }: { imageUrl: string | null }) {
+export function ProfilePhotoRow({ imageUrl }: Readonly<{ imageUrl: string | null }>) {
   const notify = useToastStore((state) => state.show);
   const input = useRef<HTMLInputElement>(null);
   const [uploading, startUpload] = useTransition();
