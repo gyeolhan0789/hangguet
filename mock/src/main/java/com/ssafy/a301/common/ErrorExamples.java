@@ -232,6 +232,16 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "답변 없이 끝난 면접은 결과가 없어요.",
               "instance": "/api/v1/interview-sessions/55/result", "code": "NO_RESULT" }\
             """;
+    public static final String RECORDING_NOT_FAILED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "다시 합칠 수 있는 녹화가 아니에요.",
+              "instance": "/api/v1/interview-sessions/55/recording/retry", "code": "RECORDING_NOT_FAILED" }\
+            """;
+    public static final String RETRY_LIMIT_EXCEEDED =
+            """
+            { "title": "Conflict", "status": 409, "detail": "녹화를 다시 합칠 수 있는 횟수를 모두 썼어요.",
+              "instance": "/api/v1/interview-sessions/55/recording/retry", "code": "RETRY_LIMIT_EXCEEDED" }\
+            """;
     public static final String GROWTH_REVIEW_NOT_FOUND =
             """
             { "title": "Not Found", "status": 404, "detail": "그날의 성장 리뷰가 없어요.",

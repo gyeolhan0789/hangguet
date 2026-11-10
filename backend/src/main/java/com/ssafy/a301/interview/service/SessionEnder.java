@@ -76,8 +76,8 @@ public class SessionEnder {
                 if (mergeRecording) {
                     // 녹화 트랙 합치기(AI 명세 7장). 결과 생성과 따로 돌고 5.9에서는 다시 하지 않는다.
                     // 다시보기(6.4)가 합치는 중과 실패를 구분하도록 합친 녹화 행을 MERGING으로 먼저 만든다
-                    aiJobs.enqueue(AiJob.mergeRecording(sessionId));
-                    recordings.save(Recording.mergingSessionVideo(session));
+                    AiJob merge = aiJobs.enqueue(AiJob.mergeRecording(sessionId));
+                    recordings.save(Recording.mergingSessionVideo(session, merge.getId()));
                 }
                 if (gazeRatio != null) {
                     // 말하기 지표는 결과가 나올 때 채운다(AiResultService)

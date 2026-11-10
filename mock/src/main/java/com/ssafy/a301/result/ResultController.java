@@ -3,17 +3,22 @@ package com.ssafy.a301.result;
 import com.ssafy.a301.common.ErrorExamples;
 import com.ssafy.a301.common.Stub;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.result.ResultDtos.RecordingRetryResponse;
 import com.ssafy.a301.result.ResultDtos.ReplayResponse;
 import com.ssafy.a301.result.ResultDtos.ResultResponse;
+import com.ssafy.a301.result.ResultDtos.VideoStatus;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "6. 결과 · 다시보기")
@@ -150,5 +155,48 @@ public class ResultController {
             @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId) {
         Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
         return stub.read(REPLAY, ReplayResponse.class);
+    }
+
+    @Operation(
+            summary = "6.5 녹화 다시 합치기",
+            description =
+                    "videoStatus가 FAILED인 화상 면접의 녹화를 같은 원본으로 다시 합친다. 성공하면 videoStatus가 MERGING이 되고,"
+                            + " 합치기 결과를 이 요청 시각부터 15분 기다린다. 화면은 6.4를 다시 조회한다.")
+    @ApiResponse(
+            responseCode = "202",
+            content =
+                    @Content(
+                            examples =
+                                    @ExampleObject(
+                                            name = "다시 합치기 시작",
+                                            value = "{ \"videoStatus\": \"MERGING\" }")))
+    @ApiResponse(
+            responseCode = "404",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "SESSION_NOT_FOUND",
+                                            value = ErrorExamples.SESSION_NOT_FOUND)))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples = {
+                                @ExampleObject(
+                                        name = "RECORDING_NOT_FAILED",
+                                        value = ErrorExamples.RECORDING_NOT_FAILED),
+                                @ExampleObject(
+                                        name = "RETRY_LIMIT_EXCEEDED",
+                                        value = ErrorExamples.RETRY_LIMIT_EXCEEDED)
+                            }))
+    @PostMapping("/recording/retry")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public RecordingRetryResponse retryRecording(
+            @Parameter(description = SESSION_ID, example = "55") @PathVariable long sessionId) {
+        Stub.notFoundIfZero(sessionId, ErrorCode.SESSION_NOT_FOUND);
+        return new RecordingRetryResponse(VideoStatus.MERGING);
     }
 }

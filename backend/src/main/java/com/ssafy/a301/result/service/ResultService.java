@@ -116,17 +116,7 @@ public class ResultService {
         }
         String key = Recording.sessionVideoKey(session.getId());
         Recording recording = recordings.findByObjectKey(key).orElse(null);
-        OffsetDateTime mergeFrom =
-                session.isGroup()
-                        ? groups.findById(session.getGroupId())
-                                .map(InterviewGroup::getEndedAt)
-                                .orElse(null)
-                        : session.getEndedAt();
-        VideoStatus videoStatus =
-                videoStatus(
-                        recording == null ? null : recording.getStatus(),
-                        mergeFrom,
-                        OffsetDateTime.now());
+        VideoStatus videoStatus = replayVideoStatus(session, recording, OffsetDateTime.now());
         String videoUrl = videoStatus == VideoStatus.READY ? storage.presignDownload(key) : null;
         return ResultMapper.toReplay(
                 session,
@@ -142,10 +132,33 @@ public class ResultService {
                         : null);
     }
 
+    /**
+     * 화상 면접의 다시보기 녹화 상태. 6.4와 녹화 다시 합치기(6.5)가 같은 판정을 쓴다. 다시 합쳤으면 그 요청 시각부터, 아니면 합치기를 시작한 시각(개인 면접은
+     * 면접 종료, 그룹 면접은 그룹 종료)부터 합치기 결과를 기다린다.
+     *
+     * @param recording 합친 녹화 행. V10 이전에 끝나 행이 없으면 null
+     */
+    VideoStatus replayVideoStatus(
+            InterviewSession session, Recording recording, OffsetDateTime now) {
+        OffsetDateTime mergeFrom;
+        if (recording != null && recording.getMergeRequestedAt() != null) {
+            mergeFrom = recording.getMergeRequestedAt();
+        } else if (session.isGroup()) {
+            mergeFrom =
+                    groups.findById(session.getGroupId())
+                            .map(InterviewGroup::getEndedAt)
+                            .orElse(null);
+        } else {
+            mergeFrom = session.getEndedAt();
+        }
+        return videoStatus(recording == null ? null : recording.getStatus(), mergeFrom, now);
+    }
+
     // 합치는 중(행이 없는 녹화 상태 추가 이전 면접 포함)이어도 종료 후 MERGE_WAIT가 지나면 실패로 본다.
     // 작업자 장애로 합치기 결과가 오지 않아도 MERGING에 계속 남지 않게 하기 위함이다(API 명세 6.4)
     /**
-     * @param mergeFrom 합치기를 시작하는 시각(개인 면접은 면접 종료, 그룹 면접은 그룹 종료). 그룹이 아직 끝나지 않았으면 null이고 합치는 중으로 본다
+     * @param mergeFrom 합치기를 시작하는 시각(다시 합쳤으면 그 요청 시각, 아니면 개인 면접은 면접 종료 · 그룹 면접은 그룹 종료). 그룹이 아직 끝나지
+     *     않았으면 null이고 합치는 중으로 본다
      */
     static VideoStatus videoStatus(
             RecordingStatus recording, OffsetDateTime mergeFrom, OffsetDateTime now) {

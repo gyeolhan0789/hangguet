@@ -66,6 +66,8 @@ public enum ErrorCode {
     // 결과·성장 리뷰
     RESULT_NOT_READY(HttpStatus.CONFLICT, "결과를 만들고 있어요."),
     NO_RESULT(HttpStatus.CONFLICT, "답변 없이 끝난 면접은 결과가 없어요."),
+    RECORDING_NOT_FAILED(HttpStatus.CONFLICT, "다시 합칠 수 있는 녹화가 아니에요."),
+    RETRY_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "녹화를 다시 합칠 수 있는 횟수를 모두 썼어요."),
     GROWTH_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "그날의 성장 리뷰가 없어요."),
 
     // 관리자·공지·스트릭 유지권

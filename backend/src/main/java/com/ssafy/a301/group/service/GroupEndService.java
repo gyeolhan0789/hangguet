@@ -318,8 +318,8 @@ public class GroupEndService {
                             .isPresent()) {
                 continue;
             }
-            aiJobs.enqueue(AiJob.mergeRecording(session.getId()));
-            recordings.save(Recording.mergingSessionVideo(session));
+            AiJob merge = aiJobs.enqueue(AiJob.mergeRecording(session.getId()));
+            recordings.save(Recording.mergingSessionVideo(session, merge.getId()));
         }
     }
 
