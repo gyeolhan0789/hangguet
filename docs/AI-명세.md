@@ -24,7 +24,7 @@
 브라우저 ⇄ LiveKit 면접방 ⇄ AI 면접 에이전트  음성 · 면접방 메시지 (6장)
                               └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev · GMS(꼬리질문)
 
-BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
+BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · EXTRACT_CLAIMS · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
 BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준) · 방 삭제 · Egress 녹화
 ```
@@ -40,6 +40,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
 | 자기소개서 검증 | 4.1(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
+| EXTRACT_CLAIMS | 4.1 저장 뒤, 지원서 주장이 없을 때의 5.1·5.3 | 작업 메시지 | `claims.extracted` · `claims.extractFailed` | `application_claims`(지원서 주장, 2장) |
 | PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, 질문 보관함(2장), Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
@@ -59,14 +60,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
   | 큐 | 처리 중 리스트 | 작업 | 작업자(`AI_WORKER_QUEUE`) |
   |---|---|---|---|
-  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN | `plan` |
+  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN · EXTRACT_CLAIMS | `plan` |
   | `ai:jobs:recording` | `ai:jobs:recording:processing` | MERGE_RECORDING | `recording` |
   | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE | `default`(기본값) |
 
 - 작업자는 작업을 하나씩 처리하므로, 큐가 하나이면 녹화 합치기·결과 생성이 몰릴 때 사용자가 기다리는 PLAN이 최대 대기 시간(5장)을 넘긴다. 그래서 PLAN과 MERGE_RECORDING을 별도 큐로 나눈다
 - 큐마다 작업자를 1대 둔다. 작업자는 시작할 때 자기 처리 중 리스트에 남은 작업만 자기 큐로 되돌리므로, 큐마다 처리 중 리스트가 달라야 다른 작업자가 처리 중인 작업을 되돌리지 않는다
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
-- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+- 공통 필드: `jobType`(`PLAN` · `EXTRACT_CLAIMS` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EXTRACT_CLAIMS·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+  - EXTRACT_CLAIMS는 면접이 아니라 지원서 단위 작업이므로 `sessionId` 대신 `applicationId`를 담는다. 결과 메시지(`claims.extracted`·`claims.extractFailed`)도 같다
 - 그룹 면접(API 명세 10장)의 면접도 같은 큐 · 같은 작업 종류를 쓴다. 달라지는 필드는 PLAN `questionCount`(2장)와 MERGE_RECORDING의 그룹 필드(7장)뿐이다 **[제안]**. SCORE_ANSWER · EVALUATE는 필드가 같고, 한 면접의 질문이 4~6개일 수 있다. 질문 수 5개를 가정하는 곳이 없는지 확인한다 **[미정]**
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관 · `DUCK` 오리 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
@@ -76,7 +78,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - PLAN은 지원 회사의 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 넣지 않는다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
-  - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
+  - `jobType`·`jobId`·`sessionId`(EXTRACT_CLAIMS는 `applicationId`)를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`claims.extractFailed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위함이다
   - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
   - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
@@ -102,6 +104,8 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `plan.progress` | 분석 작업자 | `progress`(50 등) | `planProgress` |
 | `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, 질문 보관함에 추가(2장, 그룹 면접 제외), `planStatus: READY` |
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
+| `claims.extracted` | 분석 작업자 | `applicationId`, `claims`, `promptVersion`, `modelVersion`(2장) | 지원서 주장이 없을 때만 주장과 버전을 `application_claims`에 저장하고, 그 지원서에서 주장을 기다리는 면접의 PLAN 작업 등록 |
+| `claims.extractFailed` | 분석 작업자 | `applicationId`, `reason`(아래 실패 이유) | 그 지원서에서 주장을 기다리는 면접을 `planStatus: FAILED`로 변경 |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
 | `evaluation.completed` | 분석 작업자 | 4장(`headline`·`summary` 포함) | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
@@ -117,15 +121,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 값 | 결과 메시지 | 뜻 |
 |---|---|---|
-| `GMS_UNAVAILABLE` | `plan.failed` · `evaluation.failed` | GMS 호출이 재시도 후에도 실패했거나 재시도 대상이 아닌 오류 응답을 수신함(5장) |
-| `INVALID_OUTPUT` | `plan.failed` · `evaluation.failed` | GMS 출력이 재시도 후에도 검증을 통과하지 못함(2·5장) |
-| `TIMED_OUT` | `plan.failed` · `evaluation.failed` | BE 최대 대기 시간을 넘음(5장) |
+| `GMS_UNAVAILABLE` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | GMS 호출이 재시도 후에도 실패했거나 재시도 대상이 아닌 오류 응답을 수신함(5장) |
+| `INVALID_OUTPUT` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | GMS 출력이 재시도 후에도 검증을 통과하지 못함(2·5장) |
+| `TIMED_OUT` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | BE 최대 대기 시간을 넘음(5장) |
 | `TRACK_NOT_FOUND` | `recording.mergeFailed` | 원본 위치에 트랙 파일이 없음(7장) |
 | `STORAGE_ERROR` | `recording.mergeFailed` | 녹화 저장소에서 다운로드하거나 업로드하지 못함 |
 | `MERGE_ERROR` | `recording.mergeFailed` | ffmpeg가 트랙을 합치지 못함 |
-| `INVALID_JOB` | 세 작업 실패 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
+| `INVALID_JOB` | 네 작업 실패 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
 | `INVALID_ASSIGNMENT` | `assignment.rejected` | 배정 정보 형식이 틀림(6.1) |
-| `INTERNAL_ERROR` | 세 작업 실패 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
+| `INTERNAL_ERROR` | 네 작업 실패 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
 
 **중복 · 늦은 결과는 BE가 거른다**
 
@@ -137,6 +141,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 중복 · 순서 역전 | 같은 `room.closed`가 두 번, 또는 다시 시작(5.4)한 뒤 이전 시도의 방 닫힘이 도착 | 면접이 이미 `IN_PROGRESS`가 아니거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 첫 질문 기한 초과(6.5)로 다시 시작(5.4)한 뒤 이전 시도의 `question.started`가 도착 | `startedAt`이 면접 시작 시각보다 이르면 폐기 |
 | 중복 수신 | 같은 `plan.completed`가 두 번 | 질문 보관함에는 한 번만 넣음 |
+| 중복 수신 | 같은 지원서의 `claims.extracted`가 두 번(같은 작업의 중복, 또는 5.1·5.3이 다시 요청한 작업) | 지원서 주장이 이미 있으면 폐기 |
 | 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 폐기. 폐기한 결과의 질문은 질문 보관함에도 넣지 않음 |
 | 순서 역전 | 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 도착 | `status`가 `ANALYZING`이 아니면 버림. 같은 `ANALYZING` 안에서 이전 시도와 구분하려면 BE가 마지막으로 보낸 `jobId`와 비교한다 **[제안]** |
 
@@ -145,11 +150,16 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 전에 자소서에서 주장을 뽑고, 그 주장을 파고드는 질문 5개와 질문마다 채점 기준 1개를 만든다.
 
 - **시작** 5.1·5.3
-- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetterItems`(자기소개서 문항 1~5개를 문항 순서대로, 문항마다 `question`·`answer`. API 명세 4.1), `persona` **[제안]**, `companyCard`(8장, 없으면 생략), `questionCount`(그룹 면접의 개인 맞춤 질문이면 2, 없으면 5) **[제안]**
+- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetterItems`(자기소개서 문항 1~5개를 문항 순서대로, 문항마다 `question`·`answer`. API 명세 4.1), `persona`, `companyCard`(8장, 없으면 생략), `questionCount`(그룹 면접의 개인 맞춤 질문이면 2, 없으면 5), `claims`(개인 면접이면 저장된 지원서 주장, 아래 STEP 01. 그룹 면접은 생략)
 - **그룹 면접** **[제안]** `questionCount`가 2면 질문 2개(`seq` 1~2)를 만든다. 둘 다 그룹 면접에서 본인 차례에 그대로 출제하는 개인 맞춤 질문이고 예비 질문이 아니다. 주장 추출 · 면접관별 질문 수준 · 근거 검사 · 회사 카드 사용은 같고, 회사 정보와 연결하는 질문 수만 0~1개로 줄인다. 아래 "5개"는 `questionCount`로 읽는다. 개인 면접은 `questionCount`를 보내지 않아 지금과 같다
 - **STEP 01 주장 추출(GMS)** 자소서에서 경험·수치를 뽑는다. `sentenceNo`는 자소서의 문장 순번(1부터)이다. 문항 순서대로 문항 질문과 답변을 같은 규칙으로 나눠 이어서 센다(질문은 보통 한 문장). V13 전에 만든 플랜은 문항으로 옮기기 전 자기소개서 글 하나로 셌다. 옮기며 1번 문항에 붙은 질문 줄('자기소개서')이 없으므로 지금 문항 기준 번호와 그 줄만큼 어긋난다
   - 문장은 비어 있지 않은 줄마다 나누고, 줄 안에서는 한글·영문·닫는 괄호·%·따옴표 바로 뒤의 마침표·물음표·느낌표(그 뒤에 닫는 따옴표·괄호가 붙을 수 있음) 다음 공백에서 나눈다
   - 숫자 뒤 마침표(「1. 지원 동기」 같은 번호)에서는 나누지 않는다
+  - 개인 면접은 주장을 지원서마다 한 번 추출한다. 주장 추출은 회사명·직무·자기소개서만 입력으로 사용하고, 지원서 수정 API가 없어 자기소개서가 변경되지 않기 때문이다(API 명세 4장)
+  - BE는 지원서를 저장(API 명세 4.1)한 뒤 주장 추출 작업 EXTRACT_CLAIMS(입력 `applicationId`·`companyName`·`jobTitle`·`coverLetterItems`)를 요청하고, `claims.extracted`의 `claims`(근거 검사를 통과한 주장)와 `promptVersion`·`modelVersion`을 지원서 주장으로 저장한다. 개인 면접의 PLAN은 저장된 주장을 입력 `claims`로 수신하고 주장을 추출하지 않는다
+  - 주장 추출 프롬프트 버전은 `extract-claims-v1`(9장)
+  - 면접 생성(5.1)·다시 만들기(5.3) 때 지원서 주장이 없으면 BE는 주장 추출을 다시 요청하고, 주장을 저장한 뒤 PLAN을 요청한다. 추출이 진행 중인지는 따로 관리하지 않는다(중복 결과는 1.4)
+  - 그룹 면접은 지금처럼 PLAN 안에서 주장을 추출하고, 지원서 주장을 저장하지도 사용하지도 않는다
 - **STEP 02 질문·기준 생성(GMS)** 주장마다 파고드는 질문과 채점 기준을 JSON으로 생성한다. 질문 수 5개가 우선이다. 주장이 5개보다 적으면 같은 주장을 다른 관점으로 질문하고, 많으면 검증 가치가 큰 주장을 선택한다
 - **면접관별 질문 수준** 같은 자소서라도 면접관에 따라 면접 종류가 다르다. 질문 수·형식·근거 검사는 같다
 
@@ -204,12 +214,12 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 - `type`: `EXPERIENCE`(경험) · `NUMBER`(수치). `questions`는 `seq` 1~5로 정확히 5개
 - **검증** JSON이 아니거나 질문이 5개가 아니면 1회 재시도 후 `plan.failed`. `claimId`가 없는 주장이나 면접관 기준이 드러나지 않은 주장을 가리키면 그 질문만 1회 다시 만들고, 그래도 틀리면 `plan.failed`. 면접관 기준이 드러난 주장이 하나도 없으면 모든 주장을 사용한다
-- **근거 검사** 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위해서다
+- **근거 검사** 주장 추출(STEP 01)에서 한다. 개인 면접은 주장 추출 작업(EXTRACT_CLAIMS), 그룹 면접은 PLAN 안의 STEP 01이다. 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위함이다
   - 숫자는 값으로 비교한다(6.0과 6, 1,100과 1100은 같음). 단위는 비교하지 않는다
   - 숫자 없는 수량 표현(「절반」, 「두 배」, 「3분의 1」 등)도 같은 값으로 인정한다(「절반」 = 50%, 「두 배」 = 200%). 주장이 「50%」이고 원문이 「절반」인 경우도 같다
   - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
-- **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
-- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
+- **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`. 개인 면접은 주장을 입력으로 수신하므로 PLAN을 시작할 때 `plan.progress`(50)를 전송한다
+- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. 개인 면접의 `claims`는 입력으로 수신한 주장 그대로다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
 - **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
   - 행마다 질문의 `content`·`criteria`·`claimId`를 저장한다
@@ -379,9 +389,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 상황 | 처리 | `reason` |
 |---|---|---|
-| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
+| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EXTRACT_CLAIMS는 `claims.extractFailed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
 | 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
-| BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위해서다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
+| BE 최대 대기 시간 초과 | PLAN·EXTRACT_CLAIMS 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위함이다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위함이다 | `TIMED_OUT` |
 | 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
 | 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도한다. 그래도 실패하면 작업을 처리 중 리스트에 남겨 작업자를 다시 시작할 때 다시 처리한다. 같은 결과가 두 번 전송돼도 BE가 제외한다(1.4) | — |

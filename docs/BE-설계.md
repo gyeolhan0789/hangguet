@@ -157,6 +157,7 @@ com.ssafy.a301
 | `UserAgreement` | `user_agreements` | N:1 User | 가입 시 TERMS·PRIVACY·RECORDING 3개 모두 기록 **[결정]** |
 | `Application` | `applications` | N:1 User | 저장해 두고 재사용. 수정 API는 없다. 삭제는 soft delete: `deleted_at`만 기록하고 4.2 · 4.3 · 4.5 · 4.6 · 5.1에서 없는 지원서로 다룬다. 면접에 쓴 지원서도 지울 수 있고, 그 지원서로 본 면접 · 결과 · 다시보기는 그대로 남는다(V13) **[결정]** |
 | `CoverLetterItem` | `cover_letter_items` | N:1 Application | 자기소개서 문항. 지원서를 저장할 때 함께 만들고 바꾸지 않는다. `item_order`는 1부터, 지원서당 최대 5개(CHECK `ck_cover_letter_items_item_order`), `(application_id, item_order)` UNIQUE(`uk_cover_letter_items_application_order`). 질문은 DB `VARCHAR(255)`, 답변은 DB `TEXT`라 20,000자 상한은 요청 검증(4.1)에서만 막는다(V13). V13 전에 있던 지원서는 글 전체를 1번 문항(질문 '자기소개서')의 답변으로 옮겼다 |
+| `ApplicationClaim` | `application_claims` | N:1 Application | 지원서 자기소개서에서 추출한 주장 하나(AI 명세 2장). 지원서를 저장(4.1)한 뒤 요청한 주장 추출 결과 `claims.extracted`를, 그 지원서에 저장된 주장이 없을 때만 주장마다 한 행으로 저장하고 변경하지 않는다. 주장의 `text`·`type`·`sentenceNo`와 결과의 `promptVersion`·`modelVersion`을 저장한다. 같은 지원서의 개인 면접 질문 생성에 사용한다. 그룹 면접은 저장하지도 사용하지도 않는다 |
 | `UserSocialAccount` | `user_social_accounts` | N:1 User | 소셜 계정 연결(V12). 제공자(`provider`)와 제공자 회원 번호(`provider_user_id`)로 회원을 찾는다. 탈퇴하지 않은 연결끼리만 중복 불가(부분 UNIQUE 인덱스, `withdrawn_at IS NULL`). 회원이 탈퇴하면 `withdrawn_at`을 기록해 같은 소셜 계정으로 다시 가입할 수 있다(이메일과 같음). 회원마다 탈퇴하지 않은 연결은 하나다: 소셜 회원은 가입한 계정, 이메일 회원은 직접 연결한 계정(2.12). DB도 부분 UNIQUE 인덱스(`user_id`, V16)로 막는다. 이메일 회원이 연결을 끊으면(2.13) 행을 지운다. 로그인에 쓴 제공자 토큰은 저장하지 않는다 **[결정]** |
 | `PracticeAlarm` | `practice_alarms` | 1:1 User(PK `user_id`) | 카카오톡 연습 알림(V14). 알림 시각(`alarm_time`, 분 단위, 기본 21:00)은 끈 뒤에도 남고, 켜져 있을 때만 카카오 토큰(액세스 · 리프레시, 암호화)과 만료 시각이 있다(넷이 함께 있거나 함께 없음, CHECK). `last_sent_on`(한국 날짜)으로 하루 한 번만 보낸다. 회원이 탈퇴하면 행을 지운다 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application, N:1 CompanyCard(null 가능) | 상태 전이는 엔티티 메서드로만(4장). `company_card_id`(V15)는 면접을 만들 때 지원서 회사명으로 찾은 회사 카드이고 바꾸지 않는다(5.1). 못 찾으면 null. `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
@@ -215,16 +216,16 @@ com.ssafy.a301
 
 ### 5.0 AI 작업 전송 (Outbox) **[결정]**
 1. 업무 트랜잭션 안에서 `AiJobService.enqueue(AiJob.plan/scoreAnswer/evaluate(...))`로 `ai_job_outbox`에 넣는다. 트랜잭션 밖에서 부르면 예외(업무가 롤백되면 작업도 남지 않음)
-2. 커밋 직후 `AiJobPublisher`가 작업 종류에 맞는 Redis 큐(PLAN `ai:jobs:plan`, MERGE_RECORDING `ai:jobs:recording`, 그 밖 `ai:jobs`, AI 명세 1.3)에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
+2. 커밋 직후 `AiJobPublisher`가 작업 종류에 맞는 Redis 큐(PLAN·EXTRACT_CLAIMS `ai:jobs:plan`, MERGE_RECORDING `ai:jobs:recording`, 그 밖 `ai:jobs`, AI 명세 1.3)에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
 3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
 4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 결과 큐 처리에서 거른다([AI 명세](AI-명세.md) 1.4)
 5. 작업자는 큐마다 1대이고, `BLMOVE {큐} {큐}:processing`으로 꺼내고 끝나면 처리 중 리스트에서 지운다(AI 쪽 구현)
 6. **메시지에 작업 내용을 담는다**. AI가 DB를 읽지 않으므로 작업 메시지에 자소서·질문·답변 등 필요한 내용을 담는다(형식은 AI 명세 1.3·2~4·7장). Outbox 행은 id만 남기고, `AiJobPublisher`가 보낼 때 `AiJobMessages`로 DB에서 읽어 메시지를 만든다. `requestedAt`은 Outbox 행을 만든 시각(한국 시간)이며 AI도 최대 대기 시간을 여기부터 센다. 화상 답변은 `tokens`·`speech`를 함께 보낸다. 면접·플랜·답변이 없어 만들 수 없는 작업은 다른 작업을 막지 않도록 보낸 것으로 두고 오류 로그를 남긴다. 답변 음성 위치는 B-19가 정해지면 더한다. 녹화 합치기(`MERGE_RECORDING`)는 `rawPrefix`·`objectKey`를 담는다(화상만). PLAN은 면접에 남긴 회사 카드를 `companyCard`로 그대로 담고, 카드가 없으면 넣지 않는다(AI 명세 8장). SCORE_ANSWER·EVALUATE에는 아직 담지 않는다
 
 ### 5.1 면접 만들기 → 플랜 생성 (5.1, 5.3)
-1. 지원서 소유 확인(지원서 행 잠금, 3장) → 지원서 회사명으로 회사 카드 찾기 → `InterviewSession`(READY, 찾은 카드) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → PLAN 작업 enqueue(5.0). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 버릴 수 있다. 5.3도 같다. 트랜잭션이 되돌려지면 작업은 나가지 않으므로 Redis를 FAILED로 되돌린다(5.3으로 다시 만들 수 있게). 결과 생성 시작(5.8·5.9)도 되돌려지면 시작 시각·작업 id를 지운다(`SessionRuntimeService`)
+1. 지원서 소유 확인(지원서 행 잠금, 3장) → 지원서 회사명으로 회사 카드 찾기 → `InterviewSession`(READY, 찾은 카드) 저장 → Redis `startPlan`(planStatus GENERATING, planProgress 0) → 개인 면접은 지원서 주장이 있으면 PLAN 작업, 없으면 주장 추출 작업(EXTRACT_CLAIMS) enqueue(5.0, PLAN은 `claims.extracted`를 수신한 뒤 등록). Redis 쓰기는 커밋 전(트랜잭션 안)에 한다. 커밋 뒤에 쓰면 결과(`plan.completed`)가 먼저 처리될 때 GENERATING이 아니라며 폐기할 수 있다. 5.3도 같다. 트랜잭션이 롤백되면 작업은 나가지 않으므로 Redis를 FAILED로 원복한다(5.3으로 다시 만들 수 있게). 결과 생성 시작(5.8·5.9)도 롤백되면 시작 시각·작업 id를 지운다(`SessionRuntimeService`)
 2. 플랜 생성은 **비동기**(AI 분석 작업자). BE가 결과 메시지 `plan.progress`를 받아 Redis `planProgress`를 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
-   - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값) **[제안]**: 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 바꾼다(AI 명세 5장). 아직 GENERATING일 때만 바꾸고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 본다
+   - 최대 대기 3분(`ai-job.plan-timeout`, B-11 임시 값): 시작 시각(`planStartedAt`)부터 3분이 지나도 GENERATING이면 5.2 조회 때 FAILED로 변경한다(AI 명세 5장). 주장 추출을 기다린 면접은 PLAN 작업을 등록할 때 `planStartedAt`을 다시 기록해, AI가 PLAN 작업의 `requestedAt`부터 계산하는 시각과 맞춘다. 아직 GENERATING일 때만 변경하고(Lua), 그 사이 플랜 행이 저장됐으면 READY로 간주한다
 3. `plan.completed` → `interview_plans` 저장, Redis `planStatus=READY` / `plan.failed` → `FAILED`(5.5). GENERATING인데 플랜 행이 이미 있으면(저장 뒤 READY를 남기지 못하고 다시 처리) 새로 저장하지 않고 READY만 남긴다
 4. 회사 카드는 면접을 만들 때 한 번 찾아 `interview_sessions.company_card_id`에 남긴다. 회사명에서 `(주)`·`㈜`·`주식회사`·`Co., Ltd`·`Corp`·`Inc`·공백·`.` `,` `·` `-`를 지우고 소문자로 바꾼 값(파이프라인 별칭과 같은 규칙, `CompanyCardFinder`)과 같은 별칭의 회사에서 최신 카드를 고른다. 못 찾으면 null이고 질문은 카드 없이 만든다. 5.3 다시 만들기도 면접에 남긴 같은 카드를 쓰고, 그 사이 카드가 갱신돼도 바꾸지 않는다([회사 카드 ERD](ERD-회사카드.md))
 5. 플랜(질문 5개·질문별 채점 기준)은 `interview_plans`에 저장한다(V2 마이그레이션, 형식은 AI 명세 2장). `interview_questions`에는 질문을 낼 때 실제로 출제한 질문(꼬리질문 포함)을 넣는다 **[결정]**(5.2)
@@ -353,7 +354,7 @@ com.ssafy.a301
 | `refresh:{SHA-256(token)}` | `userId:로그인 시각(epoch 밀리초)`. 재발급해도 로그인 시각은 이어진다(예전 형식 `userId`는 아주 오래전 로그인으로 본다) | 리프레시 유효 기간(BE 결정) | 1.2~1.7. 재발급 시 삭제 후 새로 저장(회전) |
 | `refresh-user:{userId}` | 그 회원의 `refresh:` 키 정렬 집합(점수: 만료 시각 epoch 초) | 마지막 발급 후 리프레시 유효 기간 | 발급 때 넣으며 만료 시각이 지난 키를 정리하고, 재발급·로그아웃 때 뺀다. 2.7 탈퇴 · 2.3 · 9.10 비밀번호 변경 때 집합의 키를 모두 지운다 |
 | `session:{sessionId}:runtime` | Hash. 필드 `planStatus`·`planProgress`·`analysisStep`·`pausedSeconds`·`planStartedAt`·`analysisStartedAt`(epoch 밀리초). 값이 없으면 필드 없음. **BE만 쓴다** **[결정]**: `planProgress`·`analysisStep`은 결과 메시지(`plan.progress`·`evaluation.progress`)를 받아 쓴다. `evaluateJobId`는 마지막으로 보낸 EVALUATE `jobId`(5.5) | BE가 쓸 때마다 1일(결과 생성 시작 = 면접 종료 + 1일) | 5.x. `planStatus`가 없을 때 플랜 행이 있으면 READY(AI 명세 1.2), 없으면 FAILED **[제안]**(기록을 잃은 면접을 5.3으로 다시 만들 수 있게. `SessionRuntimeService`) |
-| `ai:jobs:plan` | List. PLAN 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:plan:processing`에 옮겨 처리 | 없음 | 5.1·5.3 (5.0) |
+| `ai:jobs:plan` | List. PLAN·EXTRACT_CLAIMS 작업 메시지 JSON(AI 명세 1.3). BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:plan:processing`에 옮겨 처리 | 없음 | 4.1·5.1·5.3 (5.0) |
 | `ai:jobs:recording` | List. MERGE_RECORDING 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:recording:processing`에 옮겨 처리 | 없음 | 5.8(화상) (5.0) |
 | `ai:jobs` | List. SCORE_ANSWER·EVALUATE 작업 메시지 JSON. BE `LPUSH`, 작업자 `BLMOVE`로 `ai:jobs:processing`에 옮겨 처리 **[결정]** | 없음 | 답변 저장·5.8·5.9 (5.0) |
 | `ai:jobs:processing` · `ai:jobs:plan:processing` · `ai:jobs:recording:processing` | List. 큐별로 작업자가 처리 중인 작업 메시지. 끝나면 작업자가 지운다(AI 쪽) | 없음 | BE는 큐별 길이만 지표로 본다(`AiQueueMetrics`, 대기 · 처리 중 지표에 `queue` 태그로 큐 이름) |
