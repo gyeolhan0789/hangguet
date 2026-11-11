@@ -75,6 +75,7 @@ function routeResponse(request: NextRequest, session: Session): NextResponse {
 
 export const config = {
   // API·Next 내부 파일·public 정적 파일(확장자가 있는 주소)은 거치지 않는다.
-  // Next가 빌드 때 그대로 읽는 문자열 상수여야 해서 String.raw로 바꾸지 않는다(Next 문서 proxy matcher).
-  matcher: ["/((?!api|_next/static|_next/image|.*\\..*).*)"],
+  // Next가 빌드 때 그대로 읽는 문자열 상수여야 해서 String.raw를 쓰지 않는다(Next 문서 proxy matcher).
+  // 점은 역슬래시 대신 문자 집합 [.]으로 적는다(뜻은 같다).
+  matcher: ["/((?!api|_next/static|_next/image|.*[.].*).*)"],
 };
