@@ -102,7 +102,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `type` | 보내는 쪽 | 내용 | BE가 하는 일 |
 |---|---|---|---|
 | `plan.progress` | 분석 작업자 | `progress`(50 등) | `planProgress` |
-| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, 질문 보관함에 추가(2장, 그룹 면접 제외), `planStatus: READY` |
+| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | 질문 보관함에 추가(2장, 그룹 면접 제외)한 뒤 `interview_plans` 저장(개인 면접은 보관함에서 배정한 질문 5개와 지원서 주장, 2장), `planStatus: READY` |
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
 | `claims.extracted` | 분석 작업자 | `applicationId`, `claims`, `promptVersion`, `modelVersion`(2장) | 지원서 주장이 없을 때만 주장과 버전을 `application_claims`에 저장하고, 그 지원서에서 주장을 기다리는 면접의 PLAN 작업 등록 |
 | `claims.extractFailed` | 분석 작업자 | `applicationId`, `reason`(아래 실패 이유) | 그 지원서에서 주장을 기다리는 면접을 `planStatus: FAILED`로 변경 |
@@ -112,7 +112,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4), `recordingStartedAt`(영상 0초 시각, 없으면 null) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
-| `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
+| `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장). 출제한 질문이 보관함 질문이면 사용 처리(2장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 | `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
 | `room.closed` | 면접 에이전트 | (공통 필드만) | 지원자가 모두 떠나 LiveKit이 면접방을 닫았다(6.5). 개인 면접이 `IN_PROGRESS`이면 끝내기(API 명세 5.8)와 같이 끝낸다(답변이 있으면 `ANALYZING`, 없으면 `ABORTED`, 시선 비율은 비움). 그 밖에는 폐기한다 |
@@ -224,8 +224,14 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. 개인 면접의 `claims`는 입력으로 수신한 주장 그대로다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
 - **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
-  - 행마다 질문의 `content`·`criteria`·`claimId`를 저장한다
+  - 행마다 질문의 `content`·`criteria`·`claimId`와 그 질문을 만든 `promptVersion`·`modelVersion`을 저장한다
   - 그룹 면접의 질문은 보관함에 넣지 않는다. 그룹 면접은 개인 맞춤 질문을 매번 생성하고 예비 질문이 없기 때문이다(6.7)
+  - 면접 생성(5.1)·다시 만들기(5.3) 때 보관함 질문이 5개 미만이면 BE는 PLAN을 요청해 질문 5개를 새로 생성한다
+  - 출제 자리 배정: BE는 보관함에서 사용 처리되지 않은 질문 5개를 골라 면접 계획의 `seq` 1~5에 둔다. 보관함 질문이 5개 이상이면 면접 생성·다시 만들기 때 바로, 모자라면 `plan.completed`로 보관함에 추가한 뒤 배정한다
+    - 생성한 날이 이른 질문을 먼저 고르고, 같은 날 생성한 질문은 저장 순서대로 고른다
+    - 1번은 가장 오래된 질문, 3번은 그다음으로 오래된 질문, 2·4·5번은 남은 질문 중 오래된 순서다
+    - 배정한 질문 5개와 지원서 주장(`claims`)으로 `interview_plans` 행을 만든다. 면접 시작(5.4)의 배정 정보와 결과 생성(4장)이 이 행을 읽는다. 배정한 질문들의 버전을 면접 계획의 버전(`prompt_version`·`model_version`)으로 저장한다
+  - 사용 처리: 배정할 때는 예약하지 않고, `question.started`로 실제로 출제한 보관함 질문만 사용 처리한다. 1·3번은 항상 보관함 질문이고, 2·4·5번은 꼬리질문 대신 예비 질문을 출제했을 때(`promptVersion`이 null, 2.2)만 보관함 질문이다. 사용 처리한 질문은 다시 배정하지 않는다
 
 ### 2.1 자기소개서 검증
 
