@@ -80,6 +80,9 @@ export function InterviewRoom({
   const reset = useInterviewStore((state) => state.reset);
   const confirmingSave = useInterviewStore((state) => state.confirmingSave);
   const answeredQuestionId = useInterviewStore((state) => state.answeredQuestionId);
+  // 화면 숨기기(눈 버튼): 면접관 · [면접 종료] · [화면 보이기]만 남긴다. 면접방 연결 · 녹음이 끊기지 않게 화면에서 빼지 않고 숨기기만 한다.
+  // 여기서 읽어 넘겨야, 결과 분석으로 넘어가며 사라지는(AnimatePresence exit) 면접 화면이 원래처럼 마지막 값으로 남는다.
+  const uiHidden = useInterviewStore((state) => state.uiHidden);
   const [presentation, setPresentation] = useState<RoomPresentation | null>(null);
 
   const analyzing = session.status === "ANALYZING" || session.status === "COMPLETED";
@@ -140,6 +143,7 @@ export function InterviewRoom({
             session={session}
             question={question}
             preStartError={preStartError}
+            uiHidden={uiHidden}
             holdingRoom={enteredPreparing && !chatStartRequested}
             onChatStart={() => setChatStartRequested(true)}
             restart={restart}
@@ -255,6 +259,7 @@ function InterviewLayer({
   session,
   question,
   preStartError,
+  uiHidden,
   holdingRoom,
   onChatStart,
   restart,
@@ -264,6 +269,8 @@ function InterviewLayer({
   question: CurrentQuestion | null;
   /** 채팅 미리 시작(5.4)이 실패한 문구 */
   preStartError: string | undefined;
+  /** 화면 숨기기(눈 버튼) 중 */
+  uiHidden: boolean;
   /** 채팅 대기 화면에서 들어와 아직 [면접 시작]을 누르지 않았다(면접방에 들어가지 않고 기다린다) */
   holdingRoom: boolean;
   /** 대기 화면의 [면접 시작] */
@@ -272,8 +279,6 @@ function InterviewLayer({
   onPresentation: (value: RoomPresentation | null) => void;
 }>) {
   const router = useRouter();
-  // 화면 숨기기(눈 버튼): 면접관 · [면접 종료] · [화면 보이기]만 남긴다. 면접방 연결 · 녹음이 끊기지 않게 화면에서 빼지 않고 숨기기만 한다.
-  const uiHidden = useInterviewStore((state) => state.uiHidden);
   const interviewer = PERSONAS.find((info) => info.persona === session.persona)?.name ?? "";
   const startFailed = session.status === "START_FAILED";
   // 채팅 질문 준비 실패(5.2 planStatus FAILED) → 5.3으로 다시 준비한다.
@@ -899,8 +904,8 @@ function useLeaveConfirm(active: boolean) {
     if (!active) return;
     const confirm = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      // 예전 브라우저는 returnValue를 정해야 창을 띄운다
-      event.returnValue = "";
+      // 예전 브라우저(Chrome · Edge 119 미만)는 returnValue를 정해야 창을 띄운다(MDN). 폐기 예정 속성이라 Reflect로 같은 값을 넣는다
+      Reflect.set(event, "returnValue", "");
     };
     window.addEventListener("beforeunload", confirm);
     return () => window.removeEventListener("beforeunload", confirm);

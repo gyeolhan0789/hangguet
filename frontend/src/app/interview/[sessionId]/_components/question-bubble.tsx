@@ -106,7 +106,8 @@ function TypedQuestion({
   collapsed: boolean;
 }>) {
   const reduce = useReducedMotion();
-  const letters = Array.from(content);
+  // 글자는 겹칠 수 있어 질문 안 위치(position)를 key로 쓴다(질문이 바뀌면 말풍선을 새로 그린다)
+  const letters = Array.from(content).map((letter, position) => ({ letter, position }));
   const [typing, setTyping] = useState(!reduce);
 
   return (
@@ -126,9 +127,9 @@ function TypedQuestion({
           variants={{ shown: { transition: { staggerChildren: TYPING_STAGGER_S } } }}
           onAnimationComplete={() => setTyping(false)}
         >
-          {letters.map((letter, i) => (
+          {letters.map(({ letter, position }) => (
             <motion.span
-              key={i}
+              key={position}
               variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
               transition={{ duration: 0.01 }}
             >
