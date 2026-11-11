@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import livekit.LivekitAgentDispatch.CreateAgentDispatchRequest;
 import livekit.LivekitEgress.EgressInfo;
 import livekit.LivekitEgress.EgressStatus;
@@ -56,6 +57,10 @@ class LiveKitInterviewRoomTest {
     private static final String LIST_PARTICIPANTS = "/twirp/livekit.RoomService/ListParticipants";
     private static final String LIST_EGRESS = "/twirp/livekit.Egress/ListEgress";
     private static final String START_TRACK_EGRESS = "/twirp/livekit.Egress/StartTrackEgress";
+    private static final String CREATE_ROOM = "/twirp/livekit.RoomService/CreateRoom";
+    private static final String DELETE_ROOM = "/twirp/livekit.RoomService/DeleteRoom";
+    private static final String CREATE_DISPATCH =
+            "/twirp/livekit.AgentDispatchService/CreateDispatch";
     // 녹화 위치는 밀리초까지만 쓴다(1794272400123)
     private static final OffsetDateTime STARTED_AT =
             OffsetDateTime.parse("2026-11-10T10:00:00.123456+09:00");
@@ -64,6 +69,8 @@ class LiveKitInterviewRoomTest {
     private final Map<String, Integer> statuses = new ConcurrentHashMap<>();
     private final Map<String, byte[]> bodies = new ConcurrentHashMap<>();
     private final Map<String, String> authorizations = new ConcurrentHashMap<>();
+    // 받은 요청 경로(순서대로)
+    private final List<String> calls = new CopyOnWriteArrayList<>();
     private HttpServer server;
     private String apiUrl;
 
@@ -75,6 +82,7 @@ class LiveKitInterviewRoomTest {
                 exchange -> {
                     String path = exchange.getRequestURI().getPath();
                     requests.put(path, exchange.getRequestBody().readAllBytes());
+                    calls.add(path);
                     authorizations.put(
                             path, exchange.getRequestHeaders().getFirst("Authorization"));
                     exchange.getResponseHeaders().add("Content-Type", "application/protobuf");
@@ -164,6 +172,27 @@ class LiveKitInterviewRoomTest {
                 .isFalse();
     }
 
+    // 다시 시작하면 방 이름이 같다. 이전 시도의 방이 남아 있으면 그 방(이전 녹화 위치 · 에이전트)을 그대로 쓰게 되므로 먼저 지운다. 없으면(404) 그대로 만든다
+    @Test
+    void openDeletesPreviousRoomFirst() {
+        statuses.put(DELETE_ROOM, 404);
+
+        room(apiUrl).open(55L, true, Map.of(), STARTED_AT);
+
+        assertThat(calls).containsSubsequence(DELETE_ROOM, CREATE_ROOM, CREATE_DISPATCH);
+    }
+
+    @Test
+    void previousRoomThatCannotBeDeletedIsUnavailable() {
+        statuses.put(DELETE_ROOM, 500);
+
+        assertThatThrownBy(() -> room(apiUrl).open(55L, true, Map.of(), STARTED_AT))
+                .isInstanceOfSatisfying(
+                        ApiException.class,
+                        ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.ROOM_UNAVAILABLE));
+        assertThat(calls).doesNotContain(CREATE_ROOM, CREATE_DISPATCH);
+    }
+
     @Test
     void failedDispatchDeletesRoomAndIsUnavailable() throws Exception {
         statuses.put("/twirp/livekit.AgentDispatchService/CreateDispatch", 500);
@@ -172,10 +201,8 @@ class LiveKitInterviewRoomTest {
                 .isInstanceOfSatisfying(
                         ApiException.class,
                         ex -> assertThat(ex.errorCode()).isEqualTo(ErrorCode.ROOM_UNAVAILABLE));
-        assertThat(
-                        DeleteRoomRequest.parseFrom(
-                                        requests.get("/twirp/livekit.RoomService/DeleteRoom"))
-                                .getRoom())
+        assertThat(calls).containsSubsequence(CREATE_ROOM, CREATE_DISPATCH, DELETE_ROOM);
+        assertThat(DeleteRoomRequest.parseFrom(requests.get(DELETE_ROOM)).getRoom())
                 .isEqualTo("interview-55");
     }
 

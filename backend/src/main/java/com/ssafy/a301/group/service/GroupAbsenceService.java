@@ -19,6 +19,7 @@ import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.room.InterviewRoom.GroupPresence;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -96,12 +97,12 @@ public class GroupAbsenceService {
             boolean left = event.type() == GroupRoomEvent.Type.LEFT;
             if (event.isInterviewer()) {
                 if (left) {
-                    interviewerLeft(event.groupId(), now);
+                    interviewerLeft(event.groupId(), event.occurredAt(), now);
                 }
             } else if (left) {
-                left(event.groupId(), event.sessionId(), now);
+                left(event.groupId(), event.sessionId(), event.occurredAt(), now);
             } else {
-                returned(event.groupId(), event.sessionId(), now);
+                returned(event.groupId(), event.sessionId(), event.occurredAt(), now);
             }
         } catch (RuntimeException ex) {
             webhookEvents.forget(event.id());
@@ -115,10 +116,15 @@ public class GroupAbsenceService {
      * @return 이탈로 남겼으면 true. 이미 이탈했거나 면접이 끝났으면 false
      */
     public boolean left(long groupId, long sessionId, OffsetDateTime now) {
+        return left(groupId, sessionId, null, now);
+    }
+
+    private boolean left(
+            long groupId, long sessionId, OffsetDateTime occurredAt, OffsetDateTime now) {
         return Boolean.TRUE.equals(
                 transactions.execute(
                         status -> {
-                            Locked locked = lock(groupId);
+                            Locked locked = lock(groupId, occurredAt);
                             InterviewGroupParticipant participant =
                                     locked == null ? null : locked.find(sessionId);
                             if (participant == null || !participant.markAbsent(now)) {
@@ -142,10 +148,15 @@ public class GroupAbsenceService {
      * @return 이탈을 지웠으면 true
      */
     public boolean returned(long groupId, long sessionId, OffsetDateTime now) {
+        return returned(groupId, sessionId, null, now);
+    }
+
+    private boolean returned(
+            long groupId, long sessionId, OffsetDateTime occurredAt, OffsetDateTime now) {
         return Boolean.TRUE.equals(
                 transactions.execute(
                         status -> {
-                            Locked locked = lock(groupId);
+                            Locked locked = lock(groupId, occurredAt);
                             InterviewGroupParticipant participant =
                                     locked == null ? null : locked.find(sessionId);
                             if (participant == null || !participant.markPresent()) {
@@ -170,11 +181,17 @@ public class GroupAbsenceService {
      * @return 처리했으면 true. 이미 끝났거나 시작 실패한 그룹이면 false
      */
     public boolean interviewerLeft(long groupId, OffsetDateTime now) {
+        return interviewerLeft(groupId, null, now);
+    }
+
+    private boolean interviewerLeft(long groupId, OffsetDateTime occurredAt, OffsetDateTime now) {
         return Boolean.TRUE.equals(
                 transactions.execute(
                         status -> {
                             InterviewGroup group = groups.findByIdForUpdate(groupId).orElse(null);
-                            if (group == null || group.getStatus() != GroupStatus.IN_PROGRESS) {
+                            if (group == null
+                                    || group.getStatus() != GroupStatus.IN_PROGRESS
+                                    || beforeStart(group, occurredAt)) {
                                 return false;
                             }
                             LOG.warn("AI 면접관이 그룹 면접방에서 나갔다: group={}", groupId);
@@ -251,13 +268,23 @@ public class GroupAbsenceService {
     }
 
     // 잠금 순서: 그룹 → 면접(id 순서, docs/그룹면접-설계.md 9장). 진행 중 그룹이 아니면 null
-    private Locked lock(long groupId) {
+    // 진행 중 그룹이 아니거나 이번 시작 전에 생긴 이벤트면 null
+    private Locked lock(long groupId, OffsetDateTime occurredAt) {
         InterviewGroup group = groups.findByIdForUpdate(groupId).orElse(null);
-        if (group == null || group.getStatus() != GroupStatus.IN_PROGRESS) {
+        if (group == null
+                || group.getStatus() != GroupStatus.IN_PROGRESS
+                || beforeStart(group, occurredAt)) {
             return null;
         }
         sessions.findAllForUpdate(participants.findActiveSessionIds(groupId));
         return new Locked(group, participants.findActiveByGroupId(groupId));
+    }
+
+    // 다시 시작해도 방 이름이 같아, 이전 시도의 방을 지울 때 나온 웹훅이 늦게 오면 새 시도에 닿는다(배정 거절과 같은 확인, 6.9).
+    // LiveKit은 발생 시각을 초 단위로 주므로 시작 시각의 초보다 이른 이벤트만 버린다
+    private static boolean beforeStart(InterviewGroup group, OffsetDateTime occurredAt) {
+        return occurredAt != null
+                && occurredAt.isBefore(group.getStartedAt().truncatedTo(ChronoUnit.SECONDS));
     }
 
     private static void afterCommit(Runnable action) {

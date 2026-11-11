@@ -45,6 +45,7 @@ class LiveKitWebhookControllerTest {
                                 .header("Authorization", token.toJwt())
                                 .content(bytes))
                 .andExpect(status().isOk());
-        verify(absences).handle(new GroupRoomEvent("evt-1", GroupRoomEvent.Type.LEFT, 7L, 55L));
+        verify(absences)
+                .handle(new GroupRoomEvent("evt-1", GroupRoomEvent.Type.LEFT, 7L, 55L, null));
     }
 }

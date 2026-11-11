@@ -10,6 +10,7 @@ import io.livekit.server.AccessToken;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.OffsetDateTime;
 import java.util.Base64;
 import java.util.List;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -23,12 +24,21 @@ class LiveKitWebhooksTest {
 
     @Test
     void readsGroupParticipantEvents() {
-        String joined = body("participant_joined", "group-7", "candidate-55", "evt-1");
+        // 발생 시각(초)을 함께 넘긴다. 없으면 null
+        String joined =
+                body("participant_joined", "group-7", "candidate-55", "evt-1")
+                        .replace("\"id\"", "\"createdAt\":\"1794272400\",\"id\"");
         assertThat(webhooks.receive(joined, sign(joined, SECRET)))
-                .contains(new GroupRoomEvent("evt-1", Type.JOINED, 7L, 55L));
+                .contains(
+                        new GroupRoomEvent(
+                                "evt-1",
+                                Type.JOINED,
+                                7L,
+                                55L,
+                                OffsetDateTime.parse("2026-11-10T10:00:00+09:00")));
         String left = body("participant_left", "group-7", "interviewer", "evt-2");
         assertThat(webhooks.receive(left, sign(left, SECRET)))
-                .contains(new GroupRoomEvent("evt-2", Type.LEFT, 7L, null));
+                .contains(new GroupRoomEvent("evt-2", Type.LEFT, 7L, null, null));
 
         // 개인 면접방 · 녹화 같은 다른 참가자 · 그 밖의 이벤트는 무시한다
         for (String other :

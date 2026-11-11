@@ -2,7 +2,10 @@ package com.ssafy.a301.interview.room;
 
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
+import com.ssafy.a301.common.time.KoreaTime;
 import io.livekit.server.WebhookReceiver;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import livekit.LivekitWebhook.WebhookEvent;
 import org.slf4j.Logger;
@@ -70,6 +73,12 @@ public class LiveKitWebhooks {
         if (sessionId == null && !InterviewRoom.INTERVIEWER.equals(identity)) {
             return Optional.empty();
         }
-        return Optional.of(new GroupRoomEvent(event.getId(), type, groupId, sessionId));
+        // 방 이름은 다시 시작해도 같으므로, 이전 시도의 방을 지울 때 나온 이벤트를 가려내려고 발생 시각을 함께 넘긴다
+        OffsetDateTime occurredAt =
+                event.getCreatedAt() > 0
+                        ? OffsetDateTime.ofInstant(
+                                Instant.ofEpochSecond(event.getCreatedAt()), KoreaTime.ZONE)
+                        : null;
+        return Optional.of(new GroupRoomEvent(event.getId(), type, groupId, sessionId, occurredAt));
     }
 }

@@ -308,7 +308,7 @@ public class GroupResultService {
                     if (participants.hasAskedQuestion(groupId)) {
                         return Outcome.DISCARDED;
                     }
-                    groupEnds.failStart(group, locked);
+                    groupEnds.failStart(group, locked, OffsetDateTime.now(KoreaTime.ZONE));
                     return Outcome.SAVED;
                 });
     }
