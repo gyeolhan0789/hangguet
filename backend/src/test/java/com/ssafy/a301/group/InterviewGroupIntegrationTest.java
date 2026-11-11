@@ -1663,6 +1663,174 @@ class InterviewGroupIntegrationTest {
         verify(rooms).closeGroup(group.groupId());
     }
 
+    // 6.7 · 9장: 직접 제출(5.7)과 마감 확정이 겹쳐도 답변은 하나다. 그룹 행 잠금으로 먼저 처리된 쪽만 반영한다
+    @Test
+    void directSubmitAndDeadlineSubmitSaveOneAnswer() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> owner = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+
+        // 마감 확정이 먼저면 작성 중인 글이 답변이 되고 늦은 직접 제출은 409다
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+        mvc.perform(draftRequest(owner.get(a), a, questionId(a, 1), "작성 중"))
+                .andExpect(status().isNoContent());
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(6));
+        mvc.perform(chatAnswerRequest(owner.get(a), a, questionId(a, 1), "늦은 제출"))
+                .andExpect(status().isConflict());
+        assertThat(answerContents(a)).containsExactly("작성 중");
+        handle(followupDecided(a, 1, turnVersion(group.groupId()), false));
+
+        // 직접 제출이 먼저면 답변 단계가 끝나 그 뒤 마감 처리는 아무것도 하지 않는다
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "CALL");
+        handle(questionStarted(b, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(b, 1, turnVersion(group.groupId())));
+        mvc.perform(draftRequest(owner.get(b), b, questionId(b, 1), "작성 중"))
+                .andExpect(status().isNoContent());
+        mvc.perform(chatAnswerRequest(owner.get(b), b, questionId(b, 1), "직접 제출"))
+                .andExpect(status().isAccepted());
+        int version = turnVersion(group.groupId());
+        deadlines.expire(group.groupId(), OffsetDateTime.now().plusSeconds(1));
+        assertThat(groupRow(group.groupId())).containsEntry("phase", "DECIDING");
+        assertThat(turnVersion(group.groupId())).isEqualTo(version);
+        assertThat(answerContents(b)).containsExactly("직접 제출");
+    }
+
+    // 6.9: 꼬리질문에 답하던 중 나가면 그 꼬리질문은 닫고 받은 것으로 센다(다시 묻지 않는다). 꼬리질문 판단 중 나가면 꼬리질문 없이 넘어간다
+    @Test
+    void leavingDuringFollowupOrDecisionMovesOnWithoutFollowup() throws Exception {
+        ReadyGroup group = readyGroup(3, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> owner = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        long c = order.get(2);
+
+        chatTurn(group.groupId(), owner.get(a), a, 1, true);
+        assertTurn(group.groupId(), 1, a, 2, "FOLLOWUP", "FULL");
+        handle(questionStarted(a, 2, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 2, turnVersion(group.groupId())));
+        assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isTrue();
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT closed_at IS NOT NULL FROM interview_questions WHERE id ="
+                                        + " ?",
+                                Boolean.class,
+                                questionId(a, 2)))
+                .isTrue();
+        assertThat(followupsUsed(a)).isEqualTo(1);
+        assertTurn(group.groupId(), 1, b, 1, "COMMON", "CALL");
+
+        handle(questionStarted(b, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(b, 1, turnVersion(group.groupId())));
+        mvc.perform(chatAnswerRequest(owner.get(b), b, questionId(b, 1), "답변"))
+                .andExpect(status().isAccepted());
+        int deciding = turnVersion(group.groupId());
+        assertThat(absences.left(group.groupId(), b, OffsetDateTime.now())).isTrue();
+        assertTurn(group.groupId(), 1, c, 1, "COMMON", "CALL");
+        // 나간 뒤 온 판단은 버린다
+        assertThat(handle(followupDecided(b, 1, deciding, true))).isEqualTo(Outcome.DISCARDED);
+        assertThat(followupsUsed(b)).isZero();
+
+        // 돌아와도 닫은 꼬리질문은 다시 묻지 않는다
+        assertThat(absences.returned(group.groupId(), a, OffsetDateTime.now())).isTrue();
+        assertThat(questionKinds(a)).containsExactly("COMMON", "FOLLOWUP");
+    }
+
+    // 6.10 · 9장: 종료 경로(5.8 · 이탈 · AI 장애 · 안전장치)가 겹쳐도 면접마다 한 번만 끝나고 먼저 처리된 이유가 남는다
+    @Test
+    void overlappingEndPathsEndEachSessionOnce() throws Exception {
+        ReadyGroup group = readyGroup(3, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> owner = usersBySession(group);
+        List<Long> order = sessionIdsByTurnOrder(group.groupId());
+        long a = order.get(0);
+        long b = order.get(1);
+        long c = order.get(2);
+        // 첫 질문을 낸 뒤라 면접관 퇴장은 시작 실패가 아니라 AI 장애다
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+
+        // 이탈 시간이 지났지만 5.8이 먼저 오면 그 뒤 이탈 종료는 아무것도 하지 않는다
+        absences.left(group.groupId(), b, OffsetDateTime.now());
+        expireAbsence(b);
+        mvc.perform(endRequest(owner.get(b), b)).andExpect(status().isOk());
+        assertThat(groupEnds.endDisconnected(group.groupId(), b)).isFalse();
+        assertThat(endReason(b)).isEqualTo("USER_ENDED");
+
+        // 이탈 종료가 먼저면 늦은 5.8은 409다
+        absences.left(group.groupId(), a, OffsetDateTime.now());
+        expireAbsence(a);
+        deadlines.tick(OffsetDateTime.now());
+        assertThat(endReason(a)).isEqualTo("DISCONNECTED");
+        mvc.perform(endRequest(owner.get(a), a)).andExpect(status().isConflict());
+
+        // 남은 사람이 AI 장애로 끝나면 그룹도 끝나고, 그 뒤 면접관 퇴장 · 안전장치는 아무것도 하지 않는다
+        assertThat(absences.interviewerLeft(group.groupId(), OffsetDateTime.now())).isTrue();
+        assertThat(endReason(c)).isEqualTo("AI_FAILURE");
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(absences.interviewerLeft(group.groupId(), OffsetDateTime.now())).isFalse();
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update(
+                "UPDATE interview_groups SET started_at = ?, progressed_at = ? WHERE id = ?",
+                now.minusMinutes(200),
+                now.minusMinutes(60),
+                group.groupId());
+        groupEnds.cleanupStalled(now);
+        assertThat(endReason(a)).isEqualTo("DISCONNECTED");
+        assertThat(endReason(b)).isEqualTo("USER_ENDED");
+        assertThat(endReason(c)).isEqualTo("AI_FAILURE");
+        verify(rooms, times(1)).closeGroup(group.groupId());
+    }
+
+    // 9장: 응답을 받지 못해 시작을 다시 보내도 방을 다시 열지 않고 409다. 같은 멱등 키 재생은 IdempotencyInterceptorTest가 본다
+    @Test
+    void repeatedStartDoesNotReopenRoom() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<String, Object> started = startedRow(group.groupId());
+
+        mvc.perform(startRequest(group.host(), group.groupId()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INVALID_GROUP_STATE"));
+        verify(rooms, times(1))
+                .openGroup(eq(group.groupId()), anyBoolean(), any(), anyString(), any());
+        assertThat(startedRow(group.groupId())).isEqualTo(started);
+    }
+
+    private Map<String, Object> startedRow(long groupId) {
+        return jdbc.queryForMap(
+                "SELECT started_at, turn_version FROM interview_groups WHERE id = ?", groupId);
+    }
+
+    // 안전장치(6.11): 채팅 그룹은 시작한 지 100분(group.cleanup.chat-limit)이 지나야 정리한다. 화상 60분보다 길다
+    @Test
+    void chatGroupIsCleanedUpOnlyAfterChatLimit() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update(
+                "UPDATE interview_groups SET started_at = ?, progressed_at = ? WHERE id = ?",
+                now.minusMinutes(99),
+                now.minusMinutes(6),
+                group.groupId());
+        groupEnds.cleanupStalled(now);
+        assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
+
+        jdbc.update(
+                "UPDATE interview_groups SET started_at = ? WHERE id = ?",
+                now.minusMinutes(101),
+                group.groupId());
+        groupEnds.cleanupStalled(now);
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        for (long sessionId : group.sessionIds()) {
+            assertThat(endReason(sessionId)).isEqualTo("CLEANUP");
+        }
+    }
+
     // 6.9 · 6.11: 면접관이 나가면 AI 장애다. 같은 웹훅 이벤트는 한 번만 처리한다
     @Test
     void webhookEventsAreHandledOnceAndInterviewerLeavingIsAiFailure() throws Exception {
@@ -1934,6 +2102,29 @@ class InterviewGroupIntegrationTest {
                 Long.class,
                 sessionId,
                 seq);
+    }
+
+    private List<String> answerContents(long sessionId) {
+        return jdbc.queryForList(
+                "SELECT a.content FROM answers a JOIN interview_questions q ON q.id = a.question_id"
+                        + " WHERE q.session_id = ? ORDER BY q.seq",
+                String.class,
+                sessionId);
+    }
+
+    private int followupsUsed(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT followups_used FROM interview_group_participants WHERE session_id = ?",
+                Integer.class,
+                sessionId);
+    }
+
+    // 다시 들어올 수 있는 시간이 이미 지난 것으로 만든다
+    private void expireAbsence(long sessionId) {
+        jdbc.update(
+                "UPDATE interview_group_participants SET absent_until = now() - interval '1"
+                        + " second' WHERE session_id = ?",
+                sessionId);
     }
 
     private List<String> questionKinds(long sessionId) {
