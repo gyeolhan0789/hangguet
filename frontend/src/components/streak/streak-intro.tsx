@@ -61,7 +61,7 @@ export function StreakIntro({
   const [visible, setVisible] = useState(true);
   const [covered, setCovered] = useState(false);
   useLockScroll(visible);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLOutputElement>(null);
   const badgeRef = useRef<HTMLDivElement>(null);
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -148,13 +148,12 @@ export function StreakIntro({
   if (!visible) return null;
 
   return (
-    <div
+    // 덮개 전체를 상태 알림(output = role status)으로 두고 문구를 이름으로 읽어 준다. 화면의 숫자 굴리기 · 글씨(badge)는 연출이라 숨긴다
+    <output
       ref={overlayRef}
-      data-testid="streak-intro"
+      aria-label={`${copy.count ?? ""}${copy.text} ${copy.sub}`}
       className="fixed inset-0 z-[70] overflow-hidden"
     >
-      {/* 보조기기에는 문구를 상태 알림으로 읽어 준다. 화면의 숫자 굴리기 · 글씨(badge)는 연출이라 숨긴다 */}
-      <output className="sr-only">{`${copy.count ?? ""}${copy.text} ${copy.sub}`}</output>
       {!covered && backdrop && (
         <div className="absolute inset-0 overflow-hidden bg-bg">{backdrop}</div>
       )}
@@ -166,7 +165,6 @@ export function StreakIntro({
       <div
         ref={badgeRef}
         aria-hidden
-        data-testid="streak-badge"
         className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 px-6 text-center opacity-0"
         style={{ color: tier.ink }}
       >
@@ -195,6 +193,6 @@ export function StreakIntro({
         </p>
         <p className="text-lg font-bold opacity-90 sm:text-2xl">{copy.sub}</p>
       </div>
-    </div>
+    </output>
   );
 }

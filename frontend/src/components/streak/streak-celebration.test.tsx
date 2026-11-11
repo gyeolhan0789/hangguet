@@ -18,7 +18,7 @@ describe("StreakCelebration (면접을 마친 순간)", () => {
     const onDone = vi.fn();
     render(<StreakCelebration days={7} leveledUp={false} onDone={onDone} />);
 
-    expect(screen.getByRole("status").textContent).toBe(
+    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
       "7일째 달성! 오늘도 해냈어요 — 내일 또 만나요",
     );
     await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
