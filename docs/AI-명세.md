@@ -680,6 +680,11 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 회사 정보 수집 파이프라인(`company-pipeline`)이 회사마다 만든 카드를 BE가 메인 DB에 적재하고([회사 카드 ERD](ERD-회사카드.md)), 면접을 만들 때 지원서 회사명으로 찾은 카드를 PLAN 작업 메시지의 `companyCard`에 그대로 담는다
 
 - 형식: 파이프라인 카드 JSON 그대로다. 항목은 [카드 형식](../company-pipeline/pipeline/README.md#카드-형식)을 따른다(`talent`·`direction`·`market`·`recent`, 항목마다 원문 인용과 출처)
+- 분류값: 파이프라인이 카드를 만들 때 항목마다 분류값을 부여한다. 질문 생성에서 회사 항목과 자소서 주장의 연결 후보를 코드로 선별하기 위함이다
+  - `talent[]` 항목은 `criterion`에 2장 인재상 기준 12개 중 하나의 이름을 담는다
+  - `direction[]`·`market[]`·`recent[]` 항목은 `ncs_subcategories`에 그 상황을 담당할 직무의 NCS 세분류 이름을 0~3개 담는다. 세분류는 NCS 「20 정보통신 > 01 정보기술」 분야의 세분류 전체에서 선택한다
+  - 두 목록(인재상 기준 12개, NCS 세분류)의 원본은 저장소 최상위 공용 패키지 `shared/company_taxonomy` 하나다. 파이프라인과 AI는 이 패키지를 의존성으로 사용하고 목록을 따로 관리하지 않는다. 패키지에는 이 두 목록만 담는다
+  - 분류값을 추가하기 전에 만든 카드에는 `criterion`·`ncs_subcategories` 칸이 없을 수 있다
 - 회사를 찾지 못했거나 카드가 없으면 `companyCard`를 넣지 않는다
 - SCORE_ANSWER·EVALUATE에는 아직 담지 않는다. 피드백 반영 방식을 정할 때 추가한다
 
