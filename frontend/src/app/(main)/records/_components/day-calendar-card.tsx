@@ -9,11 +9,11 @@ import { dateInMonth, monthDayLabel } from "@/lib/records/format";
 import { growthReviewPath, recordsPath } from "@/lib/routes";
 import {
   buildCalendar,
+  calendarRows,
   monthDirection,
   monthLabel,
   monthOf,
   shiftMonth,
-  weekCells,
   type CalendarDay,
 } from "@/lib/user/calendar";
 
@@ -124,22 +124,19 @@ export function DayCalendarCard({
                 exit={reduce ? undefined : "exit"}
                 transition={MONTH_SPRING}
               >
-                {weeks.map((week) => {
-                  const cells = weekCells(week);
-                  return (
-                    <div key={cells[0].date} role="row" className="flex">
-                      {cells.map(({ date: cellDate, day }) => (
-                        <div
-                          key={cellDate}
-                          role="gridcell"
-                          className="relative h-[52px] min-w-0 flex-1"
-                        >
-                          {day && <DayCell day={day} selected={day.date === date} />}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
+                {calendarRows(weeks).map(({ row, cells }) => (
+                  <div key={row} role="row" className="flex">
+                    {cells.map(({ column, day }) => (
+                      <div
+                        key={column}
+                        role="gridcell"
+                        className="relative h-[52px] min-w-0 flex-1"
+                      >
+                        {day && <DayCell day={day} selected={day.date === date} />}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </motion.div>
             </AnimatePresence>
           </div>

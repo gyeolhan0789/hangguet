@@ -8,10 +8,10 @@ import { useState } from "react";
 import { MaskIcon } from "@/components/mask-icon";
 import {
   buildCalendar,
+  calendarRows,
   monthDirection,
   monthLabel,
   shiftMonth,
-  weekCells,
   type CalendarDay,
 } from "@/lib/user/calendar";
 import { mypagePath, recordsPath } from "@/lib/routes";
@@ -100,18 +100,15 @@ export function StreakCalendar({
             exit={reduce ? undefined : { x: direction * -40, opacity: 0 }}
             transition={{ duration: 0.25, ease: "easeOut" }}
           >
-            {weeks.map((week) => {
-              const cells = weekCells(week);
-              return (
-                <div key={cells[0].date} role="row" className="flex">
-                  {cells.map(({ date, day }) => (
-                    <div key={date} role="gridcell" className="relative h-10 min-w-0 flex-1">
-                      {day && <DayCell day={day} order={day.day} reduce={reduce} />}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
+            {calendarRows(weeks).map(({ row, cells }) => (
+              <div key={row} role="row" className="flex">
+                {cells.map(({ column, day }) => (
+                  <div key={column} role="gridcell" className="relative h-10 min-w-0 flex-1">
+                    {day && <DayCell day={day} order={day.day} reduce={reduce} />}
+                  </div>
+                ))}
+              </div>
+            ))}
           </motion.div>
         </AnimatePresence>
       </div>

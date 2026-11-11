@@ -70,18 +70,15 @@ function dayState(date: string, today: string): DayState {
   return date === today ? "today" : "future";
 }
 
-/** 달력 한 칸. 그달이 아닌 빈칸(day null)의 date는 그 자리에 오는 앞 · 뒤 달 날짜다 */
-export interface CalendarCell {
-  date: string;
-  day: CalendarDay | null;
+/** 달력 한 줄. 줄 번호(row) · 칸 번호(column)를 key로 쓴다(한 달 안에서 줄 · 칸 자리는 바뀌지 않는다) */
+export interface CalendarRow {
+  row: number;
+  cells: { column: number; day: CalendarDay | null }[];
 }
 
-/** 한 주의 칸마다 날짜를 붙인다. 빈칸도 날짜가 있어 칸마다 다른 key로 쓸 수 있다 */
-export function weekCells(week: CalendarWeek): CalendarCell[] {
-  // buildCalendar의 주에는 그달 날짜가 적어도 하루 있다
-  const at = week.findIndex((day) => day !== null);
-  const anchor = week[at]?.date ?? "";
-  return week.map((day, column) => ({ date: day?.date ?? addDays(anchor, column - at), day }));
+/** 주마다 줄 번호를, 칸마다 칸 번호(0 일요일 ~ 6 토요일)를 붙인다 */
+export function calendarRows(weeks: CalendarWeek[]): CalendarRow[] {
+  return weeks.map((week, row) => ({ row, cells: week.map((day, column) => ({ column, day })) }));
 }
 
 /** month(YYYY-MM)의 달력. practiced는 그달 연습한 날(3.3 content의 practiceDate) */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCalendar,
+  calendarRows,
   formatMinutes,
   monthDirection,
   monthLabel,
@@ -9,7 +10,6 @@ import {
   parseMonth,
   shiftMonth,
   startedLabel,
-  weekCells,
   type CalendarDay,
 } from "./calendar";
 
@@ -81,40 +81,15 @@ describe("buildCalendar (스트릭 달력)", () => {
   });
 });
 
-describe("weekCells (칸 key)", () => {
-  const weeks = buildCalendar("2026-10", FIGMA_PRACTICED, "2026-10-13");
-
-  it("1일 앞 빈칸은 그 자리의 지난달 날짜, 그달 칸은 그 날짜다(2026년 10월 1일은 목요일)", () => {
-    expect(weekCells(weeks[0])).toEqual([
-      { date: "2026-09-27", day: null },
-      { date: "2026-09-28", day: null },
-      { date: "2026-09-29", day: null },
-      { date: "2026-09-30", day: null },
-      { date: "2026-10-01", day: dayOf(weeks, 1) },
-      { date: "2026-10-02", day: dayOf(weeks, 2) },
-      { date: "2026-10-03", day: dayOf(weeks, 3) },
-    ]);
-  });
-
-  it("말일 뒤 빈칸은 그 자리의 다음 달 날짜다(2026년 11월 30일은 월요일)", () => {
-    const nov = buildCalendar("2026-11", new Set(), "2026-10-13");
-    expect(nov).toHaveLength(5);
-    expect(weekCells(nov[4]).map((cell) => cell.date)).toEqual([
-      "2026-11-29",
-      "2026-11-30",
-      "2026-12-01",
-      "2026-12-02",
-      "2026-12-03",
-      "2026-12-04",
-      "2026-12-05",
-    ]);
-  });
-
-  it("달력 전체에서 칸 날짜가 겹치지 않는다", () => {
-    const dates = buildCalendar("2026-08", new Set(), "2026-10-13").flatMap((week) =>
-      weekCells(week).map((cell) => cell.date),
-    );
-    expect(new Set(dates).size).toBe(dates.length);
+describe("calendarRows (줄 · 칸 key)", () => {
+  it("줄 번호는 주 순서, 칸 번호는 그 주 안 자리(0 일요일 ~ 6 토요일)이고 칸 내용은 그대로다", () => {
+    const weeks = buildCalendar("2026-10", FIGMA_PRACTICED, "2026-10-13");
+    const rows = calendarRows(weeks);
+    expect(rows.map((line) => line.row)).toEqual(weeks.map((_, row) => row));
+    rows.forEach((line, row) => {
+      expect(line.cells.map((cell) => cell.column)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      expect(line.cells.map((cell) => cell.day)).toEqual(weeks[row]);
+    });
   });
 });
 
