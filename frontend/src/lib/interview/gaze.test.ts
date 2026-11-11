@@ -86,9 +86,9 @@ describe("gazeSample", () => {
 
 describe("gazeRatio", () => {
   it("얼굴이 잡힌 프레임이 너무 적으면 null(5.8에 보내지 않는다)", () => {
-    expect(gazeRatio([...Array(MIN_GAZE_SAMPLES - 1).fill(FRONT), ...Array(50).fill(null)])).toBe(
-      null,
-    );
+    expect(
+      gazeRatio([...Array(MIN_GAZE_SAMPLES - 1).fill(FRONT), ...Array(50).fill(null)]),
+    ).toBeNull();
   });
 
   it("그 면접의 중앙값을 정면으로 보고, 정면에서 기준보다 벗어난 프레임은 보지 않은 것으로 센다", () => {

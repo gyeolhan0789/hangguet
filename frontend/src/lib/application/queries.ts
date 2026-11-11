@@ -1,7 +1,6 @@
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
 import { getProblemDetail } from "@/lib/api/problem-detail";
-import { parsePositiveId } from "@/lib/parse-id";
 import type {
   ApplicationListQuery,
   ApplicationListResponse,
@@ -58,4 +57,4 @@ export async function getApplicationSessions(
 }
 
 /** 주소의 applicationId(양의 정수)를 읽는다. 없거나 형식이 틀리면 null */
-export const parseApplicationId = parsePositiveId;
+export { parsePositiveId as parseApplicationId } from "@/lib/parse-id";

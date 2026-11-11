@@ -90,8 +90,9 @@ def test_missing_alignment_keeps_audio_without_timing() -> None:
     ],
 )
 def test_malformed_alignment_is_rejected(alignment: object) -> None:
+    malformed = body(alignment=alignment)
     with pytest.raises(TtsError):
-        speech_audio(body(alignment=alignment))
+        speech_audio(malformed)
 
 
 @pytest.mark.parametrize(
@@ -155,11 +156,12 @@ def test_synthesize_requests_pcm_with_timestamps_for_persona_voice() -> None:
 
 def test_error_status_does_not_expose_body() -> None:
     session, response = http_session(401, {"detail": "질문 원문"})
+    synthesizing = ElevenLabsTTS("secret").synthesize("질문 원문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
         pytest.raises(TtsError, match="status=401") as raised,
     ):
-        asyncio.run(ElevenLabsTTS("secret").synthesize("질문 원문", Persona.DEVIL))
+        asyncio.run(synthesizing)
     assert "질문 원문" not in str(raised.value)
     response.json.assert_not_awaited()
 
@@ -184,11 +186,12 @@ def test_rate_limit_that_persists_fails_after_every_retry() -> None:
     session, _ = http_session(200, body())
     session.post.side_effect = [rate_limited() for _ in range(len(RETRY_DELAYS) + 1)]
     sleep = FakeSleep()
+    synthesizing = ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
         pytest.raises(RateLimitedError, match="status=429, too_many_concurrent_requests"),
     ):
-        asyncio.run(ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL))
+        asyncio.run(synthesizing)
     assert session.post.call_count == len(RETRY_DELAYS) + 1
     assert sleep.delays == list(RETRY_DELAYS)
 
@@ -196,11 +199,12 @@ def test_rate_limit_that_persists_fails_after_every_retry() -> None:
 def test_other_errors_are_not_retried() -> None:
     session, _ = http_session(401, {"detail": "invalid key"})
     sleep = FakeSleep()
+    synthesizing = ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
         pytest.raises(TtsError, match="status=401"),
     ):
-        asyncio.run(ElevenLabsTTS("secret", sleep=sleep).synthesize("질문", Persona.DEVIL))
+        asyncio.run(synthesizing)
     session.post.assert_called_once()
     assert sleep.delays == []
 
@@ -211,13 +215,12 @@ def test_other_errors_are_not_retried() -> None:
 )
 def test_rate_limit_reason_never_exposes_body(payload: object) -> None:
     session, _ = http_session(429, payload)
+    synthesizing = ElevenLabsTTS("secret", sleep=FakeSleep()).synthesize("질문 원문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
         pytest.raises(RateLimitedError) as raised,
     ):
-        asyncio.run(
-            ElevenLabsTTS("secret", sleep=FakeSleep()).synthesize("질문 원문", Persona.DEVIL)
-        )
+        asyncio.run(synthesizing)
     assert raised.value.reason == "unknown"
     assert "질문 원문" not in str(raised.value)
 
@@ -228,21 +231,23 @@ def test_rate_limit_reason_never_exposes_body(payload: object) -> None:
 def test_network_and_decode_failures_become_tts_error(error: Exception) -> None:
     session, response = http_session(200, None)
     response.json = AsyncMock(side_effect=error)
+    synthesizing = ElevenLabsTTS("secret").synthesize("질문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession", return_value=session),
         pytest.raises(TtsError),
     ):
-        asyncio.run(ElevenLabsTTS("secret").synthesize("질문", Persona.DEVIL))
+        asyncio.run(synthesizing)
 
 
 def test_missing_key_fails_without_calling_elevenlabs() -> None:
     tts = ElevenLabsTTS(None)
     assert not tts.configured
+    synthesizing = tts.synthesize("질문", Persona.DEVIL)
     with (
         patch("app.agent.tts.aiohttp.ClientSession") as factory,
         pytest.raises(TtsError, match="ELEVENLABS_API_KEY"),
     ):
-        asyncio.run(tts.synthesize("질문", Persona.DEVIL))
+        asyncio.run(synthesizing)
     factory.assert_not_called()
 
 

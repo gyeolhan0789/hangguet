@@ -11,12 +11,12 @@ export function PracticeSkeleton({
   current,
   width,
   children,
-}: {
+}: Readonly<{
   current: PracticeStep;
   /** 본문 최대 폭(Figma Content 폭) */
   width: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div aria-hidden className="flex flex-1 flex-col items-center gap-8 px-4 pt-8 pb-10">
       <PracticeSteps current={current} />

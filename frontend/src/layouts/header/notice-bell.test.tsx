@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
 import type { NoticeItem } from "@/types/api";
 
 import { NoticeBell } from "./notice-bell";
@@ -47,7 +48,7 @@ const bell = () => screen.getByRole("button", { name: /^공지/ });
 describe("NoticeBell (공지 버튼 · C03 목록)", () => {
   it("확인 안 한 공지가 있으면 종에 점이 있고, 모두 확인했으면 없다", () => {
     const { rerender } = render(<NoticeBell notices={[UNREAD, READ]} />);
-    expect(screen.queryByTestId("notice-unread-dot")).not.toBeNull();
+    expect(screen.getByTestId("notice-unread-dot")).toBeTruthy();
     expect(bell().getAttribute("aria-label")).toBe("공지, 확인 안 한 공지 있음");
 
     rerender(<NoticeBell notices={[READ]} />);
@@ -98,9 +99,8 @@ describe("NoticeBell (공지 버튼 · C03 목록)", () => {
     expect(dialog.textContent).toContain("2026.10.23");
     expect(dialog.textContent).not.toMatch(/\d+ \/ \d+/);
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "확인" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    await flushPromises();
 
     expect(readNotice).toHaveBeenCalledWith(3);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -129,9 +129,8 @@ describe("NoticeBell (공지 버튼 · C03 목록)", () => {
 
     fireEvent.click(bell());
     fireEvent.click(screen.getByRole("menuitem", { name: /채팅 면접이 열렸어요/ }));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "확인" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "확인" }));
+    await flushPromises();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(readNotice).toHaveBeenCalledWith(2);

@@ -100,13 +100,13 @@ function PhotoTiles({
   onAdd,
   disabled,
   sizeClass,
-}: {
+}: Readonly<{
   photos: PickedPhoto[];
   onRemove: (id: number) => void;
   onAdd?: () => void;
   disabled: boolean;
   sizeClass: string;
-}) {
+}>) {
   return (
     <ul aria-label="고른 사진" className="flex flex-wrap gap-2">
       {photos.map((photo, index) => (
@@ -150,22 +150,15 @@ function PhotoTiles({
 export function PhotoField({
   picks,
   disabled = false,
-}: {
+}: Readonly<{
   picks: ReturnType<typeof usePhotoPicks>;
   disabled?: boolean;
-}) {
+}>) {
   const input = useRef<HTMLInputElement>(null);
   const id = useId();
   return (
-    <div
-      role="group"
-      aria-labelledby={`${id}-label`}
-      aria-describedby={`${id}-hint`}
-      className="flex flex-col gap-1.5"
-    >
-      <span id={`${id}-label`} className="text-[13px] leading-normal font-bold text-text-2">
-        사진
-      </span>
+    <fieldset aria-describedby={`${id}-hint`} className="flex min-w-0 flex-col gap-1.5">
+      <legend className="mb-1.5 text-[13px] leading-normal font-bold text-text-2">사진</legend>
       <input
         ref={input}
         type="file"
@@ -196,7 +189,7 @@ export function PhotoField({
           {picks.error}
         </p>
       )}
-    </div>
+    </fieldset>
   );
 }
 

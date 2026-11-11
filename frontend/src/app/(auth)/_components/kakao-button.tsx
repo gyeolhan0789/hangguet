@@ -13,12 +13,12 @@ import { startKakaoLogin } from "@/lib/auth/social-actions";
 export function KakaoButton({
   children,
   height = "h-14",
-}: {
+}: Readonly<{
   /** '카카오 로그인'(S01) · '카카오로 시작하기'(S01-1) */
   children: string;
   /** 바로 위 제출 버튼과 같은 높이(Tailwind h-*) */
   height?: string;
-}) {
+}>) {
   // 카카오 화면으로 간 뒤 뒤로 가기로 돌아오면 브라우저가 페이지를 그대로 되살려(bfcache) 버튼이 진행 중인 채 굳는다.
   // 그때는 폼을 새로 만들어 다시 누를 수 있게 한다.
   const [restored, setRestored] = useState(0);
@@ -37,7 +37,7 @@ export function KakaoButton({
   );
 }
 
-function Submit({ children, height }: { children: string; height: string }) {
+function Submit({ children, height }: Readonly<{ children: string; height: string }>) {
   // 카카오 화면으로 넘어가는 동안 두 번 누르지 않게 막는다
   const { pending } = useFormStatus();
   return (

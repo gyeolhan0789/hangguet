@@ -42,7 +42,7 @@ export function markJustRefreshed(cookies: CookieWriter) {
  * 돌려주는 값은 퍼센트 인코딩된 경로라 Location 헤더에 그대로 넣을 수 있다(한글 등).
  */
 export function safeNextPath(next: string | null): string {
-  if (!next || !next.startsWith("/")) return ROUTES.home;
+  if (!next?.startsWith("/")) return ROUTES.home;
   const base = "http://localhost";
   const url = new URL(next, base);
   if (url.origin !== base) return ROUTES.home;

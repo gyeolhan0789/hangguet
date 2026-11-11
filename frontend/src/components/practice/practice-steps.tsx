@@ -7,8 +7,16 @@ export const PRACTICE_STEPS = ["지원서", "면접관 선택", "면접 방식",
 
 export type PracticeStep = 1 | 2 | 3 | 4 | 5;
 
+/** 단계 이름 글자: 지금 단계는 진하게, 나머지는 넓은 화면에서만 보이고 끝난 단계가 아직 안 한 단계보다 진하다 */
+function stepLabelTone(active: boolean, done: boolean): string {
+  if (active) return "font-extrabold text-text-1";
+  return done
+    ? "hidden font-semibold sm:inline text-text-2"
+    : "hidden font-semibold sm:inline text-text-3";
+}
+
 /** 연습 시작 단계 표시. current는 지금 화면의 단계(1부터) */
-export function PracticeSteps({ current }: { current: PracticeStep }) {
+export function PracticeSteps({ current }: Readonly<{ current: PracticeStep }>) {
   return (
     <ol aria-label="면접 준비 단계" className="flex items-center gap-2.5">
       {PRACTICE_STEPS.map((label, i) => {
@@ -40,11 +48,7 @@ export function PracticeSteps({ current }: { current: PracticeStep }) {
                 )}
               </span>
               <span
-                className={`text-[15px] leading-normal tracking-[-0.2px] whitespace-nowrap ${
-                  active
-                    ? "font-extrabold text-text-1"
-                    : `hidden font-semibold sm:inline ${done ? "text-text-2" : "text-text-3"}`
-                }`}
+                className={`text-[15px] leading-normal tracking-[-0.2px] whitespace-nowrap ${stepLabelTone(active, done)}`}
               >
                 {label}
                 {done && <span className="sr-only"> 완료</span>}

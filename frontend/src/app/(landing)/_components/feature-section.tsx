@@ -10,7 +10,7 @@ export function FeatureSection({
   body,
   visual,
   visualFirst = false,
-}: {
+}: Readonly<{
   id?: string;
   eyebrow: string;
   title: readonly [string, string];
@@ -18,7 +18,7 @@ export function FeatureSection({
   visual: ReactNode;
   /** 넓은 화면에서 그림을 왼쪽에 둔다 */
   visualFirst?: boolean;
-}) {
+}>) {
   return (
     <section
       id={id}

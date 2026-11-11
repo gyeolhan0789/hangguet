@@ -10,7 +10,7 @@ import { badgeGradient, tierOf, withAlpha } from "@/lib/streak";
  * 홈 불꽃 뱃지 (Figma S02 Streak Hero · 모션 메모 '스트릭 뱃지').
  * 단계 색 그라데이션 + 후광 2겹 숨쉬기 + 3초마다 빛줄기. 0일(끊김)은 회색 원에 움직임 없음.
  */
-export function StreakBadge({ days }: { days: number }) {
+export function StreakBadge({ days }: Readonly<{ days: number }>) {
   const reduce = useReducedMotion();
 
   if (days === 0) {

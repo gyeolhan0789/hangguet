@@ -192,6 +192,8 @@ group:
   asking-retry: 10s
   # 질문을 모두 마치고 이 시간 안에 5.8이 없으면 BE가 끝낸다(6.10)
   done-grace: 60s
+  # 진행 중 이탈한 뒤 이 시간 안에 다시 들어오지 않으면 그 면접을 끝낸다(6.9). 바꾸면 그 뒤 이탈부터 적용된다
+  absence-limit: 2m
   # 마감 처리기 주기(6.11)
   deadline:
     interval: 1s

@@ -28,7 +28,7 @@ function until(expiresAt: string) {
   return `${expiresAt.slice(5, 10).replace("-", ".")}까지`;
 }
 
-export function StreakFreezeCard({ freezes }: { freezes: MyStreakFreezesResponse }) {
+export function StreakFreezeCard({ freezes }: Readonly<{ freezes: MyStreakFreezesResponse }>) {
   const [target, setTarget] = useState<StreakFreezeItem | null>(null);
 
   return (
@@ -89,10 +89,10 @@ const button =
 function StreakFreezeModal({
   freeze,
   onClose,
-}: {
+}: Readonly<{
   freeze: StreakFreezeItem | null;
   onClose: () => void;
-}) {
+}>) {
   const [done, setDone] = useState(false);
   const [pending, startTransition] = useTransition();
   const show = useToastStore((state) => state.show);

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Toast } from "@/components/toast";
 import { useToastStore } from "@/stores/toast-store";
+import { flushPromises } from "@/test/flush";
 import type { MeResponse } from "@/types/api";
 
 import { KakaoRow } from "./kakao-row";
@@ -104,7 +105,8 @@ describe("연결하지 않은 이메일 회원", () => {
     // 처음 그릴 때는 포커스를 가져가지 않는다(해제한 뒤에만 이 줄로 준다)
     expect(document.activeElement).toBe(document.body);
 
-    await act(async () => fireEvent.click(linkButton()));
+    fireEvent.click(linkButton());
+    await flushPromises();
 
     expect(startKakaoLink).toHaveBeenCalledOnce();
     expect((linkButton() as HTMLButtonElement).disabled).toBe(true);
@@ -117,7 +119,8 @@ describe("연결하지 않은 이메일 회원", () => {
     });
     renderRow(EMAIL_MEMBER);
 
-    await act(async () => fireEvent.click(linkButton()));
+    fireEvent.click(linkButton());
+    await flushPromises();
 
     expect(screen.getByRole("status").textContent).toBe(
       "소셜 로그인 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
@@ -128,7 +131,8 @@ describe("연결하지 않은 이메일 회원", () => {
   it("카카오 화면에서 뒤로 가기로 되살아나면(bfcache) 다시 누를 수 있다", async () => {
     startKakaoLink.mockReturnValue(pending());
     renderRow(EMAIL_MEMBER);
-    await act(async () => fireEvent.click(linkButton()));
+    fireEvent.click(linkButton());
+    await flushPromises();
 
     await act(async () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));
@@ -201,7 +205,8 @@ describe("연결한 이메일 회원(linkedProvider KAKAO)", () => {
     renderRow(LINKED_MEMBER);
     fireEvent.click(unlinkButton());
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "해제하기" })));
+    fireEvent.click(screen.getByRole("button", { name: "해제하기" }));
+    await flushPromises();
     fireEvent.keyDown(confirmDialog()!, { key: "Escape" });
     fireEvent.mouseDown(dim());
     // 닫혔다면 사라지는 모션까지 끝난 뒤에 본다
@@ -224,7 +229,8 @@ describe("연결한 이메일 회원(linkedProvider KAKAO)", () => {
     renderRow(LINKED_MEMBER);
     fireEvent.click(unlinkButton());
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "해제하기" })));
+    fireEvent.click(screen.getByRole("button", { name: "해제하기" }));
+    await flushPromises();
 
     await waitFor(() => expect(confirmDialog()).toBeNull());
     expect(screen.getByRole("status").textContent).toBe("잠시 후 다시 시도해 주세요.");
@@ -236,7 +242,8 @@ describe("연결한 이메일 회원(linkedProvider KAKAO)", () => {
     const { rerender } = renderRow(LINKED_MEMBER);
     fireEvent.click(unlinkButton());
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "해제하기" })));
+    fireEvent.click(screen.getByRole("button", { name: "해제하기" }));
+    await flushPromises();
     await waitFor(() => expect(confirmDialog()).toBeNull());
     // 서버 액션의 refresh로 2.1이 다시 내려온다
     rerender(

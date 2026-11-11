@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { MaskIcon } from "@/components/mask-icon";
 import { Spinner } from "@/components/spinner";
 import { useLockScroll } from "@/components/use-lock-scroll";
@@ -33,7 +34,7 @@ export function PermissionModal({
   switchingToChat,
   onChat,
   error,
-}: {
+}: Readonly<{
   open: boolean;
   rechecking: boolean;
   onRecheck: () => void;
@@ -41,7 +42,7 @@ export function PermissionModal({
   onChat: () => void;
   /** 채팅 면접으로 바꾸지 못했을 때 문구 */
   error?: string;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [step, setStep] = useState(0);
   const dialog = useRef<HTMLDivElement>(null);
@@ -60,16 +61,7 @@ export function PermissionModal({
     const buttons = [
       ...dialog.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
     ];
-    if (buttons.length === 0) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, buttons);
   }
 
   const highlight = (index: number) => !reduce && step === index;
@@ -189,7 +181,7 @@ export function PermissionModal({
 }
 
 /** 주소창 예시(Figma Address Bar Example 18:4175 안: 자물쇠 · 주소 · 권한 팝오버 '카메라 허용 ▾') */
-function AddressBarExample({ lockOn, allowOn }: { lockOn: boolean; allowOn: boolean }) {
+function AddressBarExample({ lockOn, allowOn }: Readonly<{ lockOn: boolean; allowOn: boolean }>) {
   // 예시 주소는 지금 쓰는 사이트 주소로 보여 준다. 모달은 브라우저에서 권한 거부를 알아챈 뒤에만 그려진다.
   const host =
     typeof window === "undefined" ? "" : `${window.location.host}${window.location.pathname}`;
@@ -234,7 +226,7 @@ function ModalButton({
   pending,
   disabled,
   autoFocus,
-}: {
+}: Readonly<{
   tone: "surface" | "brand";
   icon: ReactNode;
   children: ReactNode;
@@ -242,7 +234,7 @@ function ModalButton({
   pending: boolean;
   disabled: boolean;
   autoFocus?: boolean;
-}) {
+}>) {
   return (
     <button
       type="button"

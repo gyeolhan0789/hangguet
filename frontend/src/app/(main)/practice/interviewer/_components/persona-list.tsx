@@ -30,11 +30,11 @@ function PersonaRow({
   info,
   checked,
   onSelect,
-}: {
+}: Readonly<{
   info: PersonaInfo;
   checked: boolean;
   onSelect: (persona: Persona) => void;
-}) {
+}>) {
   const [avatar, animateAvatar] = useAnimate<HTMLSpanElement>();
   const reduce = useReducedMotion();
   const wasChecked = useRef(checked);
@@ -117,7 +117,7 @@ function PersonaRow({
 }
 
 /** 마지막 줄 '또 다른 면접관'. 고를 수 없고, 누르면 살짝 흔들리며 토스트로 알린다. */
-function ComingSoonRow({ onPress }: { onPress: () => void }) {
+function ComingSoonRow({ onPress }: Readonly<{ onPress: () => void }>) {
   const [scope, animate] = useAnimate<HTMLButtonElement>();
   const reduce = useReducedMotion();
 
@@ -158,10 +158,10 @@ function ComingSoonRow({ onPress }: { onPress: () => void }) {
 export function PersonaList({
   selected,
   onSelect,
-}: {
+}: Readonly<{
   selected: Persona | null;
   onSelect: (persona: Persona) => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [toastAt, setToastAt] = useState<number>();
 
@@ -193,13 +193,10 @@ export function PersonaList({
         <ComingSoonRow onPress={() => setToastAt(Date.now())} />
       </motion.div>
 
-      <div
-        role="status"
-        className="pointer-events-none fixed inset-x-0 bottom-[112px] z-20 flex justify-center px-4"
-      >
+      <output className="pointer-events-none fixed inset-x-0 bottom-[112px] z-20 flex justify-center px-4">
         <AnimatePresence>
           {toastAt !== undefined && (
-            <motion.p
+            <motion.span
               key="toast"
               className="flex h-14 items-center rounded-2xl bg-night-2 px-[18px] text-[15px] leading-normal font-semibold tracking-[-0.2px] text-white"
               initial={reduce ? false : { opacity: 0, y: 8 }}
@@ -208,10 +205,10 @@ export function PersonaList({
               transition={{ duration: 0.2 }}
             >
               곧 만나요!
-            </motion.p>
+            </motion.span>
           )}
         </AnimatePresence>
-      </div>
+      </output>
     </>
   );
 }

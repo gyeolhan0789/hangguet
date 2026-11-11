@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "지원서 선택 · 한끗" };
 /** Swagger 4.3 size 최대값 */
 const SELECT_SIZE = 20;
 
-async function Select({ searchParams }: Pick<PageProps<"/practice">, "searchParams">) {
+async function Select({ searchParams }: Readonly<Pick<PageProps<"/practice">, "searchParams">>) {
   const params = await searchParams;
   const applicationId = parseApplicationId(params.applicationId);
   const list = await getApplications(0, SELECT_SIZE);

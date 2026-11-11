@@ -31,7 +31,7 @@ function parsePage(value: string | string[] | undefined): number {
   return page <= MAX_PAGE ? page : 0;
 }
 
-async function Records({ searchParams }: Pick<PageProps<"/records">, "searchParams">) {
+async function Records({ searchParams }: Readonly<Pick<PageProps<"/records">, "searchParams">>) {
   // 요청할 때마다 그린다(오늘 날짜 · 5.15 · 5.13은 미리 그려 둘 수 없다).
   await connection();
   const params = await searchParams;

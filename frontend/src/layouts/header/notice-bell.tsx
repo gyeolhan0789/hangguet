@@ -39,12 +39,12 @@ export function NoticeRows({
   notices,
   onOpen,
   menuItems = false,
-}: {
+}: Readonly<{
   notices: NoticeItem[];
   onOpen: (notice: NoticeItem) => void;
   /** role="menu" 안이면 줄마다 menuitem */
   menuItems?: boolean;
-}) {
+}>) {
   if (notices.length === 0) {
     return (
       <span className="p-3 text-[15px] leading-normal font-medium text-text-3">공지가 없어요</span>
@@ -75,7 +75,7 @@ export function NoticeRows({
   ));
 }
 
-export function NoticeBell({ notices }: { notices: NoticeItem[] }) {
+export function NoticeBell({ notices }: Readonly<{ notices: NoticeItem[] }>) {
   const [open, setOpen] = useState(false);
   const modal = useNoticeModal();
   const rootRef = useRef<HTMLDivElement>(null);

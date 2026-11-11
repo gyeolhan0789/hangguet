@@ -1,9 +1,9 @@
 "use client";
 
-import { motion } from "motion/react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 
+import { ProgressBar } from "@/components/progress-bar";
 import { useOnline } from "@/components/use-online";
 
 import { hasDuckCall } from "@/lib/interview/duck-call";
@@ -34,13 +34,13 @@ export function TopBar({
   session,
   question,
   uiHidden = false,
-}: {
+}: Readonly<{
   session: SessionResponse;
   /** 화면 숨기기(눈 버튼) 중: [면접 종료]만 남긴다(사용자 요청 2026-10-27) */
   uiHidden?: boolean;
   /** 5.5 지금 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
-}) {
+}>) {
   const openEnd = useInterviewStore((state) => state.openEnd);
   const online = useOnline();
   const persona = PERSONAS.find((info) => info.persona === session.persona);
@@ -96,33 +96,26 @@ export function TopBar({
 }
 
 /** '질문 3 / 5'와 진행 막대. 질문이 바뀌면 막대가 늘어난다. */
-function ProgressPill({ seq }: { seq: number }) {
+function ProgressPill({ seq }: Readonly<{ seq: number }>) {
   return (
     <>
       <span className="text-[15px] leading-normal font-bold whitespace-nowrap text-white">
         질문 {seq} / {TOTAL_QUESTIONS}
       </span>
-      <span
-        role="progressbar"
-        aria-label="질문 진행"
-        aria-valuemin={0}
-        aria-valuemax={TOTAL_QUESTIONS}
-        aria-valuenow={seq}
-        className="relative h-1 w-[120px] shrink-0 overflow-hidden rounded-full bg-white/20"
-      >
-        <motion.span
-          className="absolute inset-y-0 left-0 rounded-full bg-brand"
-          initial={false}
-          animate={{ width: `${(seq / TOTAL_QUESTIONS) * 100}%` }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-        />
-      </span>
+      <ProgressBar
+        label="질문 진행"
+        value={seq}
+        max={TOTAL_QUESTIONS}
+        duration={0.4}
+        className="h-1 w-[120px] shrink-0 bg-white/20"
+        fillClassName="bg-brand"
+      />
     </>
   );
 }
 
 /** 면접 경과 시간. 5.2 elapsedSeconds에서 시작해 면접 중(IN_PROGRESS)이고 연결돼 있을 때만 1초마다 는다. */
-function Elapsed({ seconds, running }: { seconds: number; running: boolean }) {
+function Elapsed({ seconds, running }: Readonly<{ seconds: number; running: boolean }>) {
   // 다시 그려 5.2 값이 바뀌면 그 값에서 다시 센다.
   const [base, setBase] = useState(seconds);
   const [extra, setExtra] = useState(0);

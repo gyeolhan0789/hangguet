@@ -11,11 +11,33 @@ import type { CompanyItem } from "@/types/api";
 // · 사용자 결정(2026-11-05: 맞는 회사가 없으면 목록 창을 띄우지 않는다) · 목록 상자 · 줄 · 열고 닫는 연출은 헤더 공지 메뉴(C03)와 같다
 // · 참고: WAI-ARIA APG Combobox(목록 자동 완성) — 방향키로 고르고 Enter로 넣고 Esc로 닫는다
 
-/** BE CompanyCardFinder · 파이프라인 candidates.key와 같은 규칙 */
-const DROP = /\(주\)|㈜|주식회사|co\.?,?\.?\s*ltd\.?|corp(oration)?\.?|inc\.?|[\s.,·-]/giu;
+/**
+ * BE CompanyCardFinder · 파이프라인 candidates.key와 같은 규칙. 한 정규식으로 쓰면 너무 복잡해 셋으로 나눈다.
+ * 차례로 빼면 앞에서 뺀 자리로 뒤 패턴이 새로 붙을 수 있어(예: "Co(주)Ltd"), 원문에서 셋이 맞는 자리를 모두 모아 한 번에 뺀다.
+ * 셋은 서로 다른 글자로 시작해(한글 · 영문 · 구두점) 한 정규식으로 뺄 때와 빠지는 자리가 같다.
+ */
+const DROP = [
+  /\(주\)|㈜|주식회사/gu,
+  /co\.?,?\.?\s*ltd\.?|corp(oration)?\.?|inc\.?/giu,
+  /[\s.,·-]/gu,
+];
+
+/** 원문에서 빠지는 글자 자리(UTF-16 위치) */
+function droppedIndexes(text: string): Set<number> {
+  const dropped = new Set<number>();
+  for (const pattern of DROP) {
+    for (const { index, 0: hit } of text.matchAll(pattern)) {
+      for (let i = index; i < index + hit.length; i++) dropped.add(i);
+    }
+  }
+  return dropped;
+}
 
 function normalize(text: string) {
-  return text.replace(DROP, "").toLowerCase();
+  const dropped = droppedIndexes(text);
+  let kept = "";
+  for (let i = 0; i < text.length; i++) if (!dropped.has(i)) kept += text[i];
+  return kept.toLowerCase();
 }
 
 interface Match {
@@ -35,12 +57,9 @@ function search(companies: CompanyItem[], query: string): Match[] {
 }
 
 /** 정규화한 query가 맞는 글자를 칠한다. 띄어쓰기 · (주) 등 빠지는 글자를 건너뛰며 원래 글자 위치를 찾는다 */
-function Highlight({ text, query }: { text: string; query: string }) {
+function Highlight({ text, query }: Readonly<{ text: string; query: string }>) {
   if (!query) return text;
-  const dropped = new Set<number>();
-  for (const { index, 0: hit } of text.matchAll(DROP)) {
-    for (let i = index; i < index + hit.length; i++) dropped.add(i);
-  }
+  const dropped = droppedIndexes(text);
   const kept = Array.from({ length: text.length }, (_, i) => i).filter((i) => !dropped.has(i));
   const at = kept
     .map((i) => text[i])

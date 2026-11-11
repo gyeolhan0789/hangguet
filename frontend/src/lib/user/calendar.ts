@@ -60,6 +60,27 @@ export interface CalendarDay {
 /** 한 주(일~토). 그달이 아닌 칸은 null */
 export type CalendarWeek = (CalendarDay | null)[];
 
+/** 달을 넘기는 방향. 이전 달로 가면 -1(왼쪽에서 들어온다), 다음 달로 가면 1(오른쪽에서 들어온다) */
+export function monthDirection(from: string, to: string): -1 | 1 {
+  return to < from ? -1 : 1;
+}
+
+function dayState(date: string, today: string): DayState {
+  if (date < today) return "past";
+  return date === today ? "today" : "future";
+}
+
+/** 달력 한 줄. 줄 번호(row) · 칸 번호(column)를 key로 쓴다(한 달 안에서 줄 · 칸 자리는 바뀌지 않는다) */
+export interface CalendarRow {
+  row: number;
+  cells: { column: number; day: CalendarDay | null }[];
+}
+
+/** 주마다 줄 번호를, 칸마다 칸 번호(0 일요일 ~ 6 토요일)를 붙인다 */
+export function calendarRows(weeks: CalendarWeek[]): CalendarRow[] {
+  return weeks.map((week, row) => ({ row, cells: week.map((day, column) => ({ column, day })) }));
+}
+
 /** month(YYYY-MM)의 달력. practiced는 그달 연습한 날(3.3 content의 practiceDate) */
 export function buildCalendar(
   month: string,
@@ -81,7 +102,7 @@ export function buildCalendar(
       date,
       day,
       practiced: isPracticed,
-      state: date < today ? "past" : date === today ? "today" : "future",
+      state: dayState(date, today),
       joinPrev: isPracticed && column > 0 && day > 1 && practiced.has(addDays(date, -1)),
       joinNext: isPracticed && column < 6 && day < lastDay && practiced.has(addDays(date, 1)),
     });

@@ -32,7 +32,9 @@ function parsePage(value: string | string[] | undefined): number {
   return page <= MAX_PAGE ? page : 0;
 }
 
-async function Applications({ searchParams }: Pick<PageProps<"/applications">, "searchParams">) {
+async function Applications({
+  searchParams,
+}: Readonly<Pick<PageProps<"/applications">, "searchParams">>) {
   await connection();
   const page = parsePage((await searchParams).page);
   const list = await getApplications(page, PAGE_SIZE);

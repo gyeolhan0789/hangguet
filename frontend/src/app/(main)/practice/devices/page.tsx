@@ -15,7 +15,9 @@ export const metadata: Metadata = { title: "장치 점검 · 한끗" };
 // 면접이 없으면 S03으로, 채팅 면접이면(장치 점검이 필요 없다) 면접 화면으로 보낸다.
 // 면접 상태(status)로는 보내지 않는다(웹 목 서버의 5.2 실제 응답은 늘 'S06·S06-B 면접 중'(IN_PROGRESS) 예시다).
 // 이미 시작 · 종료한 면접이면 [면접 시작](5.4)이 409 INVALID_SESSION_STATE 문구로 알린다.
-async function Devices({ searchParams }: Pick<PageProps<"/practice/devices">, "searchParams">) {
+async function Devices({
+  searchParams,
+}: Readonly<Pick<PageProps<"/practice/devices">, "searchParams">>) {
   const params = await searchParams;
   const sessionId = parseSessionId(params.sessionId);
   const session = sessionId === null ? null : await getSession(sessionId);

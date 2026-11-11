@@ -9,7 +9,7 @@ import type { HomeResponse, RecentReviewItem } from "@/types/api";
 
 const card = "flex flex-col rounded-3xl bg-bg-sub";
 
-function CardLabel({ icon, children }: { icon: string; children: ReactNode }) {
+function CardLabel({ icon, children }: Readonly<{ icon: string; children: ReactNode }>) {
   return (
     <span className="flex items-center gap-1.5">
       <MaskIcon src={icon} size={16} className="bg-text-3" />
@@ -53,7 +53,7 @@ function FeatureCard({
 }
 
 /** S02 '어제의 나에게서' — 직전 성장 리뷰의 '다음에 해볼 것' */
-export function NextActionCard({ home }: { home: HomeResponse }) {
+export function NextActionCard({ home }: Readonly<{ home: HomeResponse }>) {
   const [action] = home.nextActions;
   if (!action) return null;
   return (
@@ -74,7 +74,7 @@ export function NextActionCard({ home }: { home: HomeResponse }) {
  * S02-B '오늘 나아진 점' → 오늘 성장 리뷰(S08).
  * 날짜는 FE의 오늘이 아니라 응답의 가장 최근 성장 리뷰 날짜(웹 Swagger 3.1: 오늘의 집계는 한국 시간 면접 시작 날짜 기준)를 쓴다.
  */
-export function TodayImprovedCard({ home }: { home: HomeResponse }) {
+export function TodayImprovedCard({ home }: Readonly<{ home: HomeResponse }>) {
   const [latest] = home.recentReviews;
   if (home.todayImprovements.length === 0 || !latest) return null;
   return (
@@ -89,7 +89,7 @@ export function TodayImprovedCard({ home }: { home: HomeResponse }) {
 }
 
 /** S02-C '지난번 마지막 연습' → 그날 성장 리뷰(S08) */
-export function LastPracticeCard({ home }: { home: HomeResponse }) {
+export function LastPracticeCard({ home }: Readonly<{ home: HomeResponse }>) {
   const [last] = home.recentReviews;
   if (!last) return null;
   const detail = formatReviewImprovement(last);
@@ -104,12 +104,13 @@ export function LastPracticeCard({ home }: { home: HomeResponse }) {
   );
 }
 
-function ReviewRow({ review }: { review: RecentReviewItem }) {
+function ReviewRow({ review }: Readonly<{ review: RecentReviewItem }>) {
   const improvement = formatReviewImprovement(review);
+  const improvementLabel = improvement ? `${improvement} ` : "";
   return (
     <Link
       href={growthReviewPath(review.practiceDate)}
-      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${improvement ? `${improvement} ` : ""}성장 리뷰 보기`}
+      aria-label={`${shortDate(review.practiceDate)} ${review.companyName} ${improvementLabel}성장 리뷰 보기`}
       className="flex items-center justify-between gap-3 py-2.5"
     >
       <span className="flex min-w-0 items-center gap-3 leading-normal font-semibold">
@@ -129,7 +130,7 @@ function ReviewRow({ review }: { review: RecentReviewItem }) {
 }
 
 /** '최근 성장 리뷰' — 행을 누르면 그날 성장 리뷰(S08) */
-export function RecentReviewsCard({ reviews }: { reviews: RecentReviewItem[] }) {
+export function RecentReviewsCard({ reviews }: Readonly<{ reviews: RecentReviewItem[] }>) {
   if (reviews.length === 0) return null;
   return (
     <div className={`${card} gap-1 px-7 py-6`}>

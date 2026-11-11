@@ -27,7 +27,9 @@ function parsePage(value: string | string[] | undefined): number {
 
 const pagerArrow = "text-lg leading-normal font-medium text-text-3";
 
-async function Inquiries({ searchParams }: Pick<PageProps<"/inquiries">, "searchParams">) {
+async function Inquiries({
+  searchParams,
+}: Readonly<Pick<PageProps<"/inquiries">, "searchParams">>) {
   await connection();
   const page = parsePage((await searchParams).page);
   const list = await getMyInquiries(page);

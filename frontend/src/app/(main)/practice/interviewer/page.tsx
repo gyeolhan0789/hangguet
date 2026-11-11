@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "면접관 선택 · 한끗" };
 // 지원서가 없으면(주소가 틀렸거나 404) 처음 단계인 S03으로 돌려보낸다.
 async function Interviewer({
   searchParams,
-}: Pick<PageProps<"/practice/interviewer">, "searchParams">) {
+}: Readonly<Pick<PageProps<"/practice/interviewer">, "searchParams">>) {
   const params = await searchParams;
   const applicationId = parseApplicationId(params.applicationId);
   const application = applicationId === null ? null : await getApplication(applicationId);

@@ -94,6 +94,12 @@ interface Outcome {
 /** 로그인한 회원이 S09-1에서 시작하는 용도(알림 켜기 · 계정 연결) */
 const SETTINGS_PURPOSES: ReadonlySet<KakaoPurpose> = new Set<KakaoPurpose>(["alarm", "link"]);
 
+/** state가 맞지 않을 때 문구 · 돌아갈 화면을 고르는 용도(아래 GET 설명) */
+function unverifiedPurpose(loggedIn: boolean, saved: string | undefined): KakaoPurpose {
+  if (!loggedIn) return "login";
+  return purposeOf(saved) === "link" ? "link" : "alarm";
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const saved = request.cookies.get(OAUTH_STATE_COOKIE)?.value;
@@ -102,7 +108,7 @@ export async function GET(request: NextRequest) {
   // 보내진다), 로그인한 회원은 설정 화면(로그인 화면은 로그인 전에만 열리므로 로그인 용도일 수 없다). 설정 화면의 문구는 쿠키에 남은
   // 용도(서버만 쓰는 값이라 문구를 고르는 데만 쓴다)가 연결이면 연결 실패, 그 밖(알림 · 만료로 없음)은 알림 실패 문구다.
   const loggedIn = request.cookies.has(ACCESS_TOKEN_COOKIE);
-  const known = purpose ?? (loggedIn ? (purposeOf(saved) === "link" ? "link" : "alarm") : "login");
+  const known = purpose ?? unverifiedPurpose(loggedIn, saved);
   const target = SETTINGS_PURPOSES.has(known) ? ROUTES.settings : ROUTES.login;
   const failed = failedText(known);
 

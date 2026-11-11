@@ -67,8 +67,9 @@ def test_files_outside_raw_prefix_or_in_subfolders_are_ignored() -> None:
 @pytest.mark.parametrize("absent", [VIDEO, CANDIDATE, INTERVIEWER])
 def test_any_missing_kind_is_track_not_found(absent: str) -> None:
     keys = [key for key in (VIDEO, CANDIDATE, INTERVIEWER) if key != absent]
+    stored = stored_all(*keys)
     with pytest.raises(MissingTrackError):
-        select_tracks(stored_all(*keys), RAW)
+        select_tracks(stored, RAW)
 
 
 def test_rejoined_tracks_of_a_kind_are_ordered_by_upload_time_not_name() -> None:
@@ -166,7 +167,8 @@ FFPROBE = shutil.which("ffprobe")
 
 @pytest.mark.skipif(FFMPEG is None or FFPROBE is None, reason="ffmpeg가 설치되지 않았다")
 def test_real_ffmpeg_merges_h264_and_two_opus_tracks(tmp_path: Path) -> None:
-    assert FFMPEG is not None and FFPROBE is not None
+    assert FFMPEG is not None
+    assert FFPROBE is not None
     video, candidate, interviewer = tmp_path / "v.mp4", tmp_path / "c.ogg", tmp_path / "i.ogg"
     # Egress 트랙 녹화와 같은 형식(H.264 mp4, Opus ogg)의 짧은 합성 파일을 만든다
     for args in (
@@ -212,7 +214,8 @@ def synthesize(ffmpeg: str, source: str, codec: list[str], target: Path) -> Path
 def test_real_ffmpeg_concatenates_rejoined_tracks_without_reencoding_video(
     tmp_path: Path,
 ) -> None:
-    assert FFMPEG is not None and FFPROBE is not None
+    assert FFMPEG is not None
+    assert FFPROBE is not None
     h264 = ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
     opus = ["-c:a", "libopus"]
     # 재접속 전 1초, 재접속 뒤 2초 구간을 Egress 트랙 녹화와 같은 형식으로 만든다
@@ -308,8 +311,9 @@ def test_tracks_are_placed_from_earliest_start_in_start_order_not_name() -> None
 
 
 def test_placed_tracks_missing_a_kind_are_track_not_found() -> None:
+    tracks = [(VIDEO, at(0)), (CANDIDATE, at(0))]
     with pytest.raises(MissingTrackError):
-        place_tracks([(VIDEO, at(0)), (CANDIDATE, at(0))], RAW)
+        place_tracks(tracks, RAW)
 
 
 def test_segments_end_where_next_track_of_kind_starts() -> None:
@@ -417,7 +421,8 @@ OPUS = ["-c:a", "libopus"]
 
 @pytest.mark.skipif(FFMPEG is None or FFPROBE is None, reason="ffmpeg가 설치되지 않았다")
 def test_real_ffmpeg_places_late_start_and_rejoin_gap(tmp_path: Path) -> None:
-    assert FFMPEG is not None and FFPROBE is not None
+    assert FFMPEG is not None
+    assert FFPROBE is not None
     # 면접관 음성은 0~1초, 지원자는 2초에 시작해 1초 녹화 뒤 끊기고 4초에 재접속해 1초 녹화한다
     interviewer = synthesize(FFMPEG, "sine=frequency=660:duration=1", OPUS, tmp_path / "i.ogg")
     videos, candidates = [], []
@@ -450,7 +455,8 @@ def test_real_ffmpeg_places_late_start_and_rejoin_gap(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(FFMPEG is None or FFPROBE is None, reason="ffmpeg가 설치되지 않았다")
 def test_real_ffmpeg_cuts_previous_track_where_overlapping_track_starts(tmp_path: Path) -> None:
-    assert FFMPEG is not None and FFPROBE is not None
+    assert FFMPEG is not None
+    assert FFPROBE is not None
     # 앞 구간(0~3초)이 끝나기 전에 뒤 구간(1~2초)이 시작한다
     videos, candidates = [], []
     for index, (offset, seconds) in enumerate(((0.0, 3), (1.0, 1))):
@@ -476,7 +482,8 @@ def test_real_ffmpeg_cuts_video_with_nonzero_first_timestamp_at_placed_length(
     tmp_path: Path,
 ) -> None:
     """첫 타임스탬프가 0.5초인 영상도 다음 영상이 시작하는 위치까지 1초를 남긴다."""
-    assert FFMPEG is not None and FFPROBE is not None
+    assert FFMPEG is not None
+    assert FFPROBE is not None
     # 앞 영상(2초, 첫 타임스탬프 0.5초)은 0초에, 뒤 영상(1초)은 1초에 배치한다
     shifted = [*WEBRTC_H264, "-output_ts_offset", "0.5"]
     source = "testsrc=duration=2:size=320x240:rate=15"

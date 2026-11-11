@@ -14,7 +14,7 @@ const menuItem =
   "group/item flex w-full cursor-pointer items-center gap-2.5 rounded-[10px] p-3 text-[15px] leading-normal font-semibold transition-colors hover:bg-surface focus-visible:bg-surface focus-visible:outline-none";
 
 // Figma C01: 아바타를 누르면 오른쪽 위를 기준으로 드롭다운이 열린다. 바깥 클릭·Esc로 닫힌다.
-export function ProfileMenu({ user }: { user: MeResponse }) {
+export function ProfileMenu({ user }: Readonly<{ user: MeResponse }>) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 

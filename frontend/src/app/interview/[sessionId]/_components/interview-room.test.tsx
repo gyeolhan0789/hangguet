@@ -11,6 +11,7 @@ import type {
   QuestionMessage,
   ReactionSnapshot,
 } from "@/lib/interview/room-messages";
+import { flushPromises } from "@/test/flush";
 import type { CurrentQuestion, SessionResponse } from "@/types/api";
 
 import {
@@ -289,15 +290,13 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       expect(
         (screen.getByRole("button", { name: "답변 보내기" }) as HTMLButtonElement).disabled,
       ).toBe(true);
-      await act(async () => {
-        fireEvent.keyDown(input, { key: "Enter" });
-      });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await flushPromises();
       expect(submitTextAnswer).not.toHaveBeenCalled();
       room.question = { ...room.question, speech };
       rerender(chatRoom());
-      await act(async () => {
-        fireEvent.keyDown(input, { key: "Enter" });
-      });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await flushPromises();
       expect(submitTextAnswer).toHaveBeenCalledWith(
         55,
         303,
@@ -330,8 +329,10 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(box()).toHaveProperty("disabled", false);
     expect(button().disabled).toBe(true);
     fireEvent.input(box(), { target: { value: "먼저 써 둔 답" } });
-    await act(async () => fireEvent.keyDown(box(), { key: "Enter" }));
-    await act(async () => fireEvent.submit(box().closest("form")!));
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flushPromises();
+    fireEvent.submit(box().closest("form")!);
+    await flushPromises();
     expect(submitTextAnswer).not.toHaveBeenCalled();
     // 메시지를 받으면 2초 조회를 기다리지 않고 바로 5.5를 다시 받는다
     act(() => vi.advanceTimersByTime(0));
@@ -393,7 +394,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     const { rerender } = render(chatRoom());
     const box = () => screen.getByRole("textbox", { name: "답변" });
     fireEvent.input(box(), { target: { value: "답" } });
-    await act(async () => fireEvent.keyDown(box(), { key: "Enter" }));
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flushPromises();
     expect(submitTextAnswer).toHaveBeenCalledOnce();
     rerender(chatRoom());
 
@@ -617,7 +619,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(thinking()).toBeNull();
     expect(startSession).not.toHaveBeenCalled();
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시도" })));
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await flushPromises();
 
     expect(retryPlan).toHaveBeenCalledWith(55);
     expect(screen.getByRole("alert").textContent).toBe("면접 준비가 실패한 상태가 아니에요.");
@@ -738,7 +741,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(submitButton()).toHaveProperty("disabled", true);
 
     rerender(videoRoom());
-    await act(async () => fireEvent.click(submitButton()));
+    fireEvent.click(submitButton());
+    await flushPromises();
     expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
     // 받아들여지면 내는 중이라 다시 누를 수 없고, 낸 답변 글은 감춘다
     expect(submitButton()).toHaveProperty("disabled", true);
@@ -753,7 +757,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       room.submitAnswer = vi.fn(async () => result);
       render(videoRoom());
 
-      await act(async () => fireEvent.click(submitButton()));
+      fireEvent.click(submitButton());
+      await flushPromises();
       expect(submitButton()).toHaveProperty("disabled", false);
       expect(caption()).toContain("트래픽을 나눠 받았어요");
     },
@@ -802,7 +807,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     room.confirmedText = "트래픽을 나눠 받았어요";
     render(videoRoom());
 
-    await act(async () => fireEvent.click(submitButton()));
+    fireEvent.click(submitButton());
+    await flushPromises();
     act(() => vi.advanceTimersByTime(SILENT_TOAST_MS * 2));
 
     expect(screen.queryByText(MIC_TOAST)).toBeNull();
@@ -912,7 +918,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(within(alert).getByText("답변을 저장하지 못했어요")).toBeTruthy();
     expect(within(alert).getByRole("button", { name: "다시 시도" })).toBeTruthy();
     expect(retryButton()).toHaveProperty("disabled", false);
-    await act(async () => fireEvent.click(retryButton()));
+    fireEvent.click(retryButton());
+    await flushPromises();
     expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
     expect(screen.queryByText("답변을 저장하지 못했어요")).toBeNull();
   });
@@ -923,7 +930,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       room.submitAnswer = vi.fn(async () => result);
       render(videoRoom());
       answerState({ seq: 3, state: "submitFailed" });
-      await act(async () => fireEvent.click(retryButton()));
+      fireEvent.click(retryButton());
+      await flushPromises();
       expect(retryButton()).toHaveProperty("disabled", false);
       expect(screen.getByRole("alert").textContent).toContain("답변을 저장하지 못했어요");
     },
@@ -934,11 +942,13 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     room.submitAnswer = vi.fn(() => new Promise<string>((resolve) => (finish = resolve)));
     render(videoRoom());
     answerState({ seq: 3, state: "submitFailed" });
-    await act(async () => fireEvent.click(retryButton()));
+    fireEvent.click(retryButton());
+    await flushPromises();
     // 응답을 기다리는 동안 안내는 남고 [다시 시도]는 막혀 다시 보내지 않는다
     expect(screen.getByText("답변을 저장하지 못했어요")).toBeTruthy();
     expect(retryButton()).toHaveProperty("disabled", true);
-    await act(async () => fireEvent.click(retryButton()));
+    fireEvent.click(retryButton());
+    await flushPromises();
     expect(room.submitAnswer).toHaveBeenCalledTimes(1);
     await act(async () => finish("accepted"));
     expect(screen.queryByText("답변을 저장하지 못했어요")).toBeNull();
@@ -1010,7 +1020,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     render(videoRoom());
     answerState({ seq: 3, state: "submitFailed" });
     expect(screen.getByRole("alert").textContent).toContain("답변을 저장하지 못했어요");
-    await act(async () => fireEvent.click(retryButton()));
+    fireEvent.click(retryButton());
+    await flushPromises();
     expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3);
   });
 
@@ -1088,12 +1099,14 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     render(videoRoom(last, 4));
     answerState({ seq: 5, state: "submitted" });
     fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
+    await flushPromises();
     expect(endSession).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
     expect(endSession).toHaveBeenCalledTimes(1);
     // 자동 종료가 보낸 뒤에도 모달은 저장 중이라 [끝내기]를 다시 눌러도 보내지 않는다
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
+    await flushPromises();
     expect(endSession).toHaveBeenCalledTimes(1);
   });
 
@@ -1107,7 +1120,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     expect(refresh).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
+    await flushPromises();
     expect(endSession).not.toHaveBeenCalled();
     await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -1119,10 +1133,12 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     room.streamId = "capture-2";
     room.interimText = "다음 답변";
     rerender(videoRoom({ id: 304, seq: 4, content: "다음 질문" }, 2));
-    await act(async () => fireEvent.click(submitButton()));
+    fireEvent.click(submitButton());
+    await flushPromises();
 
     fireEvent.click(screen.getByRole("button", { name: "면접 종료" }));
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "끝내기" })));
+    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
+    await flushPromises();
     refresh.mockClear();
     await act(async () => vi.advanceTimersByTime(SESSION_POLL_MS));
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -1187,9 +1203,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
       target: { value: "캐시를 바꿨어요" },
     });
 
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole("textbox", { name: "답변" }), { key: "Enter" });
-    });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "답변" }), { key: "Enter" });
+    await flushPromises();
     expect(room.submitAnswer).toHaveBeenCalledExactlyOnceWith(3, "캐시를 바꿨어요");
 
     await act(async () => vi.advanceTimersByTime(CHAT_ROOM_RETRY_MS - 1));
@@ -1216,9 +1231,8 @@ describe("InterviewRoom (면접 화면 고르기 · 다시 조회)", () => {
     const { rerender } = render(chatRoom());
     const answer = async (text: string) => {
       fireEvent.input(screen.getByRole("textbox", { name: "답변" }), { target: { value: text } });
-      await act(async () => {
-        fireEvent.keyDown(screen.getByRole("textbox", { name: "답변" }), { key: "Enter" });
-      });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "답변" }), { key: "Enter" });
+      await flushPromises();
     };
     await answer("3번 답");
     rerender(
@@ -1328,7 +1342,8 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
     render(startFailedRoom());
     waitRestart();
     expect(room.mounts).toBe(1);
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시작" })));
+    fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+    await flushPromises();
     expect(startSession).toHaveBeenCalledExactlyOnceWith(
       55,
       expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -1344,11 +1359,14 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
     waitRestart();
     const restart = () => screen.getByRole("button", { name: "다시 시작" });
 
-    await act(async () => fireEvent.click(restart()));
+    fireEvent.click(restart());
+    await flushPromises();
     expect(screen.getByRole("alertdialog").textContent).toContain("다시 시작하지 못했어요");
     expect(room.mounts).toBe(1);
-    await act(async () => fireEvent.click(restart()));
-    await act(async () => fireEvent.click(restart()));
+    fireEvent.click(restart());
+    await flushPromises();
+    fireEvent.click(restart());
+    await flushPromises();
 
     const keys = startSession.mock.calls.map((call) => call[1]);
     expect(keys[1]).toBe(keys[0]);
@@ -1360,7 +1378,8 @@ describe("InterviewRoom (S06-F 연결 끊김 · S06-F2 면접관 연결 실패)"
     startSession.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
     render(startFailedRoom());
     waitRestart();
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "다시 시작" })));
+    fireEvent.click(screen.getByRole("button", { name: "다시 시작" }));
+    await flushPromises();
     expect(screen.getByRole("button", { name: "다시 시작" })).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "나가기" })).toHaveProperty("disabled", true);
     await act(async () => finish({}));
@@ -1409,7 +1428,8 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
     const endButton = screen.getByRole("button", { name: "면접 종료" });
     expect(endButton.closest("[inert]")).not.toBeNull();
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "면접 시작" })));
+    fireEvent.click(screen.getByRole("button", { name: "면접 시작" }));
+    await flushPromises();
     expect(waitingScreen()).toBeNull();
     expect(endButton.closest("[inert]")).toBeNull();
     expect(joinRoom).toHaveBeenCalledWith(55, null, expect.objectContaining({ listenOnly: true }));

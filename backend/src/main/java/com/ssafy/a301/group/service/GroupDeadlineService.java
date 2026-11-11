@@ -107,9 +107,7 @@ public class GroupDeadlineService {
             long sessionId = (Long) row[1];
             safely("완료 뒤 종료", groupId, () -> groupEnds.endAfterDone(groupId, sessionId));
         }
-        for (Object[] row :
-                participants.findOverdueAbsent(
-                        now.minus(InterviewGroupParticipant.ABSENCE_LIMIT))) {
+        for (Object[] row : participants.findOverdueAbsent(now)) {
             long groupId = (Long) row[0];
             long sessionId = (Long) row[1];
             safely("이탈 종료", groupId, () -> groupEnds.endDisconnected(groupId, sessionId));

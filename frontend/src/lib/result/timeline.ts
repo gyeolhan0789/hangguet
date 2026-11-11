@@ -104,7 +104,7 @@ export function timelineSeries(items: readonly ReplayItem[], duration = 0): Time
     if (points.length === 0 && answer[0].time > 0)
       points.push({ time: 0, value: 0, measured: false });
     points.push(...gap(end, answer[0].time), ...answer);
-    end = answer[answer.length - 1].time;
+    end = answer.at(-1)?.time ?? end;
   }
   if (duration > end)
     points.push(...gap(end, duration), { time: duration, value: 0, measured: false });
@@ -121,7 +121,13 @@ export function checkpointNear(checkpoints: readonly TimelineCheckpoint[], time:
       (time >= checkpoint.start && time <= checkpoint.end) ||
       Math.abs(time - checkpoint.at) <= SELECT_RANGE_SECONDS,
   );
-  return near.sort((a, b) => Math.abs(time - a.at) - Math.abs(time - b.at))[0] ?? null;
+  // 거리가 같으면 앞의 것(정렬 · 첫 번째와 같은 결과)
+  let nearest: TimelineCheckpoint | null = null;
+  for (const checkpoint of near) {
+    if (!nearest || Math.abs(time - checkpoint.at) < Math.abs(time - nearest.at))
+      nearest = checkpoint;
+  }
+  return nearest;
 }
 
 /** 자신감 · 군말 3회 */

@@ -40,7 +40,8 @@ async function recordIntroTimeline(page: Page) {
     Object.assign(window, { __introTimeline: timeline });
     new MutationObserver(() => {
       const now = performance.now();
-      const overlay = document.querySelector('[role="status"]');
+      // 인트로 덮개는 <output aria-label>(암묵 역할 status)이라 role 속성이 없다
+      const overlay = document.querySelector("output[aria-label]");
       // 인트로가 뜨면 뒤 화면 스크롤을 막는다. 그 순간을 시작으로 본다.
       if (timeline.start === undefined && document.documentElement.style.overflow === "hidden") {
         timeline.start = now;

@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion, type MotionValue } from "mot
 import Image from "next/image";
 import { useEffect, useRef, type KeyboardEvent } from "react";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { LevelMeter } from "@/components/level-meter";
 import { Spinner } from "@/components/spinner";
 import { useVoiceCheck, type VoiceStatus } from "@/components/use-voice-check";
@@ -39,7 +40,7 @@ export function MicCheckModal({
   stream,
   level,
   onPauseSending,
-}: {
+}: Readonly<{
   open: boolean;
   onClose: () => void;
   /** 면접에서 쓰는 카메라 · 마이크 */
@@ -48,7 +49,7 @@ export function MicCheckModal({
   level: MotionValue<number>;
   /** 녹음하는 동안 면접방 송출을 멈추고(true), 끝나면 다시 보낸다(false) */
   onPauseSending: (paused: boolean) => void;
-}) {
+}>) {
   return (
     <AnimatePresence>
       {open && (
@@ -68,12 +69,12 @@ function MicCheckDialog({
   stream,
   level,
   onPauseSending,
-}: {
+}: Readonly<{
   onClose: () => void;
   stream: MediaStream | null;
   level: MotionValue<number>;
   onPauseSending: (paused: boolean) => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const dialog = useRef<HTMLDivElement>(null);
   const close = useRef<HTMLButtonElement>(null);
@@ -105,16 +106,7 @@ function MicCheckDialog({
     const buttons = [
       ...dialog.current.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
     ];
-    if (buttons.length === 0) return;
-    const first = buttons[0];
-    const last = buttons[buttons.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, buttons);
   }
 
   return (
@@ -163,27 +155,22 @@ function MicCheckDialog({
           <LevelMeter level={level} />
         </div>
         <div className="flex w-full items-center gap-2 rounded-2xl bg-[#f9fafb] px-4 py-3">
-          <p
-            role="status"
-            className={`min-w-0 flex-1 text-sm leading-normal font-medium tracking-[-0.2px] ${
+          <output
+            className={`block min-w-0 flex-1 text-sm leading-normal font-medium tracking-[-0.2px] ${
               voice.status === "recordFailed" || voice.status === "playFailed"
                 ? "text-[#f04452]"
                 : "text-[#4e5968]"
             }`}
           >
             {VOICE_TEXT[voice.status]}
-          </p>
+          </output>
           <VoiceButton
             icon="/devices/icon-mic.svg"
             onClick={voice.record}
             disabled={!live}
             pending={recording}
           >
-            {recording
-              ? "녹음 중"
-              : recorded || voice.status === "recordFailed"
-                ? "다시 녹음"
-                : "녹음하기"}
+            {recordButtonText(recording, recorded || voice.status === "recordFailed")}
           </VoiceButton>
           {recorded && (
             <VoiceButton
@@ -215,13 +202,13 @@ function VoiceButton({
   onClick,
   disabled = false,
   pending = false,
-}: {
+}: Readonly<{
   icon: string;
   children: string;
   onClick: () => void;
   disabled?: boolean;
   pending?: boolean;
-}) {
+}>) {
   return (
     <button
       type="button"
@@ -238,4 +225,10 @@ function VoiceButton({
       {children}
     </button>
   );
+}
+
+/** 녹음 버튼 글: 녹음하는 중 · 한 번 녹음했거나 실패해 다시 하기 · 처음 */
+function recordButtonText(recording: boolean, again: boolean): string {
+  if (recording) return "녹음 중";
+  return again ? "다시 녹음" : "녹음하기";
 }

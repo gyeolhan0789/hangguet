@@ -21,11 +21,11 @@ export function StreakCelebration({
   days,
   leveledUp,
   onDone,
-}: {
+}: Readonly<{
   days: number;
   leveledUp: boolean;
   onDone?: () => void;
-}) {
+}>) {
   const [phase, setPhase] = useState<"intro" | "levelUp" | "done">("intro");
 
   if (phase === "done") return null;

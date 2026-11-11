@@ -64,9 +64,7 @@ describe("PlanProgress · 다시 조회(5.2)", () => {
 
     expect(screen.getByText("면접관이 질문을 준비하고 있어요")).toBeDefined();
     expect(screen.getByText("78%")).toBeDefined();
-    expect(
-      screen.getByRole("progressbar", { name: "질문 준비" }).getAttribute("aria-valuenow"),
-    ).toBe("78");
+    expect(screen.getByRole("progressbar", { name: "질문 준비" }).getAttribute("value")).toBe("78");
 
     act(() => vi.advanceTimersByTime(PLAN_POLL_MS - 1));
     expect(refresh).not.toHaveBeenCalled();

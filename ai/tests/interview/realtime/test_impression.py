@@ -93,8 +93,9 @@ def test_missing_score_is_none_and_others_remain() -> None:
 
 @pytest.mark.parametrize("face", [None, "0.9", True])
 def test_missing_face_probability_is_invalid(face: object) -> None:
+    response = answers(face=face)
     with pytest.raises(InvalidImpressionError):
-        impression_from(answers(face=face))
+        impression_from(response)
 
 
 def test_answers_must_be_object() -> None:

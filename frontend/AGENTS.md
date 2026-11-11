@@ -73,7 +73,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 8. **최종 검사**: 아래를 모두 통과시킨다.
    - `npx tsc --noEmit` · `npx eslint .` · `npx prettier --check .`
    - `npx vitest run`과 `npx vitest run --sequence.shuffle`
-   - E2E: `NEXT_TEST_PROXY=1 npm run build` 뒤 `NEXT_TEST_PROXY=1 npx next start -p 3100`을 띄우고 이번에 바꾼 화면의 spec 파일 단위로 실행한다(`npx playwright test e2e/<파일>.spec.ts --workers=1`). 전체 스위트를 한 번에 돌리지 않는다(병렬 부하로 S05 · S06 테스트가 실패한다). 끝나면 서버를 끈다.
+   - E2E: `npx playwright test`로 전체를 한 번에 돌린다(Playwright가 E2E 전용 빌드 서버를 띄운다). 끝나면 서버를 끈다.
    - 브라우저로 실제 화면을 연다(라이트 · 다크 · 모바일 폭). 설계와 다른 곳이 없는지 눈으로 확인한다.
 9. **보고**: 한국어로 짧게 보고한다. 바뀐 것, 검사 결과, 남은 것 · 정해야 할 것을 적는다.
    - 커밋 · 푸시 · 브랜치는 시킬 때만 한다.

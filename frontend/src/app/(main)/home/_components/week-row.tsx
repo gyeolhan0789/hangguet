@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import { MaskIcon } from "@/components/mask-icon";
 import type { WeekDay } from "@/lib/home/week";
 
-function DayDot({ day }: { day: WeekDay }) {
+function DayDot({ day }: Readonly<{ day: WeekDay }>) {
   switch (day.status) {
     case "done":
     case "today-done":
@@ -49,7 +49,7 @@ const REST_S = 1.2;
  * 쉬는 시간을 바퀴 끝(repeatDelay)이 아니라 첫 칸 앞(at)에 둔다. Motion 14.2+가 0초에 바로 시작하는
  * '0 → -12 → 0' 키프레임을 GPU 애니메이션으로 바꿀 때 값이 터져(e+28) 첫 점이 사라지기 때문이다.
  */
-export function WeekRow({ days, wave = true }: { days: WeekDay[]; wave?: boolean }) {
+export function WeekRow({ days, wave = true }: Readonly<{ days: WeekDay[]; wave?: boolean }>) {
   const [scope, animate] = useAnimate<HTMLOListElement>();
   const reduce = useReducedMotion();
 

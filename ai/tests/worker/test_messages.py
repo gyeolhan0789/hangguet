@@ -255,20 +255,23 @@ def test_non_object_json_is_invalid(raw: str) -> None:
 
 @pytest.mark.parametrize("job_type", ["SCORE", "score_answer", None])
 def test_unknown_job_type_is_invalid(job_type: Any) -> None:
+    message = plan(jobType=job_type)
     with pytest.raises(InvalidJobError, match="jobType"):
-        parse_job(plan(jobType=job_type))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("job_id", ["", "  ", "8f0c", "8f0c2a4e-1b3d-4c5f-9a7e", 7, None])
 def test_non_uuid_job_id_is_invalid(job_id: Any) -> None:
+    message = plan(jobId=job_id)
     with pytest.raises(InvalidJobError, match="jobId"):
-        parse_job(plan(jobId=job_id))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("value", [0, -1, "55", 55.0, True, None])
 def test_invalid_session_id_is_invalid(value: Any) -> None:
+    message = plan(sessionId=value)
     with pytest.raises(InvalidJobError, match="sessionId"):
-        parse_job(plan(sessionId=value))
+        parse_job(message)
 
 
 def test_session_id_one_is_valid() -> None:
@@ -297,8 +300,9 @@ def test_session_id_one_is_valid() -> None:
 )
 def test_missing_required_field_is_invalid(factory: Any, key: str) -> None:
     """AI가 DB를 읽지 않으므로 작업에 필요한 내용이 누락된 메시지는 처리할 수 없다."""
+    message = factory(**{key: ...})
     with pytest.raises(InvalidJobError, match=key):
-        parse_job(factory(**{key: ...}))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("value", ["", "   ", " \t\r\n", "\u3000\u3000", "\u2028", 7, None])
@@ -308,8 +312,9 @@ def test_missing_required_field_is_invalid(factory: Any, key: str) -> None:
 )
 def test_blank_or_non_string_text_is_invalid(factory: Any, key: str, value: Any) -> None:
     """BE @NotBlank(Java String.isBlank)가 거부하는 공백은 AI도 빈 값으로 처리한다."""
+    message = factory(**{key: value})
     with pytest.raises(InvalidJobError, match=key):
-        parse_job(factory(**{key: value}))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("value", ["", "   ", " \t\r\n", "\u3000\u3000", "\u2028", 7, None])
@@ -318,8 +323,9 @@ def test_blank_or_non_string_text_is_invalid(factory: Any, key: str, value: Any)
 def test_blank_cover_letter_item_text_is_invalid(factory: Any, field: str, value: Any) -> None:
     """문항 질문 · 답변도 BE @NotBlank와 같은 공백 기준으로 빈 값을 거부한다."""
     item = {"question": "지원 동기", "answer": "저는…", field: value}
+    message = factory(coverLetterItems=[{"question": "문항", "answer": "답변"}, item])
     with pytest.raises(InvalidJobError, match=rf"coverLetterItems\[1\]\.{field}"):
-        parse_job(factory(coverLetterItems=[{"question": "문항", "answer": "답변"}, item]))
+        parse_job(message)
 
 
 @pytest.mark.parametrize(
@@ -329,8 +335,9 @@ def test_blank_cover_letter_item_text_is_invalid(factory: Any, field: str, value
 @pytest.mark.parametrize("factory", [plan, evaluate])
 def test_cover_letter_items_must_be_one_to_five_objects(factory: Any, value: Any) -> None:
     """API 명세 4.1: 문항은 1~5개 객체다."""
+    message = factory(coverLetterItems=value)
     with pytest.raises(InvalidJobError, match="coverLetterItems"):
-        parse_job(factory(coverLetterItems=value))
+        parse_job(message)
 
 
 def test_cover_letter_items_keep_order() -> None:
@@ -364,8 +371,9 @@ def test_legacy_cover_letter_becomes_first_item(factory: Any) -> None:
 @pytest.mark.parametrize("legacy", ["  ", 7])
 @pytest.mark.parametrize("factory", [plan, evaluate])
 def test_blank_or_non_string_legacy_cover_letter_is_invalid(factory: Any, legacy: Any) -> None:
+    message = factory(coverLetterItems=..., coverLetter=legacy)
     with pytest.raises(InvalidJobError, match="coverLetterItems"):
-        parse_job(factory(coverLetterItems=..., coverLetter=legacy))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("factory", [plan, evaluate])
@@ -394,8 +402,9 @@ def test_java_whitespace_list_has_25_code_points() -> None:
 
 @pytest.mark.parametrize("char", list(JAVA_WHITESPACE), ids=lambda char: f"U+{ord(char):04X}")
 def test_java_whitespace_only_text_is_invalid(char: str) -> None:
+    message = score(content=char * 2)
     with pytest.raises(InvalidJobError, match="content"):
-        parse_job(score(content=char * 2))
+        parse_job(message)
 
 
 def test_other_code_points_are_not_whitespace() -> None:
@@ -421,8 +430,9 @@ def test_text_blank_only_outside_java_whitespace_is_kept(value: str) -> None:
 
 @pytest.mark.parametrize("mode", ["video", "AUDIO", None])
 def test_unknown_mode_is_invalid(mode: Any) -> None:
+    message = score(mode=mode)
     with pytest.raises(InvalidJobError, match="mode"):
-        parse_job(score(mode=mode))
+        parse_job(message)
 
 
 # 기준: AI 명세 1.3 persona(없으면 COFFEE_CHAT, 명세에 나열한 값이 아니면 형식이 틀린 작업)
@@ -482,8 +492,9 @@ def test_company_card_that_is_not_object_is_invalid(card: Any) -> None:
 @pytest.mark.parametrize("seq", [0, 6, "3", True])
 def test_seq_outside_question_range_is_invalid(seq: Any) -> None:
     """질문은 seq 1~5로 5개다(AI 명세 2장)."""
+    message = score(seq=seq)
     with pytest.raises(InvalidJobError, match="seq"):
-        parse_job(score(seq=seq))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("seq", [1, 5])
@@ -496,8 +507,9 @@ def test_seq_boundaries_are_valid(seq: int) -> None:
 
 @pytest.mark.parametrize("value", [0, -1, "903", True])
 def test_invalid_answer_id_is_invalid(value: Any) -> None:
+    message = score(answerId=value)
     with pytest.raises(InvalidJobError, match="answerId"):
-        parse_job(score(answerId=value))
+        parse_job(message)
 
 
 @pytest.mark.parametrize(
@@ -513,8 +525,9 @@ def test_invalid_answer_id_is_invalid(value: Any) -> None:
     ],
 )
 def test_invalid_token_is_invalid(token: Any) -> None:
+    message = score(tokens=[TOKENS[0], token])
     with pytest.raises(InvalidJobError, match=r"tokens\[1\]"):
-        parse_job(score(tokens=[TOKENS[0], token]))
+        parse_job(message)
 
 
 def test_token_with_same_start_and_end_is_valid() -> None:
@@ -528,14 +541,16 @@ def test_token_with_same_start_and_end_is_valid() -> None:
 @pytest.mark.parametrize("tokens", ["조회", 7, {"text": "조회"}])
 def test_tokens_must_be_array(tokens: Any) -> None:
     """배열이 아닌 값도 형식 오류로 처리해 작업이 처리 중 리스트에 계속 남지 않게 한다."""
+    message = score(tokens=tokens)
     with pytest.raises(InvalidJobError, match="tokens"):
-        parse_job(score(tokens=tokens))
+        parse_job(message)
 
 
 def test_evaluate_without_answers_is_invalid() -> None:
     """BE는 답변이 하나 이상일 때만 결과 생성을 요청한다(AI 명세 4장)."""
+    message = evaluate(answers=[])
     with pytest.raises(InvalidJobError, match="answers"):
-        parse_job(evaluate(answers=[]))
+        parse_job(message)
 
 
 def test_evaluate_with_empty_claims_is_valid() -> None:
@@ -562,24 +577,28 @@ def test_evaluate_with_empty_claims_is_valid() -> None:
 def test_invalid_evaluate_answer_reports_its_position(override: dict[str, Any], path: str) -> None:
     second = answer(**{"answerId": 904, "seq": 2, **override})
 
+    message = evaluate(answers=[answer(), second])
     with pytest.raises(InvalidJobError, match=path):
-        parse_job(evaluate(answers=[answer(), second]))
+        parse_job(message)
 
 
 def test_evaluate_answer_must_be_object() -> None:
+    message = evaluate(answers=["답변"])
     with pytest.raises(InvalidJobError, match=r"answers\[0\]"):
-        parse_job(evaluate(answers=["답변"]))
+        parse_job(message)
 
 
 def test_duplicate_answer_seq_is_invalid() -> None:
     """질문 하나에 답변 하나이므로 같은 seq가 두 번 오면 항목 평균이 왜곡된다."""
+    message = evaluate(answers=[answer(), answer(answerId=904)])
     with pytest.raises(InvalidJobError, match="seq"):
-        parse_job(evaluate(answers=[answer(), answer(answerId=904)]))
+        parse_job(message)
 
 
 def test_duplicate_answer_id_is_invalid() -> None:
+    message = evaluate(answers=[answer(), answer(seq=2)])
     with pytest.raises(InvalidJobError, match="answerId"):
-        parse_job(evaluate(answers=[answer(), answer(seq=2)]))
+        parse_job(message)
 
 
 @pytest.mark.parametrize(
@@ -592,18 +611,21 @@ def test_duplicate_answer_id_is_invalid() -> None:
     ],
 )
 def test_invalid_claim_reports_its_position(override: dict[str, Any], path: str) -> None:
+    message = evaluate(claims=[claim(**override)])
     with pytest.raises(InvalidJobError, match=path):
-        parse_job(evaluate(claims=[claim(**override)]))
+        parse_job(message)
 
 
 def test_duplicate_claim_id_is_invalid() -> None:
+    message = evaluate(claims=[claim(), claim(text="다른 주장")])
     with pytest.raises(InvalidJobError, match="id"):
-        parse_job(evaluate(claims=[claim(), claim(text="다른 주장")]))
+        parse_job(message)
 
 
 def test_claims_must_be_array() -> None:
+    message = evaluate(claims={"id": "c1"})
     with pytest.raises(InvalidJobError, match="claims"):
-        parse_job(evaluate(claims={"id": "c1"}))
+        parse_job(message)
 
 
 def test_raw_prefix_may_point_to_track_folder_below_session() -> None:
@@ -618,8 +640,9 @@ def test_raw_prefix_may_point_to_track_folder_below_session() -> None:
 )
 def test_raw_prefix_of_other_session_is_invalid(raw_prefix: str) -> None:
     """다른 면접의 녹화를 읽지 않도록 BE 설계 10장의 키 규칙을 확인한다."""
+    message = merge(rawPrefix=raw_prefix)
     with pytest.raises(InvalidJobError, match="rawPrefix"):
-        parse_job(merge(rawPrefix=raw_prefix))
+        parse_job(message)
 
 
 @pytest.mark.parametrize(
@@ -627,8 +650,9 @@ def test_raw_prefix_of_other_session_is_invalid(raw_prefix: str) -> None:
 )
 def test_object_key_of_other_session_is_invalid(object_key: str) -> None:
     """다른 면접의 녹화를 덮어쓰지 않도록 결과 위치를 확인한다."""
+    message = merge(objectKey=object_key)
     with pytest.raises(InvalidJobError, match="objectKey"):
-        parse_job(merge(objectKey=object_key))
+        parse_job(message)
 
 
 @pytest.mark.parametrize("speech", [..., None])
@@ -653,8 +677,9 @@ def test_speech_values_may_be_null() -> None:
     [[12.5], "12.5", {"trailingOffRatio": "12.5"}, {"pitchRangeSt": True}],
 )
 def test_invalid_speech_is_invalid(speech: Any) -> None:
+    message = score(speech=speech)
     with pytest.raises(InvalidJobError, match="speech"):
-        parse_job(score(speech=speech))
+        parse_job(message)
 
 
 def test_evaluate_answer_speech_is_parsed() -> None:
@@ -769,8 +794,9 @@ def test_job_header_without_common_fields_is_none(raw: str) -> None:
 )
 def test_requested_at_must_be_iso_time_with_offset(requested_at: Any) -> None:
     """마감을 BE와 같은 시각에서 계산하므로 시간대 오프셋이 있는 시각만 받는다(AI 명세 1.3)."""
+    message = plan(requestedAt=requested_at)
     with pytest.raises(InvalidJobError, match="requestedAt"):
-        parse_job(plan(requestedAt=requested_at))
+        parse_job(message)
 
 
 def test_requested_at_keeps_given_instant() -> None:
@@ -782,11 +808,14 @@ def test_requested_at_keeps_given_instant() -> None:
 # 기준: AI 명세 4장 earlierSummaries(같은 날 앞서 끝난 면접의 summary, 없으면 빈 목록)
 def test_evaluate_reads_earlier_summaries_of_the_day() -> None:
     job = parse_job(evaluate(earlierSummaries=["결론부터 말하기", " "]))
-    assert isinstance(job, EvaluateJob) and job.earlier_summaries == ("결론부터 말하기",)
+    assert isinstance(job, EvaluateJob)
+    assert job.earlier_summaries == ("결론부터 말하기",)
     old = parse_job(evaluate())
-    assert isinstance(old, EvaluateJob) and old.earlier_summaries == ()
+    assert isinstance(old, EvaluateJob)
+    assert old.earlier_summaries == ()
+    message = evaluate(earlierSummaries=[1])
     with pytest.raises(InvalidJobError):
-        parse_job(evaluate(earlierSummaries=[1]))
+        parse_job(message)
 
 
 def test_stt_gaps_are_parsed_for_scoring_and_evaluation() -> None:

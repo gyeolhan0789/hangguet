@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCalendar,
+  calendarRows,
   formatMinutes,
+  monthDirection,
   monthLabel,
   monthOf,
   parseMonth,
@@ -76,6 +78,28 @@ describe("buildCalendar (스트릭 달력)", () => {
   it("2월 말일(윤년 29일)까지 그린다", () => {
     const days = buildCalendar("2028-02", new Set(), "2028-03-01").flat().filter(Boolean);
     expect(days).toHaveLength(29);
+  });
+});
+
+describe("calendarRows (줄 · 칸 key)", () => {
+  it("줄 번호는 주 순서, 칸 번호는 그 주 안 자리(0 일요일 ~ 6 토요일)이고 칸 내용은 그대로다", () => {
+    const weeks = buildCalendar("2026-10", FIGMA_PRACTICED, "2026-10-13");
+    const rows = calendarRows(weeks);
+    expect(rows.map((line) => line.row)).toEqual(weeks.map((_, row) => row));
+    rows.forEach((line, row) => {
+      expect(line.cells.map((cell) => cell.column)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      expect(line.cells.map((cell) => cell.day)).toEqual(weeks[row]);
+    });
+  });
+});
+
+describe("monthDirection (달 넘김 방향)", () => {
+  it("이전 달로 가면 -1, 다음 달 · 같은 달이면 1이고, 해가 바뀌어도 맞다", () => {
+    expect(monthDirection("2026-10", "2026-09")).toBe(-1);
+    expect(monthDirection("2026-10", "2026-11")).toBe(1);
+    expect(monthDirection("2026-01", "2025-12")).toBe(-1);
+    expect(monthDirection("2025-12", "2026-01")).toBe(1);
+    expect(monthDirection("2026-10", "2026-10")).toBe(1);
   });
 });
 

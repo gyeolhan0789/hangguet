@@ -21,13 +21,13 @@ const errorMessage = (text?: string) => (text ? { text, tone: "error" as const }
 
 export function LoginForm({
   notice,
-}: {
+}: Readonly<{
   /**
    * 카카오 로그인 · 가입이 실패하고 돌아온 상태를 읽는 자리(page가 쿠키를 읽어 Suspense 안에서 LoginNotice로 넘긴다). 문구는
    * login-notice-store에 담겨 오류 문구 자리에 보인다. 폼은 Suspense 밖에 두어 쿠키를 읽는 동안에도 입력이 사라지지 않는다.
    */
   notice?: ReactNode;
-}) {
+}>) {
   // 이메일 로그인 오류와 카카오 실패 문구는 같은 자리라, 같은 store에 담아 마지막에 온 문구 하나만 보인다.
   const formError = useLoginNoticeStore((state) => state.notice);
   const showError = useLoginNoticeStore((state) => state.show);

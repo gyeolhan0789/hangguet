@@ -1,9 +1,10 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useToastStore } from "@/stores/toast-store";
+import { flushPromises } from "@/test/flush";
 import type { MeResponse, PracticeAlarmResponse } from "@/types/api";
 
 import { SettingsView } from "./settings-view";
@@ -128,11 +129,8 @@ describe("SettingsView 카카오 줄 · 비밀번호 변경", () => {
 
 describe("SettingsView 카카오 계정 연결 완료", () => {
   it("연결하고 돌아오면(linked) 카카오 줄에 안내 모달을 띄운다", async () => {
-    await act(async () => {
-      render(
-        <SettingsView me={{ ...EMAIL_MEMBER, linkedProvider: "KAKAO" }} alarm={ALARM} linked />,
-      );
-    });
+    render(<SettingsView me={{ ...EMAIL_MEMBER, linkedProvider: "KAKAO" }} alarm={ALARM} linked />);
+    await flushPromises();
 
     expect(screen.getByRole("dialog", { name: "연결이 완료되었어요" })).toBeTruthy();
   });
@@ -146,15 +144,14 @@ describe("SettingsView 카카오 계정 연결 완료", () => {
 
 describe("SettingsView 알림 켜기 실패 문구", () => {
   it("콜백이 남긴 문구를 토스트로 한 번 보이고 문구 쿠키를 지운다", async () => {
-    await act(async () => {
-      render(
-        <SettingsView
-          me={KAKAO_MEMBER}
-          alarm={{ ...ALARM, available: true }}
-          notice="가입할 때 쓴 카카오 계정으로 동의해 주세요."
-        />,
-      );
-    });
+    render(
+      <SettingsView
+        me={KAKAO_MEMBER}
+        alarm={{ ...ALARM, available: true }}
+        notice="가입할 때 쓴 카카오 계정으로 동의해 주세요."
+      />,
+    );
+    await flushPromises();
 
     expect(screen.getByRole("status").textContent).toBe(
       "가입할 때 쓴 카카오 계정으로 동의해 주세요.",
@@ -163,16 +160,15 @@ describe("SettingsView 알림 켜기 실패 문구", () => {
   });
 
   it("개발 모드(StrictMode)에서 효과가 두 번 돌아도 토스트가 남는다", async () => {
-    await act(async () => {
-      render(
-        <SettingsView
-          me={KAKAO_MEMBER}
-          alarm={{ ...ALARM, available: true }}
-          notice="가입할 때 쓴 카카오 계정으로 동의해 주세요."
-        />,
-        { reactStrictMode: true },
-      );
-    });
+    render(
+      <SettingsView
+        me={KAKAO_MEMBER}
+        alarm={{ ...ALARM, available: true }}
+        notice="가입할 때 쓴 카카오 계정으로 동의해 주세요."
+      />,
+      { reactStrictMode: true },
+    );
+    await flushPromises();
 
     expect(screen.getByRole("status").textContent).toBe(
       "가입할 때 쓴 카카오 계정으로 동의해 주세요.",

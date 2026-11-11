@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 
 import { ThinkingAvatar } from "@/components/interview/thinking-avatar";
+import { ProgressBar } from "@/components/progress-bar";
 import type { AnalysisStep, SessionResponse } from "@/types/api";
 
 // 기준: Figma S06-1 결과 분석 중(18:4437: Vignette(가운데 투명 → 가장자리 rgba(11,13,20,.95)) · 가운데 세로 간격 24
@@ -38,7 +39,7 @@ export function analysisProgress(index: number): number {
 export const LONG_WAIT_MS = 30_000;
 
 /** S06-1 결과 분석 중. 2초마다 화면을 다시 그려(InterviewRoom) analysisStep을 따라간다. */
-export function AnalyzingView({ session }: { session: SessionResponse }) {
+export function AnalyzingView({ session }: Readonly<{ session: SessionResponse }>) {
   const reduce = useReducedMotion();
   const [longWait, setLongWait] = useState(false);
   // 지금 진행 중인 단계. 결과가 나왔으면(COMPLETED) 모두 끝난 것으로 본다.
@@ -76,28 +77,17 @@ export function AnalyzingView({ session }: { session: SessionResponse }) {
       <div className="flex w-full max-w-[420px] flex-col gap-3.5 rounded-[20px] border border-white/12 bg-white/8 p-6">
         <ol className="flex flex-col gap-3.5">
           {STEPS.map((item, i) => (
-            <Step
-              key={item.step}
-              item={item}
-              state={i < index ? "done" : i === index ? "doing" : "waiting"}
-            />
+            <Step key={item.step} item={item} state={stepState(i, index)} />
           ))}
         </ol>
-        <span
-          role="progressbar"
-          aria-label="결과 분석 진행"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(analysisProgress(index) * 100)}
-          className="relative h-1.5 w-full overflow-hidden rounded-full bg-white/12"
-        >
-          <motion.span
-            className="absolute inset-y-0 left-0 rounded-full bg-brand"
-            initial={false}
-            animate={{ width: `${analysisProgress(index) * 100}%` }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-          />
-        </span>
+        <ProgressBar
+          label="결과 분석 진행"
+          value={Math.round(analysisProgress(index) * 100)}
+          fill={analysisProgress(index)}
+          duration={0.6}
+          className="h-1.5 w-full bg-white/12"
+          fillClassName="bg-brand"
+        />
       </div>
 
       <p className="flex items-center gap-2 rounded-full bg-white/6 px-[18px] py-3 text-sm leading-normal font-semibold break-keep text-white/80">
@@ -114,13 +104,27 @@ export function AnalyzingView({ session }: { session: SessionResponse }) {
   );
 }
 
+type StepState = "done" | "doing" | "waiting";
+
+const STEP_TEXT: Record<StepState, string> = {
+  doing: "font-bold text-white",
+  done: "font-medium text-white",
+  waiting: "font-medium text-white/40",
+};
+
+/** 지금 단계(index) 앞은 끝남, 지금은 하는 중, 뒤는 기다림 */
+function stepState(i: number, index: number): StepState {
+  if (i < index) return "done";
+  return i === index ? "doing" : "waiting";
+}
+
 function Step({
   item,
   state,
-}: {
+}: Readonly<{
   item: (typeof STEPS)[number];
-  state: "done" | "doing" | "waiting";
-}) {
+  state: StepState;
+}>) {
   const reduce = useReducedMotion();
   return (
     <li className="flex items-center gap-3" aria-current={state === "doing" ? "step" : undefined}>
@@ -139,17 +143,7 @@ function Step({
       {state === "waiting" && (
         <Image src="/interview/icon-circle.svg" alt="" width={20} height={20} />
       )}
-      <span
-        className={`text-base leading-normal ${
-          state === "doing"
-            ? "font-bold text-white"
-            : state === "done"
-              ? "font-medium text-white"
-              : "font-medium text-white/40"
-        }`}
-      >
-        {item.label}
-      </span>
+      <span className={`text-base leading-normal ${STEP_TEXT[state]}`}>{item.label}</span>
     </li>
   );
 }

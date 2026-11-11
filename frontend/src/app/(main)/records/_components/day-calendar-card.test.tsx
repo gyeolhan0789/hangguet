@@ -34,8 +34,8 @@ describe("DayCalendarCard · 고른 날", () => {
   it("고른 날 · 그날 면접 수를 보여 주고, [이날 성장 리뷰 보기]는 그날의 S08로 간다", () => {
     view();
 
-    expect(screen.queryByRole("heading", { level: 2, name: "10월 21일" })).not.toBeNull();
-    expect(screen.queryByText("면접 2회")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: "10월 21일" })).toBeTruthy();
+    expect(screen.getByText("면접 2회")).toBeTruthy();
     expect(screen.getByRole("link", { name: "이날 성장 리뷰 보기" }).getAttribute("href")).toBe(
       "/reviews/2026-10-21",
     );
@@ -51,7 +51,7 @@ describe("DayCalendarCard · 연습 달력", () => {
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
     ).toEqual(["일", "월", "화", "수", "목", "금", "토"]);
-    expect(screen.queryByText("2026년 10월")).not.toBeNull();
+    expect(screen.getByText("2026년 10월")).toBeTruthy();
     expect(
       within(grid())
         .getAllByRole("gridcell")
@@ -69,14 +69,14 @@ describe("DayCalendarCard · 연습 달력", () => {
       "/records?date=2026-10-23",
     );
     expect(within(grid()).queryByRole("link", { name: /10월 24일/ })).toBeNull();
-    expect(within(grid()).queryByText("24")).not.toBeNull();
+    expect(within(grid()).getByText("24")).toBeTruthy();
   });
 
   it("연습한 날(5.15 interviewCount > 0)은 이름에 '연습함'을 붙이고 스트릭 띠로 잇는다", () => {
     view();
 
-    expect(within(grid()).queryByRole("link", { name: "10월 20일 연습함" })).not.toBeNull();
-    expect(within(grid()).queryByRole("link", { name: "10월 21일 연습함" })).not.toBeNull();
+    expect(within(grid()).getByRole("link", { name: "10월 20일 연습함" })).toBeTruthy();
+    expect(within(grid()).getByRole("link", { name: "10월 21일 연습함" })).toBeTruthy();
     expect(screen.getAllByTestId("streak-band")).toHaveLength(2);
   });
 

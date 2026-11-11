@@ -61,6 +61,8 @@ const DEPTH = {
 } as const;
 
 const SPEECH = "흐음~ ○○ 프로젝트라. 거기서 '직접' 한 부분만 쏙 골라서 말해볼래요?";
+/** 말풍선 타이핑 글자. 글자는 겹칠 수 있어 문장 안 위치(position)를 key로 쓴다(고정 문장이라 순서가 바뀌지 않는다) */
+const SPEECH_LETTERS = Array.from(SPEECH).map((char, position) => ({ char, position }));
 
 const appear = (delay: number) =>
   ({
@@ -75,13 +77,13 @@ function FloatChip({
   className,
   delay,
   duration,
-}: {
+}: Readonly<{
   icon: string;
   label: string;
   className: string;
   delay: number;
   duration: number;
-}) {
+}>) {
   const reduce = useReducedMotion();
   return (
     <motion.div
@@ -107,7 +109,7 @@ const PORTRAIT_MEDIA = "(max-aspect-ratio: 3/4)";
  * 기준: Next 문서 Image › Art direction(getImageProps + <picture>) · 사용자 결정(2026-11-10: 세로 화면용 크롭)
  * 미리 받기는 화면에 따라 LCP 후보가 달라지므로 preload 대신 맨 앞 층에 fetchPriority high를 건다(Next 문서 Image › preload).
  */
-function HeroLayerImage({ name, lcp }: { name: string; lcp: boolean }) {
+function HeroLayerImage({ name, lcp }: Readonly<{ name: string; lcp: boolean }>) {
   const common = {
     alt: "",
     fill: true,
@@ -302,13 +304,13 @@ export function Hero() {
           <span className="text-[13px] leading-normal font-bold text-brand">악마 면접관</span>
         </div>
         <p className="text-base leading-normal font-semibold text-white" aria-label={SPEECH}>
-          {Array.from(SPEECH).map((char, i) => (
+          {SPEECH_LETTERS.map(({ char, position }) => (
             <motion.span
-              key={i}
+              key={position}
               aria-hidden
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 1 + i * 0.03, duration: 0.01 }}
+              transition={{ delay: 1 + position * 0.03, duration: 0.01 }}
             >
               {char}
             </motion.span>

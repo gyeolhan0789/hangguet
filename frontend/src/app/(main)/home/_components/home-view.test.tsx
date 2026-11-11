@@ -74,7 +74,7 @@ describe("HomeView", () => {
     expect(screen.getByText("지난 최고 기록 7일")).toBeDefined();
     expect(screen.getByRole("link", { name: /다시 1일째 시작하기/ })).toBeDefined();
     expect(screen.getByText("10.12 · 전달력 +8")).toBeDefined();
-    expect(screen.getAllByText("빠짐", { exact: false }).length).toBe(3);
+    expect(screen.getAllByText("빠짐", { exact: false })).toHaveLength(3);
   });
 
   // 사용자 결정(2026-10-27): 오른 기준이 없으면 BE가 전달력 0을 주고("전달력 +0"), 첫 연습일(null)이면 배지를 숨긴다

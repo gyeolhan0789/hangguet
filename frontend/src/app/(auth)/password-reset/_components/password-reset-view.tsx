@@ -8,7 +8,7 @@ import { ROUTES } from "@/lib/routes";
 import { PasswordResetForm } from "./password-reset-form";
 
 // 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 새 링크로 들어올 때마다 새로 그린다(회원가입과 같은 방식).
-export function PasswordResetView({ token }: { token: string }) {
+export function PasswordResetView({ token }: Readonly<{ token: string }>) {
   const { bfcacheId } = useRouter();
   // 주소에서 token을 지우면 화면이 token 없는 주소로 다시 그려진다. 처음 받은 token을 들고 있는다.
   const [linkToken, setLinkToken] = useState(token);

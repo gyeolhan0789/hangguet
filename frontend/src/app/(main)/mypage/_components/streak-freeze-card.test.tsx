@@ -3,6 +3,7 @@ import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { Toast } from "@/components/toast";
+import { flushPromises } from "@/test/flush";
 import type { MyStreakFreezesResponse } from "@/types/api";
 
 import { StreakFreezeCard } from "./streak-freeze-card";
@@ -103,9 +104,8 @@ describe("StreakFreezeCard (S09 스트릭 유지권)", () => {
     renderCard();
 
     fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    await act(async () => {
-      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
-    });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
+    await flushPromises();
 
     expect(applyStreakFreeze).toHaveBeenCalledWith(31);
     const done = await screen.findByRole("dialog", { name: "유지권 사용 완료!" });
@@ -120,9 +120,8 @@ describe("StreakFreezeCard (S09 스트릭 유지권)", () => {
     renderCard();
 
     fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    await act(async () => {
-      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
-    });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
+    await flushPromises();
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("status").textContent).toBe("이미 연습한 날이라 메울 수 없어요.");

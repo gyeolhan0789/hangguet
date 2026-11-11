@@ -54,7 +54,7 @@ export function ReplayQuestions({
   opened,
   onToggle,
   fill,
-}: {
+}: Readonly<{
   items: ReplayItem[];
   /** 질문마다 영상 속 위치(초) */
   offsets: number[];
@@ -64,7 +64,7 @@ export function ReplayQuestions({
   opened: number;
   onToggle: (index: number) => void;
   fill: boolean;
-}) {
+}>) {
   const reduce = useReducedMotion();
   // 접고 제자리로 돌아가는 중이면 두 배 빠르게 움직인다. 다시 펼칠 때 원래 속도로 돌아온다.
   const [returning, setReturning] = useState(false);
@@ -199,7 +199,7 @@ function QuestionCard({
   onToggle,
   shared,
   transition,
-}: {
+}: Readonly<{
   item: ReplayItem;
   offset: number;
   highlighted: boolean;
@@ -212,7 +212,7 @@ function QuestionCard({
   shared: boolean;
   /** 카드(li)가 움직이는 전환. 강조 상자도 같은 속도로 움직인다 */
   transition: Transition;
-}) {
+}>) {
   const reduce = useReducedMotion();
   return (
     <button

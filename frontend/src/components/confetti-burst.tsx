@@ -9,6 +9,8 @@ import { seeded } from "@/lib/seeded";
 // · 모션 메모 S08(18:2843: 배지 등장과 함께 색종이 6~20개 터짐)
 
 interface Piece {
+  /** 몇 번째 조각인지(궤적 · 모양을 정하는 씨앗). 조각마다 다르다 */
+  id: number;
   color: string;
   shape: "rect" | "circle";
   w: number;
@@ -46,6 +48,7 @@ export function makeConfetti(colors: readonly string[], count: number, power = 1
     }
     const spin = (seeded(i, 3) - 0.5) * 900;
     return {
+      id: i,
       color: colors[i % colors.length],
       shape: seeded(i, 4) > 0.7 ? "circle" : "rect",
       w: 6 + Math.round(seeded(i, 5) * 6),
@@ -67,21 +70,21 @@ export function ConfettiBurst({
   count,
   power = 1,
   delay = 0,
-}: {
+}: Readonly<{
   colors: readonly string[];
   count: number;
   power?: number;
   /** 터지는 때(초) */
   delay?: number;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const pieces = useMemo(() => makeConfetti(colors, count, power), [colors, count, power]);
   if (reduce) return null;
   return (
     <span aria-hidden className="pointer-events-none absolute top-1/2 left-1/2">
-      {pieces.map((piece, i) => (
+      {pieces.map((piece) => (
         <motion.span
-          key={i}
+          key={piece.id}
           className={`absolute ${piece.shape === "circle" ? "rounded-full" : "rounded-[2px]"}`}
           style={{
             width: piece.w,
@@ -95,7 +98,8 @@ export function ConfettiBurst({
             x: piece.x,
             y: piece.y,
             rotate: piece.rotate,
-            opacity: piece.x.map((_, s, all) => (s === 0 ? 1 : s > (all.length * 2) / 3 ? 0 : 1)),
+            // 마지막 3분의 1 동안 사라진다
+            opacity: piece.x.map((_, s, all) => (s > (all.length * 2) / 3 ? 0 : 1)),
           }}
           transition={{ duration: piece.duration, delay, ease: "linear" }}
         />

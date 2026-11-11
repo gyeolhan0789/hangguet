@@ -20,7 +20,7 @@ const list: Variants = { hidden: {}, shown: { transition: { staggerChildren: 0.0
 const grade: Variants = { hidden: { opacity: 0, y: 12 }, shown: { opacity: 1, y: 0 } };
 
 /** 평가 기준 4칸. 좁은 화면에서는 2칸씩 두 줄로 놓는다. */
-export function CriteriaScores({ scores }: { scores: SessionScore[] }) {
+export function CriteriaScores({ scores }: Readonly<{ scores: SessionScore[] }>) {
   const reduce = useReducedMotion();
   return (
     <motion.ul

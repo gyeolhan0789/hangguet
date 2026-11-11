@@ -18,7 +18,8 @@ class GroupMetrics {
     }
 
     /**
-     * @param outcome needed · not_needed · late(제한 시간 뒤 도착) · missing(끝내 오지 않음)
+     * @param outcome needed · not_needed · missing(제한 시간 안에 오지 않음). 판단 하나를 한 번만 센다. 늦게 온 판단은
+     *     missing으로 이미 셌으므로 다시 세지 않는다
      * @param answeredAt 최종 답변을 저장한 시각(DECIDING 시작)
      */
     void followupDecision(String outcome, OffsetDateTime answeredAt, OffsetDateTime now) {

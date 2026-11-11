@@ -176,8 +176,9 @@ def test_token_with_equal_start_and_end_is_valid() -> None:
 
 def test_negative_offset_is_rejected() -> None:
     # 서버 스트림 기준 offset은 이미 전송한 음성 길이이므로 음수가 될 수 없다
+    transcript = Transcript()
     with pytest.raises(ValueError):
-        Transcript().begin_connection(-1)
+        transcript.begin_connection(-1)
 
 
 def test_exactly_max_tokens_are_sent() -> None:

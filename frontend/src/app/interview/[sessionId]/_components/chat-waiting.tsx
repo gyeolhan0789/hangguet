@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
+import { ProgressBar } from "@/components/progress-bar";
 import { preloadInterviewer } from "@/lib/interviewer/preload";
 import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type { Persona, SessionResponse } from "@/types/api";
@@ -32,7 +33,7 @@ export function ChatWaiting({
   started,
   startError,
   onStart,
-}: {
+}: Readonly<{
   open: boolean;
   persona: Persona;
   planStatus: SessionResponse["planStatus"];
@@ -42,7 +43,7 @@ export function ChatWaiting({
   /** 미리 보낸 5.4가 실패한 문구(서버 detail). 면접 화면이 2초 뒤 다시 보낸다 */
   startError?: string;
   onStart: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const modelStatus = useInterviewerPreloadStore((state) =>
     state.persona === persona ? state.status : "idle",
@@ -96,51 +97,68 @@ export function ChatWaiting({
               >
                 면접 시작
               </button>
-            ) : modelStatus === "failed" ? (
-              <div role="alert" className="flex items-center justify-between gap-3">
-                <span className="text-sm leading-normal font-bold text-[#ff8a8a]">
-                  면접 준비에 실패했어요
-                </span>
-                <button
-                  type="button"
-                  onClick={() => preloadInterviewer(persona)}
-                  className="h-9 shrink-0 cursor-pointer rounded-[10px] bg-white/10 px-3.5 text-sm leading-normal font-bold text-white"
-                >
-                  다시 시도
-                </button>
-              </div>
             ) : (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between text-sm leading-normal font-bold">
-                  <span className="text-white/70">준비 중</span>
-                  <span className="font-extrabold text-white">{percent}%</span>
-                </div>
-                <div
-                  role="progressbar"
-                  aria-label="면접 준비"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={percent}
-                  className="h-1.5 w-full overflow-hidden rounded-full bg-white/10"
-                >
-                  <motion.div
-                    className="h-full rounded-full bg-brand-strong"
-                    initial={false}
-                    animate={{ width: `${percent}%` }}
-                    transition={{ duration: 0.4, ease: "easeOut" }}
-                  />
-                </div>
-                {startError && (
-                  <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
-                    {startError}
-                  </p>
-                )}
-              </div>
+              <Preparing
+                failed={modelStatus === "failed"}
+                percent={percent}
+                startError={startError}
+                onRetry={() => preloadInterviewer(persona)}
+              />
             )}
           </motion.section>
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/** [면접 시작]을 보이기 전: 준비 진행률. 면접관 모델 받기가 실패했으면 실패 안내와 [다시 시도] */
+function Preparing({
+  failed,
+  percent,
+  startError,
+  onRetry,
+}: Readonly<{
+  failed: boolean;
+  percent: number;
+  startError?: string;
+  onRetry: () => void;
+}>) {
+  if (failed) {
+    return (
+      <div role="alert" className="flex items-center justify-between gap-3">
+        <span className="text-sm leading-normal font-bold text-[#ff8a8a]">
+          면접 준비에 실패했어요
+        </span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="h-9 shrink-0 cursor-pointer rounded-[10px] bg-white/10 px-3.5 text-sm leading-normal font-bold text-white"
+        >
+          다시 시도
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between text-sm leading-normal font-bold">
+        <span className="text-white/70">준비 중</span>
+        <span className="font-extrabold text-white">{percent}%</span>
+      </div>
+      <ProgressBar
+        label="면접 준비"
+        value={percent}
+        duration={0.4}
+        className="h-1.5 w-full bg-white/10"
+        fillClassName="bg-brand-strong"
+      />
+      {startError && (
+        <p role="alert" className="text-[13px] leading-normal font-medium text-[#ff8a8a]">
+          {startError}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -363,9 +381,9 @@ function flameFill(context: CanvasRenderingContext2D, y: number, floor: number) 
  */
 function PerfectSparkle({
   at,
-}: {
+}: Readonly<{
   at: { left: number; top: number; width: number; height: number };
-}) {
+}>) {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
       <motion.span

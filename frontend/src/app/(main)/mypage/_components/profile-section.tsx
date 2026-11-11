@@ -10,7 +10,7 @@ import type { MeResponse, StatsResponse } from "@/types/api";
 // · 직무 칩(brand-soft · briefcase 12 · 12 Bold) · [⚙ 설정] 48) · Swagger 2.1 내 정보(MeResponse: nickname · email · createdAt
 // · profileImageUrl) · 3.2 통계(latestJobTitle "백엔드 개발자" → 칩 "백엔드 개발자 준비 중") · 모션 메모 S09(18:3109: 프로필 사진 ✎ → S09-1 프로필 사진)
 
-export function ProfileSection({ me, stats }: { me: MeResponse; stats: StatsResponse }) {
+export function ProfileSection({ me, stats }: Readonly<{ me: MeResponse; stats: StatsResponse }>) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-5">
       <div className="flex min-w-0 items-center gap-5">

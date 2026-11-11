@@ -14,7 +14,7 @@ import { ResultSummary } from "./result-summary";
 // · 기획 메모 S07(18:762: 이번 면접 1회의 결과만) · Swagger 6.3 ResultResponse
 
 /** S07 피드백 결과 화면 */
-export function ResultView({ result }: { result: ResultResponse }) {
+export function ResultView({ result }: Readonly<{ result: ResultResponse }>) {
   // 페이지 끝. 여기가 보이면 아래 막대의 버튼이 한 번 통통 튄다(모션 메모 S07).
   const end = useRef<HTMLDivElement>(null);
   return (

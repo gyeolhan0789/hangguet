@@ -13,6 +13,7 @@ import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.InterviewMode;
+import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -27,6 +28,7 @@ import com.ssafy.a301.interview.service.SessionEnder;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -207,20 +209,36 @@ public class GroupEndService {
             endAll(group, locked, EndReason.AI_FAILURE, now);
         } else {
             LOG.warn("AI 면접관이 첫 질문 전에 멈춰 시작 실패로 둔다: group={}", group.getId());
-            failStart(group, locked);
+            failStart(group, locked, now);
         }
     }
 
     /**
      * 첫 질문 전에 AI를 연결하지 못했다(배정 거절 · AI 정체, docs/그룹면접-설계.md 5.1). 그룹과 세션을 START_FAILED로 바꾸고 면접방을 지운다.
      * 방은 잠근 채 지운다. 커밋 뒤에 지우면 그 사이 다시 시작해 연 방을 지울 수 있다(개인 면접의 배정 거절과 같다).
+     *
+     * <p>첫 질문 전에 끝낸(5.8) 참가자는 다시 시작할 수 없으므로 그룹에서 뺀다(10.6 나가기와 같다). 그대로 두면 다시 시작(10.7)이 막힌다. 남은 사람이
+     * 1명 이하면 다시 시작할 수 없으므로 취소하고, 방장이 빠졌으면 남은 사람 중 먼저 들어온 사람에게 넘긴다.
      */
-    void failStart(InterviewGroup group, List<InterviewSession> locked) {
+    void failStart(InterviewGroup group, List<InterviewSession> locked, OffsetDateTime now) {
         group.failStart();
         for (InterviewSession session : locked) {
             if (session.getStatus() == SessionStatus.IN_PROGRESS) {
                 session.failStart();
             }
+        }
+        List<InterviewGroupParticipant> remaining = new ArrayList<>();
+        for (InterviewGroupParticipant p : participants.findActiveByGroupId(group.getId())) {
+            if (p.getSession().getStatus() == SessionStatus.START_FAILED) {
+                remaining.add(p);
+            } else {
+                p.leave(now);
+            }
+        }
+        if (remaining.size() <= 1) {
+            group.cancel();
+        } else if (remaining.stream().noneMatch(p -> group.isHost(p.getUser().getId()))) {
+            group.changeHost(remaining.getFirst().getUser());
         }
         rooms.closeGroup(group.getId());
     }
@@ -299,6 +317,14 @@ public class GroupEndService {
         if (group.getStatus() != GroupStatus.IN_PROGRESS
                 || locked.stream().anyMatch(s -> s.getStatus() == SessionStatus.IN_PROGRESS)) {
             return false;
+        }
+        // 지금 차례의 작성 중인 글은 더 쓸 데가 없다(1시간 만료를 기다리지 않는다, 6.10)
+        Long turnSessionId = group.getTurnSessionId();
+        if (turnSessionId != null && group.getTurnSeq() != null) {
+            questions
+                    .findBySessionIdAndSeq(turnSessionId, group.getTurnSeq())
+                    .map(InterviewQuestion::getId)
+                    .ifPresent(id -> afterCommit(() -> drafts.delete(turnSessionId, id)));
         }
         group.end(now);
         if (group.getMode() == InterviewMode.VIDEO) {

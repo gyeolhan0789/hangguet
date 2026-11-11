@@ -1,6 +1,8 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { flushPromises } from "@/test/flush";
 
 import { PasswordResetForm } from "./password-reset-form";
 
@@ -22,17 +24,14 @@ afterEach(() => {
 });
 
 async function submit(password: string, passwordConfirm = password) {
-  await act(async () => {
-    fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: password } });
+  fireEvent.change(screen.getByLabelText("새 비밀번호"), { target: { value: password } });
+  await flushPromises();
+  fireEvent.change(screen.getByLabelText("비밀번호 확인"), {
+    target: { value: passwordConfirm },
   });
-  await act(async () => {
-    fireEvent.change(screen.getByLabelText("비밀번호 확인"), {
-      target: { value: passwordConfirm },
-    });
-  });
-  await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "비밀번호 바꾸기" }));
-  });
+  await flushPromises();
+  fireEvent.click(screen.getByRole("button", { name: "비밀번호 바꾸기" }));
+  await flushPromises();
 }
 
 describe("PasswordResetForm", () => {

@@ -101,8 +101,9 @@ def test_no_speech_has_no_tokens() -> None:
 def test_stt_error_keeps_recognized_text_in_snapshot() -> None:
     """STT 오류 뒤 [답변 완료]로 인식된 글을 제출할 수 있도록 결과를 남긴다(AI 명세 6.5)."""
     made, speeches, _ = capture(fail_after=30)
+    running = made.run(chunks(len(RESPONSES)))
     with pytest.raises(SttError):
-        asyncio.run(made.run(chunks(len(RESPONSES))))
+        asyncio.run(running)
     result = made.snapshot()
     assert speeches
     assert result.content

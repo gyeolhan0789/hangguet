@@ -17,7 +17,7 @@ import { NoticeBell } from "./notice-bell";
 import { ProfileMenu } from "./profile-menu";
 
 /** 헤더 스트릭 알약. 0일(끊김·첫 방문)이면 회색 (Figma S02-C · S02-D 헤더) */
-function StreakPill({ days }: { days: number }) {
+function StreakPill({ days }: Readonly<{ days: number }>) {
   const broken = days === 0;
   return (
     <span
@@ -43,7 +43,7 @@ function StreakPill({ days }: { days: number }) {
 // 헤더가 붙이는 다크 모드 토글과의 간격도 28이 되도록 오른쪽에 12를 더한다(헤더 기본 간격 16).
 // 공지는 종(C03)에서 골라 C02로 연다(사용자 결정 2026-10-23: 앱에 들어오면 차례대로 띄우기 폐기).
 // 랜딩(S00)처럼 공지를 넘기지 않으면 공지 버튼이 없다.
-export function AppNav({ user, notices }: { user: MeResponse; notices?: NoticeItem[] }) {
+export function AppNav({ user, notices }: Readonly<{ user: MeResponse; notices?: NoticeItem[] }>) {
   return (
     <nav aria-label="주요 메뉴" className="flex items-center gap-4 pr-3 sm:gap-7">
       <Link
@@ -70,7 +70,10 @@ export function AppNav({ user, notices }: { user: MeResponse; notices?: NoticeIt
  * 한곳에 모은다. 맨 위는 C01 드롭다운 머리(아바타 40 · 닉네임 15 ExtraBold · 이메일 13 Medium text-3)에 스트릭 알약을 붙인다.
  * 랜딩(S00)처럼 공지를 넘기지 않으면 공지 줄이 없다.
  */
-export function AppMobileMenu({ user, notices }: { user: MeResponse; notices?: NoticeItem[] }) {
+export function AppMobileMenu({
+  user,
+  notices,
+}: Readonly<{ user: MeResponse; notices?: NoticeItem[] }>) {
   return (
     <>
       <div className="flex items-center gap-3 p-3">

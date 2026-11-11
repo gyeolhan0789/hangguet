@@ -46,15 +46,17 @@ const NETWORK_TEXT: Record<NetworkStatus, string> = {
   offline: "인터넷 연결이 끊겼어요",
 };
 
-const rowState = (status: CheckStatus | NetworkStatus): RowState =>
-  status === "checking" ? "checking" : status === "ok" ? "ok" : "fail";
+function rowState(status: CheckStatus | NetworkStatus): RowState {
+  if (status === "checking") return "checking";
+  if (status === "ok") return "ok";
+  return "fail";
+}
 
-const deviceText = (device: keyof typeof DEVICE_TEXT, status: CheckStatus) =>
-  status === "checking"
-    ? "확인하고 있어요"
-    : status === "ok"
-      ? DEVICE_TEXT[device].ok
-      : FAILURE_TEXT[status];
+function deviceText(device: keyof typeof DEVICE_TEXT, status: CheckStatus): string {
+  if (status === "checking") return "확인하고 있어요";
+  if (status === "ok") return DEVICE_TEXT[device].ok;
+  return FAILURE_TEXT[status];
+}
 
 export function DevicesCheck({
   sessionId,

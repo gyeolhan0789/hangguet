@@ -30,12 +30,12 @@ export function Celebrate({
   days,
   first,
   sub,
-}: {
+}: Readonly<{
   days: number;
   /** 첫 연습일(S08-C) */
   first: boolean;
   sub: string;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const tier = tierOf(days);
   const tone = tierChipTone(tier);

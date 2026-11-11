@@ -44,8 +44,9 @@ def test_questions_out_of_order_are_parsed_by_seq() -> None:
 
 
 def test_missing_question_is_reported_without_content() -> None:
+    assignment = parse_assignment(metadata())
     with pytest.raises(AssignmentError, match="6번 질문"):
-        parse_assignment(metadata()).criteria(6)
+        assignment.criteria(6)
 
 
 def test_unknown_fields_are_ignored() -> None:
@@ -89,8 +90,10 @@ def test_metadata_size_boundary_is_utf8_bytes() -> None:
     base = metadata(padding="")
     room = MAX_METADATA_BYTES - len(base.encode("utf-8"))
     assert parse_assignment(metadata(padding="a" * room)).session_id == 55
+    over_ascii = metadata(padding="a" * (room + 1))
     with pytest.raises(AssignmentError, match="바이트"):
-        parse_assignment(metadata(padding="a" * (room + 1)))
+        parse_assignment(over_ascii)
     # 한글은 UTF-8 3바이트이므로 글자 수가 아닌 바이트로 센다
+    over_korean = metadata(padding="가" * (room // 3 + 1))
     with pytest.raises(AssignmentError, match="바이트"):
-        parse_assignment(metadata(padding="가" * (room // 3 + 1)))
+        parse_assignment(over_korean)

@@ -34,8 +34,9 @@ def test_parses_one_to_five_items(count: int) -> None:
 
 @pytest.mark.parametrize("count", [0, MAX_ITEMS + 1])
 def test_item_count_out_of_range_is_invalid(count: int) -> None:
+    items = [item()] * count
     with pytest.raises(InvalidCoverLetterError, match="coverLetterItems"):
-        parse_cover_letter_items([item()] * count)
+        parse_cover_letter_items(items)
 
 
 @pytest.mark.parametrize("value", [None, "자소서", {"question": "문항", "answer": "답변"}])
@@ -46,15 +47,17 @@ def test_non_array_is_invalid(value: Any) -> None:
 
 @pytest.mark.parametrize("value", [["문항", "답변"], "문항", None])
 def test_non_object_item_is_invalid(value: Any) -> None:
+    items = [item(), value]
     with pytest.raises(InvalidCoverLetterError, match=r"coverLetterItems\[1\]"):
-        parse_cover_letter_items([item(), value])
+        parse_cover_letter_items(items)
 
 
 @pytest.mark.parametrize("value", ["", "  ", "　", 7, None])
 @pytest.mark.parametrize("field", ["question", "answer"])
 def test_blank_question_or_answer_is_invalid(field: str, value: Any) -> None:
+    items = [{**item(), field: value}]
     with pytest.raises(InvalidCoverLetterError, match=rf"coverLetterItems\[0\]\.{field}"):
-        parse_cover_letter_items([{**item(), field: value}])
+        parse_cover_letter_items(items)
 
 
 def test_as_json_keeps_be_shape_and_order() -> None:
