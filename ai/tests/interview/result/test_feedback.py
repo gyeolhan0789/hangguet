@@ -174,7 +174,8 @@ def test_inconsistent_answers_are_sent_together_with_consistency_instruction() -
         persona=Persona.COFFEE_CHAT,
     )
     system, user = (m["content"] for m in build_feedback_messages(session))
-    assert "팀장으로" in user and "팀원으로" in user
+    assert "팀장으로" in user
+    assert "팀원으로" in user
     assert "답변끼리 서로 어긋나는 내용" in system
     assert "어긋난 답변의 improvePoint" in system
 
@@ -232,8 +233,9 @@ ONE_ANSWER = [{"seq": 1, "goodPoint": "좋음", "improvePoint": "개선"}]
     ],
 )
 def test_broken_feedback_is_rejected(broken: Mapping[str, Any]) -> None:
+    response = result(broken)
     with pytest.raises(StructureBrokenError):
-        parse_feedback(result(broken), SESSION)
+        parse_feedback(response, SESSION)
 
 
 @pytest.mark.parametrize(
@@ -401,8 +403,9 @@ def test_text_limit_counts_unicode_code_points(field: str, length: int) -> None:
             feedback.summary if field == "summary" else feedback.comments[Criterion(field)]
         ) == text
     else:
+        response = result(content)
         with pytest.raises(StructureBrokenError):
-            parse_feedback(result(content), SESSION)
+            parse_feedback(response, SESSION)
 
 
 @pytest.mark.parametrize("field", ["goodPoint", "improvePoint"])
@@ -410,8 +413,9 @@ def test_text_limit_counts_unicode_code_points(field: str, length: int) -> None:
 def test_answer_feedback_requires_nonblank_text(field: str, value: Any) -> None:
     content = reply()
     content["answers"][0][field] = value
+    response = result(content)
     with pytest.raises(StructureBrokenError):
-        parse_feedback(result(content), SESSION)
+        parse_feedback(response, SESSION)
 
 
 def test_nonconsecutive_sequences_and_response_order_map_to_original_answer_ids() -> None:
@@ -459,8 +463,9 @@ def test_long_headline_is_retried_then_cut() -> None:
 
 def test_headline_within_limit_is_kept() -> None:
     assert parse_feedback(result(reply(headline="가" * 30)), SESSION).headline == "가" * 30
+    blank = result(reply(headline=" "))
     with pytest.raises(StructureBrokenError):
-        parse_feedback(result(reply(headline=" ")), SESSION)
+        parse_feedback(blank, SESSION)
 
 
 def test_earlier_summaries_of_the_day_are_sent() -> None:

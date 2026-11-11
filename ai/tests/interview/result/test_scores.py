@@ -65,8 +65,9 @@ def test_missing_criterion_rejects_both_averages(criterion: Criterion) -> None:
     del item[criterion]
     with pytest.raises(MissingCriterionError, match=criterion):
         answer_score(item)
+    answers = [criteria(70, 70, 70, 70), item]
     with pytest.raises(MissingCriterionError, match=criterion):
-        session_scores([criteria(70, 70, 70, 70), item])
+        session_scores(answers)
 
 
 @pytest.mark.parametrize("broken", [None, "70", True, 70.0, -1, 101])

@@ -51,8 +51,9 @@ def test_list_reads_every_page() -> None:
 def test_list_failure_is_storage_error_without_body(error: Exception) -> None:
     client = MagicMock()
     client.get_paginator.return_value.paginate.side_effect = error
+    storage = S3RecordingStorage(client, "bucket")
     with pytest.raises(StorageError) as raised:
-        S3RecordingStorage(client, "bucket").list("p/")
+        storage.list("p/")
     assert "본문" not in str(raised.value)
 
 
@@ -100,6 +101,7 @@ def test_create_uses_bucket_and_region_from_settings() -> None:
 
 
 def test_create_without_bucket_is_storage_error() -> None:
+    settings = load_settings({})
     with patch("app.recording.storage.boto3.client") as client, pytest.raises(StorageError):
-        create_s3_storage(load_settings({}))
+        create_s3_storage(settings)
     client.assert_not_called()

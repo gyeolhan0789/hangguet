@@ -69,8 +69,9 @@ def test_generated_questions_carry_prompt_and_response_model_versions() -> None:
     ],
 )
 def test_failures_become_followup_error(outcome: dict[str, Any] | Exception) -> None:
+    generating = GmsFollowups(FakeChat(outcome)).generate(Persona.DUCK, BASE, "답변", 1)
     with pytest.raises(FollowupError):
-        asyncio.run(GmsFollowups(FakeChat(outcome)).generate(Persona.DUCK, BASE, "답변", 1))
+        asyncio.run(generating)
 
 
 def test_answer_text_is_not_logged(caplog: pytest.LogCaptureFixture) -> None:

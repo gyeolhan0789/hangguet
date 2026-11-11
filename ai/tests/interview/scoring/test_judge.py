@@ -50,7 +50,8 @@ def test_prompt_includes_five_metrics_without_duration_or_gaze() -> None:
     assert "분당 음절 수: 310" in prompt
     assert "말끝 흐림 비율(%): 12.5" in prompt
     assert "억양 폭(반음): 6.2" in prompt
-    assert "41000" not in prompt and "gazeRatio" not in prompt
+    assert "41000" not in prompt
+    assert "gazeRatio" not in prompt
     assert "DELIVERY 판정에만 사용" in prompt
 
 
@@ -61,25 +62,29 @@ def test_prompt_omits_unavailable_judging_metrics(speech: dict[str, object]) -> 
 
 @pytest.mark.parametrize("level", [0, 4, True, 3.0, "3", None])
 def test_invalid_level_is_structure_failure(level: Any) -> None:
+    response = result({**GOOD, "LOGIC": {"level": level, "reason": "근거"}})
     with pytest.raises(StructureBrokenError):
-        parse_judgement(result({**GOOD, "LOGIC": {"level": level, "reason": "근거"}}))
+        parse_judgement(response)
 
 
 @pytest.mark.parametrize("reason", [None, "", " \n", 3])
 def test_invalid_reason_is_structure_failure(reason: Any) -> None:
+    response = result({**GOOD, "LOGIC": {"level": 3, "reason": reason}})
     with pytest.raises(StructureBrokenError):
-        parse_judgement(result({**GOOD, "LOGIC": {"level": 3, "reason": reason}}))
+        parse_judgement(response)
 
 
 @pytest.mark.parametrize("criterion", list(Criterion))
 def test_missing_criterion_is_structure_failure(criterion: Criterion) -> None:
+    response = result({key: value for key, value in GOOD.items() if key != criterion})
     with pytest.raises(StructureBrokenError):
-        parse_judgement(result({key: value for key, value in GOOD.items() if key != criterion}))
+        parse_judgement(response)
 
 
 def test_non_object_criterion_is_structure_failure() -> None:
+    response = result({**GOOD, "LOGIC": 3})
     with pytest.raises(StructureBrokenError):
-        parse_judgement(result({**GOOD, "LOGIC": 3}))
+        parse_judgement(response)
 
 
 @pytest.mark.parametrize(("level", "score"), [(1, 50), (2, 70), (3, 90)])

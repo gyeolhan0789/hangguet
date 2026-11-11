@@ -142,5 +142,6 @@ def test_off_topic_probability_is_kept_with_or_without_reaction() -> None:
     assert judgment_from({**answers(), **off}).off_topic == 0.8
     assert judgment_from({**answers(needed=0.1), **off}).off_topic == 0.8
     assert judgment_from(answers()).off_topic is None
+    broken = {**answers(), OFF_TOPIC_QUESTION: {"type": "noul", "noul": "0.8"}}
     with pytest.raises(InvalidJudgmentError):
-        judgment_from({**answers(), OFF_TOPIC_QUESTION: {"type": "noul", "noul": "0.8"}})
+        judgment_from(broken)

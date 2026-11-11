@@ -973,8 +973,9 @@ def test_malformed_chat_input_is_rejected(change: dict[str, Any]) -> None:
         **change,
     }
     runner = Harness(mode="CHAT").runner
+    raw = json.dumps(payload)
     with pytest.raises(InvalidChatInputError):
-        runner.chat_input_received(json.dumps(payload))
+        runner.chat_input_received(raw)
 
 
 def test_speech_updates_pass_answer_tokens_for_long_answer_check() -> None:

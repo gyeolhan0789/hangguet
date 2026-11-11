@@ -97,8 +97,9 @@ def test_raises_unavailable_after_four_5xx_calls() -> None:
     transport = FakeTransport([status(500), status(502), status(503), status(504)])
     sleeps: list[float] = []
 
+    gms = client(transport, sleeps)
     with pytest.raises(GmsUnavailableError):
-        client(transport, sleeps).chat_json(MESSAGES)
+        gms.chat_json(MESSAGES)
 
     assert len(transport.payloads) == 4
     assert sleeps == list(BACKOFF_SECONDS)
@@ -108,8 +109,9 @@ def test_other_4xx_fails_without_retry() -> None:
     transport = FakeTransport([status(400), ok()])
     sleeps: list[float] = []
 
+    gms = client(transport, sleeps)
     with pytest.raises(GmsUnavailableError):
-        client(transport, sleeps).chat_json(MESSAGES)
+        gms.chat_json(MESSAGES)
 
     assert len(transport.payloads) == 1
     assert sleeps == []
@@ -120,8 +122,9 @@ def test_redirect_status_fails_without_retry() -> None:
     transport = FakeTransport([status(300), ok()])
     sleeps: list[float] = []
 
+    gms = client(transport, sleeps)
     with pytest.raises(GmsUnavailableError):
-        client(transport, sleeps).chat_json(MESSAGES)
+        gms.chat_json(MESSAGES)
 
     assert len(transport.payloads) == 1
     assert sleeps == []
@@ -164,8 +167,9 @@ def test_retry_after_is_capped_and_finite(header: str, expected: float) -> None:
 def test_non_object_content_is_bad_output(content: str) -> None:
     transport = FakeTransport([ok(content)])
 
+    gms = client(transport, [])
     with pytest.raises(GmsBadOutputError):
-        client(transport, []).chat_json(MESSAGES)
+        gms.chat_json(MESSAGES)
 
     assert len(transport.payloads) == 1
 
@@ -209,8 +213,9 @@ def test_transport_wraps_dropped_connection_as_unavailable(
     """호출 측이 GmsUnavailableError만 처리해도 응답 수신 중 연결 중단을 누락하지 않는다."""
     monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: FakeUrlResponse(error))
 
+    transport = urllib_transport("http://gms.test", None)
     with pytest.raises(GmsUnavailableError):
-        urllib_transport("http://gms.test", None)({})
+        transport({})
 
 
 def test_transport_propagates_read_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -218,8 +223,9 @@ def test_transport_propagates_read_timeout(monkeypatch: pytest.MonkeyPatch) -> N
         "urllib.request.urlopen", lambda *a, **k: FakeUrlResponse(TimeoutError("timed out"))
     )
 
+    transport = urllib_transport("http://gms.test", None)
     with pytest.raises(TimeoutError):
-        urllib_transport("http://gms.test", None)({})
+        transport({})
 
 
 def test_transport_unwraps_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,14 +236,16 @@ def test_transport_unwraps_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setattr("urllib.request.urlopen", fail)
 
+    transport = urllib_transport("http://gms.test", None)
     with pytest.raises(TimeoutError):
-        urllib_transport("http://gms.test", None)({})
+        transport({})
 
 
 def test_from_settings_requires_llm_values() -> None:
     """GMS 접속 값이 없으면 클라이언트를 생성하는 시점에 변수 이름을 포함해 실패한다."""
+    settings = load_settings({"LLM_MODEL": "gpt-test"})
     with pytest.raises(SettingsError, match="LLM_CHAT_URL"):
-        GmsClient.from_settings(load_settings({"LLM_MODEL": "gpt-test"}))
+        GmsClient.from_settings(settings)
 
 
 def test_from_settings_rejects_unregistered_model() -> None:
@@ -320,8 +328,9 @@ def test_with_deadline_stops_after_deadline_without_calling() -> None:
         calls.append(messages)
         return _answer(messages)
 
+    deadline_chat = with_deadline(chat, 10.0, lambda: 10.001)
     with pytest.raises(GmsDeadlineError):
-        with_deadline(chat, 10.0, lambda: 10.001)([])
+        deadline_chat([])
     assert calls == []
 
 
@@ -354,11 +363,12 @@ def test_call_time_includes_retries_and_keeps_retry_phrase(
 def test_failed_call_logs_total_time_and_attempts(
     caplog: pytest.LogCaptureFixture, outcomes: list[HttpResponse], message: str
 ) -> None:
+    gms = timed_client(FakeTransport(outcomes), 0.0, 1.5)
     with (
         caplog.at_level(logging.INFO, logger="app.common.gms"),
         pytest.raises(GmsUnavailableError),
     ):
-        timed_client(FakeTransport(outcomes), 0.0, 1.5).chat_json(MESSAGES)
+        gms.chat_json(MESSAGES)
     assert caplog.records[-1].getMessage() == message
 
 

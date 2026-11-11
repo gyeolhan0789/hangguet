@@ -110,8 +110,9 @@ def test_started_at_is_converted_to_korea_time_with_milliseconds() -> None:
 
 
 def test_started_at_without_timezone_is_rejected() -> None:
+    naive = datetime(2026, 10, 22, 14, 2, 10)
     with pytest.raises(ProgressMessageError, match="시간대"):
-        question_started(55, 1, datetime(2026, 10, 22, 14, 2, 10), "질문", "기준")
+        question_started(55, 1, naive, "질문", "기준")
 
 
 def test_answer_completed_matches_spec_example_without_job_id() -> None:
@@ -238,10 +239,9 @@ def test_token_count_boundary() -> None:
     message = answer_completed(55, 1, STARTED, "가", tokens, None, EndReason.AUTO_SUBMIT)
 
     assert len(message.fields["tokens"]) == MAX_ANSWER_TOKENS
+    too_many = (*tokens, SpeechToken("가", 0, 1))
     with pytest.raises(ProgressMessageError, match="10,000개"):
-        answer_completed(
-            55, 1, STARTED, "가", (*tokens, SpeechToken("가", 0, 1)), None, EndReason.AUTO_SUBMIT
-        )
+        answer_completed(55, 1, STARTED, "가", too_many, None, EndReason.AUTO_SUBMIT)
 
 
 @pytest.mark.parametrize(
@@ -291,8 +291,9 @@ def test_publish_retries_then_raises_for_submit_failed() -> None:
     redis = FakeRedis([RedisConnectionError("연결 실패")] * 4)
     message = answer_completed(55, 1, STARTED, "답변", None, None, EndReason.AUTO_SUBMIT)
 
+    failing = publisher(redis)
     with pytest.raises(ResultPublishError):
-        message.publish(publisher(redis))
+        message.publish(failing)
     assert sent(redis) == []
 
     recovered = FakeRedis([RedisConnectionError("연결 실패")])
@@ -366,7 +367,6 @@ def test_too_many_trailing_off_times_are_rejected() -> None:
 
 
 def test_answer_started_at_without_timezone_is_rejected() -> None:
+    naive = datetime(2026, 10, 22, 14, 2, 18)
     with pytest.raises(ProgressMessageError, match="answerStartedAt"):
-        answer_completed(
-            55, 1, datetime(2026, 10, 22, 14, 2, 18), "답변", None, None, EndReason.AUTO_SUBMIT
-        )
+        answer_completed(55, 1, naive, "답변", None, None, EndReason.AUTO_SUBMIT)
