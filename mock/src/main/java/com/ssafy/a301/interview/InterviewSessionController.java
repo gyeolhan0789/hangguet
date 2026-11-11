@@ -49,6 +49,14 @@ public class InterviewSessionController {
               "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 0,
               "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null, "room": null, "group": null }\
             """;
+    private static final String CREATED_READY =
+            """
+            { "id": 55, "applicationId": 10, "companyName": "○○전자", "jobTitle": "백엔드 개발자",
+              "persona": "DEVIL", "mode": "VIDEO", "status": "READY",
+              "planStatus": "READY", "planProgress": null, "analysisStep": null,
+              "currentQuestion": null, "answeredCount": 0, "elapsedSeconds": 0,
+              "startedAt": null, "endedAt": null, "createdAt": "2026-10-15T11:58:30+09:00", "leveledUp": null, "room": null, "group": null }\
+            """;
     private static final String S05_GENERATING =
             """
             { "id": 55, "applicationId": 10, "companyName": "○○전자", "jobTitle": "백엔드 개발자",
@@ -147,7 +155,9 @@ public class InterviewSessionController {
         this.stub = stub;
     }
 
-    @Operation(summary = "5.1 면접 만들기", description = "면접을 만들고 질문 준비를 시작한다. 준비가 끝났는지는 5.2로 확인한다.")
+    @Operation(
+            summary = "5.1 면접 만들기",
+            description = "면접을 만들고 질문 준비를 시작한다. 질문 보관함에 질문이 5개 이상이면 바로 준비된다. 준비가 끝났는지는 5.2로 확인한다.")
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
             content =
                     @Content(
@@ -159,7 +169,12 @@ public class InterviewSessionController {
                                                     """)))
     @ApiResponse(
             responseCode = "201",
-            content = @Content(examples = @ExampleObject(value = CREATED)))
+            content =
+                    @Content(
+                            examples = {
+                                @ExampleObject(name = "질문 생성 시작", value = CREATED),
+                                @ExampleObject(name = "보관함 질문으로 바로 준비", value = CREATED_READY)
+                            }))
     @ApiResponse(
             responseCode = "404",
             description = "APPLICATION_NOT_FOUND: 없거나 남의 지원서 · 지운 지원서",
@@ -227,7 +242,12 @@ public class InterviewSessionController {
     @Operation(summary = "5.3 면접 플랜 재생성")
     @ApiResponse(
             responseCode = "202",
-            content = @Content(examples = @ExampleObject(value = CREATED)))
+            content =
+                    @Content(
+                            examples = {
+                                @ExampleObject(name = "질문 생성 시작", value = CREATED),
+                                @ExampleObject(name = "보관함 질문으로 바로 준비", value = CREATED_READY)
+                            }))
     @ApiResponse(
             responseCode = "404",
             content =
