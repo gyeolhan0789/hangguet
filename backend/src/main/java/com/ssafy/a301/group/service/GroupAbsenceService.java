@@ -59,6 +59,7 @@ public class GroupAbsenceService {
     private final WebhookEventStore webhookEvents;
     private final TransactionTemplate transactions;
     private final Duration joinGrace;
+    private final Duration absenceLimit;
 
     public GroupAbsenceService(
             InterviewGroupRepository groups,
@@ -72,7 +73,8 @@ public class GroupAbsenceService {
             InterviewRoom rooms,
             WebhookEventStore webhookEvents,
             TransactionTemplate transactions,
-            @Value("${group.join-grace:30s}") Duration joinGrace) {
+            @Value("${group.join-grace:30s}") Duration joinGrace,
+            @Value("${group.absence-limit:2m}") Duration absenceLimit) {
         this.groups = groups;
         this.participants = participants;
         this.sessions = sessions;
@@ -85,6 +87,7 @@ public class GroupAbsenceService {
         this.webhookEvents = webhookEvents;
         this.transactions = transactions;
         this.joinGrace = joinGrace;
+        this.absenceLimit = absenceLimit;
     }
 
     /** 웹훅 이벤트 하나. 같은 이벤트는 한 번만 처리하고, 처리하지 못하면 다시 받을 수 있게 둔다 */
@@ -127,7 +130,7 @@ public class GroupAbsenceService {
                             Locked locked = lock(groupId, occurredAt);
                             InterviewGroupParticipant participant =
                                     locked == null ? null : locked.find(sessionId);
-                            if (participant == null || !participant.markAbsent(now)) {
+                            if (participant == null || !participant.markAbsent(now, absenceLimit)) {
                                 return false;
                             }
                             LOG.info("그룹 면접 참가자가 나갔다: group={} session={}", groupId, sessionId);

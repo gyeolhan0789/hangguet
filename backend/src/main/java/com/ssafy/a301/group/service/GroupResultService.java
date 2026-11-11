@@ -255,21 +255,20 @@ public class GroupResultService {
         };
     }
 
-    // DECIDING에서 온 첫 판단만 반영한다. 늦게 온 판단은 버리지만 응답 시간은 남긴다(6.4)
+    // DECIDING에서 온 첫 판단만 반영한다. 늦게 온 판단은 버리고 로그만 남긴다. 제한 시간이 지날 때 missing으로 이미 셌다(6.4)
     private Step followupDecided(GroupResultMessage message) {
         boolean needed = required(message.needed(), "needed");
         return (turn, current) -> {
             boolean deciding = current && turn.group().isPhase(GroupPhase.DECIDING);
-            String decision = "late";
             if (deciding) {
-                decision = needed ? "needed" : "not_needed";
+                recordDecision(turn, needed ? "needed" : "not_needed");
             }
-            recordDecision(turn, decision);
             LOG.info(
-                    "꼬리질문 판단: session={} seq={} needed={} receivedAt={} generationMs={}",
+                    "꼬리질문 판단: session={} seq={} needed={} late={} receivedAt={} generationMs={}",
                     turn.session() == null ? null : turn.session().getId(),
                     turn.seq(),
                     needed,
+                    !deciding,
                     message.receivedAt(),
                     message.generationMs());
             if (!deciding) {

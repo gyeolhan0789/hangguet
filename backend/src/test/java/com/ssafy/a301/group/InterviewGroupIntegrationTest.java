@@ -63,6 +63,7 @@ import com.ssafy.a301.result.service.ResultService;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -1294,6 +1295,7 @@ class InterviewGroupIntegrationTest {
         // 채팅 마감(5분) 뒤: 작성 중인 글을 최종 답변으로 확정하고 꼬리질문 판단을 기다린다
         deadlines.expire(group.groupId(), OffsetDateTime.now().plusMinutes(6));
         assertThat(groupRow(group.groupId())).containsEntry("phase", "DECIDING");
+        int deciding = turnVersion(group.groupId());
         assertThat(
                         jdbc.queryForObject(
                                 "SELECT content FROM answers WHERE question_id = ?",
@@ -1309,6 +1311,16 @@ class InterviewGroupIntegrationTest {
         assertTurn(group.groupId(), 1, order.get(1), 1, "COMMON", "CALL");
         assertThat(meters.find("a301.group.followup.decision").tag("outcome", "missing").timer())
                 .isNotNull();
+        // 늦게 온 판단은 missing으로 이미 셌으므로 다시 세지 않는다(6.4)
+        long counted = decisionCount();
+        assertThat(handle(followupDecided(a, 1, deciding, false))).isEqualTo(Outcome.DISCARDED);
+        assertThat(decisionCount()).isEqualTo(counted);
+    }
+
+    private long decisionCount() {
+        return meters.find("a301.group.followup.decision").timers().stream()
+                .mapToLong(Timer::count)
+                .sum();
     }
 
     // 6.6: 글이 없는 채팅 마감과 화상 마감은 답 없이 질문을 닫고 꼬리질문 판단 없이 다음 차례로 간다
@@ -1382,6 +1394,26 @@ class InterviewGroupIntegrationTest {
         assertThat(info.path("participants").get(0).path("endReason").asString())
                 .isEqualTo("AI_FAILURE");
         verify(rooms).closeGroup(group.groupId());
+    }
+
+    // 6.10: AI 장애로 모두 끝나면 지금 답변자의 작성 중인 글을 지운다
+    @Test
+    void aiFailureDeletesCurrentDraft() throws Exception {
+        ReadyGroup group = readyGroup(2, "CHAT");
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        Map<Long, Long> owner = usersBySession(group);
+        long a = sessionIdsByTurnOrder(group.groupId()).get(0);
+        handle(questionStarted(a, 1, turnVersion(group.groupId())));
+        handle(questionSpoken(a, 1, turnVersion(group.groupId())));
+        long questionId = questionId(a, 1);
+        mvc.perform(draftRequest(owner.get(a), a, questionId, "작성 중"))
+                .andExpect(status().isNoContent());
+        assertThat(redis.hasKey("group-draft:" + a + ":" + questionId)).isTrue();
+
+        assertThat(absences.interviewerLeft(group.groupId(), OffsetDateTime.now())).isTrue();
+        assertThat(groupStatus(group.groupId())).isEqualTo("ENDED");
+        assertThat(endReason(a)).isEqualTo("AI_FAILURE");
+        assertThat(redis.hasKey("group-draft:" + a + ":" + questionId)).isFalse();
     }
 
     // 5.1: 그룹 배정 거절은 첫 질문 전에만 시작 실패로 바꾼다. 다시 시작하기 전의 늦은 거절은 버린다
@@ -1540,6 +1572,14 @@ class InterviewGroupIntegrationTest {
         OffsetDateTime firstAsked = askedAt(questionId(a, 1));
         assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isTrue();
         assertThat(absences.left(group.groupId(), a, OffsetDateTime.now())).isFalse();
+        // 다시 들어올 수 있는 시각은 이탈할 때 설정값(group.absence-limit 2분)으로 정한다
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT absent_until - absent_since = INTERVAL '2 minutes' FROM"
+                                        + " interview_group_participants WHERE session_id = ?",
+                                Boolean.class,
+                                a))
+                .isTrue();
         assertTurn(group.groupId(), 1, b, 1, "COMMON", "FULL");
         assertThat(
                         jdbc.queryForObject(
@@ -1612,7 +1652,8 @@ class InterviewGroupIntegrationTest {
         assertThat(groupRow(group.groupId())).containsEntry("phase", "WAITING");
         jdbc.update(
                 "UPDATE interview_group_participants SET absent_since = now() - interval '3"
-                        + " minutes' WHERE session_id = ?",
+                        + " minutes', absent_until = now() - interval '1 minute' WHERE session_id"
+                        + " = ?",
                 b);
         mvc.perform(as(owner.get(b), post("/api/v1/interview-sessions/" + b + "/room-token")))
                 .andExpect(status().isConflict());
