@@ -45,11 +45,11 @@ export function CoverLetterCounter({
   id,
   length,
   max,
-}: {
+}: Readonly<{
   id: string;
   length: number;
   max: number;
-}) {
+}>) {
   const [scope, animateScope] = useAnimate<HTMLParagraphElement>();
   const reduce = useReducedMotion();
   const count = useMotionValue(length);

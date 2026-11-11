@@ -15,11 +15,11 @@ export function PracticeActionBar({
   backHref,
   backLabel,
   children,
-}: {
+}: Readonly<{
   backHref: string;
   backLabel: string;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div className="sticky bottom-0 z-10 flex h-[88px] shrink-0 items-center justify-between gap-3 border-t border-line bg-bg px-4 sm:px-10">
       <Link
@@ -44,14 +44,14 @@ export function PracticeNextButton({
   pending = false,
   pop = "settle",
   arrow = true,
-}: {
+}: Readonly<{
   children: ReactNode;
   disabled?: boolean;
   pending?: boolean;
   pop?: "settle" | "bounce";
   /** 글자 뒤 오른쪽 화살표. 지원서 쓰기 [저장하기]는 다음 단계가 아니라 화살표가 없다(Figma 지원서 쓰기) */
   arrow?: boolean;
-}) {
+}>) {
   const [scope, animate] = useAnimate<HTMLButtonElement>();
   const reduce = useReducedMotion();
   const wasDisabled = useRef(disabled);

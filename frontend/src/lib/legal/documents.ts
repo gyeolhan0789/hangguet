@@ -21,6 +21,33 @@ export interface LegalDocument {
   blocks: LegalBlock[];
 }
 
+function blockContent(block: LegalBlock): string {
+  switch (block.kind) {
+    case "heading":
+    case "paragraph":
+      return `${block.kind}:${block.text}`;
+    case "list":
+      return `list:${block.items.join("\n")}`;
+    case "table": {
+      const rows = block.rows.map((row) => row.join("|")).join("\n");
+      return `table:${block.head.join("|")}:${rows}`;
+    }
+  }
+}
+
+/**
+ * 본문 덩어리마다 내용으로 만든 key를 붙인다(화면이 덩어리를 구분하는 key). 같은 내용이 또 나오면 몇 번째인지 붙여 겹치지 않게 한다.
+ */
+export function keyedBlocks(blocks: readonly LegalBlock[]): { key: string; block: LegalBlock }[] {
+  const seen = new Map<string, number>();
+  return blocks.map((block) => {
+    const content = blockContent(block);
+    const count = seen.get(content) ?? 0;
+    seen.set(content, count + 1);
+    return { key: count === 0 ? content : `${content}#${count}`, block };
+  });
+}
+
 /** 문서별 시행일. 동의서 본문을 바꾸면 lib/auth/schemas.ts TERMS의 그 약관 version도 올린다. */
 export const TERMS_EFFECTIVE_DATE = "2026. 10. 30.";
 // 인상 분석용 카메라 사진 국외 이전 추가(2026-11-02). 제13조대로 7일 전 공지

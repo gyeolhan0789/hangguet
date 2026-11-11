@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useForm, useWatch } from "react-hook-form";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { SubmitButton } from "@/components/form";
 import { MaskIcon } from "@/components/mask-icon";
 import { useLockScroll } from "@/components/use-lock-scroll";
@@ -71,18 +72,7 @@ export function SocialSignupModal() {
     const items = [
       ...dialog.current.querySelectorAll<HTMLElement>("input, button:not(:disabled)"),
     ].filter(ownedBy);
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (
-      event.shiftKey &&
-      (document.activeElement === first || document.activeElement === dialog.current)
-    ) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, items, dialog.current);
   }
 
   return (

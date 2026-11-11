@@ -33,7 +33,7 @@ const STATUS_CLASS: Record<InquiryStatus, string> = {
   CLOSED: "bg-surface text-text-3",
 };
 
-export function StatusChip({ status }: { status: InquiryStatus }) {
+export function StatusChip({ status }: Readonly<{ status: InquiryStatus }>) {
   return (
     <span
       className={`inline-flex shrink-0 rounded-full px-2.5 py-[3px] text-[13px] leading-normal font-bold ${STATUS_CLASS[status]}`}
@@ -47,10 +47,10 @@ export function StatusChip({ status }: { status: InquiryStatus }) {
 export function InquiryPage({
   narrow = false,
   children,
-}: {
+}: Readonly<{
   narrow?: boolean;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div
       className={`mx-auto flex w-full flex-col gap-7 px-4 pt-10 pb-16 ${narrow ? "max-w-[432px]" : "max-w-[752px]"}`}
@@ -68,14 +68,14 @@ export function InquiryHead({
   title,
   sub,
   children,
-}: {
+}: Readonly<{
   /** 돌아갈 곳. href면 링크, onClick이면 같은 화면 안에서 돌아간다(비회원 I03 → I04) */
   back?: { label: string; href?: string; onClick?: () => void };
   title: string;
   sub?: string;
   /** 제목 아래 줄(문의번호 · 상태) */
   children?: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       {back?.href && (
@@ -137,14 +137,14 @@ export function InquiryModal({
   describedBy,
   width,
   children,
-}: {
+}: Readonly<{
   open: boolean;
   labelledBy: string;
   /** 모달 설명 글의 id(있으면 화면 낭독기가 제목과 함께 읽는다) */
   describedBy?: string;
   width: "w-[440px]" | "w-[480px]";
   children: ReactNode;
-}) {
+}>) {
   useLockScroll(open);
   return (
     <AnimatePresence>

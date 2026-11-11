@@ -21,7 +21,10 @@ import type { SessionListItem, SessionListResponse } from "@/types/api";
 /** 줄이 스크롤로 들어올 때의 스프링(모션 메모: 쫀득하게) */
 const ROW_SPRING = { type: "spring", stiffness: 420, damping: 22, mass: 0.8 } as const;
 
-export function InterviewList({ date, list }: { date: string; list: SessionListResponse }) {
+export function InterviewList({
+  date,
+  list,
+}: Readonly<{ date: string; list: SessionListResponse }>) {
   const reduce = useReducedMotion();
   const scroller = useRef<HTMLDivElement>(null);
   const { content, page } = list;
@@ -100,7 +103,7 @@ export function InterviewList({ date, list }: { date: string; list: SessionListR
   );
 }
 
-function Row({ item }: { item: SessionListItem }) {
+function Row({ item }: Readonly<{ item: SessionListItem }>) {
   const pending = pendingLabel(item);
   return (
     <article
@@ -155,13 +158,13 @@ function PageLink({
   last,
   label,
   icon,
-}: {
+}: Readonly<{
   date: string;
   page: number;
   last: number;
   label: string;
   icon: string;
-}) {
+}>) {
   if (page < 0 || page > last) {
     return (
       <span aria-hidden className="flex">

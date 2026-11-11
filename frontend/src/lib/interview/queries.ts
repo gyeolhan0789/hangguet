@@ -1,7 +1,6 @@
 import { api } from "@/lib/api/client";
 import { endpoints } from "@/lib/api/endpoints";
 import { getProblemDetail } from "@/lib/api/problem-detail";
-import { parsePositiveId } from "@/lib/parse-id";
 import type {
   CurrentQuestion,
   PendingResponse,
@@ -44,4 +43,4 @@ export async function getCurrentQuestion(sessionId: number): Promise<CurrentQues
 }
 
 /** 주소의 sessionId(양의 정수)를 읽는다. 없거나 형식이 틀리면 null */
-export const parseSessionId = parsePositiveId;
+export { parsePositiveId as parseSessionId } from "@/lib/parse-id";

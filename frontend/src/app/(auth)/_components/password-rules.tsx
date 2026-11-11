@@ -6,7 +6,7 @@ import Image from "next/image";
 import { PASSWORD_RULES } from "@/lib/auth/schemas";
 
 /** 비밀번호 규칙 칩(Figma S01-1). 회원가입 · 비밀번호 재설정이 같이 쓴다 */
-export function PasswordRules({ password }: { password: string }) {
+export function PasswordRules({ password }: Readonly<{ password: string }>) {
   return (
     <ul className="flex gap-2.5">
       {PASSWORD_RULES.map(({ label, test }) => {

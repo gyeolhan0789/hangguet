@@ -98,15 +98,15 @@ describe("ChatWaiting (채팅 대기 화면)", () => {
 
   it("진행률은 질문 준비 · 모델 받기 중 작은 쪽이고, 둘 다 끝나기 전에는 [면접 시작]이 없다", () => {
     const { rerender } = render(view());
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("50");
 
     act(() => useInterviewerPreloadStore.setState({ progress: 0.95 }));
     rerender(view());
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("80");
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("80");
 
     // 질문 준비는 끝났지만 모델이 아직이면 기다린다
     rerender(view({ planStatus: "READY", planProgress: null }));
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("95");
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("95");
     expect(screen.queryByRole("button", { name: "면접 시작" })).toBeNull();
   });
 
@@ -114,7 +114,7 @@ describe("ChatWaiting (채팅 대기 화면)", () => {
     useInterviewerPreloadStore.setState({ status: "ready", progress: 1 });
     const { rerender } = render(view({ planStatus: "READY", planProgress: null, started: false }));
     expect(screen.queryByRole("button", { name: "면접 시작" })).toBeNull();
-    expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("100");
     rerender(view({ planStatus: "READY", planProgress: null, started: true }));
     expect(screen.getByRole("button", { name: "면접 시작" })).toBeTruthy();
   });

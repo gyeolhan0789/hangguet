@@ -42,10 +42,10 @@ const LOUD_DB = -10;
  * 마이크 입력 한 묶음(-1~1)의 소리 크기를 0~1로 바꾼다.
  * RMS를 dB로 바꿔 -60dB → 0, -10dB → 1 사이로 펴서, 작은 목소리도 막대가 움직이게 한다.
  */
-export function micLevel(samples: ArrayLike<number>): number {
+export function micLevel(samples: ArrayLike<number> & Iterable<number>): number {
   if (samples.length === 0) return 0;
   let sum = 0;
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  for (const sample of samples) sum += sample * sample;
   const rms = Math.sqrt(sum / samples.length);
   if (rms === 0) return 0;
   const db = 20 * Math.log10(rms);

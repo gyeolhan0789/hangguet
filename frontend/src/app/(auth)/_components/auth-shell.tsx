@@ -9,13 +9,13 @@ export function AuthShell({
   message,
   card,
   children,
-}: {
+}: Readonly<{
   /** 패널의 큰 문구 두 줄 */
   message: readonly [string, string];
   /** 패널의 스트릭 카드 */
   card: ReactNode;
   children: ReactNode;
-}) {
+}>) {
   return (
     <div className="flex min-h-svh bg-bg">
       <aside className="relative hidden w-[640px] shrink-0 flex-col justify-between overflow-hidden bg-panel p-16 lg:flex">
@@ -59,12 +59,12 @@ export function PanelCard({
   title,
   children,
   gap = "gap-5",
-}: {
+}: Readonly<{
   caption: string;
   title: string;
   children: ReactNode;
   gap?: string;
-}) {
+}>) {
   return (
     <div
       className={`flex w-[400px] flex-col rounded-3xl bg-bg-sub p-6 drop-shadow-[0_8px_12px_rgba(255,122,38,0.1)] ${gap}`}

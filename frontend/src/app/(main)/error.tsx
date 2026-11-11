@@ -11,10 +11,10 @@ import { reportBrowserError } from "@/lib/monitoring/browser-events";
 export default function MainError({
   error,
   retry,
-}: {
+}: Readonly<{
   error: Error & { digest?: string };
   retry: () => void;
-}) {
+}>) {
   useEffect(() => {
     console.error(error);
     reportBrowserError("boundary");

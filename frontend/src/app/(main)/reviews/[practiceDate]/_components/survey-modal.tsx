@@ -56,11 +56,11 @@ export function SurveyModal({
   round,
   surveyUrl,
   userId,
-}: {
+}: Readonly<{
   round: number;
   surveyUrl: string;
   userId: number;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
   const showToast = useToastStore((state) => state.show);

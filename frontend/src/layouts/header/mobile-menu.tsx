@@ -31,14 +31,14 @@ export function MobileMenuLink({
   icon,
   chevron = false,
   children,
-}: {
+}: Readonly<{
   href: string;
   /** 18 아이콘(text-2). C01 프로필 메뉴에서 온 항목만 붙인다 */
   icon?: string;
   /** C01 마이페이지처럼 오른쪽 chevron */
   chevron?: boolean;
   children: ReactNode;
-}) {
+}>) {
   const close = useMobileMenuStore((state) => state.close);
   return (
     <Link href={href} onClick={close} className={`${row} text-text-1`}>
@@ -79,7 +79,7 @@ export function MobileLogout() {
  * 데스크톱 공지 종(C03) 자리. 누르면 그 자리에 공지 줄이 펼쳐지고, 공지를 고르면 메뉴를 닫고 C02로 연다(MobileNoticeModal).
  * 확인 안 한 공지가 있으면 종과 같은 brand-strong 점 8.
  */
-export function MobileNotices({ notices }: { notices: NoticeItem[] }) {
+export function MobileNotices({ notices }: Readonly<{ notices: NoticeItem[] }>) {
   const [expanded, setExpanded] = useState(false);
   const openNotice = useMobileMenuStore((state) => state.openNotice);
   const hasUnread = notices.some((notice) => !notice.read);

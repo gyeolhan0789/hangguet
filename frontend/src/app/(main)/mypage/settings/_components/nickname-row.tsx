@@ -20,7 +20,7 @@ import {
 // 기준: Figma S09-1 Row 닉네임(18:3199: '닉네임' 16 SemiBold · 값 15 Medium text-2 · chevron-right 18) · Swagger 2.2 닉네임 변경
 // (NicknameRequest 1~50자 · 앞뒤 공백 제거) · 모션 메모 S09-1(18:3261: 닉네임은 행에서 바로 인라인 편집(입력칸으로 morph))
 
-export function NicknameRow({ nickname }: { nickname: string }) {
+export function NicknameRow({ nickname }: Readonly<{ nickname: string }>) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const form = useForm<NicknameValues>({

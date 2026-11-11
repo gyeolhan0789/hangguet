@@ -25,12 +25,12 @@ export const TYPING_STAGGER_S = 0.02;
 export function QuestionBubble({
   interviewer,
   question,
-}: {
+}: Readonly<{
   interviewer: string;
   /** 지금 질문. 다음 질문을 기다리는 중이면 null */
   question:
     (Pick<CurrentQuestion, "seq" | "content"> & Partial<Pick<CurrentQuestion, "id">>) | null;
-}) {
+}>) {
   const reduce = useReducedMotion();
   // 접으면 질문을 한 줄로 줄인다. 다음 질문에서도 사용자가 고른 대로 둔다.
   const collapsed = useInterviewStore((state) => state.collapsed);
@@ -72,11 +72,11 @@ function Speaker({
   interviewer,
   speaking,
   children,
-}: {
+}: Readonly<{
   interviewer: string;
   speaking: boolean;
   children?: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="flex items-center gap-1.5">
       <Image src="/interview/dot.svg" alt="" width={8} height={8} />
@@ -100,13 +100,14 @@ function TypedQuestion({
   interviewer,
   content,
   collapsed,
-}: {
+}: Readonly<{
   interviewer: string;
   content: string;
   collapsed: boolean;
-}) {
+}>) {
   const reduce = useReducedMotion();
-  const letters = Array.from(content);
+  // 글자는 겹칠 수 있어 질문 안 위치(position)를 key로 쓴다(질문이 바뀌면 말풍선을 새로 그린다)
+  const letters = Array.from(content).map((letter, position) => ({ letter, position }));
   const [typing, setTyping] = useState(!reduce);
 
   return (
@@ -126,9 +127,9 @@ function TypedQuestion({
           variants={{ shown: { transition: { staggerChildren: TYPING_STAGGER_S } } }}
           onAnimationComplete={() => setTyping(false)}
         >
-          {letters.map((letter, i) => (
+          {letters.map(({ letter, position }) => (
             <motion.span
-              key={i}
+              key={position}
               variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
               transition={{ duration: 0.01 }}
             >
@@ -145,11 +146,7 @@ function TypedQuestion({
 function ThinkingDots() {
   const reduce = useReducedMotion();
   return (
-    <span
-      role="status"
-      aria-label="면접관이 생각하는 중"
-      className="flex h-[30px] items-center gap-1.5"
-    >
+    <output aria-label="면접관이 생각하는 중" className="flex h-[30px] items-center gap-1.5">
       {[0, 1, 2].map((i) => (
         <motion.span
           key={i}
@@ -158,7 +155,7 @@ function ThinkingDots() {
           transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.15 }}
         />
       ))}
-    </span>
+    </output>
   );
 }
 
@@ -199,13 +196,13 @@ function BubbleButton({
   expanded,
   onClick,
   children,
-}: {
+}: Readonly<{
   label: string;
   pressed?: boolean;
   expanded?: boolean;
   onClick: () => void;
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <button
       type="button"

@@ -14,11 +14,11 @@ import { LegalDocumentView } from "./legal-document";
 export function LegalModal({
   doc,
   onClose,
-}: {
+}: Readonly<{
   /** 보여 줄 본문. null이면 닫혀 있다 */
   doc: LegalDocument | null;
   onClose: () => void;
-}) {
+}>) {
   const open = doc !== null;
   const opener = useRef<HTMLElement | null>(null);
   const confirm = useRef<HTMLButtonElement>(null);
@@ -50,14 +50,13 @@ export function LegalModal({
           <h2 id="legal-modal-title" className="text-2xl leading-normal font-bold text-text-1">
             {doc.title}
           </h2>
-          <div
-            role="region"
+          <section
             aria-labelledby="legal-modal-title"
             tabIndex={0}
             className="mt-2 max-h-[60vh] overflow-y-auto rounded-md pr-1 focus-visible:outline-2 focus-visible:outline-brand"
           >
             <LegalDocumentView doc={doc} headingLevel={3} />
-          </div>
+          </section>
           <InquiryButton ref={confirm} kind="primary" className="mt-6 w-full" onClick={onClose}>
             확인
           </InquiryButton>

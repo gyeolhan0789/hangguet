@@ -12,11 +12,11 @@ import type { Persona } from "@/types/api";
 // S06-1 결과 분석 중과 면접관 3D를 불러오는 동안 같이 쓴다.
 
 /** 면접관 썸네일 둘레를 주황 호가 도는 표시 */
-export function ThinkingAvatar({ persona }: { persona: Persona }) {
+export function ThinkingAvatar({ persona }: Readonly<{ persona: Persona }>) {
   const reduce = useReducedMotion();
   const info = PERSONAS.find((item) => item.persona === persona);
   return (
-    <div className="relative size-[132px] shrink-0">
+    <span className="relative block size-[132px] shrink-0">
       <Image
         src="/interview/ring-track.svg"
         alt=""
@@ -52,6 +52,6 @@ export function ThinkingAvatar({ persona }: { persona: Persona }) {
           className="absolute top-3 left-3 size-[108px] rounded-full object-cover"
         />
       )}
-    </div>
+    </span>
   );
 }

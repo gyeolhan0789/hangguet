@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "문의 상세 · 한끗" };
 
 // I03 문의 상세(회원). 기준: Figma I03 · I03-1(화이트 · 다크) · 기획 메모 I03(없는 문의(404)면 회원은 I02로)
 // · Swagger 9.3 문의 조회(404 INQUIRY_NOT_FOUND: 없거나 남의 문의)
-async function Inquiry({ params }: Pick<PageProps<"/inquiries/[inquiryId]">, "params">) {
+async function Inquiry({ params }: Readonly<Pick<PageProps<"/inquiries/[inquiryId]">, "params">>) {
   const inquiryId = parsePositiveId((await params).inquiryId);
   if (inquiryId === null) redirect(ROUTES.inquiries);
   let inquiry: InquiryResponse;

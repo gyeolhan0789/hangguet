@@ -42,7 +42,7 @@ afterEach(() => {
 
 const current = () =>
   screen.getAllByRole("listitem").findIndex((item) => item.getAttribute("aria-current") === "step");
-const filled = () => screen.getByRole("progressbar").getAttribute("aria-valuenow");
+const filled = () => screen.getByRole("progressbar").getAttribute("value");
 
 describe("AnalyzingView (S06-1 결과 분석 중)", () => {
   it("Figma 제목 · 단계 문구 · 팁과 면접관 썸네일을 보여 주고, '보통 10초 안에 끝나요'는 두지 않는다", () => {

@@ -98,7 +98,7 @@ export function ForgotPasswordForm() {
 }
 
 /** ② 보낸 뒤. 다시 보내기는 30초 뒤에 누를 수 있다 */
-function SentView({ email }: { email: string }) {
+function SentView({ email }: Readonly<{ email: string }>) {
   const [waitSeconds, setWaitSeconds] = useState(RESEND_WAIT_SECONDS);
   const [resending, setResending] = useState(false);
   const [formError, setFormError] = useState<string>();
@@ -178,7 +178,7 @@ function SentView({ email }: { email: string }) {
   );
 }
 
-function FormError({ text }: { text?: string }) {
+function FormError({ text }: Readonly<{ text?: string }>) {
   return (
     <AnimatePresence initial={false}>
       {text && (

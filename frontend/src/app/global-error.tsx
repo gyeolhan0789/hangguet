@@ -11,10 +11,10 @@ import "./globals.css";
 export default function GlobalError({
   error,
   retry,
-}: {
+}: Readonly<{
   error: Error & { digest?: string };
   retry: () => void;
-}) {
+}>) {
   useEffect(() => {
     console.error(error);
     reportBrowserError("boundary");

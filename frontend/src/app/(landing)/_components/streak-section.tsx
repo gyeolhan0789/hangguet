@@ -19,7 +19,7 @@ const TWINKLES = [
   { src: "/landing/twinkle-3.svg", size: 16, left: 72, top: 150 },
 ] as const;
 
-function PulseRing({ src, size, delay }: { src: string; size: number; delay: number }) {
+function PulseRing({ src, size, delay }: Readonly<{ src: string; size: number; delay: number }>) {
   const reduce = useReducedMotion();
   return (
     <motion.span

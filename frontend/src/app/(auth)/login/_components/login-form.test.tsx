@@ -1,9 +1,10 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { Activity } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useLoginNoticeStore } from "@/stores/login-notice-store";
+import { flushPromises } from "@/test/flush";
 
 import { LoginForm } from "./login-form";
 import { LoginNotice } from "./login-notice";
@@ -38,7 +39,8 @@ async function submitEmailLogin() {
   fireEvent.change(screen.getByLabelText("비밀번호", { selector: "input" }), {
     target: { value: "abcd1234" },
   });
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "로그인" })));
+  fireEvent.click(screen.getByRole("button", { name: "로그인" }));
+  await flushPromises();
 }
 
 describe("LoginForm (S01)", () => {

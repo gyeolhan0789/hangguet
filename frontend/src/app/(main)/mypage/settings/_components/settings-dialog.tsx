@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 
+import { cycleTabFocus } from "@/components/cycle-tab-focus";
 import { useLockScroll } from "@/components/use-lock-scroll";
 
 // 설정 화면의 안내 · 확인 모달 틀(카카오 연결 완료 안내 · 연결 해제 확인). 시안이 Figma에 없어 같은 화면의 탈퇴 확인 모달(withdraw-modal.tsx:
@@ -17,7 +18,7 @@ export function SettingsDialog({
   busy = false,
   onClose,
   children,
-}: {
+}: Readonly<{
   open: boolean;
   title: string;
   description?: string;
@@ -26,7 +27,7 @@ export function SettingsDialog({
   onClose: () => void;
   /** 아래 버튼 줄. 처음 포커스를 받을 버튼에 autoFocus를 준다 */
   children: ReactNode;
-}) {
+}>) {
   const dialog = useRef<HTMLDivElement>(null);
   const id = useId();
   useLockScroll(open);
@@ -42,19 +43,12 @@ export function SettingsDialog({
     }
     if (event.key !== "Tab" || !dialog.current) return;
     const items = [...dialog.current.querySelectorAll<HTMLElement>("button:not(:disabled)")];
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (!first) {
+    // 처리 중이라 켜진 버튼이 없으면 Tab을 막아 모달 밖으로 나가지 않게 한다
+    if (items.length === 0) {
       event.preventDefault();
       return;
     }
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    cycleTabFocus(event, items);
   }
 
   return (

@@ -31,7 +31,7 @@ export function SettingsView({
   alarm,
   notice,
   linked = false,
-}: {
+}: Readonly<{
   me: MeResponse;
   /** 2.8 연습 알림 설정 */
   alarm: PracticeAlarmResponse;
@@ -39,7 +39,7 @@ export function SettingsView({
   notice?: string;
   /** 카카오 계정을 연결하고 막 돌아왔다(완료 안내 모달) */
   linked?: boolean;
-}) {
+}>) {
   const [withdrawing, setWithdrawing] = useState(false);
   const notify = useToastStore((state) => state.show);
   const social = me.socialProvider !== null;

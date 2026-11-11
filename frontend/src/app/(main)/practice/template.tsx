@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 // template은 하위 단계 화면(S03 → S04 …)으로 바뀔 때마다 새로 그려지므로, 단계마다 들어오는 효과가 다시 재생된다.
 // 모션 메모 S05-1 "useReducedMotion() = true면 루프 없이 색만 바뀜": 단계 화면 전체에서 '동작 줄이기'면
 // 위치 · 크기가 움직이는 효과(선택 테두리 이동 · 흔들림 등)를 끄고 색 · 투명도만 바꾼다(랜딩과 같은 방식).
-export default function PracticeTemplate({ children }: { children: ReactNode }) {
+export default function PracticeTemplate({ children }: Readonly<{ children: ReactNode }>) {
   const reduce = useReducedMotion();
   return (
     <MotionConfig reducedMotion="user">

@@ -8,7 +8,7 @@ export function MaskIcon({
   width = size,
   height = size,
   className = "bg-current",
-}: {
+}: Readonly<{
   src: string;
   /** 정사각형 아이콘 크기. 가로·세로가 다르면 width·height를 쓴다. */
   size?: number;
@@ -16,7 +16,7 @@ export function MaskIcon({
   height?: number;
   /** 아이콘 색. 예: "bg-text-2" */
   className?: string;
-}) {
+}>) {
   const mask = `url(${src}) center / contain no-repeat`;
   return (
     <span

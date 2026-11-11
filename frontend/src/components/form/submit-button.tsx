@@ -10,13 +10,13 @@ export function SubmitButton({
   pending = false,
   disabled = false,
   height = "h-14",
-}: {
+}: Readonly<{
   children: ReactNode;
   pendingText: string;
   pending?: boolean;
   disabled?: boolean;
   height?: string;
-}) {
+}>) {
   const [scope, animate] = useAnimate<HTMLButtonElement>();
   const reduce = useReducedMotion();
   const wasDisabled = useRef(disabled);

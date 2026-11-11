@@ -64,7 +64,7 @@ function tilesOf(stats: StatsResponse): Tile[] {
 const list: Variants = { shown: { transition: { staggerChildren: 0.06 } } };
 const item: Variants = { hidden: { opacity: 0, y: 12 }, shown: { opacity: 1, y: 0 } };
 
-export function StatTiles({ stats }: { stats: StatsResponse }) {
+export function StatTiles({ stats }: Readonly<{ stats: StatsResponse }>) {
   const reduce = useReducedMotion();
   return (
     <motion.ul
@@ -100,7 +100,10 @@ export function StatTiles({ stats }: { stats: StatsResponse }) {
 }
 
 /** 0에서 값까지 0.8초 동안 세어 올라간다. 동작 줄이기면 바로 값을 보여 준다. */
-function CountUp({ value, format }: { value: number; format: (value: number) => string }) {
+function CountUp({
+  value,
+  format,
+}: Readonly<{ value: number; format: (value: number) => string }>) {
   const reduce = useReducedMotion();
   const count = useMotionValue(reduce ? value : 0);
   const [shown, setShown] = useState(() => (reduce ? value : 0));

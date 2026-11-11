@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
+
 import { WithdrawModal } from "./withdraw-modal";
 
 // 서버 액션 경계만 바꾼다. 탈퇴 요청 · 이동은 E2E(settings.spec.ts)가 본다.
@@ -100,7 +102,8 @@ describe("WithdrawModal (소셜 회원)", () => {
     withdrawSocial.mockReturnValue(pending());
     render(<WithdrawModal open social onClose={vi.fn()} />);
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" })));
+    fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+    await flushPromises();
 
     expect(withdrawSocial).toHaveBeenCalledWith();
     expect(withdraw).not.toHaveBeenCalled();
@@ -124,7 +127,8 @@ describe("WithdrawModal (소셜 회원)", () => {
     const onClose = vi.fn();
     render(<WithdrawModal open social onClose={onClose} />);
 
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" })));
+    fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+    await flushPromises();
     fireEvent.keyDown(dialog(), { key: "Escape" });
 
     expect(onClose).not.toHaveBeenCalled();
@@ -137,7 +141,8 @@ describe("WithdrawModal (소셜 회원)", () => {
     const submit = screen.getByRole("button", { name: "탈퇴하기" });
     submit.focus();
 
-    await act(async () => fireEvent.click(submit));
+    fireEvent.click(submit);
+    await flushPromises();
 
     expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "취소" }));

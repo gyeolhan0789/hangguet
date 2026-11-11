@@ -98,8 +98,8 @@ describe("ReviewView · S08 (N일째)", () => {
     view(S08);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("8일째 연습 완료!");
-    expect(screen.queryByText("10월 13일 · 오늘 면접 1회 · 18분")).not.toBeNull();
-    expect(screen.queryByText("푸른 불꽃 · 8일째")).not.toBeNull();
+    expect(screen.getByText("10월 13일 · 오늘 면접 1회 · 18분")).toBeTruthy();
+    expect(screen.getByText("푸른 불꽃 · 8일째")).toBeTruthy();
     const week = within(screen.getByRole("list", { name: "최근 7일 연습" })).getAllByRole(
       "listitem",
     );
@@ -126,7 +126,7 @@ describe("ReviewView · S08 (N일째)", () => {
     const next = screen.getByRole("region", { name: "다음에 해볼 것" });
     // 회색 점 목록 없이 nextActions 글만 둔다.
     expect(within(next).queryByRole("list")).toBeNull();
-    expect(within(next).queryByText("직무 적합성 질문 1개 더 연습하기")).not.toBeNull();
+    expect(within(next).getByText("직무 적합성 질문 1개 더 연습하기")).toBeTruthy();
     // '내일 홈에서 다시 알려드려요' 안내는 두지 않는다(사용자 요청 2026-10-27)
     expect(within(next).queryByText("내일 홈에서 다시 알려드려요")).toBeNull();
   });
@@ -134,7 +134,7 @@ describe("ReviewView · S08 (N일째)", () => {
   it("[오늘은 여기까지]는 홈(S02-B)으로, [한 번 더 면접]은 S03 지원서 선택으로 간다", () => {
     view(S08);
 
-    expect(screen.queryByText("한 번 더 할까요?")).not.toBeNull();
+    expect(screen.getByText("한 번 더 할까요?")).toBeTruthy();
     expect(screen.getByRole("link", { name: "오늘은 여기까지" }).getAttribute("href")).toBe(
       "/home",
     );
@@ -147,8 +147,8 @@ describe("ReviewView · S08 (N일째)", () => {
     view({ ...S08, streakOnDate: 1, practiceDates: ["2026-10-13"], comparedDate: "2026-10-09" });
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("1일째 연습 완료!");
-    expect(screen.queryByText("불씨 · 1일째")).not.toBeNull();
-    expect(screen.queryByRole("region", { name: "오늘 나아진 점" })).not.toBeNull();
+    expect(screen.getByText("불씨 · 1일째")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "오늘 나아진 점" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "오늘의 기준점" })).toBeNull();
     expect(week("최근 7일 연습").map((day) => day.textContent)).toEqual([
       "수 연습 안 함",
@@ -204,8 +204,8 @@ describe("ReviewView · S08-C (첫 면접)", () => {
     view(FIRST);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("1일째 시작!");
-    expect(screen.queryByText("첫 면접을 마쳤어요 · 오늘이 나의 기준점이에요")).not.toBeNull();
-    expect(screen.queryByText("불씨 · 1일째")).not.toBeNull();
+    expect(screen.getByText("첫 면접을 마쳤어요 · 오늘이 나의 기준점이에요")).toBeTruthy();
+    expect(screen.getByText("불씨 · 1일째")).toBeTruthy();
     const days = within(screen.getByRole("list", { name: "앞으로의 7일" })).getAllByRole(
       "listitem",
     );
@@ -233,7 +233,7 @@ describe("ReviewView · S08-C (첫 면접)", () => {
       "전달력보통",
     ]);
     expect(within(rows[1]).getByText("아쉬워요").className).toContain("text-danger");
-    expect(within(base).queryByText("내일부터 나아진 점을 비교해 드려요")).not.toBeNull();
+    expect(within(base).getByText("내일부터 나아진 점을 비교해 드려요")).toBeTruthy();
   });
 });
 
@@ -241,9 +241,9 @@ describe("ReviewView · 지난 날짜", () => {
   it("S08: '오늘' 문구를 그날 문구로 바꾸고, 버튼을 [홈으로] · [면접 연습하기]로 바꾼다", () => {
     view(S08, { today: false });
 
-    expect(screen.queryByText("10월 13일 · 면접 1회 · 18분")).not.toBeNull();
-    expect(screen.queryByText("이날 나아진 점")).not.toBeNull();
-    expect(screen.queryByText("오늘도 연습해 볼까요?")).not.toBeNull();
+    expect(screen.getByText("10월 13일 · 면접 1회 · 18분")).toBeTruthy();
+    expect(screen.getByText("이날 나아진 점")).toBeTruthy();
+    expect(screen.getByText("오늘도 연습해 볼까요?")).toBeTruthy();
     expect(screen.getByRole("link", { name: "홈으로" }).getAttribute("href")).toBe("/home");
     expect(screen.getByRole("link", { name: "면접 연습하기" }).getAttribute("href")).toBe(
       "/practice",
@@ -257,9 +257,9 @@ describe("ReviewView · 지난 날짜", () => {
   it("S08-C: '이날의 기준점'과 지난 비교 안내를 보여 준다", () => {
     view(FIRST, { today: false });
 
-    expect(screen.queryByText("첫 면접을 마쳤어요 · 이날이 나의 기준점이에요")).not.toBeNull();
-    expect(screen.queryByText("이날의 기준점")).not.toBeNull();
-    expect(screen.queryByText("다음 연습부터 나아진 점을 비교했어요")).not.toBeNull();
+    expect(screen.getByText("첫 면접을 마쳤어요 · 이날이 나의 기준점이에요")).toBeTruthy();
+    expect(screen.getByText("이날의 기준점")).toBeTruthy();
+    expect(screen.getByText("다음 연습부터 나아진 점을 비교했어요")).toBeTruthy();
   });
 });
 
@@ -386,7 +386,7 @@ describe("ReviewView · 면접을 마치고 들어왔을 때('N일째 달성!')"
 
     fireEvent.click(screen.getByRole("button", { name: "축하 끝" }));
 
-    expect(screen.queryByText("오늘 나아진 점")).not.toBeNull();
+    expect(screen.getByText("오늘 나아진 점")).toBeTruthy();
     expect(replace).toHaveBeenCalledWith("/reviews/2026-10-13", { scroll: false });
     expect(useInterviewStore.getState().leveledUp).toBeNull();
   });
@@ -410,17 +410,17 @@ describe("ReviewView · 면접을 마치고 들어왔을 때('N일째 달성!')"
     act(() => vi.advanceTimersByTime(SURVEY_DELAY_MS - 1));
     expect(screen.queryByRole("dialog", { name: "1분만 의견을 들려주세요" })).toBeNull();
     act(() => vi.advanceTimersByTime(1));
-    expect(screen.queryByRole("dialog", { name: "1분만 의견을 들려주세요" })).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "1분만 의견을 들려주세요" })).toBeTruthy();
   });
 
   it("자정을 넘겨 열었으면(S07에서 왔지만 그날이 오늘이 아님) 축하는 띄우고, 리뷰는 '이날' 문구로, 설문은 띄우지 않는다", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     view({ ...S08, streakOnDate: 3 }, { fromResult: true, today: false });
 
-    expect(screen.queryByRole("dialog", { name: "스트릭 축하" })).not.toBeNull();
+    expect(screen.getByRole("dialog", { name: "스트릭 축하" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "축하 끝" }));
 
-    expect(screen.queryByRole("region", { name: "이날 나아진 점" })).not.toBeNull();
+    expect(screen.getByRole("region", { name: "이날 나아진 점" })).toBeTruthy();
     act(() => vi.advanceTimersByTime(SURVEY_DELAY_MS * 5));
     expect(screen.queryByRole("dialog", { name: "1분만 의견을 들려주세요" })).toBeNull();
   });
@@ -436,6 +436,6 @@ describe("ReviewView · 면접을 마치고 들어왔을 때('N일째 달성!')"
     view(review, props);
 
     expect(screen.queryByRole("dialog", { name: "스트릭 축하" })).toBeNull();
-    expect(screen.queryByText("오늘 나아진 점")).not.toBeNull();
+    expect(screen.getByText("오늘 나아진 점")).toBeTruthy();
   });
 });

@@ -1,11 +1,15 @@
 // API 공통 타입. 기준: 웹 Swagger(https://hangguet.yobistory.com/mock/be/v3/api-docs) 공통 규약 · ProblemDetail.
 // 정수는 number, 날짜는 문자열로 받는다.
 
-/** 날짜 `YYYY-MM-DD`(한국 시간). Swagger format date */
-export type LocalDate = string;
+/**
+ * 날짜 `YYYY-MM-DD`(한국 시간). Swagger format date.
+ * 값은 그냥 문자열이다. 선택 표시(__format)는 타입 이름을 남기려는 것이라 어떤 문자열이든 그대로 넣고 꺼내 쓴다.
+ * OffsetDateTime과 표시 모양을 같게 둬서, 원래(둘 다 string)처럼 서로 대입할 수 있다.
+ */
+export type LocalDate = string & { readonly __format?: "date" | "date-time" };
 
-/** 일시 ISO 8601, 오프셋 포함(`2026-10-15T12:00:00+09:00`). Swagger format date-time */
-export type OffsetDateTime = string;
+/** 일시 ISO 8601, 오프셋 포함(`2026-10-15T12:00:00+09:00`). Swagger format date-time. 값은 그냥 문자열이다(LocalDate 참고) */
+export type OffsetDateTime = string & { readonly __format?: "date" | "date-time" };
 
 /**
  * 웹 Swagger의 오류 code. 실패 응답의 `code`로 오고 화면은 이 값으로 분기한다.

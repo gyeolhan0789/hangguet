@@ -17,7 +17,7 @@ import type { Mode } from "@/types/api";
 const TILE_SPRING = { type: "spring", stiffness: 500, damping: 14 } as const;
 const DOTS = [0, 1, 2];
 
-export function ModeIcon({ mode, active }: { mode: Mode; active: boolean }) {
+export function ModeIcon({ mode, active }: Readonly<{ mode: Mode; active: boolean }>) {
   const [tile, animateTile] = useAnimate<HTMLSpanElement>();
   const [icon, animateIcon] = useAnimate<HTMLSpanElement>();
   const reduce = useReducedMotion();

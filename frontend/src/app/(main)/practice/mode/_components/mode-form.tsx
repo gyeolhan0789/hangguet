@@ -20,12 +20,12 @@ export function ModeForm({
   applicationId,
   persona,
   subtitle,
-}: {
+}: Readonly<{
   applicationId: number;
   persona: Persona;
   /** "악마 면접관 · ○○전자 백엔드 개발자" */
   subtitle: string;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [mode, setMode] = useState<Mode | null>(null);
   const [formError, setFormError] = useState<string>();

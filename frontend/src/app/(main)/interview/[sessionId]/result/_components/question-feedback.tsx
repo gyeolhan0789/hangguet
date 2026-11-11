@@ -25,10 +25,10 @@ import type { AnswerFeedback } from "@/types/api";
 export function QuestionFeedback({
   sessionId,
   answers,
-}: {
+}: Readonly<{
   sessionId: number;
   answers: AnswerFeedback[];
-}) {
+}>) {
   const [open, setOpen] = useState<ReadonlySet<number>>(() => {
     const first = firstOpenQuestion(answers);
     return new Set(first === null ? [] : [first]);
@@ -81,13 +81,13 @@ function QuestionRow({
   open,
   divider,
   onToggle,
-}: {
+}: Readonly<{
   answer: AnswerFeedback;
   replayHref: string;
   open: boolean;
   divider: boolean;
   onToggle: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const panelId = useId();
   const points = [

@@ -49,7 +49,7 @@ const CONFETTI_COUNT = 56;
 const BURST_AT = 0.95;
 const CONTENT_AT = 1.15;
 
-function Badge({ tier, size, icon }: { tier: StreakTier; size: number; icon: number }) {
+function Badge({ tier, size, icon }: Readonly<{ tier: StreakTier; size: number; icon: number }>) {
   return (
     <span
       className="relative flex items-center justify-center overflow-hidden rounded-full"
@@ -78,7 +78,7 @@ const item: Variants = {
  * 면접을 마치고 스트릭 단계가 올랐을 때(S08 흐름) 띄운다. 홈 진입 때는 쓰지 않는다.
  * 언제 띄울지·이미 봤는지는 쓰는 화면이 정하고, 닫힌 뒤 할 일은 onContinue로 받는다.
  */
-export function LevelUp({ days, onContinue }: { days: number; onContinue?: () => void }) {
+export function LevelUp({ days, onContinue }: Readonly<{ days: number; onContinue?: () => void }>) {
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(true);
   useLockScroll(open);

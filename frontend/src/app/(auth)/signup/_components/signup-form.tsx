@@ -28,7 +28,7 @@ const SERVER_ERROR = "server";
 
 type EmailCheck = { email: string; available: boolean | null };
 
-export function SignupForm({ onComplete }: { onComplete: () => void }) {
+export function SignupForm({ onComplete }: Readonly<{ onComplete: () => void }>) {
   const [formError, setFormError] = useState<string>();
   const [emailCheck, setEmailCheck] = useState<EmailCheck>();
   const {

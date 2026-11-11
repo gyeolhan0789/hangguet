@@ -9,7 +9,7 @@ import type { InquiryResponse } from "@/types/api";
 
 // 기준: 기획 메모 I03(회원: 로그인 토큰으로 9.4 · 9.5, 없는 문의(404)면 I02로) · '‹ 내 문의' → I02
 // 서버 액션이 refresh로 이 화면을 다시 그려 메시지 · 상태 칩이 바뀐다.
-export function MemberInquiryThread({ inquiry }: { inquiry: InquiryResponse }) {
+export function MemberInquiryThread({ inquiry }: Readonly<{ inquiry: InquiryResponse }>) {
   const router = useRouter();
   const leaveIfGone = (result: InquiryWriteResult) => {
     if (result.notFound) router.replace(ROUTES.inquiries);

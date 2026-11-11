@@ -2,6 +2,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MotionGlobalConfig } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
+
 import { SocialSignupModal } from "./social-signup-modal";
 
 // 서버 액션 경계만 바꾼다. 1.7 요청 · 이동 · 쿠키는 social-actions.test.ts와 E2E(kakao-login.spec.ts)가 본다.
@@ -91,7 +93,8 @@ describe("SocialSignupModal (S01-3)", () => {
     fireEvent.click(screen.getByLabelText("전체 동의"));
     await waitFor(() => expect(submit().disabled).toBe(false));
 
-    await act(async () => fireEvent.click(submit()));
+    fireEvent.click(submit());
+    await flushPromises();
     fireEvent.click(screen.getByRole("button", { name: "닫기" }));
     fireEvent.keyDown(dialog(), { key: "Escape" });
     // 닫혔다면 사라지는 모션과 onExitComplete까지 끝난 뒤에 본다

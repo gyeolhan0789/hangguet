@@ -48,7 +48,7 @@ export function StreakIntro({
   backdrop,
   stayCovered = false,
   onDone,
-}: {
+}: Readonly<{
   tier: StreakTier;
   copy: IntroCopy;
   /** 원이 덮기 전까지 보이는 화면(예: 홈 스켈레톤). 없으면 지금 화면이 그대로 비친다. */
@@ -56,12 +56,12 @@ export function StreakIntro({
   /** 끝난 뒤 원을 걷지 않고 덮은 채로 둔다(이어서 레벨업을 띄울 때) */
   stayCovered?: boolean;
   onDone?: () => void;
-}) {
+}>) {
   const reduce = useReducedMotion();
   const [visible, setVisible] = useState(true);
   const [covered, setCovered] = useState(false);
   useLockScroll(visible);
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLOutputElement>(null);
   const badgeRef = useRef<HTMLDivElement>(null);
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -148,9 +148,9 @@ export function StreakIntro({
   if (!visible) return null;
 
   return (
-    <div
+    // 덮개 전체를 상태 알림(output = role status)으로 두고 문구를 이름으로 읽어 준다. 화면의 숫자 굴리기 · 글씨(badge)는 연출이라 숨긴다
+    <output
       ref={overlayRef}
-      role="status"
       aria-label={`${copy.count ?? ""}${copy.text} ${copy.sub}`}
       className="fixed inset-0 z-[70] overflow-hidden"
     >
@@ -193,6 +193,6 @@ export function StreakIntro({
         </p>
         <p className="text-lg font-bold opacity-90 sm:text-2xl">{copy.sub}</p>
       </div>
-    </div>
+    </output>
   );
 }

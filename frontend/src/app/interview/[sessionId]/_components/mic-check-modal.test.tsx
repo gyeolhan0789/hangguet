@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { motionValue } from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,7 +125,7 @@ describe("MicCheckModal (S06-F 마이크 확인 미니 모달)", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
     fireEvent.click(dialog.parentElement!);
     // 모달 안을 누르면 닫지 않는다
-    act(() => fireEvent.click(dialog));
+    fireEvent.click(dialog);
 
     expect(onClose).toHaveBeenCalledTimes(3);
   });

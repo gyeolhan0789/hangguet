@@ -19,14 +19,14 @@ export function CheckRow({
   description,
   state,
   action,
-}: {
+}: Readonly<{
   /** 타일 아이콘(20px) */
   icon: string;
   title: string;
   description: string;
   state: RowState;
   action?: ReactNode;
-}) {
+}>) {
   const [scope, animate] = useAnimate<HTMLLIElement>();
   const reduce = useReducedMotion();
   const failed = state === "fail";
@@ -63,7 +63,7 @@ export function CheckRow({
   );
 }
 
-function StatusIcon({ state }: { state: RowState }) {
+function StatusIcon({ state }: Readonly<{ state: RowState }>) {
   return (
     <span className="flex size-6 shrink-0 items-center justify-center">
       <AnimatePresence mode="popLayout" initial={false}>
@@ -102,7 +102,7 @@ export function RowButton({
   onClick,
   disabled = false,
   pending = false,
-}: {
+}: Readonly<{
   icon: string;
   /** 버튼 글자. 없으면 아이콘만 보이는 정사각형 버튼이고 label이 이름이 된다 */
   children?: ReactNode;
@@ -110,7 +110,7 @@ export function RowButton({
   onClick: () => void;
   disabled?: boolean;
   pending?: boolean;
-}) {
+}>) {
   return (
     <button
       type="button"

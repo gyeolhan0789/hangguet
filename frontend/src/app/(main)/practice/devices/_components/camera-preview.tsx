@@ -16,12 +16,12 @@ export function CameraPreview({
   cameraOn,
   micOn,
   level,
-}: {
+}: Readonly<{
   stream: MediaStream | null;
   cameraOn: boolean;
   micOn: boolean;
   level: MotionValue<number>;
-}) {
+}>) {
   const video = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {

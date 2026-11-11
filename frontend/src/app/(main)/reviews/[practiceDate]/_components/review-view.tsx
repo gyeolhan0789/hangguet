@@ -30,7 +30,7 @@ export function ReviewView({
   fromResult,
   surveyUrl,
   userId,
-}: {
+}: Readonly<{
   review: GrowthReviewResponse;
   /** 리뷰한 날이 한국 시간 오늘인지 */
   today: boolean;
@@ -39,7 +39,7 @@ export function ReviewView({
   /** 설문 구글폼 주소. 없으면 설문을 띄우지 않는다 */
   surveyUrl: string | null;
   userId: number | null;
-}) {
+}>) {
   const router = useRouter();
   const pathname = usePathname();
   const leveledUp = useInterviewStore((state) => state.leveledUp);
@@ -48,9 +48,11 @@ export function ReviewView({
   const [celebrating, setCelebrating] = useState(fromResult && review.interviewCount === 1);
   const first = review.isFirst;
   const round = today ? surveyRound(review.streakOnDate) : null;
+  const day = today ? "오늘" : "이날";
+  const todayPrefix = today ? "오늘 " : "";
   const sub = first
-    ? `첫 면접을 마쳤어요 · ${today ? "오늘" : "이날"}이 나의 기준점이에요`
-    : `${monthDay(review.practiceDate)} · ${today ? "오늘 " : ""}면접 ${review.interviewCount}회 · ${review.practiceMinutes}분`;
+    ? `첫 면접을 마쳤어요 · ${day}이 나의 기준점이에요`
+    : `${monthDay(review.practiceDate)} · ${todayPrefix}면접 ${review.interviewCount}회 · ${review.practiceMinutes}분`;
 
   function finishCelebration() {
     setCelebrating(false);

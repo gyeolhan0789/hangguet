@@ -34,11 +34,18 @@ import { PLAYBACK_RATES, PlayerControls, VideoScreen, type PlayerState } from ".
 /** 녹화를 합치는 중(MERGING)일 때 6.4를 다시 조회하는 간격(API 명세 6.4 임시 값) */
 export const REPLAY_POLL_MS = 10_000;
 
+/** 영상 자리에 띄울 안내. 합치는 중 · 실패면 그 상태, 녹화가 없으면(채팅) NONE, 영상이 준비됐으면(READY) null */
+function videoNotice(status: ReplayResponse["videoStatus"]): VideoNotice | null {
+  if (status === "MERGING" || status === "FAILED") return status;
+  if (status === null) return "NONE";
+  return null;
+}
+
 /**
  * S07-1 면접 다시보기 화면. 한 번 본 화면은 상태를 살려 다시 보여 주므로(cacheComponents · Activity), 새로 들어올 때마다(push · replace)
  * 새로 그려 주소의 질문(q)을 펼친다. 뒤로 · 앞으로 가기로 돌아오면 펼친 질문 · 재생 위치를 그대로 둔다(Next useRouter().bfcacheId).
  */
-export function ReplayView({ replay }: { replay: ReplayResponse }) {
+export function ReplayView({ replay }: Readonly<{ replay: ReplayResponse }>) {
   const { bfcacheId } = useRouter();
   const seq = Number(useSearchParams().get("q"));
   const initial = replay.items.findIndex((item) => item.seq === seq);
@@ -46,7 +53,7 @@ export function ReplayView({ replay }: { replay: ReplayResponse }) {
 }
 
 /** @param initial 처음에 펼칠 질문. 없으면 -1 */
-function Replay({ replay, initial }: { replay: ReplayResponse; initial: number }) {
+function Replay({ replay, initial }: Readonly<{ replay: ReplayResponse; initial: number }>) {
   const persona = PERSONAS.find((info) => info.persona === replay.persona);
   // 영상 0초 기준. 녹화 시작 시각이 없으면(채팅 · 이전 면접) 면접 시작 시각을 쓴다(API 명세 6.4)
   const recordingStart = replay.recordingStartedAt ?? replay.startedAt;
@@ -64,12 +71,7 @@ function Replay({ replay, initial }: { replay: ReplayResponse; initial: number }
   const [opened, setOpened] = useState(initial);
   // 영상 자리는 화상 · 채팅 모두 둔다. 재생은 영상이 준비됐을 때(READY · videoUrl)만 하고, 그 밖에는 자리에 안내를 둔다.
   const hasVideo = replay.videoUrl !== null;
-  const pendingStatus: VideoNotice | null =
-    replay.videoStatus === "MERGING" || replay.videoStatus === "FAILED"
-      ? replay.videoStatus
-      : replay.videoStatus === null
-        ? "NONE"
-        : null;
+  const pendingStatus = videoNotice(replay.videoStatus);
   // 녹화를 합치는 중이면 10초마다 다시 그려 6.4를 다시 받는다(다시 그리기가 끝난 뒤 다음 조회를 예약한다).
   // 인터넷이 끊기면 멈췄다가 다시 연결되면 이어서 한다.
   const router = useRouter();
@@ -110,7 +112,7 @@ function Replay({ replay, initial }: { replay: ReplayResponse; initial: number }
   function nextRate() {
     const element = video.current;
     if (!element) return;
-    const index = PLAYBACK_RATES.findIndex((rate) => rate === element.playbackRate);
+    const index = PLAYBACK_RATES.indexOf(element.playbackRate);
     element.playbackRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
   }
 

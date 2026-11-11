@@ -20,12 +20,12 @@ export function NoticeModal({
   notice,
   pending = false,
   onConfirm,
-}: {
+}: Readonly<{
   /** 띄울 공지. null이면 닫혀 있다 */
   notice: NoticeItem | null;
   pending?: boolean;
   onConfirm: () => void;
-}) {
+}>) {
   useLockScroll(notice !== null);
 
   return (

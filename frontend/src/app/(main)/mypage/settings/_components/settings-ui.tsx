@@ -10,7 +10,7 @@ import { MaskIcon } from "@/components/mask-icon";
 // · bg-sub · line 테두리 · 14 Bold) · '삭제' 글자 버튼(14 SemiBold text-3)
 // · 모션 메모 S09-1(18:3261: 행 hover → 배경 살짝 진해짐 · 화살표 x 0→2)
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: Readonly<{ title: string; children: ReactNode }>) {
   return (
     <section aria-label={title} className="flex w-full flex-col gap-2.5">
       <h2 className="text-sm leading-normal font-bold tracking-[-0.2px] text-text-3">{title}</h2>
@@ -19,7 +19,7 @@ export function Section({ title, children }: { title: string; children: ReactNod
   );
 }
 
-export function Card({ children }: { children: ReactNode }) {
+export function Card({ children }: Readonly<{ children: ReactNode }>) {
   return <div className="flex w-full flex-col rounded-[20px] bg-bg-sub px-6 py-1">{children}</div>;
 }
 
@@ -64,7 +64,7 @@ export function TextButton({ className = "", ...props }: ComponentProps<"button"
 }
 
 /** 줄 아래 오류 문구(폼 오류와 같은 모양: 13 SemiBold danger) */
-export function RowError({ id, children }: { id?: string; children?: string }) {
+export function RowError({ id, children }: Readonly<{ id?: string; children?: string }>) {
   if (!children) return null;
   return (
     <motion.p

@@ -12,13 +12,13 @@ export function ApplicationPager({
   totalPages,
   pathOf,
   scroll,
-}: {
+}: Readonly<{
   page: number;
   totalPages: number;
   pathOf: (page: number) => string;
   /** false면 쪽을 넘길 때 스크롤을 그대로 둔다(상세의 면접 기록) */
   scroll?: boolean;
-}) {
+}>) {
   return (
     <nav aria-label="페이지" className="flex w-full items-center justify-center gap-4">
       {page > 0 ? (

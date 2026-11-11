@@ -115,7 +115,7 @@ test.describe("S05 장치 점검 · 화면", () => {
 
     await expect(checklist(page).getByRole("listitem")).toHaveCount(4);
     await expect(main.getByRole("progressbar", { name: "질문 준비" })).toHaveAttribute(
-      "aria-valuenow",
+      "value",
       "78",
     );
     await expect(main.getByText("면접관이 질문을 준비하고 있어요")).toBeVisible();
@@ -154,11 +154,7 @@ test.describe("S05 장치 점검 · 화면", () => {
     await expect
       .poll(
         async () =>
-          Number(
-            await main
-              .getByRole("meter", { name: "마이크 소리 크기" })
-              .getAttribute("aria-valuenow"),
-          ),
+          Number(await main.getByRole("meter", { name: "마이크 소리 크기" }).getAttribute("value")),
         { timeout: 10_000 },
       )
       .toBeGreaterThan(0);
@@ -193,9 +189,9 @@ test.describe("S05 장치 점검 · 질문 준비(5.2 · 5.3)", () => {
     );
     await page.goto(S05);
     const progress = page.getByRole("main").getByRole("progressbar", { name: "질문 준비" });
-    await expect(progress).toHaveAttribute("aria-valuenow", "78");
+    await expect(progress).toHaveAttribute("value", "78");
 
-    await expect(progress).toHaveAttribute("aria-valuenow", "100");
+    await expect(progress).toHaveAttribute("value", "100");
     await expect(page.getByRole("main").getByText("면접관이 질문을 준비했어요")).toBeVisible();
   });
 

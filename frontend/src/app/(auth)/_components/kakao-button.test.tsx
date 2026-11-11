@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
+
 import { KakaoButton } from "./kakao-button";
 
 // 서버 액션 경계만 바꾼다. state 쿠키 · 카카오 인가 이동은 social-actions.test.ts와 E2E(kakao-login.spec.ts)가 본다.
@@ -33,7 +35,8 @@ describe("KakaoButton", () => {
     startKakaoLogin.mockReturnValue(pending());
     render(<KakaoButton height="h-[54px]">카카오로 시작하기</KakaoButton>);
 
-    await act(async () => fireEvent.click(button()));
+    fireEvent.click(button());
+    await flushPromises();
 
     expect(startKakaoLogin).toHaveBeenCalledOnce();
     expect(button().disabled).toBe(true);
@@ -43,7 +46,8 @@ describe("KakaoButton", () => {
   it("카카오 화면에서 뒤로 가기로 되살아나면(bfcache) 다시 누를 수 있고, 일반 pageshow는 그대로 둔다", async () => {
     startKakaoLogin.mockReturnValue(pending());
     render(<KakaoButton>카카오로 시작하기</KakaoButton>);
-    await act(async () => fireEvent.click(button()));
+    fireEvent.click(button());
+    await flushPromises();
 
     await act(async () => {
       window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: false }));

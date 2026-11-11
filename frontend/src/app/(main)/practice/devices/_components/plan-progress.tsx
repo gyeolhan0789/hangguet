@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
+import { ProgressBar } from "@/components/progress-bar";
 import { Spinner } from "@/components/spinner";
 import { useOnline } from "@/components/use-online";
 import { retryPlan } from "@/lib/interview/actions";
@@ -41,7 +42,7 @@ export function PlanProgress({
   progress,
   model,
   onRetryModel,
-}: {
+}: Readonly<{
   sessionId: SessionResponse["id"];
   status: SessionResponse["planStatus"];
   /** 0~100. GENERATING일 때만 값이 있다 */
@@ -49,7 +50,7 @@ export function PlanProgress({
   model: ModelPreload;
   /** 모델을 다시 받는다 */
   onRetryModel: () => void;
-}) {
+}>) {
   const router = useRouter();
   const online = useOnline();
   const [retrying, startRetry] = useTransition();
@@ -125,21 +126,13 @@ export function PlanProgress({
         </p>
         <p className="shrink-0 text-sm leading-normal font-extrabold">{percent}%</p>
       </div>
-      <div
-        role="progressbar"
-        aria-label="질문 준비"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-        className="h-1.5 w-full overflow-hidden rounded-full bg-bg-sub"
-      >
-        <motion.div
-          className="h-full rounded-full bg-brand-strong"
-          initial={false}
-          animate={{ width: `${percent}%` }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-        />
-      </div>
+      <ProgressBar
+        label="질문 준비"
+        value={percent}
+        duration={0.6}
+        className="h-1.5 w-full bg-bg-sub"
+        fillClassName="bg-brand-strong"
+      />
     </div>
   );
 }

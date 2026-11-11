@@ -10,13 +10,13 @@ export function HomeCta({
   label,
   caption,
   variant = "primary",
-}: {
+}: Readonly<{
   href: string;
   label: string;
   caption?: string;
   /** secondary: 오늘 할 일을 마친 뒤의 약한 버튼(S02-B) */
   variant?: "primary" | "secondary";
-}) {
+}>) {
   const primary = variant === "primary";
   return (
     <div className="flex w-full max-w-[440px] flex-col items-center gap-3">

@@ -22,12 +22,12 @@ function Chip({
   icon,
   tone,
   children,
-}: {
+}: Readonly<{
   icon: string;
   /** brand: 남은 시간(S02) · plain: 완료·최고 기록(S02-B · S02-C) */
   tone: "brand" | "plain";
   children: ReactNode;
-}) {
+}>) {
   const brand = tone === "brand";
   return (
     <span
@@ -42,7 +42,11 @@ function Chip({
 }
 
 /** 뱃지 · '연속 연습' · N일째 · 한 줄 · 칩(첫 방문은 없음) */
-function StreakHero({ days, message, chip }: { days: number; message: string; chip?: ReactNode }) {
+function StreakHero({
+  days,
+  message,
+  chip,
+}: Readonly<{ days: number; message: string; chip?: ReactNode }>) {
   return (
     <section className="flex flex-col items-center gap-2 text-center">
       <StreakBadge days={days} />
@@ -56,14 +60,14 @@ function StreakHero({ days, message, chip }: { days: number; message: string; ch
   );
 }
 
-function Cards({ children }: { children: ReactNode }) {
+function Cards({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="grid w-full max-w-[1120px] items-start gap-5 sm:grid-cols-2">{children}</div>
   );
 }
 
 /** S02 홈. homeState에 따라 S02(오늘 미완료) · S02-B(완료) · S02-C(끊김) · S02-D(첫 방문)를 그린다. */
-export function HomeView({ home, today }: { home: HomeResponse; today: string }) {
+export function HomeView({ home, today }: Readonly<{ home: HomeResponse; today: string }>) {
   const week = buildWeek(home, today);
   const n = home.currentStreak;
 

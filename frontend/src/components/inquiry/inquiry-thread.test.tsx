@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { flushPromises } from "@/test/flush";
 import type { InquiryResponse } from "@/types/api";
 
 import { InquiryThread } from "./inquiry-thread";
@@ -110,9 +111,8 @@ describe("InquiryThread (I03)", () => {
     expect(onSend).not.toHaveBeenCalled();
 
     fireEvent.change(box, { target: { value: "또 궁금해요" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await flushPromises();
 
     expect(onSend).toHaveBeenCalledWith({ content: "또 궁금해요", attachmentKeys: [] });
     await waitFor(() => expect(box.value).toBe(""));
@@ -123,9 +123,8 @@ describe("InquiryThread (I03)", () => {
     onSend.mockResolvedValue({ error: "종료한 문의예요." });
 
     fireEvent.change(screen.getByLabelText("이어서 쓰기"), { target: { value: "또" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await flushPromises();
 
     expect(await screen.findByText("종료한 문의예요.")).toBeTruthy();
     // 실패하면 쓴 글을 남겨 다시 보낼 수 있다
@@ -176,9 +175,8 @@ describe("InquiryThread (I03)", () => {
     expect(screen.getAllByRole("img", { name: /고른 사진/ })).toHaveLength(1);
 
     fireEvent.change(screen.getByLabelText("이어서 쓰기"), { target: { value: "사진 봐 주세요" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await flushPromises();
 
     expect(revoke).toHaveBeenCalledWith("blob:a.png");
     expect(uploadInquiryPhotos).toHaveBeenCalledWith([expect.objectContaining({ name: "b.jpg" })]);
@@ -220,9 +218,8 @@ describe("InquiryThread (I03)", () => {
 
     pickPhotos(photo("a.png"));
     fireEvent.change(screen.getByLabelText("이어서 쓰기"), { target: { value: "또" } });
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "보내기" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "보내기" }));
+    await flushPromises();
 
     expect(await screen.findByText("잠시 후 다시 시도해 주세요.")).toBeTruthy();
     expect(onSend).not.toHaveBeenCalled();
@@ -243,9 +240,8 @@ describe("InquiryThread (I03)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
     fireEvent.click(screen.getByRole("button", { name: "문의 종료" }));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "종료" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "종료" }));
+    await flushPromises();
     expect(onClose).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -255,9 +251,8 @@ describe("InquiryThread (I03)", () => {
     onClose.mockResolvedValue({ error: "잠시 후 다시 시도해 주세요." });
 
     fireEvent.click(screen.getByRole("button", { name: "문의 종료" }));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "종료" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "종료" }));
+    await flushPromises();
 
     expect(
       within(screen.getByRole("dialog")).getByText("잠시 후 다시 시도해 주세요."),
