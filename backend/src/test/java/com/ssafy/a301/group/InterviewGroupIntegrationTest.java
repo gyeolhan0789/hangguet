@@ -1406,6 +1406,69 @@ class InterviewGroupIntegrationTest {
         assertThat(groupStatus(asked.groupId())).isEqualTo("IN_PROGRESS");
     }
 
+    // 5.1 · 10.7: 첫 질문 전에 끝낸(5.8) 참가자는 시작 실패 때 그룹에서 빠져 남은 사람이 다시 시작할 수 있다. 방장이 빠지면 먼저 들어온 사람에게
+    // 넘기고, 남은 사람이 1명이면 다시 시작할 수 없으므로 취소한다
+    @Test
+    void participantWhoEndedBeforeFirstQuestionLeavesOnStartFailure() throws Exception {
+        ReadyGroup group = readyGroup(3);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        mvc.perform(endRequest(group.host(), group.sessionIds().get(0)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ABORTED"));
+
+        assertThat(handle(rejected(group.groupId(), OffsetDateTime.now())))
+                .isEqualTo(Outcome.SAVED);
+        assertThat(groupStatus(group.groupId())).isEqualTo("START_FAILED");
+        assertThat(sessionIds(group.groupId()))
+                .containsExactlyElementsOf(group.sessionIds().subList(1, 3));
+        long newHost = group.guests().getFirst();
+        mvc.perform(as(newHost, get("/api/v1/interview-groups/" + group.groupId())))
+                .andExpect(jsonPath("$.hostUserId").value(newHost))
+                .andExpect(jsonPath("$.participants.length()").value(2));
+        mvc.perform(startRequest(newHost, group.groupId())).andExpect(status().isOk());
+        assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
+
+        ReadyGroup pair = readyGroup(2);
+        mvc.perform(startRequest(pair.host(), pair.groupId())).andExpect(status().isOk());
+        mvc.perform(endRequest(pair.guests().getFirst(), pair.sessionIds().get(1)))
+                .andExpect(status().isOk());
+        assertThat(handle(rejected(pair.groupId(), OffsetDateTime.now()))).isEqualTo(Outcome.SAVED);
+        assertThat(groupStatus(pair.groupId())).isEqualTo("CANCELLED");
+    }
+
+    // 6.9: 다시 시작해도 방 이름이 같아 이전 시도의 방을 지울 때 나온 퇴장 웹훅이 늦게 올 수 있다. 이번 시작 전에 생긴 이벤트는 버린다
+    @Test
+    void webhookEventsFromBeforeStartAreIgnored() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long b = group.sessionIds().get(1);
+        OffsetDateTime startedAt =
+                jdbc.queryForObject(
+                        "SELECT started_at FROM interview_groups WHERE id = ?",
+                        OffsetDateTime.class,
+                        group.groupId());
+        List<String> eventIds = new ArrayList<>();
+        try {
+            absences.handle(leftEvent(eventIds, group.groupId(), b, startedAt.minusSeconds(1)));
+            absences.handle(leftEvent(eventIds, group.groupId(), null, startedAt.minusSeconds(1)));
+            assertThat(absentSince(b)).isNull();
+            assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
+
+            // 이번 시작 뒤에 생긴 이벤트는 처리한다
+            absences.handle(leftEvent(eventIds, group.groupId(), b, startedAt));
+            assertThat(absentSince(b)).isNotNull();
+        } finally {
+            eventIds.forEach(id -> redis.delete("livekit-webhook:" + id));
+        }
+    }
+
+    private static GroupRoomEvent leftEvent(
+            List<String> eventIds, long groupId, Long sessionId, OffsetDateTime occurredAt) {
+        String id = "test-" + UUID.randomUUID();
+        eventIds.add(id);
+        return new GroupRoomEvent(id, GroupRoomEvent.Type.LEFT, groupId, sessionId, occurredAt);
+    }
+
     // 6.10: 질문을 모두 마치고 5.8이 없으면 BE가 ALL_ANSWERED로 끝낸다. 마치지 않은 사람은 끝내지 않는다
     @Test
     void doneParticipantWithoutEndRequestIsEndedAllAnswered() throws Exception {
@@ -1568,7 +1631,7 @@ class InterviewGroupIntegrationTest {
         long b = sessionIdsByTurnOrder(group.groupId()).get(1);
         String eventId = "test-" + UUID.randomUUID();
         GroupRoomEvent left =
-                new GroupRoomEvent(eventId, GroupRoomEvent.Type.LEFT, group.groupId(), b);
+                new GroupRoomEvent(eventId, GroupRoomEvent.Type.LEFT, group.groupId(), b, null);
         try {
             absences.handle(left);
             assertThat(absentSince(b)).isNotNull();
@@ -1584,7 +1647,11 @@ class InterviewGroupIntegrationTest {
         try {
             absences.handle(
                     new GroupRoomEvent(
-                            interviewerLeft, GroupRoomEvent.Type.LEFT, group.groupId(), null));
+                            interviewerLeft,
+                            GroupRoomEvent.Type.LEFT,
+                            group.groupId(),
+                            null,
+                            null));
         } finally {
             redis.delete("livekit-webhook:" + interviewerLeft);
         }

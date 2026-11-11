@@ -426,6 +426,8 @@ public class LiveKitInterviewRoom implements InterviewRoom {
             if (video) {
                 request.setEgress(RoomEgress.newBuilder().setTracks(trackEgress(rawPrefix)));
             }
+            // 다시 시작하면 방 이름이 같다. 이전 시도의 방이 남아 있으면 방 만들기가 그 방(이전 녹화 위치 · 에이전트)을 그대로 쓰므로 먼저 지운다
+            requireDeleted(room);
             execute(rooms().createRoom(request.build(), adminAuth()));
             execute(
                     dispatches()
@@ -434,6 +436,17 @@ public class LiveKitInterviewRoom implements InterviewRoom {
             LOG.warn("면접방을 열지 못했다: room={}", room, ex);
             delete(room);
             throw new ApiException(ErrorCode.ROOM_UNAVAILABLE);
+        }
+    }
+
+    // 방을 지운다. 이미 없으면(404) 그대로 둔다. 지우지 못하면 던진다
+    private void requireDeleted(String room) throws IOException {
+        Response<Void> response =
+                rooms().deleteRoom(
+                                DeleteRoomRequest.newBuilder().setRoom(room).build(), adminAuth())
+                        .execute();
+        if (!response.isSuccessful() && response.code() != 404) {
+            throw new IOException("이전 면접방을 지우지 못했다: status=" + response.code());
         }
     }
 
