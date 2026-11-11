@@ -40,7 +40,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
 | 자기소개서 검증 | 4.1(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
-| PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, Redis `planStatus`·`planProgress` |
+| PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, 질문 보관함(2장), Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
@@ -100,7 +100,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `type` | 보내는 쪽 | 내용 | BE가 하는 일 |
 |---|---|---|---|
 | `plan.progress` | 분석 작업자 | `progress`(50 등) | `planProgress` |
-| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, `planStatus: READY` |
+| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, 질문 보관함에 추가(2장, 그룹 면접 제외), `planStatus: READY` |
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
@@ -136,7 +136,8 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 중복 · 순서 역전 | 같은 `assignment.rejected`가 두 번, 질문을 시작한 뒤 도착, 또는 다시 시작(5.4)한 뒤 이전 시도의 거절이 도착 | 면접이 이미 `START_FAILED`이거나 질문 행이 있거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 중복 · 순서 역전 | 같은 `room.closed`가 두 번, 또는 다시 시작(5.4)한 뒤 이전 시도의 방 닫힘이 도착 | 면접이 이미 `IN_PROGRESS`가 아니거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 첫 질문 기한 초과(6.5)로 다시 시작(5.4)한 뒤 이전 시도의 `question.started`가 도착 | `startedAt`이 면접 시작 시각보다 이르면 폐기 |
-| 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 버림 |
+| 중복 수신 | 같은 `plan.completed`가 두 번 | 질문 보관함에는 한 번만 넣음 |
+| 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 폐기. 폐기한 결과의 질문은 질문 보관함에도 넣지 않음 |
 | 순서 역전 | 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 도착 | `status`가 `ANALYZING`이 아니면 버림. 같은 `ANALYZING` 안에서 이전 시도와 구분하려면 BE가 마지막으로 보낸 `jobId`와 비교한다 **[제안]** |
 
 ## 2. PLAN: 질문·채점 기준 만들기
@@ -210,6 +211,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
+- **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
+  - 행마다 질문의 `content`·`criteria`·`claimId`를 저장한다
+  - 그룹 면접의 질문은 보관함에 넣지 않는다. 그룹 면접은 개인 맞춤 질문을 매번 생성하고 예비 질문이 없기 때문이다(6.7)
 
 ### 2.1 자기소개서 검증
 
