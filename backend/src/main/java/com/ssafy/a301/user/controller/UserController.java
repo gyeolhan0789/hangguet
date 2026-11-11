@@ -105,6 +105,7 @@ public class UserController {
     @ApiResponse(
             responseCode = "400",
             description = "PASSWORD_MISMATCH: 비밀번호 틀림 · VALIDATION_FAILED: 이메일 회원이 비밀번호를 보내지 않음")
+    @ApiResponse(responseCode = "409", description = "INTERVIEW_IN_PROGRESS: 진행 중인 면접이 있음")
     @PostMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void withdraw(@CurrentUserId long userId, @Valid @RequestBody WithdrawRequest request) {

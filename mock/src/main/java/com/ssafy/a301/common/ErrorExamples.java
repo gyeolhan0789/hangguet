@@ -75,6 +75,11 @@ public final class ErrorExamples {
             { "title": "Conflict", "status": 409, "detail": "소셜 로그인 회원은 비밀번호가 없어요.",
               "instance": "/api/v1/users/me/password", "code": "PASSWORD_NOT_SET" }\
             """;
+    public static final String INTERVIEW_IN_PROGRESS =
+            """
+            { "title": "Conflict", "status": 409, "detail": "진행 중인 면접을 끝낸 뒤 탈퇴할 수 있어요.",
+              "instance": "/api/v1/users/me", "code": "INTERVIEW_IN_PROGRESS" }\
+            """;
     public static final String PRACTICE_ALARM_UNAVAILABLE =
             """
             { "title": "Conflict", "status": 409, "detail": "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",

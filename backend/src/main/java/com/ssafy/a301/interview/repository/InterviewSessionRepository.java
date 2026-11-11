@@ -22,6 +22,10 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
 
     long countByStatus(SessionStatus status);
 
+    /** 회원에게 since 뒤에 시작한 그 상태의 면접이 있는지(2.7 탈퇴 확인) */
+    boolean existsByUserIdAndStatusAndStartedAtAfter(
+            Long userId, SessionStatus status, OffsetDateTime since);
+
     interface PracticeDateCount {
         LocalDate getPracticeDate();
 

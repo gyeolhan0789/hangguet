@@ -179,7 +179,9 @@ public class UserController {
 
     @Operation(
             summary = "2.7 회원 탈퇴",
-            description = "회원을 탈퇴 처리하고 모든 토큰을 무효로 만든다. 소셜 회원은 비밀번호 없이 탈퇴한다.")
+            description =
+                    "회원을 탈퇴 처리하고 모든 토큰을 무효로 만든다. 소셜 회원은 비밀번호 없이 탈퇴한다. 진행 중인 면접이 있으면 409이고,"
+                            + " 그룹 대기실에 있으면 그룹에서 나간다.")
     @ApiResponse(responseCode = "204")
     @ApiResponse(
             responseCode = "400",
@@ -190,6 +192,15 @@ public class UserController {
                                     @ExampleObject(
                                             name = "PASSWORD_MISMATCH",
                                             value = ErrorExamples.PASSWORD_MISMATCH)))
+    @ApiResponse(
+            responseCode = "409",
+            content =
+                    @Content(
+                            mediaType = ErrorExamples.PROBLEM,
+                            examples =
+                                    @ExampleObject(
+                                            name = "INTERVIEW_IN_PROGRESS",
+                                            value = ErrorExamples.INTERVIEW_IN_PROGRESS)))
     @PostMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void withdraw(@Valid @RequestBody WithdrawRequest request) {}

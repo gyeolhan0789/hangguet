@@ -8,6 +8,9 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.group.service.InterviewGroupService;
+import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.storage.domain.UploadPurpose;
 import com.ssafy.a301.storage.repository.UploadKeyStore;
@@ -22,11 +25,13 @@ import com.ssafy.a301.user.dto.UserDtos.UploadUrlResponse;
 import com.ssafy.a301.user.mapper.UserMapper;
 import com.ssafy.a301.user.repository.UserRepository;
 import com.ssafy.a301.user.repository.UserSocialAccountRepository;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -55,7 +60,10 @@ public class UserService {
     private final RefreshTokenStore refreshTokens;
     private final UserSocialAccountRepository socialAccounts;
     private final PracticeAlarmRepository practiceAlarms;
+    private final InterviewSessionRepository sessions;
+    private final InterviewGroupService groups;
     private final TransactionTemplate transactions;
+    private final Duration withdrawBlockWindow;
 
     public UserService(
             UserRepository users,
@@ -69,7 +77,10 @@ public class UserService {
             RefreshTokenStore refreshTokens,
             UserSocialAccountRepository socialAccounts,
             PracticeAlarmRepository practiceAlarms,
-            TransactionTemplate transactions) {
+            InterviewSessionRepository sessions,
+            InterviewGroupService groups,
+            TransactionTemplate transactions,
+            @Value("${interview.withdraw-block-window:2h}") Duration withdrawBlockWindow) {
         this.users = users;
         this.practices = practices;
         this.passwords = passwords;
@@ -81,7 +92,10 @@ public class UserService {
         this.refreshTokens = refreshTokens;
         this.socialAccounts = socialAccounts;
         this.practiceAlarms = practiceAlarms;
+        this.sessions = sessions;
+        this.groups = groups;
         this.transactions = transactions;
+        this.withdrawBlockWindow = withdrawBlockWindow;
     }
 
     public MeResponse me(long userId) {
@@ -163,7 +177,9 @@ public class UserService {
     /**
      * 탈퇴(2.7). 행은 남기고 deleted_at만 기록한 뒤 모든 기기의 리프레시 토큰을 폐기한다. 이후 로그인·재발급·API 호출은 탈퇴 회원을 조회하지 않아
      * 막힌다. soft delete라 개인정보·프로필 사진은 지우지 않는다(최종 파기 시점은 B-6). 소셜 회원은 비밀번호 없이 탈퇴하고, 소셜 연결도 탈퇴 처리해 같은
-     * 소셜 계정으로 다시 가입할 수 있다. 연습 알림은 저장한 카카오 토큰과 함께 지운다.
+     * 소셜 계정으로 다시 가입할 수 있다. 연습 알림은 저장한 카카오 토큰과 함께 지운다. 진행 중인 면접(개인 · 그룹)이 있으면 막는다. 탈퇴 회원은 그룹 참가자에서
+     * 빠지므로 그룹 면접 차례가 멈추지 않게 하기 위함이다. 시작한 지 withdrawBlockWindow가 지난 면접은 떠난 면접으로 보고 막지 않는다. 대기실 · 시작
+     * 실패 그룹에서는 나간다(10.6).
      */
     public void withdraw(long userId, String password) {
         transactions.executeWithoutResult(
@@ -178,6 +194,12 @@ public class UserService {
                         }
                     }
                     OffsetDateTime now = KoreaTime.now();
+                    // 그룹 행을 잠근 뒤 면접 상태를 본다. 겹친 그룹 시작이 커밋했으면 진행 중으로 보인다
+                    groups.leaveForWithdrawal(userId, now);
+                    if (sessions.existsByUserIdAndStatusAndStartedAtAfter(
+                            userId, SessionStatus.IN_PROGRESS, now.minus(withdrawBlockWindow))) {
+                        throw new ApiException(ErrorCode.INTERVIEW_IN_PROGRESS);
+                    }
                     user.withdraw(now);
                     socialAccounts.withdrawAll(userId, now);
                     practiceAlarms.deleteByUserId(userId);

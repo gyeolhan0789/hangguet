@@ -27,6 +27,7 @@ public enum ErrorCode {
     SOCIAL_LINK_FAILED(HttpStatus.BAD_REQUEST, "카카오 계정을 확인하지 못했어요. 다시 시도해 주세요."),
     SOCIAL_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 연결한 소셜 계정이 있어요."),
     SOCIAL_ACCOUNT_IN_USE(HttpStatus.CONFLICT, "다른 회원이 쓰고 있는 카카오 계정이에요."),
+    INTERVIEW_IN_PROGRESS(HttpStatus.CONFLICT, "진행 중인 면접을 끝낸 뒤 탈퇴할 수 있어요."),
     FILE_NOT_FOUND(HttpStatus.NOT_FOUND, "업로드한 파일을 찾을 수 없어요."),
 
     // 연습 알림
