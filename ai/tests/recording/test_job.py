@@ -396,8 +396,9 @@ def test_merge_and_unexpected_failures(tmp_path: Path, error: Exception, reason:
 
 def test_result_queue_failure_is_raised_so_job_stays(tmp_path: Path) -> None:
     results = FakeResults(ResultPublishError("결과 메시지 전송 4회 실패"))
+    run_merge = merger(FakeStorage(ALL), results, tmp_path)
     with pytest.raises(ResultPublishError):
-        merger(FakeStorage(ALL), results, tmp_path)(JOB)
+        run_merge(JOB)
 
 
 FFMPEG = shutil.which("ffmpeg")

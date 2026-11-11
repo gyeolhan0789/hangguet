@@ -51,8 +51,9 @@ def test_active_interviews_counts_only_while_running_even_on_failure() -> None:
         raise RuntimeError("면접 중 오류")
 
     before = sample("a301_agent_active_interviews")
+    counting = counted_interview(interview())
     with pytest.raises(RuntimeError):
-        asyncio.run(counted_interview(interview()))
+        asyncio.run(counting)
     assert seen == [before + 1]
     assert sample("a301_agent_active_interviews") == before
 
@@ -81,11 +82,12 @@ def test_elevenlabs_usage_counts_only_synthesized_characters() -> None:
     with increase("a301_agent_elevenlabs_characters_total") as delta:
         with patch("app.agent.tts.aiohttp.ClientSession", return_value=ok):
             asyncio.run(ElevenLabsTTS("secret").synthesize("질문입니다", Persona.DEVIL))
+        synthesizing = ElevenLabsTTS("secret").synthesize("실패한 질문", Persona.DEVIL)
         with (
             patch("app.agent.tts.aiohttp.ClientSession", return_value=failed),
             pytest.raises(TtsError),
         ):
-            asyncio.run(ElevenLabsTTS("secret").synthesize("실패한 질문", Persona.DEVIL))
+            asyncio.run(synthesizing)
     assert delta[0] == 5
 
 

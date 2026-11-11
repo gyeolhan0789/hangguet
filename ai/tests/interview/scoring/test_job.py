@@ -214,11 +214,10 @@ def test_other_failure_is_not_structure_retry_and_sends_no_result(
 
 
 def test_build_evaluation_propagates_final_structure_failure() -> None:
+    answer = score_answer_input(JOB)
+    chat = FakeChat(GmsResult({}, "test"), GmsResult({}, "test"))
     with pytest.raises(StructureBrokenError):
-        build_evaluation(
-            score_answer_input(JOB),
-            FakeChat(GmsResult({}, "test"), GmsResult({}, "test")),
-        )
+        build_evaluation(answer, chat)
 
 
 def test_result_queue_failure_propagates() -> None:

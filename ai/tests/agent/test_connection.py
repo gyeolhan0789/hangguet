@@ -81,8 +81,9 @@ def test_server_shutdown_releases_waiting_job() -> None:
 def test_connection_failure_does_not_leave_listener() -> None:
     ctx = context()
     ctx.connect = AsyncMock(side_effect=ConnectionError("unavailable"))
+    entering = entrypoint(ctx)
     with pytest.raises(ConnectionError):
-        asyncio.run(entrypoint(ctx))
+        asyncio.run(entering)
     ctx.room.off.assert_called_once_with("disconnected", ctx.room.on.call_args.args[1])
 
 
@@ -244,12 +245,14 @@ def test_stt_failure_sends_targeted_failure_and_closes_stream() -> None:
             return_value=Mock(identity="candidate", track_publications={})
         )
         stream = Mock(aclose=AsyncMock())
+        ended = asyncio.Event()
+        settings = SttSettings("test")
         with (
             patch("app.agent.main.rtc.AudioStream.from_participant", return_value=stream),
             patch("app.agent.main.SonioxSTT.run", side_effect=ConnectionError("unavailable")),
             pytest.raises(ConnectionError, match="unavailable"),
         ):
-            await transcribe_participant(ctx, asyncio.Event(), SttSettings("test"))
+            await transcribe_participant(ctx, ended, settings)
         deliveries = ctx.room.local_participant.send_text.await_args_list
         assert json.loads(deliveries[-1].args[0])["state"] == "failed"
         assert deliveries[-1].kwargs["destination_identities"] == ["candidate"]
@@ -275,8 +278,10 @@ def test_audio_stream_errors_still_remove_listeners(failure: str) -> None:
                 factory.return_value = stream
             stt.return_value.run = AsyncMock()
             stt.return_value.transcript.final_count = 0
+            ended = asyncio.Event()
+            settings = SttSettings("test")
             with pytest.raises(RuntimeError, match=f"stream {failure} failed"):
-                await transcribe_participant(ctx, asyncio.Event(), SttSettings("test"))
+                await transcribe_participant(ctx, ended, settings)
         assert ctx.room.off.call_count == 2
 
     asyncio.run(run())

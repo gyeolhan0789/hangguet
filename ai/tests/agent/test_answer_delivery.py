@@ -125,8 +125,9 @@ def test_impressions_are_null_when_not_judged() -> None:
 def test_publish_failure_is_raised_for_resubmit() -> None:
     results = Mock(spec=ResultPublisher)
     results.publish.side_effect = ResultPublishError("결과 메시지 전송 4회 실패")
+    delivering = AnswerDelivery(55, results, 16_000).deliver(finished())
     with pytest.raises(ResultPublishError):
-        asyncio.run(AnswerDelivery(55, results, 16_000).deliver(finished()))
+        asyncio.run(delivering)
 
 
 def test_answer_that_cannot_be_saved_is_not_delivered() -> None:

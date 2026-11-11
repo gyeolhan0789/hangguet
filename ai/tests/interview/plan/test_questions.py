@@ -291,5 +291,6 @@ def test_company_item_is_optional(value: Any, expected: str | None) -> None:
 
 
 def test_company_item_that_is_not_text_is_output_error() -> None:
+    content = {"questions": [{**question(1), "companyItem": 1}]}
     with pytest.raises(PlanOutputError):
-        parse_questions({"questions": [{**question(1), "companyItem": 1}]})
+        parse_questions(content)

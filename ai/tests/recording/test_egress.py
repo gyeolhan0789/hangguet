@@ -238,5 +238,6 @@ def test_livekit_list_egress_failure_is_lookup_error(
     fake_api: type[FakeLiveKitAPI], error: Exception
 ) -> None:
     fake_api.error = error
+    list_egress = livekit_list_egress("ws://livekit:7880", "key", "secret")
     with pytest.raises(EgressLookupError):
-        livekit_list_egress("ws://livekit:7880", "key", "secret")("interview-55")
+        list_egress("interview-55")

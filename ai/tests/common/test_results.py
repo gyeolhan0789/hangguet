@@ -144,8 +144,9 @@ def test_assignment_rejected_is_agent_result_with_reason() -> None:
 def test_assignment_rejected_rejects_reason_outside_list(fields: dict[str, Any]) -> None:
     redis = FakeRedis()
 
+    publisher = make(redis)
     with pytest.raises(ValueError, match="reason"):
-        make(redis).publish(ResultType.ASSIGNMENT_REJECTED, 55, fields)
+        publisher.publish(ResultType.ASSIGNMENT_REJECTED, 55, fields)
 
     assert redis.calls == 0
 
@@ -190,8 +191,9 @@ def test_raises_after_every_retry_fails() -> None:
     redis = FakeRedis(failures)
     sleeps: list[float] = []
 
+    publisher = make(redis, sleeps)
     with pytest.raises(ResultPublishError, match="plan.progress"):
-        make(redis, sleeps).publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {"progress": 50})
+        publisher.publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {"progress": 50})
 
     assert redis.calls == len(BACKOFF_SECONDS) + 1
     assert sleeps == list(BACKOFF_SECONDS)
@@ -213,8 +215,9 @@ def test_retried_message_is_identical() -> None:
 def test_fields_cannot_override_common_fields(key: str) -> None:
     redis = FakeRedis()
 
+    publisher = make(redis)
     with pytest.raises(ValueError, match=key):
-        make(redis).publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {key: "x"})
+        publisher.publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {key: "x"})
 
     assert redis.calls == 0
 
@@ -223,8 +226,9 @@ def test_fields_cannot_override_common_fields(key: str) -> None:
 def test_job_result_types_require_job_id(result_type: ResultType) -> None:
     redis = FakeRedis()
 
+    publisher = make(redis)
     with pytest.raises(ValueError, match="jobId"):
-        make(redis).publish(result_type, 55, {})
+        publisher.publish(result_type, 55, {})
 
     assert redis.calls == 0
 
@@ -233,8 +237,9 @@ def test_job_result_types_require_job_id(result_type: ResultType) -> None:
 def test_agent_result_types_reject_job_id(result_type: ResultType) -> None:
     redis = FakeRedis()
 
+    publisher = make(redis)
     with pytest.raises(ValueError, match="jobId"):
-        make(redis).publish(result_type, 55, {"seq": 1}, job_id=JOB_ID)
+        publisher.publish(result_type, 55, {"seq": 1}, job_id=JOB_ID)
 
     assert redis.calls == 0
 
@@ -243,8 +248,10 @@ def test_non_finite_number_is_rejected_before_push() -> None:
     """NaN은 JSON 표준이 아니어서 BE가 해석하지 못한다."""
     redis = FakeRedis()
 
+    publisher = make(redis)
+    fields = {"progress": float("nan")}
     with pytest.raises(ValueError):
-        make(redis).publish_job_result(PLAN, ResultType.PLAN_PROGRESS, {"progress": float("nan")})
+        publisher.publish_job_result(PLAN, ResultType.PLAN_PROGRESS, fields)
 
     assert redis.calls == 0
 
@@ -298,8 +305,9 @@ def test_failed_result_rejects_reason_outside_list(
     """BE가 reason 값으로 처리를 나누므로 목록에 없는 값은 결과 큐에 추가하기 전에 거부한다."""
     redis = FakeRedis()
 
+    publisher = make(redis)
     with pytest.raises(ValueError, match="reason"):
-        make(redis).publish_job_result(PLAN, result_type, fields)
+        publisher.publish_job_result(PLAN, result_type, fields)
 
     assert redis.calls == 0
 

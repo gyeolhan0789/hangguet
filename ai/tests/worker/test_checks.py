@@ -153,7 +153,8 @@ def test_jobs_the_be_gave_up_on_or_without_id_are_dropped() -> None:
     redis = FakeRedis(message(jobId=None), "not json")
     run(redis, check)
     run(redis, check)
-    assert called == [] and set(redis.lists) == {CHECK_QUEUE_KEY}
+    assert called == []
+    assert set(redis.lists) == {CHECK_QUEUE_KEY}
 
 
 def test_empty_queue_does_nothing() -> None:

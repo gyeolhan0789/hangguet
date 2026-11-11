@@ -127,10 +127,9 @@ def test_settings_strip_key_without_exposing_it_in_repr() -> None:
 
 
 def test_provider_error_does_not_expose_response_text() -> None:
+    stt = SonioxSTT(SttSettings("secret"))
     with pytest.raises(SttError, match="code=401") as error:
-        SonioxSTT(SttSettings("secret")).accept_response(
-            {"error_code": 401, "error_message": "sensitive transcript"}
-        )
+        stt.accept_response({"error_code": 401, "error_message": "sensitive transcript"})
     assert "sensitive transcript" not in str(error.value)
 
 
@@ -242,8 +241,9 @@ def test_server_failure_or_early_finish_cancels_audio_and_closes_socket(server_r
             response_task = asyncio.create_task(reply())
             # 다시 연결하지 않도록 재연결 횟수를 0으로 두고, 연결을 정리하는지만 확인한다
             stt = SonioxSTT(SttSettings("secret"), reconnect_delays=())
+            running = stt.run(audio())
             with pytest.raises(SttError):
-                await asyncio.wait_for(stt.run(audio()), timeout=1)
+                await asyncio.wait_for(running, timeout=1)
             await response_task
         assert audio_closed.is_set()
         assert ws.exited
@@ -261,11 +261,12 @@ def test_audio_failure_closes_connection_and_preserves_error() -> None:
             yield b"audio"
             raise ValueError("audio source failed")
 
+        running = SonioxSTT(SttSettings("secret")).run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", return_value=context),
             pytest.raises(ValueError, match="audio source failed"),
         ):
-            await asyncio.wait_for(SonioxSTT(SttSettings("secret")).run(audio()), timeout=1)
+            await asyncio.wait_for(running, timeout=1)
         assert ws.exited
         ws.send_str.assert_not_awaited()
 
@@ -403,11 +404,12 @@ def test_no_response_while_sending_audio_reconnects(caplog: pytest.LogCaptureFix
             reconnect_delays=(),
             no_response_seconds=0.1,
         )
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(silent)),
             pytest.raises(SttError) as error,
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
         assert str(error.value.__cause__) == "no_response"
         assert states == [SttState.RECONNECTING]
         assert len(stt.gaps) == 1
@@ -517,11 +519,12 @@ def test_gives_up_after_three_reconnects() -> None:
         stt = SonioxSTT(
             SttSettings("secret"), on_state=states.append, reconnect_delays=(0.0, 0.0, 0.0)
         )
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(*sockets)),
             pytest.raises(SttError, match="다시 연결하지 못했습니다"),
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
         # 처음 연결 1회와 다시 연결 3회로 끝낸다.
         # 연결만 되고 응답 없이 끊긴 연결은 다시 연결된 것으로 보지 않으므로 알림은 한 번이다
         assert all(ws.exited for ws in sockets)
@@ -566,11 +569,12 @@ def test_gives_up_when_soniox_keeps_answering_with_errors(
         stt = SonioxSTT(
             SttSettings("secret"), on_state=states.append, reconnect_delays=(0.0, 0.0, 0.0)
         )
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(*sockets)),
             pytest.raises(SttError, match="다시 연결하지 못했습니다"),
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
         assert all(ws.exited for ws in sockets)
         assert states == [SttState.RECONNECTING]
         assert len(stt.gaps) == 1
@@ -722,11 +726,12 @@ def test_interim_text_is_kept_when_closed_before_final_response() -> None:
             yield CHUNK
 
         stt = SonioxSTT(SttSettings("secret"))
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)),
             pytest.raises(SttError),
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
         assert stt.transcript.content() == "마지막 말"
 
     asyncio.run(run())
@@ -827,11 +832,12 @@ def test_send_failure_is_classified(caplog: pytest.LogCaptureFixture) -> None:
                 await asyncio.sleep(0.01)
 
         stt = SonioxSTT(SttSettings("secret"), reconnect_delays=())
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)),
             pytest.raises(SttError),
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
 
     with caplog.at_level(logging.INFO, logger="app.agent.stt"):
         asyncio.run(run())
@@ -857,11 +863,12 @@ def test_audio_failure_is_reported_apart_from_stt_failure(
             raise RuntimeError("track ended")
 
         stt = SonioxSTT(SttSettings("secret"))
+        running = stt.run(audio())
         with (
             patch("app.agent.stt.aiohttp.ClientSession", side_effect=contexts(ws)),
             pytest.raises(RuntimeError),
         ):
-            await asyncio.wait_for(stt.run(audio()), timeout=2)
+            await asyncio.wait_for(running, timeout=2)
 
     with caplog.at_level(logging.INFO, logger="app.agent.stt"):
         asyncio.run(run())
