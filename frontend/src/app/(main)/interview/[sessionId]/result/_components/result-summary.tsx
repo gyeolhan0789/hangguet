@@ -17,6 +17,11 @@ const sentence: Variants = { hidden: {}, shown: { transition: { staggerChildren:
 const word: Variants = { hidden: { opacity: 0, y: "0.4em" }, shown: { opacity: 1, y: 0 } };
 
 /** 결과 맨 위: 면접관 · 회사 직무 · 면접 시간, 한 줄 총평, 면접관 썸네일 */
+/** 요약 문장의 단어. 단어는 겹칠 수 있어 문장 안 위치(position)를 key로 쓴다(받은 문장은 바뀌지 않는다) */
+function summaryWords(summary: string) {
+  return summary.split(" ").map((text, position) => ({ text, position }));
+}
+
 export function ResultSummary({ result }: Readonly<{ result: ResultResponse }>) {
   const reduce = useReducedMotion();
   const persona = PERSONAS.find((info) => info.persona === result.persona);
@@ -36,9 +41,9 @@ export function ResultSummary({ result }: Readonly<{ result: ResultResponse }>) 
             initial={reduce ? false : "hidden"}
             animate="shown"
           >
-            {result.summary.split(" ").map((text, i) => (
-              <Fragment key={i}>
-                {i > 0 && " "}
+            {summaryWords(result.summary).map(({ text, position }) => (
+              <Fragment key={position}>
+                {position > 0 && " "}
                 <motion.span aria-hidden className="inline-block" variants={word}>
                   {text}
                 </motion.span>
