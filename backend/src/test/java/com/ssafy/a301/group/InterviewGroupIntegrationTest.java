@@ -89,6 +89,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -106,8 +107,11 @@ import tools.jackson.databind.json.JsonMapper;
 @AutoConfigureMockMvc
 @Import(InMemorySessionRuntimeStore.Config.class)
 class InterviewGroupIntegrationTest {
+    private static final String PASSWORD = "abcd1234";
+
     @Autowired private MockMvc mvc;
     @Autowired private UserRepository users;
+    @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ApplicationRepository applications;
     @Autowired private InterviewSessionRepository sessions;
     @Autowired private InterviewQuestionRepository questions;
@@ -441,6 +445,55 @@ class InterviewGroupIntegrationTest {
                 .andExpect(status().isNotFound());
         mvc.perform(as(third, delete("/api/v1/interview-groups/" + groupId + "/participants/me")))
                 .andExpect(status().isNotFound());
+    }
+
+    // 2.7: 대기실에서 탈퇴하면 10.6과 같이 나간다. 탈퇴 회원은 참가자에서 빠지므로 방장도 넘긴다
+    @Test
+    void withdrawingInLobbyLeavesGroupAndHandsOverHost() throws Exception {
+        long host = newUser("방장");
+        JsonNode group = create(host, 3);
+        long groupId = group.path("groupId").asLong();
+        long second = newUser("둘째");
+        join(second, group.path("inviteCode").asString());
+
+        mvc.perform(withdrawRequest(host)).andExpect(status().isNoContent());
+
+        mvc.perform(as(second, get("/api/v1/interview-groups/" + groupId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.hostUserId").value(second))
+                .andExpect(jsonPath("$.participants.length()").value(1));
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT left_at IS NOT NULL FROM interview_group_participants"
+                                        + " WHERE session_id = ?",
+                                Boolean.class,
+                                group.path("mySessionId").asLong()))
+                .isTrue();
+
+        // 마지막 사람이 탈퇴하면 그룹을 취소한다
+        mvc.perform(withdrawRequest(second)).andExpect(status().isNoContent());
+        assertThat(groupStatus(groupId)).isEqualTo("CANCELLED");
+    }
+
+    // 2.7: 그룹 면접이 진행 중이면 탈퇴를 막는다. 탈퇴 회원은 참가자에서 빠져 차례가 멈출 수 있다. 내 면접을 끝내면 탈퇴할 수 있다
+    @Test
+    void withdrawingDuringGroupInterviewIsRejectedUntilMySessionEnds() throws Exception {
+        ReadyGroup group = readyGroup(2);
+        mvc.perform(startRequest(group.host(), group.groupId())).andExpect(status().isOk());
+        long guest = group.guests().getFirst();
+        long guestSession = group.sessionIds().get(1);
+
+        mvc.perform(withdrawRequest(guest))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INTERVIEW_IN_PROGRESS"));
+        assertThat(withdrawn(guest)).isFalse();
+        assertThat(sessionIds(group.groupId())).contains(guestSession);
+
+        mvc.perform(endRequest(guest, guestSession)).andExpect(status().isOk());
+        mvc.perform(withdrawRequest(guest)).andExpect(status().isNoContent());
+        assertThat(withdrawn(guest)).isTrue();
+        // 남은 방장은 계속한다
+        assertThat(groupStatus(group.groupId())).isEqualTo("IN_PROGRESS");
     }
 
     @Test
@@ -2060,6 +2113,24 @@ class InterviewGroupIntegrationTest {
          "questions":[%s],"promptVersion":"plan-v1","modelVersion":"gms-test"}
         """
                 .formatted(sessionId, questionsJson);
+    }
+
+    // 2.7 탈퇴. 비밀번호를 정해 두고 그 비밀번호로 확인한다
+    private MockHttpServletRequestBuilder withdrawRequest(long userId) {
+        jdbc.update(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                passwordEncoder.encode(PASSWORD),
+                userId);
+        return as(
+                userId,
+                post("/api/v1/users/me")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"" + PASSWORD + "\"}"));
+    }
+
+    private boolean withdrawn(long userId) {
+        return jdbc.queryForObject(
+                "SELECT deleted_at IS NOT NULL FROM users WHERE id = ?", Boolean.class, userId);
     }
 
     private long newUser(String nickname) {

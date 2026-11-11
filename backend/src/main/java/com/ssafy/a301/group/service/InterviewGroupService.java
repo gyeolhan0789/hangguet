@@ -30,6 +30,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -234,18 +236,48 @@ public class InterviewGroupService {
                     if (!group.getStatus().isLobby()) {
                         throw new ApiException(ErrorCode.INVALID_GROUP_STATE);
                     }
-                    me.leave(now);
-                    List<InterviewGroupParticipant> remaining =
-                            active.stream().filter(p -> p != me).toList();
-                    if (remaining.isEmpty()
-                            || (group.getStatus() == GroupStatus.START_FAILED
-                                    && remaining.size() <= 1)) {
-                        group.cancel();
-                    } else if (group.isHost(userId)) {
-                        handOverHost(group, remaining);
-                    }
+                    leave(group, active, me, now);
                 });
         touch(() -> presence.remove(groupId, userId));
+    }
+
+    /**
+     * 2.7 탈퇴. 회원 행을 잠근 트랜잭션 안에서 부른다(잠금 순서 회원 → 그룹, 9장). 대기실 · 시작 실패 그룹에서는 10.6과 같이 나간다. 진행 중인 그룹은
+     * 그대로 두고, 그 면접이 진행 중이면 탈퇴가 막힌다(호출하는 쪽이 이 뒤에 면접 상태를 확인한다). 대기실 접속 기록은 커밋 뒤에 지운다.
+     */
+    public void leaveForWithdrawal(long userId, OffsetDateTime now) {
+        for (long groupId :
+                participants.findCurrentGroupIds(userId, CURRENT_GROUP, CURRENT_SESSION)) {
+            InterviewGroup group = lock(groupId);
+            if (!group.getStatus().isLobby()) {
+                continue;
+            }
+            List<InterviewGroupParticipant> active = participants.findActiveByGroupId(groupId);
+            leave(group, active, requireParticipant(active, userId), now);
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            touch(() -> presence.remove(groupId, userId));
+                        }
+                    });
+        }
+    }
+
+    // 그룹 행을 잠근 뒤 부른다. 방장이 나가면 남은 참가자 중 가장 먼저 들어온 사람이 방장이 되고, 남은 참가자가 없거나 시작 실패 뒤 1명 이하면 취소한다
+    private static void leave(
+            InterviewGroup group,
+            List<InterviewGroupParticipant> active,
+            InterviewGroupParticipant me,
+            OffsetDateTime now) {
+        me.leave(now);
+        List<InterviewGroupParticipant> remaining = active.stream().filter(p -> p != me).toList();
+        if (remaining.isEmpty()
+                || (group.getStatus() == GroupStatus.START_FAILED && remaining.size() <= 1)) {
+            group.cancel();
+        } else if (group.isHost(me.getUser().getId())) {
+            handOverHost(group, remaining);
+        }
     }
 
     private User lockUser(long userId) {

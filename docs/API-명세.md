@@ -289,9 +289,12 @@ BE는 인가 코드로 제공자 회원 정보(회원 번호·이메일·닉네�
 
 탈퇴 처리하고 모든 토큰을 폐기한다. 되돌릴 수 없고, 이메일·소셜 계정은 재가입에 쓸 수 있다. 이메일 회원은 `password`가 필수이고, 소셜 회원은 보내지 않는다(2.1 `socialProvider`). 탈퇴는 soft delete로, 회원 정보와 지원서·면접 기록·파일은 지우지 않고 남기되 조회되지 않는다. 연습 알림(2.8)은 저장한 카카오 토큰과 함께 바로 지운다. 최종 파기 시점은 B-6.
 
+진행 중(`IN_PROGRESS`)인 면접(개인 · 그룹)이 있으면 탈퇴할 수 없다. 화면은 면접을 끝낸(5.8) 뒤 다시 시도하도록 안내한다. 시작한 지 2시간(임시 값)이 지난 면접은 끝내기 없이 떠난 면접으로 보고 막지 않는다. 그룹 면접방을 나가 이탈 중이면 2분이 지나 면접이 끝난 뒤 탈퇴할 수 있다. 그룹 대기실(대기 · 시작 실패)에 있으면 탈퇴하면서 그룹에서 나간다(10.6과 같음, 방장이면 위임).
+
 - **204**: 탈퇴
 - **400 / PASSWORD_MISMATCH**: 비밀번호 틀림
 - **400 / VALIDATION_FAILED**: 이메일 회원이 `password`를 보내지 않음
+- **409 / INTERVIEW_IN_PROGRESS**: 진행 중인 면접이 있음
 
 #### 2.8 연습 알림 설정
 
@@ -1152,6 +1155,7 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | `SIGNUP_TOKEN_INVALID` | 401 | 1.7 |
 | `SOCIAL_LINK_FAILED` · `SOCIAL_ALREADY_LINKED` · `SOCIAL_ACCOUNT_IN_USE` | 400 · 409 · 409 | 2.12 (`SOCIAL_LOGIN_UNAVAILABLE`도 2.12) |
 | `PASSWORD_MISMATCH` | 400 | 2.3, 2.7 |
+| `INTERVIEW_IN_PROGRESS` | 409 | 2.7 |
 | `PASSWORD_NOT_SET` | 409 | 2.3, 2.13, 9.10 |
 | `PASSWORD_RESET_TOKEN_INVALID` | 400 | 1.9 |
 | `FILE_NOT_FOUND` | 404 | 2.5, 9.1, 9.4 |

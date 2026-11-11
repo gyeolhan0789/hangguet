@@ -3,6 +3,7 @@ package com.ssafy.a301.user.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -19,6 +20,9 @@ import com.ssafy.a301.auth.repository.RefreshTokenStore;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.group.service.InterviewGroupService;
+import com.ssafy.a301.interview.domain.SessionStatus;
+import com.ssafy.a301.interview.repository.InterviewSessionRepository;
 import com.ssafy.a301.practice.repository.PracticeLogRepository;
 import com.ssafy.a301.practice.service.PracticeService;
 import com.ssafy.a301.storage.domain.UploadPurpose;
@@ -48,6 +52,7 @@ import software.amazon.awssdk.core.exception.SdkClientException;
 class UserServiceTest {
     private static final long USER_ID = 7L;
     private static final Duration UPLOAD_TTL = Duration.ofMinutes(10);
+    private static final Duration BLOCK_WINDOW = Duration.ofHours(2);
 
     private final UserRepository users = mock(UserRepository.class);
     private final PracticeLogRepository practiceLogs = mock(PracticeLogRepository.class);
@@ -59,6 +64,8 @@ class UserServiceTest {
     private final UserSocialAccountRepository socialAccounts =
             mock(UserSocialAccountRepository.class);
     private final PracticeAlarmRepository practiceAlarms = mock(PracticeAlarmRepository.class);
+    private final InterviewSessionRepository sessions = mock(InterviewSessionRepository.class);
+    private final InterviewGroupService groups = mock(InterviewGroupService.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private UserService service;
@@ -83,7 +90,10 @@ class UserServiceTest {
                         refreshTokens,
                         socialAccounts,
                         practiceAlarms,
-                        new TransactionTemplate(txManager));
+                        sessions,
+                        groups,
+                        new TransactionTemplate(txManager),
+                        BLOCK_WINDOW);
         user = new User("a@test.com", "hash", "이전닉네임");
         ReflectionTestUtils.setField(user, "id", USER_ID);
         when(users.findByIdAndDeletedAtIsNull(USER_ID)).thenReturn(Optional.of(user));
@@ -232,6 +242,27 @@ class UserServiceTest {
         var order = inOrder(txManager, refreshTokens);
         order.verify(txManager).commit(any());
         order.verify(refreshTokens).revokeAll(USER_ID);
+    }
+
+    // 탈퇴 회원은 그룹 참가자에서 빠지므로 진행 중인 면접이 있으면 막는다. 대기실은 먼저 나가 본 뒤 면접 상태를 본다
+    @Test
+    void withdrawalWithInterviewInProgressChangesNothing() {
+        when(passwords.matches("abcd1234", "hash")).thenReturn(true);
+        when(sessions.existsByUserIdAndStatusAndStartedAtAfter(
+                        eq(USER_ID), eq(SessionStatus.IN_PROGRESS), any()))
+                .thenReturn(true);
+
+        assertCode(() -> service.withdraw(USER_ID, "abcd1234"), ErrorCode.INTERVIEW_IN_PROGRESS);
+        assertThat(user.isWithdrawn()).isFalse();
+        var order = inOrder(groups, sessions);
+        order.verify(groups).leaveForWithdrawal(eq(USER_ID), any());
+        order.verify(sessions)
+                .existsByUserIdAndStatusAndStartedAtAfter(
+                        eq(USER_ID), eq(SessionStatus.IN_PROGRESS), any());
+        verify(txManager, never()).commit(any());
+        verify(txManager).rollback(any());
+        verify(socialAccounts, never()).withdrawAll(anyLong(), any());
+        verify(refreshTokens, never()).revokeAll(USER_ID);
     }
 
     @Test

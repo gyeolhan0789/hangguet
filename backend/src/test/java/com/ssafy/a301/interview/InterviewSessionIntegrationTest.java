@@ -714,6 +714,39 @@ class InterviewSessionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("INVALID_SESSION_STATE"));
     }
 
+    // 2.7: 진행 중인 면접이 있으면 탈퇴를 막는다. 시작한 지 2시간이 지나 진행 중으로 남은 면접은 떠난 면접으로 보고 막지 않는다
+    @Test
+    void withdrawingDuringInterviewIsRejectedButLeftInterviewDoesNotBlock() throws Exception {
+        // 비밀번호 없는(소셜) 회원은 비밀번호 없이 탈퇴한다
+        long user =
+                users.saveAndFlush(
+                                new User(
+                                        "interview-it-" + UUID.randomUUID() + "@example.com",
+                                        null,
+                                        "탈퇴 검증"))
+                        .getId();
+        userIds.add(user);
+        long sessionId = started(user, "CHAT");
+        MockHttpServletRequestBuilder withdraw =
+                post("/api/v1/users/me").contentType(MediaType.APPLICATION_JSON).content("{}");
+
+        mvc.perform(as(user, withdraw))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("INTERVIEW_IN_PROGRESS"));
+
+        jdbc.update(
+                "UPDATE interview_sessions SET started_at = now() - interval '121 minutes' WHERE id"
+                        + " = ?",
+                sessionId);
+        mvc.perform(as(user, withdraw)).andExpect(status().isNoContent());
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT deleted_at IS NOT NULL FROM users WHERE id = ?",
+                                Boolean.class,
+                                user))
+                .isTrue();
+    }
+
     @Test
     void endVideoWithAnswersAlsoMergesRecording() throws Exception {
         long user = newUser();
