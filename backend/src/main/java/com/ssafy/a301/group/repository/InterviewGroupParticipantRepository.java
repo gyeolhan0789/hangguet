@@ -29,12 +29,13 @@ public interface InterviewGroupParticipantRepository
     List<Long> findActiveSessionIds(@Param("groupId") long groupId);
 
     /**
-     * 질문을 모두 마치고 before 전부터 5.8을 기다리는 진행 중 면접(docs/그룹면접-설계.md 6.11). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시 확인한다
+     * 질문을 모두 마치고 before 전부터 5.8을 기다리는 진행 중 면접(docs/그룹면접-설계.md 6.11). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시
+     * 확인한다. 끝난 면접의 기록이 쌓여도 느려지지 않게 진행 중 그룹 면접(부분 인덱스)에서 찾는다
      */
     @Query(
-            "select p.group.id, p.session.id from InterviewGroupParticipant p where p.doneAt <="
-                    + " :before and p.session.status ="
-                    + " com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS")
+            "select p.group.id, s.id from InterviewGroupParticipant p join p.session s where"
+                    + " s.status = com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS and"
+                    + " s.groupId is not null and p.doneAt <= :before")
     List<Object[]> findOverdueDone(@Param("before") OffsetDateTime before);
 
     /** 그룹에서 질문을 하나라도 냈는지(첫 질문 전의 AI 실패는 시작 실패, docs/그룹면접-설계.md 5.1). 먼저 끝낸 사람의 질문도 센다 */
@@ -43,12 +44,15 @@ public interface InterviewGroupParticipantRepository
                     + " p.session.id from InterviewGroupParticipant p where p.group.id = :groupId)")
     boolean hasAskedQuestion(@Param("groupId") long groupId);
 
-    /** 이탈한 지 before 전부터 돌아오지 않은 진행 중 면접(docs/그룹면접-설계.md 6.9). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시 확인한다 */
+    /**
+     * 다시 들어올 시간(absent_until)이 now까지 지난 진행 중 면접(docs/그룹면접-설계.md 6.9). 그룹 id와 면접 id 쌍이다. 잠근 뒤 다시
+     * 확인한다
+     */
     @Query(
-            "select p.group.id, p.session.id from InterviewGroupParticipant p where p.absentSince"
-                    + " <= :before and p.doneAt is null and p.session.status ="
-                    + " com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS")
-    List<Object[]> findOverdueAbsent(@Param("before") OffsetDateTime before);
+            "select p.group.id, s.id from InterviewGroupParticipant p join p.session s where"
+                    + " s.status = com.ssafy.a301.interview.domain.SessionStatus.IN_PROGRESS and"
+                    + " s.groupId is not null and p.absentUntil <= :now and p.doneAt is null")
+    List<Object[]> findOverdueAbsent(@Param("now") OffsetDateTime now);
 
     /** 면접의 그룹 참가자(5.14 재입장 확인) */
     Optional<InterviewGroupParticipant> findBySessionId(Long sessionId);

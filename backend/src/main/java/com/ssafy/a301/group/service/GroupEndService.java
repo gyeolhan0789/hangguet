@@ -13,6 +13,7 @@ import com.ssafy.a301.group.repository.InterviewGroupRepository;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.EndReason;
 import com.ssafy.a301.interview.domain.InterviewMode;
+import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -316,6 +317,14 @@ public class GroupEndService {
         if (group.getStatus() != GroupStatus.IN_PROGRESS
                 || locked.stream().anyMatch(s -> s.getStatus() == SessionStatus.IN_PROGRESS)) {
             return false;
+        }
+        // 지금 차례의 작성 중인 글은 더 쓸 데가 없다(1시간 만료를 기다리지 않는다, 6.10)
+        Long turnSessionId = group.getTurnSessionId();
+        if (turnSessionId != null && group.getTurnSeq() != null) {
+            questions
+                    .findBySessionIdAndSeq(turnSessionId, group.getTurnSeq())
+                    .map(InterviewQuestion::getId)
+                    .ifPresent(id -> afterCommit(() -> drafts.delete(turnSessionId, id)));
         }
         group.end(now);
         if (group.getMode() == InterviewMode.VIDEO) {
