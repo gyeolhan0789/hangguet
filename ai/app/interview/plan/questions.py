@@ -16,7 +16,7 @@ from app.interview.company import (
 from app.interview.interviewer import COVER_LETTER, interviewer_guide
 from app.interview.job_ncs import competency_units, job_subcategories
 from app.interview.plan.llm import PlanOutputError
-from app.interview.plan.rules import COMPANY_LINKED_MAX, COMPANY_LINKED_MIN
+from app.interview.plan.rules import COMPANY_LINKED_MAX
 from app.worker.messages import Claim, PlanJob
 
 # 회사 카드 사용 지침(AI 명세 2장 회사 카드 사용).
@@ -57,7 +57,7 @@ def question_system(persona: Persona) -> str:
         "- content: 지원자에게 묻는 질문 한 문장\n"
         "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
         "- companyItem: 회사 정보가 주어지면 "
-        f"{COMPANY_LINKED_MIN[persona]}~{COMPANY_LINKED_MAX}개 질문만 회사 정보와 연결하고, "
+        f"0~{COMPANY_LINKED_MAX}개 질문만 회사 정보와 연결하고, "
         "연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
         "인재상 항목은 괄호에 적힌 주장과만 연결하고, "
         "회사 항목이 경험과 이어지지 않으면 연결하지 않는다. "
@@ -197,12 +197,10 @@ def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
     return tuple(sorted(questions, key=lambda q: q.seq))
 
 
-def check_company_links(
-    questions: Sequence[Question], items: Sequence[CompanyItem], persona: Persona
-) -> None:
+def check_company_links(questions: Sequence[Question], items: Sequence[CompanyItem]) -> None:
     """회사 정보와 연결한 질문 수와 연결한 항목·주장의 짝을 검사한다.
 
-    회사 정보 후보가 있으면 연결한 질문이 면접관별 COMPANY_LINKED_MIN~MAX개여야 하고,
+    회사 정보와 연결한 질문은 COMPANY_LINKED_MAX개 이하여야 하고,
     연결한 항목 번호는 후보 항목이어야 한다(카드에 없는 회사 정보를 전제로 묻지 않음).
     인재상 항목은 그 항목의 분류값과 인재상 기준이 같은 주장과만 연결할 수 있다(AI 명세 2장).
     """
@@ -214,11 +212,8 @@ def check_company_links(
             raise PlanOutputError("questions.companyItem이 주어진 회사 항목이 아니다")
         if item.claim_ids is not None and q.claim_id not in item.claim_ids:
             raise PlanOutputError("questions.companyItem이 연결 후보가 아닌 주장과 연결되어 있다")
-    minimum = COMPANY_LINKED_MIN[persona]
-    if items and not minimum <= len(linked) <= COMPANY_LINKED_MAX:
-        raise PlanOutputError(
-            f"회사 정보와 연결한 질문은 {minimum}~{COMPANY_LINKED_MAX}개여야 한다"
-        )
+    if len(linked) > COMPANY_LINKED_MAX:
+        raise PlanOutputError(f"회사 정보와 연결한 질문은 0~{COMPANY_LINKED_MAX}개여야 한다")
 
 
 def regenerate_system(persona: Persona) -> str:

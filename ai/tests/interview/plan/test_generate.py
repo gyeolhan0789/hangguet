@@ -408,30 +408,18 @@ def test_practical_interview_accepts_zero_to_two_company_links(items: tuple[str,
     assert [q.company_item for q in result.questions[: len(items)]] == [i or None for i in items]
 
 
-def test_duck_interview_accepts_no_company_link() -> None:
-    """오리 면접관은 회사 정보 연결을 강제하지 않는다(AI 명세 2장, 0~2개)."""
-    duck = replace(CARD_JOB, persona=Persona.DUCK)
-    chat = FakeChat([linked()])
+@pytest.mark.parametrize("persona", list(Persona))
+@pytest.mark.parametrize("items", [(), ("co1",)])
+def test_every_interviewer_accepts_zero_or_one_company_link(
+    persona: Persona, items: tuple[str, ...]
+) -> None:
+    """모든 면접관이 회사 정보 연결을 강제하지 않는다(AI 명세 2장, 0~2개)."""
+    card = {**CARD, "talent": [{"title": "해결", "criterion": "실행·성과"}]}
+    chat = FakeChat([linked(*items)])
 
-    generate_questions(chat, duck, CLAIMS)
-
-    assert len(chat.calls) == 1
-
-
-def test_executive_interview_accepts_one_company_link() -> None:
-    chat = FakeChat([linked("co1")])
-
-    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+    generate_questions(chat, replace(JOB, persona=persona, company_card=card), CLAIMS)
 
     assert len(chat.calls) == 1
-
-
-def test_executive_interview_without_company_link_is_retried() -> None:
-    chat = FakeChat([linked(), linked("co1")])
-
-    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
-
-    assert len(chat.calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -483,9 +471,10 @@ def test_company_link_without_card_is_retried() -> None:
 
 def test_last_attempt_keeps_questions_with_wrong_company_links() -> None:
     """회사 정보 연결이 어긋나도 플랜 생성 전체가 실패하지 않도록 마지막 시도는 그대로 사용한다."""
-    chat = FakeChat([linked(), linked()])
+    three = linked("co1", "co1", "co1")
+    chat = FakeChat([three, three])
 
     result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
 
     assert len(chat.calls) == 2
-    assert all(q.company_item is None for q in result.questions)
+    assert [q.company_item for q in result.questions] == ["co1", "co1", "co1", None, None]

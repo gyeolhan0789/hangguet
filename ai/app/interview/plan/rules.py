@@ -5,9 +5,6 @@
 """
 
 import re
-from collections.abc import Mapping
-
-from app.common.session import Persona
 
 # AI 명세 2장: 자소서 문장 순번(sentenceNo).
 # 비어 있지 않은 줄마다 나누고,
@@ -34,16 +31,9 @@ MAX_TALENT_CRITERIA_PER_CLAIM = 2
 # 면접관 기준이 드러난 주장이 적으면 같은 주장을 다른 기준으로 나누어 다시 질문하고,
 # 주장이 많으면 검증 가치가 큰 주장을 선택하게 한다(questions.question_system).
 
-# AI 명세 2장 회사 카드 사용: 질문 5개 중 회사 정보와 연결하는 질문 수.
+# AI 명세 2장 회사 카드 사용: 질문 5개 중 회사 정보와 연결하는 질문은 모든 면접관 0~2개다.
 # 나머지 질문은 자소서 주장 검증에 집중하도록 상한을 둔다.
-# 개발자 면접관은 경험과 회사 사업 방향·시장이 이어지지 않는 경우가 많아
-# 연결을 강제하면 관계없는 질문에 항목 번호만 작성하므로 하한을 0으로 둔다(plan-v4 GMS 실측).
-# 오리 면접관도 같은 이유로 연결을 강제하지 않는다
-COMPANY_LINKED_MIN: Mapping[Persona, int] = {
-    Persona.DEVIL: 1,
-    Persona.COFFEE_CHAT: 0,
-    Persona.DUCK: 0,
-}
+# 하한 없이도 연결 후보가 있으면 연결하므로 하한은 두지 않는다(2026-11-10 GMS 실측)
 COMPANY_LINKED_MAX = 2
 
 # AI 명세 2장: claimId가 없는 주장을 가리키면 그 질문만 1회 다시 생성한다

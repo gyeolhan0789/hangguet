@@ -58,7 +58,7 @@ def _question_set(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Question
             # 회사 정보 연결이 어긋나도 플랜 생성 전체가 실패하지 않도록
             # 마지막 시도는 검사하지 않는다
             if attempt < STRUCTURE_RETRIES:
-                check_company_links(questions, items, job.persona)
+                check_company_links(questions, items)
             return QuestionSet(questions, result.model)
         except (GmsBadOutputError, PlanOutputError) as e:
             log.warning("질문 생성 출력 구조 깨짐 %d회: %s", attempt + 1, e)

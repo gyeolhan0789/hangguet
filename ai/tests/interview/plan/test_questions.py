@@ -331,12 +331,7 @@ def test_no_company_section_without_card(persona: Persona) -> None:
     )
 
 
-# 개발자 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다
-COMPANY_ITEM_COUNTS = {
-    Persona.DEVIL: "1~2개",
-    Persona.COFFEE_CHAT: "0~2개",
-    Persona.DUCK: "0~2개",
-}
+# 모든 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다(AI 명세 2장, 0~2개)
 COMPANY_ITEM_RULE = (
     "질문만 회사 정보와 연결하고, 연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
     "인재상 항목은 괄호에 적힌 주장과만 연결하고, "
@@ -348,7 +343,7 @@ COMPANY_ITEM_RULE = (
 @pytest.mark.parametrize("persona", list(Persona))
 def test_questions_name_linked_company_item(persona: Persona) -> None:
     system = build_question_messages(replace(JOB, persona=persona), CLAIMS)[0]["content"]
-    rule = f"- companyItem: 회사 정보가 주어지면 {COMPANY_ITEM_COUNTS[persona]} {COMPANY_ITEM_RULE}"
+    rule = f"- companyItem: 회사 정보가 주어지면 0~2개 {COMPANY_ITEM_RULE}"
 
     assert rule in system
     assert '"companyItem": str' in system
