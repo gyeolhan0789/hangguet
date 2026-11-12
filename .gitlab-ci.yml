@@ -1123,8 +1123,10 @@ ai-test:
         - .gitlab-ci.yml
       variables:
         INSTALL_FFMPEG: "1"
+    # 공용 패키지(shared/)가 변경되면 그 패키지를 사용하는 AI 코드도 검사합니다
     - changes:
         - ai/**/*
+        - shared/**/*
   stage: test
   image: python:3.13-slim
   needs: []
@@ -1188,13 +1190,14 @@ ai-sonar:
 
 ## 회사 카드 파이프라인 ##
 
-# company-pipeline/(회사 카드 파이프라인)이나 이 파일이 바뀐 MR에서만 돕니다.
+# company-pipeline/(회사 카드 파이프라인), 파이프라인이 사용하는 공용 패키지 shared/, 이 파일이 변경된 MR에서만 돕니다.
 .pipeline-rules:
   rules:
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
         - company-pipeline/**/*
+        - shared/**/*
         - .gitlab-ci.yml
 
 # ai-test와 같은 방식: 검사(ruff·mypy)와 테스트(pytest)를 한 잡에서 돌립니다.
@@ -1223,6 +1226,10 @@ pipeline-test:
     - uv run ruff format --check .
     - uv run ruff check .
     - uv run mypy
+    # 공용 패키지(shared/) 자체 검사. 검사 규칙은 shared/pyproject.toml을 따릅니다.
+    - uv run ruff format --check ../shared
+    - uv run ruff check ../shared
+    - uv run mypy --config-file ../shared/pyproject.toml ../shared/company_taxonomy
     - uv run pytest --junitxml=junit.xml
   artifacts:
     when: always
