@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 final class ContractData {
     final List<Long> users = new ArrayList<>();
 
-    /** 재생된 요청(회원가입)이 만든 회원 */
+    /** 재생된 요청(회원가입 · 소셜 회원가입)이 만든 회원 */
     final List<String> emails = new ArrayList<>();
 
     final List<Long> notices = new ArrayList<>();
@@ -94,7 +94,8 @@ final class ContractData {
                         "streak_freezes",
                         "streak_freeze_grant_targets",
                         "user_agreements",
-                        "user_social_accounts")) {
+                        "user_social_accounts",
+                        "practice_alarms")) {
             jdbc.update("DELETE FROM " + table + " WHERE user_id = ?", id);
         }
         jdbc.update("DELETE FROM users WHERE id = ?", id);
