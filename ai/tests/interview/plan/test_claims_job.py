@@ -34,8 +34,18 @@ EXTRACT_JOB = ExtractClaimsJob(
 )
 CLAIMS = {
     "claims": [
-        {"text": "주문 조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-        {"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+        {
+            "text": "주문 조회 응답 시간을 40% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        },
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["전문성·성장"],
+        },
     ]
 }
 BROKEN_CLAIMS: dict[str, Any] = {"claims": []}
@@ -81,8 +91,15 @@ def test_publishes_extracted_claims_with_versions() -> None:
                     "text": "주문 조회 응답 시간을 40% 줄였다",
                     "type": "NUMBER",
                     "sentenceNo": 4,
+                    "talentCriteria": ["실행·성과"],
                 },
-                {"id": "c2", "text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+                {
+                    "id": "c2",
+                    "text": "캐시 계층을 설계했다",
+                    "type": "EXPERIENCE",
+                    "sentenceNo": 5,
+                    "talentCriteria": ["전문성·성장"],
+                },
             ],
             "promptVersion": "extract-claims-v1",
             "modelVersion": "gms-served",
@@ -97,8 +114,18 @@ def test_claim_with_number_missing_from_its_sentence_is_dropped() -> None:
     """
     claims = {
         "claims": [
-            {"text": "주문 조회 응답 시간을 50% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-            {"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+            {
+                "text": "주문 조회 응답 시간을 50% 줄였다",
+                "type": "NUMBER",
+                "sentenceNo": 4,
+                "talentCriteria": ["실행·성과"],
+            },
+            {
+                "text": "캐시 계층을 설계했다",
+                "type": "EXPERIENCE",
+                "sentenceNo": 5,
+                "talentCriteria": ["전문성·성장"],
+            },
         ]
     }
     run, redis = make(FakeChat([claims]))

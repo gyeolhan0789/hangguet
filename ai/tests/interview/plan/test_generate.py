@@ -23,10 +23,26 @@ CLAIMS = (
     Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4),
     Claim("c2", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5),
 )
-GOOD_CLAIMS = {"claims": [{"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5}]}
+GOOD_CLAIMS = {
+    "claims": [
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["전문성·성장"],
+        }
+    ]
+}
 NO_CLAIMS: dict[str, Any] = {"claims": []}
 UNSUPPORTED_CLAIMS = {
-    "claims": [{"text": "응답 시간을 90% 줄였다", "type": "NUMBER", "sentenceNo": 4}]
+    "claims": [
+        {
+            "text": "응답 시간을 90% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        }
+    ]
 }
 
 
@@ -67,12 +83,30 @@ def test_extract_returns_first_valid_output() -> None:
 
     result = extract_claims(chat, JOB)
 
-    assert result.claims == (Claim("c1", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5),)
+    assert result.claims == (
+        Claim("c1", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5, ("전문성·성장",)),
+    )
     assert result.model == "gms-served"
     assert len(chat.calls) == 1
 
 
-@pytest.mark.parametrize("broken", [NO_CLAIMS, UNSUPPORTED_CLAIMS, GmsBadOutputError("JSON 아님")])
+# 인재상 기준이 아닌 이름은 판정 값이 틀린 출력이다(AI 명세 2장·5장)
+UNKNOWN_CRITERION_CLAIMS = {
+    "claims": [
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["설계"],
+        }
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [NO_CLAIMS, UNSUPPORTED_CLAIMS, UNKNOWN_CRITERION_CLAIMS, GmsBadOutputError("JSON 아님")],
+)
 def test_extract_retries_once_after_broken_output(broken: Any) -> None:
     chat = FakeChat([broken, GOOD_CLAIMS])
 
@@ -102,14 +136,26 @@ def test_extract_does_not_retry_unavailable_gms() -> None:
 def test_extract_drops_unsupported_claim_and_renumbers() -> None:
     content = {
         "claims": [
-            {"text": "응답 시간을 60% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-            {"text": "팀원 4명과 절차를 정리했다", "type": "EXPERIENCE", "sentenceNo": 6},
+            {
+                "text": "응답 시간을 60% 줄였다",
+                "type": "NUMBER",
+                "sentenceNo": 4,
+                "talentCriteria": ["실행·성과"],
+            },
+            {
+                "text": "팀원 4명과 절차를 정리했다",
+                "type": "EXPERIENCE",
+                "sentenceNo": 6,
+                "talentCriteria": ["협력·소통"],
+            },
         ]
     }
 
     result = extract_claims(FakeChat([content]), JOB)
 
-    assert result.claims == (Claim("c1", "팀원 4명과 절차를 정리했다", ClaimType.EXPERIENCE, 6),)
+    assert result.claims == (
+        Claim("c1", "팀원 4명과 절차를 정리했다", ClaimType.EXPERIENCE, 6, ("협력·소통",)),
+    )
 
 
 @pytest.mark.parametrize(
@@ -139,8 +185,13 @@ def test_extract_keeps_half_claim_from_live_cover_letter(text: str) -> None:
     )
     content = {
         "claims": [
-            {"text": "조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 5},
-            {"text": text, "type": "NUMBER", "sentenceNo": 6},
+            {
+                "text": "조회 응답 시간을 40% 줄였다",
+                "type": "NUMBER",
+                "sentenceNo": 5,
+                "talentCriteria": ["실행·성과"],
+            },
+            {"text": text, "type": "NUMBER", "sentenceNo": 6, "talentCriteria": []},
         ]
     }
 

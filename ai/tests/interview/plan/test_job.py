@@ -28,8 +28,18 @@ from tests.interview.plan.fakes import JOB, JOB_ID, FakeChat, question
 NOW = datetime(2026, 10, 22, 14, 3, 12, tzinfo=KST)
 CLAIMS = {
     "claims": [
-        {"text": "주문 조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-        {"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+        {
+            "text": "주문 조회 응답 시간을 40% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        },
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["전문성·성장"],
+        },
     ]
 }
 # 개발자 면접관 기준이 드러난 주장(AI 명세 2장)
@@ -85,8 +95,15 @@ def test_publishes_progress_then_completed_plan() -> None:
                     "text": "주문 조회 응답 시간을 40% 줄였다",
                     "type": "NUMBER",
                     "sentenceNo": 4,
+                    "talentCriteria": ["실행·성과"],
                 },
-                {"id": "c2", "text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+                {
+                    "id": "c2",
+                    "text": "캐시 계층을 설계했다",
+                    "type": "EXPERIENCE",
+                    "sentenceNo": 5,
+                    "talentCriteria": ["전문성·성장"],
+                },
             ],
             "questions": [
                 {
@@ -97,7 +114,7 @@ def test_publishes_progress_then_completed_plan() -> None:
                 }
                 for seq in range(1, 6)
             ],
-            "promptVersion": "plan-v5",
+            "promptVersion": "plan-v6",
             "modelVersion": "gms-served",
         },
     ]
@@ -298,7 +315,7 @@ def test_registered_as_plan_handler() -> None:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v5"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v6"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:

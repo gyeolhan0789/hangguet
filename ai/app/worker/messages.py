@@ -65,6 +65,8 @@ class Claim:
     text: str
     type: ClaimType
     sentence_no: int
+    # 주장에 드러난 인재상 기준 이름 0~2개(AI 명세 2장 talentCriteria)
+    talent_criteria: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
