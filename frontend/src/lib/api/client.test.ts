@@ -1,66 +1,110 @@
 // @vitest-environment node
-import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Swagger 공통 오류(401 UNAUTHORIZED · TOKEN_EXPIRED) · Bearer 인증
+import type { AxiosAdapter, AxiosResponse, InternalAxiosRequestConfig } from "axios";
+import { describe, expect, it, vi } from "vitest";
 
-import type { api as ApiInstance, idempotencyHeaders as IdempotencyHeadersFn } from "./client";
-import { getProblemDetail } from "./problem-detail";
+import { redirectToSignedOut, redirectToTokenRefresh } from "@/lib/auth/auth-errors";
+import { axiosProblem, axiosStatusOnly } from "@/test/axios-problem";
+import { setCookie } from "@/test/next-headers";
+import { RedirectError } from "@/test/next-navigation";
 
-const cookieJar = new Map<string, string>();
-vi.mock("next/headers", () => ({
-  cookies: async () => ({
-    get: (name: string) => (cookieJar.has(name) ? { name, value: cookieJar.get(name) } : undefined),
-  }),
+import { api } from "./client";
+
+// 경계 mock: 쿠키(next/headers), 401 뒤 이동(auth-errors), HTTP(어댑터를 바꿔 인터셉터는 진짜로 지나게 한다)
+vi.mock("next/headers", () => import("@/test/next-headers"));
+vi.mock("@/lib/auth/auth-errors", () => ({
+  redirectToTokenRefresh: vi.fn(),
+  redirectToSignedOut: vi.fn(),
 }));
+const adapter = vi.fn<AxiosAdapter>();
+api.defaults.adapter = adapter;
 
-const adapter = vi.fn(async (config: InternalAxiosRequestConfig): Promise<AxiosResponse> => ({
-  data: {},
-  status: 200,
-  statusText: "",
-  headers: {},
-  config,
-}));
+// 예시 데이터: Swagger 공통 오류 code(공통 오류는 API별 예시가 없어 모양만 맞춘다)
+const TOKEN_EXPIRED = { title: "Unauthorized", status: 401, code: "TOKEN_EXPIRED" };
+const UNAUTHORIZED = { title: "Unauthorized", status: 401, code: "UNAUTHORIZED" };
+// 예시 데이터: Swagger 8.9 404 예시(code가 있는 401 아닌 실패)
+const NOTICE_NOT_FOUND = {
+  title: "Not Found",
+  status: 404,
+  detail: "공지를 찾을 수 없어요.",
+  instance: "/api/v1/notices/0/read",
+  code: "NOTICE_NOT_FOUND",
+};
 
-let api: typeof ApiInstance;
-let idempotencyHeaders: typeof IdempotencyHeadersFn;
+function ok(config: InternalAxiosRequestConfig): Promise<AxiosResponse> {
+  return Promise.resolve({ data: {}, status: 200, statusText: "", headers: {}, config });
+}
+const sentAuthorization = () => adapter.mock.calls[0][0].headers.get("Authorization");
 
-beforeAll(async () => {
-  // client.ts가 만드는 인스턴스가 이 adapter를 물려받도록 먼저 지정한 뒤 불러온다.
-  axios.defaults.adapter = adapter;
-  ({ api, idempotencyHeaders } = await import("./client"));
-});
+describe("api · 서버 API 요청", () => {
+  describe("토큰 붙이기", () => {
+    describe("정상 처리", () => {
+      it("액세스 토큰 쿠키의 토큰을 Authorization에 붙인다", async () => {
+        setCookie("hk_access", "access-1");
+        setCookie("hk_refresh", "refresh-1");
+        adapter.mockImplementation(ok);
 
-beforeEach(() => {
-  adapter.mockClear();
-  cookieJar.clear();
-});
+        await api.get("/users/me");
 
-describe("api", () => {
-  it("쿠키의 액세스 토큰을 Bearer로 붙인다", async () => {
-    cookieJar.set("hk_access", "access-1");
+        expect(sentAuthorization()).toBe("Bearer access-1");
+      });
+    });
 
-    await api.get("/users/me");
+    describe("경계값", () => {
+      it("액세스 토큰 쿠키가 없으면 Authorization 없이 보낸다", async () => {
+        adapter.mockImplementation(ok);
 
-    expect(adapter.mock.calls[0][0].headers.Authorization).toBe("Bearer access-1");
-  });
+        await api.get("/users/me");
 
-  it("토큰 쿠키가 없으면 Authorization을 붙이지 않는다", async () => {
-    await api.get("/auth/email-availability");
-
-    expect(adapter.mock.calls[0][0].headers.Authorization).toBeUndefined();
-  });
-});
-
-// 기준: Swagger 5.1 · 5.4 · 5.7 · 5.8 Idempotency-Key 헤더(UUID)
-describe("idempotencyHeaders", () => {
-  it("넘긴 키를 Idempotency-Key 헤더로 만든다(다시 보낼 때 같은 키)", () => {
-    expect(idempotencyHeaders("0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70")).toEqual({
-      "Idempotency-Key": "0f8e2a4c-7b1d-4e3a-9c5f-2d6b8a1e4f70",
+        expect(sentAuthorization()).toBeUndefined();
+      });
     });
   });
-});
 
-describe("getProblemDetail", () => {
-  it("axios 오류가 아니면 null", () => {
-    expect(getProblemDetail(new Error("x"))).toBeNull();
+  describe("공통 401 처리", () => {
+    describe("오류 처리", () => {
+      it.each([
+        { label: "404 NOTICE_NOT_FOUND", failure: axiosProblem(NOTICE_NOT_FOUND) },
+        { label: "본문 없는 502", failure: axiosStatusOnly(502) },
+      ])(
+        "401이 아닌 실패가 '$label'이면 이동하지 않고 원래 오류를 그대로 던진다",
+        async ({ failure }) => {
+          adapter.mockRejectedValue(failure);
+
+          await expect(api.get("/users/me")).rejects.toBe(failure);
+          expect(redirectToTokenRefresh).not.toHaveBeenCalled();
+          expect(redirectToSignedOut).not.toHaveBeenCalled();
+        },
+      );
+    });
+
+    describe("권한 · 로그인", () => {
+      it("401 TOKEN_EXPIRED면 재발급 이동을 시작한다", async () => {
+        const moveToRefresh = new RedirectError("/api/auth/refresh?next=%2Fhome");
+        vi.mocked(redirectToTokenRefresh).mockRejectedValue(moveToRefresh);
+        adapter.mockRejectedValue(axiosProblem(TOKEN_EXPIRED));
+
+        await expect(api.get("/users/me")).rejects.toBe(moveToRefresh);
+        expect(redirectToSignedOut).not.toHaveBeenCalled();
+      });
+
+      it("401 UNAUTHORIZED면 로그인 풀림 이동을 시작한다", async () => {
+        const moveToSignedOut = new RedirectError("/api/auth/signed-out?next=%2Fhome");
+        vi.mocked(redirectToSignedOut).mockRejectedValue(moveToSignedOut);
+        adapter.mockRejectedValue(axiosProblem(UNAUTHORIZED));
+
+        await expect(api.get("/users/me")).rejects.toBe(moveToSignedOut);
+        expect(redirectToTokenRefresh).not.toHaveBeenCalled();
+      });
+
+      it("재발급 이동 없이 돌아오면(방금 재발급함) 원래 오류를 그대로 던진다", async () => {
+        const failure = axiosProblem(TOKEN_EXPIRED);
+        vi.mocked(redirectToTokenRefresh).mockResolvedValue(undefined);
+        adapter.mockRejectedValue(failure);
+
+        await expect(api.get("/users/me")).rejects.toBe(failure);
+        expect(redirectToTokenRefresh).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 });

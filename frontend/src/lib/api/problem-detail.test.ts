@@ -1,76 +1,150 @@
 // @vitest-environment node
+// 기준: Swagger "실패하면 응답의 code로 오류를 구분한다" · ProblemDetail · 1.2 회원가입 400 VALIDATION_FAILED 예시
 import { describe, expect, it } from "vitest";
 
 import { axiosNoResponse, axiosProblem, axiosStatusOnly } from "@/test/axios-problem";
 
 import { getHttpStatus, getProblemDetail, RETRY_LATER, toFormActionResult } from "./problem-detail";
 
-describe("getHttpStatus", () => {
-  it("ProblemDetail로 실패하면 그 응답의 상태 코드를 꺼낸다", () => {
-    const error = axiosProblem({
-      title: "Conflict",
-      status: 409,
-      detail: "지금은 할 수 없는 요청이에요.",
-      instance: "/api/v1/interview-sessions/55/room-token",
-      code: "INVALID_SESSION_STATE",
-    });
-    expect(getHttpStatus(error)).toBe(409);
-  });
+// 예시 데이터: Swagger 1.2 회원가입 409 · 400 예시
+const EMAIL_DUPLICATED = {
+  title: "Conflict",
+  status: 409,
+  detail: "이미 사용 중인 이메일이에요.",
+  instance: "/api/v1/auth/signup",
+  code: "EMAIL_DUPLICATED",
+};
+const VALIDATION_FAILED = {
+  title: "Bad Request",
+  status: 400,
+  detail: "입력값을 확인해 주세요.",
+  instance: "/api/v1/auth/signup",
+  code: "VALIDATION_FAILED",
+};
+const PASSWORD_REASON = "8~64자, 영문과 숫자를 모두 포함해야 합니다.";
 
-  it("본문 없는 502 · 504(Nginx)도 상태 코드를 꺼낸다", () => {
-    expect(getHttpStatus(axiosStatusOnly(502))).toBe(502);
-    expect(getHttpStatus(axiosStatusOnly(504, "<html>Gateway Timeout</html>"))).toBe(504);
-  });
+const SIGNUP_FIELDS = ["email", "password"] as const;
 
-  it("응답이 아예 없으면(연결 거부 · 시간 초과) null", () => {
-    expect(getHttpStatus(axiosNoResponse())).toBeNull();
-    expect(getHttpStatus(axiosNoResponse("ECONNREFUSED"))).toBeNull();
-  });
-
-  it("axios 오류가 아니면 null", () => {
-    expect(getHttpStatus(new Error("boom"))).toBeNull();
-    expect(getHttpStatus(undefined)).toBeNull();
-  });
-});
-
-// 기준: 웹 Swagger ProblemDetail(필수 필드 없음) · "실패하면 응답의 code로 오류를 구분한다"
-describe("toFormActionResult", () => {
-  it("서버 문구(detail)가 있으면 그 문구를 폼 오류로 쓴다", () => {
-    const error = axiosProblem({
-      status: 401,
-      code: "LOGIN_FAILED",
-      detail: "이메일 또는 비밀번호를 확인해 주세요.",
-    });
-    expect(toFormActionResult(error, ["email"])).toEqual({
-      formError: "이메일 또는 비밀번호를 확인해 주세요.",
+describe("getProblemDetail · 실패 본문 꺼내기", () => {
+  describe("정상 처리", () => {
+    it("본문에 code가 있으면 그 본문을 꺼낸다", () => {
+      expect(getProblemDetail(axiosProblem(EMAIL_DUPLICATED))).toEqual(EMAIL_DUPLICATED);
     });
   });
 
-  it("code만 있고 detail이 없으면 다시 시도 안내를 쓴다", () => {
-    expect(
-      toFormActionResult(axiosProblem({ status: 500, code: "INTERNAL_ERROR" }), ["email"]),
-    ).toEqual({
-      formError: RETRY_LATER,
-    });
-  });
-
-  it("본문이 ProblemDetail이 아니면(본문 없는 502 · code 없는 본문) 다시 시도 안내를 쓴다", () => {
-    expect(toFormActionResult(axiosStatusOnly(502), [])).toEqual({ formError: RETRY_LATER });
-    expect(toFormActionResult(axiosStatusOnly(500, { detail: "x" }), [])).toEqual({
-      formError: RETRY_LATER,
+  describe("오류 처리", () => {
+    it.each([
+      { label: "code 없는 본문", error: axiosStatusOnly(500, { title: "Internal Server Error" }) },
+      { label: "문자열 본문(502)", error: axiosStatusOnly(502, "<html>Bad Gateway</html>") },
+      { label: "응답 없음", error: axiosNoResponse() },
+      { label: "axios 오류 아님", error: new Error("fail") },
+    ])("실패가 '$label'이면 null을 돌려준다", ({ error }) => {
+      expect(getProblemDetail(error)).toBeNull();
     });
   });
 });
 
-describe("getProblemDetail", () => {
-  it("본문에 code가 있으면 ProblemDetail로 꺼낸다", () => {
-    expect(getProblemDetail(axiosProblem({ code: "LOGIN_FAILED" }))).toEqual({
-      code: "LOGIN_FAILED",
+describe("getHttpStatus · 상태 코드 꺼내기", () => {
+  describe("정상 처리", () => {
+    it("본문이 ProblemDetail이 아니어도(502) 상태 코드를 꺼낸다", () => {
+      expect(getHttpStatus(axiosStatusOnly(502, "<html>Bad Gateway</html>"))).toBe(502);
     });
   });
 
-  it("본문에 code가 없으면 ProblemDetail로 보지 않는다", () => {
-    expect(getProblemDetail(axiosStatusOnly(502))).toBeNull();
-    expect(getProblemDetail(axiosStatusOnly(500, { detail: "x" }))).toBeNull();
+  describe("오류 처리", () => {
+    it.each([
+      { label: "응답 없음", error: axiosNoResponse() },
+      { label: "axios 오류 아님", error: new Error("fail") },
+    ])("실패가 '$label'이면 null을 돌려준다", ({ error }) => {
+      expect(getHttpStatus(error)).toBeNull();
+    });
+  });
+});
+
+describe("toFormActionResult · 폼에 보일 실패로 바꾸기", () => {
+  describe("서버 문구", () => {
+    describe("오류 처리", () => {
+      it("서버 문구가 있으면 그 문구를 폼 오류로 쓴다", () => {
+        expect(toFormActionResult(axiosProblem(EMAIL_DUPLICATED), SIGNUP_FIELDS)).toEqual({
+          formError: "이미 사용 중인 이메일이에요.",
+        });
+      });
+
+      it("code만 있고 문구가 없으면 다시 시도 안내를 쓴다", () => {
+        const withoutDetail = { ...EMAIL_DUPLICATED, detail: undefined };
+
+        expect(toFormActionResult(axiosProblem(withoutDetail), SIGNUP_FIELDS)).toEqual({
+          formError: RETRY_LATER,
+        });
+      });
+
+      it.each([
+        { label: "502", error: axiosStatusOnly(502) },
+        { label: "응답 없음", error: axiosNoResponse() },
+      ])("본문이 ProblemDetail이 아니면('$label') 다시 시도 안내를 쓴다", ({ error }) => {
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({ formError: RETRY_LATER });
+      });
+    });
+  });
+
+  describe("VALIDATION_FAILED 칸 나누기", () => {
+    describe("경계값", () => {
+      it("거절된 칸 목록이 비어 있으면 칸 오류 없이 서버 문구를 폼 오류로 쓴다", () => {
+        const error = axiosProblem({ ...VALIDATION_FAILED, errors: [] });
+
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({
+          formError: "입력값을 확인해 주세요.",
+        });
+      });
+    });
+
+    describe("오류 처리", () => {
+      it("거절된 칸이 모두 폼에 있으면 칸 오류만 돌려주고 폼 오류는 없다", () => {
+        const error = axiosProblem({
+          ...VALIDATION_FAILED,
+          errors: [{ field: "password", reason: PASSWORD_REASON }],
+        });
+
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({
+          fieldErrors: { password: PASSWORD_REASON },
+        });
+      });
+
+      it("거절된 칸이 모두 폼 밖이면 칸 오류 없이 서버 문구를 폼 오류로 쓴다", () => {
+        const error = axiosProblem({
+          ...VALIDATION_FAILED,
+          errors: [{ field: "agreements", reason: "필수 약관에 동의해야 합니다." }],
+        });
+
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({
+          formError: "입력값을 확인해 주세요.",
+        });
+      });
+
+      it("폼 칸과 폼 밖 칸이 섞이면 폼 칸은 칸 오류로, 나머지는 서버 문구를 폼 오류로 보인다", () => {
+        const error = axiosProblem({
+          ...VALIDATION_FAILED,
+          errors: [
+            { field: "password", reason: PASSWORD_REASON },
+            { field: "agreements", reason: "필수 약관에 동의해야 합니다." },
+          ],
+        });
+
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({
+          fieldErrors: { password: PASSWORD_REASON },
+          formError: "입력값을 확인해 주세요.",
+        });
+      });
+
+      it("폼 밖 칸이 있는데 서버 문구가 없으면 다시 시도 안내를 폼 오류로 쓴다", () => {
+        const withoutDetail = { ...VALIDATION_FAILED, detail: undefined };
+        const error = axiosProblem({
+          ...withoutDetail,
+          errors: [{ field: "agreements", reason: "필수 약관에 동의해야 합니다." }],
+        });
+
+        expect(toFormActionResult(error, SIGNUP_FIELDS)).toEqual({ formError: RETRY_LATER });
+      });
+    });
   });
 });
