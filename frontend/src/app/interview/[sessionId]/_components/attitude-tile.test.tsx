@@ -58,15 +58,11 @@ describe("AttitudeTile", () => {
     render(<AttitudeTile samples={[sample(72), sample(null)]} answering />);
     expect(tileText()).toContain("얼굴 확인 중");
   });
-  it("아직 누르지 않았으면 펼친 카드는 데스크톱 폭에서만, 한 줄은 모바일 폭에서만 보이게 둘 다 그린다", () => {
+  it("처음에는 접힌 한 줄로 시작하고, 펼쳤다가 다시 접을 수 있다", () => {
     render(<AttitudeTile samples={[sample(72)]} answering />);
-    const collapse = screen.getByRole("button", { name: "면접 태도 접기" });
-    const expand = screen.getByRole("button", { name: "면접 태도 펼치기" });
-    expect(collapse.closest(String.raw`.hidden.md\:block`)).not.toBeNull();
-    expect(expand.closest(String.raw`.md\:hidden`)).not.toBeNull();
-  });
-  it("접으면 한 줄만 남고, 다시 펼칠 수 있다", () => {
-    render(<AttitudeTile samples={[sample(72)]} answering />);
+    expect(screen.queryByRole("button", { name: "면접 태도 접기" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "면접 태도 펼치기" }));
+    expect(useInterviewStore.getState().attitudeOpen).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "면접 태도 접기" }));
     expect(useInterviewStore.getState().attitudeOpen).toBe(false);
     expect(screen.queryByRole("button", { name: "면접 태도 접기" })).toBeNull();
