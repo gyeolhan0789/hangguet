@@ -478,3 +478,54 @@ def test_last_attempt_keeps_questions_with_wrong_company_links() -> None:
 
     assert len(chat.calls) == 2
     assert [q.company_item for q in result.questions] == ["co1", "co1", "co1", None, None]
+
+
+def test_last_attempt_drops_company_item_not_in_candidates(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """마지막 시도에서 후보에 없는 회사 항목 번호는 가리키는 항목이 없어 연결하지 않는다."""
+    wrong = linked("co9", "co1")
+    chat = FakeChat([wrong, wrong])
+
+    result = generate_questions(chat, CARD_JOB, CLAIMS)
+
+    assert [q.company_item for q in result.questions[:2]] == [None, "co1"]
+    assert "회사 항목 번호가 후보에 없어 연결하지 않는다 seq=1" in caplog.text
+
+
+def test_regenerated_question_keeps_company_item() -> None:
+    """회사 항목과 연결한 질문을 다시 생성하면 같은 회사 항목과 연결한다."""
+    first = linked("co1")
+    first["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([first, regenerated("c2")])
+
+    result = generate_questions(chat, CARD_JOB, CLAIMS)
+
+    item = result.company_items[0]
+    assert chat.calls[1] == build_regenerate_messages(CARD_JOB, CLAIMS, 1, item)
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c2", "co1")
+
+
+def test_regenerated_talent_question_uses_only_claims_of_that_item() -> None:
+    """인재상 항목과 연결한 질문은 그 항목과 연결할 수 있는 주장으로만 다시 생성한다."""
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([wrong, wrong, regenerated("c1")])
+
+    result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    item = result.company_items[0]
+    assert chat.calls[2] == build_regenerate_messages(DEVIL_CARD_JOB, CLAIMS[:1], 1, item)
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c1", "co1")
+
+
+def test_regenerated_talent_question_with_claim_not_given_fails() -> None:
+    """인재상 항목과 연결할 수 없는 주장은 다시 생성할 때 전달하지 않은 주장이므로
+    다른 claimId 오류와 같이 처리한다.
+    """
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([wrong, wrong, regenerated("c2")])
+
+    with pytest.raises(PlanFailedError):
+        generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)

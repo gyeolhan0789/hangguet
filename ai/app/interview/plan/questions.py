@@ -97,7 +97,7 @@ class Question:
     content: str
     criteria: str
     claim_id: str
-    # 질문에 연결한 회사 항목 번호. GMS 응답 검사에만 사용하고 플랜에는 저장하지 않는다
+    # 질문에 연결한 회사 항목 번호. 플랜에는 이 번호가 가리키는 회사 항목을 저장한다
     company_item: str | None = None
 
 
@@ -106,6 +106,8 @@ class QuestionSet:
     questions: tuple[Question, ...]
     # GMS 응답의 모델 이름이다
     model: str
+    # 질문 생성에 전달한 회사 항목. 질문의 company_item 번호가 가리킨다
+    company_items: tuple[CompanyItem, ...] = ()
 
 
 def claims_text(claims: Sequence[Claim]) -> str:
@@ -252,13 +254,20 @@ def regenerate_system(persona: Persona) -> str:
 
 
 def build_regenerate_messages(
-    job: PlanJob, claims: Sequence[Claim], seq: int
+    job: PlanJob, claims: Sequence[Claim], seq: int, item: CompanyItem | None = None
 ) -> list[dict[str, str]]:
+    """seq번 질문 하나를 다시 생성하는 메시지를 반환한다.
+
+    item은 이전 질문에 연결한 회사 항목이고, 다시 생성한 질문도 그 항목과 연결한다.
+    회사 정보와 연결할 질문은 질문 5개를 생성할 때 이미 정했고, 회사 항목을 전달하면
+    연결하지 않은 질문에 회사 정보가 포함될 수 있으므로 회사 항목을 전달하지 않는다.
+    """
+    link = f"회사 항목 {item.id}와 연결해 질문한다." if item else "회사 정보와 연결하지 않는다."
     user = (
         f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
-        f"{_company(company_candidates(job, claims))}[주장]\n"
+        f"{_company([item] if item else [])}[주장]\n"
         f"{claims_text(claims)}{_asked(job)}\n\n"
-        f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다."
+        f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다. {link}"
     )
     return [
         {"role": "system", "content": regenerate_system(job.persona)},
@@ -266,13 +275,16 @@ def build_regenerate_messages(
     ]
 
 
-def request_question(chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int) -> Question:
+def request_question(
+    chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int, item: CompanyItem | None = None
+) -> Question:
     """GMS를 한 번 호출해 seq번 질문 하나를 다시 생성한다.
 
-    seq는 다시 생성하는 질문의 자리이므로 GMS 출력과 관계없이 요청한 seq를 사용한다.
+    seq는 다시 생성하는 질문의 자리이고 item은 연결할 회사 항목이므로
+    GMS 출력과 관계없이 요청한 값을 사용한다.
     """
-    result = chat(build_regenerate_messages(job, claims, seq))
-    item = result.content.get("question")
-    if not isinstance(item, dict):
+    result = chat(build_regenerate_messages(job, claims, seq, item))
+    question = result.content.get("question")
+    if not isinstance(question, dict):
         raise PlanOutputError("question이 객체가 아니다")
-    return parse_question({**item, "seq": seq})
+    return parse_question({**question, "seq": seq, "companyItem": item.id if item else None})

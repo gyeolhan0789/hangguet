@@ -8,7 +8,9 @@
   전달하지 않은 주장을 가리킨 질문도 같은 방식으로 다시 생성한다(AI 명세 2장 면접관별 주장 선택).
 - 회사 정보와 연결한 질문 수나 항목 번호가 어긋나거나 인재상 항목을 연결 후보가 아닌 주장과 연결하면
   질문 5개를 1회 다시 요청한다.
-  다시 요청해도 어긋나면 플랜 생성이 실패하지 않도록 그대로 사용한다.
+  다시 요청해도 어긋나면 플랜 생성이 실패하지 않도록 그대로 사용하고,
+  후보에 없는 회사 항목 번호만 연결하지 않은 것으로 처리한다.
+- 회사 항목과 연결한 질문을 다시 생성하면 같은 회사 항목과 연결한다.
 - 재시도해도 실패하면 PlanFailedError를 발생시킨다.
   GMS를 호출하지 못한 경우는 GMS 호출 계층이 이미 재시도했으므로
   GmsUnavailableError를 그대로 전파한다.
@@ -16,9 +18,11 @@
 
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 
 from app.common.gms import STRUCTURE_RETRIES, Chat, GmsBadOutputError
 from app.common.session import Persona
+from app.interview.company import CompanyItem
 from app.interview.plan.claims import ClaimSet, ClaimSource, request_claims, split_sentences
 from app.interview.plan.grounding import ground_claims
 from app.interview.plan.llm import PlanFailedError, PlanOutputError
@@ -59,17 +63,23 @@ def _question_set(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Question
             # 마지막 시도는 검사하지 않는다
             if attempt < STRUCTURE_RETRIES:
                 check_company_links(questions, items)
-            return QuestionSet(questions, result.model)
+            return QuestionSet(questions, result.model, tuple(items))
         except (GmsBadOutputError, PlanOutputError) as e:
             log.warning("질문 생성 출력 구조 깨짐 %d회: %s", attempt + 1, e)
     raise PlanFailedError("질문 생성 출력 구조가 재시도 후에도 깨져 있다")
 
 
-def _regenerate(chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int) -> Question:
+def _regenerate(
+    chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int, item: CompanyItem | None
+) -> Question:
+    # 다시 생성한 질문은 인재상 항목과 주장의 짝을 검사하지 않으므로
+    # 인재상 항목과 연결한 질문은 그 항목과 연결할 수 있는 주장으로만 다시 생성한다
+    if item is not None and item.claim_ids is not None:
+        claims = [c for c in claims if c.id in item.claim_ids]
     claim_ids = {c.id for c in claims}
     for attempt in range(CLAIM_ID_REGENERATIONS):
         try:
-            question = request_question(chat, job, claims, seq)
+            question = request_question(chat, job, claims, seq, item)
         except (GmsBadOutputError, PlanOutputError) as e:
             log.warning("질문 다시 생성 출력 구조 깨짐 seq=%d %d회: %s", seq, attempt + 1, e)
             continue
@@ -99,8 +109,16 @@ def generate_questions(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Que
     usable = select_claims(claims, job.persona)
     result = _question_set(chat, job, usable)
     claim_ids = {c.id for c in usable}
-    questions = tuple(
-        q if q.claim_id in claim_ids else _regenerate(chat, job, usable, q.seq)
-        for q in result.questions
-    )
-    return QuestionSet(questions, result.model)
+    by_id = {item.id: item for item in result.company_items}
+    questions = []
+    for q in result.questions:
+        item = by_id.get(q.company_item) if q.company_item else None
+        # 연결 검사를 하지 않는 마지막 시도만 후보에 없는 번호가 남는다.
+        # 가리키는 회사 항목이 없으므로 연결하지 않은 질문으로 사용한다
+        if q.company_item and item is None:
+            log.warning("질문의 회사 항목 번호가 후보에 없어 연결하지 않는다 seq=%d", q.seq)
+            q = replace(q, company_item=None)
+        questions.append(
+            q if q.claim_id in claim_ids else _regenerate(chat, job, usable, q.seq, item)
+        )
+    return QuestionSet(tuple(questions), result.model, result.company_items)

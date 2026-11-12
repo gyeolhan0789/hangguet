@@ -33,7 +33,10 @@ class CompanyItem:
     title: str
     text: str
     # 이 항목과 연결할 수 있는 주장 id. None이면 질문 생성에 전달한 주장 모두와 연결할 수 있다
-    claim_ids: tuple[str, ...] | None = None
+    claim_ids: tuple[str, ...] | None
+    # 항목이 있는 카드 칸 이름(talent·direction·market·recent)과 카드 항목 그대로의 값
+    section: str
+    entry: Mapping[str, Any]
 
     @property
     def line(self) -> str:
@@ -43,9 +46,17 @@ class CompanyItem:
             return f"{self.id} {self.text}"
         return f"{self.id} {self.text} (연결 가능한 주장: {', '.join(self.claim_ids)})"
 
+    def json(self) -> dict[str, Any]:
+        """플랜의 질문별 연결 회사 항목 형식이다(AI 명세 2장 companyItem).
 
-# 번호를 매기기 전의 후보: (프롬프트 글, 연결할 수 있는 주장 id)
-Candidate = tuple[str, tuple[str, ...] | None]
+        BE가 최신 회사 카드의 항목과 칸을 비교해 보관함 질문을 폐기하므로
+        카드 항목의 칸을 이름과 값 그대로 담는다.
+        """
+        return {"section": self.section, **self.entry}
+
+
+# 번호를 매기기 전의 후보: (프롬프트 글, 연결할 수 있는 주장 id, 카드 칸 이름, 카드 항목)
+Candidate = tuple[str, tuple[str, ...] | None, str, Mapping[str, Any]]
 
 
 def _texts(value: Any) -> list[str]:
@@ -86,7 +97,7 @@ def _talent_candidates(card: Mapping[str, Any], claims: Sequence[Claim]) -> list
         criterion = entry.get("criterion")
         claim_ids = tuple(c.id for c in claims if criterion in c.talent_criteria)
         if text is not None and claim_ids:
-            candidates.append((text, claim_ids))
+            candidates.append((text, claim_ids, "talent", entry))
     return candidates
 
 
@@ -123,7 +134,7 @@ def _business_candidates(
         for entry in _entries(card, key):
             summary = _matching_summary(entry, subcategories)
             if summary is not None:
-                candidates.append((_with_quote(f"{label}: {summary}", entry), None))
+                candidates.append((_with_quote(f"{label}: {summary}", entry), None, key, entry))
     return candidates
 
 
@@ -141,7 +152,7 @@ def _recent_candidates(card: Mapping[str, Any], subcategories: Collection[str]) 
             continue
         published = _texts(entry.get("published"))
         text = f"{published[0]}: {summary}" if published else summary
-        candidates.append((_with_quote(text, entry), None))
+        candidates.append((_with_quote(text, entry), None, "recent", entry))
     return candidates
 
 
@@ -185,8 +196,8 @@ def company_items(
         # 모델이 항목 이름에 프롬프트 줄의 상위 범주·머리말까지 덧붙여 작성해 이름이 어긋나므로
         # 주장 id처럼 번호로 가리키게 한다(plan-v4 GMS 실측).
         # 구역이 여러 개여도 번호가 겹치지 않도록 이어서 매긴다
-        for text, claim_ids in _candidates(title, card, claims, subcategories):
-            items.append(CompanyItem(f"co{len(items) + 1}", title, text, claim_ids))
+        for text, claim_ids, section, entry in _candidates(title, card, claims, subcategories):
+            items.append(CompanyItem(f"co{len(items) + 1}", title, text, claim_ids, section, entry))
     return items
 
 

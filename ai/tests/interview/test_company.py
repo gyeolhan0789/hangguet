@@ -67,15 +67,29 @@ def test_devil_uses_talent_and_recent_issues() -> None:
     인재상 항목은 분류값이 주장의 인재상 기준에 있을 때만 후보이고, 그 주장과만 연결한다.
     """
     assert items(CARD, Persona.DEVIL) == [
-        CompanyItem("co1", "회사 인재상", "해결: 스스로 문제를 정의하고 해결한다", ("c1", "c3")),
         CompanyItem(
-            "co2", "회사 인재상", "고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게", ("c2",)
+            "co1",
+            "회사 인재상",
+            "해결: 스스로 문제를 정의하고 해결한다",
+            ("c1", "c3"),
+            "talent",
+            CARD["talent"][0],
+        ),
+        CompanyItem(
+            "co2",
+            "회사 인재상",
+            "고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게",
+            ("c2",),
+            "talent",
+            CARD["talent"][1],
         ),
         CompanyItem(
             "co3",
             "회사 최근 이슈",
             "2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)",
             None,
+            "recent",
+            CARD["recent"][0],
         ),
     ]
 
@@ -128,18 +142,24 @@ def test_coffee_chat_business_and_recent_items_need_job_subcategory() -> None:
             "회사 사업 방향·시장",
             "사업 방향: 해외 결제 확대 (원문: 해외 결제 서비스를 확대할 계획이다)",
             None,
+            "direction",
+            CARD["direction"][0],
         ),
         CompanyItem(
             "co2",
             "회사 사업 방향·시장",
             "시장: 간편결제 점유율 1위 (원문: 간편결제 시장 점유율 1위를 유지하고 있다)",
             None,
+            "market",
+            CARD["market"][0],
         ),
         CompanyItem(
             "co3",
             "회사 최근 이슈",
             "2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)",
             None,
+            "recent",
+            CARD["recent"][0],
         ),
     ]
     assert [item.text for item in items(CARD, Persona.COFFEE_CHAT, ("DB엔지니어링",))] == [
@@ -231,3 +251,14 @@ def test_business_and_recent_items_without_quote_keep_summary_only() -> None:
 def test_no_items_and_section_without_usable_entries(card: Any, persona: Persona) -> None:
     assert items(card, persona) == []
     assert company_section(items(card, persona)) == ""
+
+
+def test_item_json_is_card_section_and_entry() -> None:
+    """플랜에 저장하는 연결 회사 항목은 카드 칸 이름과 카드 항목의 칸 그대로다(AI 명세 2장)."""
+    assert [item.json() for item in items(CARD, Persona.DUCK)] == [
+        {"section": "talent", **CARD["talent"][0]},
+        {"section": "talent", **CARD["talent"][1]},
+        {"section": "direction", **CARD["direction"][0]},
+        {"section": "market", **CARD["market"][0]},
+        {"section": "recent", **CARD["recent"][0]},
+    ]

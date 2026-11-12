@@ -47,6 +47,7 @@ from app.common.results import (
     ResultType,
 )
 from app.common.versions import REGISTRY, VersionKind
+from app.interview.company import CompanyItem
 from app.interview.plan.generate import extract_claims, generate_questions
 from app.interview.plan.llm import PlanFailedError
 from app.interview.plan.questions import Question
@@ -78,13 +79,15 @@ def claim_json(claim: Claim) -> dict[str, Any]:
     }
 
 
-def question_json(question: Question) -> dict[str, Any]:
-    """AI 명세 2장 questions 항목 형식이다."""
+def question_json(question: Question, items: Mapping[str, CompanyItem]) -> dict[str, Any]:
+    """AI 명세 2장 questions 항목 형식이다. items는 회사 항목 번호별 회사 항목이다."""
+    item = items[question.company_item] if question.company_item else None
     return {
         "seq": question.seq,
         "content": question.content,
         "criteria": question.criteria,
         "claimId": question.claim_id,
+        "companyItem": item.json() if item else None,
     }
 
 
@@ -128,7 +131,10 @@ class PlanJobHandler:
             ResultType.PLAN_COMPLETED,
             {
                 "claims": [claim_json(c) for c in claims],
-                "questions": [question_json(q) for q in questions.questions],
+                "questions": [
+                    question_json(q, {item.id: item for item in questions.company_items})
+                    for q in questions.questions
+                ],
                 "promptVersion": PROMPT_VERSION,
                 # 채점 기준을 생성한 질문 생성 단계 응답의 모델 이름을 기록한다
                 "modelVersion": questions.model,

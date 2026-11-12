@@ -9,6 +9,7 @@ from app.interview.plan.questions import (
     Question,
     build_question_messages,
     build_regenerate_messages,
+    company_candidates,
     parse_questions,
     request_questions,
 )
@@ -273,7 +274,9 @@ BACKEND_UNITS = "\n\n[직무 능력단위]\n요구사항 확인, 데이터 입�
 
 @pytest.mark.parametrize("persona", list(Persona))
 def test_company_card_is_sent_for_interviewer(persona: Persona) -> None:
-    """처음 생성과 질문 하나를 다시 생성할 때 모두 면접관이 사용할 회사 정보를 전송한다."""
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 면접관의 회사 정보 지침을 전송하고,
+    처음 생성에는 면접관이 사용할 회사 항목을 전송한다.
+    """
     job = replace(JOB, persona=persona, company_card=CARD)
 
     for messages in (
@@ -283,7 +286,37 @@ def test_company_card_is_sent_for_interviewer(persona: Persona) -> None:
         assert COMPANY_RULES[persona] in messages[0]["content"]
         assert RECENT_RULES[persona] in messages[0]["content"]
         assert NO_INVENTED_COMPANY in messages[0]["content"]
-        assert COMPANY_SECTIONS[persona] in messages[1]["content"]
+    assert (
+        COMPANY_SECTIONS[persona] in build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+    )
+
+
+def test_regenerating_unlinked_question_sends_no_company_items() -> None:
+    """회사 정보와 연결하지 않은 질문을 다시 생성할 때는 회사 항목을 전송하지 않는다."""
+    job = replace(JOB, persona=Persona.DUCK, company_card=CARD)
+
+    user = build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3)[1]["content"]
+
+    assert "[회사" not in user
+    assert user.endswith(
+        "3번 질문. 이전 질문의 claimId가 주장 목록에 없었다. 회사 정보와 연결하지 않는다."
+    )
+
+
+def test_regenerating_linked_question_sends_only_that_company_item() -> None:
+    """회사 항목과 연결한 질문을 다시 생성할 때는 그 항목만 전송하고 그 항목과 연결하게 한다."""
+    job = replace(JOB, persona=Persona.DUCK, company_card=CARD)
+    item = company_candidates(job, CLASSIFIED_CLAIMS)[1]
+
+    user = build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3, item)[1]["content"]
+
+    assert user.startswith(
+        f"회사: {JOB.company_name}\n직무: {JOB.job_title}\n\n"
+        "[회사 사업 방향·시장]\nco2 사업 방향: 해외 결제 확대\n\n[주장]\n"
+    )
+    assert user.endswith(
+        "3번 질문. 이전 질문의 claimId가 주장 목록에 없었다. 회사 항목 co2와 연결해 질문한다."
+    )
 
 
 @pytest.mark.parametrize("persona", list(Persona))
