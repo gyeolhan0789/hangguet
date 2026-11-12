@@ -5,7 +5,8 @@ BE는 작업 종류에 맞는 큐에 LPUSH하고,
 옮기는 동작이 원자적이므로 작업자가 처리 도중 중단돼도 작업은 처리 중 리스트에 남는다.
 - 처리했거나 형식이 틀린 작업은 처리 중 리스트에서 삭제한다.
   형식 오류는 다시 수신해도 처리할 수 없기 때문이다.
-  공통 필드(jobType·jobId·sessionId)를 읽을 수 있고 실패 결과가 있는 작업이면
+  공통 필드(jobType·jobId·sessionId, 주장 추출은 applicationId)를 읽을 수 있고
+  실패 결과가 있는 작업이면
   실패 결과(INVALID_JOB)를 먼저 전송해,
   화면이 BE 최대 대기 시간까지 기다리지 않게 한다(AI 명세 1.3).
   이 전송이 실패하면 작업을 남겨 다시 시작할 때 전송한다.
@@ -171,12 +172,13 @@ class RedisJobQueue:
         failed = FAILED_RESULT_OF_JOB.get(header.job_type)
         if failed is None:
             return
-        self._results.publish(
-            failed,
-            header.session_id,
-            {REASON: FailureReason.INVALID_JOB.value},
-            job_id=header.job_id,
-        )
+        fields = {REASON: FailureReason.INVALID_JOB.value}
+        if header.application_id is not None:
+            self._results.publish_application_result(
+                failed, header.application_id, fields, job_id=header.job_id
+            )
+        elif header.session_id is not None:
+            self._results.publish(failed, header.session_id, fields, job_id=header.job_id)
 
     def _remove(self, raw: str) -> None:
         # 같은 원문이 여러 건이어도(Outbox 재발행) 이번에 수신한 1건만 삭제한다

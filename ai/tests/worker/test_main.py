@@ -21,7 +21,7 @@ from app.common.settings import SettingsError, load_settings
 from app.worker import main as main_module
 from app.worker.dispatch import DispatchResult
 from app.worker.main import Worker, build_dispatcher, install_signal_handlers
-from app.worker.messages import MergeRecordingJob, PlanJob
+from app.worker.messages import ExtractClaimsJob, MergeRecordingJob, PlanJob
 from app.worker.queue import ReceiveResult, RedisJobQueue, WorkerQueue
 from tests.interview.result.test_job import JOB as EVALUATE_JOB
 from tests.interview.scoring.test_job import JOB as SCORE_JOB
@@ -220,6 +220,28 @@ def test_dispatcher_handles_plan_after_checking_gms_settings() -> None:
 
     assert dispatcher.dispatch(PLAN) is DispatchResult.HANDLED
     assert [json.loads(raw)["type"] for raw in redis.pushed] == ["plan.failed"]
+
+
+def test_dispatcher_handles_extract_claims_after_checking_gms_settings() -> None:
+    """주장 추출 처리 함수가 등록돼 있다.
+
+    LLM_* 값이 없으면 첫 GMS 호출에서 지원서 앞으로 실패 결과를 전송한다.
+    """
+    job = ExtractClaimsJob(
+        job_id="8f0c2b9e-3f7a-4c1d-9a8e-2b5d7c0e1f34",
+        application_id=7,
+        requested_at=datetime.now(UTC),
+        company_name="회사",
+        job_title="직무",
+        cover_letter_items=(CoverLetterItem("지원 동기", "자소서"),),
+    )
+    redis = RecordingRedis()
+    dispatcher = build_dispatcher(load_settings({}), ResultPublisher(cast(Redis, redis)))
+
+    assert dispatcher.dispatch(job) is DispatchResult.HANDLED
+    [message] = [json.loads(raw) for raw in redis.pushed]
+    assert message["type"] == "claims.extractFailed"
+    assert message["applicationId"] == 7
 
 
 def test_dispatcher_handles_merge_recording_without_s3_settings() -> None:

@@ -2,6 +2,8 @@
 
 AI는 DB를 읽지 않으므로 BE가 작업에 필요한 내용을 메시지에 담아 전송한다.
 작업별 필드는 AI 명세 2장(PLAN)·3장(SCORE_ANSWER)·4장(EVALUATE)·7장(MERGE_RECORDING)을 따른다.
+- 주장 추출(EXTRACT_CLAIMS, AI 명세 2장)은 면접이 아니라 지원서 단위 작업이므로
+  sessionId 대신 applicationId를 담는다(AI 명세 1.3).
 - 형식이 틀린 메시지는 다시 수신해도 처리할 수 없으므로 InvalidJobError를 발생시킨다.
   큐 수신부는 job_header로 공통 필드를 읽을 수 있으면
   실패 결과(INVALID_JOB)를 전송하고 폐기한다(AI 명세 1.3).
@@ -40,6 +42,7 @@ log = logging.getLogger(__name__)
 
 class JobType(StrEnum):
     PLAN = "PLAN"
+    EXTRACT_CLAIMS = "EXTRACT_CLAIMS"
     SCORE_ANSWER = "SCORE_ANSWER"
     EVALUATE = "EVALUATE"
     MERGE_RECORDING = "MERGE_RECORDING"
@@ -85,14 +88,47 @@ class EvaluateAnswer:
 
 
 @dataclass(frozen=True, kw_only=True)
-class Job:
+class BaseJob:
+    """모든 작업의 공통 필드. 작업 대상(면접 또는 지원서)의 id는 하위 클래스가 정한다."""
+
     job_type: ClassVar[JobType]
     # 추적용이라 로그에 BE Outbox의 id와 같은 문자열로 남도록 수신한 값을 그대로 둔다
     job_id: str
-    session_id: int
     # BE가 작업을 요청한 시각.
     # BE 최대 대기 시간의 시작이므로 AI도 이 시각부터 마감을 계산한다(AI 명세 1.3)
     requested_at: datetime
+
+    @property
+    def target(self) -> str:
+        """로그에 남길 작업 대상(sessionId=55 등)."""
+        raise NotImplementedError
+
+
+@dataclass(frozen=True, kw_only=True)
+class Job(BaseJob):
+    """면접 단위 작업."""
+
+    session_id: int
+
+    @property
+    def target(self) -> str:
+        return f"sessionId={self.session_id}"
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExtractClaimsJob(BaseJob):
+    """지원서 주장 추출 작업(AI 명세 2장 STEP 01)."""
+
+    job_type: ClassVar[JobType] = JobType.EXTRACT_CLAIMS
+    application_id: int
+    company_name: str
+    job_title: str
+    # 자기소개서 문항(1~5개). 문항 순서대로다
+    cover_letter_items: tuple[CoverLetterItem, ...]
+
+    @property
+    def target(self) -> str:
+        return f"applicationId={self.application_id}"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -456,11 +492,15 @@ def _job_id(data: Mapping[str, Any]) -> str:
 
 @dataclass(frozen=True)
 class JobHeader:
-    """모든 작업에 있는 공통 필드(AI 명세 1.3)."""
+    """모든 작업에 있는 공통 필드(AI 명세 1.3).
+
+    주장 추출 작업은 session_id 대신 application_id가 있고, 그 밖의 작업은 session_id만 있다.
+    """
 
     job_type: JobType
     job_id: str
-    session_id: int
+    session_id: int | None = None
+    application_id: int | None = None
 
 
 def _load(raw: str | bytes | Mapping[str, Any]) -> Mapping[str, Any]:
@@ -484,7 +524,10 @@ def _header(data: Mapping[str, Any]) -> JobHeader:
         job_type = JobType(str(data.get("jobType")))
     except ValueError as e:
         raise InvalidJobError("jobType을 알 수 없다") from e
-    return JobHeader(job_type, _job_id(data), _positive_id(data, "sessionId"))
+    job_id = _job_id(data)
+    if job_type is JobType.EXTRACT_CLAIMS:
+        return JobHeader(job_type, job_id, application_id=_positive_id(data, "applicationId"))
+    return JobHeader(job_type, job_id, session_id=_positive_id(data, "sessionId"))
 
 
 def job_header(raw: str | bytes | Mapping[str, Any]) -> JobHeader | None:
@@ -499,11 +542,21 @@ def job_header(raw: str | bytes | Mapping[str, Any]) -> JobHeader | None:
         return None
 
 
-def parse_job(raw: str | bytes | Mapping[str, Any]) -> Job:
+def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
     data = _load(raw)
     header = _header(data)
-    job_type, job_id, session_id = header.job_type, header.job_id, header.session_id
+    job_type, job_id = header.job_type, header.job_id
     requested_at = _timestamp(data, "requestedAt")
+    if job_type is JobType.EXTRACT_CLAIMS:
+        return ExtractClaimsJob(
+            job_id=job_id,
+            application_id=_positive_id(data, "applicationId"),
+            requested_at=requested_at,
+            company_name=_text(data, "companyName"),
+            job_title=_text(data, "jobTitle"),
+            cover_letter_items=_cover_letter_items(data),
+        )
+    session_id = _positive_id(data, "sessionId")
     match job_type:
         case JobType.PLAN:
             return PlanJob(

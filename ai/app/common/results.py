@@ -5,6 +5,7 @@
 AI는 DB와 진행 상태 Hash(session:{sessionId}:runtime)에 쓰지 않는다.
 BE가 결과 큐에서 메시지를 꺼내 검증한 뒤 저장하므로, BE가 저장할 내용을 결과 메시지 하나에 담는다.
 - 공통 필드는 type·sessionId·occurredAt이고, 작업 결과에는 수신한 작업의 jobId를 담는다.
+  지원서 단위 작업인 주장 추출의 결과는 sessionId 대신 applicationId를 담는다(AI 명세 1.3).
   BE는 jobId로 재생성 이전 시도의 늦은 결과를 구분한다(AI 명세 1.4).
 - LPUSH가 실패하면 짧은 간격으로 재시도한다.
   응답만 유실돼 같은 메시지가 두 번 추가돼도
@@ -34,9 +35,10 @@ KST = timezone(timedelta(hours=9))
 
 TYPE = "type"
 SESSION_ID = "sessionId"
+APPLICATION_ID = "applicationId"
 JOB_ID = "jobId"
 OCCURRED_AT = "occurredAt"
-_COMMON_FIELDS = frozenset({TYPE, SESSION_ID, JOB_ID, OCCURRED_AT})
+_COMMON_FIELDS = frozenset({TYPE, SESSION_ID, APPLICATION_ID, JOB_ID, OCCURRED_AT})
 
 
 class ResultType(StrEnum):
@@ -45,6 +47,8 @@ class ResultType(StrEnum):
     PLAN_PROGRESS = "plan.progress"
     PLAN_COMPLETED = "plan.completed"
     PLAN_FAILED = "plan.failed"
+    CLAIMS_EXTRACTED = "claims.extracted"
+    CLAIMS_EXTRACT_FAILED = "claims.extractFailed"
     ANSWER_SCORED = "answer.scored"
     EVALUATION_PROGRESS = "evaluation.progress"
     EVALUATION_COMPLETED = "evaluation.completed"
@@ -65,6 +69,10 @@ AGENT_RESULT_TYPES = frozenset(
         ResultType.ASSIGNMENT_REJECTED,
         ResultType.ROOM_CLOSED,
     }
+)
+# 지원서 단위 작업의 결과라 sessionId 대신 applicationId를 담는 종류다(AI 명세 1.3)
+APPLICATION_RESULT_TYPES = frozenset(
+    {ResultType.CLAIMS_EXTRACTED, ResultType.CLAIMS_EXTRACT_FAILED}
 )
 
 REASON = "reason"
@@ -94,6 +102,7 @@ _REASON_VALUES = frozenset(reason.value for reason in FailureReason)
 FAILED_RESULT_TYPES = frozenset(
     {
         ResultType.PLAN_FAILED,
+        ResultType.CLAIMS_EXTRACT_FAILED,
         ResultType.EVALUATION_FAILED,
         ResultType.RECORDING_MERGE_FAILED,
         ResultType.ASSIGNMENT_REJECTED,
@@ -157,7 +166,31 @@ class ResultPublisher:
         분석 작업자의 처리 함수는 이 오류를 처리하지 않고 전파해,
         작업이 처리 중 리스트에 남아 작업자를 다시 시작할 때 한 번 더 처리되게 한다.
         """
-        raw = self._encode(ResultType(result_type), session_id, fields, job_id)
+        self._publish(ResultType(result_type), SESSION_ID, session_id, fields, job_id)
+
+    def publish_application_result(
+        self,
+        result_type: ResultType,
+        application_id: int,
+        fields: Mapping[str, Any],
+        *,
+        job_id: str,
+    ) -> None:
+        """지원서 단위 작업(주장 추출)의 결과를 sessionId 대신 applicationId로 전송한다.
+
+        실패 처리는 publish와 같다.
+        """
+        self._publish(ResultType(result_type), APPLICATION_ID, application_id, fields, job_id)
+
+    def _publish(
+        self,
+        result_type: ResultType,
+        target_key: str,
+        target_id: int,
+        fields: Mapping[str, Any],
+        job_id: str | None,
+    ) -> None:
+        raw = self._encode(result_type, target_key, target_id, fields, job_id)
         for attempt in range(len(BACKOFF_SECONDS) + 1):
             try:
                 self._client.lpush(RESULT_QUEUE_KEY, raw)
@@ -168,11 +201,12 @@ class ResultPublisher:
                         f"결과 메시지 전송 {attempt + 1}회 실패 type={result_type}"
                     ) from e
                 log.warning(
-                    "결과 메시지 전송 재시도 %d/%d type=%s sessionId=%s (%s)",
+                    "결과 메시지 전송 재시도 %d/%d type=%s %s=%s (%s)",
                     attempt + 1,
                     len(BACKOFF_SECONDS),
                     result_type,
-                    session_id,
+                    target_key,
+                    target_id,
                     type(e).__name__,
                 )
                 self._sleep(BACKOFF_SECONDS[attempt])
@@ -180,11 +214,15 @@ class ResultPublisher:
     def _encode(
         self,
         result_type: ResultType,
-        session_id: int,
+        target_key: str,
+        target_id: int,
         fields: Mapping[str, Any],
         job_id: str | None,
     ) -> str:
         # BE가 처리하지 못하는 메시지는 결과 큐에 추가하기 전에 프로그램 오류로 처리한다
+        expected_key = APPLICATION_ID if result_type in APPLICATION_RESULT_TYPES else SESSION_ID
+        if target_key != expected_key:
+            raise ValueError(f"{result_type}는 {expected_key}를 담는다")
         if (job_id is None) != (result_type in AGENT_RESULT_TYPES):
             raise ValueError(f"{result_type}의 jobId는 작업 결과에만 담는다")
         if overlap := _COMMON_FIELDS & fields.keys():
@@ -194,7 +232,7 @@ class ResultPublisher:
             isinstance(reason, str) and reason in _REASON_VALUES
         ):
             raise ValueError(f"{result_type}의 reason은 FailureReason 값이어야 한다")
-        message: dict[str, Any] = {TYPE: result_type.value, SESSION_ID: session_id}
+        message: dict[str, Any] = {TYPE: result_type.value, target_key: target_id}
         if job_id is not None:
             message[JOB_ID] = job_id
         message.update(fields)

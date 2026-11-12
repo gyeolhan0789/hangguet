@@ -63,6 +63,7 @@ REGISTRY = VersionRegistry(
     prompts=frozenset(
         {
             "plan-v5",
+            "extract-claims-v1",
             "score-answer-v1",
             "score-answer-v2",
             "evaluate-feedback-v1",

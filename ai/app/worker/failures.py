@@ -10,6 +10,7 @@ from app.worker.messages import JobType
 # SCORE_ANSWER는 실패 결과 없이 결과 생성이 다시 채점한다(AI 명세 5장)
 FAILED_RESULT_OF_JOB: dict[JobType, ResultType] = {
     JobType.PLAN: ResultType.PLAN_FAILED,
+    JobType.EXTRACT_CLAIMS: ResultType.CLAIMS_EXTRACT_FAILED,
     JobType.EVALUATE: ResultType.EVALUATION_FAILED,
     JobType.MERGE_RECORDING: ResultType.RECORDING_MERGE_FAILED,
 }

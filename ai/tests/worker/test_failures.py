@@ -7,6 +7,7 @@ def test_score_answer_has_no_failed_result() -> None:
     """SCORE_ANSWER는 결과 생성이 다시 채점하므로(AI 명세 5장) 실패 결과 종류가 없다."""
     assert FAILED_RESULT_OF_JOB == {
         JobType.PLAN: ResultType.PLAN_FAILED,
+        JobType.EXTRACT_CLAIMS: ResultType.CLAIMS_EXTRACT_FAILED,
         JobType.EVALUATE: ResultType.EVALUATION_FAILED,
         JobType.MERGE_RECORDING: ResultType.RECORDING_MERGE_FAILED,
     }

@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from app.common.gms import STRUCTURE_RETRIES, Chat, GmsBadOutputError
 from app.common.session import Persona
 from app.interview.company import company_items
-from app.interview.plan.claims import ClaimSet, request_claims, split_sentences
+from app.interview.plan.claims import ClaimSet, ClaimSource, request_claims, split_sentences
 from app.interview.plan.grounding import ground_claims
 from app.interview.plan.llm import PlanFailedError, PlanOutputError
 from app.interview.plan.questions import (
@@ -37,7 +37,7 @@ from app.worker.messages import Claim, PlanJob
 log = logging.getLogger(__name__)
 
 
-def extract_claims(chat: Chat, job: PlanJob) -> ClaimSet:
+def extract_claims(chat: Chat, job: ClaimSource) -> ClaimSet:
     sentences = split_sentences(job.cover_letter_items)
     for attempt in range(STRUCTURE_RETRIES + 1):
         try:

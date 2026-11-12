@@ -9,13 +9,13 @@ GMS가 문장 번호를 계산하지 않고 근거 문장의 번호만 반환한
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from app.common.cover_letter import CoverLetterItem
 from app.common.gms import Chat
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.rules import MAX_CLAIMS, MIN_CLAIMS, SENTENCE_BREAK
-from app.worker.messages import Claim, ClaimType, PlanJob
+from app.worker.messages import Claim, ClaimType
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +29,22 @@ SYSTEM = (
     'JSON으로만 답한다: {"claims": [{"text": str, "type": "EXPERIENCE" | "NUMBER", '
     '"sentenceNo": int}]}'
 )
+
+
+class ClaimSource(Protocol):
+    """주장을 추출할 지원서 내용이다.
+
+    그룹 면접의 질문 생성(PlanJob)과 지원서 주장 추출(ExtractClaimsJob)이 같은 필드로 전달한다.
+    """
+
+    @property
+    def company_name(self) -> str: ...
+
+    @property
+    def job_title(self) -> str: ...
+
+    @property
+    def cover_letter_items(self) -> Sequence[CoverLetterItem]: ...
 
 
 @dataclass(frozen=True)
@@ -54,7 +70,7 @@ def split_sentences(items: Sequence[CoverLetterItem]) -> list[str]:
     return [s for item in items for text in (item.question, item.answer) for s in _sentences(text)]
 
 
-def build_claim_messages(job: PlanJob, sentences: Sequence[str]) -> list[dict[str, str]]:
+def build_claim_messages(job: ClaimSource, sentences: Sequence[str]) -> list[dict[str, str]]:
     numbered = "\n".join(f"[{no}] {sentence}" for no, sentence in enumerate(sentences, start=1))
     user = f"회사: {job.company_name}\n직무: {job.job_title}\n\n[자기소개서 문장]\n{numbered}"
     return [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}]
@@ -95,7 +111,7 @@ def parse_claims(content: dict[str, Any], sentences: Sequence[str]) -> tuple[Cla
     return tuple(claims)
 
 
-def request_claims(chat: Chat, job: PlanJob) -> ClaimSet:
+def request_claims(chat: Chat, job: ClaimSource) -> ClaimSet:
     """GMS를 한 번 호출해 주장을 추출한다.
 
     출력 구조가 틀렸을 때의 재시도는 호출 측이 담당한다.

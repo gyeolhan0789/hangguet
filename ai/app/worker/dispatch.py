@@ -17,7 +17,7 @@ from enum import StrEnum
 from typing import Any
 
 from app.common.timing import elapsed_ms
-from app.worker.messages import Job, JobType
+from app.worker.messages import BaseJob, JobType
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class Dispatcher:
         self._now = now
         self._timer = timer
 
-    def register[J: Job](self, job_class: type[J], handler: Callable[[J], None]) -> None:
+    def register[J: BaseJob](self, job_class: type[J], handler: Callable[[J], None]) -> None:
         """작업 클래스(PlanJob 등)의 처리 함수를 등록한다.
 
         작업 클래스로 등록하므로 처리 함수는 그 작업의 필드를 형식 검사된 상태로 사용한다.
@@ -55,7 +55,7 @@ class Dispatcher:
             raise DuplicateHandlerError(f"{job_type} 처리 함수가 이미 등록돼 있다")
         self._handlers[job_type] = handler
 
-    def dispatch(self, job: Job) -> DispatchResult:
+    def dispatch(self, job: BaseJob) -> DispatchResult:
         handler = self._handlers.get(job.job_type)
         if handler is None:
             log.warning("처리 함수 없음 jobType=%s jobId=%s", job.job_type, job.job_id)
@@ -63,10 +63,10 @@ class Dispatcher:
         # BE 대기 상한은 요청 시각부터 계산하므로(AI 명세 1.3) 큐에서 기다린 시간을 함께 남긴다
         wait_ms = round((self._now() - job.requested_at).total_seconds() * 1000)
         log.info(
-            "작업 시작 jobType=%s jobId=%s sessionId=%s waitMs=%d",
+            "작업 시작 jobType=%s jobId=%s %s waitMs=%d",
             job.job_type,
             job.job_id,
-            job.session_id,
+            job.target,
             wait_ms,
         )
         started = self._timer()
@@ -80,17 +80,17 @@ class Dispatcher:
         )
         return result
 
-    def _run(self, handler: Callable[[Any], None], job: Job) -> DispatchResult:
+    def _run(self, handler: Callable[[Any], None], job: BaseJob) -> DispatchResult:
         try:
             handler(job)
         except Exception:
             # 재시도는 GMS 호출과 결과 전송 계층이 담당하므로(AI 명세 5장)
             # 여기서는 기록만 하고 다음 작업을 처리한다
             log.exception(
-                "작업 처리 실패 jobType=%s jobId=%s sessionId=%s",
+                "작업 처리 실패 jobType=%s jobId=%s %s",
                 job.job_type,
                 job.job_id,
-                job.session_id,
+                job.target,
             )
             return DispatchResult.FAILED
         return DispatchResult.HANDLED

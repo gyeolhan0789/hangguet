@@ -20,6 +20,7 @@ from app.worker.messages import (
     ClaimType,
     EvaluateAnswer,
     EvaluateJob,
+    ExtractClaimsJob,
     InvalidJobError,
     JobHeader,
     JobType,
@@ -45,6 +46,22 @@ def plan(**overrides: Any) -> dict[str, Any]:
         "jobType": "PLAN",
         "jobId": JOB_ID,
         "sessionId": 55,
+        "requestedAt": "2026-10-22T14:03:13+09:00",
+        "companyName": "한끗전자",
+        "jobTitle": "백엔드 개발",
+        "coverLetterItems": [
+            {"question": "지원 동기", "answer": "조회 응답 시간을 40% 줄였습니다."}
+        ],
+    }
+    return _apply(data, overrides)
+
+
+def extract(**overrides: Any) -> dict[str, Any]:
+    """AI 명세 2장 STEP 01 지원서 주장 추출 작업 메시지."""
+    data = {
+        "jobType": "EXTRACT_CLAIMS",
+        "jobId": JOB_ID,
+        "applicationId": 7,
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "companyName": "한끗전자",
         "jobTitle": "백엔드 개발",
@@ -136,6 +153,32 @@ def test_parses_plan_job() -> None:
         job_title="백엔드 개발",
         cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
     )
+
+
+def test_parses_extract_claims_job() -> None:
+    assert parse_job(json.dumps(extract())) == ExtractClaimsJob(
+        job_id=JOB_ID,
+        application_id=7,
+        requested_at=REQUESTED_AT,
+        company_name="한끗전자",
+        job_title="백엔드 개발",
+        cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
+    )
+
+
+@pytest.mark.parametrize("value", [0, -1, "7", 7.0, True, None])
+def test_extract_claims_job_needs_application_id(value: Any) -> None:
+    """지원서 단위 작업이므로 sessionId가 있어도 applicationId가 없으면 형식 오류다(AI 명세 1.3)."""
+    message = extract(applicationId=value, sessionId=55)
+    with pytest.raises(InvalidJobError, match="applicationId"):
+        parse_job(message)
+
+
+@pytest.mark.parametrize("key", ["companyName", "jobTitle", "coverLetterItems", "requestedAt"])
+def test_extract_claims_job_without_required_field_is_invalid(key: str) -> None:
+    message = extract(**{key: ...})
+    with pytest.raises(InvalidJobError):
+        parse_job(message)
 
 
 def test_parses_score_answer_job_from_spec_example() -> None:
@@ -275,7 +318,10 @@ def test_invalid_session_id_is_invalid(value: Any) -> None:
 
 
 def test_session_id_one_is_valid() -> None:
-    assert parse_job(plan(sessionId=1)).session_id == 1
+    job = parse_job(plan(sessionId=1))
+
+    assert isinstance(job, PlanJob)
+    assert job.session_id == 1
 
 
 @pytest.mark.parametrize(
@@ -773,6 +819,14 @@ def test_job_header_of_invalid_job_keeps_common_fields() -> None:
     with pytest.raises(InvalidJobError):
         parse_job(raw)
     assert job_header(raw) == JobHeader(JobType.PLAN, JOB_ID, 55)
+
+
+def test_job_header_of_invalid_extract_claims_job_keeps_application_id() -> None:
+    raw = json.dumps(extract(companyName=...))
+
+    with pytest.raises(InvalidJobError):
+        parse_job(raw)
+    assert job_header(raw) == JobHeader(JobType.EXTRACT_CLAIMS, JOB_ID, application_id=7)
 
 
 @pytest.mark.parametrize(

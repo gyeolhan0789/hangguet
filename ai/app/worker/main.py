@@ -24,6 +24,7 @@ from app.common.redis import create_redis
 from app.common.results import ResultPublisher
 from app.common.settings import Settings, load_settings
 from app.interview.cover_letter import CoverLetterChecker
+from app.interview.plan.claims_job import ExtractClaimsJobHandler, register_extract_claims_handler
 from app.interview.plan.job import PlanJobHandler, gms_plan_chat, register_plan_handler
 from app.interview.result.feedback import gms_feedback_chat
 from app.interview.result.job import EvaluateJobHandler, register_evaluate_handler
@@ -78,6 +79,9 @@ def build_dispatcher(settings: Settings, results: ResultPublisher) -> Dispatcher
     dispatcher = Dispatcher()
     client = lazy_gms_client(settings)
     register_plan_handler(dispatcher, PlanJobHandler(results, gms_plan_chat(client)))
+    register_extract_claims_handler(
+        dispatcher, ExtractClaimsJobHandler(results, gms_plan_chat(client))
+    )
     register_score_answer_handler(
         dispatcher, ScoreAnswerJobHandler(results, gms_score_chat(client))
     )
