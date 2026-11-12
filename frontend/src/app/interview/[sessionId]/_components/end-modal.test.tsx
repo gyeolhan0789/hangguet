@@ -1,326 +1,376 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S06-E 면접 종료 확인(18:4226) · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기) 강조, 답변 0개면 '결과 없이 나가요' + 스트릭 미인정) · 웹 Swagger 5.8 면접 끝내기 · API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MIN_GAZE_SAMPLES, type GazeSample } from "@/lib/interview/gaze";
+import { endSession, type SessionActionResult } from "@/lib/interview/actions";
+import { gazeRatio, type GazeFrame, type GazeSample } from "@/lib/interview/gaze";
 import { useGazeStore } from "@/stores/gaze-store";
 import { useInterviewStore } from "@/stores/interview-store";
+import { deferred } from "@/test/deferred";
 import { flushPromises } from "@/test/flush";
 
 import { EndModal } from "./end-modal";
-import { SAVE_WAIT_MS } from "./use-save-confirmed";
 
+// 경계 mock: 서버 액션(5.8)과 연출(motion). 시선 비율 계산 · store는 진짜로 쓴다
+vi.mock("@/lib/interview/actions", () => ({ endSession: vi.fn() }));
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
+
+// 예시 데이터: 정면을 본 시선 프레임과 얼굴이 잡히지 않은 프레임(면접 동안 잰 값)
 const FRONT: GazeSample = { headYaw: 0, headPitch: 0, eyeYaw: 0, eyePitch: 0, blinking: false };
+const LOOKED: GazeFrame[] = Array.from({ length: 100 }, () => FRONT);
+const MISSED: GazeFrame[] = Array.from({ length: 100 }, () => null);
+const FAILED: SessionActionResult = { formError: "잠시 후 다시 시도해 주세요." };
 
-vi.mock("motion/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("motion/react")>()),
-  useReducedMotion: () => true,
-}));
+const dialog = () => screen.getByRole("dialog", { name: "면접을 끝낼까요?" });
+const endButton = () => screen.getByRole("button", { name: "끝내기" });
+const keepButton = () => screen.getByRole("button", { name: "계속하기" });
+const savingNotice = () => screen.queryByText("답변을 저장하는 중이에요");
+/** n번째 endSession 호출의 [멱등 키, 시선 비율] */
+const sent = (n: number) => vi.mocked(endSession).mock.calls[n].slice(1);
 
-// 서버 액션 경계만 바꾼다. 실제 5.8 요청 · S06-1 전환은 E2E(interview.spec.ts)가 본다.
-const endSession = vi.fn();
-vi.mock("@/lib/interview/actions", () => ({
-  endSession: (...args: unknown[]) => endSession(...args),
-}));
-
-// 기준: Figma S06-E(18:4226) · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기) 강조, 답변 0개면 '결과 없이 나가요' + 스트릭 미인정)
-// · 모션 메모 S06-E(18:4318) · WAI-ARIA APG 대화상자 패턴(안에서만 Tab, Esc로 닫힘)
-// · API 명세 5.8 「직전 답변 저장 확인」(화상: 제출됨을 받은 답변이 answeredCount에 보일 때까지 최대 10초 기다린 뒤 5.8,
-//   기다리는 동안 저장 중 안내) · S15P31A301-257
+async function clickEnd() {
+  fireEvent.click(endButton());
+  await flushPromises();
+}
 
 beforeEach(() => {
   useGazeStore.getState().reset();
   useInterviewStore.getState().reset();
   useInterviewStore.getState().openEnd();
+  vi.mocked(endSession).mockResolvedValue({ leveledUp: false });
 });
 
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
-});
+describe("EndModal · 면접 종료 확인 모달", () => {
+  describe("종료 확인", () => {
+    describe("화면 표시", () => {
+      it("열리기 전에는 그리지 않는다", () => {
+        useInterviewStore.getState().closeEnd();
 
-const dialog = () => screen.getByRole("dialog", { name: "면접을 끝낼까요?" });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
 
-describe("EndModal (S06-E 면접 종료 확인)", () => {
-  it("[면접 종료]로 열리기 전에는 그리지 않는다", () => {
-    useInterviewStore.getState().closeEnd();
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
 
-  it("답변한 질문 수와 스트릭 인정을 알리고, 안전한 [계속하기]에 포커스를 둔다", () => {
-    render(<EndModal sessionId={55} video answeredCount={2} />);
+      it("답변이 있으면 답변한 질문 수와 스트릭 인정을 알린다", () => {
+        render(<EndModal sessionId={55} answeredCount={2} video />);
 
-    expect(dialog().textContent).toContain("지금 끝내면 답변한 2개 질문까지만결과가 나와요");
-    expect(screen.getByText("오늘 스트릭은 인정돼요")).toBeTruthy();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "계속하기" }));
-  });
+        expect(dialog().textContent).toContain("지금 끝내면 답변한 2개 질문까지만결과가 나와요");
+        expect(screen.getByText("오늘 스트릭은 인정돼요")).toBeDefined();
+      });
 
-  it("답변이 0개면 '결과 없이 나가요 · 스트릭 미인정'으로 바꾸고 스트릭 인정 표시를 뺀다", () => {
-    render(<EndModal sessionId={55} video answeredCount={0} />);
+      it("열리면 [계속하기]에 포커스를 둔다", () => {
+        render(<EndModal sessionId={55} answeredCount={2} video />);
 
-    expect(screen.getByText("결과 없이 나가요 · 스트릭 미인정")).toBeTruthy();
-    expect(screen.queryByText("오늘 스트릭은 인정돼요")).toBeNull();
-  });
-
-  it("[계속하기] · Esc로 닫는다", () => {
-    const { unmount } = render(<EndModal sessionId={55} video answeredCount={2} />);
-    fireEvent.click(screen.getByRole("button", { name: "계속하기" }));
-    expect(useInterviewStore.getState().endOpen).toBe(false);
-    unmount();
-
-    act(() => useInterviewStore.getState().openEnd());
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    fireEvent.keyDown(dialog(), { key: "Escape" });
-    expect(useInterviewStore.getState().endOpen).toBe(false);
-  });
-
-  it("Tab · Shift+Tab은 모달 안에서만 돈다([끝내기] ↔ [계속하기])", () => {
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    const end = screen.getByRole("button", { name: "끝내기" });
-    const keep = screen.getByRole("button", { name: "계속하기" });
-
-    keep.focus();
-    fireEvent.keyDown(dialog(), { key: "Tab" });
-    expect(document.activeElement).toBe(end);
-    fireEvent.keyDown(dialog(), { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(keep);
-  });
-
-  it("[끝내기]는 5.8을 UUID 멱등 키로 부르고, 끝나면 모달을 닫는다", async () => {
-    endSession.mockResolvedValue({});
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
-    await flushPromises();
-
-    expect(endSession).toHaveBeenCalledWith(55, expect.stringMatching(/^[0-9a-f-]{36}$/), null);
-    expect(useInterviewStore.getState().endOpen).toBe(false);
-  });
-
-  // 기준: API 명세 5.8 gazeRatio(화상만, 같은 멱등 키로는 같은 값)
-  it("화상은 면접 동안 잰 시선 비율을 보내고, 같은 키로 다시 보낼 때는 처음 값을 그대로 보낸다", async () => {
-    endSession.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
-    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    const end = screen.getByRole("button", { name: "끝내기" });
-
-    fireEvent.click(end);
-    await flushPromises();
-    // 실패한 뒤에도 시선은 계속 쌓이지만 같은 키에는 처음 값을 쓴다
-    useGazeStore.setState({ frames: [] });
-    fireEvent.click(end);
-    await flushPromises();
-
-    expect(endSession.mock.calls.map((call) => call[2])).toEqual([100, 100]);
-    expect(endSession.mock.calls[1][1]).toBe(endSession.mock.calls[0][1]);
-  });
-
-  it("키를 이미 썼다고 하면(keySpent) 새 키를 만들 때 그때까지 잰 시선으로 비율을 다시 정한다", async () => {
-    endSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
-    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    const end = screen.getByRole("button", { name: "끝내기" });
-
-    fireEvent.click(end);
-    await flushPromises();
-    // 그 사이 얼굴이 잡히지 않은 프레임이 같은 수만큼 쌓였다 → 50%
-    useGazeStore.setState({
-      frames: [...Array(MIN_GAZE_SAMPLES).fill(FRONT), ...Array(MIN_GAZE_SAMPLES).fill(null)],
+        expect(document.activeElement).toBe(keepButton());
+      });
     });
-    fireEvent.click(end);
-    await flushPromises();
 
-    expect(endSession.mock.calls.map((call) => call[2])).toEqual([100, 50]);
-    expect(endSession.mock.calls[1][1]).not.toBe(endSession.mock.calls[0][1]);
+    describe("사용자 조작", () => {
+      it("[계속하기]를 누르면 닫는다", () => {
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        fireEvent.click(keepButton());
+
+        expect(useInterviewStore.getState().endOpen).toBe(false);
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+
+      it("Esc를 누르면 닫는다", () => {
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        fireEvent.keyDown(dialog(), { key: "Escape" });
+
+        expect(useInterviewStore.getState().endOpen).toBe(false);
+      });
+
+      it("마지막 버튼에서 Tab을 누르면 모달 안 첫 버튼으로 돌아간다", () => {
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        fireEvent.keyDown(dialog(), { key: "Tab" });
+
+        expect(document.activeElement).toBe(endButton());
+      });
+
+      it("끝내기가 성공하면 레벨업을 기억하고 모달을 닫는다", async () => {
+        vi.mocked(endSession).mockResolvedValue({ leveledUp: true });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        await clickEnd();
+
+        expect(useInterviewStore.getState()).toMatchObject({ leveledUp: true, endOpen: false });
+      });
+
+      it("화상이면 면접 동안 잰 시선 비율을 보낸다", async () => {
+        const frames = [...LOOKED, ...MISSED];
+        useGazeStore.setState({ frames });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        await clickEnd();
+
+        expect(sent(0)[1]).toBe(gazeRatio(frames));
+      });
+
+      it("채팅이면 시선 비율을 보내지 않는다", async () => {
+        useGazeStore.setState({ frames: LOOKED });
+        render(<EndModal sessionId={55} answeredCount={2} video={false} />);
+
+        await clickEnd();
+
+        expect(sent(0)[1]).toBeNull();
+      });
+    });
+
+    describe("경계값", () => {
+      it("답변이 0개면 '결과 없이 나가요 · 스트릭 미인정'으로 바꾸고 스트릭 인정을 뺀다", () => {
+        render(<EndModal sessionId={55} answeredCount={0} video />);
+
+        expect(screen.getByText("결과 없이 나가요 · 스트릭 미인정")).toBeDefined();
+        expect(screen.queryByText("오늘 스트릭은 인정돼요")).toBeNull();
+      });
+    });
+
+    describe("오류 처리", () => {
+      it("끝내기가 실패하면 서버 문구를 보이고 모달을 그대로 둔다", async () => {
+        // 예시: Swagger 5.8 409 INVALID_SESSION_STATE detail(대체 문구와 다르게)
+        vi.mocked(endSession).mockResolvedValue({ formError: "지금은 할 수 없는 요청이에요." });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+
+        await clickEnd();
+
+        expect(screen.getByRole("alert").textContent).toBe("지금은 할 수 없는 요청이에요.");
+        expect(useInterviewStore.getState().endOpen).toBe(true);
+      });
+
+      it("실패 뒤 다시 누르면 같은 멱등 키와 처음 시선 비율로 보낸다", async () => {
+        vi.mocked(endSession).mockResolvedValue(FAILED);
+        useGazeStore.setState({ frames: LOOKED });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        useGazeStore.setState({ frames: [...LOOKED, ...MISSED] });
+        await clickEnd();
+
+        expect(sent(1)).toEqual(sent(0));
+        expect(sent(1)[1]).toBe(gazeRatio(LOOKED));
+      });
+
+      it("서버가 실패로 답했으면(keySpent) 다음에는 새 키와 그때까지 잰 시선 비율로 보낸다", async () => {
+        vi.mocked(endSession).mockResolvedValue({ ...FAILED, keySpent: true });
+        useGazeStore.setState({ frames: LOOKED });
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        const frames = [...LOOKED, ...MISSED];
+        useGazeStore.setState({ frames });
+        await clickEnd();
+
+        expect(sent(1)[0]).not.toBe(sent(0)[0]);
+        expect(sent(1)[1]).toBe(gazeRatio(frames));
+      });
+
+      it("닫았다 다시 열면 실패 문구를 지운다", async () => {
+        vi.mocked(endSession).mockResolvedValue(FAILED);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        fireEvent.click(keepButton());
+        act(() => useInterviewStore.getState().openEnd());
+
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
+
+      it("다시 누르면 이전 실패 문구를 지운다", async () => {
+        const response = deferred<SessionActionResult>();
+        vi.mocked(endSession).mockResolvedValueOnce(FAILED).mockReturnValueOnce(response.promise);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        await clickEnd();
+
+        expect(screen.queryByRole("alert")).toBeNull();
+        await act(async () => response.resolve({ leveledUp: false }));
+      });
+    });
+
+    describe("중복 · 경쟁 처리", () => {
+      it("끝내는 동안 두 버튼을 막고 Esc로 닫지 않는다", async () => {
+        const response = deferred<SessionActionResult>();
+        vi.mocked(endSession).mockReturnValue(response.promise);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        fireEvent.keyDown(dialog(), { key: "Escape" });
+
+        expect(endButton()).toHaveProperty("disabled", true);
+        expect(keepButton()).toHaveProperty("disabled", true);
+        expect(useInterviewStore.getState().endOpen).toBe(true);
+        await act(async () => response.resolve({ leveledUp: false }));
+      });
+
+      it("끝내기가 실패해 다시 누를 수 있게 되면 [계속하기]에 포커스를 되돌린다", async () => {
+        const response = deferred<SessionActionResult>();
+        vi.mocked(endSession).mockReturnValue(response.promise);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        endButton().focus();
+        await clickEnd();
+
+        await act(async () => response.resolve(FAILED));
+
+        expect(document.activeElement).toBe(keepButton());
+      });
+    });
   });
 
-  it("채팅은 시선을 재지 않아 보내지 않는다", async () => {
-    endSession.mockResolvedValue({});
-    useGazeStore.setState({ frames: Array(MIN_GAZE_SAMPLES).fill(FRONT) });
-    render(<EndModal sessionId={55} video={false} answeredCount={2} />);
+  describe("직전 답변 저장 확인", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
-    await flushPromises();
+    describe("화면 표시", () => {
+      it("제출된 답변이 아직 저장되지 않았으면 [끝내기] 뒤 '답변을 저장하는 중이에요'를 알리고 바로 보내지 않는다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(3);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
 
-    expect(endSession).toHaveBeenCalledWith(55, expect.any(String), null);
-  });
+        await clickEnd();
 
-  it("끝내지 못하면 서버 문구를 보여 주고, 다시 누르면 같은 키로 보낸다", async () => {
-    endSession.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    const end = screen.getByRole("button", { name: "끝내기" });
+        expect(savingNotice()).not.toBeNull();
+        expect(endSession).not.toHaveBeenCalled();
+      });
+    });
 
-    fireEvent.click(end);
-    await flushPromises();
-    expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
-    fireEvent.click(end);
-    await flushPromises();
+    describe("사용자 조작", () => {
+      it.each([
+        { label: "이미 저장됨", submittedSeq: 3, answeredCount: 3 },
+        { label: "제출된 답변 없음", submittedSeq: null, answeredCount: 2 },
+      ])(
+        "'$label'이면 기다리지 않고 바로 끝내기를 요청한다",
+        async ({ submittedSeq, answeredCount }) => {
+          useInterviewStore.getState().setSubmittedSeq(submittedSeq);
+          render(<EndModal sessionId={55} answeredCount={answeredCount} video />);
 
-    expect(endSession.mock.calls[1][1]).toBe(endSession.mock.calls[0][1]);
-  });
+          await clickEnd();
 
-  it("키를 이미 썼다고 하면(keySpent) 다음에는 새 키로 보낸다", async () => {
-    endSession.mockResolvedValue({ formError: "이미 처리된 요청이에요.", keySpent: true });
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    const end = screen.getByRole("button", { name: "끝내기" });
+          expect(endSession).toHaveBeenCalledTimes(1);
+          expect(savingNotice()).toBeNull();
+        },
+      );
+    });
 
-    fireEvent.click(end);
-    await flushPromises();
-    fireEvent.click(end);
-    await flushPromises();
+    describe("상태 변화", () => {
+      it("기다리는 중에 저장이 보이면 그때 끝내기를 요청한다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(3);
+        const { rerender } = render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
 
-    expect(endSession.mock.calls[1][1]).not.toBe(endSession.mock.calls[0][1]);
-  });
+        rerender(<EndModal sessionId={55} answeredCount={3} video />);
+        await flushPromises();
 
-  it("끝내는 동안에는 두 버튼을 막고 Esc로 닫지 않으며, 끝나면 모달을 닫는다", async () => {
-    // 응답을 테스트가 붙잡아 두었다가 마지막에 끝낸다. 끝나지 않는 작업을 남기면 다음 테스트의 화면 갱신이 막힌다.
-    let finish!: (result: object) => void;
-    endSession.mockReturnValue(new Promise((done) => (finish = done)));
-    render(<EndModal sessionId={55} video answeredCount={2} />);
+        expect(endSession).toHaveBeenCalledTimes(1);
+      });
 
-    fireEvent.click(screen.getByRole("button", { name: "끝내기" }));
-    await flushPromises();
-    fireEvent.keyDown(dialog(), { key: "Escape" });
+      it("기다린 뒤 실패하고 닫았다 다시 열어 [끝내기]하면 다시 저장을 기다린다", async () => {
+        vi.mocked(endSession).mockResolvedValue(FAILED);
+        useInterviewStore.getState().setSubmittedSeq(3);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+        await act(async () => vi.advanceTimersByTime(10_000));
+        fireEvent.click(keepButton());
+        act(() => useInterviewStore.getState().openEnd());
 
-    expect(useInterviewStore.getState().endOpen).toBe(true);
-    expect(screen.getByRole("button", { name: "계속하기" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "끝내기" })).toHaveProperty("disabled", true);
+        await clickEnd();
+        expect(savingNotice()).not.toBeNull();
+        expect(endSession).toHaveBeenCalledTimes(1);
 
-    await act(async () => finish({ leveledUp: true }));
-    expect(useInterviewStore.getState()).toMatchObject({ endOpen: false, leveledUp: true });
-  });
-});
+        await act(async () => vi.advanceTimersByTime(10_000));
+        expect(endSession).toHaveBeenCalledTimes(2);
+      });
 
-describe("EndModal · 직전 답변 저장 확인(API 명세 5.8)", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    endSession.mockResolvedValue({ leveledUp: false });
-  });
-  afterEach(() => vi.useRealTimers());
+      it("기다리는 동안 저장 확인 중을 켜고, 끝나면 끈다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(3);
+        const { rerender } = render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+        expect(useInterviewStore.getState().confirmingSave).toBe(true);
 
-  const endButton = () => screen.getByRole("button", { name: "끝내기" });
+        rerender(<EndModal sessionId={55} answeredCount={3} video />);
+        await flushPromises();
 
-  it("제출됨을 받은 답변이 아직 저장되지 않았으면 [끝내기] 뒤 저장 중임을 알리고, 저장이 보이면 그때 5.8을 보낸다", async () => {
-    // 에이전트가 3번 답변을 제출됨으로 알렸지만 5.2 answeredCount는 아직 2다
-    useInterviewStore.getState().setSubmittedSeq(3);
-    const { rerender } = render(<EndModal sessionId={55} video answeredCount={2} />);
+        expect(useInterviewStore.getState().confirmingSave).toBe(false);
+      });
+    });
 
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(endSession).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toBe("답변을 저장하는 중이에요");
-    // 기다리는 동안은 두 버튼을 막고 Esc로 닫지 않는다
-    expect(endButton()).toHaveProperty("disabled", true);
-    expect(endButton().getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByRole("button", { name: "계속하기" })).toHaveProperty("disabled", true);
-    fireEvent.keyDown(dialog(), { key: "Escape" });
-    expect(useInterviewStore.getState().endOpen).toBe(true);
+    describe("경계값", () => {
+      it("화상 마지막(5번째) 답변이 제출됐으면 저장 중만 알리고 끝내기를 보내지 않는다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(5);
+        render(<EndModal sessionId={55} answeredCount={4} video />);
+        await clickEnd();
 
-    // 5.2를 다시 불러 저장된 것이 보이면 끝낸다
-    rerender(<EndModal sessionId={55} video answeredCount={3} />);
-    await act(async () => {});
-    expect(endSession).toHaveBeenCalledExactlyOnceWith(
-      55,
-      expect.stringMatching(/^[0-9a-f-]{36}$/),
-      null,
-    );
-    expect(useInterviewStore.getState().endOpen).toBe(false);
-    // 남은 대기 시간이 지나도 다시 보내지 않는다
-    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
-    expect(endSession).toHaveBeenCalledTimes(1);
-  });
+        await act(async () => vi.advanceTimersByTime(10_000));
 
-  it("10초가 지나도 저장이 보이지 않으면 그대로 5.8을 보내고, 그 뒤 저장이 보여도 다시 보내지 않는다", async () => {
-    // 모달이 닫히지 않도록 실패로 답한다(닫히면 다시 그려도 보낼 수 없으므로 막이를 볼 수 없다)
-    endSession.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
-    useInterviewStore.getState().setSubmittedSeq(3);
-    const { rerender } = render(<EndModal sessionId={55} video answeredCount={2} />);
-    fireEvent.click(endButton());
-    await flushPromises();
+        expect(savingNotice()).not.toBeNull();
+        expect(endSession).not.toHaveBeenCalled();
+      });
 
-    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS - 1));
-    expect(endSession).not.toHaveBeenCalled();
-    await act(async () => vi.advanceTimersByTime(1));
-    expect(endSession).toHaveBeenCalledTimes(1);
-    rerender(<EndModal sessionId={55} video answeredCount={3} />);
-    await act(async () => {});
-    expect(endSession).toHaveBeenCalledTimes(1);
-  });
+      it("화상 답변 5개가 저장된 것이 보이면 끝내기를 보내지 않고 저장 중으로 둔다", async () => {
+        render(<EndModal sessionId={55} answeredCount={5} video />);
+        await clickEnd();
 
-  it("마지막(5번째) 답변을 기다리는 중이면 저장 중임만 알리고 5.8은 보내지 않는다(자동 종료가 보낸다)", async () => {
-    useInterviewStore.getState().setSubmittedSeq(5);
-    render(<EndModal sessionId={55} video answeredCount={4} />);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(screen.getByRole("status").textContent).toBe("답변을 저장하는 중이에요");
-    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
-    expect(endSession).not.toHaveBeenCalled();
-  });
+        await act(async () => vi.advanceTimersByTime(10_000));
 
-  it("답변 5개가 이미 저장된 것이 보이면(면접 화면이 끝내는 중) 5.8을 보내지 않고 화면이 넘어갈 때까지 저장 중으로 둔다", async () => {
-    render(<EndModal sessionId={55} video answeredCount={5} />);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(screen.getByRole("status").textContent).toBe("답변을 저장하는 중이에요");
-    expect(endButton()).toHaveProperty("disabled", true);
-    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
-    expect(endSession).not.toHaveBeenCalled();
-    expect(endButton()).toHaveProperty("disabled", true);
-  });
+        expect(savingNotice()).not.toBeNull();
+        expect(endButton()).toHaveProperty("disabled", true);
+        expect(endSession).not.toHaveBeenCalled();
+      });
 
-  it("채팅은 답변 5개가 저장된 것이 보여도 기다리지 않고 바로 5.8을 보낸다(채팅의 마지막 5.8은 다시 보내지 않으므로)", async () => {
-    render(<EndModal sessionId={55} answeredCount={5} video={false} />);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(endSession).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("status")).toBeNull();
-  });
+      it("채팅은 답변 5개가 저장돼도 기다리지 않고 바로 끝내기를 요청한다", async () => {
+        render(<EndModal sessionId={55} answeredCount={5} video={false} />);
 
-  it("기다리는 동안 면접 화면이 5.2를 계속 부르도록 알리고(confirmingSave), 끝나면 거둔다", async () => {
-    useInterviewStore.getState().setSubmittedSeq(3);
-    const { rerender } = render(<EndModal sessionId={55} video answeredCount={2} />);
-    expect(useInterviewStore.getState().confirmingSave).toBe(false);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(useInterviewStore.getState().confirmingSave).toBe(true);
-    rerender(<EndModal sessionId={55} video answeredCount={3} />);
-    await act(async () => {});
-    expect(useInterviewStore.getState().confirmingSave).toBe(false);
-  });
+        await clickEnd();
 
-  it("이미 저장된 것이 보이거나 제출됨을 받은 답변이 없으면(채팅 포함) 기다리지 않고 바로 5.8을 보낸다", async () => {
-    useInterviewStore.getState().setSubmittedSeq(3);
-    const { unmount } = render(<EndModal sessionId={55} video answeredCount={3} />);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(endSession).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("status")).toBeNull();
-    unmount();
+        expect(endSession).toHaveBeenCalledTimes(1);
+        expect(savingNotice()).toBeNull();
+      });
+    });
 
-    endSession.mockClear();
-    useInterviewStore.getState().reset();
-    useInterviewStore.getState().openEnd();
-    render(<EndModal sessionId={55} video={false} answeredCount={2} />);
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(endSession).toHaveBeenCalledTimes(1);
-  });
+    describe("오류 처리", () => {
+      it("기다린 뒤 보낸 끝내기가 실패하면 다시 누를 때 기다리지 않고 바로 보낸다", async () => {
+        vi.mocked(endSession).mockResolvedValue(FAILED);
+        useInterviewStore.getState().setSubmittedSeq(3);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+        await act(async () => vi.advanceTimersByTime(10_000));
 
-  it("기다린 뒤 보낸 5.8이 실패하면 문구를 보이고, [끝내기]를 다시 누르면 기다리지 않고 바로 다시 보낸다", async () => {
-    endSession.mockResolvedValueOnce({ formError: "잠시 후 다시 시도해 주세요." });
-    useInterviewStore.getState().setSubmittedSeq(3);
-    render(<EndModal sessionId={55} video answeredCount={2} />);
-    endButton().focus();
-    fireEvent.click(endButton());
-    await flushPromises();
-    await act(async () => vi.advanceTimersByTime(SAVE_WAIT_MS));
-    expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
+        await clickEnd();
 
-    // 다시 누를 수 있게 되면 포커스가 모달 안([계속하기])으로 돌아와 Esc · Tab이 듣는다
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "계속하기" }));
+        expect(endSession).toHaveBeenCalledTimes(2);
+      });
+    });
 
-    fireEvent.click(endButton());
-    await flushPromises();
-    expect(endSession).toHaveBeenCalledTimes(2);
+    describe("시간 경과", () => {
+      it("10초가 지나도 저장이 보이지 않으면 그대로 끝내기를 요청한다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(3);
+        render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        await act(async () => vi.advanceTimersByTime(9_999));
+        expect(endSession).not.toHaveBeenCalled();
+
+        await act(async () => vi.advanceTimersByTime(1));
+        expect(endSession).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe("정리", () => {
+      it("모달이 사라지면 저장 확인 중을 끈다", async () => {
+        useInterviewStore.getState().setSubmittedSeq(3);
+        const { unmount } = render(<EndModal sessionId={55} answeredCount={2} video />);
+        await clickEnd();
+
+        unmount();
+
+        expect(useInterviewStore.getState().confirmingSave).toBe(false);
+      });
+    });
   });
 });

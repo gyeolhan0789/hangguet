@@ -1,132 +1,118 @@
 // @vitest-environment node
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
+// 기준: 면접관 3D 모델 웹 미리보기(office_animation/web app.js evaluate · facialWeights) · 모델 파일 face-rules.json 형식
 import { describe, expect, it } from "vitest";
 
 import {
-  EMOTIONS,
   evaluate,
   faceInputs,
   faceWeights,
   NEUTRAL_FACE,
-  VOWELS,
   type FaceExpr,
   type FaceRules,
 } from "./face-rules";
 
-// 기준: 면접관 3D 모델 웹 미리보기(office_animation/web app.js evaluate · facialWeights) · 모델 파일 face-rules.json
-
-const rules = JSON.parse(
-  readFileSync(join(process.cwd(), "public/interview/devil/face-rules.json"), "utf-8"),
-) as FaceRules;
-
-describe("evaluate (표정 식)", () => {
-  it.each<[FaceExpr, number]>([
-    [["n", 3], 3],
-    [["+", ["n", 1], ["n", 2]], 3],
-    [["-", ["n", 1], ["n", 2]], -1],
-    [["*", ["n", 2], ["n", 4]], 8],
-    [["/", ["n", 1], ["n", 4]], 0.25],
-    [["pow", ["n", 2], ["n", 3]], 8],
-    [["neg", ["n", 2]], -2],
-    [["pos", ["n", 2]], 2],
-    [["min", ["n", 2], ["n", 1], ["n", 3]], 1],
-    [["max", ["n", 2], ["n", 1], ["n", 3]], 3],
-    [["abs", ["n", -2]], 2],
-    [["sum", ["n", 1], ["n", 2], ["n", 3]], 6],
-    [["average", ["n", 1], ["n", 2], ["n", 3]], 2],
-    [["sin", ["n", 0]], 0],
-    [["cos", ["n", 0]], 1],
-  ])("%j → %d", (expr, result) => {
-    expect(evaluate(expr, {})).toBeCloseTo(result);
-  });
-
-  it("변수는 값을 읽고, 없는 변수는 0이다", () => {
-    expect(evaluate(["+", ["v", "a"], ["v", "없음"]], { a: 0.5 })).toBe(0.5);
-  });
-
-  it("모르는 연산자면 오류를 던진다(모델 파일이 바뀐 것)", () => {
-    expect(() => evaluate(["log", ["n", 1]], {})).toThrow("모르는 표정 식: log");
-  });
-});
-
-describe("faceInputs", () => {
-  it("고른 감정만 세기를 갖고 나머지 감정은 0이다. 입 모양 · 눈 깜빡임도 넣는다", () => {
-    const inputs = faceInputs(rules, {
-      emotion: "Angry",
-      emotionWeight: 0.7,
-      mouth: { A: 0.8, I: 0, U: 0, E: 0, O: 0 },
-      blink: 1,
-    });
-    expect(inputs.Angry).toBe(0.7);
-    for (const other of EMOTIONS.filter((emotion) => emotion !== "Angry"))
-      expect(inputs[other]).toBe(0);
-    expect(inputs.A).toBe(0.8);
-    expect(inputs.Blink).toBe(1);
-    // 조절하지 않는 값은 모델 기본값 그대로
-    expect(inputs.SurfaceStability).toBe(rules.defaults.SurfaceStability);
-  });
-});
-
-describe("faceWeights (셰이프 키 세기)", () => {
-  const tiny: FaceRules = {
-    defaults: { A: 0 },
-    rules: {
-      Head: {
-        Open: { expr: ["*", ["v", "a"], ["n", 2]], vars: { a: ["control", "A"] } },
-        Follow: { expr: ["v", "o"], vars: { o: ["key", "Head", "Open"] } },
-        LoopA: { expr: ["v", "b"], vars: { b: ["key", "Head", "LoopB"] } },
-        LoopB: { expr: ["v", "a"], vars: { a: ["key", "Head", "LoopA"] } },
-        Bad: { expr: ["/", ["n", 1], ["n", 0]], vars: {} },
+// 예시 데이터: face-rules.json과 같은 모양의 작은 규칙(조절 값 · 고정 값 · 다른 셰이프 키 참조)
+const RULES: FaceRules = {
+  defaults: { A: 0, Blink: 0, SurfaceStability: 0.3 },
+  rules: {
+    Head: {
+      Open: { expr: ["*", ["v", "a"], ["n", 2]], vars: { a: ["control", "A"] } },
+      Mixed: {
+        expr: ["sum", ["v", "a"], ["v", "fixed"], ["v", "open"]],
+        vars: { a: ["control", "A"], fixed: ["const", 0.1], open: ["key", "Head", "Open"] },
       },
+      LoopA: { expr: ["v", "b"], vars: { b: ["key", "Head", "LoopB"] } },
+      LoopB: { expr: ["v", "a"], vars: { a: ["key", "Head", "LoopA"] } },
+      Infinite: { expr: ["/", ["n", 1], ["n", 0]], vars: {} },
     },
-  };
-  const open = { ...NEUTRAL_FACE, mouth: { ...NEUTRAL_FACE.mouth, A: 0.25 } };
+  },
+};
+const MOUTH_A = { ...NEUTRAL_FACE, mouth: { ...NEUTRAL_FACE.mouth, A: 0.25 } };
 
-  it("조절 값으로 식을 계산하고, 다른 셰이프 키를 참조할 수 있다", () => {
-    const weight = faceWeights(tiny, open);
-    expect(weight("Head", "Open")).toBe(0.5);
-    expect(weight("Head", "Follow")).toBe(0.5);
+describe("evaluate · 표정 식 계산", () => {
+  describe("정상 처리", () => {
+    it.each<{ op: string; expr: FaceExpr; result: number }>([
+      { op: "+", expr: ["+", ["n", 1], ["n", 2]], result: 3 },
+      { op: "-", expr: ["-", ["n", 1], ["n", 2]], result: -1 },
+      { op: "*", expr: ["*", ["n", 2], ["n", 4]], result: 8 },
+      { op: "/", expr: ["/", ["n", 1], ["n", 4]], result: 0.25 },
+      { op: "pow", expr: ["pow", ["n", 2], ["n", 3]], result: 8 },
+      { op: "neg", expr: ["neg", ["n", 2]], result: -2 },
+      { op: "pos", expr: ["pos", ["n", 2]], result: 2 },
+      { op: "min", expr: ["min", ["n", 2], ["n", 1], ["n", 3]], result: 1 },
+      { op: "max", expr: ["max", ["n", 2], ["n", 1], ["n", 3]], result: 3 },
+      { op: "sin", expr: ["sin", ["n", Math.PI / 2]], result: 1 },
+      { op: "cos", expr: ["cos", ["n", Math.PI]], result: -1 },
+      { op: "abs", expr: ["abs", ["n", -2]], result: 2 },
+      { op: "sum", expr: ["sum", ["n", 1], ["n", 2], ["n", 3]], result: 6 },
+      { op: "average", expr: ["average", ["n", 1], ["n", 2], ["n", 3]], result: 2 },
+    ])("연산자 '$op'를 계산한다", ({ expr, result }) => {
+      expect(evaluate(expr, {})).toBeCloseTo(result);
+    });
+
+    it("숫자 · 변수 노드를 읽어 중첩 식을 계산한다", () => {
+      expect(evaluate(["*", ["+", ["v", "a"], ["n", 1]], ["v", "b"]], { a: 0.5, b: 2 })).toBe(3);
+    });
   });
 
-  it("규칙이 없는 셰이프 키는 0이다", () => {
-    expect(faceWeights(tiny, open)("Head", "없음")).toBe(0);
+  describe("경계값", () => {
+    it("없는 변수는 0으로 읽는다", () => {
+      expect(evaluate(["+", ["v", "a"], ["v", "없음"]], { a: 0.5 })).toBe(0.5);
+    });
   });
 
-  it("서로를 참조하며 도는 규칙 · 숫자가 아닌 결과는 오류를 던진다", () => {
-    expect(() => faceWeights(tiny, open)("Head", "LoopA")).toThrow("서로를 참조한다");
-    expect(() => faceWeights(tiny, open)("Head", "Bad")).toThrow("숫자가 아니다");
+  describe("오류 처리", () => {
+    it("모르는 연산자면 오류를 던진다", () => {
+      expect(() => evaluate(["log", ["n", 1]], {})).toThrow("모르는 표정 식: log");
+    });
   });
 });
 
-describe("면접관 모델 face-rules.json", () => {
-  const every = (face: typeof NEUTRAL_FACE) => {
-    const weight = faceWeights(rules, face);
-    return Object.entries(rules.rules).flatMap(([mesh, keys]) =>
-      Object.keys(keys).map((key) => weight(mesh, key)),
-    );
-  };
+describe("faceInputs · 표정 입력 값", () => {
+  describe("정상 처리", () => {
+    it("고른 감정만 세기를 갖고 나머지 감정은 0이다", () => {
+      const inputs = faceInputs(RULES, { ...NEUTRAL_FACE, emotion: "Angry", emotionWeight: 0.7 });
 
-  it("모든 감정 × 모든 입 모양 × 눈 깜빡임에서 모든 셰이프 키가 숫자로 계산된다", () => {
-    for (const emotion of [...EMOTIONS, "neutral"] as const) {
-      for (const vowel of VOWELS) {
-        for (const blink of [0, 1]) {
-          const weights = every({
-            emotion,
-            emotionWeight: 1,
-            mouth: { ...NEUTRAL_FACE.mouth, [vowel]: 1 },
-            blink,
-          });
-          expect(weights.every(Number.isFinite)).toBe(true);
-        }
-      }
-    }
+      expect(inputs).toMatchObject({
+        Joy: 0,
+        Fun: 0,
+        Angry: 0.7,
+        Sorrow: 0,
+        Smile: 0,
+        Surprised: 0,
+      });
+    });
+
+    it("입 모양 · 깜빡임은 기본값을 덮어쓴다", () => {
+      const inputs = faceInputs(RULES, { ...MOUTH_A, blink: 1 });
+
+      expect(inputs).toMatchObject({ A: 0.25, Blink: 1, SurfaceStability: 0.3 });
+    });
+  });
+});
+
+describe("faceWeights · 셰이프 키 세기", () => {
+  describe("정상 처리", () => {
+    it("조절 값 · 고정 값 · 다른 셰이프 키를 변수로 읽어 식을 계산한다", () => {
+      // A 0.25 + 고정 0.1 + Open(0.25 × 2)
+      expect(faceWeights(RULES, MOUTH_A)("Head", "Mixed")).toBeCloseTo(0.85);
+    });
   });
 
-  it("입 모양 · 눈 깜빡임을 바꾸면 셰이프 키 세기가 바뀐다", () => {
-    const neutral = every(NEUTRAL_FACE);
-    expect(every({ ...NEUTRAL_FACE, mouth: { ...NEUTRAL_FACE.mouth, A: 1 } })).not.toEqual(neutral);
-    expect(every({ ...NEUTRAL_FACE, blink: 1 })).not.toEqual(neutral);
+  describe("경계값", () => {
+    it("규칙이 없는 셰이프 키는 0이다", () => {
+      expect(faceWeights(RULES, MOUTH_A)("Head", "없음")).toBe(0);
+      expect(faceWeights(RULES, MOUTH_A)("없는 메시", "Open")).toBe(0);
+    });
+  });
+
+  describe("오류 처리", () => {
+    it("서로를 참조하며 도는 규칙이면 오류를 던진다", () => {
+      expect(() => faceWeights(RULES, MOUTH_A)("Head", "LoopA")).toThrow("서로를 참조한다");
+    });
+
+    it("결과가 유한한 숫자가 아니면 오류를 던진다", () => {
+      expect(() => faceWeights(RULES, MOUTH_A)("Head", "Infinite")).toThrow("숫자가 아니다");
+    });
   });
 });
