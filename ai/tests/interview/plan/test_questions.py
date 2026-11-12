@@ -244,6 +244,16 @@ COMPANY_RULES = {
         "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다"
     ),
 }
+RECENT_RULES = {
+    Persona.DEVIL: (
+        "- [회사 최근 이슈]가 주어지면 자소서 주장과 이어지는 경우 "
+        "그 이슈에 대한 지원자의 판단을 묻는다"
+    ),
+    Persona.COFFEE_CHAT: (
+        "- [회사 최근 이슈]가 주어지면 경험과 이어지는 경우에만 사업 관련 이슈와 연결해 묻는다"
+    ),
+    Persona.DUCK: "- [회사 최근 이슈]가 주어지면 경험과 이어지는 경우에만 이슈와 연결해 묻는다",
+}
 NO_INVENTED_COMPANY = "주어지지 않은 회사 정보를 전제로 묻지 않는다"
 COMPANY_SECTIONS = {
     Persona.DEVIL: (
@@ -271,8 +281,21 @@ def test_company_card_is_sent_for_interviewer(persona: Persona) -> None:
         build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3),
     ):
         assert COMPANY_RULES[persona] in messages[0]["content"]
+        assert RECENT_RULES[persona] in messages[0]["content"]
         assert NO_INVENTED_COMPANY in messages[0]["content"]
         assert COMPANY_SECTIONS[persona] in messages[1]["content"]
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_every_interviewer_receives_recent_issues_with_article_date(persona: Persona) -> None:
+    """세 면접관 모두 최근 이슈를 사용하고, 언제의 이슈인지 기사 날짜를 함께 전송한다."""
+    recent = {"summary": "결제 지연 장애 재발 방지책 발표", "published": "2026-11-03"}
+    card = {"recent": [{**recent, "ncs_subcategories": ["응용SW엔지니어링"]}]}
+    job = replace(JOB, persona=persona, company_card=card)
+
+    user = build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+
+    assert "[회사 최근 이슈]\nco1 2026-11-03: 결제 지연 장애 재발 방지책 발표\n\n[주장]\n" in user
 
 
 @pytest.mark.parametrize("persona", list(Persona))

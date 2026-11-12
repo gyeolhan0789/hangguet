@@ -8,6 +8,7 @@ from app.common.gms import Chat
 from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Persona
 from app.interview.company import (
     BUSINESS_TITLE,
+    RECENT_TITLE,
     TALENT_TITLE,
     CompanyItem,
     company_items,
@@ -27,15 +28,19 @@ _COMPANY_GUIDES: Mapping[Persona, str] = {
         f"- [{BUSINESS_TITLE}]이 주어지면 경험과 이어지는 경우에만 "
         "경험을 회사 사업 방향·시장과 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
+        f"- [{RECENT_TITLE}]가 주어지면 경험과 이어지는 경우에만 사업 관련 이슈와 연결해 묻는다\n"
     ),
     Persona.DEVIL: (
         f"- [{TALENT_TITLE}]이 주어지면 자소서 주장을 회사 인재상과 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
+        f"- [{RECENT_TITLE}]가 주어지면 자소서 주장과 이어지는 경우 "
+        "그 이슈에 대한 지원자의 판단을 묻는다\n"
     ),
     Persona.DUCK: (
         f"- [{TALENT_TITLE}]이나 [{BUSINESS_TITLE}]이 주어지면 "
         "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다. "
         "주어지지 않은 회사 정보를 전제로 묻지 않는다\n"
+        f"- [{RECENT_TITLE}]가 주어지면 경험과 이어지는 경우에만 이슈와 연결해 묻는다\n"
     ),
 }
 

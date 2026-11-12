@@ -5,7 +5,8 @@
 형식이 맞지 않는 항목은 질문 생성을 실패시키지 않고 건너뛴다.
 연결 후보는 카드 항목의 분류값으로 코드가 선별한다(AI 명세 2장 회사 카드 사용).
 - 인재상 항목은 분류값(criterion)이 주장의 인재상 기준에 있을 때, 그 주장과만 연결할 수 있다.
-- 사업 방향·시장 항목은 분류값(ncs_subcategories)에 지원 직무의 NCS 세분류가 있을 때 후보다.
+- 사업 방향·시장·최근 이슈 항목은 분류값(ncs_subcategories)에 지원 직무의 NCS 세분류가 있을 때
+  후보다.
 - 분류값이 없는 항목은 후보가 아니다. 분류값을 추가하기 전에 만든 카드나
   분류에 실패한 항목에는 분류값이 없다(AI 명세 8장).
 후보마다 co1부터 번호를 매기고, 모델이 질문에 연결한 번호를 검사할 때 이 번호를 사용한다.
@@ -20,6 +21,7 @@ from app.worker.messages import Claim
 
 TALENT_TITLE = "회사 인재상"
 BUSINESS_TITLE = "회사 사업 방향·시장"
+RECENT_TITLE = "회사 최근 이슈"
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,17 @@ def _talent_candidates(card: Mapping[str, Any], claims: Sequence[Claim]) -> list
     return candidates
 
 
+def _matching_summary(entry: Mapping[str, Any], subcategories: Collection[str]) -> str | None:
+    """분류값에 지원 직무 세분류가 있으면 항목의 요약을, 없으면 None을 반환한다."""
+    summary = _texts(entry.get("summary"))
+    classified = entry.get("ncs_subcategories")
+    if not summary or not isinstance(classified, list):
+        return None
+    if not any(name in subcategories for name in classified):
+        return None
+    return summary[0]
+
+
 def _business_candidates(
     card: Mapping[str, Any], subcategories: Collection[str]
 ) -> list[Candidate]:
@@ -95,21 +108,33 @@ def _business_candidates(
     candidates: list[Candidate] = []
     for key, label in (("direction", "사업 방향"), ("market", "시장")):
         for entry in _entries(card, key):
-            summary = _texts(entry.get("summary"))
-            classified = entry.get("ncs_subcategories")
-            if not summary or not isinstance(classified, list):
-                continue
-            if any(name in subcategories for name in classified):
-                candidates.append((f"{label}: {summary[0]}", None))
+            summary = _matching_summary(entry, subcategories)
+            if summary is not None:
+                candidates.append((f"{label}: {summary}", None))
     return candidates
 
 
-# 악마 면접관은 자소서 주장을 회사 인재상과, 개발자 면접관은 경험을 회사 사업과 연결하고,
-# 오리 면접관은 두 가지를 모두 사용한다(AI 명세 2장)
+def _recent_candidates(card: Mapping[str, Any], subcategories: Collection[str]) -> list[Candidate]:
+    """최근 이슈 항목 중 분류값에 지원 직무 세분류가 있는 항목을 「기사 날짜: 요약」으로 반환한다.
+
+    질문이 언제의 이슈인지 드러나도록 기사 날짜를 함께 전달한다. 날짜가 없으면 요약만 전달한다.
+    """
+    candidates: list[Candidate] = []
+    for entry in _entries(card, "recent"):
+        summary = _matching_summary(entry, subcategories)
+        if summary is None:
+            continue
+        published = _texts(entry.get("published"))
+        candidates.append((f"{published[0]}: {summary}" if published else summary, None))
+    return candidates
+
+
+# 악마 면접관은 인재상·최근 이슈, 개발자 면접관은 사업 방향·시장·최근 이슈,
+# 오리 면접관은 전부 사용한다(AI 명세 2장)
 _SECTIONS: Mapping[Persona, Sequence[str]] = {
-    Persona.DEVIL: (TALENT_TITLE,),
-    Persona.COFFEE_CHAT: (BUSINESS_TITLE,),
-    Persona.DUCK: (TALENT_TITLE, BUSINESS_TITLE),
+    Persona.DEVIL: (TALENT_TITLE, RECENT_TITLE),
+    Persona.COFFEE_CHAT: (BUSINESS_TITLE, RECENT_TITLE),
+    Persona.DUCK: (TALENT_TITLE, BUSINESS_TITLE, RECENT_TITLE),
 }
 
 
@@ -121,6 +146,8 @@ def _candidates(
 ) -> list[Candidate]:
     if title == TALENT_TITLE:
         return _talent_candidates(card, claims)
+    if title == RECENT_TITLE:
+        return _recent_candidates(card, subcategories)
     return _business_candidates(card, subcategories)
 
 

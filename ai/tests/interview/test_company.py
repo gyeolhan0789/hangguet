@@ -39,7 +39,13 @@ CARD: dict[str, Any] = {
             "ncs_subcategories": ["IT마케팅", "DB엔지니어링"],
         }
     ],
-    "recent": [{"summary": "새 결제 서비스 출시", "published": "2026-10-30"}],
+    "recent": [
+        {
+            "summary": "새 결제 서비스 출시",
+            "published": "2026-10-30",
+            "ncs_subcategories": ["응용SW엔지니어링"],
+        }
+    ],
 }
 CLAIMS = (
     Claim("c1", "장애를 직접 수습했다", ClaimType.EXPERIENCE, 3, ("책임·주도성",)),
@@ -54,20 +60,24 @@ def items(card: Any, persona: Persona, subcategories: tuple[str, ...] = BACKEND)
     return company_items(card, persona, CLAIMS, subcategories)
 
 
-def test_devil_talent_items_list_claims_with_same_criterion() -> None:
-    """인재상 항목은 분류값이 주장의 인재상 기준에 있을 때만 후보이고, 그 주장과만 연결한다."""
+def test_devil_uses_talent_and_recent_issues() -> None:
+    """악마 면접관은 인재상·최근 이슈를 사용한다(AI 명세 2장).
+
+    인재상 항목은 분류값이 주장의 인재상 기준에 있을 때만 후보이고, 그 주장과만 연결한다.
+    """
     assert items(CARD, Persona.DEVIL) == [
         CompanyItem("co1", "회사 인재상", "해결: 스스로 문제를 정의하고 해결한다", ("c1", "c3")),
         CompanyItem(
             "co2", "회사 인재상", "고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게", ("c2",)
         ),
+        CompanyItem("co3", "회사 최근 이슈", "2026-10-30: 새 결제 서비스 출시", None),
     ]
 
 
 def test_talent_without_claim_of_same_criterion_is_not_candidate() -> None:
     claims = (CLAIMS[1],)
 
-    result = company_items(CARD, Persona.DEVIL, claims, BACKEND)
+    result = company_items({"talent": CARD["talent"]}, Persona.DEVIL, claims, BACKEND)
 
     assert [item.text for item in result] == ["고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게"]
 
@@ -101,11 +111,15 @@ def test_broken_or_unclassified_talent_items_are_skipped(talent: Any) -> None:
     assert items({"talent": talent}, Persona.DEVIL) == []
 
 
-def test_coffee_chat_business_items_need_job_subcategory() -> None:
-    """사업 방향·시장 항목은 분류값에 지원 직무 세분류가 있을 때만 후보이고 주장 제한이 없다."""
+def test_coffee_chat_business_and_recent_items_need_job_subcategory() -> None:
+    """개발자 면접관은 사업 방향·시장·최근 이슈를 사용한다(AI 명세 2장).
+
+    분류값에 지원 직무 세분류가 있는 항목만 후보이고 주장 제한이 없다.
+    """
     assert items(CARD, Persona.COFFEE_CHAT) == [
         CompanyItem("co1", "회사 사업 방향·시장", "사업 방향: 해외 결제 확대", None),
         CompanyItem("co2", "회사 사업 방향·시장", "시장: 간편결제 점유율 1위", None),
+        CompanyItem("co3", "회사 최근 이슈", "2026-10-30: 새 결제 서비스 출시", None),
     ]
     assert [item.text for item in items(CARD, Persona.COFFEE_CHAT, ("DB엔지니어링",))] == [
         "시장: 간편결제 점유율 1위"
@@ -123,27 +137,42 @@ def test_coffee_chat_business_items_need_job_subcategory() -> None:
         pytest.param({"ncs_subcategories": ["응용SW엔지니어링"]}, id="no-summary"),
     ],
 )
-def test_business_items_without_matching_subcategory_are_skipped(entry: dict[str, Any]) -> None:
-    assert items({"direction": [entry], "market": None}, Persona.COFFEE_CHAT) == []
+@pytest.mark.parametrize("section", ["direction", "market", "recent"])
+def test_items_without_matching_subcategory_are_skipped(
+    entry: dict[str, Any], section: str
+) -> None:
+    assert items({section: [entry]}, Persona.COFFEE_CHAT) == []
+
+
+def test_recent_issue_without_published_date_keeps_summary_only() -> None:
+    card = {
+        "recent": [{"summary": "새 결제 서비스 출시", "ncs_subcategories": ["응용SW엔지니어링"]}]
+    }
+
+    assert [item.text for item in items(card, Persona.COFFEE_CHAT)] == ["새 결제 서비스 출시"]
 
 
 def test_job_without_subcategory_has_no_business_items() -> None:
-    """직무 묶음에 해당하지 않는 직무명은 세분류가 없어 사업 방향·시장 항목을 연결하지 않는다."""
+    """직무 묶음에 해당하지 않는 직무명은 세분류가 없어 사업 방향·시장·최근 이슈 항목을
+    연결하지 않는다.
+    """
     assert items(CARD, Persona.COFFEE_CHAT, ()) == []
 
 
-def test_duck_uses_talent_then_business_with_continued_numbers() -> None:
-    """오리 면접관은 인재상과 사업 방향·시장을 모두 사용하고, 번호가 겹치지 않게 이어서 매긴다.
+def test_duck_uses_all_sections_with_continued_numbers() -> None:
+    """오리 면접관은 인재상·사업 방향·시장·최근 이슈를 모두 사용한다.
 
+    번호는 구역이 바뀌어도 겹치지 않게 이어서 매기고,
     인재상 항목 줄에는 연결할 수 있는 주장을 함께 작성한다.
     """
     result = items(CARD, Persona.DUCK)
 
-    assert [item.id for item in result] == ["co1", "co2", "co3", "co4"]
+    assert [item.id for item in result] == ["co1", "co2", "co3", "co4", "co5"]
     assert company_section(result) == (
         "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다 (연결 가능한 주장: c1, c3)\n"
         "co2 고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게 (연결 가능한 주장: c2)\n\n"
-        "[회사 사업 방향·시장]\nco3 사업 방향: 해외 결제 확대\nco4 시장: 간편결제 점유율 1위"
+        "[회사 사업 방향·시장]\nco3 사업 방향: 해외 결제 확대\nco4 시장: 간편결제 점유율 1위\n\n"
+        "[회사 최근 이슈]\nco5 2026-10-30: 새 결제 서비스 출시"
     )
 
 
@@ -158,7 +187,7 @@ def test_duck_skips_section_without_candidates() -> None:
 @pytest.mark.parametrize("persona", list(Persona))
 @pytest.mark.parametrize(
     "card",
-    [None, {}, {"talent": [], "direction": [], "market": []}],
+    [None, {}, {"talent": [], "direction": [], "market": [], "recent": []}],
     ids=["none", "empty", "blank"],
 )
 def test_no_items_and_section_without_usable_entries(card: Any, persona: Persona) -> None:
