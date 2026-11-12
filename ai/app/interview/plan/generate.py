@@ -4,7 +4,8 @@
   근거 문장과 맞는 주장이 하나도 없는 경우도 질문을 생성할 수 없으므로 같이 처리한다.
 - claimId가 없는 주장을 가리키면 질문 5개를 다시 생성하지 않고 그 질문만 1회 다시 생성한다.
   올바른 질문까지 다시 생성하면 GMS 호출이 늘고 이미 검증한 질문이 변경되기 때문이다.
-- 면접관 기준이 드러나지 않은 주장(targetClaims 밖)을 가리킨 질문도 같은 방식으로 다시 생성한다.
+- 질문 생성에는 주장의 인재상 기준(talentCriteria)이 면접관 기준과 겹치는 주장만 전달하고,
+  전달하지 않은 주장을 가리킨 질문도 같은 방식으로 다시 생성한다(AI 명세 2장 면접관별 주장 선택).
 - 회사 정보와 연결한 질문 수나 항목 번호가 어긋나면 질문 5개를 1회 다시 요청한다.
   다시 요청해도 어긋나면 플랜 생성이 실패하지 않도록 그대로 사용한다.
 - 재시도해도 실패하면 PlanFailedError를 발생시킨다.
@@ -24,7 +25,6 @@ from app.interview.plan.llm import PlanFailedError, PlanOutputError
 from app.interview.plan.questions import (
     Question,
     QuestionSet,
-    TargetClaim,
     check_company_links,
     check_question_set,
     request_question,
@@ -58,7 +58,7 @@ def _question_set(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Question
             # 마지막 시도는 검사하지 않는다
             if attempt < STRUCTURE_RETRIES:
                 check_company_links(questions, item_ids, job.persona)
-            return QuestionSet(questions, result.model, result.targets)
+            return QuestionSet(questions, result.model)
         except (GmsBadOutputError, PlanOutputError) as e:
             log.warning("질문 생성 출력 구조 깨짐 %d회: %s", attempt + 1, e)
     raise PlanFailedError("질문 생성 출력 구조가 재시도 후에도 깨져 있다")
@@ -78,24 +78,16 @@ def _regenerate(chat: Chat, job: PlanJob, claims: Sequence[Claim], seq: int) -> 
     raise PlanFailedError(f"{seq}번 질문의 claimId가 다시 생성한 뒤에도 주장 목록에 없다")
 
 
-def _criteria(criterion: str) -> set[str]:
-    return {name.strip() for name in criterion.split(",")}
+def select_claims(claims: Sequence[Claim], persona: Persona) -> tuple[Claim, ...]:
+    """주장의 인재상 기준이 그 면접관 기준과 하나 이상 겹치는 주장만 반환한다(AI 명세 2장).
 
-
-def target_claims(
-    claims: Sequence[Claim], targets: Sequence[TargetClaim], persona: Persona
-) -> tuple[Claim, ...]:
-    """면접관 기준이 드러났다고 GMS가 고른 주장 중 기준 이름이 그 면접관의 기준인 것만 반환한다.
-
-    프롬프트로 기준을 지정해도 기준이 드러나지 않은 주장으로 질문이 생성되므로
-    코드에서 질문에 사용할 수 있는 주장을 제한한다(plan-v3 GMS 실측).
-    해당하는 주장이 없으면 면접 종류와 맞지 않는 자기소개서이므로
+    주장을 지원서 단위로 저장해 여러 면접관이 함께 사용하므로,
+    질문 생성 모델이 면접마다 주장을 고르지 않고 주장 추출 때 분류한 기준으로 먼저 고른다.
+    겹치는 주장이 없으면 면접 종류와 맞지 않는 자기소개서이므로
     플랜 생성이 실패하지 않도록 모든 주장을 사용한다.
     """
     allowed = criteria_names(persona)
-    # 모델이 한 주장에 기준을 쉼표로 여러 개 작성하므로(gpt-6-astra 실측) 하나라도 맞으면 인정한다
-    ids = {t.claim_id for t in targets if allowed & _criteria(t.criterion)}
-    selected = tuple(c for c in claims if c.id in ids)
+    selected = tuple(c for c in claims if allowed & set(c.talent_criteria))
     if not selected:
         log.warning("면접관 기준이 드러난 주장이 없어 모든 주장을 사용한다 persona=%s", persona)
         return tuple(claims)
@@ -103,8 +95,8 @@ def target_claims(
 
 
 def generate_questions(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> QuestionSet:
-    result = _question_set(chat, job, claims)
-    usable = target_claims(claims, result.targets, job.persona)
+    usable = select_claims(claims, job.persona)
+    result = _question_set(chat, job, usable)
     claim_ids = {c.id for c in usable}
     questions = tuple(
         q if q.claim_id in claim_ids else _regenerate(chat, job, usable, q.seq)

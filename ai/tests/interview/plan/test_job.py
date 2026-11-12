@@ -42,17 +42,11 @@ CLAIMS = {
         },
     ]
 }
-# 개발자 면접관 기준이 드러난 주장(AI 명세 2장)
-TARGETS = [
-    {"claimId": "c1", "criterion": "실행·성과", "evidence": "40% 줄였다"},
-    {"claimId": "c2", "criterion": "전문성·성장", "evidence": "캐시 계층을 설계했다"},
-]
 QUESTIONS = {
-    "targetClaims": TARGETS,
     "questions": [question(seq, "c2" if seq % 2 == 0 else "c1") for seq in range(1, 6)],
 }
 BROKEN_CLAIMS: dict[str, Any] = {"claims": []}
-FOUR_QUESTIONS = {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 5)]}
+FOUR_QUESTIONS = {"questions": [question(seq) for seq in range(1, 5)]}
 
 
 def make(
@@ -118,6 +112,26 @@ def test_publishes_progress_then_completed_plan() -> None:
             "modelVersion": "gms-served",
         },
     ]
+
+
+def test_completed_plan_keeps_claims_not_passed_to_question_generation() -> None:
+    """결과에는 질문 생성에 전달하지 않은 주장도 모두 담는다(AI 명세 2장).
+
+    결과 생성(EVALUATE)이 면접 계획의 주장 전체로 자기소개서를 대조하기 때문이다.
+    """
+    claims = {
+        "claims": [
+            CLAIMS["claims"][0],
+            {**CLAIMS["claims"][1], "talentCriteria": ["협력·소통"]},
+        ]
+    }
+    chat = FakeChat([claims, {"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(JOB)
+
+    assert "c2 " not in chat.calls[1][1]["content"]
+    assert [c["id"] for c in pushed(redis)[-1]["claims"]] == ["c1", "c2"]
 
 
 def test_model_version_is_question_step_model() -> None:

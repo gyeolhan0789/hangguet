@@ -42,13 +42,9 @@ def question_system(persona: Persona) -> str:
         "너는 지원자의 자기소개서 주장을 검증하는 면접 질문을 생성한다. "
         "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
         f"{_guide(persona)}"
-        "- targetClaims: 질문을 생성하기 전에 위 기준 중 하나 이상이 드러난 주장을 고른다. "
-        "주장마다 claimId, 드러난 기준 이름(criterion), "
-        "그 기준이 드러난 자기소개서 표현(evidence)을 작성한다. "
-        "기준이 드러나지 않은 주장은 넣지 않는다\n"
         f"- questions: 정확히 {QUESTION_COUNT}개, seq는 {MIN_SEQ}부터 {MAX_SEQ}까지 하나씩\n"
-        "- claimId: targetClaims에 있는 주장의 id만 그대로 작성한다. "
-        f"targetClaims가 {QUESTION_COUNT}개보다 적으면 "
+        "- claimId: 주장 목록에 있는 주장의 id만 그대로 작성한다. "
+        f"주장이 {QUESTION_COUNT}개보다 적으면 "
         "같은 주장을 위 기준 중 다른 기준으로 나누어 다시 질문하고, "
         "많으면 검증 가치가 큰 주장을 고른다\n"
         "- content: 지원자에게 묻는 질문 한 문장\n"
@@ -59,8 +55,7 @@ def question_system(persona: Persona) -> str:
         "질문 내용이 회사 정보를 다루지 않으면 연결하지 않는다. "
         "연결하지 않은 질문과 회사 정보가 없을 때는 빈 문자열로 작성한다\n"
         "JSON으로만 답한다: "
-        '{"targetClaims": [{"claimId": str, "criterion": str, "evidence": str}], '
-        '"questions": [{"seq": int, "content": str, "criteria": str, "claimId": str, '
+        '{"questions": [{"seq": int, "content": str, "criteria": str, "claimId": str, '
         '"companyItem": str}]}'
     )
 
@@ -76,20 +71,10 @@ class Question:
 
 
 @dataclass(frozen=True)
-class TargetClaim:
-    """면접관 기준이 드러난 주장. GMS 응답 안에서만 사용하고 플랜에는 저장하지 않는다."""
-
-    claim_id: str
-    criterion: str
-    evidence: str
-
-
-@dataclass(frozen=True)
 class QuestionSet:
     questions: tuple[Question, ...]
     # GMS 응답의 모델 이름이다
     model: str
-    targets: tuple[TargetClaim, ...] = ()
 
 
 def claims_text(claims: Sequence[Claim]) -> str:
@@ -117,27 +102,6 @@ def _text(item: dict[str, Any], key: str, field: str = "questions") -> str:
     if not isinstance(value, str) or not value.strip():
         raise PlanOutputError(f"{field}.{key}가 없다")
     return value.strip()
-
-
-def parse_target(item: Any) -> TargetClaim:
-    if not isinstance(item, dict):
-        raise PlanOutputError("targetClaims 항목이 객체가 아니다")
-    return TargetClaim(
-        _text(item, "claimId", "targetClaims"),
-        _text(item, "criterion", "targetClaims"),
-        _text(item, "evidence", "targetClaims"),
-    )
-
-
-def parse_targets(content: dict[str, Any]) -> tuple[TargetClaim, ...]:
-    """대상 주장 항목의 형식만 검사한다.
-
-    주장 id와 기준 이름은 결과 검증 단계가 검사한다.
-    """
-    raw = content.get("targetClaims")
-    if not isinstance(raw, list):
-        raise PlanOutputError("targetClaims가 목록이 아니다")
-    return tuple(parse_target(item) for item in raw)
 
 
 def parse_question(item: Any) -> Question:
@@ -173,7 +137,7 @@ def parse_questions(content: dict[str, Any]) -> tuple[Question, ...]:
 def request_questions(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> QuestionSet:
     """GMS를 한 번 호출해 질문과 채점 기준을 생성한다."""
     result = chat(build_question_messages(job, claims))
-    return QuestionSet(parse_questions(result.content), result.model, parse_targets(result.content))
+    return QuestionSet(parse_questions(result.content), result.model)
 
 
 def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
