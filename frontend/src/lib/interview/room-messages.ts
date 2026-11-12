@@ -52,7 +52,6 @@ export const attitudeMessageSchema = z.object({
   sessionId: z.number().int().positive(),
   score: z.number().int().min(0).max(100).nullable(),
 });
-export type AttitudeMessage = z.infer<typeof attitudeMessageSchema>;
 /** 받은 면접 태도 점수와 받은 시각(performance.now) */
 export interface AttitudeSample {
   score: number | null;

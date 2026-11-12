@@ -9,10 +9,10 @@ import { useInterviewStore } from "@/stores/interview-store";
 
 // 기준: Figma 면접 태도 타일(531:2386 S06 측정 중 · 531:2475 상태 모음: 측정 중 · 얼굴 확인 중 · 대기 · 접힘
 // · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude(0~100, 얼굴을 확인할 수 없으면 null)
-// · 사용자 결정(2026-11-12: 내 카메라 아래 · 숫자 하나와 선 하나 · 설명 문구 없음 · 최근 30초 · 모바일은 접힌 채 시작)
+// · 사용자 결정(2026-11-12: 내 카메라 아래 · 숫자 하나와 선 하나 · 설명 문구 없음 · 최근 30초)
 
 /** 대기: 답할 차례가 아니다 · 측정 중: 마지막 점수가 있다 · 얼굴 확인 중: 답하는 중인데 마지막 점수가 없다(null) */
-export type AttitudeStatus = "idle" | "measuring" | "checking";
+type AttitudeStatus = "idle" | "measuring" | "checking";
 
 const STATUS_LABEL: Record<AttitudeStatus, string> = {
   idle: "대기",
@@ -29,7 +29,7 @@ export function attitudeView(samples: readonly AttitudeSample[], answering: bool
   return { status, score: status === "idle" ? null : latest };
 }
 
-/** S06 화상: 내 카메라 아래 면접 태도 타일. 접으면 한 줄로 줄어든다(모바일은 접힌 채 시작) */
+/** S06 화상: 내 카메라 아래 면접 태도 타일. 접으면 한 줄로 줄어든다 */
 export function AttitudeTile({
   samples,
   answering,

@@ -45,7 +45,7 @@ export interface RoomPresentation {
 }
 
 /** 면접 태도 그래프에 남기는 기간. 이보다 오래된 점수는 버린다(사용자 결정 2026-11-12: 최근 30초 추이) */
-export const ATTITUDE_HISTORY_MS = 30_000;
+const ATTITUDE_HISTORY_MS = 30_000;
 
 /** 최근 30초 점수만 남긴다. 점수는 바뀔 때만 오므로 30초 전에 받은 마지막 점수는 그때까지 이어진 값이라, 30초 경계로 옮겨 남긴다 */
 function recentAttitude(samples: readonly AttitudeSample[], now: number): AttitudeSample[] {
