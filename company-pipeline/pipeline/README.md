@@ -6,23 +6,25 @@
 ```
 companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 ⑤ 뉴스 수집(규칙으로 거르기 → 같은 사건 묶기) ───────┴→ ③ LLM 요약(원문 인용) → ④ 인용 검증
+                                                      → ④-2 분류값(인재상 기준)
                                                       → data/cards/{고유번호}.json
                                                       → ⑥ 카드 올리기(AWS 공용 버킷, BE가 적재)
 ```
 
 ③은 항목마다 LLM을 따로 부른다(인재상, 사업 방향, 경쟁·시장, 최근 이슈 → 회사당 최대 4번). 원문이 없는 항목은 부르지 않는다.
 인재상은 요약하지 않고 원문 구조(항목명·상위 범주·설명 구절)를 그대로 옮기는 추출이라 프롬프트를 `talent_prompt.txt`에 두고, `TALENT_LLM_MODEL`로 다른 모델을 쓸 수 있다.
+④-2는 검증을 통과한 인재상 항목에 인재상 기준을 부여한다(`classify.py`, `TALENT_LLM_MODEL`로 1번 호출). 질문 생성이 회사 항목과 자소서 주장의 연결 후보를 선별할 때 사용한다(AI 명세 8장).
 
 ## 카드 형식
 
-`data/cards/{DART 고유번호}.json` 하나가 회사 하나다. 예시(삼성SDI, 항목마다 첫 번째만. 인재상은 card-v9 형식):
+`data/cards/{DART 고유번호}.json` 하나가 회사 하나다. 예시(삼성SDI, 항목마다 첫 번째만. card-v10 형식):
 
 ```json
 {
   "corp_code": "00126362",
   "name": "삼성SDI",
   "generated_at": "2026-10-23",
-  "prompt_version": "card-v9",
+  "prompt_version": "card-v10",
   "model": "gpt-4.1-mini",
   "talent_model": "gpt-5.6-terra",
   "report": {"rcept_no": "20260317000521", "title": "사업보고서 (2025.12)",
@@ -33,7 +35,7 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
   "talent": [
     {"title": "Passion and Challenge", "parent": null,
      "details": ["열정과 도전", "끊임없는 열정으로 미래에 도전하는 인재"],
-     "source": "https://www.samsungsdi.co.kr/career/index.html"}
+     "source": "https://www.samsungsdi.co.kr/career/index.html", "criterion": "도전·혁신"}
   ],
   "direction": [
     {"summary": "전지 사업 중심 시설투자 계획",
@@ -60,13 +62,14 @@ companies.json → ① 공시 수집 → ② 사업의 내용 추출 ┐
 | `generated_at`, `prompt_version`, `model`, `talent_model` | 카드를 만든 날, 프롬프트 버전, LLM 모델, 인재상에 쓴 모델 (최근 이슈만 갱신해도 `generated_at`이 바뀐다) |
 | `report` | `direction`·`market`을 뽑은 사업보고서. `rcept_no` DART 접수번호, `title` 보고서명, `url` DART 공시 화면, `published` 접수일. 사업보고서가 없으면 `null` |
 | `talent_page` | `talent`를 뽑은 인재상 원문. `url` 채용 페이지 주소, `collected_at` 복사한 날. 인재상 원문이 없으면 `null` |
-| `talent[]` | 원문에 나열된 인재상·행동 원칙마다 하나(개수 제한 없음). `title` 항목명 또는 원칙 문장, `parent` 상위 범주(없으면 `null`), `details` 설명 구절 배열(없으면 `[]`)로 셋 다 원문 그대로. `source` 채용 페이지 주소. 상위 범주 아래 세부 항목이 있으면 세부 항목이 하나씩 들어간다 |
+| `talent[]` | 원문에 나열된 인재상·행동 원칙마다 하나(개수 제한 없음). `title` 항목명 또는 원칙 문장, `parent` 상위 범주(없으면 `null`), `details` 설명 구절 배열(없으면 `[]`)로 셋 다 원문 그대로. `source` 채용 페이지 주소. 상위 범주 아래 세부 항목이 있으면 세부 항목이 하나씩 들어간다. `criterion`은 항목 내용과 가장 가까운 인재상 기준 이름 하나다(`shared/company_taxonomy`의 12개 중 하나) |
 | `direction[]` | 앞으로 집중·강화하려는 사업 방향 1~3개. `summary` 요약, `quote` 사업보고서 원문 그대로, `source` 출처 이름 |
 | `market[]` | 경쟁 위치(점유율·주요 고객·경쟁사 등) 1~3개. 필드는 `direction`과 같다 |
 | `recent[]` | 최근 30일 이슈 1~3개. `summary` 요약, `quote` 기사 제목·요약 원문, `source` 기사 링크, `published` 기사 날짜, `articles` 같은 사건 기사 수 |
 
 - 모든 `quote`는 원문에 글자 그대로 있는지 검사를 통과한 것만 남는다(④). 인재상은 `title`·`parent`·`details`가 모두 원문에 그대로 있어야 한다. 그래서 항목이 0개일 수 있다
 - card-v8 이전 카드의 인재상은 `keyword`·`quote` 형식이다. 확인 화면은 두 형식을 모두 보여 준다
+- 모델이 기준 목록에 없는 이름을 작성하거나 분류 호출이 실패한 인재상 항목은 `criterion` 없이 저장되고 WARNING 로그가 남는다. card-v10 이전에 만든 카드에도 `criterion`이 없다. 이런 항목은 Airflow `company_cards_classify`(▶)가 채운다. 항목 문장은 다시 추출하지 않고, 이미 `criterion`이 있는 항목과 `prompt_version`·`generated_at`은 변경하지 않는다
 - 사업보고서가 없는 회사(비상장 등)는 `direction`·`market`이 빈 배열인 **부분 카드**다
 - 인재상 원문이 없는 회사는 `talent`가 빈 배열이다
 - `report`·`talent_page`는 카드 전체 생성 때 채운다(2026-10-30 추가). 그 전에 만든 카드에는 칸이 없고, 매일 작업(최근 이슈만 갱신)은 기존 칸을 그대로 둔다. 그래서 칸이 없는 카드를 다시 채우려면 카드 전체 생성을 한 번 돌린다
@@ -135,7 +138,7 @@ uv run --env-file .env python -m pipeline.candidates 후보.txt
 | `LLM_MODEL` | 모델 이름 |
 | `LLM_API_KEY` | API 키 (로컬 모델은 비움) |
 | `LLM_REASONING_EFFORT` | 생각 모드가 있는 로컬 모델에서 끌 때 `none` (gpt-4 계열은 비움) |
-| `TALENT_LLM_MODEL` | 인재상 추출에만 쓰는 모델 (비우면 `LLM_MODEL`). gpt-4.1-mini는 계층형 인재상(분류 > 세부 항목)의 구분을 지키지 못해 더 강한 모델을 쓴다 |
+| `TALENT_LLM_MODEL` | 인재상 추출과 분류값(④-2)에 사용하는 모델 (비우면 `LLM_MODEL`). gpt-4.1-mini는 계층형 인재상(분류 > 세부 항목)의 구분을 지키지 못해 더 강한 모델을 사용한다 |
 | `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` | developers.naver.com 애플리케이션의 검색 API 키 |
 | `EMBED_URL`, `EMBED_MODEL`, `EMBED_API_KEY` | 기사 묶기용 embeddings 주소·모델·키 (비우면 로컬 Ollama `bge-m3`) |
 | `SAME_EVENT` | 같은 사건 묶기 기준값. 기본 0.58(text-embedding-3-large), bge-m3면 0.65 |

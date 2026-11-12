@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from pipeline import card, dart, run, storage
+from pipeline import card, classify, dart, run, storage
 
 REPORT = """<TITLE AASSOCNOTE="D-0-2-0-0">II. 사업의 내용</TITLE>
 <P>1. 사업의 개요</P><P>당사는 AI 인프라 사업에 더욱 집중할 계획입니다.</P>
@@ -59,6 +59,8 @@ def test_build_one_asks_talent_and_direction_separately(
         calls.append((messages[0]["content"], model))
         if messages[0]["content"] == card.TALENT_SYSTEM:
             return {"items": [{"title": "협업", "parent": None, "details": ["우리는 협업합니다."]}]}
+        if messages[0]["content"] == classify.CRITERION_SYSTEM:
+            return {"items": [{"no": 1, "criterion": "협력·소통"}]}
         return {"direction": [{"summary": "AI 인프라", "quote": "AI 인프라 사업에 더욱 집중할"}]}
 
     monkeypatch.setattr(card, "call_llm", fake)
@@ -67,11 +69,16 @@ def test_build_one_asks_talent_and_direction_separately(
 
     saved = json.loads(run.build_one(company, tmp_path).read_text(encoding="utf-8"))
 
-    # 인재상만 TALENT_LLM_MODEL로, 사업 방향은 기본 모델(LLM_MODEL)로 부른다
-    assert calls == [(card.TALENT_SYSTEM, "strong-model"), (card.DIRECTION_SYSTEM, None)]
+    # 인재상 추출과 분류값은 TALENT_LLM_MODEL로, 사업 방향은 기본 모델(LLM_MODEL)로 호출한다.
+    # 분류값은 인용 검증을 통과한 항목에만 부여하므로 검증 뒤에 호출한다
+    assert calls == [
+        (card.TALENT_SYSTEM, "strong-model"),
+        (card.DIRECTION_SYSTEM, None),
+        (classify.CRITERION_SYSTEM, "strong-model"),
+    ]
     assert saved["talent_model"] == "strong-model"
-    talent = [(t["title"], t["details"]) for t in saved["talent"]]
-    assert talent == [("협업", ["우리는 협업합니다."])]
+    talent = [(t["title"], t["details"], t["criterion"]) for t in saved["talent"]]
+    assert talent == [("협업", ["우리는 협업합니다."], "협력·소통")]
     assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
 
 

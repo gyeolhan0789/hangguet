@@ -4,6 +4,8 @@
   → 확인 화면 데이터 갱신·카드 올리기
 - company_cards_full: 수동 실행. 회사별 기사 수집 → 카드 전체 생성 (프롬프트·보고서 변경, 회사 추가)
   → 확인 화면 데이터 갱신·카드 올리기
+- company_cards_classify: 수동 실행. 저장된 카드에서 분류값이 없는 항목만 채움
+  → 확인 화면 데이터 갱신·카드 올리기
 """
 
 import json
@@ -51,6 +53,12 @@ def build_card(company: dict[str, str]) -> str:
     return str(run.build_one(company))
 
 
+# 이미 분류값이 있는 항목은 건너뛰므로 다시 시도해도 분류된 값이 변경되지 않는다
+@task(pool="llm", **RETRY)
+def fill_classification() -> list[str]:
+    return [str(path) for path in run.fill_classification()]
+
+
 # 일부 회사가 실패해도 성공한 카드로 확인 화면을 갱신한다
 @task(trigger_rule="all_done")
 def write_viewer() -> str:
@@ -92,5 +100,15 @@ def company_cards_full() -> None:
     built >> [write_viewer(), publish_cards(), all_companies_ok()]
 
 
+@dag(
+    schedule=None,
+    start_date=pendulum.datetime(2026, 10, 21, tz="Asia/Seoul"),
+    tags=["company-card"],
+)
+def company_cards_classify() -> None:
+    fill_classification() >> [write_viewer(), publish_cards()]
+
+
 company_news_daily()
 company_cards_full()
+company_cards_classify()
