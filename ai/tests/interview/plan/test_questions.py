@@ -443,3 +443,24 @@ def test_question_format_depends_on_linked_company_item(persona: Persona) -> Non
         build_regenerate_messages(job, CLAIMS, 3),
     ):
         assert FORMAT_RULES in messages[0]["content"]
+
+
+# 기준: AI 명세 2장 회사 카드 사용(회사 연결 질문의 채점 기준)
+CRITERIA_RULES = (
+    "- 회사 항목과 연결한 질문의 criteria에는 그 항목의 내용을 좋은 답변이 갖춰야 할 내용으로 "
+    "포함한다. 지원자가 회사 이름이나 회사 항목을 직접 말하도록 요구하지 않는다. "
+    "회사 이름·제품명이나 '회사 사업 방향' 같은 표현 없이, 항목의 내용을 답변이 다룰 상황으로 "
+    "작성한다(예: 배송·결제 속도가 경쟁 요소인 상황의 문제 정의 · 적용 방법과 이유 · 확인 방법)\n"
+)
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_linked_question_criteria_include_company_item(persona: Persona) -> None:
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 회사 연결 질문의 채점 기준을 지시한다."""
+    job = replace(JOB, persona=persona)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert CRITERIA_RULES in messages[0]["content"]

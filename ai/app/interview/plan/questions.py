@@ -60,9 +60,24 @@ _FORMAT_RULES = (
 )
 
 
+# 회사 항목과 연결한 질문의 채점 기준(AI 명세 2장 회사 카드 사용).
+# 답변 채점(AI 명세 3장)은 회사 카드를 받지 않으므로 채점 기준으로 회사 정보를 반영한다.
+# 채점 기준에 회사를 주어로 작성하면 답변 채점이 회사를 언급하지 않은 답변을 감점할 수 있으므로
+# 항목 내용을 답변이 다룰 상황으로 작성하게 한다(GMS 실측)
+_CRITERIA_RULES = (
+    "- 회사 항목과 연결한 질문의 criteria에는 그 항목의 내용을 좋은 답변이 갖춰야 할 내용으로 "
+    "포함한다. 지원자가 회사 이름이나 회사 항목을 직접 말하도록 요구하지 않는다. "
+    "회사 이름·제품명이나 '회사 사업 방향' 같은 표현 없이, 항목의 내용을 답변이 다룰 상황으로 "
+    "작성한다(예: 배송·결제 속도가 경쟁 요소인 상황의 문제 정의 · 적용 방법과 이유 · 확인 방법)\n"
+)
+
+
 def _guide(persona: Persona) -> str:
     return (
-        interviewer_guide(persona, COVER_LETTER) + _COMPANY_GUIDES.get(persona, "") + _FORMAT_RULES
+        interviewer_guide(persona, COVER_LETTER)
+        + _COMPANY_GUIDES.get(persona, "")
+        + _FORMAT_RULES
+        + _CRITERIA_RULES
     )
 
 
