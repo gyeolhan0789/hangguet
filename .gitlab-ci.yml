@@ -1260,7 +1260,10 @@ pipeline-deploy:
     - 'test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }'
     # 코드만 덮어씁니다. 제외한 경로는 --delete 대상에서도 빠집니다.
     - rsync -a --delete --exclude .env --exclude pipeline/data/ --exclude airflow/logs/ --exclude __pycache__/
-      company-pipeline/pipeline company-pipeline/airflow "$DEPLOY_DIR/"
+      company-pipeline/pipeline company-pipeline/airflow shared "$DEPLOY_DIR/"
+    # 공용 패키지는 서버에서 $DEPLOY_DIR/shared에 있어 compose 파일 기준 상대 경로가 로컬(../../shared)과 다르다.
+    # compose가 읽는 airflow/.env에 서버 경로를 기록한다(위 rsync의 --exclude .env로 지워지지 않는다)
+    - echo 'COMPANY_TAXONOMY_DIR=../shared/company_taxonomy' > "$DEPLOY_DIR/airflow/.env"
     - mkdir -p "$DEPLOY_DIR/pipeline/data" "$DEPLOY_DIR/airflow/logs"
     # 컨테이너 안 Airflow는 uid 50000으로 로그·카드를 씁니다. 러너 계정으로는 소유자를 못 바꿔 컨테이너로 바꿉니다.
     - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs

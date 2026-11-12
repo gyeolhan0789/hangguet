@@ -5,6 +5,7 @@ description = "회사 카드 파이프라인 (DART·뉴스·인재상 → 회사
 requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.43",
+    "company-taxonomy",
 ]
 
 [dependency-groups]
@@ -17,6 +18,11 @@ dev = [
 # 배포용 패키지를 만들지 않는 애플리케이션 프로젝트다.
 [tool.uv]
 package = false
+
+# AI와 함께 사용하는 회사 카드 분류 목록(저장소 최상위 공용 패키지). 시험·검사용 설치이며,
+# Airflow 컨테이너는 설치하지 않고 패키지 폴더를 연결해 읽는다(airflow/docker-compose.yaml).
+[tool.uv.sources]
+company-taxonomy = { path = "../shared", editable = true }
 
 # 검사 규칙은 ai/pyproject.toml과 같게 맞춘다.
 [tool.ruff]

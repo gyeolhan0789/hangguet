@@ -39,6 +39,10 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
     - ../pipeline:/opt/ai/pipeline
+    # 공용 패키지(저장소 최상위 shared/)의 회사 카드 분류 목록. PYTHONPATH(/opt/ai)로 company_taxonomy를 import한다.
+    # 이 파일에서 shared/까지의 상대 경로가 로컬(../../shared)과 EC2(../shared)에서 다르므로, EC2는 배포 잡이
+    # airflow/.env에 COMPANY_TAXONOMY_DIR을 기록하고 로컬은 기본값을 사용한다
+    - ${COMPANY_TAXONOMY_DIR:-../../shared/company_taxonomy}:/opt/ai/company_taxonomy:ro
   depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy
@@ -143,6 +147,7 @@ services:
       S3_BUCKET: *bucket
     volumes:
       - ../pipeline:/opt/ai/pipeline
+      - ${COMPANY_TAXONOMY_DIR:-../../shared/company_taxonomy}:/opt/ai/company_taxonomy:ro
     ports:
       - "127.0.0.1:8765:8765"
     depends_on:

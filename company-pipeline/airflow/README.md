@@ -51,7 +51,7 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 
 ```
 develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
-→ 코드를 /opt/a301-pipeline 으로 복사 (.env·pipeline/data·airflow/logs는 그대로)
+→ 코드(pipeline·airflow)와 공용 패키지(shared)를 /opt/a301-pipeline 으로 복사 (.env·pipeline/data·airflow/logs는 그대로)
 → docker compose up -d → scheduler 헬스체크
 ```
 
@@ -62,6 +62,7 @@ develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)
 | API 키 | `/opt/a301-pipeline/.env`에 처음 한 번 직접 둔다(소유자 `gitlab-runner`, 권한 600). git·CI 변수에 두지 않는다. 카드 올리기용 `CARD_S3_BUCKET`·`CARD_AWS_*`도 여기에 더한다 |
 | 메모리 | `AIRFLOW__CORE__PARALLELISM=4`. 기본 32면 실행 프로세스가 약 1GB를 잡아 4GB에서 작업이 메모리 부족으로 죽었다 |
 | 폴더 권한 | 컨테이너 안 Airflow는 uid 50000. 배포 잡이 `pipeline/data`·`airflow/logs` 소유자를 맞춘다 |
+| 공용 패키지 | 회사 카드 분류 목록(`shared/company_taxonomy`)을 컨테이너의 `/opt/ai/company_taxonomy`에 연결한다. 서버 경로는 배포 잡이 `airflow/.env`의 `COMPANY_TAXONOMY_DIR`에 기록한다 |
 | 카드 확인 화면 | `viewer` 컨테이너(127.0.0.1:8765). 매일 작업이 갱신한 `data/viewer_data.js`를 보여 주고 회사 추가도 된다(DART·GMS 키 사용) |
 | 회사 목록 | `COMPANIES_PATH` = `pipeline/data/companies.json`(배포 때 덮어쓰지 않음). 처음 한 번 git 목록을 복사하고, 그 뒤로는 화면에서 추가한 회사가 쌓인다 |
 | 공개 주소 | Cloudflare Tunnel `a301-pipeline-ec2` + Access(허용 이메일만, 일회용 코드). `pipeline.hangguet.co.kr` → Airflow(`localhost:8080`), 카드 확인 화면은 `localhost:8765`로 연결 |
