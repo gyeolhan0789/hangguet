@@ -34,7 +34,8 @@ def recent_issues(name: str, code: str) -> list[dict[str, Any]]:
     llm = card.call_llm(card.build_recent_messages(name, news_text))
     kept, dropped = verify.verify_card({"recent": llm.get("recent", [])}, {"recent": news_text})
     _log_dropped(name, dropped)
-    return card.link_articles(kept["recent"], articles)
+    recent = card.link_articles(kept["recent"], articles)
+    return classify.add_subcategories(name, {"recent": recent})["recent"]
 
 
 def _save(result: dict[str, Any], data: Path) -> Path:
@@ -90,6 +91,8 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
     )
     _log_dropped(name, dropped)
     result["talent"] = classify.add_criteria(name, result["talent"])
+    business_items = {"direction": result["direction"], "market": result["market"]}
+    result.update(classify.add_subcategories(name, business_items))
     try:
         result["recent"] = recent_issues(name, corp_code)
     except (OSError, ValueError):  # LLM 오류·시간 초과·잘린 JSON
@@ -123,10 +126,15 @@ def fill_classification(data: Path = DATA) -> list[Path]:
     saved = []
     for path in sorted((data / "cards").glob("*.json")):
         result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-        talent = result.get("talent", [])
-        filled = classify.add_criteria(result["name"], talent)
-        if filled != talent:
-            saved.append(_save({**result, "talent": filled}, data))
+        name = result["name"]
+        sections = {key: result[key] for key in classify.NCS_SECTIONS}
+        filled = {
+            **result,
+            "talent": classify.add_criteria(name, result["talent"]),
+            **classify.add_subcategories(name, sections),
+        }
+        if filled != result:
+            saved.append(_save(filled, data))
     return saved
 
 

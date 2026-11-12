@@ -61,6 +61,8 @@ def test_build_one_asks_talent_and_direction_separately(
             return {"items": [{"title": "협업", "parent": None, "details": ["우리는 협업합니다."]}]}
         if messages[0]["content"] == classify.CRITERION_SYSTEM:
             return {"items": [{"no": 1, "criterion": "협력·소통"}]}
+        if messages[0]["content"] == classify.SUBCATEGORY_SYSTEM:
+            return {"items": [{"no": 1, "ncs_subcategories": ["IT시스템관리"]}]}
         return {"direction": [{"summary": "AI 인프라", "quote": "AI 인프라 사업에 더욱 집중할"}]}
 
     monkeypatch.setattr(card, "call_llm", fake)
@@ -75,11 +77,13 @@ def test_build_one_asks_talent_and_direction_separately(
         (card.TALENT_SYSTEM, "strong-model"),
         (card.DIRECTION_SYSTEM, None),
         (classify.CRITERION_SYSTEM, "strong-model"),
+        (classify.SUBCATEGORY_SYSTEM, "strong-model"),
     ]
     assert saved["talent_model"] == "strong-model"
     talent = [(t["title"], t["details"], t["criterion"]) for t in saved["talent"]]
     assert talent == [("협업", ["우리는 협업합니다."], "협력·소통")]
-    assert [d["summary"] for d in saved["direction"]] == ["AI 인프라"]
+    direction = [(d["summary"], d["ncs_subcategories"]) for d in saved["direction"]]
+    assert direction == [("AI 인프라", ["IT시스템관리"])]
 
 
 def test_build_one_keeps_every_listed_talent(
@@ -131,14 +135,19 @@ def test_refresh_recent_replaces_only_recent(
         "group": 0,
     }
     storage.put("processed/news/00000001.json", json.dumps({"items": [article]}).encode())
-    reply = {"recent": [{"summary": "신제품 출시", "quote": "테스트, 신제품 출시"}]}
+    # 최근 이슈 요약 응답과 분류값 응답을 한 응답에 함께 담는다
+    reply = {
+        "recent": [{"summary": "신제품 출시", "quote": "테스트, 신제품 출시"}],
+        "items": [{"no": 1, "ncs_subcategories": ["IT마케팅"]}],
+    }
     monkeypatch.setattr(card, "call_llm", _fake_llm(reply))
 
     out = run.refresh_recent({"name": "테스트"}, tmp_path)
 
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["talent"] == old["talent"]  # 최근 이슈 말고는 그대로
-    assert [(r["summary"], r["source"]) for r in saved["recent"]] == [("신제품 출시", "u1")]
+    recent = [(r["summary"], r["source"], r["ncs_subcategories"]) for r in saved["recent"]]
+    assert recent == [("신제품 출시", "u1", ["IT마케팅"])]
 
 
 def test_refresh_recent_builds_whole_card_when_missing(

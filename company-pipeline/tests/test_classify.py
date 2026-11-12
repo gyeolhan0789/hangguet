@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from company_taxonomy.ncs import NCS_SUBCATEGORIES
 from company_taxonomy.talent_criteria import TALENT_CRITERIA
 
 from pipeline import card, classify, run
@@ -170,3 +171,83 @@ def test_fill_classification_skips_card_when_nothing_is_filled(
 
     assert run.fill_classification(tmp_path) == []
     assert path.read_text(encoding="utf-8") == before
+
+
+DIRECTION = {
+    "summary": "AI 인프라 확대",
+    "quote": "AI 인프라 사업에 집중할 계획",
+    "source": "보고서",
+}
+MARKET = [
+    {"summary": "국내 점유율 1위", "quote": "국내 점유율 1위", "source": "보고서"},
+    {"summary": "주요 고객 공공기관", "quote": "주요 고객은 공공기관", "source": "보고서"},
+]
+
+
+def test_ncs_list_has_72_unique_names_and_system_lists_them() -> None:
+    assert len(set(NCS_SUBCATEGORIES)) == len(NCS_SUBCATEGORIES) == 72
+    assert all(name in classify.SUBCATEGORY_SYSTEM for name in NCS_SUBCATEGORIES)
+
+
+def test_add_subcategories_classifies_sections_in_one_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _reply(
+        {"no": 1, "ncs_subcategories": ["IT시스템관리", "클라우드솔루션아키텍처"]},
+        {"no": 2, "ncs_subcategories": []},
+        {"no": 3, "ncs_subcategories": ["IT마케팅"]},
+    )
+    monkeypatch.setattr(card, "call_llm", fake)
+
+    result = classify.add_subcategories("테스트", {"direction": [DIRECTION], "market": MARKET})
+
+    assert len(fake.calls) == 1
+    assert [d["ncs_subcategories"] for d in result["direction"]] == [
+        ["IT시스템관리", "클라우드솔루션아키텍처"]
+    ]
+    # 해당하는 세분류가 없다는 빈 목록도 분류값으로 저장한다
+    assert [m["ncs_subcategories"] for m in result["market"]] == [[], ["IT마케팅"]]
+    assert "AI 인프라 확대 / AI 인프라 사업에 집중할 계획" in fake.calls[0][1]["content"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ["클라우드"],  # 목록에 없는 이름
+        ["IT시스템관리", "IT기술지원", "IT기술교육", "IT감리"],  # 4개
+        ["IT시스템관리", "IT시스템관리"],  # 중복
+        {"IT시스템관리": "SW아키텍처"},  # 목록이 아닌 객체
+    ],
+)
+def test_add_subcategories_leaves_invalid_values_empty(
+    monkeypatch: pytest.MonkeyPatch, value: Any
+) -> None:
+    monkeypatch.setattr(card, "call_llm", _reply({"no": 1, "ncs_subcategories": value}))
+
+    result = classify.add_subcategories("테스트", {"direction": [DIRECTION]})
+
+    assert result == {"direction": [DIRECTION]}
+
+
+def test_fill_classification_fills_missing_subcategories_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = _write_card(tmp_path, "00000001", [])
+    saved_card = json.loads(path.read_text(encoding="utf-8"))
+    done = {**MARKET[0], "ncs_subcategories": ["IT마케팅"]}
+    recent = {"summary": "신제품 출시", "quote": "신제품 출시", "source": "u1"}
+    saved_card.update(direction=[DIRECTION], market=[done], recent=[recent])
+    path.write_text(json.dumps(saved_card, ensure_ascii=False), encoding="utf-8")
+    fake = _reply(
+        {"no": 1, "ncs_subcategories": ["SW아키텍처"]}, {"no": 2, "ncs_subcategories": []}
+    )
+    monkeypatch.setattr(card, "call_llm", fake)
+
+    assert run.fill_classification(tmp_path) == [path]
+
+    filled = json.loads(path.read_text(encoding="utf-8"))
+    assert filled["direction"][0]["ncs_subcategories"] == ["SW아키텍처"]
+    assert filled["market"] == [done]  # 이미 분류된 항목은 전송하지 않고 유지한다
+    assert filled["recent"][0]["ncs_subcategories"] == []
+    sent = fake.calls[0][1]["content"]
+    assert "AI 인프라 확대" in sent and "국내 점유율 1위" not in sent

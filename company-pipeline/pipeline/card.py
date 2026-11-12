@@ -11,7 +11,7 @@ from typing import Any
 
 from pipeline.verify import normalize
 
-PROMPT_VERSION = "card-v10"
+PROMPT_VERSION = "card-v11"
 INPUT_LIMIT = 6000
 NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
 MAX_OUTPUT_TOKENS = 1500
