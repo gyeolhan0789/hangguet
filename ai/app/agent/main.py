@@ -20,6 +20,7 @@ from app.agent.answer_capture import AnswerCapture, CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.attitude import ATTITUDE_METHOD, AttitudePublisher
 from app.agent.followup import followup_generator
 from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
 from app.agent.interview import InterviewRunner
@@ -190,7 +191,8 @@ async def entrypoint(ctx: JobContext) -> None:
 class RoomCapture:
     """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다.
 
-    impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담는다(AI 명세 6.6).
+    impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담고(AI 명세 6.6),
+    판단이 올 때마다 면접 태도 점수를 지원자 화면에 보낸다(6.3 interview.attitude).
     """
 
     def __init__(
@@ -202,10 +204,21 @@ class RoomCapture:
         on_sentence: Callable[[Sentence, str], None],
         on_stt_state: Callable[[SttState], None],
         impressions: ImpressionRecorder | None = None,
+        session_id: int | None = None,
     ) -> None:
         self._room = room
         self._identity = identity
         self._impressions = impressions
+        self._attitude = (
+            None
+            if impressions is None or session_id is None
+            else AttitudePublisher(
+                lambda payload: send_room_message(
+                    room.local_participant, identity, ATTITUDE_METHOD, payload
+                ),
+                session_id,
+            )
+        )
         self._on_stt_state = on_stt_state
         self._stop = asyncio.Event()
         self._publisher = TranscriptPublisher(room.local_participant, identity)
@@ -230,7 +243,7 @@ class RoomCapture:
         )
         chunks = audio_chunks(stream, self._stop)
         if self._impressions is not None:
-            self._impressions.start()
+            self._impressions.start(None if self._attitude is None else self._attitude.update)
         try:
             answer = await self._capture.run(chunks)
         finally:
@@ -265,6 +278,8 @@ class RoomCapture:
         if self._impressions is not None:
             # 폐기한 답변(퇴장 등)에서 판단 중이던 사진은 다음 답변에 섞이지 않게 버린다
             self._impressions.stop()
+        if self._attitude is not None:
+            await self._attitude.aclose()
         await self._publisher.aclose()
 
 
@@ -323,24 +338,27 @@ async def run_interview(
     reactions = (
         None
         if judge is None
-        else ReactionStream(
-            assignment.session_id,
+        else _reaction_stream(
+            room,
+            assignment,
             judge,
-            lambda destination, payload: send_room_message(
-                room.local_participant, destination, REACTION_METHOD, payload
-            ),
             # 꼬리질문이면 배정 정보의 예비 질문이 아니라 실제로 출제한 질문으로 판단한다
             question=lambda seq: runner.question(seq),
             criteria=lambda seq: runner.criteria(seq),
-            latest_only=not video,
-            persona=assignment.persona if video else None,
         )
     )
     runner = InterviewRunner(
         assignment,
         speaker,
         lambda identity, on_speech, on_sentence, on_stt_state: RoomCapture(
-            room, identity, settings, on_speech, on_sentence, on_stt_state, impressions
+            room,
+            identity,
+            settings,
+            on_speech,
+            on_sentence,
+            on_stt_state,
+            impressions,
+            assignment.session_id,
         ),
         lambda destination, payload: send_room_message(
             room.local_participant, destination, ANSWER_STATE_METHOD, payload
@@ -350,6 +368,48 @@ async def run_interview(
         followups=followup_generator(common),
         praises=load_praises() if assignment.persona is Persona.DUCK else None,
     )
+
+    async with AsyncExitStack() as cleanup:
+        if judge is not None:
+            cleanup.push_async_callback(judge.aclose)
+        _watch_room(cleanup, room, runner, impressions, video=video)
+        await speaker.publish_track()
+        await runner.run()
+        await closed.wait()
+
+
+def _reaction_stream(
+    room: rtc.Room,
+    assignment: Assignment,
+    judge: JevJudge,
+    *,
+    question: Callable[[int], str],
+    criteria: Callable[[int], str],
+) -> ReactionStream:
+    video = assignment.mode is InterviewMode.VIDEO
+    persona = assignment.persona if video else None
+    return ReactionStream(
+        assignment.session_id,
+        judge,
+        lambda destination, payload: send_room_message(
+            room.local_participant, destination, REACTION_METHOD, payload
+        ),
+        question=question,
+        criteria=criteria,
+        latest_only=not video,
+        persona=persona,
+    )
+
+
+def _watch_room(
+    cleanup: AsyncExitStack,
+    room: rtc.Room,
+    runner: InterviewRunner,
+    impressions: ImpressionRecorder | None,
+    *,
+    video: bool,
+) -> None:
+    """면접방 이벤트와 RPC 처리 함수를 등록하고, 면접이 끝나면 해제하도록 cleanup에 넣는다."""
 
     def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:
         if (
@@ -375,33 +435,27 @@ async def run_interview(
             return
         impressions.receive(lambda: read_frame(reader))
 
-    async with AsyncExitStack() as cleanup:
-        if judge is not None:
-            cleanup.push_async_callback(judge.aclose)
-        if impressions is not None:
-            cleanup.push_async_callback(impressions.aclose)
-            room.register_byte_stream_handler(FRAME_TOPIC, frame_received)
-            cleanup.callback(room.unregister_byte_stream_handler, FRAME_TOPIC)
-        room.on("track_published", subscribe)
-        cleanup.callback(room.off, "track_published", subscribe)
-        room.on("participant_connected", joined)
-        cleanup.callback(room.off, "participant_connected", joined)
-        room.on("participant_disconnected", left)
-        cleanup.callback(room.off, "participant_disconnected", left)
+    if impressions is not None:
+        cleanup.push_async_callback(impressions.aclose)
+        room.register_byte_stream_handler(FRAME_TOPIC, frame_received)
+        cleanup.callback(room.unregister_byte_stream_handler, FRAME_TOPIC)
+    room.on("track_published", subscribe)
+    cleanup.callback(room.off, "track_published", subscribe)
+    room.on("participant_connected", joined)
+    cleanup.callback(room.off, "participant_connected", joined)
+    room.on("participant_disconnected", left)
+    cleanup.callback(room.off, "participant_disconnected", left)
+    room.local_participant.register_rpc_method(
+        ANSWER_SUBMIT_METHOD, lambda data: runner.submit_requested(data.payload)
+    )
+    cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
+    if not video:
         room.local_participant.register_rpc_method(
-            ANSWER_SUBMIT_METHOD, lambda data: runner.submit_requested(data.payload)
+            CHAT_INPUT_METHOD, lambda data: runner.chat_input_received(data.payload)
         )
-        cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
-        if not video:
-            room.local_participant.register_rpc_method(
-                CHAT_INPUT_METHOD, lambda data: runner.chat_input_received(data.payload)
-            )
-            cleanup.callback(room.local_participant.unregister_rpc_method, CHAT_INPUT_METHOD)
-        for participant in list(room.remote_participants.values()):
-            joined(participant)
-        await speaker.publish_track()
-        await runner.run()
-        await closed.wait()
+        cleanup.callback(room.local_participant.unregister_rpc_method, CHAT_INPUT_METHOD)
+    for participant in room.remote_participants.values():
+        joined(participant)
 
 
 def reaction_judge(settings: Settings, *, off_topic: bool = False) -> JevJudge | None:

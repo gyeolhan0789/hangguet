@@ -103,6 +103,22 @@ def build_messages(items: Sequence[CheckpointForFeedback]) -> list[dict[str, str
     ]
 
 
+def _parse_reason(reason: object) -> tuple[Metric, str]:
+    """이유 하나의 metric과 앞뒤 공백을 뺀 문구. 형식이 틀리면 구조 오류다."""
+    if not isinstance(reason, dict):
+        raise StructureBrokenError("이유가 JSON 객체가 아니다")
+    try:
+        metric = Metric(str(reason.get("metric")))
+    except ValueError as e:
+        raise StructureBrokenError("이유 metric이 틀렸다") from e
+    text = reason.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise StructureBrokenError("문구가 없다")
+    if len(text.strip()) > MAX_TEXT_LENGTH:
+        raise StructureBrokenError(f"문구가 {MAX_TEXT_LENGTH}자를 넘는다")
+    return metric, text.strip()
+
+
 def parse_texts(result: GmsResult, items: Sequence[CheckpointForFeedback]) -> Texts:
     """체크포인트·이유가 모두 있고 문구가 1~100자여야 한다. 아니면 구조 오류다."""
     raw = result.content.get("checkpoints")
@@ -118,18 +134,8 @@ def parse_texts(result: GmsResult, items: Sequence[CheckpointForFeedback]) -> Te
         if not isinstance(reasons, list):
             raise StructureBrokenError("reasons 목록이 없다")
         for reason in reasons:
-            if not isinstance(reason, dict):
-                raise StructureBrokenError("이유가 JSON 객체가 아니다")
-            try:
-                metric = Metric(str(reason.get("metric")))
-            except ValueError as e:
-                raise StructureBrokenError("이유 metric이 틀렸다") from e
-            text = reason.get("text")
-            if not isinstance(text, str) or not text.strip():
-                raise StructureBrokenError("문구가 없다")
-            if len(text.strip()) > MAX_TEXT_LENGTH:
-                raise StructureBrokenError(f"문구가 {MAX_TEXT_LENGTH}자를 넘는다")
-            texts[(item.answer_id, item.checkpoint.at_ms, metric)] = text.strip()
+            metric, text = _parse_reason(reason)
+            texts[(item.answer_id, item.checkpoint.at_ms, metric)] = text
     missing = [key for item in items for key in _key(item) if key not in texts]
     if missing:
         raise StructureBrokenError(f"문구가 없는 이유가 있다: {len(missing)}개")

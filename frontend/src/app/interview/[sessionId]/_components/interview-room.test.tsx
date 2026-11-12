@@ -20,6 +20,7 @@ import { playDuckCall, preloadDuckCall } from "@/lib/interview/duck-call";
 import { gazeRatio, MIN_GAZE_SAMPLES, type GazeFrame, type GazeSample } from "@/lib/interview/gaze";
 import type {
   AnswerStateMessage,
+  AttitudeSample,
   QuestionMessage,
   ReactionSnapshot,
 } from "@/lib/interview/room-messages";
@@ -61,6 +62,7 @@ const room = vi.hoisted(() => ({
   interimText: "",
   question: null as QuestionMessage | null,
   reaction: null as ReactionSnapshot | null,
+  attitude: [] as AttitudeSample[],
   mounts: 0,
   retry: vi.fn(),
   submitAnswer: vi.fn(async (): Promise<SubmitAnswerResult> => "accepted"),
@@ -82,6 +84,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         interimText: room.interimText,
         question: room.question,
         reaction: room.reaction,
+        attitude: room.attitude,
         retry: room.retry,
         submitAnswer: room.submitAnswer,
         sendChatInput: room.sendChatInput,
@@ -261,6 +264,7 @@ beforeEach(() => {
     interimText: "",
     question: null,
     reaction: null,
+    attitude: [],
     mounts: 0,
   });
   media.level = motionValue(0.5);
@@ -1749,7 +1753,7 @@ describe("InterviewRoom · 면접 화면", () => {
 
   describe("화면 숨기기", () => {
     describe("화면 표시", () => {
-      it("화상에서 화면을 숨기면 내 카메라 · 질문 · 내 답변 · 마이크 안내를 숨긴다", () => {
+      it("화상에서 화면을 숨기면 내 카메라 · 면접 태도 · 질문 · 내 답변 · 마이크 안내를 숨긴다", () => {
         media.level = motionValue(0);
         render(view());
         advance(SILENT_TOAST_MS);
@@ -1757,6 +1761,7 @@ describe("InterviewRoom · 면접 화면", () => {
         fireEvent.click(screen.getByRole("button", { name: "화면 숨기기" }));
 
         expect(hiddenBox(screen.getByText("나", { exact: true }))).not.toBeNull();
+        expect(hiddenBox(screen.getByRole("region", { name: "면접 태도" }))).not.toBeNull();
         expect(hiddenBox(screen.getByRole("region", { name: "악마 면접관 질문" }))).not.toBeNull();
         expect(hiddenBox(caption())).not.toBeNull();
         expect(hiddenBox(screen.getByText(MIC_TOAST))).not.toBeNull();
@@ -1769,6 +1774,16 @@ describe("InterviewRoom · 면접 화면", () => {
 
         expect(hiddenBox(screen.getByRole("region", { name: "악마 면접관 질문" }))).not.toBeNull();
         expect(hiddenBox(answerBox())).not.toBeNull();
+      });
+    });
+  });
+
+  describe("면접 태도", () => {
+    describe("화면 표시", () => {
+      it("채팅이면 카메라로 재는 면접 태도를 그리지 않는다", () => {
+        render(chatView());
+
+        expect(screen.queryByRole("region", { name: "면접 태도" })).toBeNull();
       });
     });
   });

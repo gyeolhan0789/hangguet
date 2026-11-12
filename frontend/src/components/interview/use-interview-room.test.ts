@@ -1,5 +1,6 @@
 // 기준: 웹 Swagger 5.14 면접방 입장 · 5.4(채팅도 면접방에 들어간다(송출 없이 수신 · 메시지만))
-// · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · AI 명세 6.3(question · reaction · interview.frame · RPC 오류 2001 · 2002)
+// · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · AI 명세 6.3(question · reaction · attitude · interview.frame · RPC 오류 2001 · 2002)
+// · 사용자 결정(2026-11-12 면접 태도는 최근 30초 추이)
 // · 사용자 승인 STT 표시 계약 · 사용자 결정(2026-10-27 카메라 송출 실패해도 계속 · 2026-11-09 마이크를 다시 받으면 송출 트랙만 바꿈)
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ANSWER_REJECTED_CODES,
   ANSWER_STATE_METHOD,
+  ATTITUDE_METHOD,
   QUESTION_METHOD,
   REACTION_METHOD,
   type AnswerStateMessage,
@@ -243,6 +245,9 @@ function reaction(questionSeq: number, seq: number, overrides: Record<string, un
     interrupt: null,
     ...overrides,
   };
+}
+function attitude(score: unknown, overrides: Record<string, unknown> = {}) {
+  return { type: "attitude", sessionId: 55, score, ...overrides };
 }
 function answerState(seq: number, state: AnswerStateMessage["state"], sessionId = 55) {
   return { type: "answer.state", sessionId, seq, state };
@@ -1139,6 +1144,133 @@ describe("useInterviewRoom · 면접방 연결", () => {
         });
 
         expect(result.current.reaction).toBeNull();
+      });
+    });
+  });
+
+  describe("면접 태도 메시지", () => {
+    describe("정상 처리", () => {
+      it("면접관이 보낸 이 면접의 점수를 받은 차례대로 쌓고 얼굴을 확인할 수 없다는 null도 쌓는다", async () => {
+        const { result, room } = await join();
+
+        await rpc(room, ATTITUDE_METHOD, attitude(72));
+        await rpc(room, ATTITUDE_METHOD, attitude(null));
+        await rpc(room, ATTITUDE_METHOD, attitude(75));
+
+        expect(result.current.attitude.map((sample) => sample.score)).toEqual([72, null, 75]);
+      });
+    });
+
+    describe("상태 변화", () => {
+      it("새 질문 음성이 시작되면 쌓인 점수를 지운다", async () => {
+        const { result, room } = await join();
+        await rpc(room, ATTITUDE_METHOD, attitude(72));
+
+        await rpc(room, QUESTION_METHOD, question(4, "started"));
+
+        expect(result.current.attitude).toEqual([]);
+      });
+
+      it("연결이 끊기면 쌓인 점수를 지운다", async () => {
+        const { result, room } = await join();
+        await rpc(room, ATTITUDE_METHOD, attitude(72));
+
+        emit(room, "disconnected");
+
+        expect(result.current.attitude).toEqual([]);
+      });
+
+      it("다시 연결하면 지난 연결에서 받은 점수를 지운다", async () => {
+        const { result, room } = await join();
+        await rpc(room, ATTITUDE_METHOD, attitude(72));
+
+        act(() => result.current.retry());
+        await flushPromises();
+
+        expect(result.current.attitude).toEqual([]);
+      });
+    });
+
+    describe("입력 검증", () => {
+      it.each([
+        { label: "다른 참가자", payload: attitude(72), caller: "other" },
+        { label: "다른 면접", payload: attitude(72, { sessionId: 56 }), caller: "agent" },
+        { label: "형식 오류", payload: "{", caller: "agent" },
+      ])("'$label'면 점수를 버린다", async ({ payload, caller }) => {
+        const { result, room } = await join();
+
+        await rpc(room, ATTITUDE_METHOD, payload, caller);
+
+        expect(result.current.attitude).toEqual([]);
+      });
+
+      it("질문 음성이 나오는 동안 온 점수는 버린다", async () => {
+        const { result, room } = await join();
+        await rpc(room, QUESTION_METHOD, question(3, "started"));
+
+        await rpc(room, ATTITUDE_METHOD, attitude(72));
+
+        expect(result.current.attitude).toEqual([]);
+      });
+
+      it("채팅이면 면접 태도를 받지 않는다", async () => {
+        const { room } = await join({ listenOnly: true });
+
+        expect(room.rpcHandlers.has(ATTITUDE_METHOD)).toBe(false);
+      });
+    });
+
+    describe("경계값", () => {
+      type Sample = [score: number | null, receivedAt: number];
+      it.each<{ label: string; at: number; expected: Sample[] }>([
+        {
+          label: "딱 30초 전",
+          at: 31_000,
+          expected: [
+            [60, 1_000],
+            [70, 31_000],
+          ],
+        },
+        {
+          label: "30초를 1ms 넘긴",
+          at: 31_001,
+          expected: [
+            [60, 1_001],
+            [70, 31_001],
+          ],
+        },
+      ])(
+        "새 점수를 받을 때 첫 점수가 '$label' 것이면 30초 안의 점수만 남기고 그 직전 점수를 30초 경계로 옮긴다",
+        async ({ at, expected }) => {
+          const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+          const { result, room } = await join();
+          await rpc(room, ATTITUDE_METHOD, attitude(60));
+
+          now.mockReturnValue(at);
+          await rpc(room, ATTITUDE_METHOD, attitude(70));
+
+          expect(
+            result.current.attitude.map(({ score, receivedAt }) => [score, receivedAt]),
+          ).toEqual(expected);
+        },
+      );
+
+      it("30초보다 오래된 점수가 여럿이면 마지막 하나만 경계로 옮기고 나머지는 버린다", async () => {
+        const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+        const { result, room } = await join();
+        await rpc(room, ATTITUDE_METHOD, attitude(60));
+        now.mockReturnValue(2_000);
+        await rpc(room, ATTITUDE_METHOD, attitude(80));
+
+        now.mockReturnValue(70_000);
+        await rpc(room, ATTITUDE_METHOD, attitude(null));
+
+        expect(result.current.attitude.map(({ score, receivedAt }) => [score, receivedAt])).toEqual(
+          [
+            [80, 40_000],
+            [null, 70_000],
+          ],
+        );
       });
     });
   });

@@ -160,7 +160,7 @@ def pitch_range_st(samples: FloatArray, rate: int, words: Sequence[Word]) -> flo
     window = rate * FRAME_MS // 1000
     hop = rate * HOP_MS // 1000
     peak = float(np.max(np.abs(samples))) if samples.size else 0.0
-    if samples.size < window or peak == 0.0:
+    if samples.size < window or peak <= 0.0:
         return None
     frames = np.lib.stride_tricks.sliding_window_view(samples, window)[::hop]
     loud = np.max(np.abs(frames), axis=1) >= SILENCE_RATIO * peak

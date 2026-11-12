@@ -1,0 +1,29 @@
+[project]
+name = "company-taxonomy"
+version = "0.1.0"
+description = "회사 카드 파이프라인과 AI가 함께 사용하는 회사 카드 분류 목록"
+requires-python = ">=3.13"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13"]
+build-backend = "uv_build"
+
+# 패키지 폴더를 src/ 아래가 아니라 이 폴더 바로 아래에 배치한다(shared/company_taxonomy).
+[tool.uv.build-backend]
+module-name = "company_taxonomy"
+module-root = ""
+
+# 검사 규칙은 ai/pyproject.toml과 같게 맞춘다.
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: import 정렬, N: Naming, B: bugbear, UP: 최신 문법, SIM: 단순화
+select = ["E", "W", "F", "I", "N", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["company_taxonomy"]

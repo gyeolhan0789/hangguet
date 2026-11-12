@@ -24,9 +24,9 @@
 브라우저 ⇄ LiveKit 면접방 ⇄ AI 면접 에이전트  음성 · 면접방 메시지 (6장)
                               └─▶ Soniox(STT) · ElevenLabs(TTS) · Jev · GMS(꼬리질문)
 
-BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
+BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · EXTRACT_CLAIMS · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
-BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준) · 방 삭제 · Egress 녹화
+BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준 · 연결 회사 항목) · 방 삭제 · Egress 녹화
 ```
 
 - **AI는 DB에 접속하지 않는다** **[결정]**(읽기 · 쓰기 모두). 입력은 BE가 작업 메시지(1.3)와 에이전트 배정 정보(6.1)에 담아 보내고, 출력은 결과 메시지(1.4)로 돌려준다. BE가 받아 검증한 뒤 DB와 Redis 진행 상태에 쓴다
@@ -40,7 +40,8 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 주체 | 시작 | 입력 | 출력(결과 메시지) | BE가 저장하는 곳 |
 |---|---|---|---|---|
 | 자기소개서 검증 | 4.1(API 명세) | 검증 큐 `ai:checks` | 작업별 결과 키(2.1) | 없음(BE가 저장 요청 안에서 받음) |
-| PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, Redis `planStatus`·`planProgress` |
+| EXTRACT_CLAIMS | 4.1 저장 뒤, 지원서 주장이 없을 때의 5.1·5.3 | 작업 메시지 | `claims.extracted` · `claims.extractFailed` | `application_claims`(지원서 주장, 2장) |
+| PLAN | 5.1·5.3 | 작업 메시지 | `plan.progress` · `plan.completed` · `plan.failed` | `interview_plans`, 질문 보관함(2장), Redis `planStatus`·`planProgress` |
 | SCORE_ANSWER | 답변 저장 직후 | 작업 메시지 | `answer.scored` | `answers.evaluation` |
 | EVALUATE | 5.8(답변 ≥1)·5.9 | 작업 메시지 | `evaluation.progress` · `evaluation.completed` · `evaluation.failed` | `answers`의 `score`·`good_point`·`improve_point`·`evaluation`, `session_scores`, `speech_metrics`, `interview_sessions`의 `status`·`summary`, Redis `analysisStep` |
 | MERGE_RECORDING | 5.8(화상) | 작업 메시지 | `recording.merged` · `recording.mergeFailed` | `recordings` |
@@ -59,24 +60,25 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
   | 큐 | 처리 중 리스트 | 작업 | 작업자(`AI_WORKER_QUEUE`) |
   |---|---|---|---|
-  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN | `plan` |
+  | `ai:jobs:plan` | `ai:jobs:plan:processing` | PLAN · EXTRACT_CLAIMS | `plan` |
   | `ai:jobs:recording` | `ai:jobs:recording:processing` | MERGE_RECORDING | `recording` |
   | `ai:jobs` | `ai:jobs:processing` | SCORE_ANSWER · EVALUATE | `default`(기본값) |
 
 - 작업자는 작업을 하나씩 처리하므로, 큐가 하나이면 녹화 합치기·결과 생성이 몰릴 때 사용자가 기다리는 PLAN이 최대 대기 시간(5장)을 넘긴다. 그래서 PLAN과 MERGE_RECORDING을 별도 큐로 나눈다
 - 큐마다 작업자를 1대 둔다. 작업자는 시작할 때 자기 처리 중 리스트에 남은 작업만 자기 큐로 되돌리므로, 큐마다 처리 중 리스트가 달라야 다른 작업자가 처리 중인 작업을 되돌리지 않는다
 - `default` 작업자는 모든 작업의 처리 함수를 등록한다. 자기소개서 검증 전용 큐(`ai:checks`, 2.1)도 `default` 작업자가 받는다. 큐를 나누기 전에 `ai:jobs`에 들어간 PLAN·MERGE_RECORDING도 처리하기 위함이다
-- 공통 필드: `jobType`(`PLAN` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+- 공통 필드: `jobType`(`PLAN` · `EXTRACT_CLAIMS` · `SCORE_ANSWER` · `EVALUATE` · `MERGE_RECORDING`), `jobId`(UUID 문자열), `sessionId`, `requestedAt`(BE가 작업을 요청한 시각, ISO 8601). BE와 AI는 PLAN·EXTRACT_CLAIMS·EVALUATE의 최대 대기 시간(5장)을 모두 이 값부터 계산한다
+  - EXTRACT_CLAIMS는 면접이 아니라 지원서 단위 작업이므로 `sessionId` 대신 `applicationId`를 담는다. 결과 메시지(`claims.extracted`·`claims.extractFailed`)도 같다
 - 그룹 면접(API 명세 10장)의 면접도 같은 큐 · 같은 작업 종류를 쓴다. 달라지는 필드는 PLAN `questionCount`(2장)와 MERGE_RECORDING의 그룹 필드(7장)뿐이다 **[제안]**. SCORE_ANSWER · EVALUATE는 필드가 같고, 한 면접의 질문이 4~6개일 수 있다. 질문 수 5개를 가정하는 곳이 없는지 확인한다 **[미정]**
 - AI가 DB를 읽지 않으므로 **작업에 필요한 내용을 모두 메시지에 담는다** **[제안]**. 작업별 필드는 2·3·4·7장
 - PLAN·SCORE_ANSWER·EVALUATE는 면접관 `persona`(`DEVIL` 악마 면접관 · `COFFEE_CHAT` 개발자 면접관 · `DUCK` 오리 면접관)를 담는다. 질문 수준(2장)과 피드백 관점(4장)을 면접관에 따라 다르게 만들기 위함이다. SCORE_ANSWER의 `persona`는 판정에 사용하지 않는다(3장)
   - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
   - 위 `persona` 값이 아니면 형식이 틀린 작업이다
   - `DUCK`은 AI가 수신을 구현한 뒤 BE가 전송한다. AI 구현 전에 전송하면 형식이 틀린 작업으로 실패하기 때문이다
-- PLAN은 지원 회사의 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 넣지 않는다
+- PLAN·EVALUATE는 면접을 만들 때 정한 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 담지 않는다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
-  - `jobType`·`jobId`·`sessionId`를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위해서다
+  - `jobType`·`jobId`·`sessionId`(EXTRACT_CLAIMS는 `applicationId`)를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`claims.extractFailed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위함이다
   - SCORE_ANSWER는 실패 결과 종류가 없으므로 결과를 전송하지 않는다(EVALUATE가 마저 채점)
   - 세 필드 중 하나라도 해석할 수 없으면 결과 없이 폐기하고 로그를 남긴다
 - 명세에 없는 필드는 무시한다. 고도화에서 필드가 추가돼도 배포 순서와 관계없이 처리하기 위해서다
@@ -100,15 +102,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | `type` | 보내는 쪽 | 내용 | BE가 하는 일 |
 |---|---|---|---|
 | `plan.progress` | 분석 작업자 | `progress`(50 등) | `planProgress` |
-| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | `interview_plans` 저장, `planStatus: READY` |
+| `plan.completed` | 분석 작업자 | `claims`, `questions`, `promptVersion`, `modelVersion`(2장) | 질문 보관함에 추가(2장, 그룹 면접 제외)한 뒤 `interview_plans` 저장(개인 면접은 보관함에서 배정한 질문 5개와 지원서 주장, 2장), `planStatus: READY` |
 | `plan.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `planStatus: FAILED` |
+| `claims.extracted` | 분석 작업자 | `applicationId`, `claims`, `promptVersion`, `modelVersion`(2장) | 지원서 주장이 없을 때만 주장과 버전을 `application_claims`에 저장하고, 그 지원서에서 주장을 기다리는 면접의 PLAN 작업 등록 |
+| `claims.extractFailed` | 분석 작업자 | `applicationId`, `reason`(아래 실패 이유) | 그 지원서에서 주장을 기다리는 면접을 `planStatus: FAILED`로 변경 |
 | `answer.scored` | 분석 작업자 | `answerId`, `evaluation`(3장) | `answers.evaluation`이 비어 있을 때만 저장 |
 | `evaluation.progress` | 분석 작업자 | `analysisStep` | `analysisStep` |
 | `evaluation.completed` | 분석 작업자 | 4장(`headline`·`summary` 포함) | 한 트랜잭션으로 저장, `COMPLETED`, `analysisStep` 비움 |
 | `evaluation.failed` | 분석 작업자 | `reason`(아래 실패 이유) | `FAILED` |
 | `recording.merged` | 분석 작업자 | `objectKey`(합친 mp4), `recordingStartedAt`(영상 0초 시각, 없으면 null) | `recordings` 저장 |
 | `recording.mergeFailed` | 분석 작업자 | `reason`(아래 실패 이유) | BE는 다시보기에서 `videoStatus: FAILED`로 응답한다(API 명세 6.4) |
-| `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장) |
+| `question.started` | 면접 에이전트 | `seq`, `startedAt`, `content`, `criteria`, `promptVersion`, `modelVersion`(6.2) | `interview_questions` 생성(`created_at` = `startedAt`, 질문 글·채점 기준·버전 저장). 출제한 질문이 보관함 질문이면 사용 처리(2장) |
 | `answer.completed` | 면접 에이전트 | `seq`, `answerStartedAt`, `content`, `tokens`, `speech`, `endReason`(6.2) | `answers` 저장(`speech`는 `answers.speech`), SCORE_ANSWER 작업 등록 |
 | `assignment.rejected` | 면접 에이전트 | `reason`(아래 실패 이유의 `INVALID_ASSIGNMENT`) | 면접이 `IN_PROGRESS`이고 질문 행이 없을 때만 면접방을 닫고 `START_FAILED`로 변경한다. 그 밖에는 폐기한다 |
 | `room.closed` | 면접 에이전트 | (공통 필드만) | 지원자가 모두 떠나 LiveKit이 면접방을 닫았다(6.5). 개인 면접이 `IN_PROGRESS`이면 끝내기(API 명세 5.8)와 같이 끝낸다(답변이 있으면 `ANALYZING`, 없으면 `ABORTED`, 시선 비율은 비움). 그 밖에는 폐기한다 |
@@ -117,15 +121,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 값 | 결과 메시지 | 뜻 |
 |---|---|---|
-| `GMS_UNAVAILABLE` | `plan.failed` · `evaluation.failed` | GMS 호출이 재시도 후에도 실패했거나 재시도 대상이 아닌 오류 응답을 수신함(5장) |
-| `INVALID_OUTPUT` | `plan.failed` · `evaluation.failed` | GMS 출력이 재시도 후에도 검증을 통과하지 못함(2·5장) |
-| `TIMED_OUT` | `plan.failed` · `evaluation.failed` | BE 최대 대기 시간을 넘음(5장) |
+| `GMS_UNAVAILABLE` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | GMS 호출이 재시도 후에도 실패했거나 재시도 대상이 아닌 오류 응답을 수신함(5장) |
+| `INVALID_OUTPUT` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | GMS 출력이 재시도 후에도 검증을 통과하지 못함(2·5장) |
+| `TIMED_OUT` | `plan.failed` · `claims.extractFailed` · `evaluation.failed` | BE 최대 대기 시간을 넘음(5장) |
 | `TRACK_NOT_FOUND` | `recording.mergeFailed` | 원본 위치에 트랙 파일이 없음(7장) |
 | `STORAGE_ERROR` | `recording.mergeFailed` | 녹화 저장소에서 다운로드하거나 업로드하지 못함 |
 | `MERGE_ERROR` | `recording.mergeFailed` | ffmpeg가 트랙을 합치지 못함 |
-| `INVALID_JOB` | 세 작업 실패 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
+| `INVALID_JOB` | 네 작업 실패 메시지 모두 | 작업 메시지 형식이 틀림(1.3) |
 | `INVALID_ASSIGNMENT` | `assignment.rejected` | 배정 정보 형식이 틀림(6.1) |
-| `INTERNAL_ERROR` | 세 작업 실패 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
+| `INTERNAL_ERROR` | 네 작업 실패 메시지 모두 | 그 밖의 예상하지 못한 오류. 원인은 작업자 로그에 남김 |
 
 **중복 · 늦은 결과는 BE가 거른다**
 
@@ -136,7 +140,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 | 중복 · 순서 역전 | 같은 `assignment.rejected`가 두 번, 질문을 시작한 뒤 도착, 또는 다시 시작(5.4)한 뒤 이전 시도의 거절이 도착 | 면접이 이미 `START_FAILED`이거나 질문 행이 있거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 중복 · 순서 역전 | 같은 `room.closed`가 두 번, 또는 다시 시작(5.4)한 뒤 이전 시도의 방 닫힘이 도착 | 면접이 이미 `IN_PROGRESS`가 아니거나 `occurredAt`이 면접 시작 시각보다 이르면 폐기 |
 | 순서 역전 | 첫 질문 기한 초과(6.5)로 다시 시작(5.4)한 뒤 이전 시도의 `question.started`가 도착 | `startedAt`이 면접 시작 시각보다 이르면 폐기 |
-| 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 버림 |
+| 중복 수신 | 같은 `plan.completed`가 두 번 | 질문 보관함에는 한 번만 넣음 |
+| 중복 수신 | 같은 지원서의 `claims.extracted`가 두 번(같은 작업의 중복, 또는 5.1·5.3이 다시 요청한 작업) | 지원서 주장이 이미 있으면 폐기 |
+| 순서 역전 | 5.3 재생성 뒤 실패했던 이전 PLAN의 결과가 늦게 도착 | `planStatus`가 `GENERATING`이 아니거나 `interview_plans` 행이 이미 있으면 폐기. 폐기한 결과의 질문은 질문 보관함에도 넣지 않음 |
 | 순서 역전 | 5.9 재생성 뒤 이전 EVALUATE 결과가 늦게 도착 | `status`가 `ANALYZING`이 아니면 버림. 같은 `ANALYZING` 안에서 이전 시도와 구분하려면 BE가 마지막으로 보낸 `jobId`와 비교한다 **[제안]** |
 
 ## 2. PLAN: 질문·채점 기준 만들기
@@ -144,12 +150,19 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접 전에 자소서에서 주장을 뽑고, 그 주장을 파고드는 질문 5개와 질문마다 채점 기준 1개를 만든다.
 
 - **시작** 5.1·5.3
-- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetterItems`(자기소개서 문항 1~5개를 문항 순서대로, 문항마다 `question`·`answer`. API 명세 4.1), `persona` **[제안]**, `companyCard`(8장, 없으면 생략), `questionCount`(그룹 면접의 개인 맞춤 질문이면 2, 없으면 5) **[제안]**
+- **입력(작업 메시지)** `companyName`, `jobTitle`, `coverLetterItems`(자기소개서 문항 1~5개를 문항 순서대로, 문항마다 `question`·`answer`. API 명세 4.1), `persona`, `companyCard`(8장, 없으면 생략), `questionCount`(그룹 면접의 개인 맞춤 질문이면 2, 없으면 5), `claims`(개인 면접이면 저장된 지원서 주장, 아래 STEP 01. 그룹 면접은 생략), `askedQuestions`(개인 면접이면 같은 지원서·같은 면접관의 면접에서 출제한 보관함 질문마다 `content`·`claimId`. 꼬리질문은 넣지 않는다. 없거나 그룹 면접이면 생략)
 - **그룹 면접** **[제안]** `questionCount`가 2면 질문 2개(`seq` 1~2)를 만든다. 둘 다 그룹 면접에서 본인 차례에 그대로 출제하는 개인 맞춤 질문이고 예비 질문이 아니다. 주장 추출 · 면접관별 질문 수준 · 근거 검사 · 회사 카드 사용은 같고, 회사 정보와 연결하는 질문 수만 0~1개로 줄인다. 아래 "5개"는 `questionCount`로 읽는다. 개인 면접은 `questionCount`를 보내지 않아 지금과 같다
 - **STEP 01 주장 추출(GMS)** 자소서에서 경험·수치를 뽑는다. `sentenceNo`는 자소서의 문장 순번(1부터)이다. 문항 순서대로 문항 질문과 답변을 같은 규칙으로 나눠 이어서 센다(질문은 보통 한 문장). V13 전에 만든 플랜은 문항으로 옮기기 전 자기소개서 글 하나로 셌다. 옮기며 1번 문항에 붙은 질문 줄('자기소개서')이 없으므로 지금 문항 기준 번호와 그 줄만큼 어긋난다
   - 문장은 비어 있지 않은 줄마다 나누고, 줄 안에서는 한글·영문·닫는 괄호·%·따옴표 바로 뒤의 마침표·물음표·느낌표(그 뒤에 닫는 따옴표·괄호가 붙을 수 있음) 다음 공백에서 나눈다
   - 숫자 뒤 마침표(「1. 지원 동기」 같은 번호)에서는 나누지 않는다
+  - 주장마다 `talentCriteria`에 아래 인재상 기준 12개 중 그 주장에 드러난 기준 이름을 0~2개 담는다. 면접관별로 사용할 주장과 회사 인재상 항목의 연결 후보를 정하는 데 사용한다
+  - 개인 면접은 주장을 지원서마다 한 번 추출한다. 주장 추출은 회사명·직무·자기소개서만 입력으로 사용하고, 지원서 수정 API가 없어 자기소개서가 변경되지 않기 때문이다(API 명세 4장)
+  - BE는 지원서를 저장(API 명세 4.1)한 뒤 주장 추출 작업 EXTRACT_CLAIMS(입력 `applicationId`·`companyName`·`jobTitle`·`coverLetterItems`)를 요청하고, `claims.extracted`의 `claims`(근거 검사를 통과한 주장)와 `promptVersion`·`modelVersion`을 지원서 주장으로 저장한다. 개인 면접의 PLAN은 저장된 주장을 입력 `claims`로 수신하고 주장을 추출하지 않는다
+  - 주장 추출 프롬프트 버전은 `extract-claims-v1`(9장)
+  - 면접 생성(5.1)·다시 만들기(5.3) 때 지원서 주장이 없으면 BE는 주장 추출을 다시 요청하고, 주장을 저장한 뒤 PLAN을 요청한다. 추출이 진행 중인지는 따로 관리하지 않는다(중복 결과는 1.4)
+  - 그룹 면접은 지금처럼 PLAN 안에서 주장을 추출하고, 지원서 주장을 저장하지도 사용하지도 않는다
 - **STEP 02 질문·기준 생성(GMS)** 주장마다 파고드는 질문과 채점 기준을 JSON으로 생성한다. 질문 수 5개가 우선이다. 주장이 5개보다 적으면 같은 주장을 다른 관점으로 질문하고, 많으면 검증 가치가 큰 주장을 선택한다
+  - `askedQuestions`가 있으면 그 질문과 같은 질문은 만들지 않는다. 같은 주장을 다른 측면으로 묻는 질문은 만든다
 - **면접관별 질문 수준** 같은 자소서라도 면접관에 따라 면접 종류가 다르다. 질문 수·형식·근거 검사는 같다
 
   | 면접관 | 면접 종류 | 묻는 것 | 묻지 않는 것 |
@@ -183,33 +196,60 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 임원면접의 압박 질문은 자소서 주장의 약점을 근거로 삼는다
   - 지원자를 비하하거나 단정하는 표현, 자소서에 없는 사실을 전제로 한 질문은 하지 않는다
 - **회사 카드 사용** `companyCard`가 있으면 질문 생성에 다음처럼 사용한다. 질문은 자소서 주장을 검증하는 것이 기본이고, 카드에 없는 회사 정보를 전제로 질문하지 않는다
-  - `talent`(회사 인재상): 악마 면접관이 자소서 주장을 회사 인재상과 연결해 묻는다
-  - `direction`·`market`(사업 방향·시장): 개발자 면접관이 경험과 이어지는 경우에만 경험을 회사 사업 방향·시장과 연결해 묻는다
-  - 오리 면접관은 `talent`·`direction`·`market`을 모두 사용하되, 자소서 경험과 이어지는 경우에만 연결한다
+  - 면접관별로 사용하는 항목은 악마 면접관 `talent`·`recent`, 개발자 면접관 `direction`·`market`·`recent`, 오리 면접관 `talent`·`direction`·`market`·`recent`다
+  - 연결 후보는 카드 항목의 분류값(8장)으로 코드가 선별한다
+    - `talent`(회사 인재상) 항목은 `criterion`이 주장의 인재상 기준 `talentCriteria`(STEP 01)에 있는 주장만 후보다
+    - `direction`·`market`·`recent`(사업 방향·시장·최근 이슈) 항목은 `ncs_subcategories`에 지원 직무의 NCS 세분류가 있을 때만 후보다. 지원 직무명(`jobTitle`)은 코드가 NCS 세분류로 변환한다
+    - 모델은 후보 중 자소서 경험과 회사 항목이 실제로 관련된 쌍만 연결하고, 관련된 쌍이 없으면 연결하지 않는다
+  - 질문 형식은 연결한 항목에 따라 정한다
+    - `talent` 항목에 연결한 질문과 회사 정보와 연결하지 않은 질문은 과거 경험 질문이다. 자소서 경험에서 본인이 한 행동과 그 결과를 묻는다
+    - `direction`·`market`·`recent` 항목에 연결한 질문은 가정 상황 질문이다. 회사 항목의 원문을 인용해 제시하고, 자소서 경험의 방법을 그 상황에 어떻게 적용할지 묻는다
+    - 회사 항목에 연결한 질문의 문장에는 그 항목의 내용이 포함되어야 한다
+    - 회사 항목에 연결한 질문의 채점 기준(`criteria`)에는 그 항목의 내용을 좋은 답변이 갖춰야 할 내용으로 포함한다. 지원자가 회사 이름이나 회사 항목을 직접 말하도록 요구하지 않는다
+    - 회사의 사건을 기준으로 지원자 경험이 충분한지 평가하는 질문과, 회사 내부 사정을 알아야 답할 수 있는 질문은 하지 않는다
   - 동기 검증: 악마 면접관이 자소서의 회사 관련 내용이 카드(`talent`·`direction`·`market`·`recent`)와 명백히 다를 때만 묻는다. `recent`(최근 이슈)는 자소서가 그 이슈를 언급한 경우에만 대조한다
   - 카드가 없거나 해당 항목이 비어 있으면 그 항목을 사용하지 않고 기존 방식으로 질문한다
-  - 질문 5개 중 회사 정보와 연결하는 질문은 악마 면접관 1~2개, 개발자 면접관·오리 면접관 0~2개다. 연결한 질문 수가 어긋나거나 카드에 없는 항목을 가리키면 질문 5개를 1회 다시 생성하고, 그래도 어긋나면 그대로 사용한다
+  - 질문 5개 중 회사 정보와 연결하는 질문은 모든 면접관 0~2개다. 연결한 질문 수가 어긋나거나 카드에 없는 항목 또는 후보가 아닌 쌍을 가리키면 질문 5개를 1회 다시 생성하고, 그래도 어긋나면 그대로 사용한다
 
 ```json
 {
   "claims": [
-    { "id": "c1", "text": "조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4 }
+    { "id": "c1", "text": "조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4, "talentCriteria": ["실행·성과"] }
   ],
   "questions": [
-    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "claimId": "c1" }
+    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "claimId": "c1", "companyItem": null },
+    { "seq": 3, "content": "「배송·결제 속도가 경쟁 요소」인 상황에서 조회 개선 경험을 어떻게 적용하겠습니까?", "criteria": "배송·결제 속도가 경쟁 요소인 상황의 문제 정의 · 적용 방법과 이유 · 확인 방법", "claimId": "c1",
+      "companyItem": { "section": "market", "summary": "배송·결제 속도가 경쟁 요소", "quote": "…", "source": "최신 사업보고서 II. 사업의 내용", "ncs_subcategories": ["응용SW엔지니어링"] } }
   ]
 }
 ```
 
 - `type`: `EXPERIENCE`(경험) · `NUMBER`(수치). `questions`는 `seq` 1~5로 정확히 5개
-- **검증** JSON이 아니거나 질문이 5개가 아니면 1회 재시도 후 `plan.failed`. `claimId`가 없는 주장이나 면접관 기준이 드러나지 않은 주장을 가리키면 그 질문만 1회 다시 만들고, 그래도 틀리면 `plan.failed`. 면접관 기준이 드러난 주장이 하나도 없으면 모든 주장을 사용한다
-- **근거 검사** 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위해서다
+- `companyItem`: 질문을 연결한 회사 항목이다. `section`에 카드 칸 이름(`talent`·`direction`·`market`·`recent`)을, 나머지에 그 카드 항목의 칸을 카드에 있는 이름 그대로 담는다. 회사 정보와 연결하지 않은 질문은 null이다
+- **면접관별 주장 선택** 주장의 인재상 기준 `talentCriteria`(STEP 01)가 그 면접관 기준(위 표)과 하나 이상 겹치는 주장만 STEP 02에 넘긴다. 겹치는 주장이 하나도 없으면 모든 주장을 넘긴다
+- **검증** JSON이 아니거나 질문이 5개가 아니면 1회 재시도 후 `plan.failed`. `claimId`가 STEP 02에 넘기지 않은 주장을 가리키면 그 질문만 1회 다시 만들고, 그래도 틀리면 `plan.failed`
+- **근거 검사** 주장 추출(STEP 01)에서 한다. 개인 면접은 주장 추출 작업(EXTRACT_CLAIMS), 그룹 면접은 PLAN 안의 STEP 01이다. 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위함이다
   - 숫자는 값으로 비교한다(6.0과 6, 1,100과 1100은 같음). 단위는 비교하지 않는다
   - 숫자 없는 수량 표현(「절반」, 「두 배」, 「3분의 1」 등)도 같은 값으로 인정한다(「절반」 = 50%, 「두 배」 = 200%). 주장이 「50%」이고 원문이 「절반」인 경우도 같다
   - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
-- **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`
-- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
-- **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
+- **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`. 개인 면접은 주장을 입력으로 수신하므로 PLAN을 시작할 때 `plan.progress`(50)를 전송한다
+- **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. 개인 면접의 `claims`는 입력으로 수신한 주장 그대로다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
+- **질문 출제** 질문 5개와 채점 기준·연결 회사 항목은 BE가 5.4에서 면접 에이전트 배정 정보로 전달한다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
+- **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
+  - 행마다 질문의 `content`·`criteria`·`claimId`·`companyItem`과 그 질문을 만든 `promptVersion`·`modelVersion`을 저장한다
+  - 그룹 면접의 질문은 보관함에 넣지 않는다. 그룹 면접은 개인 맞춤 질문을 매번 생성하고 예비 질문이 없기 때문이다(6.7)
+  - 면접 생성(5.1)·다시 만들기(5.3) 때 보관함 질문이 5개 미만이면 BE는 PLAN을 요청해 질문 5개를 새로 생성한다
+  - 출제 자리 배정: BE는 보관함에서 사용 처리되지 않은 질문 5개를 골라 면접 계획의 `seq` 1~5에 둔다. 보관함 질문이 5개 이상이면 면접 생성·다시 만들기 때 바로, 모자라면 `plan.completed`로 보관함에 추가한 뒤 배정한다
+    - 생성한 날이 이른 질문을 먼저 고르고, 같은 날 생성한 질문은 저장 순서대로 고른다
+    - 1번은 가장 오래된 질문, 3번은 남은 질문 중 가장 오래된 회사 연결 질문(`companyItem`이 있는 질문. 없으면 남은 질문 중 가장 오래된 질문), 2·4·5번은 남은 질문 중 오래된 순서다
+    - 배정한 질문 5개와 지원서 주장(`claims`)으로 `interview_plans` 행을 만든다. 면접 시작(5.4)의 배정 정보와 결과 생성(4장)이 이 행을 읽는다. 배정한 질문들의 버전을 면접 계획의 버전(`prompt_version`·`model_version`)으로 저장한다
+  - 사용 처리: 배정할 때는 예약하지 않고, `question.started`로 실제로 출제한 보관함 질문만 사용 처리한다. 1·3번은 항상 보관함 질문이고, 2·4·5번은 꼬리질문 대신 예비 질문을 출제했을 때(`promptVersion`이 null, 2.2)만 보관함 질문이다. 사용 처리한 질문은 다시 배정하지 않는다
+  - 폐기: BE는 아래 질문을 보관함에서 폐기하고 배정하지 않는다
+    - 면접 생성(5.1)·다시 만들기(5.3) 때 보관함 질문 수를 집계하기 전에, 최근 이슈(`recent`)에 연결한 질문은 연결 항목의 기사 날짜(`published`)로부터 30일이 지났으면 폐기한다
+    - 같은 때, 인재상(`talent`)·사업 방향(`direction`)·시장(`market`)에 연결한 질문은 연결 항목과 같은 항목이 면접을 만들 때 찾은 최신 회사 카드의 같은 칸에 없으면 폐기한다. `section`을 제외한 `companyItem`의 칸이 카드 항목의 칸과 모두 같을 때 같은 항목이다
+    - 회사 정보와 연결하지 않은 질문은 위 두 기준으로 폐기하지 않는다
+    - `plan.completed`를 수신하면 보관함에 추가하기 전에, 같은 보관함의 미사용 질문 중 수신한 결과와 `promptVersion`이 다른 질문을 폐기한다
+- **버전** 프롬프트 버전은 `plan-v8`(9장)
 
 ### 2.1 자기소개서 검증
 
@@ -246,16 +286,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   | 4·5 | 꼬리질문 2개 | 3번 답변이 끝난 직후 한 번에 |
 
   - 4·5번은 3번 답변의 서로 다른 측면을 묻는다. 한 번에 생성하는 것은 두 질문이 겹치지 않게 하고 5번 질문 앞에서 기다리지 않게 하기 위함이다
-- **입력** 면접관(`persona`), 직전 기본 질문의 글·채점 기준, 그 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `answer.submit`의 `content`, 6.3)
+- **입력** 면접관(`persona`), 직전 기본 질문의 글·채점 기준, 그 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `answer.submit`의 `content`, 6.3), 직전 기본 질문의 연결 회사 항목(배정 정보의 `companyItem`, 6.1. 연결하지 않은 질문이면 null)
 - **출력** 질문마다 `content`(질문 글)·`criteria`(채점 기준). 답변 채점(3장)은 출제한 질문의 채점 기준을 사용한다
 - **생성 지침**
   - 한 질문에서 한 가지만 묻는다
-  - 답변과 직전 질문에 없는 사실을 전제로 질문하지 않는다
+  - 답변, 직전 질문, 그 질문의 연결 회사 항목에 없는 사실을 전제로 질문하지 않는다
+  - 직전 기본 질문에 연결 회사 항목이 있으면 답변에서 그 회사 항목과 관련된 지점을 파고들 수 있다
   - 면접관별 질문 수준과 인재상 기준은 2장과 같다. 악마 면접관의 압박 어조는 쓰지 않는다. 압박 어조를 지시하면 답변에 없는 부정적 사실을 전제로 묻기 때문이다
 - **검증** JSON이 아니거나, 질문 수가 맞지 않거나, 질문 글·채점 기준이 비어 있으면 생성 실패로 처리한다. 기다리는 시간이 짧으므로 재시도하지 않는다
 - **예비 질문** 답변이 끝난 시점부터 4초(임시 값) 안에 생성하지 못하거나 생성에 실패하면 같은 순서의 미리 만든 질문(2장)을 출제한다. 4·5번은 함께 생성하므로 함께 예비 질문으로 대체한다. 직전 답변을 전송하지 않았으면(6.5 저장할 수 없는 답변) 생성하지 않고 예비 질문을 출제한다
   - 4초는 실측(`gpt-5.6-terra`, 1개 1.5~2.8초·2개 2.1~2.3초, 각 3회)의 최댓값에 여유를 둔 값이다. 질문 음성 합성 시간은 포함하지 않으며, 별도로 0.5~1.7초(57자 질문, 3회)가 걸린다
-- **버전** 프롬프트 버전은 `followup-v1`, 모델은 PLAN과 같다(9장). 생성한 질문은 `question.started`에 `promptVersion`·`modelVersion`을 담고, 예비 질문은 둘 다 null이다
+- **버전** 프롬프트 버전은 `followup-v2`, 모델은 PLAN과 같다(9장). 생성한 질문은 `question.started`에 `promptVersion`·`modelVersion`을 담고, 예비 질문은 둘 다 null이다
 
 ## 3. SCORE_ANSWER: 답변 채점
 
@@ -294,8 +335,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 판정이 없거나 3단계 밖이면 구조 깨짐으로 보고 재시도한다(5장)
   - 평가 항목·3단계·점수 계산은 면접관과 관계없이 같다. 성장 리뷰(API 명세 7.1)에서 면접관이 다른 면접끼리도 같은 기준으로 비교하기 위함이다
   - 판정 지침도 면접관과 관계없이 같고, `persona`는 판정에 사용하지 않는다. 판정 지침에 면접 종류를 넣으면 판정 이유뿐 아니라 판정 단계도 함께 달라지기 때문이다. 면접관별 인재상 기준은 결과 생성의 피드백 작성(4장 `WRITING_FEEDBACK`)에만 반영한다
+  - 판정 지침은 `JOB_FIT`·`LOGIC`에 다음 단계 설명을 포함한다
+    - `JOB_FIT` 3: 질문이 확인하는 역량에 대해 본인이 수행한 구체적 행동과 사용한 방법, 그 방법을 선택한 이유를 제시해 경험과 직무 요구를 연결한다
+    - `JOB_FIT` 2: 관련 경험과 본인 행동은 제시하지만 방법을 선택한 이유나 직무 요구와의 연결이 누락되어 있다
+    - `JOB_FIT` 1: 결과·수치나 일반론만 제시하고 본인이 수행한 행동이나 방법이 없다
+    - `LOGIC` 3: 원인(상황) → 조치 → 결과(확인 방법) 순서가 분명하다
+    - `LOGIC` 2: 셋 중 하나가 누락되었거나 서로 연결되지 않는다
+    - `LOGIC` 1: 셋 중 둘 이상이 누락되었거나 결과만 나열한다
+    - 가정 상황 질문은 원인을 문제 정의로, 조치를 적용할 방법과 그 이유로, 결과를 적용 결과를 확인할 방법으로 해석한다
   - `COVER_LETTER`는 여기서 임시 판정하고 EVALUATE에서 확정한다
   - `DELIVERY`는 화상이면 답변 글과 말하기 지표로, 채팅이면 답변 글로 판정한다. 비어 있는 지표는 빼고 판정하고, 지표가 모두 비어 있으면 답변 글로만 판정한다
+- 프롬프트 버전은 `score-answer-v3`(9장)
 - **결과** `answer.scored`에 `answerId`와 아래 `evaluation`을 담는다. BE는 `answers.evaluation`이 비어 있을 때만 저장한다
 
 ```json
@@ -317,7 +367,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`의 지표 2개)·`sttGaps`(화상, 3장과 같음)·`timeline`(화상, `answers.speech`의 `trailingOffAtMs`·`impressions`, 아래 다시보기 타임라인)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 회사 카드(8장)는 아직 받지 않는다
+- **입력(작업 메시지)** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`의 지표 2개)·`sttGaps`(화상, 3장과 같음)·`timeline`(화상, `answers.speech`의 `trailingOffAtMs`·`impressions`, 아래 다시보기 타임라인)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열), `companyCard`(8장, 없으면 생략)
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -335,7 +385,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `headline`: 결과 화면 맨 위의 한 줄 총평. 잘한 점·고칠 점 전체를 포괄한다. 30자 이내. 넘으면 1회 다시 만들고, 그래도 넘으면 30자로 자른다(BE도 30자를 넘으면 자른다). BE가 `interview_sessions.headline`에 저장하고 6.3·5.13의 `summary`로 준다
   - `summary`: 성장 리뷰의 "다음에 해볼 것". 고칠 점 중 고치기 가장 쉬운 것 또는 고쳤을 때 효과가 가장 큰 것을 선택해 다음 면접에서 해 볼 것을 한두 문장으로 쓰고, `earlierSummaries`가 있으면 그 내용과 이번 면접을 모두 반영해 그날 전체에서 가장 중요한 것을 쓴다. BE는 그날 마지막 면접의 `summary`를 7.1에 보여 준다
 - 답변끼리 어긋나는 내용(같은 경험의 수치·역할이 답변마다 다름)은 답변 전체를 함께 보고 해당 답변의 `improvePoint`에 기록한다
-- 프롬프트 버전은 `evaluate-feedback-v7`(9장)
+- **회사 정보 반영** `companyCard`가 있으면 잘한 점·고칠 점 작성에 다음처럼 사용한다. 카드가 없으면 회사 정보 없이 작성한다
+  - 면접관별로 사용하는 항목은 질문 생성과 같다(2장 회사 카드 사용)
+  - 답변마다 그 답변의 경험과 실제로 이어지는 회사 항목이 있는지 먼저 판단한다. 회사 정보와 연결하지 않은 질문의 답변도 같다
+  - 이어지는 항목이 있으면 고칠 점에 그 회사 항목(회사 인재상 이름이나 회사 상황)을 밝히고, 답변의 경험을 그 회사 상황에 어떻게 연결하면 더 좋은지 구체적인 행동으로 작성한다. 답변이 이미 그 회사 상황과 이어졌으면 잘한 점에서 그 연결을 짚는다
+  - 이어지는 항목이 없으면 회사 정보를 작성하지 않는다
+  - 회사 인재상 항목은 그 `criterion`이 답변에 드러난 인재상 기준과 같을 때 회사의 인재상 이름으로 작성한다. 인재상 이름을 말하라는 조언이 아니라 그 인재상에 맞는 행동을 보여 주는 방법으로 작성한다
+  - 고칠 점은 판정 이유가 지적한 핵심 부족점을 먼저 작성하고, 회사 연결은 그 뒤에 덧붙인다
+  - 카드에 없는 회사 사실은 작성하지 않는다
+- 프롬프트 버전은 `evaluate-feedback-v8`(9장)
 - BE는 한 트랜잭션에서 이 면접의 `session_scores`·`speech_metrics` 행과 `answers`의 점수·피드백을 지우고 다시 쓴 뒤 `COMPLETED`로 바꾼다(5.9로 다시 돌 때 유일성 제약 충돌 방지)
 - `grade`는 보내지 않는다. BE가 점수로 계산한다(API 명세 6.3)
 
@@ -375,9 +433,9 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 
 | 상황 | 처리 | `reason` |
 |---|---|---|
-| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
+| GMS 타임아웃·429·5xx | 3회 재시도. 다 실패하면 PLAN은 `plan.failed`, EXTRACT_CLAIMS는 `claims.extractFailed`, EVALUATE는 `evaluation.failed`. SCORE_ANSWER는 결과를 전송하지 않고 EVALUATE에 맡긴다 | `GMS_UNAVAILABLE` |
 | 출력 구조 깨짐(JSON 아님, 개수·판정 값 틀림) | 1회 재시도 후 위와 같이 처리 | `INVALID_OUTPUT` |
-| BE 최대 대기 시간 초과 | PLAN 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위해서다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위해서다 | `TIMED_OUT` |
+| BE 최대 대기 시간 초과 | PLAN·EXTRACT_CLAIMS 3분·EVALUATE 10분(BE 설계 5.1·5.4 `ai-job.plan-timeout`·`ai-job.analysis-timeout`)을 BE가 작업을 요청한 시각(`requestedAt`, 1.3)부터 계산한다. 큐에서 기다린 시간까지 포함해 BE와 같은 시각에 마감하기 위함이다. GMS를 호출하기 전마다 확인해 넘었으면 호출을 중단하고 실패 결과를 전송한다. 이미 BE가 `FAILED`로 처리한 작업에 GMS 비용과 처리 시간을 사용하지 않기 위함이다 | `TIMED_OUT` |
 | 작업 메시지 형식 오류 | 1.3 | `INVALID_JOB` |
 | 그 밖의 예상하지 못한 오류 | 실패 결과를 전송하고 작업을 마친다. 원인은 작업자 로그에 남긴다. 작업을 처리 중 리스트에 남기면 작업자를 다시 시작할 때마다 같은 오류가 반복되기 때문이다. SCORE_ANSWER는 결과를 전송하지 않는다 | `INTERNAL_ERROR` |
 | 결과 큐에 넣기 실패 | 1·2·4초 간격으로 3회 재시도한다. 그래도 실패하면 작업을 처리 중 리스트에 남겨 작업자를 다시 시작할 때 다시 처리한다. 같은 결과가 두 번 전송돼도 BE가 제외한다(1.4) | — |
@@ -405,11 +463,12 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 ```json
 { "sessionId": 55, "mode": "VIDEO", "persona": "DEVIL", "currentSeq": 1,
   "questions": [
-    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거" }
+    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "companyItem": null }
   ] }
 ```
 
 - `questions`는 미리 만든 5개 전부. 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준을 여기서 받는다. 2·4·5번은 꼬리질문의 예비 질문으로 사용한다(2.2)
+- `companyItem`은 플랜의 질문별 연결 회사 항목(2장)을 그대로 담는다. 꼬리질문 생성(2.2)의 입력으로 사용한다. 필드가 없으면 null로 처리한다. 필드를 추가하기 전에 BE가 전송한 배정과 배포 순서 차이를 처리하기 위함이다
 - 형식이 틀리면(질문 5개가 아님, 질문 글·채점 기준이 비어 있음, 512KiB 초과 등) 에이전트는 배정을 거절한다(6.5)
 - `currentSeq`: 몇 번 질문부터 할지. 처음엔 1이고, 에이전트가 중간에 끊겨 다시 배정할 때 이어 갈 번호다
 - 면접이 끝나면 BE가 방을 삭제(`RoomService.DeleteRoom`)하고 에이전트는 그 면접을 정리한다. 끝나지 않은 답변은 보내지 않는다
@@ -492,6 +551,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만 `{ chars[] }`, `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0. 그 밖에는 null. 키는 항상 담는다) |
 | `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단하지 못했거나 반응할 내용이 없으면 null), `attitude`(`interest`·`trust`, 0~1, 첫 판단 전에는 0.5), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
 | `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` · `submitFailed` |
+| `interview.attitude` | 에이전트 → 화면 | `score`(면접 태도, 0~100 정수. 쓸 수 있는 사진이 없으면 null). 화상 답변을 듣는 동안 인상 판단(6.6)이 올 때마다 다시 계산해 바뀌었을 때만 보낸다 **[제안]** |
 | `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서), `content`(채팅만, 5.7로 제출한 답변 글, 1,000자 이하. 화상은 null). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false`. `submitFailed` 뒤에 수신하면 보관한 답변을 다시 전송하고 `true`로 응답한다(6.5) |
 | `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs`. 응답 `{ "accepted": true }`. 현재 진행 중인 질문이 아니거나 그 질문에서 이미 수신한 `seq` 이하면 판단하지 않고 `false`로 응답한다. `true`는 판단 대상으로 수신했다는 뜻이며 리액션 판단의 성공을 뜻하지 않는다 |
 
@@ -537,7 +597,9 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 ### 6.6 인상 판단 (Jev 이미지) **[제안]**
 
-화상 답변을 듣는 동안 지원자 카메라 사진으로 인상 6가지를 1초마다 판단해, 그 답변의 `speech.impressions`(6.2)에 담는다. 나중에 다시보기 타임라인에서 지표가 유난히 낮은 구간을 짚는 데 쓰며, 지금은 저장만 한다.
+화상 답변을 듣는 동안 지원자 카메라 사진으로 인상 6가지를 1초마다 판단해, 그 답변의 `speech.impressions`(6.2)에 담는다. 다시보기 타임라인에서 지표가 유난히 낮은 구간을 짚는 데 쓰고, 답변 중에는 면접 태도 점수로 화면에 보여 준다.
+
+- **면접 태도** 판단이 올 때마다 가장 최근 사진부터 3초(임시 값) 안에 찍은 판단으로 계산해 `interview.attitude`(6.3)로 지원자에게 보낸다. 얼굴 기준(0.5) 미만인 사진은 빼고, 사진마다 받은 점수를 평균한 뒤 사진들의 평균을 다시 평균해 정수로 반올림한다. 결과 타임라인과 같은 기준이다. 점수가 바뀔 때만 보내고, 보내는 중에 새 점수가 나오면 마지막 값만 보낸다. 쓸 수 있는 사진이 처음부터 없으면 보내지 않고, 점수를 보낸 뒤 없어지면 null을 보낸다. 답변이 끝나면 보내지 못한 점수는 버린다. 화면이 받지 못해도 면접은 계속 진행한다
 
 - **판단 구간** 화상 답변을 듣는 동안(6.2 2~4번) 받은 사진만 판단한다. 질문 음성 재생 중·답변 사이·채팅 면접의 사진은 버린다. 저장 위치가 답변이기 때문이다
 - **시각 `atMs`** 사진을 찍은 시각에서 `answerStartedAt`을 뺀 값(밀리초)이다. 찍은 시각은 에이전트가 받은 시각에서 `ageMs`(6.3)를 뺀다. 브라우저 시계는 서버와 어긋날 수 있어 쓰지 않는다. 0 미만이면 버린다
@@ -562,7 +624,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
                        { "content": "의견이 다른 동료와 문제를 해결한 경험은?", "criteria": "갈등 상황 · 본인 행동 · 결과" } ],
   "participants": [
     { "sessionId": 55, "identity": "candidate-55",
-      "personalQuestions": [ { "content": "…", "criteria": "…" }, { "content": "…", "criteria": "…" } ] } ] }
+      "personalQuestions": [ { "content": "…", "criteria": "…", "companyItem": null }, { "content": "…", "criteria": "…", "companyItem": null } ] } ] }
 ```
 
 - 방 이름 `group-{groupId}`, 지원자 참가자 이름 `candidate-{sessionId}`, 에이전트는 6.1과 같은 `interviewer`
@@ -589,7 +651,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 - 한 사람당 0~2개이고 필수가 아니다. 미리 만든 예비 질문이 없다. 남은 수는 방 정보 `turn.followupsLeft`로 받는다(0이면 BE가 `DECIDING`을 건너뛴다)
 - 판단 재료는 최종 답변이다: 화상은 자기가 보낸 `answer.completed`의 글, 채팅은 BE가 `SendData`로 보낸 `group.answer`(아래)의 글. 채팅 작성 중인 글(`chat.input`)로는 판단하지 않는다
 - 같은 `(sessionId, seq)`는 한 번만 판단한다. 같은 답변 글을 다시 받으면 처음 결과를 다시 보낸다
-- 필요하면 질문 글 · 채점 기준을 만들고(생성 지침 · 검증은 2.2), 아니면 `needed: false`. 판단 방법(필요 여부를 어떻게 정할지)은 **[미정]**
+- 필요하면 질문 글 · 채점 기준을 만들고(입력 · 생성 지침 · 검증은 2.2. 직전 질문이 개인 맞춤 질문이면 그 질문의 `companyItem`을 입력에 포함한다), 아니면 `needed: false`. 판단 방법(필요 여부를 어떻게 정할지)은 정하지 않았다
 - BE는 `DECIDING`을 시작하고 7초(설정 값) 안에 온 판단만 쓴다. 늦으면 꼬리질문 없이 넘어가므로 에이전트는 기다리지 말고 바로 보낸다. 구현 뒤 응답 시간을 보고 2~3초로 줄일 수 있다
 - 만든 꼬리질문은 BE가 그 사람의 `FOLLOWUP` 차례를 정할 때까지 들고 있다. 다른 차례가 오면 버린다
 
@@ -616,7 +678,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 ```json
 { "type": "followup.decided", "sessionId": 55, "seq": 2, "turnVersion": 18,
   "needed": true, "content": "그때 팀원 의견을 어떻게 모았나요?", "criteria": "의견 수렴 방법 · 결과",
-  "promptVersion": "followup-v1", "modelVersion": "…",
+  "promptVersion": "followup-v2", "modelVersion": "…",
   "receivedAt": "2026-11-04T14:05:03.210+09:00", "generationMs": 1830, "occurredAt": "2026-11-04T14:05:05.100+09:00" }
 ```
 
@@ -652,11 +714,17 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 ## 8. 회사 카드
 
-회사 정보 수집 파이프라인(`company-pipeline`)이 회사마다 만든 카드를 BE가 메인 DB에 적재하고([회사 카드 ERD](ERD-회사카드.md)), 면접을 만들 때 지원서 회사명으로 찾은 카드를 PLAN 작업 메시지의 `companyCard`에 그대로 담는다
+회사 정보 수집 파이프라인(`company-pipeline`)이 회사마다 만든 카드를 BE가 메인 DB에 적재하고([회사 카드 ERD](ERD-회사카드.md)), 면접을 만들 때 지원서 회사명으로 찾은 카드를 PLAN·EVALUATE 작업 메시지의 `companyCard`에 그대로 담는다
 
 - 형식: 파이프라인 카드 JSON 그대로다. 항목은 [카드 형식](../company-pipeline/pipeline/README.md#카드-형식)을 따른다(`talent`·`direction`·`market`·`recent`, 항목마다 원문 인용과 출처)
+- 분류값: 파이프라인이 카드를 만들 때 항목마다 분류값을 부여한다. 질문 생성에서 회사 항목과 자소서 주장의 연결 후보를 코드로 선별하기 위함이다
+  - `talent[]` 항목은 `criterion`에 2장 인재상 기준 12개 중 하나의 이름을 담는다
+  - `direction[]`·`market[]`·`recent[]` 항목은 `ncs_subcategories`에 그 상황을 담당할 직무의 NCS 세분류 이름을 0~3개 담는다. 세분류는 NCS 「20 정보통신 > 01 정보기술」 분야의 세분류 전체에서 선택한다
+  - 두 목록(인재상 기준 12개, NCS 세분류)의 원본은 저장소 최상위 공용 패키지 `shared/company_taxonomy` 하나다. 파이프라인과 AI는 이 패키지를 의존성으로 사용하고 목록을 따로 관리하지 않는다. 패키지에는 이 두 목록만 담는다
+  - 분류값을 추가하기 전에 만든 카드에는 `criterion`·`ncs_subcategories` 칸이 없을 수 있다
 - 회사를 찾지 못했거나 카드가 없으면 `companyCard`를 넣지 않는다
-- SCORE_ANSWER·EVALUATE에는 아직 담지 않는다. 피드백 반영 방식을 정할 때 추가한다
+- EVALUATE는 PLAN과 같은 카드를 담는다. 면접 도중 카드가 갱신되어도 결과 피드백이 질문을 생성할 때와 같은 회사 정보를 사용하기 위함이다
+- SCORE_ANSWER에는 담지 않는다. 회사 연결 질문은 채점 기준에 회사 항목의 내용을 포함하므로(2장) 판정에 회사 정보가 반영되기 때문이다
 
 ## 9. 버전
 

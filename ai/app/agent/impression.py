@@ -185,6 +185,7 @@ class ImpressionRecorder:
         self._clock = clock
         self._recording = False
         self._frames: list[TimedImpression] = []
+        self._on_judged: Callable[[tuple[TimedImpression, ...]], None] | None = None
         self._judging: set[asyncio.Task[None]] = set()
         self._reading: set[asyncio.Task[None]] = set()
 
@@ -193,10 +194,14 @@ class ImpressionRecorder:
         """판단에 쓴 Jev 모델(answer.completed speech.impressions.modelVersion)."""
         return self._judge.model
 
-    def start(self) -> None:
-        """답변을 듣기 시작한다. 이전 답변에서 남은 판단은 버린다."""
+    def start(self, on_judged: Callable[[tuple[TimedImpression, ...]], None] | None = None) -> None:
+        """답변을 듣기 시작한다. 이전 답변에서 남은 판단은 버린다.
+
+        on_judged가 있으면 판단이 올 때마다 지금까지 받은 판단(judged)으로 부른다(면접 태도, 6.3).
+        """
         self._discard()
         self._recording = True
+        self._on_judged = on_judged
 
     def stop(self) -> tuple[TimedImpression, ...]:
         """답변을 끝낸다. 응답이 오지 않은 판단은 취소하고 받은 판단을 찍은 시각 순으로 반환한다."""
@@ -241,10 +246,13 @@ class ImpressionRecorder:
         # 취소되지 않고 끝났으면 같은 답변 안이다(stop·start가 판단 중인 요청을 취소한다)
         if impression is not None:
             self._frames.append(TimedImpression(captured_at, impression))
+            if self._on_judged is not None:
+                self._on_judged(self.judged())
 
     def _discard(self) -> None:
         self._recording = False
         self._frames = []
-        for task in list(self._judging):
+        self._on_judged = None
+        for task in self._judging:
             task.cancel()
         self._judging.clear()

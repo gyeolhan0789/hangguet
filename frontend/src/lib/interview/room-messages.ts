@@ -43,6 +43,20 @@ export const reactionMessageSchema = z.object({
     .nullable(),
 });
 export type ReactionMessage = z.infer<typeof reactionMessageSchema>;
+
+// 기준: AI 명세 6.3 interview.attitude · 6.6 면접 태도(에이전트 → 화면). 화상 답변 중 최근 3초 카메라 인상 판단의 평균.
+// 바뀔 때만 오고, 얼굴을 확인할 수 없으면 score는 null이다.
+export const ATTITUDE_METHOD = "interview.attitude";
+export const attitudeMessageSchema = z.object({
+  type: z.literal("attitude"),
+  sessionId: z.number().int().positive(),
+  score: z.number().int().min(0).max(100).nullable(),
+});
+/** 받은 면접 태도 점수와 받은 시각(performance.now) */
+export interface AttitudeSample {
+  score: number | null;
+  receivedAt: number;
+}
 export interface ReactionSnapshot {
   message: ReactionMessage;
   receivedAt: number;

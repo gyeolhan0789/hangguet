@@ -194,88 +194,124 @@ def next_answer_end(state: AnswerEndState, event: AnswerEndEvent) -> AnswerEndSt
             )
 
         case Speech(at=at):
-            if not _is_video(state) or not _is_active(state.phase):
-                return AnswerEndStep(state)
-            # 재연결 중이거나 안내 음성 재생 중이면 7초는 중지 상태로 유지하고
-            # 발화 시작 상태만 기록한다
-            listening = state.phase is Phase.LISTENING and not state.notice_playing
-            silence = at if listening else None
-            first = at if state.speech_started_at is None else state.speech_started_at
-            return AnswerEndStep(
-                replace(state, spoke=True, speech_started_at=first, silence_started_at=silence)
-            )
+            return _on_speech(state, at)
 
         case Reconnecting():
-            if not _is_video(state) or state.phase is not Phase.LISTENING:
-                return AnswerEndStep(state)
-            return AnswerEndStep(replace(state, phase=Phase.RECONNECTING, silence_started_at=None))
+            return _on_reconnecting(state)
 
         case Reconnected(at=at):
-            if state.phase is not Phase.RECONNECTING:
-                return AnswerEndStep(state)
-            # 60초(listen_started_at)는 유지한다.
-            # 발화를 시작하기 전이면 7초를 설정하지 않는다
-            silence = at if state.spoke and not state.notice_playing else None
-            return AnswerEndStep(replace(state, phase=Phase.LISTENING, silence_started_at=silence))
+            return _on_reconnected(state, at)
 
         case SttError():
-            if not _is_video(state) or not _is_active(state.phase):
-                return AnswerEndStep(state)
-            return AnswerEndStep(replace(state, phase=Phase.ERROR, silence_started_at=None))
+            return _on_stt_error(state)
 
         case SubmitRequested():
-            # 자동 제출과 [답변 완료]가 겹쳐도 한 번만 제출한다
-            if state.phase is Phase.SUBMITTING:
-                return AnswerEndStep(state, Decision.ALREADY_SUBMITTING)
-            # 이미 발화를 확인하고 제출한 답변이므로 발화 검사 없이 다시 제출한다
-            if state.phase is Phase.SUBMIT_FAILED:
-                return AnswerEndStep(replace(state, phase=Phase.SUBMITTING), Decision.ACCEPT)
-            # 답변 시작 전(질문 음성 재생 중)이다
-            if state.phase is not Phase.ERROR and not _is_active(state.phase):
-                return AnswerEndStep(state, Decision.NOT_ANSWERING)
-            if _is_video(state) and not state.spoke:
-                return AnswerEndStep(state, Decision.EMPTY_ANSWER)
-            submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
-            return AnswerEndStep(submitting, Decision.ACCEPT)
+            return _on_submit_requested(state)
 
         case NoticeStarted():
-            if not _is_video(state) or not _is_active(state.phase):
-                return AnswerEndStep(state)
-            return AnswerEndStep(replace(state, notice_playing=True, silence_started_at=None))
+            return _on_notice_started(state)
 
         case NoticeEnded(at=at):
-            if not state.notice_playing:
-                return AnswerEndStep(state)
-            listening = state.phase is Phase.LISTENING and state.spoke
-            return AnswerEndStep(
-                replace(state, notice_playing=False, silence_started_at=at if listening else None)
-            )
+            return _on_notice_ended(state, at)
 
         case SubmitFailed():
-            if state.phase is not Phase.SUBMITTING:
-                return AnswerEndStep(state)
-            return AnswerEndStep(replace(state, phase=Phase.SUBMIT_FAILED))
+            return _on_submit_failed(state)
 
         case Tick(now=now):
-            # 재연결 중이거나 안내 음성 재생 중이어도 3분이 지나면 제출한다
-            limit = _max_speech_deadline(state)
-            if limit is not None and now >= limit:
-                submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
-                return AnswerEndStep(submitting, Decision.SUBMIT)
-            if (
-                state.phase is Phase.LISTENING
-                and state.silence_started_at is not None
-                and now - state.silence_started_at >= AUTO_SUBMIT_SILENCE_MS
-            ):
-                submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
-                return AnswerEndStep(submitting, Decision.SUBMIT)
-            if (
-                _counts_no_speech(state)
-                and state.listen_started_at is not None
-                and now - state.listen_started_at >= NO_SPEECH_TIMEOUT_MS
-            ):
-                return AnswerEndStep(replace(state, timed_out=True), Decision.TIMEOUT)
-            return AnswerEndStep(state)
+            return _on_tick(state, now)
+
+
+def _on_speech(state: AnswerEndState, at: int) -> AnswerEndStep:
+    if not _is_video(state) or not _is_active(state.phase):
+        return AnswerEndStep(state)
+    # 재연결 중이거나 안내 음성 재생 중이면 7초는 중지 상태로 유지하고
+    # 발화 시작 상태만 기록한다
+    listening = state.phase is Phase.LISTENING and not state.notice_playing
+    silence = at if listening else None
+    first = at if state.speech_started_at is None else state.speech_started_at
+    return AnswerEndStep(
+        replace(state, spoke=True, speech_started_at=first, silence_started_at=silence)
+    )
+
+
+def _on_reconnecting(state: AnswerEndState) -> AnswerEndStep:
+    if not _is_video(state) or state.phase is not Phase.LISTENING:
+        return AnswerEndStep(state)
+    return AnswerEndStep(replace(state, phase=Phase.RECONNECTING, silence_started_at=None))
+
+
+def _on_reconnected(state: AnswerEndState, at: int) -> AnswerEndStep:
+    if state.phase is not Phase.RECONNECTING:
+        return AnswerEndStep(state)
+    # 60초(listen_started_at)는 유지한다.
+    # 발화를 시작하기 전이면 7초를 설정하지 않는다
+    silence = at if state.spoke and not state.notice_playing else None
+    return AnswerEndStep(replace(state, phase=Phase.LISTENING, silence_started_at=silence))
+
+
+def _on_stt_error(state: AnswerEndState) -> AnswerEndStep:
+    if not _is_video(state) or not _is_active(state.phase):
+        return AnswerEndStep(state)
+    return AnswerEndStep(replace(state, phase=Phase.ERROR, silence_started_at=None))
+
+
+def _on_submit_requested(state: AnswerEndState) -> AnswerEndStep:
+    # 자동 제출과 [답변 완료]가 겹쳐도 한 번만 제출한다
+    if state.phase is Phase.SUBMITTING:
+        return AnswerEndStep(state, Decision.ALREADY_SUBMITTING)
+    # 이미 발화를 확인하고 제출한 답변이므로 발화 검사 없이 다시 제출한다
+    if state.phase is Phase.SUBMIT_FAILED:
+        return AnswerEndStep(replace(state, phase=Phase.SUBMITTING), Decision.ACCEPT)
+    # 답변 시작 전(질문 음성 재생 중)이다
+    if state.phase is not Phase.ERROR and not _is_active(state.phase):
+        return AnswerEndStep(state, Decision.NOT_ANSWERING)
+    if _is_video(state) and not state.spoke:
+        return AnswerEndStep(state, Decision.EMPTY_ANSWER)
+    submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
+    return AnswerEndStep(submitting, Decision.ACCEPT)
+
+
+def _on_notice_started(state: AnswerEndState) -> AnswerEndStep:
+    if not _is_video(state) or not _is_active(state.phase):
+        return AnswerEndStep(state)
+    return AnswerEndStep(replace(state, notice_playing=True, silence_started_at=None))
+
+
+def _on_notice_ended(state: AnswerEndState, at: int) -> AnswerEndStep:
+    if not state.notice_playing:
+        return AnswerEndStep(state)
+    listening = state.phase is Phase.LISTENING and state.spoke
+    return AnswerEndStep(
+        replace(state, notice_playing=False, silence_started_at=at if listening else None)
+    )
+
+
+def _on_submit_failed(state: AnswerEndState) -> AnswerEndStep:
+    if state.phase is not Phase.SUBMITTING:
+        return AnswerEndStep(state)
+    return AnswerEndStep(replace(state, phase=Phase.SUBMIT_FAILED))
+
+
+def _on_tick(state: AnswerEndState, now: int) -> AnswerEndStep:
+    # 재연결 중이거나 안내 음성 재생 중이어도 3분이 지나면 제출한다
+    limit = _max_speech_deadline(state)
+    if limit is not None and now >= limit:
+        submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
+        return AnswerEndStep(submitting, Decision.SUBMIT)
+    if (
+        state.phase is Phase.LISTENING
+        and state.silence_started_at is not None
+        and now - state.silence_started_at >= AUTO_SUBMIT_SILENCE_MS
+    ):
+        submitting = replace(state, phase=Phase.SUBMITTING, silence_started_at=None)
+        return AnswerEndStep(submitting, Decision.SUBMIT)
+    if (
+        _counts_no_speech(state)
+        and state.listen_started_at is not None
+        and now - state.listen_started_at >= NO_SPEECH_TIMEOUT_MS
+    ):
+        return AnswerEndStep(replace(state, timed_out=True), Decision.TIMEOUT)
+    return AnswerEndStep(state)
 
 
 def _max_speech_deadline(state: AnswerEndState) -> int | None:

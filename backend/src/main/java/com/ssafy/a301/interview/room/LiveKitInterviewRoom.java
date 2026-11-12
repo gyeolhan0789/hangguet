@@ -469,9 +469,10 @@ public class LiveKitInterviewRoom implements InterviewRoom {
         }
     }
 
-    // 트랙마다 {원본 위치}{참가자}-{종류}-{트랙 id}.{확장자}로 올린다. 원본 위치는 recordings/raw/{sessionId}/{startedAtMs}/
-    // (그룹은 recordings/raw/group-{groupId}/{startedAtMs}/), 종류는 video·audio(소문자), 트랙 id는 LiveKit 서버가
-    // 붙이고(같은 트랙을 다시 올려도 덮어쓰지 않음) 확장자는 Egress가 코덱에 맞춰 붙인다(H.264 mp4, Opus ogg)
+    // 트랙마다 원본 위치 아래에 "참가자-종류-트랙 id.확장자" 이름으로 올린다.
+    // 원본 위치는 recordings/raw/면접 id/시작 시각(ms)/이고, 그룹은 recordings/raw/group-그룹 id/시작 시각(ms)/이다.
+    // 종류는 video·audio(소문자)다. 트랙 id는 LiveKit 서버가 붙여서 같은 트랙을 다시 올려도 덮어쓰지 않는다.
+    // 확장자는 Egress가 코덱에 맞춰 붙인다: H.264는 mp4, Opus는 ogg
     private AutoTrackEgress trackEgress(String rawPrefix) {
         AutoTrackEgress.Builder egress =
                 AutoTrackEgress.newBuilder()

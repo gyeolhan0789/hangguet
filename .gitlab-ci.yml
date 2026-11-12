@@ -709,6 +709,7 @@ ai-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   variables:
@@ -805,10 +806,11 @@ monitoring-deploy:
 ai-agent-deploy:
   extends: .dev-deploy
   rules:
-    # 재시작하면 진행 중인 면접에서 면접관이 빠지므로 AI 코드나 앱 Compose가 바뀔 때만 자동으로 돈다
+    # 재시작하면 진행 중인 면접에서 면접관이 퇴장하므로 AI 코드·AI가 사용하는 공용 패키지(shared/)·앱 Compose가 변경될 때만 자동으로 실행된다
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   before_script:
@@ -828,6 +830,7 @@ ai-analysis-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   before_script:
@@ -972,15 +975,17 @@ prod-build:
       trap 'docker logout >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
       printf '%s' "$DOCKERHUB_PUSH_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin >/dev/null
       for SVC in be fe ai admin; do
+        EXTRA_CONTEXT=""
         case "$SVC" in
           be) CONTEXT="backend" ;;
           fe) CONTEXT="frontend" ;;
-          ai) CONTEXT="ai" ;;
+          # AI 이미지는 공용 패키지(shared/)를 추가 빌드 컨텍스트로 전달한다(ai/Dockerfile)
+          ai) CONTEXT="ai"; EXTRA_CONTEXT="--build-context shared=shared" ;;
           admin) CONTEXT="admin" ;;
         esac
         IMAGE="${DOCKERHUB_REPO}:${SVC}-${IMAGE_TAG}"
         echo "== ${IMAGE} (${CONTEXT}/)"
-        docker build --pull -t "$IMAGE" "$CONTEXT"
+        docker build --pull $EXTRA_CONTEXT -t "$IMAGE" "$CONTEXT"
         docker push "$IMAGE"
         docker rmi "$IMAGE" >/dev/null
       done
@@ -1121,8 +1126,10 @@ ai-test:
         - .gitlab-ci.yml
       variables:
         INSTALL_FFMPEG: "1"
+    # 공용 패키지(shared/)가 변경되면 그 패키지를 사용하는 AI 코드도 검사합니다
     - changes:
         - ai/**/*
+        - shared/**/*
   stage: test
   image: python:3.13-slim
   needs: []
@@ -1186,13 +1193,14 @@ ai-sonar:
 
 ## 회사 카드 파이프라인 ##
 
-# company-pipeline/(회사 카드 파이프라인)이나 이 파일이 바뀐 MR에서만 돕니다.
+# company-pipeline/(회사 카드 파이프라인), 파이프라인이 사용하는 공용 패키지 shared/, 이 파일이 변경된 MR에서만 돕니다.
 .pipeline-rules:
   rules:
     - if: '$CI_PIPELINE_SOURCE != "merge_request_event"'
       when: never
     - changes:
         - company-pipeline/**/*
+        - shared/**/*
         - .gitlab-ci.yml
 
 # ai-test와 같은 방식: 검사(ruff·mypy)와 테스트(pytest)를 한 잡에서 돌립니다.
@@ -1221,6 +1229,10 @@ pipeline-test:
     - uv run ruff format --check .
     - uv run ruff check .
     - uv run mypy
+    # 공용 패키지(shared/) 자체 검사. 검사 규칙은 shared/pyproject.toml을 따릅니다.
+    - uv run ruff format --check ../shared
+    - uv run ruff check ../shared
+    - uv run mypy --config-file ../shared/pyproject.toml ../shared/company_taxonomy
     - uv run pytest --junitxml=junit.xml
   artifacts:
     when: always
@@ -1229,7 +1241,7 @@ pipeline-test:
     expire_in: 1 day
 
 # 교보재 EC2 배포 (company-pipeline/airflow/docker-compose.yaml)
-# - develop에 company-pipeline/ 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
+# - develop에 company-pipeline/이나 공용 패키지(shared/) 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
 #   EC2 Docker로 직접 띄운다. 공식 이미지(Airflow·Postgres·MinIO)에 코드 폴더를 연결하므로 이미지는 빌드하지 않는다.
 # - 코드만 /opt/a301-pipeline으로 덮어쓴다. API 키(.env)와 수집 데이터(pipeline/data)·로그는 서버에만 있고 지우지 않는다.
 #   .env는 처음 한 번 서버에 직접 둔다(박다빈/deploy_plan 3.3).
@@ -1248,6 +1260,7 @@ pipeline-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - company-pipeline/**/*
+        - shared/**/*
   environment:
     name: pipeline
   variables:
@@ -1258,7 +1271,10 @@ pipeline-deploy:
     - 'test -f "$DEPLOY_DIR/.env" || { echo "FAIL: ${DEPLOY_DIR}/.env 가 없습니다. 서버에 먼저 두세요."; exit 1; }'
     # 코드만 덮어씁니다. 제외한 경로는 --delete 대상에서도 빠집니다.
     - rsync -a --delete --exclude .env --exclude pipeline/data/ --exclude airflow/logs/ --exclude __pycache__/
-      company-pipeline/pipeline company-pipeline/airflow "$DEPLOY_DIR/"
+      company-pipeline/pipeline company-pipeline/airflow shared "$DEPLOY_DIR/"
+    # 공용 패키지는 서버에서 $DEPLOY_DIR/shared에 있어 compose 파일 기준 상대 경로가 로컬(../../shared)과 다르다.
+    # compose가 읽는 airflow/.env에 서버 경로를 기록한다(위 rsync의 --exclude .env로 지워지지 않는다)
+    - echo 'COMPANY_TAXONOMY_DIR=../shared/company_taxonomy' > "$DEPLOY_DIR/airflow/.env"
     - mkdir -p "$DEPLOY_DIR/pipeline/data" "$DEPLOY_DIR/airflow/logs"
     # 컨테이너 안 Airflow는 uid 50000으로 로그·카드를 씁니다. 러너 계정으로는 소유자를 못 바꿔 컨테이너로 바꿉니다.
     - docker run --rm -v "$DEPLOY_DIR:/d" alpine:3.22 chown -R 50000:0 /d/pipeline/data /d/airflow/logs
