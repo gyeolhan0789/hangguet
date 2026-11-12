@@ -372,11 +372,22 @@ def test_uses_all_claims_when_no_claim_shows_interviewer_criterion() -> None:
     assert [q.claim_id for q in result.questions] == ["c2", "c3", "c2", "c2", "c2"]
 
 
-# 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 개발자 면접관이므로 사업 방향·시장을 사용한다.
+# 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 백엔드 개발자를 뽑는 개발자 면접관이므로
+# 사업 방향·시장 중 응용SW엔지니어링 분류값이 부여된 항목을 사용한다.
 # 회사 항목은 co1부터 번호를 매긴다(co1 해외 결제 확대, co2 점유율 1위)
-CARD = {"direction": [{"summary": "해외 결제 확대"}], "market": [{"summary": "점유율 1위"}]}
+SW = ["응용SW엔지니어링"]
+CARD = {
+    "direction": [{"summary": "해외 결제 확대", "ncs_subcategories": SW}],
+    "market": [{"summary": "점유율 1위", "ncs_subcategories": SW}],
+}
 CARD_JOB = replace(JOB, company_card=CARD)
-DEVIL_CARD_JOB = replace(JOB, persona=Persona.DEVIL, company_card={"talent": [{"title": "해결"}]})
+# 악마 면접관 기준이 드러난 주장이 없어 두 주장을 모두 사용하고(면접관별 주장 선택),
+# 인재상 항목(co1)은 분류값과 기준이 같은 c1과만 연결할 수 있다
+DEVIL_CARD_JOB = replace(
+    JOB,
+    persona=Persona.DEVIL,
+    company_card={"talent": [{"title": "해결", "criterion": "실행·성과"}]},
+)
 
 
 def linked(*items: str) -> dict[str, Any]:
@@ -435,6 +446,28 @@ def test_wrong_company_links_are_retried_once(first: dict[str, Any]) -> None:
     chat = FakeChat([first, linked("co1")])
 
     generate_questions(chat, CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+
+
+def test_talent_link_to_claim_with_other_criterion_is_retried() -> None:
+    """인재상 항목은 분류값과 인재상 기준이 같은 주장과만 연결할 수 있다(AI 명세 2장)."""
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c2"
+    chat = FakeChat([wrong, linked("co1")])
+
+    result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c1", "co1")
+
+
+def test_link_to_unclassified_item_is_retried() -> None:
+    """분류값이 없는 항목은 후보가 아니므로 번호가 매겨지지 않는다."""
+    job = replace(JOB, company_card={"direction": [{"summary": "해외 결제 확대"}]})
+    chat = FakeChat([linked("co1"), five()])
+
+    generate_questions(chat, job, CLAIMS)
 
     assert len(chat.calls) == 2
 

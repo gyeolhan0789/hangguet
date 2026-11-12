@@ -1,13 +1,20 @@
 """질문·기준 생성(AI 명세 2장 STEP 02): 주장을 검증하는 질문과 질문별 채점 기준을 생성한다."""
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from app.common.gms import Chat
 from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Persona
-from app.interview.company import BUSINESS_TITLE, TALENT_TITLE, company_section
+from app.interview.company import (
+    BUSINESS_TITLE,
+    TALENT_TITLE,
+    CompanyItem,
+    company_items,
+    company_section,
+)
 from app.interview.interviewer import COVER_LETTER, interviewer_guide
+from app.interview.job_ncs import competency_units, job_subcategories
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.rules import COMPANY_LINKED_MAX, COMPANY_LINKED_MIN
 from app.worker.messages import Claim, PlanJob
@@ -52,6 +59,8 @@ def question_system(persona: Persona) -> str:
         "- companyItem: 회사 정보가 주어지면 "
         f"{COMPANY_LINKED_MIN[persona]}~{COMPANY_LINKED_MAX}개 질문만 회사 정보와 연결하고, "
         "연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
+        "인재상 항목은 괄호에 적힌 주장과만 연결하고, "
+        "회사 항목이 경험과 이어지지 않으면 연결하지 않는다. "
         "질문 내용이 회사 정보를 다루지 않으면 연결하지 않는다. "
         "연결하지 않은 질문과 회사 정보가 없을 때는 빈 문자열로 작성한다\n"
         "JSON으로만 답한다: "
@@ -81,9 +90,32 @@ def claims_text(claims: Sequence[Claim]) -> str:
     return "\n".join(f"{c.id} ({c.type.value}, 문장 {c.sentence_no}) {c.text}" for c in claims)
 
 
-def _company(job: PlanJob) -> str:
-    section = company_section(job.company_card, job.persona)
+def company_candidates(job: PlanJob, claims: Sequence[Claim]) -> list[CompanyItem]:
+    """질문에 연결할 수 있는 회사 항목을 반환한다(AI 명세 2장 회사 카드 사용).
+
+    claims는 질문 생성에 전달하는 주장이다. 인재상 항목은 이 주장의 인재상 기준으로,
+    사업 방향·시장 항목은 지원 직무명을 변환한 NCS 세분류로 후보를 선별한다.
+    """
+    return company_items(job.company_card, job.persona, claims, job_subcategories(job.job_title))
+
+
+def _company(items: Sequence[CompanyItem]) -> str:
+    section = company_section(items)
     return f"{section}\n\n" if section else ""
+
+
+def _units(job: PlanJob, items: Sequence[CompanyItem]) -> str:
+    """지원 직무의 NCS 능력단위를 전달한다.
+
+    회사 항목이 지원 직무가 담당할 상황이고 자기소개서 경험과 실제로 이어지는지
+    모델이 판단하도록 직무가 담당할 일을 함께 전달한다.
+    연결 방식을 정한 GMS 실측(2026-11-10)과 같은 입력이다.
+    연결 후보가 없으면 전달하지 않는다.
+    """
+    if not items:
+        return ""
+    units = competency_units(job_subcategories(job.job_title))
+    return f"\n\n[직무 능력단위]\n{', '.join(units)}" if units else ""
 
 
 def _asked(job: PlanJob) -> str:
@@ -104,9 +136,10 @@ def _asked(job: PlanJob) -> str:
 
 
 def build_question_messages(job: PlanJob, claims: Sequence[Claim]) -> list[dict[str, str]]:
+    items = company_candidates(job, claims)
     user = (
         f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
-        f"{_company(job)}[주장]\n{claims_text(claims)}{_asked(job)}"
+        f"{_company(items)}[주장]\n{claims_text(claims)}{_asked(job)}{_units(job, items)}"
     )
     return [
         {"role": "system", "content": question_system(job.persona)},
@@ -165,18 +198,24 @@ def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
 
 
 def check_company_links(
-    questions: Sequence[Question], item_ids: Collection[str], persona: Persona
+    questions: Sequence[Question], items: Sequence[CompanyItem], persona: Persona
 ) -> None:
-    """회사 정보와 연결한 질문 수와 연결한 항목 번호를 검사한다.
+    """회사 정보와 연결한 질문 수와 연결한 항목·주장의 짝을 검사한다.
 
-    회사 정보가 있으면 연결한 질문이 면접관별 COMPANY_LINKED_MIN~MAX개여야 하고,
-    연결한 항목 번호는 주어진 회사 항목이어야 한다(카드에 없는 회사 정보를 전제로 묻지 않음).
+    회사 정보 후보가 있으면 연결한 질문이 면접관별 COMPANY_LINKED_MIN~MAX개여야 하고,
+    연결한 항목 번호는 후보 항목이어야 한다(카드에 없는 회사 정보를 전제로 묻지 않음).
+    인재상 항목은 그 항목의 분류값과 인재상 기준이 같은 주장과만 연결할 수 있다(AI 명세 2장).
     """
-    linked = [q.company_item for q in questions if q.company_item is not None]
-    if any(item_id not in item_ids for item_id in linked):
-        raise PlanOutputError("questions.companyItem이 주어진 회사 항목이 아니다")
+    by_id = {item.id: item for item in items}
+    linked = [q for q in questions if q.company_item is not None]
+    for q in linked:
+        item = by_id.get(q.company_item or "")
+        if item is None:
+            raise PlanOutputError("questions.companyItem이 주어진 회사 항목이 아니다")
+        if item.claim_ids is not None and q.claim_id not in item.claim_ids:
+            raise PlanOutputError("questions.companyItem이 연결 후보가 아닌 주장과 연결되어 있다")
     minimum = COMPANY_LINKED_MIN[persona]
-    if item_ids and not minimum <= len(linked) <= COMPANY_LINKED_MAX:
+    if items and not minimum <= len(linked) <= COMPANY_LINKED_MAX:
         raise PlanOutputError(
             f"회사 정보와 연결한 질문은 {minimum}~{COMPANY_LINKED_MAX}개여야 한다"
         )
@@ -200,7 +239,8 @@ def build_regenerate_messages(
 ) -> list[dict[str, str]]:
     user = (
         f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
-        f"{_company(job)}[주장]\n{claims_text(claims)}{_asked(job)}\n\n"
+        f"{_company(company_candidates(job, claims))}[주장]\n"
+        f"{claims_text(claims)}{_asked(job)}\n\n"
         f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다."
     )
     return [
