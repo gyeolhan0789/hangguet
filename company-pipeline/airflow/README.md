@@ -47,7 +47,7 @@ docker compose down      # 끄기. 실행 기록과 수집 데이터는 남는�
 
 ## EC2 배포
 
-`company-pipeline/` 변경이 develop에 병합되면 CI `pipeline-deploy` 잡이 교보재 EC2에 배포한다(팀 개발 서버와 같은 방식).
+`company-pipeline/`이나 공용 패키지(`shared/`) 변경이 develop에 병합되면 CI `pipeline-deploy` 잡이 교보재 EC2에 배포한다(팀 개발 서버와 같은 방식).
 
 ```
 develop 병합 → EC2 러너(태그 a301-pipeline-deploy, Protected, shell)

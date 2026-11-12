@@ -709,6 +709,7 @@ ai-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   variables:
@@ -805,10 +806,11 @@ monitoring-deploy:
 ai-agent-deploy:
   extends: .dev-deploy
   rules:
-    # 재시작하면 진행 중인 면접에서 면접관이 빠지므로 AI 코드나 앱 Compose가 바뀔 때만 자동으로 돈다
+    # 재시작하면 진행 중인 면접에서 면접관이 퇴장하므로 AI 코드·AI가 사용하는 공용 패키지(shared/)·앱 Compose가 변경될 때만 자동으로 실행된다
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   before_script:
@@ -828,6 +830,7 @@ ai-analysis-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - ai/**/*
+        - shared/**/*
         - deploy/dev/compose.yml
     - !reference [.dev-redeploy-button, rules]
   before_script:
@@ -1238,7 +1241,7 @@ pipeline-test:
     expire_in: 1 day
 
 # 교보재 EC2 배포 (company-pipeline/airflow/docker-compose.yaml)
-# - develop에 company-pipeline/ 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
+# - develop에 company-pipeline/이나 공용 패키지(shared/) 변경이 병합되면 EC2의 배포 전용 러너(shell executor, 태그 a301-pipeline-deploy, Protected)가
 #   EC2 Docker로 직접 띄운다. 공식 이미지(Airflow·Postgres·MinIO)에 코드 폴더를 연결하므로 이미지는 빌드하지 않는다.
 # - 코드만 /opt/a301-pipeline으로 덮어쓴다. API 키(.env)와 수집 데이터(pipeline/data)·로그는 서버에만 있고 지우지 않는다.
 #   .env는 처음 한 번 서버에 직접 둔다(박다빈/deploy_plan 3.3).
@@ -1257,6 +1260,7 @@ pipeline-deploy:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - company-pipeline/**/*
+        - shared/**/*
   environment:
     name: pipeline
   variables:
