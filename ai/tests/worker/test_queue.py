@@ -312,6 +312,26 @@ def test_invalid_job_with_common_fields_sends_failed_result(
     assert redis.items(PROCESSING_KEY) == []
 
 
+def test_invalid_extract_claims_job_sends_failed_result_with_application_id() -> None:
+    """주장 추출은 지원서 단위 작업이므로 실패 결과에 applicationId를 담는다(AI 명세 1.3)."""
+    redis = FakeListRedis()
+    redis.lpush(
+        QUEUE_KEY, json.dumps({"jobType": "EXTRACT_CLAIMS", "jobId": JOB_1, "applicationId": 7})
+    )
+
+    assert make_queue(redis).receive_once() is ReceiveResult.INVALID
+
+    [message] = published(redis)
+    assert {k: message[k] for k in ("type", "applicationId", "jobId", "reason")} == {
+        "type": "claims.extractFailed",
+        "applicationId": 7,
+        "jobId": JOB_1,
+        "reason": "INVALID_JOB",
+    }
+    assert "sessionId" not in message
+    assert redis.items(PROCESSING_KEY) == []
+
+
 def test_invalid_score_answer_sends_no_result() -> None:
     """SCORE_ANSWER는 실패 결과가 없고 결과 생성이 다시 채점한다(AI 명세 5장)."""
     redis = FakeListRedis()

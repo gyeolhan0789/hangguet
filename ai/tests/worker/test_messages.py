@@ -16,10 +16,12 @@ from app.common.answer import (
 from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode, Persona
 from app.worker.messages import (
+    AskedQuestion,
     Claim,
     ClaimType,
     EvaluateAnswer,
     EvaluateJob,
+    ExtractClaimsJob,
     InvalidJobError,
     JobHeader,
     JobType,
@@ -45,6 +47,22 @@ def plan(**overrides: Any) -> dict[str, Any]:
         "jobType": "PLAN",
         "jobId": JOB_ID,
         "sessionId": 55,
+        "requestedAt": "2026-10-22T14:03:13+09:00",
+        "companyName": "한끗전자",
+        "jobTitle": "백엔드 개발",
+        "coverLetterItems": [
+            {"question": "지원 동기", "answer": "조회 응답 시간을 40% 줄였습니다."}
+        ],
+    }
+    return _apply(data, overrides)
+
+
+def extract(**overrides: Any) -> dict[str, Any]:
+    """AI 명세 2장 STEP 01 지원서 주장 추출 작업 메시지."""
+    data = {
+        "jobType": "EXTRACT_CLAIMS",
+        "jobId": JOB_ID,
+        "applicationId": 7,
         "requestedAt": "2026-10-22T14:03:13+09:00",
         "companyName": "한끗전자",
         "jobTitle": "백엔드 개발",
@@ -136,6 +154,108 @@ def test_parses_plan_job() -> None:
         job_title="백엔드 개발",
         cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
     )
+
+
+def test_plan_job_without_claims_extracts_claims_itself() -> None:
+    """그룹 면접이나 이 필드를 추가하기 전의 BE 작업은 claims가 없다(AI 명세 2장)."""
+    job = parse_job(json.dumps(plan()))
+
+    assert isinstance(job, PlanJob)
+    assert job.claims is None
+
+
+def test_parses_stored_claims_of_plan_job() -> None:
+    """개인 면접은 지원서에 저장된 주장을 인재상 기준과 함께 수신한다(AI 명세 2장)."""
+    message = plan(claims=[claim(talentCriteria=["실행·성과"]), claim(id="c2", sentenceNo=1)])
+
+    job = parse_job(message)
+
+    assert isinstance(job, PlanJob)
+    assert job.claims == (
+        Claim("c1", "조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+        Claim("c2", "조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 1),
+    )
+
+
+def test_unknown_talent_criterion_name_is_kept() -> None:
+    """목록에 없는 기준 이름은 면접관 기준과 겹치지 않을 뿐이므로 형식 오류로 처리하지 않는다."""
+    job = parse_job(plan(claims=[claim(talentCriteria=["예전 기준"])]))
+
+    assert isinstance(job, PlanJob)
+    assert job.claims is not None
+    assert job.claims[0].talent_criteria == ("예전 기준",)
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        [],
+        "c1",
+        [claim(talentCriteria="실행·성과")],
+        [claim(talentCriteria=[1])],
+        [claim(talentCriteria=[" "])],
+        [claim(), claim()],
+    ],
+)
+def test_wrong_stored_claims_are_invalid(claims: Any) -> None:
+    with pytest.raises(InvalidJobError, match="claims"):
+        parse_job(plan(claims=claims))
+
+
+def test_parses_asked_questions_of_plan_job() -> None:
+    """같은 지원서·같은 면접관의 면접에서 출제한 보관함 질문(AI 명세 2장 askedQuestions)."""
+    job = parse_job(plan(askedQuestions=[{"content": "응답 시간을 줄인 과정은?", "claimId": "c1"}]))
+
+    assert isinstance(job, PlanJob)
+    assert job.asked_questions == (AskedQuestion("응답 시간을 줄인 과정은?", "c1"),)
+
+
+def test_plan_job_without_asked_questions_has_none() -> None:
+    job = parse_job(plan())
+
+    assert isinstance(job, PlanJob)
+    assert job.asked_questions == ()
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        "질문",
+        ["질문"],
+        [{"content": " ", "claimId": "c1"}],
+        [{"content": "질문"}],
+        [{"content": "질문", "claimId": 1}],
+    ],
+)
+def test_wrong_asked_questions_are_invalid(asked: Any) -> None:
+    with pytest.raises(InvalidJobError, match="askedQuestions"):
+        parse_job(plan(askedQuestions=asked))
+
+
+def test_parses_extract_claims_job() -> None:
+    assert parse_job(json.dumps(extract())) == ExtractClaimsJob(
+        job_id=JOB_ID,
+        application_id=7,
+        requested_at=REQUESTED_AT,
+        company_name="한끗전자",
+        job_title="백엔드 개발",
+        cover_letter_items=(CoverLetterItem("지원 동기", "조회 응답 시간을 40% 줄였습니다."),),
+    )
+
+
+@pytest.mark.parametrize("value", [0, -1, "7", 7.0, True, None])
+def test_extract_claims_job_needs_application_id(value: Any) -> None:
+    """지원서 단위 작업이므로 sessionId가 있어도 applicationId가 없으면 형식 오류다(AI 명세 1.3)."""
+    message = extract(applicationId=value, sessionId=55)
+    with pytest.raises(InvalidJobError, match="applicationId"):
+        parse_job(message)
+
+
+@pytest.mark.parametrize("key", ["companyName", "jobTitle", "coverLetterItems", "requestedAt"])
+def test_extract_claims_job_without_required_field_is_invalid(key: str) -> None:
+    message = extract(**{key: ...})
+    with pytest.raises(InvalidJobError):
+        parse_job(message)
 
 
 def test_parses_score_answer_job_from_spec_example() -> None:
@@ -275,7 +395,10 @@ def test_invalid_session_id_is_invalid(value: Any) -> None:
 
 
 def test_session_id_one_is_valid() -> None:
-    assert parse_job(plan(sessionId=1)).session_id == 1
+    job = parse_job(plan(sessionId=1))
+
+    assert isinstance(job, PlanJob)
+    assert job.session_id == 1
 
 
 @pytest.mark.parametrize(
@@ -773,6 +896,14 @@ def test_job_header_of_invalid_job_keeps_common_fields() -> None:
     with pytest.raises(InvalidJobError):
         parse_job(raw)
     assert job_header(raw) == JobHeader(JobType.PLAN, JOB_ID, 55)
+
+
+def test_job_header_of_invalid_extract_claims_job_keeps_application_id() -> None:
+    raw = json.dumps(extract(companyName=...))
+
+    with pytest.raises(InvalidJobError):
+        parse_job(raw)
+    assert job_header(raw) == JobHeader(JobType.EXTRACT_CLAIMS, JOB_ID, application_id=7)
 
 
 @pytest.mark.parametrize(

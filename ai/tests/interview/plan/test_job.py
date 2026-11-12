@@ -20,29 +20,35 @@ from app.interview.plan.job import (
     gms_plan_chat,
     register_plan_handler,
 )
+from app.interview.plan.questions import build_question_messages
 from app.worker.dispatch import Dispatcher, DispatchResult
 from app.worker.main import lazy_gms_client
+from app.worker.messages import Claim, ClaimType
 from tests.common.test_results import FakeRedis
 from tests.interview.plan.fakes import JOB, JOB_ID, FakeChat, question
 
 NOW = datetime(2026, 10, 22, 14, 3, 12, tzinfo=KST)
 CLAIMS = {
     "claims": [
-        {"text": "주문 조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-        {"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+        {
+            "text": "주문 조회 응답 시간을 40% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        },
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["전문성·성장"],
+        },
     ]
 }
-# 개발자 면접관 기준이 드러난 주장(AI 명세 2장)
-TARGETS = [
-    {"claimId": "c1", "criterion": "실행·성과", "evidence": "40% 줄였다"},
-    {"claimId": "c2", "criterion": "전문성·성장", "evidence": "캐시 계층을 설계했다"},
-]
 QUESTIONS = {
-    "targetClaims": TARGETS,
     "questions": [question(seq, "c2" if seq % 2 == 0 else "c1") for seq in range(1, 6)],
 }
 BROKEN_CLAIMS: dict[str, Any] = {"claims": []}
-FOUR_QUESTIONS = {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 5)]}
+FOUR_QUESTIONS = {"questions": [question(seq) for seq in range(1, 5)]}
 
 
 def make(
@@ -85,8 +91,15 @@ def test_publishes_progress_then_completed_plan() -> None:
                     "text": "주문 조회 응답 시간을 40% 줄였다",
                     "type": "NUMBER",
                     "sentenceNo": 4,
+                    "talentCriteria": ["실행·성과"],
                 },
-                {"id": "c2", "text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5},
+                {
+                    "id": "c2",
+                    "text": "캐시 계층을 설계했다",
+                    "type": "EXPERIENCE",
+                    "sentenceNo": 5,
+                    "talentCriteria": ["전문성·성장"],
+                },
             ],
             "questions": [
                 {
@@ -97,10 +110,88 @@ def test_publishes_progress_then_completed_plan() -> None:
                 }
                 for seq in range(1, 6)
             ],
-            "promptVersion": "plan-v5",
+            "promptVersion": "plan-v6",
             "modelVersion": "gms-served",
         },
     ]
+
+
+def test_completed_plan_keeps_claims_not_passed_to_question_generation() -> None:
+    """결과에는 질문 생성에 전달하지 않은 주장도 모두 담는다(AI 명세 2장).
+
+    결과 생성(EVALUATE)이 면접 계획의 주장 전체로 자기소개서를 대조하기 때문이다.
+    """
+    claims = {
+        "claims": [
+            CLAIMS["claims"][0],
+            {**CLAIMS["claims"][1], "talentCriteria": ["협력·소통"]},
+        ]
+    }
+    chat = FakeChat([claims, {"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(JOB)
+
+    assert "c2 " not in chat.calls[1][1]["content"]
+    assert [c["id"] for c in pushed(redis)[-1]["claims"]] == ["c1", "c2"]
+
+
+# 개인 면접은 지원서에 저장된 주장을 수신한다(AI 명세 2장 STEP 01)
+STORED_CLAIMS = (
+    Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+    Claim("c2", "팀원과 갈등을 조율했다", ClaimType.EXPERIENCE, 6, ("협력·소통",)),
+)
+STORED_JOB = replace(JOB, claims=STORED_CLAIMS)
+
+
+def test_stored_claims_skip_extraction_and_progress_first() -> None:
+    """저장된 주장으로 질문만 생성하고, 주장이 준비된 시점이므로 시작할 때 진행률 50을 전송한다."""
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(STORED_JOB)
+
+    assert len(chat.calls) == 1
+    assert chat.calls[0] == build_question_messages(STORED_JOB, STORED_CLAIMS[:1])
+    messages = pushed(redis)
+    assert [m["type"] for m in messages] == ["plan.progress", "plan.completed"]
+    assert messages[0]["progress"] == 50
+
+
+def test_completed_plan_returns_stored_claims_as_received() -> None:
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(STORED_JOB)
+
+    assert pushed(redis)[-1]["claims"] == [
+        {
+            "id": "c1",
+            "text": "주문 조회 응답 시간을 40% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        },
+        {
+            "id": "c2",
+            "text": "팀원과 갈등을 조율했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 6,
+            "talentCriteria": ["협력·소통"],
+        },
+    ]
+
+
+def test_stored_claims_job_sends_progress_before_timing_out() -> None:
+    """진행률 50은 주장이 준비된 시점이므로 GMS를 호출하기 전 마감이 지나도 먼저 전송한다."""
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    late = STORED_JOB.requested_at.timestamp() + PLAN_TIMEOUT_SECONDS + 1
+    run, redis = make(chat, clock=lambda: late)
+
+    run(STORED_JOB)
+
+    assert chat.calls == []
+    assert [m["type"] for m in pushed(redis)] == ["plan.progress", "plan.failed"]
 
 
 def test_model_version_is_question_step_model() -> None:
@@ -298,7 +389,7 @@ def test_registered_as_plan_handler() -> None:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v5"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v6"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:

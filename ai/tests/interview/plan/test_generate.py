@@ -19,14 +19,31 @@ from app.interview.plan.questions import (
 from app.worker.messages import Claim, ClaimType, PlanJob
 from tests.interview.plan.fakes import JOB, FakeChat, question
 
+# 두 주장 모두 실무면접 기준이 드러나 JOB(개발자 면접관)의 질문 생성에 모두 전달한다(AI 명세 2장)
 CLAIMS = (
-    Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4),
-    Claim("c2", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5),
+    Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+    Claim("c2", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5, ("전문성·성장",)),
 )
-GOOD_CLAIMS = {"claims": [{"text": "캐시 계층을 설계했다", "type": "EXPERIENCE", "sentenceNo": 5}]}
+GOOD_CLAIMS = {
+    "claims": [
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["전문성·성장"],
+        }
+    ]
+}
 NO_CLAIMS: dict[str, Any] = {"claims": []}
 UNSUPPORTED_CLAIMS = {
-    "claims": [{"text": "응답 시간을 90% 줄였다", "type": "NUMBER", "sentenceNo": 4}]
+    "claims": [
+        {
+            "text": "응답 시간을 90% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        }
+    ]
 }
 
 
@@ -34,23 +51,12 @@ UNSUPPORTED_CLAIMS = {
 REQUESTED_AT = datetime(2026, 10, 22, 14, 3, 13, tzinfo=timezone(timedelta(hours=9)))
 
 
-def target(claim_id: str, criterion: str = "실행·성과") -> dict[str, str]:
-    return {"claimId": claim_id, "criterion": criterion, "evidence": "자기소개서 표현"}
-
-
-# JOB은 개발자 면접관(COFFEE_CHAT)이므로 실무면접 기준을 사용한다(AI 명세 2장)
-TARGETS = [target("c1"), target("c2", "전문성·성장")]
-
-
-def five(targets: list[dict[str, str]] | None = None, **claim_ids: str) -> dict[str, Any]:
+def five(**claim_ids: str) -> dict[str, Any]:
     """seq 1~5 질문.
 
     키워드 q3="c9"처럼 특정 질문의 claimId만 변경한다.
     """
-    return {
-        "targetClaims": TARGETS if targets is None else targets,
-        "questions": [question(seq, claim_ids.get(f"q{seq}", "c1")) for seq in range(1, 6)],
-    }
+    return {"questions": [question(seq, claim_ids.get(f"q{seq}", "c1")) for seq in range(1, 6)]}
 
 
 def regenerated(claim_id: str = "c2", seq: Any = 9) -> dict[str, Any]:
@@ -67,12 +73,30 @@ def test_extract_returns_first_valid_output() -> None:
 
     result = extract_claims(chat, JOB)
 
-    assert result.claims == (Claim("c1", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5),)
+    assert result.claims == (
+        Claim("c1", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5, ("전문성·성장",)),
+    )
     assert result.model == "gms-served"
     assert len(chat.calls) == 1
 
 
-@pytest.mark.parametrize("broken", [NO_CLAIMS, UNSUPPORTED_CLAIMS, GmsBadOutputError("JSON 아님")])
+# 인재상 기준이 아닌 이름은 판정 값이 틀린 출력이다(AI 명세 2장·5장)
+UNKNOWN_CRITERION_CLAIMS = {
+    "claims": [
+        {
+            "text": "캐시 계층을 설계했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 5,
+            "talentCriteria": ["설계"],
+        }
+    ]
+}
+
+
+@pytest.mark.parametrize(
+    "broken",
+    [NO_CLAIMS, UNSUPPORTED_CLAIMS, UNKNOWN_CRITERION_CLAIMS, GmsBadOutputError("JSON 아님")],
+)
 def test_extract_retries_once_after_broken_output(broken: Any) -> None:
     chat = FakeChat([broken, GOOD_CLAIMS])
 
@@ -102,14 +126,26 @@ def test_extract_does_not_retry_unavailable_gms() -> None:
 def test_extract_drops_unsupported_claim_and_renumbers() -> None:
     content = {
         "claims": [
-            {"text": "응답 시간을 60% 줄였다", "type": "NUMBER", "sentenceNo": 4},
-            {"text": "팀원 4명과 절차를 정리했다", "type": "EXPERIENCE", "sentenceNo": 6},
+            {
+                "text": "응답 시간을 60% 줄였다",
+                "type": "NUMBER",
+                "sentenceNo": 4,
+                "talentCriteria": ["실행·성과"],
+            },
+            {
+                "text": "팀원 4명과 절차를 정리했다",
+                "type": "EXPERIENCE",
+                "sentenceNo": 6,
+                "talentCriteria": ["협력·소통"],
+            },
         ]
     }
 
     result = extract_claims(FakeChat([content]), JOB)
 
-    assert result.claims == (Claim("c1", "팀원 4명과 절차를 정리했다", ClaimType.EXPERIENCE, 6),)
+    assert result.claims == (
+        Claim("c1", "팀원 4명과 절차를 정리했다", ClaimType.EXPERIENCE, 6, ("협력·소통",)),
+    )
 
 
 @pytest.mark.parametrize(
@@ -139,8 +175,13 @@ def test_extract_keeps_half_claim_from_live_cover_letter(text: str) -> None:
     )
     content = {
         "claims": [
-            {"text": "조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 5},
-            {"text": text, "type": "NUMBER", "sentenceNo": 6},
+            {
+                "text": "조회 응답 시간을 40% 줄였다",
+                "type": "NUMBER",
+                "sentenceNo": 5,
+                "talentCriteria": ["실행·성과"],
+            },
+            {"text": text, "type": "NUMBER", "sentenceNo": 6, "talentCriteria": []},
         ]
     }
 
@@ -173,7 +214,7 @@ def test_check_question_set_rejects_count_or_seq(seqs: tuple[int, ...]) -> None:
 
 
 def test_generate_returns_five_questions_in_seq_order() -> None:
-    shuffled = {"targetClaims": TARGETS, "questions": [question(seq) for seq in (5, 4, 3, 2, 1)]}
+    shuffled = {"questions": [question(seq) for seq in (5, 4, 3, 2, 1)]}
     chat = FakeChat([shuffled])
 
     result = generate_questions(chat, JOB, CLAIMS)
@@ -186,18 +227,16 @@ def test_generate_returns_five_questions_in_seq_order() -> None:
 @pytest.mark.parametrize(
     "broken",
     [
-        {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 5)]},
-        {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 7)]},
-        {"targetClaims": TARGETS, "questions": [question(seq) for seq in (1, 1, 2, 3, 4)]},
-        {"targetClaims": TARGETS, "questions": [question(1), "질문"]},
-        {"questions": five()["questions"]},
-        {**five(), "targetClaims": [{"claimId": "c1", "criterion": "실행·성과"}]},
-        {**five(), "targetClaims": ["c1"]},
+        {"questions": [question(seq) for seq in range(1, 5)]},
+        {"questions": [question(seq) for seq in range(1, 7)]},
+        {"questions": [question(seq) for seq in (1, 1, 2, 3, 4)]},
+        {"questions": [question(1), "질문"]},
+        {},
         GmsBadOutputError("JSON 아님"),
     ],
 )
 def test_generate_retries_once_when_not_five_or_not_json(broken: Any) -> None:
-    """질문 수·seq가 틀리거나 대상 주장(targetClaims) 형식이 깨지면 1회 재시도한다."""
+    """질문 수·seq가 틀리거나 JSON이 아니면 1회 재시도한다."""
     chat = FakeChat([broken, five()])
 
     assert len(generate_questions(chat, JOB, CLAIMS).questions) == 5
@@ -205,7 +244,7 @@ def test_generate_retries_once_when_not_five_or_not_json(broken: Any) -> None:
 
 
 def test_generate_fails_when_still_not_five_after_retry() -> None:
-    four = {"targetClaims": TARGETS, "questions": [question(seq) for seq in range(1, 5)]}
+    four = {"questions": [question(seq) for seq in range(1, 5)]}
     chat = FakeChat([four, four, five()])
 
     with pytest.raises(PlanFailedError):
@@ -273,69 +312,64 @@ def test_fails_when_regenerated_question_is_still_wrong(second: Any) -> None:
     assert len(chat.calls) == 2
 
 
-# 면접관 기준이 드러난 주장(targetClaims)
-
-
-def test_regenerates_question_on_claim_without_interviewer_criterion() -> None:
-    """GMS가 기준이 드러났다고 고르지 않은 주장의 질문은 고른 주장만으로 다시 생성한다."""
-    chat = FakeChat([five([target("c2", "전문성·성장")], q3="c2"), *[regenerated("c2")] * 4])
-
-    result = generate_questions(chat, JOB, CLAIMS)
-
-    assert chat.calls[1:] == [
-        build_regenerate_messages(JOB, CLAIMS[1:], seq) for seq in (1, 2, 4, 5)
-    ]
-    assert [q.claim_id for q in result.questions] == ["c2"] * 5
+# 면접관별 주장 선택(AI 명세 2장): 주장의 인재상 기준이 면접관 기준과 겹치는 주장만 전달한다
+PRACTICAL_CLAIM = Claim(
+    "c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)
+)
+EXECUTIVE_CLAIM = Claim("c2", "팀원과 갈등을 조율했다", ClaimType.EXPERIENCE, 6, ("협력·소통",))
+UNCLASSIFIED_CLAIM = Claim("c3", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5)
+MIXED_CLAIMS = (PRACTICAL_CLAIM, EXECUTIVE_CLAIM, UNCLASSIFIED_CLAIM)
 
 
 @pytest.mark.parametrize(
-    "wrong",
+    ("persona", "expected"),
     [
-        target("c1", "협력·소통"),
-        target("c1", "기술 역량"),
-        target("c9", "실행·성과"),
+        (Persona.COFFEE_CHAT, (PRACTICAL_CLAIM,)),
+        (Persona.DEVIL, (EXECUTIVE_CLAIM,)),
+        # 오리 면접관은 12개 기준을 모두 사용하므로 기준이 하나라도 드러난 주장을 전달한다
+        (Persona.DUCK, (PRACTICAL_CLAIM, EXECUTIVE_CLAIM)),
     ],
 )
-def test_ignores_target_with_other_criterion_or_unknown_claim(wrong: dict[str, str]) -> None:
-    """다른 면접관의 기준, 없는 기준 이름, 없는 주장 id로 고른 주장은 사용하지 않는다."""
-    chat = FakeChat([five([wrong, target("c2", "전문성·성장")], q1="c2"), *[regenerated("c2")] * 4])
+def test_question_generation_receives_only_claims_with_interviewer_criteria(
+    persona: Persona, expected: tuple[Claim, ...]
+) -> None:
+    job = replace(JOB, persona=persona)
+    chat = FakeChat(
+        [
+            five(
+                q1=expected[0].id,
+                q2=expected[0].id,
+                q3=expected[0].id,
+                q4=expected[0].id,
+                q5=expected[0].id,
+            )
+        ]
+    )
 
-    result = generate_questions(chat, JOB, CLAIMS)
+    generate_questions(chat, job, MIXED_CLAIMS)
 
-    assert len(chat.calls) == 5
-    assert [q.claim_id for q in result.questions] == ["c2"] * 5
+    assert chat.calls == [build_question_messages(job, expected)]
 
 
-def test_accepts_target_listing_several_criteria() -> None:
-    """기준을 쉼표로 여러 개 작성해도 그중 하나가 면접관 기준이면 그 주장을 사용한다."""
-    chat = FakeChat([five([target("c1", "협력·소통, 실행·성과"), target("c2", "전문성·성장")])])
+def test_regenerates_question_on_claim_not_passed_to_question_generation() -> None:
+    """질문 생성에 전달하지 않은 주장을 가리킨 질문은 전달한 주장만으로 다시 생성한다."""
+    chat = FakeChat([five(q3="c2"), regenerated("c1")])
 
-    result = generate_questions(chat, JOB, CLAIMS)
+    result = generate_questions(chat, JOB, MIXED_CLAIMS)
 
-    assert len(chat.calls) == 1
+    assert chat.calls[1] == build_regenerate_messages(JOB, (PRACTICAL_CLAIM,), 3)
     assert [q.claim_id for q in result.questions] == ["c1"] * 5
 
 
 def test_uses_all_claims_when_no_claim_shows_interviewer_criterion() -> None:
-    """면접 종류와 맞지 않는 자기소개서여도 플랜 생성이 실패하지 않도록 모든 주장을 사용한다."""
-    chat = FakeChat([five([], q2="c2")])
+    """면접 종류와 맞지 않는 자기소개서여도 플랜 생성이 실패하지 않도록 모든 주장을 전달한다."""
+    claims = (EXECUTIVE_CLAIM, UNCLASSIFIED_CLAIM)
+    chat = FakeChat([five(q1="c2", q2="c3", q3="c2", q4="c2", q5="c2")])
 
-    result = generate_questions(chat, JOB, CLAIMS)
+    result = generate_questions(chat, JOB, claims)
 
-    assert len(chat.calls) == 1
-    assert [q.claim_id for q in result.questions] == ["c1", "c2", "c1", "c1", "c1"]
-
-
-def test_devil_uses_executive_criteria_for_targets() -> None:
-    devil = replace(JOB, persona=Persona.DEVIL)
-    chat = FakeChat(
-        [five([target("c1", "협력·소통"), target("c2", "실행·성과")], q2="c2"), regenerated("c1")]
-    )
-
-    result = generate_questions(chat, devil, CLAIMS)
-
-    assert chat.calls[1] == build_regenerate_messages(devil, CLAIMS[:1], 2)
-    assert [q.claim_id for q in result.questions] == ["c1"] * 5
+    assert chat.calls == [build_question_messages(JOB, claims)]
+    assert [q.claim_id for q in result.questions] == ["c2", "c3", "c2", "c2", "c2"]
 
 
 # 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 개발자 면접관이므로 사업 방향·시장을 사용한다.

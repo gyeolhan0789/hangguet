@@ -3,6 +3,8 @@
 분석 작업자의 분배기에 PlanJob으로 등록한다.
 AI는 DB와 진행 상태 Hash에 접속하지 않으므로 처리 결과를 결과 메시지로만 전송한다(AI 명세 1.4·2장).
 - 주장 추출이 끝나면 plan.progress(50), 질문 생성이 끝나면 plan.completed를 전송한다.
+  개인 면접은 지원서에 저장된 주장을 수신하므로 주장을 추출하지 않고
+  시작할 때 plan.progress(50)를 전송하며, 결과에는 수신한 주장을 그대로 담는다(AI 명세 2장).
 - GMS 호출이 재시도 후에도 실패하거나 결과 검증에 실패하면 plan.failed를 전송한다.
   화면은 면접 플랜 재생성 API(5.3)로 다시 요청한다.
 - GMS 접속 값이 없으면(SettingsError) 값을 추가할 때까지 모든 작업이 같은 오류로 실패하므로
@@ -56,7 +58,7 @@ log = logging.getLogger(__name__)
 
 # claims.py·questions.py의 프롬프트를 변경하면 이 버전을 올리고 versions.py에 등록한다.
 # 등록되지 않았으면 작업을 처리하기 전에 import 단계에서 실패한다
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-v5")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-v6")
 # BE 최대 대기 시간(BE 설계 5.1, application.yml ai-job.plan-timeout, AI 명세 5장)과 같은 값이다.
 # BE가 작업을 요청한 시각(requestedAt)부터 계산해 큐에서 대기한 시간까지 포함한다(AI 명세 5장)
 PLAN_TIMEOUT_SECONDS = 180.0
@@ -72,6 +74,7 @@ def claim_json(claim: Claim) -> dict[str, Any]:
         "text": claim.text,
         "type": claim.type.value,
         "sentenceNo": claim.sentence_no,
+        "talentCriteria": list(claim.talent_criteria),
     }
 
 
@@ -101,11 +104,11 @@ class PlanJobHandler:
         deadline = job.requested_at.timestamp() + PLAN_TIMEOUT_SECONDS
         chat = with_deadline(self._chat, deadline, self._clock)
         try:
-            claims = extract_claims(chat, job)
+            claims = job.claims if job.claims is not None else extract_claims(chat, job).claims
             self._results.publish_job_result(
                 job, ResultType.PLAN_PROGRESS, {"progress": PROGRESS_AFTER_CLAIMS}
             )
-            questions = generate_questions(chat, job, claims.claims)
+            questions = generate_questions(chat, job, claims)
         except ResultPublishError:
             raise
         except GmsUnavailableError as e:
@@ -124,7 +127,7 @@ class PlanJobHandler:
             job,
             ResultType.PLAN_COMPLETED,
             {
-                "claims": [claim_json(c) for c in claims.claims],
+                "claims": [claim_json(c) for c in claims],
                 "questions": [question_json(q) for q in questions.questions],
                 "promptVersion": PROMPT_VERSION,
                 # 채점 기준을 생성한 질문 생성 단계 응답의 모델 이름을 기록한다

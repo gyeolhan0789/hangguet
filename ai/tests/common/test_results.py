@@ -11,6 +11,7 @@ from redis import TimeoutError as RedisTimeoutError
 
 from app.common.results import (
     AGENT_RESULT_TYPES,
+    APPLICATION_RESULT_TYPES,
     BACKOFF_SECONDS,
     FAILED_RESULT_TYPES,
     KST,
@@ -211,7 +212,7 @@ def test_retried_message_is_identical() -> None:
     assert pushed(redis)[0]["occurredAt"] == "2026-10-22T14:03:12.987+09:00"
 
 
-@pytest.mark.parametrize("key", ["type", "sessionId", "jobId", "occurredAt"])
+@pytest.mark.parametrize("key", ["type", "sessionId", "applicationId", "jobId", "occurredAt"])
 def test_fields_cannot_override_common_fields(key: str) -> None:
     redis = FakeRedis()
 
@@ -222,7 +223,9 @@ def test_fields_cannot_override_common_fields(key: str) -> None:
     assert redis.calls == 0
 
 
-@pytest.mark.parametrize("result_type", sorted(set(ResultType) - AGENT_RESULT_TYPES))
+@pytest.mark.parametrize(
+    "result_type", sorted(set(ResultType) - AGENT_RESULT_TYPES - APPLICATION_RESULT_TYPES)
+)
 def test_job_result_types_require_job_id(result_type: ResultType) -> None:
     redis = FakeRedis()
 
@@ -262,6 +265,8 @@ def test_result_type_values_match_spec() -> None:
         "plan.progress",
         "plan.completed",
         "plan.failed",
+        "claims.extracted",
+        "claims.extractFailed",
         "answer.scored",
         "evaluation.progress",
         "evaluation.completed",
@@ -279,6 +284,7 @@ def test_failed_result_types_match_spec() -> None:
     """AI 명세 1.4 표에서 내용이 reason인 종류다."""
     assert {t.value for t in FAILED_RESULT_TYPES} == {
         "plan.failed",
+        "claims.extractFailed",
         "evaluation.failed",
         "recording.mergeFailed",
         "assignment.rejected",
@@ -294,7 +300,9 @@ def test_failed_result_accepts_listed_reason(reason: FailureReason) -> None:
     assert pushed(redis)[0]["reason"] == reason.value
 
 
-@pytest.mark.parametrize("result_type", sorted(FAILED_RESULT_TYPES - AGENT_RESULT_TYPES))
+@pytest.mark.parametrize(
+    "result_type", sorted(FAILED_RESULT_TYPES - AGENT_RESULT_TYPES - APPLICATION_RESULT_TYPES)
+)
 @pytest.mark.parametrize(
     "fields",
     [{}, {"reason": "자소서 분석 실패"}, {"reason": None}, {"reason": ["GMS_UNAVAILABLE"]}],
@@ -308,6 +316,60 @@ def test_failed_result_rejects_reason_outside_list(
     publisher = make(redis)
     with pytest.raises(ValueError, match="reason"):
         publisher.publish_job_result(PLAN, result_type, fields)
+
+    assert redis.calls == 0
+
+
+def test_application_result_carries_application_id_instead_of_session_id() -> None:
+    """주장 추출은 지원서 단위 작업이므로 결과에 applicationId를 담는다(AI 명세 1.3)."""
+    redis = FakeRedis()
+
+    make(redis).publish_application_result(
+        ResultType.CLAIMS_EXTRACTED, 7, {"claims": []}, job_id=JOB_ID
+    )
+
+    assert pushed(redis) == [
+        {
+            "type": "claims.extracted",
+            "applicationId": 7,
+            "jobId": JOB_ID,
+            "claims": [],
+            "occurredAt": "2026-10-22T14:03:12.987+09:00",
+        }
+    ]
+
+
+@pytest.mark.parametrize("result_type", sorted(APPLICATION_RESULT_TYPES))
+def test_application_result_type_rejects_session_id(result_type: ResultType) -> None:
+    """BE가 지원서 단위 결과를 sessionId로 해석하지 않도록 결과 큐에 추가하기 전에 거부한다."""
+    redis = FakeRedis()
+
+    publisher = make(redis)
+    with pytest.raises(ValueError, match="applicationId"):
+        publisher.publish_job_result(PLAN, result_type, {"reason": "GMS_UNAVAILABLE"})
+
+    assert redis.calls == 0
+
+
+def test_session_result_type_rejects_application_id() -> None:
+    redis = FakeRedis()
+
+    publisher = make(redis)
+    with pytest.raises(ValueError, match="sessionId"):
+        publisher.publish_application_result(ResultType.PLAN_FAILED, 7, {}, job_id=JOB_ID)
+
+    assert redis.calls == 0
+
+
+@pytest.mark.parametrize("fields", [{}, {"reason": "주장 추출 실패"}])
+def test_application_failed_result_rejects_reason_outside_list(fields: dict[str, Any]) -> None:
+    redis = FakeRedis()
+
+    publisher = make(redis)
+    with pytest.raises(ValueError, match="reason"):
+        publisher.publish_application_result(
+            ResultType.CLAIMS_EXTRACT_FAILED, 7, fields, job_id=JOB_ID
+        )
 
     assert redis.calls == 0
 

@@ -7,14 +7,12 @@ from app.common.session import QUESTION_COUNT, Persona
 from app.interview.plan.llm import PlanOutputError
 from app.interview.plan.questions import (
     Question,
-    TargetClaim,
     build_question_messages,
     build_regenerate_messages,
     parse_questions,
-    parse_targets,
     request_questions,
 )
-from app.worker.messages import Claim, ClaimType
+from app.worker.messages import AskedQuestion, Claim, ClaimType
 from tests.interview.plan.fakes import JOB, FakeChat, question
 
 CLAIMS = (
@@ -65,22 +63,22 @@ PRESSURE_TONE = "질문 문장은 자기소개서 주장의 약점을 짚는 압
 NO_BELITTLING = "지원자를 비하하거나 단정하는 표현은 쓰지 않는다"
 EXCLUDE_EXECUTIVE = f"- 임원면접 기준({', '.join(EXECUTIVE_CRITERIA)})은 묻지 않는다"
 EXCLUDE_PRACTICAL = f"- 실무면접 기준({', '.join(PRACTICAL_CRITERIA)})은 묻지 않는다"
-TARGETS_FIRST = "- targetClaims: 질문을 생성하기 전에 위 기준 중 하나 이상이 드러난 주장을 고른다"
-CLAIM_FROM_TARGETS = "- claimId: targetClaims에 있는 주장의 id만 그대로 작성한다"
+CLAIM_FROM_LIST = "- claimId: 주장 목록에 있는 주장의 id만 그대로 작성한다"
 SPLIT_BY_CRITERIA = (
-    "targetClaims가 5개보다 적으면 같은 주장을 위 기준 중 다른 기준으로 나누어 다시 질문하고"
+    "주장이 5개보다 적으면 같은 주장을 위 기준 중 다른 기준으로 나누어 다시 질문하고"
 )
 
 
 @pytest.mark.parametrize("persona", list(Persona))
-def test_questions_use_only_claims_showing_interviewer_criteria(persona: Persona) -> None:
-    """질문 전에 면접관 기준이 드러난 주장을 고르게 하고, 그 주장으로만 질문하게 한다."""
+def test_questions_use_only_given_claims(persona: Persona) -> None:
+    """면접관 기준이 드러난 주장은 코드가 먼저 고르므로(AI 명세 2장 면접관별 주장 선택)
+    질문 생성 모델에는 주어진 주장으로만 질문하게 하고 주장을 다시 고르게 하지 않는다.
+    """
     system = build_question_messages(replace(JOB, persona=persona), CLAIMS)[0]["content"]
 
-    assert TARGETS_FIRST in system
-    assert CLAIM_FROM_TARGETS in system
+    assert CLAIM_FROM_LIST in system
     assert SPLIT_BY_CRITERIA in system
-    assert '"targetClaims": [{"claimId": str, "criterion": str, "evidence": str}]' in system
+    assert "targetClaims" not in system
 
 
 def system_prompts(persona: Persona) -> tuple[str, str]:
@@ -169,38 +167,51 @@ def test_broken_question_is_output_error(content: dict[str, Any]) -> None:
         parse_questions(content)
 
 
+# 기준: AI 명세 2장 askedQuestions(같은 지원서·같은 면접관의 면접에서 출제한 보관함 질문)
+ASKED_JOB = replace(
+    JOB,
+    asked_questions=(
+        AskedQuestion("응답 시간을 40% 줄인 과정은?", "c1"),
+        AskedQuestion("캐시 계층의 구조는?", "c2"),
+    ),
+)
+ASKED_SECTION = (
+    "[이미 출제한 질문]\n"
+    "- (c1) 응답 시간을 40% 줄인 과정은?\n"
+    "- (c2) 캐시 계층의 구조는?\n"
+    "위 질문과 같은 질문은 만들지 않는다. "
+    "같은 주장이라도 위 질문과 다른 기준이나 다른 측면을 묻는 질문은 만든다"
+)
+
+
+def test_question_messages_list_asked_questions_not_to_repeat() -> None:
+    """출제한 질문과 같은 질문은 만들지 않고, 같은 주장을 다른 측면으로 묻는 질문은 만든다."""
+    user = build_question_messages(ASKED_JOB, CLAIMS)[1]["content"]
+
+    assert user.endswith(ASKED_SECTION)
+
+
+def test_regenerate_messages_also_list_asked_questions() -> None:
+    """질문 하나를 다시 생성할 때도 출제한 질문과 같은 질문을 만들지 않게 한다."""
+    user = build_regenerate_messages(ASKED_JOB, CLAIMS, 3)[1]["content"]
+
+    assert ASKED_SECTION in user
+
+
+def test_question_messages_without_asked_questions_have_no_section() -> None:
+    user = build_question_messages(JOB, CLAIMS)[1]["content"]
+
+    assert "[이미 출제한 질문]" not in user
+
+
 def test_request_questions_calls_gms_once_and_keeps_model() -> None:
-    target = {"claimId": "c1", "criterion": "실행·성과", "evidence": " 40% 줄였다 "}
-    chat = FakeChat([{"targetClaims": [target], "questions": [question(s) for s in range(1, 6)]}])
+    chat = FakeChat([{"questions": [question(s) for s in range(1, 6)]}])
 
     result = request_questions(chat, JOB, CLAIMS)
 
     assert chat.calls == [build_question_messages(JOB, CLAIMS)]
     assert [q.seq for q in result.questions] == [1, 2, 3, 4, 5]
     assert result.model == "gms-served"
-    assert result.targets == (TargetClaim("c1", "실행·성과", "40% 줄였다"),)
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        {},
-        {"targetClaims": "c1"},
-        {"targetClaims": ["c1"]},
-        {"targetClaims": [{"claimId": "c1", "criterion": "실행·성과"}]},
-        {"targetClaims": [{"claimId": "c1", "criterion": " ", "evidence": "근거"}]},
-    ],
-)
-def test_parse_targets_rejects_broken_items(content: dict[str, Any]) -> None:
-    with pytest.raises(PlanOutputError):
-        parse_targets(content)
-
-
-def test_parse_targets_keeps_ids_and_criteria_as_received() -> None:
-    """주장 id와 기준 이름은 결과 검증 단계가 검사하므로 형식 검사에서는 그대로 유지한다."""
-    content = {"targetClaims": [{"claimId": "c9", "criterion": "협력·소통", "evidence": "근거"}]}
-
-    assert parse_targets(content) == (TargetClaim("c9", "협력·소통", "근거"),)
 
 
 # 기준: AI 명세 2장 회사 카드 사용

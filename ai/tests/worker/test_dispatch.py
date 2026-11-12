@@ -6,7 +6,7 @@ import pytest
 from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode
 from app.worker.dispatch import Dispatcher, DispatchResult, DuplicateHandlerError
-from app.worker.messages import EvaluateJob, Job, PlanJob, ScoreAnswerJob
+from app.worker.messages import EvaluateJob, ExtractClaimsJob, Job, PlanJob, ScoreAnswerJob
 
 # BE가 작업을 요청한 시각(AI 명세 1.3 requestedAt)
 REQUESTED_AT = datetime(2026, 10, 22, 14, 3, 13, tzinfo=timezone(timedelta(hours=9)))
@@ -128,6 +128,26 @@ def test_wait_and_processing_time_are_logged_per_job_type(
         "작업 시작 jobType=PLAN jobId=job-3 sessionId=56 waitMs=2100",
         "작업 끝 jobType=PLAN jobId=job-3 result=HANDLED ms=41000",
     ]
+
+
+def test_extract_claims_job_logs_application_id(caplog: pytest.LogCaptureFixture) -> None:
+    """주장 추출은 지원서 단위 작업이므로 sessionId 대신 applicationId를 남긴다(AI 명세 1.3)."""
+    ticks = iter([0.0, 0.5])
+    dispatcher = Dispatcher(now=lambda: REQUESTED_AT, timer=lambda: next(ticks))
+    job = ExtractClaimsJob(
+        job_id="job-4",
+        application_id=7,
+        requested_at=REQUESTED_AT,
+        company_name="회사",
+        job_title="직무",
+        cover_letter_items=(CoverLetterItem("지원 동기", "자소서"),),
+    )
+    dispatcher.register(ExtractClaimsJob, lambda job: None)
+    with caplog.at_level(logging.INFO, logger="app.worker.dispatch"):
+        dispatcher.dispatch(job)
+    assert caplog.records[0].getMessage() == (
+        "작업 시작 jobType=EXTRACT_CLAIMS jobId=job-4 applicationId=7 waitMs=0"
+    )
 
 
 def test_failed_job_logs_failure_and_processing_time(caplog: pytest.LogCaptureFixture) -> None:
