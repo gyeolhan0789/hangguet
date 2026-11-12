@@ -220,11 +220,18 @@ def _scales(pooled: Sequence[_Second]) -> _Scales:
             key: _scale([s.items[key] for s in pooled if key in s.items])
             for key in IMPRESSION_METRICS
         },
-        voice={
-            metric: _scale([a for s in pooled if (a := s.amounts.get(metric)) is not None])
-            for metric in VOICE_METRICS
-        },
+        voice={metric: _scale(_amounts(pooled, metric)) for metric in VOICE_METRICS},
     )
+
+
+def _amounts(pooled: Sequence[_Second], metric: Metric) -> list[float]:
+    """음성 사건 곡선 값이 있는 초의 값만 모은다."""
+    found: list[float] = []
+    for second in pooled:
+        amount = second.amounts.get(metric)
+        if amount is not None:
+            found.append(amount)
+    return found
 
 
 def _composite(second: _Second, scales: _Scales) -> float | None:
