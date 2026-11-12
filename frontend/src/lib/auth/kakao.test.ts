@@ -1,352 +1,299 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Swagger 1.6 소셜 로그인 · 2.9 연습 알림 켜기(scope=talk_message) · 2.12 소셜 계정 연결 · 기획 메모 S01-3 · S09-1-B · 카카오 REST API '인가 코드 받기'
+import { describe, expect, it, vi } from "vitest";
 
 import {
   authorizeUrl,
-  clearNotice,
-  clearSignupToken,
-  clearState,
   issueState,
   kakaoConfig,
-  NOTICE_COOKIE,
-  OAUTH_STATE_COOKIE,
   purposeOf,
   readLinked,
   readNotice,
   saveLinked,
   saveNotice,
   saveSignupToken,
-  SOCIAL_SIGNUP_COOKIE,
   verifyState,
 } from "./kakao";
 
-// 카카오 인가 도우미(lib/auth/kakao.ts). 쿠키는 set만 기록하는 가짜로 받는다.
-// 기준: 카카오 로그인 REST API 인가 코드 받기(response_type · client_id · redirect_uri · state · scope) · 웹 Swagger 2.9(scope=talk_message)
-// · 2.12(계정 연결: 동의 항목 없이 인가 코드만) · 사용자 결정(연결하면 S09-1에 완료 안내 모달 한 번)
+type KakaoModule = typeof import("./kakao");
 
-const writer = () => ({ set: vi.fn() });
+// 경계 mock: 쿠키를 쓰는 곳(cookies() · NextResponse.cookies)은 가짜 CookieWriter로, 설정은 환경 변수(vi.stubEnv)로 바꾼다
+function cookieWriter() {
+  return { set: vi.fn() };
+}
 
-beforeEach(() => {
-  vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
-  vi.stubEnv("KAKAO_REDIRECT_URI", "http://localhost:3000/oauth/kakao/callback");
-});
+/** 운영 쿠키 이름(__Host-)은 모듈을 불러올 때 정해지므로 NODE_ENV를 바꾼 뒤 새로 불러온다 */
+async function loadInProduction(): Promise<KakaoModule> {
+  vi.stubEnv("NODE_ENV", "production");
+  vi.resetModules();
+  return import("./kakao");
+}
 
-afterEach(() => {
-  vi.unstubAllEnvs();
-});
+function kakaoEnv(clientId: string, redirectUri: string) {
+  vi.stubEnv("KAKAO_CLIENT_ID", clientId);
+  vi.stubEnv("KAKAO_REDIRECT_URI", redirectUri);
+}
 
-describe("kakaoConfig", () => {
-  it("앱 키와 콜백 주소가 있으면 그대로 쓴다", () => {
-    expect(kakaoConfig()).toEqual({
-      clientId: "client-id",
-      redirectUri: "http://localhost:3000/oauth/kakao/callback",
+// 예시 데이터: 운영 콜백 주소(BE *_REDIRECT_URIS · 카카오 앱에 등록한 값과 같은 모양)
+const CALLBACK = "https://hangguet.yobistory.com/oauth/kakao/callback";
+const CONFIG = { clientId: "kakao-rest-key", redirectUri: CALLBACK };
+
+describe("kakaoConfig · 카카오 앱 설정", () => {
+  describe("정상 처리", () => {
+    it("앱 키와 https 콜백 주소가 있으면 설정을 돌려준다", () => {
+      kakaoEnv("kakao-rest-key", CALLBACK);
+
+      expect(kakaoConfig()).toEqual(CONFIG);
+    });
+
+    it("앱 키 · 콜백 주소의 앞뒤 공백 · 줄바꿈을 지운다", () => {
+      kakaoEnv("  kakao-rest-key\n", ` ${CALLBACK}\r\n`);
+
+      expect(kakaoConfig()).toEqual(CONFIG);
+    });
+
+    it.each([
+      { host: "localhost", redirectUri: "http://localhost:3000/oauth/kakao/callback" },
+      { host: "[::1]", redirectUri: "http://[::1]:3000/oauth/kakao/callback" },
+    ])("로컬 주소 '$host'는 http여도 받는다", ({ redirectUri }) => {
+      kakaoEnv("kakao-rest-key", redirectUri);
+
+      expect(kakaoConfig()).toEqual({ clientId: "kakao-rest-key", redirectUri });
     });
   });
 
-  it("운영 주소는 https면 받는다", () => {
-    vi.stubEnv("KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback");
-
-    expect(kakaoConfig()?.redirectUri).toBe("https://hangguet.co.kr/oauth/kakao/callback");
-  });
-
-  it.each([
-    ["앱 키가 없다", "KAKAO_CLIENT_ID", ""],
-    ["콜백 주소가 없다", "KAKAO_REDIRECT_URI", ""],
-    ["주소가 아니다", "KAKAO_REDIRECT_URI", "callback"],
-    ["로컬이 아닌데 http다", "KAKAO_REDIRECT_URI", "http://hangguet.co.kr/oauth/kakao/callback"],
-    ["콜백 경로가 아니다", "KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/callback"],
-    ["쿼리가 붙었다", "KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback?x=1"],
-    ["빈 쿼리가 붙었다", "KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback?"],
-    ["해시가 붙었다", "KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback#x"],
-    ["계정 정보가 붙었다", "KAKAO_REDIRECT_URI", "https://a:b@hangguet.co.kr/oauth/kakao/callback"],
-  ])("%s면 쓰지 않는다(null)", (_, name, value) => {
-    vi.stubEnv(name, value);
-
-    expect(kakaoConfig()).toBeNull();
-  });
-});
-
-describe("state", () => {
-  it("무작위 state를 용도와 함께 httpOnly 쿠키에 10분 저장한다", () => {
-    const cookies = writer();
-
-    const state = issueState(cookies, "login");
-
-    expect(state).toMatch(/^[\w-]{43}$/);
-    expect(cookies.set).toHaveBeenCalledWith(OAUTH_STATE_COOKIE, `login.${state}`, {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 600,
-    });
-  });
-
-  it("부를 때마다 다른 state를 만든다", () => {
-    expect(issueState(writer(), "login")).not.toBe(issueState(writer(), "login"));
-  });
-
-  it("돌아온 state가 저장한 값과 같으면 용도를 돌려준다", () => {
-    expect(verifyState("alarm.abc", "abc")).toBe("alarm");
-    expect(verifyState("login.abc", "abc")).toBe("login");
-    expect(verifyState("link.abc", "abc")).toBe("link");
-  });
-
-  it.each([
-    ["값이 다르다", "login.abc", "abd"],
-    ["길이가 다르다", "login.abc", "abcd"],
-    ["돌아온 state가 없다", "login.abc", null],
-    ["쿠키가 없다", undefined, "abc"],
-    ["쿠키의 state가 비었다", "login.", "abc"],
-    ["돌아온 state가 빈 문자열이다", "login.abc", ""],
-    ["모르는 용도다", "admin.abc", "abc"],
-  ])("%s면 null", (_, saved, received) => {
-    expect(verifyState(saved, received)).toBeNull();
-  });
-
-  it("purposeOf는 쿠키 값에서 용도만 읽는다", () => {
-    expect(purposeOf("alarm.x")).toBe("alarm");
-    expect(purposeOf("link.x")).toBe("link");
-    expect(purposeOf("other.x")).toBeNull();
-    expect(purposeOf("login")).toBeNull();
-    expect(purposeOf(undefined)).toBeNull();
-  });
-
-  it("지울 때도 같은 속성으로 maxAge 0을 준다", () => {
-    const cookies = writer();
-
-    clearState(cookies);
-
-    expect(cookies.set).toHaveBeenCalledWith(OAUTH_STATE_COOKIE, "", {
-      httpOnly: true,
-      secure: false,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    });
-  });
-});
-
-describe("authorizeUrl", () => {
-  const config = {
-    clientId: "client-id",
-    redirectUri: "http://localhost:3000/oauth/kakao/callback",
-  };
-
-  it("로그인은 인가 코드만 요청한다", () => {
-    const url = new URL(authorizeUrl(config, "st", "login"));
-
-    expect(`${url.origin}${url.pathname}`).toBe("https://kauth.kakao.com/oauth/authorize");
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      response_type: "code",
-      client_id: "client-id",
-      redirect_uri: "http://localhost:3000/oauth/kakao/callback",
-      state: "st",
-    });
-  });
-
-  it("알림은 카카오톡 메시지 동의(talk_message)를 함께 요청한다", () => {
-    const url = new URL(authorizeUrl(config, "st", "alarm"));
-
-    expect(url.searchParams.get("scope")).toBe("talk_message");
-  });
-
-  it("계정 연결은 로그인과 같이 동의 항목 없이 인가 코드만 요청한다", () => {
-    const url = new URL(authorizeUrl(config, "st", "link"));
-
-    expect(Object.fromEntries(url.searchParams)).toEqual({
-      response_type: "code",
-      client_id: "client-id",
-      redirect_uri: "http://localhost:3000/oauth/kakao/callback",
-      state: "st",
-    });
-  });
-});
-
-describe("계정 연결 완료 표시", () => {
-  it("문구 쿠키에 1분 저장하고, readLinked만 읽는다(문구로는 읽히지 않는다)", () => {
-    const cookies = writer();
-    saveLinked(cookies);
-    const [name, value, options] = cookies.set.mock.calls[0] as [string, string, object];
-
-    expect(name).toBe(NOTICE_COOKIE);
-    expect(options).toEqual(expect.objectContaining({ httpOnly: true, path: "/", maxAge: 60 }));
-    expect(readLinked(value)).toBe(true);
-    expect(readNotice(value, "settings")).toBeNull();
-  });
-
-  it.each([
-    ["없다", undefined],
-    ["JSON이 아니다", "linked"],
-    ["null이다", "null"],
-    ["실패 문구다", JSON.stringify({ target: "settings", text: "x" })],
-    ["다른 화면 것이다", JSON.stringify({ target: "login", linked: true })],
-    ["true가 아니다", JSON.stringify({ target: "settings", linked: "true" })],
-  ])("쿠키가 %s면 false", (_, value) => {
-    expect(readLinked(value)).toBe(false);
-  });
-});
-
-describe("가입 토큰 · 문구 쿠키", () => {
-  it("가입 토큰을 유효 시간(signup.expiresIn초) 동안 저장하고, 지울 때는 maxAge 0", () => {
-    const cookies = writer();
-
-    saveSignupToken(cookies, "Zm9v", 600);
-    clearSignupToken(cookies);
-
-    expect(cookies.set).toHaveBeenNthCalledWith(
-      1,
-      SOCIAL_SIGNUP_COOKIE,
-      "Zm9v",
-      expect.objectContaining({ httpOnly: true, path: "/", maxAge: 600 }),
-    );
-    expect(cookies.set).toHaveBeenNthCalledWith(
-      2,
-      SOCIAL_SIGNUP_COOKIE,
-      "",
-      expect.objectContaining({ httpOnly: true, path: "/", maxAge: 0 }),
-    );
-  });
-
-  it("문구는 그 화면 것만 읽는다", () => {
-    const cookies = writer();
-    saveNotice(cookies, { target: "settings", text: "카카오 서버에 연결하지 못했어요." });
-    const value = cookies.set.mock.calls[0][1] as string;
-
-    expect(cookies.set.mock.calls[0][0]).toBe(NOTICE_COOKIE);
-    expect(cookies.set.mock.calls[0][2]).toEqual(expect.objectContaining({ maxAge: 60 }));
-    expect(readNotice(value, "settings")).toBe("카카오 서버에 연결하지 못했어요.");
-    expect(readNotice(value, "login")).toBeNull();
-  });
-
-  it.each([
-    ["없다", undefined],
-    ["JSON이 아니다", "문구"],
-    ["모양이 다르다", JSON.stringify({ target: "login", text: 1 })],
-    ["null이다", "null"],
-    ["target이 없다", JSON.stringify({ text: "x" })],
-  ])("문구 쿠키가 %s면 null", (_, value) => {
-    expect(readNotice(value, "login")).toBeNull();
-  });
-
-  it("문구를 지울 때도 같은 속성으로 maxAge 0", () => {
-    const cookies = writer();
-
-    clearNotice(cookies);
-
-    expect(cookies.set).toHaveBeenCalledWith(
-      NOTICE_COOKIE,
-      "",
-      expect.objectContaining({ httpOnly: true, path: "/", maxAge: 0 }),
-    );
-  });
-});
-
-describe("kakaoConfig 경계값", () => {
-  it.each([
-    [
-      "앞뒤 공백 · 줄바꿈은 지운다",
-      " http://localhost:3000/oauth/kakao/callback\r\n",
-      "http://localhost:3000/oauth/kakao/callback",
-    ],
-    [
-      "127.0.0.1은 http도 받는다",
-      "http://127.0.0.1:3000/oauth/kakao/callback",
-      "http://127.0.0.1:3000/oauth/kakao/callback",
-    ],
-    [
-      "[::1]은 http도 받는다",
-      "http://[::1]:3000/oauth/kakao/callback",
-      "http://[::1]:3000/oauth/kakao/callback",
-    ],
-  ])("%s", (_, value, expected) => {
-    vi.stubEnv("KAKAO_REDIRECT_URI", value);
-
-    expect(kakaoConfig()?.redirectUri).toBe(expected);
-  });
-
-  it.each([
-    ["끝에 / 가 붙었다", "https://hangguet.co.kr/oauth/kakao/callback/"],
-    [
-      "호스트에 대문자가 있다(등록 값과 글자가 다르다)",
-      "https://Hangguet.co.kr/oauth/kakao/callback",
-    ],
-    ["기본 포트를 적었다", "https://hangguet.co.kr:443/oauth/kakao/callback"],
-    ["공백뿐이다", "   "],
-  ])("%s면 null", (_, value) => {
-    vi.stubEnv("KAKAO_REDIRECT_URI", value);
-
-    expect(kakaoConfig()).toBeNull();
-  });
-
-  it("앱 키의 앞뒤 공백 · 줄바꿈도 지운다", () => {
-    vi.stubEnv("KAKAO_CLIENT_ID", "  client-id\n");
-
-    expect(kakaoConfig()?.clientId).toBe("client-id");
-  });
-
-  it.each([
-    ["앱 키가 공백뿐이다", "KAKAO_CLIENT_ID", "   "],
-    ["앱 키 변수가 없다", "KAKAO_CLIENT_ID", undefined],
-    ["콜백 주소 변수가 없다", "KAKAO_REDIRECT_URI", undefined],
-  ])("%s면 null", (_, name, value) => {
-    vi.stubEnv(name, value);
-
-    expect(kakaoConfig()).toBeNull();
-  });
-});
-
-describe("가입 토큰 유효 시간", () => {
-  it.each([
-    [600.9, 600],
-    [-1, 0],
-  ])("expiresIn %s초는 maxAge %s로 저장한다", (expiresIn, maxAge) => {
-    const cookies = writer();
-
-    saveSignupToken(cookies, "Zm9v", expiresIn);
-
-    expect(cookies.set).toHaveBeenCalledWith(
-      SOCIAL_SIGNUP_COOKIE,
-      "Zm9v",
-      expect.objectContaining({ maxAge }),
-    );
-  });
-});
-
-describe("운영 쿠키", () => {
-  it("운영(NODE_ENV production)에서는 __Host- 이름 · Secure로 쓴다", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    vi.resetModules();
-    const prod = await import("./kakao");
-    const cookies = writer();
-
-    prod.issueState(cookies, "alarm");
-
-    expect(prod.OAUTH_STATE_COOKIE).toBe("__Host-hk_oauth_state");
-    expect(prod.SOCIAL_SIGNUP_COOKIE).toBe("__Host-hk_social_signup");
-    expect(prod.NOTICE_COOKIE).toBe("__Host-hk_notice");
-    const options = { httpOnly: true, secure: true, sameSite: "lax", path: "/" };
-    expect(cookies.set).toHaveBeenCalledWith(
-      "__Host-hk_oauth_state",
-      expect.stringMatching(/^alarm\./),
+  describe("입력 검증", () => {
+    it.each([
+      { label: "앱 키 없음", clientId: "", redirectUri: CALLBACK },
+      { label: "콜백 없음", clientId: "kakao-rest-key", redirectUri: "" },
+      { label: "주소 아님", clientId: "kakao-rest-key", redirectUri: "oauth/kakao/callback" },
       {
-        ...options,
-        maxAge: 600,
+        label: "로컬 아닌 http",
+        clientId: "kakao-rest-key",
+        redirectUri: "http://hangguet.yobistory.com/oauth/kakao/callback",
+      },
+      {
+        label: "다른 경로",
+        clientId: "kakao-rest-key",
+        redirectUri: "https://hangguet.yobistory.com/oauth/kakao/cb",
+      },
+      { label: "쿼리 붙음", clientId: "kakao-rest-key", redirectUri: `${CALLBACK}?next=/home` },
+      { label: "해시 붙음", clientId: "kakao-rest-key", redirectUri: `${CALLBACK}#top` },
+      {
+        label: "계정 정보 붙음",
+        clientId: "kakao-rest-key",
+        redirectUri: "https://user:pw@hangguet.yobistory.com/oauth/kakao/callback",
+      },
+      {
+        label: "정규화하면 달라짐(대문자 호스트)",
+        clientId: "kakao-rest-key",
+        redirectUri: "https://Hangguet.yobistory.com/oauth/kakao/callback",
+      },
+      {
+        label: "정규화하면 달라짐(:443)",
+        clientId: "kakao-rest-key",
+        redirectUri: "https://hangguet.yobistory.com:443/oauth/kakao/callback",
+      },
+    ])("설정이 '$label'이면 쓰지 않고 null을 돌려준다", ({ clientId, redirectUri }) => {
+      kakaoEnv(clientId, redirectUri);
+
+      expect(kakaoConfig()).toBeNull();
+    });
+  });
+});
+
+describe("issueState · 인가 state 만들기", () => {
+  describe("정상 처리", () => {
+    it("새 state를 용도와 함께 쿠키에 담고 state를 돌려준다", () => {
+      const writer = cookieWriter();
+
+      const state = issueState(writer, "alarm");
+
+      expect(writer.set).toHaveBeenCalledWith(
+        "hk_oauth_state",
+        `alarm.${state}`,
+        expect.any(Object),
+      );
+    });
+
+    it("운영이면 __Host- 이름과 Secure로 쓴다", async () => {
+      const kakao = await loadInProduction();
+      const writer = cookieWriter();
+
+      const state = kakao.issueState(writer, "login");
+
+      expect(writer.set).toHaveBeenCalledWith(
+        "__Host-hk_oauth_state",
+        `login.${state}`,
+        expect.objectContaining({ secure: true, path: "/" }),
+      );
+    });
+  });
+});
+
+describe("purposeOf · 저장한 용도 읽기", () => {
+  describe("정상 처리", () => {
+    it.each([{ purpose: "login" }, { purpose: "alarm" }, { purpose: "link" }])(
+      "쿠키 값에서 용도 '$purpose'를 읽는다",
+      ({ purpose }) => {
+        expect(purposeOf(`${purpose}.state-1`)).toBe(purpose);
       },
     );
+  });
 
-    // __Host- 쿠키는 Secure가 있는 Set-Cookie로만 지워진다: 지울 때도 같은 속성에 maxAge 0
-    prod.clearState(cookies);
-    prod.clearSignupToken(cookies);
-    prod.clearNotice(cookies);
-    expect(cookies.set).toHaveBeenCalledWith("__Host-hk_oauth_state", "", {
-      ...options,
-      maxAge: 0,
+  describe("입력 검증", () => {
+    it.each([
+      { label: "없음", saved: undefined },
+      { label: "점 없음", saved: "login" },
+      { label: "모르는 용도", saved: "admin.state-1" },
+    ])("쿠키 값이 '$label'이면 null을 돌려준다", ({ saved }) => {
+      expect(purposeOf(saved)).toBeNull();
     });
-    expect(cookies.set).toHaveBeenCalledWith("__Host-hk_social_signup", "", {
-      ...options,
-      maxAge: 0,
+  });
+});
+
+describe("verifyState · state 확인", () => {
+  describe("정상 처리", () => {
+    it("돌아온 state가 저장한 값과 같으면 용도를 돌려준다", () => {
+      expect(verifyState("link.state-abc", "state-abc")).toBe("link");
     });
-    expect(cookies.set).toHaveBeenCalledWith("__Host-hk_notice", "", { ...options, maxAge: 0 });
+  });
+
+  describe("입력 검증", () => {
+    it.each([
+      { label: "같은 길이 다른 값", received: "state-abd" },
+      { label: "길이가 다름", received: "state-ab" },
+      { label: "돌아온 state 없음", received: null },
+    ])("'$label'이면 null을 돌려준다", ({ received }) => {
+      expect(verifyState("link.state-abc", received)).toBeNull();
+    });
+  });
+});
+
+describe("clearState · state 지우기", () => {
+  describe("정상 처리", () => {
+    it("운영이면 지울 때도 같은 __Host- 이름 · Secure에 유효 시간 0으로 덮어쓴다", async () => {
+      const kakao = await loadInProduction();
+      const writer = cookieWriter();
+
+      kakao.clearState(writer);
+
+      expect(writer.set).toHaveBeenCalledWith(
+        "__Host-hk_oauth_state",
+        "",
+        expect.objectContaining({ secure: true, path: "/", maxAge: 0 }),
+      );
+    });
+  });
+});
+
+describe("authorizeUrl · 카카오 인가 주소", () => {
+  describe("정상 처리", () => {
+    it("알림이면 메시지 동의(talk_message)를 함께 요청한다", () => {
+      const url = new URL(authorizeUrl(CONFIG, "state-abc", "alarm"));
+
+      expect(url.searchParams.get("scope")).toBe("talk_message");
+    });
+
+    it("로그인이면 동의 항목을 붙이지 않는다", () => {
+      const url = new URL(authorizeUrl(CONFIG, "state-abc", "login"));
+
+      expect(url.searchParams.has("scope")).toBe(false);
+    });
+  });
+});
+
+describe("saveSignupToken · 가입 토큰 저장", () => {
+  describe("정상 처리", () => {
+    it("가입 토큰을 받은 유효 시간(초) 동안 저장한다", () => {
+      const writer = cookieWriter();
+
+      saveSignupToken(writer, "signup-token-1", 600);
+
+      expect(writer.set).toHaveBeenCalledWith(
+        "hk_social_signup",
+        "signup-token-1",
+        expect.objectContaining({ maxAge: 600 }),
+      );
+    });
+  });
+
+  describe("경계값", () => {
+    it.each([
+      { label: "소수 599.9", expiresIn: 599.9, maxAge: 599 },
+      { label: "음수", expiresIn: -5, maxAge: 0 },
+    ])("유효 시간이 '$label'이면 쿠키 유효 시간을 '$maxAge'로 둔다", ({ expiresIn, maxAge }) => {
+      const writer = cookieWriter();
+
+      saveSignupToken(writer, "signup-token-1", expiresIn);
+
+      expect(writer.set).toHaveBeenCalledWith(
+        "hk_social_signup",
+        "signup-token-1",
+        expect.objectContaining({ maxAge }),
+      );
+    });
+  });
+});
+
+describe("readNotice · 한 번 보여 줄 문구 읽기", () => {
+  describe("정상 처리", () => {
+    it("saveNotice로 담은 그 화면의 문구를 읽는다", () => {
+      const writer = cookieWriter();
+      saveNotice(writer, {
+        target: "login",
+        text: "소셜 로그인에 실패했어요. 다시 시도해 주세요.",
+      });
+      const saved = writer.set.mock.calls[0][1] as string;
+
+      expect(readNotice(saved, "login")).toBe("소셜 로그인에 실패했어요. 다시 시도해 주세요.");
+    });
+  });
+
+  describe("입력 검증", () => {
+    it.each([
+      { label: "없음", value: undefined, target: "login" },
+      {
+        label: "다른 화면 문구",
+        value: JSON.stringify({ target: "settings", text: "문구" }),
+        target: "login",
+      },
+      { label: "JSON 아님", value: "not-json", target: "login" },
+      {
+        label: "text가 문자열 아님",
+        value: JSON.stringify({ target: "login", text: 1 }),
+        target: "login",
+      },
+      {
+        label: "계정 연결 완료 표시",
+        value: JSON.stringify({ target: "settings", linked: true }),
+        target: "settings",
+      },
+    ] as const)("쿠키 값이 '$label'이면 null을 돌려준다", ({ value, target }) => {
+      expect(readNotice(value, target)).toBeNull();
+    });
+  });
+});
+
+describe("readLinked · 계정 연결 완료 표시 읽기", () => {
+  describe("정상 처리", () => {
+    it("saveLinked로 남긴 표시를 읽는다", () => {
+      const writer = cookieWriter();
+      saveLinked(writer);
+      const saved = writer.set.mock.calls[0][1] as string;
+
+      expect(readLinked(saved)).toBe(true);
+    });
+  });
+
+  describe("입력 검증", () => {
+    it.each([
+      { label: "없음", value: undefined },
+      { label: "문구 쿠키", value: JSON.stringify({ target: "settings", text: "문구" }) },
+      { label: "JSON 아님", value: "not-json" },
+      { label: "로그인 화면 표시", value: JSON.stringify({ target: "login", linked: true }) },
+    ])("쿠키 값이 '$label'이면 false를 돌려준다", ({ value }) => {
+      expect(readLinked(value)).toBe(false);
+    });
   });
 });

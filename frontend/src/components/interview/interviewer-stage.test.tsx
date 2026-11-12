@@ -1,251 +1,58 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { Activity } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S06 · S06-B Interviewer Scene(18:2498 · 18:2575) · 면접관 표현 결정 ③-3(로드 실패 · 컨텍스트 손실이면 정지 이미지)
+// · 사용자 결정(2026-10-22: 시간 제한 없이 받는 중이면 로딩 표시) · Next.js Preserving UI state(Activity) · 모션 메모 S06-F(18:4432: 눈 깜빡임)
+// · 사용자 요청(2026-10-21: 면접관 로딩 화면 — S06-1 Thinking Avatar) · AI 명세 6.3 interview.question · reaction
+// · 사용자 결정(2026-10-27: 150ms 늦춘 립싱크, 동작 줄이기면 입을 움직이지 않음) · 사용자 결정(2026-11-04: 오리 말하기 · 끄덕임 · 놀람 동작)
+import { act, render, screen } from "@testing-library/react";
+import { Activity, type ReactNode } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { interviewerLook } from "@/lib/interviewer/models";
-import type { QuestionMessage, ReactionSnapshot } from "@/lib/interview/room-messages";
+import type {
+  QuestionMessage,
+  ReactionMessage,
+  ReactionSnapshot,
+} from "@/lib/interview/room-messages";
+import { useInterviewStore } from "@/stores/interview-store";
+import { deferred } from "@/test/deferred";
+import { flushPromises } from "@/test/flush";
+import type { Persona } from "@/types/api";
 
 import { InterviewerStage } from "./interviewer-stage";
 
-const motionPreference = vi.hoisted(() => ({ reduced: true }));
-
+// 경계 mock: 3D 장면(three.js · WebGL)과 동작 줄이기 설정. 연출(깜빡임 · 끄덕임 · 립싱크)의 순서가 우리 로직이라
+// 공용 reducedMotion 대신 useReducedMotion만 테스트 변수로 바꾼다
+const sceneModule = vi.hoisted(() => ({ createInterviewerScene: vi.fn() }));
+vi.mock("@/lib/interviewer/scene", () => sceneModule);
+const motionPreference = vi.hoisted(() => ({ reduced: false }));
 vi.mock("motion/react", async (importOriginal) => ({
   ...(await importOriginal<typeof import("motion/react")>()),
   useReducedMotion: () => motionPreference.reduced,
 }));
-
-// three.js 장면(WebGL)은 jsdom에서 그릴 수 없어 경계만 바꾼다. 실제 3D는 E2E(interview.spec.ts)가 본다.
-const dispose = vi.fn();
-const createInterviewerScene = vi.fn();
-vi.mock("@/lib/interviewer/scene", () => ({
-  createInterviewerScene: (...args: unknown[]) => createInterviewerScene(...args),
+// 경계 mock: 크기 감시(ResizeObserver). 콜백을 보관해 테스트가 부른다
+const resizeWatch = vi.hoisted(() => ({
+  callback: null as (() => void) | null,
+  disconnect: vi.fn(),
 }));
 
-// 지금은 모든 면접관에 모델이 있어, 모델이 없는 면접관은 테스트에서 interviewerLook이 null을 돌려주게 해 본다.
-vi.mock("@/lib/interviewer/models", async (importOriginal) => {
-  const models = await importOriginal<typeof import("@/lib/interviewer/models")>();
-  return { ...models, interviewerLook: vi.fn(models.interviewerLook) };
-});
+function fakeScene() {
+  return {
+    setFace: vi.fn(),
+    setHead: vi.fn(),
+    setTalking: vi.fn(),
+    nod: vi.fn(),
+    surprise: vi.fn(),
+    resize: vi.fn(),
+    dispose: vi.fn(),
+  };
+}
+type FakeScene = ReturnType<typeof fakeScene>;
 
-// 기준: 면접관 표현 결정 ③-3(WebGL 미지원 · 로드 실패 · 컨텍스트 손실이면 정지 이미지)
-// · 사용자 결정(2026-10-22: 큰 모델이라 시간 제한(③-3의 10초 Timeout) 없이 받는 중이면 로딩 표시를 계속 둔다)
-// · Next.js Preserving UI state(Activity: 떠난 화면을 숨겨 두었다가 돌아오면 효과를 다시 실행)
-// · 사용자 요청(2026-10-21: 면접관 로딩 화면 — S06-1 Thinking Avatar) · Swagger 5.1 Persona
-// · 사용자 결정(2026-10-26: 커피챗 면접관도 3D 모델을 쓰고, 카페 실내 그림을 배경으로 깐다)
-
-beforeEach(() => {
-  motionPreference.reduced = true;
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  );
-});
-
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
-  // 모델이 없는 면접관으로 바꾼 값을 다음 테스트로 넘기지 않는다(실제 interviewerLook으로 되돌린다).
-  vi.mocked(interviewerLook).mockReset();
-  vi.useRealTimers();
-  vi.unstubAllGlobals();
-});
-
-const stage = () => screen.getByTestId("interviewer-stage");
-const loading = () => screen.queryByRole("status", { name: "면접관을 불러오는 중" });
-
-describe("InterviewerStage (면접관 3D 장면)", () => {
-  function animated() {
-    vi.useFakeTimers();
-    motionPreference.reduced = false;
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
-      window.setTimeout(() => callback(performance.now()), 16),
-    );
-    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
-    const setFace = vi.fn(),
-      setHead = vi.fn();
-    createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
-    return { setFace, setHead };
-  }
-  it.each(["DEVIL", "COFFEE_CHAT"] as const)(
-    "%s 깜빡임은 중간 프레임을 거치고 숨길 때 멈춘다",
-    async (persona) => {
-      const random = vi.spyOn(Math, "random").mockReturnValue(0);
-      try {
-        const { setFace } = animated();
-        const { rerender } = render(
-          <Activity mode="visible">
-            <InterviewerStage persona={persona} />
-          </Activity>,
-        );
-        await act(async () => {});
-        const lastBlink = () =>
-          setFace.mock.calls.filter(([face]) => face.blink !== undefined).at(-1)?.[0].blink;
-        act(() => vi.advanceTimersByTime(2500 + 16));
-        expect(lastBlink()).toBeGreaterThan(0);
-        expect(lastBlink()).toBeLessThan(1);
-        act(() => vi.advanceTimersByTime(48));
-        expect(lastBlink()).toBe(1);
-        act(() => vi.advanceTimersByTime(48));
-        expect(lastBlink()).toBeGreaterThan(0);
-        expect(lastBlink()).toBeLessThan(1);
-        act(() => vi.advanceTimersByTime(48));
-        expect(lastBlink()).toBe(0);
-        act(() => vi.advanceTimersByTime(2500 + 16));
-        rerender(
-          <Activity mode="hidden">
-            <InterviewerStage persona={persona} />
-          </Activity>,
-        );
-        expect(lastBlink()).toBe(0);
-        const count = setFace.mock.calls.length;
-        act(() => vi.advanceTimersByTime(10_000));
-        expect(setFace).toHaveBeenCalledTimes(count);
-      } finally {
-        random.mockRestore();
-      }
-    },
-  );
-  const activity = () => ({ questionSeq: 3, streamId: "capture-1", speechAt: performance.now() });
-  // 기준: AI 명세 6.3 interview.question(started의 alignment.chars) · 사용자 결정(2026-10-27: 150ms 늦춰 모음별 입 모양,
-  // 동작 줄이기면 입을 움직이지 않는다)
-  const question = (speech: QuestionMessage["speech"]): QuestionMessage => ({
-    type: "question",
-    sessionId: 55,
-    seq: 1,
-    content: "가이",
-    speech,
-    alignment:
-      speech === "started"
-        ? {
-            chars: [
-              { char: "가", startMs: 0, endMs: 200 },
-              { char: "이", startMs: 200, endMs: 400 },
-            ],
-          }
-        : null,
-  });
-  const lastMouth = (setFace: ReturnType<typeof vi.fn>) =>
-    setFace.mock.calls.filter(([face]) => face.mouth).at(-1)?.[0].mouth;
-
-  it("질문 음성이 시작되면 150ms 뒤부터 발음 시각대로 입을 바꾸고 끝나면 닫는다", async () => {
-    const { setFace } = animated();
-    const { rerender } = render(
-      <InterviewerStage persona="DEVIL" question={question("started")} />,
-    );
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(140));
-    expect(lastMouth(setFace) ?? { A: 0 }).toMatchObject({ A: 0 });
-    act(() => vi.advanceTimersByTime(160));
-    expect(lastMouth(setFace).A).toBeGreaterThan(0);
-    act(() => vi.advanceTimersByTime(200));
-    expect(lastMouth(setFace).I).toBeGreaterThan(0);
-
-    rerender(<InterviewerStage persona="DEVIL" question={question("ended")} />);
-    expect(lastMouth(setFace)).toEqual({ A: 0, I: 0, U: 0, E: 0, O: 0 });
-    const count = setFace.mock.calls.length;
-    act(() => vi.advanceTimersByTime(1000));
-    expect(setFace).toHaveBeenCalledTimes(count);
-  });
-  it("발음 시각이 없거나 동작 줄이기를 켰으면 입을 움직이지 않는다", async () => {
-    const { setFace } = animated();
-    const { rerender } = render(
-      <InterviewerStage persona="DEVIL" question={{ ...question("started"), alignment: null }} />,
-    );
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(500));
-    expect(lastMouth(setFace)).toBeUndefined();
-
-    motionPreference.reduced = true;
-    rerender(<InterviewerStage persona="DEVIL" question={question("started")} />);
-    act(() => vi.advanceTimersByTime(500));
-    expect(lastMouth(setFace)).toBeUndefined();
-  });
-  it("자막 변경 뒤 1초 동안 대기한 다음 한 번만 작게 끄덕이고 복귀한다", async () => {
-    const { setHead } = animated();
-    render(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(999));
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-    act(() => vi.advanceTimersByTime(301));
-    expect(setHead.mock.lastCall?.[0]).toBeGreaterThan(0);
-    act(() => vi.advanceTimersByTime(1000));
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-    const count = setHead.mock.calls.length;
-    act(() => vi.advanceTimersByTime(10_000));
-    expect(setHead).toHaveBeenCalledTimes(count);
-  });
-  it("새 발화가 발생하면 대기를 다시 계산하고 발화 정보 제거 시 재생도 취소한다", async () => {
-    const { setHead } = animated();
-    const { rerender } = render(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(700));
-    rerender(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    act(() => vi.advanceTimersByTime(600));
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-    act(() => vi.advanceTimersByTime(700));
-    expect(setHead.mock.lastCall?.[0]).toBeGreaterThan(0);
-    rerender(<InterviewerStage persona="DEVIL" />);
-    const count = setHead.mock.calls.length;
-    act(() => vi.advanceTimersByTime(3000));
-    expect(setHead).toHaveBeenCalledTimes(count);
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-  });
-  it("질문 음성과 수신 리액션에는 자동 끄덕임을 겹치지 않는다", async () => {
-    const { setHead, setFace } = animated();
-    const current = activity();
-    const { rerender } = render(<InterviewerStage persona="DEVIL" listening={current} speaking />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(1300));
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-    rerender(<InterviewerStage persona="DEVIL" listening={current} feedback={feedback()} />);
-    act(() => vi.advanceTimersByTime(300));
-    expect(setFace.mock.lastCall?.[0].emotion).toBe("Smile");
-    expect(setHead.mock.calls.every(([pitch, roll]) => pitch === 0 && roll === 0)).toBe(true);
-    act(() => vi.advanceTimersByTime(1300));
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-  });
-  it("동작 줄이기 설정과 화면 이탈에서는 자동 끄덕임을 재생하지 않는다", async () => {
-    const { setHead } = animated();
-    motionPreference.reduced = true;
-    const { unmount } = render(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(1300));
-    expect(setHead.mock.calls.every(([pitch, roll]) => pitch === 0 && roll === 0)).toBe(true);
-    unmount();
-    const count = setHead.mock.calls.length;
-    act(() => vi.advanceTimersByTime(3000));
-    expect(setHead).toHaveBeenCalledTimes(count);
-    expect(dispose).toHaveBeenCalledTimes(1);
-  });
-  it("자동 끄덕임 재생 중 화면 이탈 시 이후 프레임을 실행하지 않는다", async () => {
-    const { setHead } = animated();
-    const { unmount } = render(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(1300));
-    expect(setHead.mock.lastCall?.[0]).toBeGreaterThan(0);
-    unmount();
-    const count = setHead.mock.calls.length;
-    act(() => vi.advanceTimersByTime(3000));
-    expect(setHead).toHaveBeenCalledTimes(count);
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-  });
-  it("모델 로딩이 늦어 만료된 자동 끄덕임은 다시 재생하지 않는다", async () => {
-    const { setFace, setHead } = animated();
-    let finish!: (value: unknown) => void;
-    createInterviewerScene.mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-    );
-    render(<InterviewerStage persona="DEVIL" listening={activity()} />);
-    act(() => vi.advanceTimersByTime(2300));
-    await act(async () => finish({ setFace, setHead, resize: vi.fn(), dispose }));
-    expect(setHead.mock.calls.every(([pitch, roll]) => pitch === 0 && roll === 0)).toBe(true);
-  });
-  const feedback = (): ReactionSnapshot => ({
+// 예시 데이터: AI 명세 6.3 reaction 예시(받은 순간부터 1,200ms)
+function reaction(
+  patch: Partial<ReactionMessage["reaction"] & object> = {},
+  attitude = { interest: 1, trust: 0.5 },
+): ReactionSnapshot {
+  return {
     receivedAt: performance.now(),
     message: {
       type: "reaction",
@@ -258,243 +65,605 @@ describe("InterviewerStage (면접관 3D 장면)", () => {
         gesture: null,
         intensity: 0.4,
         durationMs: 1200,
-      },
-      attitude: { interest: 0.5, trust: 0.5 },
+        ...patch,
+      } as ReactionMessage["reaction"],
+      attitude,
       interrupt: null,
     },
-  });
-  it("수신 시각부터 1,200ms 뒤 표정을 복구하고 화면 이탈 시 동작도 정리한다", async () => {
-    vi.useFakeTimers();
-    const setFace = vi.fn(),
-      setHead = vi.fn();
-    createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
-    const { unmount } = render(<InterviewerStage persona="DEVIL" feedback={feedback()} />);
-    await act(async () => {});
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
-    act(() => vi.advanceTimersByTime(1199));
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
-    act(() => vi.advanceTimersByTime(1));
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "neutral", emotionWeight: 0 });
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-    unmount();
-    expect(dispose).toHaveBeenCalledTimes(1);
-  });
-  it("수신한 durationMs(2,400ms) 동안 표정을 유지한다", async () => {
-    vi.useFakeTimers();
-    const setFace = vi.fn(),
-      setHead = vi.fn();
-    createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
-    const current = feedback();
-    current.message.reaction = { ...current.message.reaction!, durationMs: 2400 };
-    render(<InterviewerStage persona="DEVIL" feedback={current} />);
-    await act(async () => {});
-    act(() => vi.advanceTimersByTime(2399));
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
-    act(() => vi.advanceTimersByTime(1));
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "neutral", emotionWeight: 0 });
-  });
-  it("질문 음성이 반응보다 우선하며 재생 종료 뒤에는 남은 시간만 표현한다", async () => {
-    vi.useFakeTimers();
-    const setFace = vi.fn(),
-      setHead = vi.fn();
-    createInterviewerScene.mockResolvedValue({ setFace, setHead, resize: vi.fn(), dispose });
-    const current = feedback();
-    const { rerender } = render(<InterviewerStage persona="DEVIL" feedback={current} speaking />);
-    await act(async () => {});
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "neutral", emotionWeight: 0 });
-    act(() => vi.advanceTimersByTime(1000));
-    rerender(<InterviewerStage persona="DEVIL" feedback={current} />);
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
-    act(() => vi.advanceTimersByTime(200));
-    expect(setFace).toHaveBeenLastCalledWith({ emotion: "neutral", emotionWeight: 0 });
-  });
-  it("모델 로딩 지연으로 이미 종료된 리액션은 다시 재생하지 않는다", async () => {
-    vi.useFakeTimers();
-    let finish!: (value: unknown) => void;
-    const setFace = vi.fn(),
-      setHead = vi.fn();
-    createInterviewerScene.mockReturnValue(
-      new Promise((resolve) => {
-        finish = resolve;
-      }),
-    );
-    render(<InterviewerStage persona="DEVIL" feedback={feedback()} />);
-    act(() => vi.advanceTimersByTime(1201));
-    await act(async () => finish({ setFace, setHead, resize: vi.fn(), dispose }));
-    expect(setFace).not.toHaveBeenCalledWith({ emotion: "Smile", emotionWeight: 0.4 });
-    expect(setHead).toHaveBeenLastCalledWith(0, 0);
-  });
-  it("3D 모델이 없는 면접관이면 아무것도 그리지 않는다", () => {
-    vi.mocked(interviewerLook).mockReturnValue(null);
-    const { container } = render(<InterviewerStage persona="COFFEE_CHAT" />);
-    expect(container.innerHTML).toBe("");
-    expect(createInterviewerScene).not.toHaveBeenCalled();
-  });
+  };
+}
+const NOD = { type: "gesture", expression: null, gesture: "nod", intensity: null } as const;
+// 예시 데이터: AI 명세 6.3 interview.question(started의 alignment.chars '가' 0~200ms · '이' 200~400ms)
+function question(speech: QuestionMessage["speech"], seq = 1): QuestionMessage {
+  return {
+    type: "question",
+    sessionId: 55,
+    seq,
+    content: "가이",
+    speech,
+    alignment:
+      speech === "started"
+        ? {
+            chars: [
+              { char: "가", startMs: 0, endMs: 200 },
+              { char: "이", startMs: 200, endMs: 400 },
+            ],
+          }
+        : null,
+  };
+}
+function speech() {
+  return { questionSeq: 3, streamId: "capture-1", speechAt: performance.now() };
+}
 
-  it("커피챗 면접관은 자기 모델 · 구도 · 카페 배경 그림 · 조명으로 그리고, 폭풍 배경(비네트)은 깔지 않는다", async () => {
-    const coffee = interviewerLook("COFFEE_CHAT")!;
-    createInterviewerScene.mockResolvedValue({
-      setFace: vi.fn(),
-      setHead: vi.fn(),
-      resize: vi.fn(),
-      dispose,
+/** 장면을 바로 만들어 ready까지 그린다 */
+async function ready(ui: ReactNode) {
+  const scene = fakeScene();
+  sceneModule.createInterviewerScene.mockResolvedValue(scene);
+  const view = render(ui);
+  await flushPromises();
+  return { scene, ...view };
+}
+
+function advance(ms: number) {
+  act(() => vi.advanceTimersByTime(ms));
+}
+
+const stage = () => screen.getByTestId("interviewer-stage");
+const loading = () => screen.queryByRole("status", { name: "면접관을 불러오는 중" });
+const emotions = (scene: FakeScene) =>
+  scene.setFace.mock.calls.map(([face]) => face).filter((face) => "emotion" in face);
+const lastEmotion = (scene: FakeScene) => emotions(scene).at(-1);
+const mouths = (scene: FakeScene) =>
+  scene.setFace.mock.calls.map(([face]) => face.mouth).filter(Boolean);
+const blinks = (scene: FakeScene) =>
+  scene.setFace.mock.calls.map(([face]) => face.blink).filter((blink) => blink !== undefined);
+const headMoved = (scene: FakeScene) =>
+  scene.setHead.mock.calls.some(([pitch, roll]) => pitch !== 0 || roll !== 0);
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  motionPreference.reduced = false;
+  resizeWatch.callback = null;
+  vi.spyOn(Math, "random").mockReturnValue(0);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(callback: () => void) {
+        resizeWatch.callback = callback;
+      }
+      observe() {}
+      disconnect() {
+        resizeWatch.disconnect();
+      }
+    },
+  );
+  useInterviewStore.setState({ exclaimedAt: null });
+});
+
+describe("InterviewerStage · 면접관 3D 장면", () => {
+  describe("장면 불러오기", () => {
+    describe("화면 표시", () => {
+      it("불러오는 동안 면접관 썸네일 로딩 표시를 둔다", async () => {
+        const created = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(created.promise);
+        render(<InterviewerStage persona="DEVIL" />);
+
+        expect(loading()?.contains(screen.getByRole("img", { name: "악마 면접관" }))).toBe(true);
+        await act(async () => created.resolve(fakeScene()));
+      });
+
+      it("다 불러오면 로딩 표시를 없애고 3D를 보인다", async () => {
+        const { container } = await ready(<InterviewerStage persona="DEVIL" />);
+
+        expect(loading()).toBeNull();
+        expect(stage().dataset.state).toBe("ready");
+        expect(container.querySelector("canvas")?.parentElement?.className).not.toContain("hidden");
+      });
     });
-    render(<InterviewerStage persona="COFFEE_CHAT" />);
-    expect(screen.getByRole("img", { name: "개발자 커피챗" })).toBeTruthy();
 
-    await act(async () => {});
+    describe("상태 변화", () => {
+      it("화면 크기가 바뀌면 장면 크기를 맞춘다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" />);
 
-    expect(stage().dataset.state).toBe("ready");
-    expect(screen.queryByTestId("storm-vignette")).toBeNull();
-    expect(coffee.model.glb).toBe("/interview/coffee-chat/interviewer.glb");
-    expect(createInterviewerScene).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: coffee.model,
-        frame: coffee.frame,
-        storm: undefined,
-        interior: undefined,
-        background: coffee.background,
-        lights: coffee.lights,
-      }),
-    );
-  });
+        act(() => resizeWatch.callback!());
 
-  it("불러오는 동안 면접관 썸네일 로딩 표시를 두고, 다 불러오면 3D로 바꾼다", async () => {
-    let resolve!: (scene: unknown) => void;
-    createInterviewerScene.mockReturnValue(new Promise((done) => (resolve = done)));
-    render(<InterviewerStage persona="DEVIL" />);
+        expect(scene.resize).toHaveBeenCalledTimes(1);
+      });
 
-    expect(stage().dataset.state).toBe("loading");
-    expect(loading()).toBeTruthy();
-    expect(screen.getByRole("img", { name: "악마 면접관" })).toBeTruthy();
+      it("숨겨졌다 다시 보이면 로딩 표시부터 두고 장면을 새로 만든다", async () => {
+        const { scene, rerender } = await ready(
+          <Activity mode="visible">
+            <InterviewerStage persona="DEVIL" />
+          </Activity>,
+        );
+        const again = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(again.promise);
 
-    await act(async () =>
-      resolve({ setFace: vi.fn(), setHead: vi.fn(), resize: vi.fn(), dispose }),
-    );
+        rerender(
+          <Activity mode="hidden">
+            <InterviewerStage persona="DEVIL" />
+          </Activity>,
+        );
+        expect(scene.dispose).toHaveBeenCalledTimes(1);
+        rerender(
+          <Activity mode="visible">
+            <InterviewerStage persona="DEVIL" />
+          </Activity>,
+        );
+        await flushPromises();
 
-    expect(stage().dataset.state).toBe("ready");
-    expect(loading()).toBeNull();
-    expect(createInterviewerScene).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: expect.objectContaining({
-          glb: "/interview/devil/interviewer.glb",
-          faceRules: "/interview/devil/face-rules.json",
-          staticPose: true,
-        }),
-      }),
-    );
-  });
-
-  it("불러오지 못하면 정지 이미지를 보여 준다", async () => {
-    createInterviewerScene.mockRejectedValue(new Error("WebGL 없음"));
-    const { container } = render(<InterviewerStage persona="DEVIL" />);
-
-    await act(async () => {});
-
-    expect(stage().dataset.state).toBe("failed");
-    expect(container.querySelector('img[src="/interview/devil/still.webp"]')).toBeTruthy();
-    expect(container.querySelector("canvas")?.parentElement?.className).toContain("hidden");
-  });
-
-  it("받는 중이면 시간이 얼마나 지나도 로딩 표시를 두고, 다 받으면 3D로 바꾼다", async () => {
-    vi.useFakeTimers();
-    let resolve!: (scene: unknown) => void;
-    createInterviewerScene.mockReturnValue(new Promise((done) => (resolve = done)));
-    render(<InterviewerStage persona="DEVIL" />);
-
-    // 10분이 지나도 시간으로는 실패하지 않는다.
-    await act(async () => vi.advanceTimersByTime(10 * 60_000));
-    expect(stage().dataset.state).toBe("loading");
-    expect(loading()).toBeTruthy();
-
-    await act(async () =>
-      resolve({ setFace: vi.fn(), setHead: vi.fn(), resize: vi.fn(), dispose }),
-    );
-    expect(stage().dataset.state).toBe("ready");
-  });
-
-  it("다 받기 전에 화면을 떠나면, 늦게 끝난 장면은 바로 정리한다", async () => {
-    let resolve!: (scene: unknown) => void;
-    createInterviewerScene.mockReturnValue(new Promise((done) => (resolve = done)));
-    const { unmount } = render(<InterviewerStage persona="DEVIL" />);
-
-    unmount();
-    await act(async () =>
-      resolve({ setFace: vi.fn(), setHead: vi.fn(), resize: vi.fn(), dispose }),
-    );
-
-    expect(dispose).toHaveBeenCalledTimes(1);
-  });
-
-  it("숨겨졌다(Activity) 다시 보이면 로딩 표시부터 두고 장면을 새로 만든다", async () => {
-    createInterviewerScene.mockResolvedValue({
-      setFace: vi.fn(),
-      setHead: vi.fn(),
-      resize: vi.fn(),
-      dispose,
+        expect(stage().dataset.state).toBe("loading");
+        expect(sceneModule.createInterviewerScene).toHaveBeenCalledTimes(2);
+        await act(async () => again.resolve(fakeScene()));
+        expect(stage().dataset.state).toBe("ready");
+      });
     });
-    const { rerender } = render(
-      <Activity mode="visible">
-        <InterviewerStage persona="DEVIL" />
-      </Activity>,
-    );
-    await act(async () => {});
-    expect(stage().dataset.state).toBe("ready");
 
-    let resolve!: (scene: unknown) => void;
-    createInterviewerScene.mockReturnValue(new Promise((done) => (resolve = done)));
-    await act(async () =>
-      rerender(
-        <Activity mode="hidden">
-          <InterviewerStage persona="DEVIL" />
-        </Activity>,
-      ),
-    );
-    expect(dispose).toHaveBeenCalledTimes(1);
+    describe("오류 처리", () => {
+      it("장면을 만들지 못하면 정지 이미지를 보여 준다", async () => {
+        sceneModule.createInterviewerScene.mockRejectedValue(new Error("WebGL 없음"));
+        const { container } = render(<InterviewerStage persona="DEVIL" />);
+        await flushPromises();
 
-    await act(async () =>
-      rerender(
-        <Activity mode="visible">
-          <InterviewerStage persona="DEVIL" />
-        </Activity>,
-      ),
-    );
-    expect(stage().dataset.state).toBe("loading");
-    expect(createInterviewerScene).toHaveBeenCalledTimes(2);
+        expect(stage().dataset.state).toBe("failed");
+        expect(
+          container.querySelector(`img[src="${interviewerLook("DEVIL")!.still}"]`),
+        ).not.toBeNull();
+        expect(container.querySelector("canvas")?.parentElement?.className).toContain("hidden");
+      });
 
-    await act(async () =>
-      resolve({ setFace: vi.fn(), setHead: vi.fn(), resize: vi.fn(), dispose }),
-    );
-    expect(stage().dataset.state).toBe("ready");
+      it("그리던 중 WebGL 컨텍스트를 잃으면 정지 이미지로 바꾼다", async () => {
+        const { container } = await ready(<InterviewerStage persona="DEVIL" />);
+        const { onLost } = sceneModule.createInterviewerScene.mock.calls[0][0] as {
+          onLost: () => void;
+        };
+
+        act(() => onLost());
+
+        expect(stage().dataset.state).toBe("failed");
+        expect(
+          container.querySelector(`img[src="${interviewerLook("DEVIL")!.still}"]`),
+        ).not.toBeNull();
+      });
+    });
+
+    describe("중복 · 경쟁 처리", () => {
+      it("장면을 다 만들기 전에 화면을 떠나면 늦게 끝난 장면을 바로 정리한다", async () => {
+        const created = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(created.promise);
+        const { unmount } = render(<InterviewerStage persona="DEVIL" />);
+        await flushPromises();
+        const late = fakeScene();
+
+        unmount();
+        await act(async () => created.resolve(late));
+
+        expect(late.dispose).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe("정리", () => {
+      it("화면을 떠나면 장면을 정리하고 캔버스를 떼며 크기 감시를 멈춘다", async () => {
+        const { scene, container, unmount } = await ready(<InterviewerStage persona="DEVIL" />);
+        const canvas = container.querySelector("canvas")!;
+
+        unmount();
+
+        expect(scene.dispose).toHaveBeenCalledTimes(1);
+        expect(canvas.isConnected).toBe(false);
+        expect(resizeWatch.disconnect).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
-  it("WebGL 컨텍스트를 잃으면(onLost) 정지 이미지로 바꾼다", async () => {
-    createInterviewerScene.mockImplementation(async ({ onLost }: { onLost: () => void }) => {
-      queueMicrotask(onLost);
-      return { setFace: vi.fn(), setHead: vi.fn(), resize: vi.fn(), dispose };
+  describe("리액션", () => {
+    describe("화면 표시", () => {
+      it("리액션을 받으면 남은 시간 동안 프레임마다 표정과 고개를 그린다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" feedback={reaction()} />);
+
+        advance(100);
+        const early = lastEmotion(scene)!.emotionWeight;
+        advance(500);
+
+        // 받은 시각에서 멀어질수록(가운데 시점까지) 세기가 커지므로 프레임마다 다시 그린 것이다
+        expect(early).toBeGreaterThan(0);
+        expect(lastEmotion(scene)!.emotion).toBe("Smile");
+        expect(lastEmotion(scene)!.emotionWeight).toBeGreaterThan(early);
+        expect(headMoved(scene)).toBe(true);
+      });
+
+      it("동작 줄이기를 켰으면 리액션 가운데 시점의 표정만 두었다가 끝나면 되돌린다", async () => {
+        motionPreference.reduced = true;
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" feedback={reaction()} />);
+
+        expect(lastEmotion(scene)).toEqual({ emotion: "Smile", emotionWeight: 0.4 });
+        advance(1199);
+        expect(lastEmotion(scene)).toEqual({ emotion: "Smile", emotionWeight: 0.4 });
+        advance(1);
+        expect(lastEmotion(scene)).toEqual({ emotion: "neutral", emotionWeight: 0 });
+      });
+
+      it("동작 클립 면접관은 리액션에 고개를 직접 돌리지 않는다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DUCK" feedback={reaction(NOD)} />);
+
+        advance(600);
+
+        expect(emotions(scene).length).toBeGreaterThan(2);
+        expect(headMoved(scene)).toBe(false);
+      });
     });
-    render(<InterviewerStage persona="DEVIL" />);
 
-    await act(async () => {});
+    describe("상태 변화", () => {
+      it("리액션 시간이 지나면 프레임 그리기를 멈춘다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" feedback={reaction()} />);
+        advance(1300);
+        const drawn = emotions(scene).length;
 
-    expect(stage().dataset.state).toBe("failed");
+        advance(1000);
+
+        expect(emotions(scene)).toHaveLength(drawn);
+        expect(lastEmotion(scene)).toEqual({ emotion: "neutral", emotionWeight: 0 });
+      });
+
+      it("질문 음성이 나오는 동안은 그리지 않고 음성이 끝나면 남은 시간만 그린다", async () => {
+        const feedback = reaction();
+        const { scene, rerender } = await ready(
+          <InterviewerStage persona="DEVIL" feedback={feedback} speaking />,
+        );
+        advance(1000);
+        expect(emotions(scene).every((face) => face.emotion === "neutral")).toBe(true);
+
+        rerender(<InterviewerStage persona="DEVIL" feedback={feedback} />);
+        advance(16);
+        expect(lastEmotion(scene)!.emotion).toBe("Smile");
+
+        advance(300);
+        const drawn = emotions(scene).length;
+        advance(500);
+        expect(emotions(scene)).toHaveLength(drawn);
+      });
+    });
+
+    describe("입력 검증", () => {
+      it("동작 클립 면접관은 보이지 않는 반응이면 표정을 바꾸지 않는다", async () => {
+        const { scene } = await ready(
+          <InterviewerStage persona="DUCK" feedback={reaction({ expression: "frown" })} />,
+        );
+
+        advance(600);
+
+        expect(emotions(scene).every((face) => face.emotion === "neutral")).toBe(true);
+      });
+    });
+
+    describe("경계값", () => {
+      it("장면이 늦게 만들어져 이미 끝난 리액션은 그리지 않는다", async () => {
+        // 동작 줄이기에서는 가운데 시점 표정을 바로 두므로, 끝난 리액션을 거르지 않으면 표정이 한 번 바뀐다
+        motionPreference.reduced = true;
+        const created = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(created.promise);
+        render(<InterviewerStage persona="DEVIL" feedback={reaction()} />);
+        advance(1201);
+        const scene = fakeScene();
+
+        await act(async () => created.resolve(scene));
+        advance(100);
+
+        expect(emotions(scene).every((face) => face.emotion === "neutral")).toBe(true);
+      });
+
+      it("동작 클립 면접관은 끄덕임 반응을 받은 지 300ms 안이면 끄덕임 동작을 한 번 한다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DUCK" feedback={reaction(NOD)} />);
+
+        advance(1300);
+
+        expect(scene.nod).toHaveBeenCalledTimes(1);
+      });
+
+      it("동작 클립 면접관은 끄덕임 반응을 받은 지 300ms가 지나 다시 그리면 끄덕이지 않는다", async () => {
+        const feedback = reaction(NOD);
+        const { scene, rerender } = await ready(
+          <InterviewerStage persona="DUCK" feedback={feedback} speaking />,
+        );
+        advance(301);
+
+        rerender(<InterviewerStage persona="DUCK" feedback={feedback} />);
+        advance(100);
+
+        expect(scene.nod).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("정리", () => {
+      it("화면을 떠나면 리액션 그리기를 멈추고 표정을 되돌린다", async () => {
+        const { scene, unmount } = await ready(
+          <InterviewerStage persona="DEVIL" feedback={reaction()} />,
+        );
+        advance(300);
+
+        unmount();
+        const drawn = emotions(scene).length;
+        advance(1000);
+
+        expect(lastEmotion(scene)).toEqual({ emotion: "neutral", emotionWeight: 0 });
+        expect(scene.setHead).toHaveBeenLastCalledWith(0, 0);
+        expect(emotions(scene)).toHaveLength(drawn);
+      });
+    });
   });
 
-  it("화면을 떠나면 장면을 정리하고 캔버스를 뗀다", async () => {
-    createInterviewerScene.mockResolvedValue({
-      setFace: vi.fn(),
-      setHead: vi.fn(),
-      resize: vi.fn(),
-      dispose,
+  describe("듣는 중 끄덕임", () => {
+    describe("화면 표시", () => {
+      it("말이 멈추고 1초 뒤 한 번 끄덕이고 고개를 되돌린다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" listening={speech()} />);
+
+        advance(999);
+        expect(headMoved(scene)).toBe(false);
+        advance(301);
+        expect(scene.setHead.mock.lastCall![0]).toBeGreaterThan(0);
+        advance(1000);
+        expect(scene.setHead).toHaveBeenLastCalledWith(0, 0);
+        const moved = scene.setHead.mock.calls.length;
+        advance(5000);
+        expect(scene.setHead).toHaveBeenCalledTimes(moved);
+      });
+
+      it("동작 클립 면접관은 1초 뒤 끄덕임 동작을 한 번 한다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DUCK" listening={speech()} />);
+
+        advance(999);
+        expect(scene.nod).not.toHaveBeenCalled();
+        advance(3000);
+        expect(scene.nod).toHaveBeenCalledTimes(1);
+      });
     });
-    const { container, unmount } = render(<InterviewerStage persona="DEVIL" />);
-    await act(async () => {});
-    const canvas = container.querySelector("canvas");
-    expect(canvas).toBeTruthy();
 
-    unmount();
+    describe("상태 변화", () => {
+      it("새 발화가 오면 끄덕일 때를 다시 잡는다", async () => {
+        const { scene, rerender } = await ready(
+          <InterviewerStage persona="DEVIL" listening={speech()} />,
+        );
+        advance(700);
 
-    expect(dispose).toHaveBeenCalledTimes(1);
-    expect(canvas?.isConnected).toBe(false);
+        rerender(<InterviewerStage persona="DEVIL" listening={speech()} />);
+        advance(600);
+        expect(headMoved(scene)).toBe(false);
+        advance(700);
+        expect(scene.setHead.mock.lastCall![0]).toBeGreaterThan(0);
+      });
+
+      it("끄덕임 정보가 없어지면 기다리던 끄덕임을 취소한다", async () => {
+        const { scene, rerender } = await ready(
+          <InterviewerStage persona="DEVIL" listening={speech()} />,
+        );
+        advance(500);
+
+        rerender(<InterviewerStage persona="DEVIL" />);
+        advance(3000);
+
+        expect(headMoved(scene)).toBe(false);
+      });
+    });
+
+    describe("입력 검증", () => {
+      it.each([
+        { label: "질문 음성 중", speaking: true, reacting: false, reduced: false },
+        { label: "리액션 중", speaking: false, reacting: true, reduced: false },
+        { label: "동작 줄이기", speaking: false, reacting: false, reduced: true },
+      ])("'$label'이면 끄덕이지 않는다", async ({ speaking, reacting, reduced }) => {
+        motionPreference.reduced = reduced;
+        // 고개를 움직이지 않는 리액션(관심 0.5의 웃음)이 끄덕일 때(1~2.2초)를 덮는다
+        const feedback = reacting
+          ? reaction({ durationMs: 2400 }, { interest: 0.5, trust: 0.5 })
+          : null;
+        const { scene } = await ready(
+          <InterviewerStage
+            persona="DEVIL"
+            listening={speech()}
+            speaking={speaking}
+            feedback={feedback}
+          />,
+        );
+
+        advance(2500);
+
+        expect(headMoved(scene)).toBe(false);
+      });
+    });
+
+    describe("경계값", () => {
+      it("장면이 늦게 만들어져 끄덕일 때가 이미 지났으면 끄덕이지 않는다", async () => {
+        const created = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(created.promise);
+        render(<InterviewerStage persona="DUCK" listening={speech()} />);
+        advance(2300);
+        const scene = fakeScene();
+
+        await act(async () => created.resolve(scene));
+        advance(1000);
+
+        expect(scene.nod).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("정리", () => {
+      it("끄덕이는 중에 화면을 떠나면 이후 프레임을 그리지 않는다", async () => {
+        const { scene, unmount } = await ready(
+          <InterviewerStage persona="DEVIL" listening={speech()} />,
+        );
+        advance(1300);
+        expect(headMoved(scene)).toBe(true);
+
+        unmount();
+        const drawn = scene.setHead.mock.calls.length;
+        advance(3000);
+
+        expect(scene.setHead).toHaveBeenCalledTimes(drawn);
+        expect(scene.setHead).toHaveBeenLastCalledWith(0, 0);
+      });
+    });
+  });
+
+  describe("입 모양", () => {
+    describe("화면 표시", () => {
+      it("질문 음성이 시작되면 150ms 뒤부터 발음 시각대로 입 모양을 바꾸고 끝나면 닫는다", async () => {
+        const { scene } = await ready(
+          <InterviewerStage persona="DEVIL" question={question("started")} />,
+        );
+
+        advance(140);
+        expect(mouths(scene).every((mouth) => mouth.A === 0 && mouth.I === 0)).toBe(true);
+        advance(160);
+        expect(mouths(scene).at(-1).A).toBeGreaterThan(0);
+        advance(200);
+        expect(mouths(scene).at(-1).I).toBeGreaterThan(0);
+        advance(300);
+        expect(mouths(scene).at(-1)).toEqual({ A: 0, I: 0, U: 0, E: 0, O: 0 });
+      });
+
+      it("동작 클립 면접관은 말하는 구간 동안 말하기 동작을 하고 끝나면 멈춘다", async () => {
+        const { scene } = await ready(
+          <InterviewerStage persona="DUCK" question={question("started")} />,
+        );
+
+        advance(140);
+        expect(scene.setTalking).not.toHaveBeenCalled();
+        advance(100);
+        expect(scene.setTalking.mock.calls).toEqual([[true]]);
+        advance(500);
+        expect(scene.setTalking.mock.calls).toEqual([[true], [false]]);
+        expect(mouths(scene)).toEqual([]);
+      });
+    });
+
+    describe("상태 변화", () => {
+      it.each([
+        { label: "다음 질문", next: question("started", 2) },
+        { label: "음성 끝남", next: question("ended") },
+      ])("'$label'이면 입을 닫는다", async ({ next }) => {
+        const { scene, rerender } = await ready(
+          <InterviewerStage persona="DEVIL" question={question("started")} />,
+        );
+        advance(300);
+        expect(mouths(scene).at(-1).A).toBeGreaterThan(0);
+
+        rerender(<InterviewerStage persona="DEVIL" question={next} />);
+
+        expect(mouths(scene).at(-1)).toEqual({ A: 0, I: 0, U: 0, E: 0, O: 0 });
+      });
+    });
+
+    describe("입력 검증", () => {
+      it.each([
+        {
+          label: "발음 시각 없음",
+          message: { ...question("started"), alignment: null },
+          reduced: false,
+        },
+        { label: "동작 줄이기", message: question("started"), reduced: true },
+      ])("'$label'이면 입을 움직이지 않는다", async ({ message, reduced }) => {
+        motionPreference.reduced = reduced;
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" question={message} />);
+
+        advance(500);
+
+        expect(mouths(scene)).toEqual([]);
+      });
+    });
+  });
+
+  describe("감탄", () => {
+    describe("입력 검증", () => {
+      it.each([
+        { label: "사람 면접관", persona: "DEVIL" as Persona, reduced: false },
+        { label: "동작 줄이기", persona: "DUCK" as Persona, reduced: true },
+      ])("'$label'이면 놀라지 않는다", async ({ persona, reduced }) => {
+        motionPreference.reduced = reduced;
+        const { scene } = await ready(<InterviewerStage persona={persona} />);
+
+        act(() => useInterviewStore.getState().exclaim());
+
+        expect(scene.surprise).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("경계값", () => {
+      it("동작 클립 면접관은 감탄 직후 300ms 안이면 놀람 동작을 한 번 한다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DUCK" />);
+
+        act(() => useInterviewStore.getState().exclaim());
+
+        expect(scene.surprise).toHaveBeenCalledTimes(1);
+      });
+
+      it("감탄한 지 300ms가 지나 다시 그리면 놀라지 않는다", async () => {
+        useInterviewStore.getState().exclaim();
+        const created = deferred<FakeScene>();
+        sceneModule.createInterviewerScene.mockReturnValue(created.promise);
+        render(<InterviewerStage persona="DUCK" />);
+        advance(301);
+        const scene = fakeScene();
+
+        await act(async () => created.resolve(scene));
+
+        expect(scene.surprise).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("눈 깜빡임", () => {
+    describe("입력 검증", () => {
+      it("동작 줄이기를 켰으면 깜빡이지 않는다", async () => {
+        motionPreference.reduced = true;
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" />);
+
+        advance(10_000);
+
+        expect(blinks(scene)).toEqual([]);
+      });
+    });
+
+    describe("시간 경과", () => {
+      it("고른 간격이 지나면 눈을 감았다 뜬다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" />);
+
+        advance(2499);
+        expect(blinks(scene)).toEqual([]);
+        advance(100);
+        expect(blinks(scene).some((blink) => blink > 0)).toBe(true);
+        advance(200);
+        expect(blinks(scene).at(-1)).toBe(0);
+      });
+
+      it("깜빡임이 끝나면 다음 깜빡임을 다시 건다", async () => {
+        const { scene } = await ready(<InterviewerStage persona="DEVIL" />);
+        advance(2800);
+        const first = blinks(scene).length;
+
+        advance(2600);
+
+        expect(
+          blinks(scene)
+            .slice(first)
+            .some((blink) => blink > 0),
+        ).toBe(true);
+      });
+    });
+
+    describe("정리", () => {
+      it("화면을 떠나면 깜빡임을 멈추고 눈을 뜬 채로 둔다", async () => {
+        const { scene, unmount } = await ready(<InterviewerStage persona="DEVIL" />);
+        advance(2560);
+        expect(blinks(scene).at(-1)).toBeGreaterThan(0);
+
+        unmount();
+        const drawn = blinks(scene).length;
+        advance(5000);
+
+        expect(blinks(scene).at(-1)).toBe(0);
+        expect(blinks(scene)).toHaveLength(drawn);
+      });
+    });
   });
 });

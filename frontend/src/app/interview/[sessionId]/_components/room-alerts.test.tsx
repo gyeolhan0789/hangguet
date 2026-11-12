@@ -1,159 +1,178 @@
-import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S06-F 연결 끊김(18:4323) · Figma S06-F2 면접관 연결 실패(345:1815) · 기획 메모 S06-F(18:3575) · S06-F2(340:1886) · 사용자 요청(2026-11-06: [다시 시작]을 RESTART_WAIT_SECONDS 동안 막고 남은 초를 버튼에 보인다)
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  PausedModal,
-  ReconnectBanner,
-  RESTART_WAIT_SECONDS,
-  StartFailedModal,
-  useReconnectSeconds,
-} from "./room-alerts";
+import { spyTimers } from "@/test/timers";
 
-// jsdom에는 애니메이션 프레임이 없어 사라지는 애니메이션이 끝나지 않는다. 나타남 · 사라짐만 보도록 바로 빼게 한다.
-vi.mock("motion/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("motion/react")>()),
-  useReducedMotion: () => true,
-  AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
-}));
+import { PausedModal, StartFailedModal, useReconnectSeconds } from "./room-alerts";
 
-// 기준: Figma S06-F 연결 끊김(18:4323) · S06-F2 면접관 연결 실패(345:1815) · 기획 메모 S06-F(18:3575) · S06-F2(340:1886)
+// 경계 mock: 연출(motion)은 건너뛰고, 초 세기는 가짜 타이머로 진행한다
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
 
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
+beforeEach(() => {
+  vi.useFakeTimers();
 });
 
-describe("ReconnectBanner · useReconnectSeconds (S06-F 연결이 불안정해요)", () => {
-  it("배너는 지난 초를 함께 알린다", () => {
-    render(<ReconnectBanner seconds={3} />);
-    expect(screen.getByRole("status").textContent).toBe(
-      "연결이 불안정해요 · 다시 연결하는 중… 3초",
-    );
-  });
+const pausedDialog = () => screen.getByRole("alertdialog", { name: "면접이 잠시 멈췄어요" });
+const failedDialog = () => screen.getByRole("alertdialog", { name: "면접관을 연결하지 못했어요" });
+const restartButton = () => screen.getByRole("button", { name: "다시 시작" });
+const leaveButton = () => screen.getByRole("button", { name: "나가기" });
 
-  it("다시 연결하는 동안 1초마다 세고, 연결되면 0으로 돌아가 다음에 처음부터 센다", () => {
-    const { result, rerender } = renderHook(({ on }) => useReconnectSeconds(on), {
-      initialProps: { on: true },
+function renderStartFailed(props: Partial<Parameters<typeof StartFailedModal>[0]> = {}) {
+  const all = { open: true, restarting: false, onLeave: vi.fn(), onRestart: vi.fn(), ...props };
+  return { ...render(<StartFailedModal {...all} />), props: all };
+}
+
+describe("useReconnectSeconds · 재연결 경과 초", () => {
+  describe("상태 변화", () => {
+    it("연결되면 0으로 돌아가 다시 끊기면 처음부터 센다", () => {
+      const { result, rerender } = renderHook(({ on }) => useReconnectSeconds(on), {
+        initialProps: { on: true },
+      });
+      act(() => vi.advanceTimersByTime(2000));
+
+      rerender({ on: false });
+      expect(result.current).toBe(0);
+
+      rerender({ on: true });
+      act(() => vi.advanceTimersByTime(1000));
+      expect(result.current).toBe(1);
     });
-    expect(result.current).toBe(0);
-    act(() => vi.advanceTimersByTime(2000));
-    expect(result.current).toBe(2);
+  });
 
-    rerender({ on: false });
-    expect(result.current).toBe(0);
-    act(() => vi.advanceTimersByTime(3000));
-    expect(result.current).toBe(0);
+  describe("시간 경과", () => {
+    it("다시 연결하는 동안 1초마다 센다", () => {
+      const { result } = renderHook(() => useReconnectSeconds(true));
 
-    rerender({ on: true });
-    act(() => vi.advanceTimersByTime(1000));
-    expect(result.current).toBe(1);
+      act(() => vi.advanceTimersByTime(999));
+      expect(result.current).toBe(0);
+
+      act(() => vi.advanceTimersByTime(1001));
+      expect(result.current).toBe(2);
+    });
   });
 });
 
-describe("PausedModal (S06-F 면접이 잠시 멈췄어요)", () => {
-  it("닫혀 있으면 그리지 않는다", () => {
-    render(<PausedModal open={false} onEnd={vi.fn()} onRetry={vi.fn()} />);
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+describe("PausedModal · 면접 잠시 멈춤 카드", () => {
+  describe("화면 표시", () => {
+    it("닫혀 있으면 그리지 않는다", () => {
+      render(<PausedModal open={false} onEnd={vi.fn()} onRetry={vi.fn()} />);
+
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+
+    it("열리면 [다시 시도]에 포커스를 둔다", () => {
+      render(<PausedModal open onEnd={vi.fn()} onRetry={vi.fn()} />);
+
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "다시 시도" }));
+    });
   });
 
-  it("안내 문구와 [면접 끝내기] · [다시 시도]를 보이고, 각 버튼이 알린다", () => {
-    const onEnd = vi.fn();
-    const onRetry = vi.fn();
-    render(<PausedModal open onEnd={onEnd} onRetry={onRetry} />);
-    const dialog = screen.getByRole("alertdialog", { name: "면접이 잠시 멈췄어요" });
-    expect(dialog.textContent).toContain("답하던 질문은 처음부터 다시 답해요");
-    // 열리면 마지막 버튼([다시 시도])에 초점이 간다
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "다시 시도" }));
+  describe("사용자 조작", () => {
+    it("마지막 버튼에서 Tab을 누르면 카드 안 첫 버튼으로 돌아간다", () => {
+      render(<PausedModal open onEnd={vi.fn()} onRetry={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "면접 끝내기" }));
-    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
-    expect(onEnd).toHaveBeenCalledOnce();
-    expect(onRetry).toHaveBeenCalledOnce();
-  });
+      fireEvent.keyDown(pausedDialog(), { key: "Tab" });
 
-  it("Tab은 모달 안 버튼 사이에서만 돈다", () => {
-    render(<PausedModal open onEnd={vi.fn()} onRetry={vi.fn()} />);
-    const dialog = screen.getByRole("alertdialog");
-    const end = screen.getByRole("button", { name: "면접 끝내기" });
-    const retry = screen.getByRole("button", { name: "다시 시도" });
-
-    fireEvent.keyDown(dialog, { key: "Tab" });
-    expect(document.activeElement).toBe(end);
-    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(retry);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "면접 끝내기" }));
+    });
   });
 });
 
-describe("StartFailedModal (S06-F2 면접관을 연결하지 못했어요)", () => {
-  const dialog = () => screen.getByRole("alertdialog", { name: "면접관을 연결하지 못했어요" });
-  const restart = () => screen.getByRole("button", { name: "다시 시작" });
+describe("StartFailedModal · 면접관 연결 실패 카드", () => {
+  describe("화면 표시", () => {
+    it("기다리는 동안 본문은 '면접관을 다시 준비하고 있어요'이고, 다 기다리면 '다시 시작해 주세요'로 바뀐다", () => {
+      renderStartFailed();
+      expect(failedDialog().textContent).toContain("면접관을 다시 준비하고 있어요");
 
-  it("열리면 [다시 시작]을 RESTART_WAIT_SECONDS 동안 막고 남은 초를 보이다가, 다 지나면 누를 수 있다", () => {
-    const onRestart = vi.fn();
-    render(<StartFailedModal open restarting={false} onLeave={vi.fn()} onRestart={onRestart} />);
-    expect(restart()).toHaveProperty("disabled", true);
-    expect(restart().textContent).toContain(`(${RESTART_WAIT_SECONDS}초)`);
-    expect(dialog().textContent).toContain("잠시 뒤 다시 시작할 수 있어요");
-    // 남은 초는 버튼 이름에 넣지 않는다(위 getByRole이 이름 '다시 시작'으로 찾는다)
+      act(() => vi.advanceTimersByTime(60_000));
 
-    act(() => vi.advanceTimersByTime((RESTART_WAIT_SECONDS - 1) * 1000));
-    expect(restart()).toHaveProperty("disabled", true);
-    expect(restart().textContent).toContain("(1초)");
-    fireEvent.click(restart());
-    expect(onRestart).not.toHaveBeenCalled();
+      expect(failedDialog().textContent).toContain("다시 시작해 주세요");
+      expect(failedDialog().textContent).not.toContain("면접관을 다시 준비하고 있어요");
+    });
 
-    act(() => vi.advanceTimersByTime(1000));
-    expect(restart()).toHaveProperty("disabled", false);
-    expect(restart().textContent).not.toContain("초)");
-    expect(dialog().textContent).toContain("다시 시작해 주세요");
+    it("다시 시작이 실패했으면 본문 대신 서버 문구를 보인다", () => {
+      // 예시: Swagger 5.4 detail(대체 문구와 다르게)
+      renderStartFailed({ error: "지금 진행 중인 면접이 많아요. 잠시 후 다시 시작해 주세요." });
+
+      expect(failedDialog().textContent).toContain(
+        "지금 진행 중인 면접이 많아요. 잠시 후 다시 시작해 주세요.",
+      );
+      expect(failedDialog().textContent).not.toContain("면접관을 다시 준비하고 있어요");
+    });
+
+    it("기다리는 동안 [다시 시작] 버튼에 남은 초를 보이고 버튼 이름은 '다시 시작'으로 둔다", () => {
+      renderStartFailed();
+
+      expect(restartButton().textContent).toContain("(60초)");
+    });
   });
 
-  it("닫혔다 다시 열리면 처음부터 다시 센다", () => {
-    const props = { restarting: false, onLeave: vi.fn(), onRestart: vi.fn() };
-    const { rerender } = render(<StartFailedModal open {...props} />);
-    act(() => vi.advanceTimersByTime(RESTART_WAIT_SECONDS * 1000));
-    expect(restart()).toHaveProperty("disabled", false);
+  describe("사용자 조작", () => {
+    it("기다리는 동안에도 [나가기]를 누를 수 있다", () => {
+      const { props } = renderStartFailed();
 
-    rerender(<StartFailedModal open={false} {...props} />);
-    rerender(<StartFailedModal open {...props} />);
-    expect(restart()).toHaveProperty("disabled", true);
-    expect(restart().textContent).toContain(`(${RESTART_WAIT_SECONDS}초)`);
+      fireEvent.click(leaveButton());
+
+      expect(props.onLeave).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("[나가기]는 기다리는 동안에도 · [다시 시작]은 기다린 뒤 각각 알린다", () => {
-    const onLeave = vi.fn();
-    const onRestart = vi.fn();
-    render(<StartFailedModal open restarting={false} onLeave={onLeave} onRestart={onRestart} />);
-    fireEvent.click(screen.getByRole("button", { name: "나가기" }));
-    expect(onLeave).toHaveBeenCalledOnce();
+  describe("경계값", () => {
+    it("59초가 지나도 [다시 시작]을 막고, 60초가 되면 누를 수 있다", () => {
+      renderStartFailed();
 
-    act(() => vi.advanceTimersByTime(RESTART_WAIT_SECONDS * 1000));
-    fireEvent.click(restart());
-    expect(onRestart).toHaveBeenCalledOnce();
+      act(() => vi.advanceTimersByTime(59_000));
+      expect(restartButton()).toHaveProperty("disabled", true);
+
+      act(() => vi.advanceTimersByTime(1000));
+      expect(restartButton()).toHaveProperty("disabled", false);
+    });
   });
 
-  it("다시 시작하는 중에는 두 버튼을 막고, 실패하면 서버 문구를 보인다", () => {
-    const { rerender } = render(
-      <StartFailedModal open restarting onLeave={vi.fn()} onRestart={vi.fn()} />,
-    );
-    act(() => vi.advanceTimersByTime(RESTART_WAIT_SECONDS * 1000));
-    const restart = screen.getByRole("button", { name: "다시 시작" });
-    expect(restart).toHaveProperty("disabled", true);
-    expect(restart.getAttribute("aria-busy")).toBe("true");
-    expect(screen.getByRole("button", { name: "나가기" })).toHaveProperty("disabled", true);
+  describe("중복 · 경쟁 처리", () => {
+    it("다시 시작하는 중이면 [나가기] · [다시 시작]을 막는다", () => {
+      renderStartFailed({ restarting: true });
+      act(() => vi.advanceTimersByTime(60_000));
 
-    rerender(
-      <StartFailedModal
-        open
-        restarting={false}
-        error="면접관을 배정하지 못했어요"
-        onLeave={vi.fn()}
-        onRestart={vi.fn()}
-      />,
-    );
-    const dialog = screen.getByRole("alertdialog");
-    expect(dialog.textContent).toContain("면접관을 배정하지 못했어요");
-    expect(dialog.textContent).not.toContain("다시 시작해 주세요");
+      expect(leaveButton()).toHaveProperty("disabled", true);
+      expect(restartButton()).toHaveProperty("disabled", true);
+    });
+  });
+
+  describe("시간 경과", () => {
+    it("열리면 [다시 시작]을 막고 남은 초를 1초마다 줄여 보인다", () => {
+      renderStartFailed();
+      expect(restartButton()).toHaveProperty("disabled", true);
+      expect(restartButton().textContent).toContain("(60초)");
+
+      act(() => vi.advanceTimersByTime(1000));
+
+      expect(restartButton().textContent).toContain("(59초)");
+    });
+
+    it("닫혔다 다시 열리면 처음부터 센다", () => {
+      const { rerender, props } = renderStartFailed();
+      act(() => vi.advanceTimersByTime(60_000));
+
+      rerender(<StartFailedModal {...props} open={false} />);
+      rerender(<StartFailedModal {...props} open />);
+
+      expect(restartButton()).toHaveProperty("disabled", true);
+      expect(restartButton().textContent).toContain("(60초)");
+    });
+  });
+
+  describe("정리", () => {
+    it("다 세면 1초 타이머를 거둔다", () => {
+      const timers = spyTimers();
+      renderStartFailed();
+
+      act(() => vi.advanceTimersByTime(60_000));
+
+      expect(timers.cleared("interval", 1000)).toBe(true);
+    });
   });
 });

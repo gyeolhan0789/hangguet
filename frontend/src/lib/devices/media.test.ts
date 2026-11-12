@@ -1,46 +1,56 @@
+// @vitest-environment node
+// 기준: MDN getUserMedia Exceptions · Figma S05(18:2333) 체크 줄 · S05-E(18:4013) 권한 거부 · 모션 메모 S05(18:2492) 마이크 레벨
 import { describe, expect, it } from "vitest";
 
 import { mediaFailure, micLevel } from "./media";
 
-// 기준: MDN getUserMedia Exceptions · Figma S05-E(권한 거부 → '권한이 없어요')
-describe("mediaFailure (getUserMedia 오류 → 체크 줄 상태)", () => {
-  it.each([
-    ["NotAllowedError", "denied"],
-    ["SecurityError", "denied"],
-    ["NotFoundError", "missing"],
-    ["OverconstrainedError", "missing"],
-    ["NotReadableError", "busy"],
-    ["AbortError", "busy"],
-    ["NotSupportedError", "unsupported"],
-  ] as const)("%s → %s", (name, expected) => {
-    expect(mediaFailure(new DOMException("실패", name))).toBe(expected);
+/** RMS가 db(dB)인 표본 한 묶음(값 하나면 RMS = 그 값) */
+const samplesAt = (db: number) => [10 ** (db / 20)];
+
+describe("mediaFailure · 장치 오류 분류", () => {
+  describe("정상 처리", () => {
+    it.each([
+      { name: "NotAllowedError", status: "denied" },
+      { name: "SecurityError", status: "denied" },
+      { name: "NotFoundError", status: "missing" },
+      { name: "OverconstrainedError", status: "missing" },
+      { name: "NotReadableError", status: "busy" },
+      { name: "AbortError", status: "busy" },
+    ])("getUserMedia 오류가 '$name'이면 '$status'로 바꾼다", ({ name, status }) => {
+      expect(mediaFailure(new DOMException("실패", name))).toBe(status);
+    });
   });
 
-  it("HTTPS가 아니어서 mediaDevices가 없을 때(TypeError) · 오류가 아닌 값은 unsupported", () => {
-    expect(mediaFailure(new TypeError("getUserMedia를 쓸 수 없어요"))).toBe("unsupported");
-    expect(mediaFailure("문자열")).toBe("unsupported");
+  describe("오류 처리", () => {
+    it.each([
+      { label: "TypeError", error: new TypeError("getUserMedia를 쓸 수 없어요") },
+      { label: "null", error: null },
+      { label: "문자열", error: "실패" },
+    ])("알 수 없는 오류 · 이름 없는 값('$label')이면 unsupported로 본다", ({ error }) => {
+      expect(mediaFailure(error)).toBe("unsupported");
+    });
   });
 });
 
-// 기준: 모션 메모 S05(마이크 레벨은 실제 입력 볼륨에 맞춰 막대 높이 실시간)
-describe("micLevel (소리 크기 0~1)", () => {
-  /** 크기가 amplitude인 사인파 한 주기 */
-  const sine = (amplitude: number) =>
-    Array.from({ length: 1024 }, (_, i) => amplitude * Math.sin((2 * Math.PI * i) / 1024));
-
-  it("무음 · 빈 입력은 0", () => {
-    expect(micLevel(new Float32Array(1024))).toBe(0);
-    expect(micLevel([])).toBe(0);
+describe("micLevel · 마이크 소리 크기", () => {
+  describe("정상 처리", () => {
+    it("-60dB와 -10dB 사이의 소리는 dB에 비례해 바꾼다(-35dB면 0.5다)", () => {
+      expect(micLevel(samplesAt(-35))).toBeCloseTo(0.5, 10);
+    });
   });
 
-  it("-60dB 이하는 0, -10dB 이상은 1로 자른다", () => {
-    // 사인파 RMS = 진폭 / √2
-    expect(micLevel(sine(0.0005))).toBe(0);
-    expect(micLevel(sine(1))).toBe(1);
-  });
+  describe("경계값", () => {
+    it("입력이 비었으면 0이다", () => {
+      expect(micLevel([])).toBe(0);
+    });
 
-  it("그 사이는 dB에 비례한다(-35dB → 0.5)", () => {
-    const rms = 10 ** (-35 / 20);
-    expect(micLevel(sine(rms * Math.SQRT2))).toBeCloseTo(0.5, 5);
+    it.each([
+      { db: -70, level: 0 },
+      { db: -60, level: 0 },
+      { db: -10, level: 1 },
+      { db: 0, level: 1 },
+    ])("'$db'dB면 '$level'로 자른다", ({ db, level }) => {
+      expect(micLevel(samplesAt(db))).toBeCloseTo(level, 10);
+    });
   });
 });

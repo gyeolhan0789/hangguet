@@ -1,150 +1,212 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MotionGlobalConfig } from "motion/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S06-E 면접 종료 확인(18:4299)과 같은 모양의 탈퇴 확인 모달 · Swagger 2.7 회원 탈퇴(WithdrawRequest · 400 PASSWORD_MISMATCH
+// · 409 INTERVIEW_IN_PROGRESS, 소셜 회원은 비밀번호 없이) · 기획 메모 S09-1 · WAI-ARIA APG Dialog (Modal)
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { withdraw, withdrawSocial } from "@/lib/user/actions";
+import { deferred } from "@/test/deferred";
 import { flushPromises } from "@/test/flush";
 
 import { WithdrawModal } from "./withdraw-modal";
 
-// 서버 액션 경계만 바꾼다. 탈퇴 요청 · 이동은 E2E(settings.spec.ts)가 본다.
-const withdraw = vi.fn();
-const withdrawSocial = vi.fn();
-vi.mock("@/lib/user/actions", () => ({
-  withdraw: (...args: unknown[]) => withdraw(...args),
-  withdrawSocial: (...args: unknown[]) => withdrawSocial(...args),
-}));
+// 경계 mock: 서버 액션(2.7)과 연출(motion)
+vi.mock("@/lib/user/actions", () => ({ withdraw: vi.fn(), withdrawSocial: vi.fn() }));
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
 
-// 기준: 기획 · 모션 메모 S09-1(18:1251 · 18:3261: 회원 탈퇴 → 확인 모달) · WAI-ARIA APG 대화상자 패턴(aria-modal: 안에서만 Tab이 돈다,
-// Esc로 닫힌다). 처리 중에는 Esc로 닫지 않는다.
+// 예시 데이터: Swagger 2.7 400 · 409 예시 detail
+const PASSWORD_MISMATCH = "비밀번호가 맞지 않아요.";
+const INTERVIEW_IN_PROGRESS = "진행 중인 면접을 끝낸 뒤 탈퇴할 수 있어요.";
 
-// 처리 중인 서버 액션은 테스트가 끝날 때 푼다(끝나지 않는 트랜지션이 다음 테스트로 이어지지 않게). 모션은 끄고 본다.
-const releases: (() => void)[] = [];
-function pending<T>() {
-  let release!: (value: T) => void;
-  const promise = new Promise<T>((resolve) => (release = resolve));
-  releases.push(() => release({} as T));
-  return promise;
+const password = () => screen.queryByLabelText<HTMLInputElement>("비밀번호", { selector: "input" });
+const cancelButton = () => screen.getByRole("button", { name: "취소" });
+const submitButton = () => screen.getByRole("button", { name: "탈퇴하기" });
+/** dim(모달 바깥 배경) */
+const dim = () => screen.getByRole("dialog").parentElement!;
+/** 비밀번호 칸 아래 문구 */
+const passwordMessage = () =>
+  document.getElementById(password()?.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+
+function renderModal({ open = true, social = false } = {}) {
+  const onClose = vi.fn();
+  const view = (isOpen: boolean) => (
+    <WithdrawModal open={isOpen} social={social} onClose={onClose} />
+  );
+  const result = render(view(open));
+  return { ...result, onClose, setOpen: (isOpen: boolean) => result.rerender(view(isOpen)) };
 }
 
-beforeEach(() => {
-  MotionGlobalConfig.skipAnimations = true;
-});
+const typePassword = (value: string) => fireEvent.change(password()!, { target: { value } });
 
-afterEach(async () => {
-  await act(async () => releases.splice(0).forEach((release) => release()));
-  cleanup();
-  vi.resetAllMocks();
-  MotionGlobalConfig.skipAnimations = false;
-});
+describe("WithdrawModal · 탈퇴 확인 모달", () => {
+  describe("이메일 회원", () => {
+    describe("화면 표시", () => {
+      it("닫혀 있으면 그리지 않는다", () => {
+        renderModal({ open: false });
 
-const dialog = () => screen.getByRole("dialog", { name: "정말 탈퇴할까요?" });
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
 
-describe("WithdrawModal (탈퇴 확인 모달)", () => {
-  it("닫혀 있으면 그리지 않고, 열리면 비밀번호 칸에 포커스가 간다", () => {
-    const { rerender } = render(<WithdrawModal open={false} onClose={vi.fn()} />);
-    expect(screen.queryByRole("dialog")).toBeNull();
+      it("열리면 비밀번호 칸에 포커스를 준다", () => {
+        renderModal();
 
-    rerender(<WithdrawModal open onClose={vi.fn()} />);
-
-    expect(document.activeElement).toBe(screen.getByLabelText("비밀번호", { selector: "input" }));
-  });
-
-  it("Tab · Shift+Tab은 모달 안에서만 돈다(마지막 [탈퇴하기] ↔ 첫 비밀번호 칸)", () => {
-    render(<WithdrawModal open onClose={vi.fn()} />);
-    const input = screen.getByLabelText("비밀번호", { selector: "input" });
-    const submit = screen.getByRole("button", { name: "탈퇴하기" });
-
-    submit.focus();
-    fireEvent.keyDown(dialog(), { key: "Tab" });
-    expect(document.activeElement).toBe(input);
-
-    fireEvent.keyDown(dialog(), { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(submit);
-  });
-
-  it("Esc를 누르면 닫는다", () => {
-    const onClose = vi.fn();
-    render(<WithdrawModal open onClose={onClose} />);
-
-    fireEvent.keyDown(dialog(), { key: "Escape" });
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("탈퇴를 처리하는 동안에는 Esc · [취소]로 닫지 않는다", async () => {
-    withdraw.mockReturnValue(pending());
-    const onClose = vi.fn();
-    render(<WithdrawModal open onClose={onClose} />);
-    fireEvent.change(screen.getByLabelText("비밀번호", { selector: "input" }), {
-      target: { value: "password1" },
+        expect(screen.getByRole("dialog", { name: "정말 탈퇴할까요?" })).toBeDefined();
+        expect(document.activeElement).toBe(password());
+      });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
-    await screen.findByRole("button", { name: "탈퇴하기", busy: true });
-    fireEvent.keyDown(dialog(), { key: "Escape" });
+    describe("사용자 조작", () => {
+      it("Esc를 누르면 닫기를 요청한다", () => {
+        const { onClose } = renderModal();
 
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "취소" }).hasAttribute("disabled")).toBe(true);
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+        expect(onClose).toHaveBeenCalledTimes(1);
+      });
+
+      it("dim을 누르면 닫기를 요청한다", () => {
+        const { onClose } = renderModal();
+
+        fireEvent.mouseDown(dim());
+
+        expect(onClose).toHaveBeenCalledTimes(1);
+      });
+
+      it("모달 안을 누르면 닫기를 요청하지 않는다", () => {
+        const { onClose } = renderModal();
+
+        fireEvent.mouseDown(screen.getByRole("dialog"));
+
+        expect(onClose).not.toHaveBeenCalled();
+      });
+
+      it("Tab은 비밀번호 칸과 버튼 사이에서만 돈다", () => {
+        renderModal();
+        submitButton().focus();
+
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Tab" });
+
+        expect(document.activeElement).toBe(password());
+      });
+      it("[탈퇴하기]를 누르면 입력한 비밀번호로 탈퇴를 요청한다", async () => {
+        vi.mocked(withdraw).mockResolvedValue({});
+        renderModal();
+        typePassword("password123");
+
+        fireEvent.click(submitButton());
+        await flushPromises();
+
+        expect(withdraw).toHaveBeenCalledWith({ password: "password123" });
+      });
+    });
+
+    describe("입력 검증", () => {
+      it("비밀번호가 비면 보내지 않고 칸 아래에 문구를 보여 준다", async () => {
+        renderModal();
+
+        fireEvent.click(submitButton());
+        await flushPromises();
+
+        expect(withdraw).not.toHaveBeenCalled();
+        expect(passwordMessage()).toBe("필수 값입니다.");
+      });
+    });
+
+    describe("오류 처리", () => {
+      it.each([
+        {
+          label: "칸 오류",
+          result: { fieldErrors: { password: PASSWORD_MISMATCH } },
+          text: PASSWORD_MISMATCH,
+        },
+        {
+          label: "폼 오류",
+          result: { formError: INTERVIEW_IN_PROGRESS },
+          text: INTERVIEW_IN_PROGRESS,
+        },
+      ])("서버가 '$label'를 주면 비밀번호 칸 아래에 문구를 보여 준다", async ({ result, text }) => {
+        vi.mocked(withdraw).mockResolvedValue(result);
+        renderModal();
+        typePassword("password123");
+
+        fireEvent.click(submitButton());
+        await flushPromises();
+
+        expect(passwordMessage()).toBe(text);
+      });
+    });
+
+    describe("중복 · 경쟁 처리", () => {
+      it("처리하는 동안에는 Esc · dim · [취소]로 닫지 않는다", async () => {
+        const withdrawing = deferred<Record<string, never>>();
+        vi.mocked(withdraw).mockReturnValue(withdrawing.promise);
+        const { onClose } = renderModal();
+        typePassword("password123");
+        fireEvent.click(submitButton());
+        await flushPromises();
+
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+        fireEvent.mouseDown(dim());
+        fireEvent.click(cancelButton());
+
+        expect(onClose).not.toHaveBeenCalled();
+        await act(async () => withdrawing.resolve({}));
+      });
+    });
+
+    describe("정리", () => {
+      it("닫았다 다시 열면 입력한 비밀번호와 오류를 지운다", async () => {
+        vi.mocked(withdraw).mockResolvedValue({ fieldErrors: { password: PASSWORD_MISMATCH } });
+        const { setOpen } = renderModal();
+        typePassword("wrong123");
+        fireEvent.click(submitButton());
+        await flushPromises();
+
+        setOpen(false);
+        setOpen(true);
+
+        expect(password()?.value).toBe("");
+        expect(passwordMessage()).toBeNull();
+      });
+    });
   });
-});
 
-describe("WithdrawModal (소셜 회원)", () => {
-  // 기준: Swagger 2.7 WithdrawRequest.password "소셜 회원은 보내지 않는다" · 기획 메모 S09-1(소셜 회원은 2.7에 비밀번호를 보내지 않음)
+  describe("소셜 회원", () => {
+    describe("화면 표시", () => {
+      it("비밀번호 칸 없이 열고 [취소]에 포커스를 준다", () => {
+        renderModal({ social: true });
 
-  it("비밀번호 칸 없이 열리고, 포커스는 [취소]로 간다", () => {
-    render(<WithdrawModal open social onClose={vi.fn()} />);
+        expect(password()).toBeNull();
+        expect(document.activeElement).toBe(cancelButton());
+      });
+    });
 
-    expect(screen.queryByLabelText("비밀번호", { selector: "input" })).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "취소" }));
-  });
+    describe("사용자 조작", () => {
+      it("[탈퇴하기]를 누르면 비밀번호 없이 탈퇴를 요청한다", async () => {
+        vi.mocked(withdrawSocial).mockResolvedValue({});
+        renderModal({ social: true });
 
-  it("[탈퇴하기]는 비밀번호 없이 탈퇴한다(withdrawSocial)", async () => {
-    withdrawSocial.mockReturnValue(pending());
-    render(<WithdrawModal open social onClose={vi.fn()} />);
+        fireEvent.click(submitButton());
+        await flushPromises();
 
-    fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
-    await flushPromises();
+        expect(withdrawSocial).toHaveBeenCalledTimes(1);
+        expect(withdraw).not.toHaveBeenCalled();
+      });
+    });
 
-    expect(withdrawSocial).toHaveBeenCalledWith();
-    expect(withdraw).not.toHaveBeenCalled();
-  });
+    describe("오류 처리", () => {
+      it("실패하면 서버 문구를 보여 주고 포커스를 [취소]로 돌려준다", async () => {
+        vi.mocked(withdrawSocial).mockResolvedValue({ formError: INTERVIEW_IN_PROGRESS });
+        renderModal({ social: true });
+        submitButton().focus();
 
-  it("Tab · Shift+Tab은 모달 안에서만 돈다(마지막 [탈퇴하기] ↔ 첫 [취소])", () => {
-    render(<WithdrawModal open social onClose={vi.fn()} />);
-    const cancel = screen.getByRole("button", { name: "취소" });
-    const submit = screen.getByRole("button", { name: "탈퇴하기" });
+        fireEvent.click(submitButton());
+        await flushPromises();
 
-    submit.focus();
-    fireEvent.keyDown(dialog(), { key: "Tab" });
-    expect(document.activeElement).toBe(cancel);
-
-    fireEvent.keyDown(dialog(), { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(submit);
-  });
-
-  it("탈퇴를 처리하는 동안에는 Esc · [취소]로 닫지 않는다", async () => {
-    withdrawSocial.mockReturnValue(pending());
-    const onClose = vi.fn();
-    render(<WithdrawModal open social onClose={onClose} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
-    await flushPromises();
-    fireEvent.keyDown(dialog(), { key: "Escape" });
-
-    expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "취소" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("실패하면 서버 문구를 보이고 포커스를 [취소]로 돌려준다(모달 안에 머문다)", async () => {
-    withdrawSocial.mockResolvedValue({ formError: "잠시 후 다시 시도해 주세요." });
-    render(<WithdrawModal open social onClose={vi.fn()} />);
-    const submit = screen.getByRole("button", { name: "탈퇴하기" });
-    submit.focus();
-
-    fireEvent.click(submit);
-    await flushPromises();
-
-    expect(screen.getByRole("alert").textContent).toBe("잠시 후 다시 시도해 주세요.");
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "취소" }));
+        expect(screen.getByRole("alert").textContent).toBe(INTERVIEW_IN_PROGRESS);
+        expect(document.activeElement).toBe(cancelButton());
+      });
+    });
   });
 });

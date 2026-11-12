@@ -3,8 +3,9 @@
 기준: AI 명세 6.3 interview.attitude, 6.6 인상 판단.
 - 사진 판단(1초마다 1장)이 하나 올 때마다 가장 최근 사진부터 ATTITUDE_WINDOW 안의 판단으로 계산한다.
 - 얼굴이 아닌 사진(face < ATTITUDE_FACE_LIMIT)은 뺀다. 결과 타임라인과 같은 기준이다.
-- 사진마다 받은 점수를 평균하고, 사진들의 평균을 다시 평균해 0~100 정수로 반올림한다.
-  쓸 수 있는 사진이 없으면 null이다.
+- 사진마다 받은 점수를 평균하고, 사진들의 평균을 다시 평균한다.
+- 그 평균의 ATTITUDE_LOW~ATTITUDE_HIGH를 0~100으로 펴고, 범위 밖은 0·100으로 자른 뒤
+  정수로 반올림한다. 쓸 수 있는 사진이 없으면 null이다.
 - 점수가 바뀔 때만 보내고, 보내는 중에 새 점수가 나오면 마지막 값만 보낸다.
   화면이 받지 못해도 면접은 계속 진행한다.
 """
@@ -26,6 +27,10 @@ ATTITUDE_METHOD = "interview.attitude"
 ATTITUDE_WINDOW = timedelta(seconds=3)
 # 결과 타임라인(app.interview.result.timeline.FACE_LIMIT)과 같은 얼굴 기준
 ATTITUDE_FACE_LIMIT = 0.5
+# 인상 점수 평균은 대부분 가운데에서만 움직여 이 범위를 0~100으로 편다
+# (사용자 결정 2026-11-12, 임시 값)
+ATTITUDE_LOW = 20.0
+ATTITUDE_HIGH = 80.0
 
 AttitudeSender = Callable[[str], Coroutine[Any, Any, None]]
 
@@ -46,7 +51,9 @@ def attitude_score(frames: Sequence[TimedImpression]) -> int | None:
             means.append(sum(scores) / len(scores))
     if not means:
         return None
-    return round_half_up_int(sum(means) / len(means))
+    mean = sum(means) / len(means)
+    stretched = (mean - ATTITUDE_LOW) * 100 / (ATTITUDE_HIGH - ATTITUDE_LOW)
+    return round_half_up_int(min(max(stretched, 0.0), 100.0))
 
 
 def attitude_payload(session_id: int, score: int | None) -> str:

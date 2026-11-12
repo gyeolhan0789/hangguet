@@ -1,174 +1,236 @@
 // @vitest-environment node
-import { Scene, SRGBColorSpace, Texture } from "three";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: 기획 메모 S06(18:757: 배경 씬은 페르소나별 — 커피챗 = 카페) · 사용자 결정(2026-10-26: 카페 실내 그림 1장을 화면에 채워 깔고,
+// 이전 화면에서 미리 받는다. 못 받으면 배경 없이 그린다) · three.js 매뉴얼 How to dispose of objects
+import { Color, Scene, SRGBColorSpace, Texture } from "three";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { preloadBackdrop, setupBackdrop } from "./backdrop";
-
-// 기준: 기획 메모 S06(18:757: 커피챗 = 카페) · 사용자 결정(2026-10-26: 카페 실내 그림 1장을 화면에 채워 깔고,
-// 이전 화면에서 미리 받는다. 못 받으면 배경 없이 그린다)
-// · 사용자 결정(2026-11-04: 배경도 받다가 멈추면 다시 받는다 — 멈춤 판단은 download.test.ts, 재시도 규칙은 retry.test.ts가 본다)
-// 내려받기(fetch)는 바로 답하는 가짜로, 그림 풀기(ImageLoader)는 테스트가 끝내는 때를 정하는 가짜로 바꾼다.
-// 받은 그림은 모듈이 주소별로 기억하므로 테스트마다 주소를 달리한다.
-
-type Request = { url: string; done: (image: unknown) => void; fail: (error: unknown) => void };
-const requests = vi.hoisted(() => [] as Request[]);
+// 경계 mock: 그림 풀기(three ImageLoader — 브라우저 그림 해석). 끝내는 때는 테스트가 정한다
+type Decode = { done: (image: unknown) => void; fail: (error: unknown) => void };
+const decodes = vi.hoisted(() => [] as Decode[]);
 vi.mock("three", async (importOriginal) => ({
   ...(await importOriginal<typeof import("three")>()),
   ImageLoader: class {
-    load(url: string, done: Request["done"], _progress: unknown, fail: Request["fail"]) {
-      requests.push({ url, done, fail });
+    load(_url: string, done: Decode["done"], _progress: unknown, fail: Decode["fail"]) {
+      decodes.push({ done, fail });
     }
   },
 }));
 
-/** 1536×1024(3:2) 그림을 받은 것으로 친다 */
+// 예시 데이터: 카페 배경 그림(1536×1024, 3:2)
+const URL_CAFE = "/interview/coffee-chat/backdrop.webp";
 const IMAGE = { width: 1536, height: 1024 };
-/** 남은 콜백(그림을 받은 뒤 장면에 까는 일)을 모두 끝낸다 */
-const flush = () => new Promise((done) => setTimeout(done, 0));
 
-/** 내려받은 주소(그림 풀기는 받은 내용의 임시 주소로 한다) */
-const fetched = () => vi.mocked(fetch).mock.calls.map(([url]) => url);
+/** 받기 · 그림 풀기 뒤에 이어진 Promise 처리(장면에 깔기)를 가짜 시계 한 번으로 모두 돌린다 */
+async function settle() {
+  await vi.advanceTimersByTimeAsync(0);
+}
+
+async function load() {
+  return import("./backdrop");
+}
 
 beforeEach(() => {
-  vi.stubGlobal("navigator", { onLine: true });
+  vi.useFakeTimers();
+  decodes.length = 0;
+  vi.resetModules();
+  // 경계 mock: 네트워크(fetch). 본문 스트림 없이 바로 끝나는 응답
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(new Uint8Array([1, 2, 3]))),
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: null,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    })),
   );
 });
 
-afterEach(() => {
-  requests.length = 0;
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
-});
+describe("setupBackdrop · 면접관 뒤 배경 그림", () => {
+  describe("정상 처리", () => {
+    it("다 받으면 그림을 장면 배경(sRGB)으로 두고 다시 그리게 알린다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const onLoad = vi.fn();
+      setupBackdrop({ scene, url: URL_CAFE, onLoad });
+      await settle();
 
-describe("setupBackdrop (면접관 뒤 배경 그림)", () => {
-  it("다 받으면 그 그림을 장면 배경으로 두고(sRGB) 다시 그리게 알린다", async () => {
-    const scene = new Scene();
-    const onLoad = vi.fn();
-    const revoke = vi.spyOn(URL, "revokeObjectURL");
-    setupBackdrop({ scene, url: "a.webp", onLoad });
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    expect(fetched()).toEqual(["a.webp"]);
-    expect(requests[0].url).toMatch(/^blob:/);
-    expect(scene.background).toBeNull();
+      decodes[0].done(IMAGE);
+      await settle();
 
-    requests[0].done(IMAGE);
-    await flush();
-
-    const texture = scene.background as Texture;
-    expect(texture.image).toBe(IMAGE);
-    expect(texture.colorSpace).toBe(SRGBColorSpace);
-    expect(onLoad).toHaveBeenCalledTimes(1);
-    // 그림을 다 풀면 임시 주소를 놓는다.
-    expect(revoke).toHaveBeenCalledWith(requests[0].url);
+      const texture = scene.background as Texture;
+      expect(texture.image).toBe(IMAGE);
+      expect(texture.colorSpace).toBe(SRGBColorSpace);
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("화면이 그림보다 넓으면 위아래를, 좁으면 양옆을 가운데 기준으로 잘라 화면을 채운다", async () => {
-    const scene = new Scene();
-    const backdrop = setupBackdrop({ scene, url: "b.webp", onLoad: vi.fn() });
-    backdrop.resize(1600, 800);
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    requests[0].done(IMAGE);
-    await flush();
-    const texture = scene.background as Texture;
+  describe("상태 변화", () => {
+    it.each([
+      {
+        label: "넓으면",
+        cut: "위아래를",
+        width: 1600,
+        height: 800,
+        repeat: [1, 0.75],
+        offset: [0, 0.125],
+      },
+      {
+        label: "좁으면",
+        cut: "양옆을",
+        width: 1024,
+        height: 1024,
+        repeat: [2 / 3, 1],
+        offset: [1 / 6, 0],
+      },
+    ])(
+      "화면이 그림보다 '$label' $cut 가운데 기준으로 잘라 채운다",
+      async ({ width, height, repeat, offset }) => {
+        const { setupBackdrop } = await load();
+        const scene = new Scene();
+        const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+        await settle();
+        decodes[0].done(IMAGE);
+        await settle();
 
-    // 2:1 화면에 3:2 그림: 세로의 0.75만 보이고 위아래를 0.125씩 같게 자른다.
-    expect([texture.repeat.x, texture.repeat.y]).toEqual([1, 0.75]);
-    expect([texture.offset.x, texture.offset.y]).toEqual([0, 0.125]);
+        backdrop.resize(width, height);
 
-    // 세로 화면(375×812)으로 바꾸면 가로만 자르고(가로의 약 30.8%) 위아래 자르기는 없어진다.
-    backdrop.resize(375, 812);
-    expect(texture.repeat.x).toBeCloseTo(0.30788, 4);
-    expect(texture.repeat.y).toBe(1);
-    expect(texture.offset.x).toBeCloseTo(0.34606, 4);
-    expect(texture.offset.y).toBe(0);
+        const texture = scene.background as Texture;
+        expect(texture.repeat.x).toBeCloseTo(repeat[0]);
+        expect(texture.repeat.y).toBeCloseTo(repeat[1]);
+        expect(texture.offset.x).toBeCloseTo(offset[0]);
+        expect(texture.offset.y).toBeCloseTo(offset[1]);
+      },
+    );
+
+    it("받기 전에 화면 크기가 바뀌어도 받은 뒤 그 크기에 맞춘다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+      backdrop.resize(1600, 800);
+      await settle();
+
+      decodes[0].done(IMAGE);
+      await settle();
+
+      const texture = scene.background as Texture;
+      expect([texture.repeat.x, texture.repeat.y]).toEqual([1, 0.75]);
+      expect([texture.offset.x, texture.offset.y]).toEqual([0, 0.125]);
+    });
   });
 
-  it("정리하면 배경을 떼고 텍스처를 놓는다", async () => {
-    const scene = new Scene();
-    const backdrop = setupBackdrop({ scene, url: "c.webp", onLoad: vi.fn() });
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    requests[0].done(IMAGE);
-    await flush();
-    const dispose = vi.spyOn(scene.background as Texture, "dispose");
+  describe("경계값", () => {
+    it("그림 크기를 모르면 자르지 않는다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+      await settle();
+      decodes[0].done({ width: 0, height: 0 });
+      await settle();
 
-    backdrop.dispose();
+      backdrop.resize(1600, 800);
 
-    expect(scene.background).toBeNull();
-    expect(dispose).toHaveBeenCalledTimes(1);
+      const texture = scene.background as Texture;
+      expect([texture.repeat.x, texture.repeat.y]).toEqual([1, 1]);
+      expect([texture.offset.x, texture.offset.y]).toEqual([0, 0]);
+    });
   });
 
-  it("다 받기 전에 정리하면, 늦게 온 그림은 배경으로 두지 않는다", async () => {
-    const scene = new Scene();
-    const onLoad = vi.fn();
-    const backdrop = setupBackdrop({ scene, url: "d.webp", onLoad });
+  describe("오류 처리", () => {
+    it("그림을 받지 못하면 배경 없이 두고 다음에 부르면 다시 받는다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const onLoad = vi.fn();
+      setupBackdrop({ scene, url: URL_CAFE, onLoad });
+      await settle();
 
-    backdrop.dispose();
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    requests[0].done(IMAGE);
-    await flush();
+      decodes[0].fail(new Error("decode"));
+      await settle();
+      expect(scene.background).toBeNull();
+      expect(onLoad).not.toHaveBeenCalled();
 
-    expect(scene.background).toBeNull();
-    expect(onLoad).not.toHaveBeenCalled();
+      setupBackdrop({ scene, url: URL_CAFE, onLoad });
+      await settle();
+      expect(decodes).toHaveLength(2);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    });
   });
 
-  it("미리 받아 둔 그림은 다시 받지 않고 바로 깐다", async () => {
-    const preloaded = preloadBackdrop("e.webp");
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    requests[0].done(IMAGE);
-    await preloaded;
+  describe("중복 · 경쟁 처리", () => {
+    it("미리 받아 둔(받는 중인) 그림은 다시 받지 않고 쓴다", async () => {
+      const { preloadBackdrop, setupBackdrop } = await load();
+      const preloaded = preloadBackdrop(URL_CAFE);
+      const scene = new Scene();
+      setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+      await settle();
 
-    const scene = new Scene();
-    setupBackdrop({ scene, url: "e.webp", onLoad: vi.fn() });
-    await flush();
+      decodes[0].done(IMAGE);
+      await preloaded;
+      await settle();
 
-    expect(fetched()).toEqual(["e.webp"]);
-    expect(requests).toHaveLength(1);
-    expect((scene.background as Texture).image).toBe(IMAGE);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect((scene.background as Texture).image).toBe(IMAGE);
+    });
+
+    it("다 받기 전에 정리하면 늦게 온 그림을 배경으로 두지 않고 알리지도 않는다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const onLoad = vi.fn();
+      const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad });
+      await settle();
+
+      backdrop.dispose();
+      decodes[0].done(IMAGE);
+      await settle();
+
+      expect(scene.background).toBeNull();
+      expect(onLoad).not.toHaveBeenCalled();
+    });
   });
 
-  it("그림을 풀지 못하면 배경 없이 두고, 다음에 부르면 다시 받는다", async () => {
-    const preloaded = preloadBackdrop("f.webp");
-    await vi.waitFor(() => expect(requests).toHaveLength(1));
-    requests[0].fail(new Error("decode"));
-    await expect(preloaded).rejects.toThrow("decode");
+  describe("정리", () => {
+    it("정리하면 배경을 떼고 텍스처를 놓는다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+      await settle();
+      decodes[0].done(IMAGE);
+      await settle();
+      const dispose = vi.spyOn(scene.background as Texture, "dispose");
 
-    const scene = new Scene();
-    const onLoad = vi.fn();
-    setupBackdrop({ scene, url: "f.webp", onLoad });
-    await vi.waitFor(() => expect(requests).toHaveLength(2));
-    expect(fetched()).toEqual(["f.webp", "f.webp"]);
-    requests[1].fail(new Error("decode"));
-    await flush();
+      backdrop.dispose();
 
-    expect(scene.background).toBeNull();
-    expect(onLoad).not.toHaveBeenCalled();
-  });
+      expect(scene.background).toBeNull();
+      expect(dispose).toHaveBeenCalledTimes(1);
+    });
 
-  it("404는 다시 받지 않고 바로 실패한다", async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 404 }));
+    it.each([
+      { label: "다 풀면", finish: (decode: Decode) => decode.done(IMAGE) },
+      { label: "풀지 못해도", finish: (decode: Decode) => decode.fail(new Error("decode")) },
+    ])("그림을 '$label' 임시 주소를 놓는다", async ({ finish }) => {
+      const { setupBackdrop } = await load();
+      const revoke = vi.spyOn(URL, "revokeObjectURL");
+      setupBackdrop({ scene: new Scene(), url: URL_CAFE, onLoad: vi.fn() });
+      await settle();
 
-    await expect(preloadBackdrop("g.webp")).rejects.toMatchObject({ status: 404 });
+      finish(decodes[0]);
+      await settle();
 
-    expect(fetched()).toEqual(["g.webp"]);
-    expect(requests).toHaveLength(0);
-  });
+      expect(revoke).toHaveBeenCalledTimes(1);
+    });
 
-  it("연결이 끊겨 실패하면(TypeError) 간격을 두고 다시 받는다", async () => {
-    vi.useFakeTimers();
-    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    it("그사이 장면 배경이 다른 것으로 바뀌었으면 떼지 않는다", async () => {
+      const { setupBackdrop } = await load();
+      const scene = new Scene();
+      const backdrop = setupBackdrop({ scene, url: URL_CAFE, onLoad: vi.fn() });
+      await settle();
+      decodes[0].done(IMAGE);
+      await settle();
+      const other = new Color(0x000000);
+      scene.background = other;
 
-    const preloaded = preloadBackdrop("h.webp");
-    await vi.advanceTimersByTimeAsync(0);
-    expect(fetched()).toEqual(["h.webp"]);
-    // 첫 재시도 간격은 1초 + 무작위(최대 1초)라 2초를 넘기면 반드시 다시 받는다.
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(fetched()).toEqual(["h.webp", "h.webp"]);
-    requests[0].done(IMAGE);
+      backdrop.dispose();
 
-    await expect(preloaded).resolves.toBeUndefined();
+      expect(scene.background).toBe(other);
+    });
   });
 });

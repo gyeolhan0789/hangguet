@@ -23,7 +23,7 @@ import {
 } from "./actions";
 import { getCurrentQuestion, getSession } from "./queries";
 
-// 기준: Swagger 5.1~5.8 · 5.14 면접 진행 예시
+// 기준: Swagger 5.1~5.8(5.8 SessionEndRequest gazeRatio 포함) · 5.14 면접 진행 예시
 const { like } = MatchersV3;
 const pact = contract();
 
@@ -343,6 +343,20 @@ describe("질문 · 답변 · 끝내기", () => {
       .willRespondWith(202, (b) => b.jsonBody({ status: "ANALYZING", leveledUp: true }))
       .executeTest(
         asMember(async () => expect(await endSession(55, KEY)).toEqual({ leveledUp: true })),
+      ));
+
+  it("5.8 화상 면접은 잰 시선 비율과 함께 끝낸다(202)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("면접", { stage: "ANSWERED", mode: "VIDEO" })
+      .uponReceiving("5.8 시선 비율과 함께 화상 면접 끝내기")
+      .withRequest("POST", sessionPath("/end"), (b) =>
+        b.headers(idempotent).jsonBody({ gazeRatio: 72.5 }),
+      )
+      .willRespondWith(202, (b) => b.jsonBody({ status: "ANALYZING", leveledUp: true }))
+      .executeTest(
+        asMember(async () => expect(await endSession(55, KEY, 72.5)).toEqual({ leveledUp: true })),
       ));
 
   it("5.8 답 없이 끝내면 홈으로 간다(200 ABORTED)", () =>
