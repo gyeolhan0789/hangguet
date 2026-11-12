@@ -440,6 +440,120 @@ describe("리액션 메시지 수신", () => {
   });
 });
 
+describe("면접 태도 수신(interview.attitude)", () => {
+  const message = (patch: Record<string, unknown> = {}) =>
+    JSON.stringify({ type: "attitude", sessionId: 55, score: 72, ...patch });
+  async function joined() {
+    const { stream } = media();
+    const hook = renderHook(() => useInterviewRoom(55, stream, { questionSeq: 3 }));
+    const room = sdk.FakeRoom.instances[0];
+    await waitFor(() => expect(room.connect).toHaveBeenCalled());
+    const receive = (payload = message(), callerIdentity = "agent") =>
+      act(async () => {
+        expect(await room.rpcHandlers.get("interview.attitude")!({ callerIdentity, payload })).toBe(
+          "",
+        );
+      });
+    const question = (speech: string) =>
+      act(async () => {
+        await room.rpcHandlers.get("interview.question")!({
+          callerIdentity: "agent",
+          payload: JSON.stringify({
+            type: "question",
+            sessionId: 55,
+            seq: 3,
+            content: "질문",
+            speech,
+            alignment: null,
+          }),
+        });
+      });
+    return { ...hook, room, receive, question };
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it("같은 면접의 점수를 받은 차례대로 쌓고, 얼굴을 확인할 수 없다는 null도 받는다", async () => {
+    const { result, receive } = await joined();
+    await receive();
+    await receive(message({ score: null }));
+    await receive(message({ score: 75 }));
+    expect(result.current.attitude.map((sample) => sample.score)).toEqual([72, null, 75]);
+  });
+  it("다른 참가자·면접과 형식 오류(범위 밖 · 소수 · 문자열)를 폐기한다", async () => {
+    const { result, receive } = await joined();
+    await receive(message(), "other");
+    await receive(message({ sessionId: 56 }));
+    await receive(message({ score: 101 }));
+    await receive(message({ score: -1 }));
+    await receive(message({ score: 72.5 }));
+    await receive(message({ score: "72" }));
+    await receive(message({ type: "reaction" }));
+    await receive("not json");
+    expect(result.current.attitude).toEqual([]);
+  });
+  it("새 점수를 받을 때 30초보다 오래된 점수는 버리고, 그 직전 점수 하나만 30초 경계로 옮겨 남긴다", async () => {
+    const now = vi.spyOn(performance, "now");
+    const { result, receive } = await joined();
+    const samples = () =>
+      result.current.attitude.map(({ score, receivedAt }) => [score, receivedAt]);
+    now.mockReturnValue(1_000);
+    await receive(message({ score: 60 }));
+    now.mockReturnValue(31_000);
+    await receive(message({ score: 70 }));
+    expect(samples()).toEqual([
+      [60, 1_000],
+      [70, 31_000],
+    ]);
+    now.mockReturnValue(31_001);
+    await receive(message({ score: 80 }));
+    expect(samples()).toEqual([
+      [60, 1_001],
+      [70, 31_000],
+      [80, 31_001],
+    ]);
+    now.mockReturnValue(70_000);
+    await receive(message({ score: null }));
+    expect(samples()).toEqual([
+      [80, 40_000],
+      [null, 70_000],
+    ]);
+  });
+  it("새 질문을 말하기 시작하면 지난 점수를 지우고, 말하는 동안 온 점수는 버린다", async () => {
+    const { result, receive, question } = await joined();
+    await receive();
+    await question("started");
+    expect(result.current.attitude).toEqual([]);
+    await receive();
+    expect(result.current.attitude).toEqual([]);
+    await question("ended");
+    await receive();
+    expect(result.current.attitude.map((sample) => sample.score)).toEqual([72]);
+  });
+  it("면접방 연결이 끊기면 받은 점수를 지운다", async () => {
+    const { result, receive, room } = await joined();
+    await receive();
+    expect(result.current.attitude).toHaveLength(1);
+    act(() => room.handlers.get("disconnected")?.());
+    expect(result.current.attitude).toEqual([]);
+  });
+  it("다시 연결하면(retry) 지난 연결에서 받은 점수를 지운다", async () => {
+    const { result, receive } = await joined();
+    await receive();
+    expect(result.current.attitude).toHaveLength(1);
+    act(() => result.current.retry());
+    expect(result.current.attitude).toEqual([]);
+  });
+  it("연결을 정리하면 수신을 해제하고, 채팅 면접은 처음부터 받지 않는다", async () => {
+    const { room, unmount } = await joined();
+    unmount();
+    expect(room.unregisterRpcMethod).toHaveBeenCalledWith("interview.attitude");
+    renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));
+    const chat = sdk.FakeRoom.instances[1];
+    await waitFor(() => expect(chat.connect).toHaveBeenCalled());
+    expect(chat.rpcHandlers.has("interview.attitude")).toBe(false);
+  });
+});
+
 describe("채팅 입력 신호 전송", () => {
   async function joined() {
     const hook = renderHook(() => useInterviewRoom(55, null, { listenOnly: true }));

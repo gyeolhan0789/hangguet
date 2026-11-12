@@ -28,6 +28,7 @@ import type { CurrentQuestion, Persona, SessionResponse } from "@/types/api";
 
 import { AnalyzingView } from "./analyzing-view";
 import { AnswerCaption } from "./answer-caption";
+import { AttitudeTile } from "./attitude-tile";
 import { ChatPanel } from "./chat-panel";
 import { EndModal } from "./end-modal";
 import { QuestionBubble, ShowUiButton } from "./question-bubble";
@@ -603,6 +604,7 @@ function VideoInterview({
     <>
       <div className={uiHidden ? "hidden" : "contents"}>
         <SelfCamera stream={stream} />
+        <AttitudeTile samples={stt.attitude} answering={answering} />
       </div>
       <AnimatePresence>
         {/* 재연결 안내는 화면을 숨긴 동안에도 보인다(사용자 요청 2026-10-27) */}
