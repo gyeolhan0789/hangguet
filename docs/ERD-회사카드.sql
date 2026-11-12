@@ -43,7 +43,7 @@ CREATE TABLE company_card_imports (
     imported_at TIMESTAMPTZ NOT NULL
 );
 
--- 면접을 만들 때 정한 카드. PLAN·SCORE_ANSWER·EVALUATE가 같은 카드를 쓴다. 못 찾으면 NULL
+-- 면접을 만들 때 정한 카드. PLAN·EVALUATE가 같은 카드를 사용한다. 못 찾으면 NULL
 -- 면접이 가리키는 카드는 지우지 않는다(FK가 막는다)
 ALTER TABLE interview_sessions ADD COLUMN company_card_id BIGINT REFERENCES company_cards (id);
 CREATE INDEX ix_interview_sessions_company_card ON interview_sessions (company_card_id);

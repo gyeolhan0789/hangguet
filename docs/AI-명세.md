@@ -75,7 +75,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - `persona`가 없으면 `COFFEE_CHAT`으로 처리한다. 필드를 추가하기 전에 BE가 보낸 작업과 배포 순서 차이를 처리하기 위함이다
   - 위 `persona` 값이 아니면 형식이 틀린 작업이다
   - `DUCK`은 AI가 수신을 구현한 뒤 BE가 전송한다. AI 구현 전에 전송하면 형식이 틀린 작업으로 실패하기 때문이다
-- PLAN은 지원 회사의 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 넣지 않는다
+- PLAN·EVALUATE는 면접을 만들 때 정한 회사 카드 `companyCard`(8장)를 담는다. 회사를 찾지 못했거나 카드가 없으면 필드를 담지 않는다
 - BE는 Outbox로 보내므로 같은 메시지가 두 번 올 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 거른다(1.4)
 - 형식이 틀린 작업(필수 필드 누락, 형식·범위 불일치)은 다시 처리해도 결과가 같으므로 재시도하지 않는다
   - `jobType`·`jobId`·`sessionId`(EXTRACT_CLAIMS는 `applicationId`)를 해석할 수 있으면 그 작업의 실패 결과(`plan.failed`·`claims.extractFailed`·`evaluation.failed`·`recording.mergeFailed`)를 `reason: INVALID_JOB`으로 즉시 전송한다. 화면이 BE 최대 대기 시간까지 기다리지 않고 다시 시도로 넘어가게 하기 위함이다
@@ -367,7 +367,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 면접이 끝나면 남은 채점을 마치고 평가 STEP 02(자소서 대조)와 피드백을 만든다. 단계는 5.2의 `analysisStep`과 같다.
 
 - **시작** 5.8(답변 ≥1)·5.9
-- **입력(작업 메시지)** **[제안]** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`의 지표 2개)·`sttGaps`(화상, 3장과 같음)·`timeline`(화상, `answers.speech`의 `trailingOffAtMs`·`impressions`, 아래 다시보기 타임라인)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열). 회사 카드(8장)는 아직 받지 않는다
+- **입력(작업 메시지)** `mode`, `persona`, `coverLetterItems`(2장과 같음), `claims`, 답한 질문마다 `answerId`·`seq`·`question`·`criteria`·`content`·`tokens`·`speech`(화상, `answers.speech`의 지표 2개)·`sttGaps`(화상, 3장과 같음)·`timeline`(화상, `answers.speech`의 `trailingOffAtMs`·`impressions`, 아래 다시보기 타임라인)·`evaluation`(SCORE_ANSWER가 이미 채점했으면 그 값, 아니면 null), `earlierSummaries`(같은 회원이 그날(한국 시간) 이 면접보다 먼저 시작해 결과가 나온 면접들의 `summary`, 시작 순. 없으면 빈 배열), `companyCard`(8장, 없으면 생략)
 - 답이 없는 질문(중간 종료)은 메시지에 넣지 않는다
 
 | 단계 | 하는 일 |
@@ -703,7 +703,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 ## 8. 회사 카드
 
-회사 정보 수집 파이프라인(`company-pipeline`)이 회사마다 만든 카드를 BE가 메인 DB에 적재하고([회사 카드 ERD](ERD-회사카드.md)), 면접을 만들 때 지원서 회사명으로 찾은 카드를 PLAN 작업 메시지의 `companyCard`에 그대로 담는다
+회사 정보 수집 파이프라인(`company-pipeline`)이 회사마다 만든 카드를 BE가 메인 DB에 적재하고([회사 카드 ERD](ERD-회사카드.md)), 면접을 만들 때 지원서 회사명으로 찾은 카드를 PLAN·EVALUATE 작업 메시지의 `companyCard`에 그대로 담는다
 
 - 형식: 파이프라인 카드 JSON 그대로다. 항목은 [카드 형식](../company-pipeline/pipeline/README.md#카드-형식)을 따른다(`talent`·`direction`·`market`·`recent`, 항목마다 원문 인용과 출처)
 - 분류값: 파이프라인이 카드를 만들 때 항목마다 분류값을 부여한다. 질문 생성에서 회사 항목과 자소서 주장의 연결 후보를 코드로 선별하기 위함이다
@@ -712,7 +712,8 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
   - 두 목록(인재상 기준 12개, NCS 세분류)의 원본은 저장소 최상위 공용 패키지 `shared/company_taxonomy` 하나다. 파이프라인과 AI는 이 패키지를 의존성으로 사용하고 목록을 따로 관리하지 않는다. 패키지에는 이 두 목록만 담는다
   - 분류값을 추가하기 전에 만든 카드에는 `criterion`·`ncs_subcategories` 칸이 없을 수 있다
 - 회사를 찾지 못했거나 카드가 없으면 `companyCard`를 넣지 않는다
-- SCORE_ANSWER·EVALUATE에는 아직 담지 않는다. 피드백 반영 방식을 정할 때 추가한다
+- EVALUATE는 PLAN과 같은 카드를 담는다. 면접 도중 카드가 갱신되어도 결과 피드백이 질문을 생성할 때와 같은 회사 정보를 사용하기 위함이다
+- SCORE_ANSWER에는 담지 않는다. 회사 연결 질문은 채점 기준에 회사 항목의 내용을 포함하므로(2장) 판정에 회사 정보가 반영되기 때문이다
 
 ## 9. 버전
 
