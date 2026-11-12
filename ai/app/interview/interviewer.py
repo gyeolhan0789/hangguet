@@ -8,11 +8,11 @@
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from company_taxonomy.talent_criteria import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA
+
 from app.common.session import Persona
 from app.interview.talent import (
     ALL_CRITERIA,
-    EXECUTIVE_CRITERIA,
-    PRACTICAL_CRITERIA,
     criteria_lines,
     joined_names,
 )

@@ -10,6 +10,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from company_taxonomy.talent_criteria import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA
+
 from app.common.answer import SttGap
 from app.common.gms import (
     STRUCTURE_RETRIES,
@@ -24,8 +26,6 @@ from app.common.versions import REGISTRY, VersionKind
 from app.interview.scoring.judge import Criterion, StructureBrokenError, gap_lines
 from app.interview.talent import (
     ALL_CRITERIA,
-    EXECUTIVE_CRITERIA,
-    PRACTICAL_CRITERIA,
     criteria_lines,
     criteria_names,
 )

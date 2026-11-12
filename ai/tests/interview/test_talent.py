@@ -1,9 +1,8 @@
 import pytest
+from company_taxonomy.talent_criteria import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA
 
 from app.common.session import Persona
 from app.interview.talent import (
-    EXECUTIVE_CRITERIA,
-    PRACTICAL_CRITERIA,
     criteria_lines,
     criteria_names,
     joined_names,

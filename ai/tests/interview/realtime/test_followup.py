@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 import pytest
+from company_taxonomy.talent_criteria import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA
 
 from app.common.session import Persona
 from app.interview.interviewer import ANSWER, interviewer_guide
@@ -16,7 +17,7 @@ from app.interview.realtime.followup import (
     followup_messages,
     parse_followups,
 )
-from app.interview.talent import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA, joined_names
+from app.interview.talent import joined_names
 
 
 def test_order_and_limits_follow_spec() -> None:
