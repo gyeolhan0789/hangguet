@@ -143,6 +143,9 @@ class PlanJob(Job):
     persona: Persona = Persona.COFFEE_CHAT
     # 지원 회사의 회사 카드(AI 명세 8장). 파이프라인 카드 JSON을 그대로 두고, 없으면 None이다
     company_card: Mapping[str, Any] | None = None
+    # 개인 면접은 지원서에 저장된 주장(AI 명세 2장 STEP 01)을 수신한다.
+    # 그룹 면접이나 이 필드를 추가하기 전에 BE가 전송한 작업은 None이고, 질문 생성이 주장을 추출한다
+    claims: tuple[Claim, ...] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -403,12 +406,42 @@ def _claims(data: Mapping[str, Any]) -> tuple[Claim, ...]:
                 text=_text(claim, "text", path),
                 type=claim_type,
                 sentence_no=_positive_id(claim, "sentenceNo", path),
+                talent_criteria=_talent_criteria(claim, path),
             )
         )
     # 질문이 claimId로 주장을 가리키므로(AI 명세 2장) 같은 id가 두 번 있으면 대조 대상이 모호하다
     if len({claim.id for claim in claims}) != len(claims):
         raise InvalidJobError("claims의 id가 중복된다")
     return tuple(claims)
+
+
+def _talent_criteria(claim: Mapping[str, Any], path: str) -> tuple[str, ...]:
+    """주장의 인재상 기준 이름(AI 명세 2장 talentCriteria). 없으면(이전 주장) 빈 값이다.
+
+    기준 이름이 12개 목록에 있는지는 검사하지 않는다.
+    목록에 없는 이름은 면접관 기준과 겹치지 않을 뿐이므로 작업 전체를 형식 오류로 처리하지 않는다.
+    """
+    value = claim.get("talentCriteria")
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(
+        isinstance(name, str) and not is_java_blank(name) for name in value
+    ):
+        raise InvalidJobError(f"{path}talentCriteria는 기준 이름 목록이어야 한다")
+    return tuple(value)
+
+
+def _stored_claims(data: Mapping[str, Any]) -> tuple[Claim, ...] | None:
+    """개인 면접의 질문 생성이 수신하는 지원서 주장(AI 명세 2장). 없으면 None이다.
+
+    주장이 없는 목록으로는 질문을 생성할 수 없으므로 형식 오류로 처리한다.
+    """
+    if data.get("claims") is None:
+        return None
+    claims = _claims(data)
+    if not claims:
+        raise InvalidJobError("claims는 1개 이상이어야 한다")
+    return claims
 
 
 def _earlier_summaries(data: Mapping[str, Any]) -> tuple[str, ...]:
@@ -570,6 +603,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
                 cover_letter_items=_cover_letter_items(data),
                 persona=_persona(data),
                 company_card=_company_card(data),
+                claims=_stored_claims(data),
             )
         case JobType.SCORE_ANSWER:
             return ScoreAnswerJob(

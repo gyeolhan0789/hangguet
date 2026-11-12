@@ -20,8 +20,10 @@ from app.interview.plan.job import (
     gms_plan_chat,
     register_plan_handler,
 )
+from app.interview.plan.questions import build_question_messages
 from app.worker.dispatch import Dispatcher, DispatchResult
 from app.worker.main import lazy_gms_client
+from app.worker.messages import Claim, ClaimType
 from tests.common.test_results import FakeRedis
 from tests.interview.plan.fakes import JOB, JOB_ID, FakeChat, question
 
@@ -132,6 +134,64 @@ def test_completed_plan_keeps_claims_not_passed_to_question_generation() -> None
 
     assert "c2 " not in chat.calls[1][1]["content"]
     assert [c["id"] for c in pushed(redis)[-1]["claims"]] == ["c1", "c2"]
+
+
+# 개인 면접은 지원서에 저장된 주장을 수신한다(AI 명세 2장 STEP 01)
+STORED_CLAIMS = (
+    Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+    Claim("c2", "팀원과 갈등을 조율했다", ClaimType.EXPERIENCE, 6, ("협력·소통",)),
+)
+STORED_JOB = replace(JOB, claims=STORED_CLAIMS)
+
+
+def test_stored_claims_skip_extraction_and_progress_first() -> None:
+    """저장된 주장으로 질문만 생성하고, 주장이 준비된 시점이므로 시작할 때 진행률 50을 전송한다."""
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(STORED_JOB)
+
+    assert len(chat.calls) == 1
+    assert chat.calls[0] == build_question_messages(STORED_JOB, STORED_CLAIMS[:1])
+    messages = pushed(redis)
+    assert [m["type"] for m in messages] == ["plan.progress", "plan.completed"]
+    assert messages[0]["progress"] == 50
+
+
+def test_completed_plan_returns_stored_claims_as_received() -> None:
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    run, redis = make(chat)
+
+    run(STORED_JOB)
+
+    assert pushed(redis)[-1]["claims"] == [
+        {
+            "id": "c1",
+            "text": "주문 조회 응답 시간을 40% 줄였다",
+            "type": "NUMBER",
+            "sentenceNo": 4,
+            "talentCriteria": ["실행·성과"],
+        },
+        {
+            "id": "c2",
+            "text": "팀원과 갈등을 조율했다",
+            "type": "EXPERIENCE",
+            "sentenceNo": 6,
+            "talentCriteria": ["협력·소통"],
+        },
+    ]
+
+
+def test_stored_claims_job_sends_progress_before_timing_out() -> None:
+    """진행률 50은 주장이 준비된 시점이므로 GMS를 호출하기 전 마감이 지나도 먼저 전송한다."""
+    chat = FakeChat([{"questions": [question(seq, "c1") for seq in range(1, 6)]}])
+    late = STORED_JOB.requested_at.timestamp() + PLAN_TIMEOUT_SECONDS + 1
+    run, redis = make(chat, clock=lambda: late)
+
+    run(STORED_JOB)
+
+    assert chat.calls == []
+    assert [m["type"] for m in pushed(redis)] == ["plan.progress", "plan.failed"]
 
 
 def test_model_version_is_question_step_model() -> None:

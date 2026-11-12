@@ -3,6 +3,8 @@
 분석 작업자의 분배기에 PlanJob으로 등록한다.
 AI는 DB와 진행 상태 Hash에 접속하지 않으므로 처리 결과를 결과 메시지로만 전송한다(AI 명세 1.4·2장).
 - 주장 추출이 끝나면 plan.progress(50), 질문 생성이 끝나면 plan.completed를 전송한다.
+  개인 면접은 지원서에 저장된 주장을 수신하므로 주장을 추출하지 않고
+  시작할 때 plan.progress(50)를 전송하며, 결과에는 수신한 주장을 그대로 담는다(AI 명세 2장).
 - GMS 호출이 재시도 후에도 실패하거나 결과 검증에 실패하면 plan.failed를 전송한다.
   화면은 면접 플랜 재생성 API(5.3)로 다시 요청한다.
 - GMS 접속 값이 없으면(SettingsError) 값을 추가할 때까지 모든 작업이 같은 오류로 실패하므로
@@ -102,11 +104,11 @@ class PlanJobHandler:
         deadline = job.requested_at.timestamp() + PLAN_TIMEOUT_SECONDS
         chat = with_deadline(self._chat, deadline, self._clock)
         try:
-            claims = extract_claims(chat, job)
+            claims = job.claims if job.claims is not None else extract_claims(chat, job).claims
             self._results.publish_job_result(
                 job, ResultType.PLAN_PROGRESS, {"progress": PROGRESS_AFTER_CLAIMS}
             )
-            questions = generate_questions(chat, job, claims.claims)
+            questions = generate_questions(chat, job, claims)
         except ResultPublishError:
             raise
         except GmsUnavailableError as e:
@@ -125,7 +127,7 @@ class PlanJobHandler:
             job,
             ResultType.PLAN_COMPLETED,
             {
-                "claims": [claim_json(c) for c in claims.claims],
+                "claims": [claim_json(c) for c in claims],
                 "questions": [question_json(q) for q in questions.questions],
                 "promptVersion": PROMPT_VERSION,
                 # 채점 기준을 생성한 질문 생성 단계 응답의 모델 이름을 기록한다

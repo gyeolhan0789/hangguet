@@ -155,6 +155,52 @@ def test_parses_plan_job() -> None:
     )
 
 
+def test_plan_job_without_claims_extracts_claims_itself() -> None:
+    """그룹 면접이나 이 필드를 추가하기 전의 BE 작업은 claims가 없다(AI 명세 2장)."""
+    job = parse_job(json.dumps(plan()))
+
+    assert isinstance(job, PlanJob)
+    assert job.claims is None
+
+
+def test_parses_stored_claims_of_plan_job() -> None:
+    """개인 면접은 지원서에 저장된 주장을 인재상 기준과 함께 수신한다(AI 명세 2장)."""
+    message = plan(claims=[claim(talentCriteria=["실행·성과"]), claim(id="c2", sentenceNo=1)])
+
+    job = parse_job(message)
+
+    assert isinstance(job, PlanJob)
+    assert job.claims == (
+        Claim("c1", "조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+        Claim("c2", "조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 1),
+    )
+
+
+def test_unknown_talent_criterion_name_is_kept() -> None:
+    """목록에 없는 기준 이름은 면접관 기준과 겹치지 않을 뿐이므로 형식 오류로 처리하지 않는다."""
+    job = parse_job(plan(claims=[claim(talentCriteria=["예전 기준"])]))
+
+    assert isinstance(job, PlanJob)
+    assert job.claims is not None
+    assert job.claims[0].talent_criteria == ("예전 기준",)
+
+
+@pytest.mark.parametrize(
+    "claims",
+    [
+        [],
+        "c1",
+        [claim(talentCriteria="실행·성과")],
+        [claim(talentCriteria=[1])],
+        [claim(talentCriteria=[" "])],
+        [claim(), claim()],
+    ],
+)
+def test_wrong_stored_claims_are_invalid(claims: Any) -> None:
+    with pytest.raises(InvalidJobError, match="claims"):
+        parse_job(plan(claims=claims))
+
+
 def test_parses_extract_claims_job() -> None:
     assert parse_job(json.dumps(extract())) == ExtractClaimsJob(
         job_id=JOB_ID,
