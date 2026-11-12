@@ -216,12 +216,15 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
     { "id": "c1", "text": "조회 응답 시간을 40% 줄였다", "type": "NUMBER", "sentenceNo": 4, "talentCriteria": ["실행·성과"] }
   ],
   "questions": [
-    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "claimId": "c1" }
+    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "claimId": "c1", "companyItem": null },
+    { "seq": 3, "content": "「배송·결제 속도가 경쟁 요소」인 상황에서 조회 개선 경험을 어떻게 적용하겠습니까?", "criteria": "문제 정의 · 적용 방법과 이유 · 확인 방법", "claimId": "c1",
+      "companyItem": { "section": "market", "summary": "배송·결제 속도가 경쟁 요소", "quote": "…", "source": "최신 사업보고서 II. 사업의 내용", "ncs_subcategories": ["응용SW엔지니어링"] } }
   ]
 }
 ```
 
 - `type`: `EXPERIENCE`(경험) · `NUMBER`(수치). `questions`는 `seq` 1~5로 정확히 5개
+- `companyItem`: 질문을 연결한 회사 항목이다. `section`에 카드 칸 이름(`talent`·`direction`·`market`·`recent`)을, 나머지에 그 카드 항목의 칸을 카드에 있는 이름 그대로 담는다. 회사 정보와 연결하지 않은 질문은 null이다
 - **면접관별 주장 선택** 주장의 인재상 기준 `talentCriteria`(STEP 01)가 그 면접관 기준(위 표)과 하나 이상 겹치는 주장만 STEP 02에 넘긴다. 겹치는 주장이 하나도 없으면 모든 주장을 넘긴다
 - **검증** JSON이 아니거나 질문이 5개가 아니면 1회 재시도 후 `plan.failed`. `claimId`가 STEP 02에 넘기지 않은 주장을 가리키면 그 질문만 1회 다시 만들고, 그래도 틀리면 `plan.failed`
 - **근거 검사** 주장 추출(STEP 01)에서 한다. 개인 면접은 주장 추출 작업(EXTRACT_CLAIMS), 그룹 면접은 PLAN 안의 STEP 01이다. 주장의 수량 표현마다 같은 값이 그 주장의 근거 문장(`sentenceNo`)에 있을 때만 주장을 유지한다. 근거 문장에 없는 수치를 전제로 질문하지 않기 위함이다
@@ -232,7 +235,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. 개인 면접의 `claims`는 입력으로 수신한 주장 그대로다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
 - **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
 - **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
-  - 행마다 질문의 `content`·`criteria`·`claimId`와 그 질문을 만든 `promptVersion`·`modelVersion`을 저장한다
+  - 행마다 질문의 `content`·`criteria`·`claimId`·`companyItem`과 그 질문을 만든 `promptVersion`·`modelVersion`을 저장한다
   - 그룹 면접의 질문은 보관함에 넣지 않는다. 그룹 면접은 개인 맞춤 질문을 매번 생성하고 예비 질문이 없기 때문이다(6.7)
   - 면접 생성(5.1)·다시 만들기(5.3) 때 보관함 질문이 5개 미만이면 BE는 PLAN을 요청해 질문 5개를 새로 생성한다
   - 출제 자리 배정: BE는 보관함에서 사용 처리되지 않은 질문 5개를 골라 면접 계획의 `seq` 1~5에 둔다. 보관함 질문이 5개 이상이면 면접 생성·다시 만들기 때 바로, 모자라면 `plan.completed`로 보관함에 추가한 뒤 배정한다
