@@ -1,45 +1,83 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+// 기준: 기획 메모 S02-1(완료 'N일째 달성!') · S02-L 레벨업 · 면접 끝내기(5.8) 응답의 leveledUp을 화면이 기억해 넘긴다
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { deferred } from "@/test/deferred";
+import { flushPromises } from "@/test/flush";
 
 import { StreakCelebration } from "./streak-celebration";
 
-// 불 전환 연출 시간을 기다리지 않도록 '동작 줄이기' 상태로 그린다.
+// 경계 mock: 연출(motion)은 동작 줄이기로 건너뛰고, 덮개를 흐리게 하는 움직임(animate)만 테스트가 끝낸다
+const motionState = vi.hoisted(() => ({ animations: [] as (() => void)[] }));
 vi.mock("motion/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("motion/react")>()),
-  useReducedMotion: () => true,
+  ...(await (await import("@/test/motion")).reducedMotion(importOriginal)),
+  animate: () => {
+    const done = deferred();
+    motionState.animations.push(() => done.resolve());
+    return {
+      then: (onDone: () => void, onError: (reason: unknown) => void) =>
+        done.promise.then(onDone, onError),
+      stop: vi.fn(),
+    };
+  },
 }));
 
-// vitest 전역 모드가 아니라 테스트마다 직접 정리한다.
-afterEach(cleanup);
-
-// 면접을 마친 화면(S08 흐름)은 아직 없어서, 그 화면이 띄울 연출을 컴포넌트로 확인한다.
-describe("StreakCelebration (면접을 마친 순간)", () => {
-  it("'N일째 달성!'을 보여 주고, 단계가 그대로면 레벨업 없이 끝난다", async () => {
-    const onDone = vi.fn();
-    render(<StreakCelebration days={7} leveledUp={false} onDone={onDone} />);
-
-    expect(screen.getByRole("status").getAttribute("aria-label")).toBe(
-      "7일째 달성! 오늘도 해냈어요 — 내일 또 만나요",
-    );
-    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+const finishFade = () =>
+  act(async () => {
+    motionState.animations[0]();
   });
 
-  // 'N일째 달성!' → 레벨업 순서는 streak-celebration.motion.test.tsx가 실제 연출로 확인한다.
-  it("단계가 올랐으면 S02-L 레벨업을 띄우고, [계속하기]를 눌러야 끝난다", async () => {
-    const onDone = vi.fn();
-    render(<StreakCelebration days={8} leveledUp onDone={onDone} />);
+beforeEach(() => {
+  motionState.animations = [];
+});
 
-    const dialog = await screen.findByRole("dialog");
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(dialog.textContent).toContain("푸른 불꽃");
-    expect(onDone).not.toHaveBeenCalled();
+describe("StreakCelebration · 면접 마친 뒤 스트릭 축하", () => {
+  describe("화면 표시", () => {
+    it("'N일째 달성!' 불 전환을 먼저 보여 준다", async () => {
+      render(<StreakCelebration days={8} leveledUp={false} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "계속하기" }));
+      expect(
+        screen.getByRole("status", { name: "8일째 달성! 오늘도 해냈어요 — 내일 또 만나요" }),
+      ).toBeDefined();
+      await finishFade();
+    });
+  });
 
-    await waitFor(() => expect(onDone).toHaveBeenCalledOnce());
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByRole("status")).toBeNull();
+  describe("사용자 조작", () => {
+    it("레벨업에서 [계속하기]를 누르면 레벨업을 닫고 끝났다고 알린다", async () => {
+      const onDone = vi.fn();
+      render(<StreakCelebration days={8} leveledUp onDone={onDone} />);
+      await flushPromises();
+
+      fireEvent.click(screen.getByRole("button", { name: "계속하기" }));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("상태 변화", () => {
+    it("단계가 그대로면 불 전환이 끝난 뒤 아무것도 남기지 않고 끝났다고 알린다", async () => {
+      const onDone = vi.fn();
+      const { container } = render(
+        <StreakCelebration days={7} leveledUp={false} onDone={onDone} />,
+      );
+
+      await finishFade();
+
+      expect(container.firstChild).toBeNull();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+
+    it("단계가 올랐으면 불 전환 뒤 레벨업을 띄우고 아직 끝났다고 알리지 않는다", async () => {
+      const onDone = vi.fn();
+      render(<StreakCelebration days={8} leveledUp onDone={onDone} />);
+
+      await flushPromises();
+
+      expect(screen.getByRole("dialog", { name: "푸른 불꽃 달성!" })).toBeDefined();
+      expect(screen.queryByRole("status")).toBeNull();
+      expect(onDone).not.toHaveBeenCalled();
+    });
   });
 });

@@ -1,64 +1,112 @@
+// @vitest-environment node
+// 기준: Figma 화면 번호(S03 · S04 · S07-1 · 지원 관리 · 연습 기록 · I02) · 모션 메모 S03 지원서 선택 · 사용자 결정(2026-10-29 지원서 쓰기 from)
 import { describe, expect, it } from "vitest";
 
 import {
   applicationNewPath,
   applicationPath,
   applicationsPath,
-  devicesPath,
+  inquiriesPath,
   interviewerPath,
-  interviewPath,
-  modePath,
   practiceSelectPath,
   recordsPath,
+  replayPath,
 } from "./routes";
 
-describe("연습 시작 단계 주소", () => {
-  it("S04 면접관 선택: 지원서 id를 붙이고, S05-1에서 돌아갈 때는 고른 면접관도 붙인다", () => {
-    expect(interviewerPath(10)).toBe("/practice/interviewer?applicationId=10");
-    expect(interviewerPath(10, "DEVIL")).toBe(
-      "/practice/interviewer?applicationId=10&persona=DEVIL",
-    );
-  });
-
-  it("S03 지원서 선택: 골라 둘 지원서 id를 붙이고, 지원서 쓰기에서 막 저장했으면 added=1도 붙인다", () => {
-    expect(practiceSelectPath(10)).toBe("/practice?applicationId=10");
-    expect(practiceSelectPath(10, true)).toBe("/practice?applicationId=10&added=1");
-  });
-
-  it("S05 장치 점검 · 면접 화면 주소에 면접 id를 붙인다", () => {
-    expect(devicesPath(55)).toBe("/practice/devices?sessionId=55");
-    expect(interviewPath(55)).toBe("/interview/55");
-  });
-
-  it("S05 [← 면접 방식]: 그 면접의 지원서 · 면접관으로 S05-1을 연다", () => {
-    expect(modePath(10, "COFFEE_CHAT")).toBe("/practice/mode?applicationId=10&persona=COFFEE_CHAT");
+describe("interviewerPath · S04 면접관 선택 주소", () => {
+  describe("정상 처리", () => {
+    it.each([
+      {
+        label: "있음",
+        persona: "DEVIL",
+        expected: "/practice/interviewer?applicationId=12&persona=DEVIL",
+      },
+      { label: "없음", persona: undefined, expected: "/practice/interviewer?applicationId=12" },
+    ] as const)("고른 면접관이 '$label'이면 '$expected'다", ({ persona, expected }) => {
+      expect(interviewerPath(12, persona)).toBe(expected);
+    });
   });
 });
 
-describe("연습 기록 주소", () => {
-  it("날짜(date)를 붙이고, 첫 페이지가 아니면 page도 붙인다", () => {
-    expect(recordsPath("2026-10-21")).toBe("/records?date=2026-10-21");
-    expect(recordsPath("2026-10-21", 0)).toBe("/records?date=2026-10-21");
-    expect(recordsPath("2026-10-21", 2)).toBe("/records?date=2026-10-21&page=2");
+describe("replayPath · 면접 다시보기 주소", () => {
+  describe("정상 처리", () => {
+    it.each([
+      { label: "있음", seq: 3, expected: "/interview/55/replay?q=3" },
+      { label: "없음", seq: undefined, expected: "/interview/55/replay" },
+    ])("질문 순서가 '$label'이면 '$expected'다", ({ seq, expected }) => {
+      expect(replayPath(55, seq)).toBe(expected);
+    });
+  });
+
+  describe("경계값", () => {
+    it("질문 순서가 0이어도 q로 붙인다", () => {
+      expect(replayPath(55, 0)).toBe("/interview/55/replay?q=0");
+    });
   });
 });
 
-describe("지원 관리 주소", () => {
-  it("목록: 첫 페이지가 아니면 page를 붙인다", () => {
-    expect(applicationsPath()).toBe("/applications");
-    expect(applicationsPath(0)).toBe("/applications");
-    expect(applicationsPath(2)).toBe("/applications?page=2");
+describe("practiceSelectPath · S03 지원서 선택 주소", () => {
+  describe("정상 처리", () => {
+    it.each([
+      { added: true, expected: "/practice?applicationId=12&added=1" },
+      { added: false, expected: "/practice?applicationId=12" },
+    ])("막 저장하고 돌아온 여부가 '$added'면 '$expected'다", ({ added, expected }) => {
+      expect(practiceSelectPath(12, added)).toBe(expected);
+    });
   });
+});
 
-  it("상세: 지원서 id를 경로에 붙이고, 면접 기록이 첫 쪽이 아니면 page를 붙인다", () => {
-    expect(applicationPath(10)).toBe("/applications/10");
-    expect(applicationPath(10, 0)).toBe("/applications/10");
-    expect(applicationPath(10, 2)).toBe("/applications/10?page=2");
+describe("applicationsPath · 지원 관리 목록 주소", () => {
+  describe("경계값", () => {
+    it.each([
+      { page: 0, expected: "/applications" },
+      { page: 1, expected: "/applications?page=1" },
+    ])("페이지가 '$page'이면 '$expected'다", ({ page, expected }) => {
+      expect(applicationsPath(page)).toBe(expected);
+    });
   });
+});
 
-  it("지원서 쓰기: S03에서 열 때만 from=practice를 붙인다", () => {
-    expect(applicationNewPath()).toBe("/applications/new");
-    expect(applicationNewPath("applications")).toBe("/applications/new");
-    expect(applicationNewPath("practice")).toBe("/applications/new?from=practice");
+describe("applicationPath · 지원서 상세 주소", () => {
+  describe("경계값", () => {
+    it.each([
+      { page: 0, expected: "/applications/12" },
+      { page: 2, expected: "/applications/12?page=2" },
+    ])("면접 기록 쪽이 '$page'이면 '$expected'다", ({ page, expected }) => {
+      expect(applicationPath(12, page)).toBe(expected);
+    });
+  });
+});
+
+describe("applicationNewPath · 지원서 쓰기 주소", () => {
+  describe("정상 처리", () => {
+    it.each([
+      { from: "practice", expected: "/applications/new?from=practice" },
+      { from: "applications", expected: "/applications/new" },
+    ] as const)("연 곳이 '$from'이면 '$expected'다", ({ from, expected }) => {
+      expect(applicationNewPath(from)).toBe(expected);
+    });
+  });
+});
+
+describe("recordsPath · 연습 기록 주소", () => {
+  describe("경계값", () => {
+    it.each([
+      { page: 0, expected: "/records?date=2026-11-12" },
+      { page: 3, expected: "/records?date=2026-11-12&page=3" },
+    ])("페이지가 '$page'이면 '$expected'다", ({ page, expected }) => {
+      expect(recordsPath("2026-11-12", page)).toBe(expected);
+    });
+  });
+});
+
+describe("inquiriesPath · 내 문의 목록 주소", () => {
+  describe("경계값", () => {
+    it.each([
+      { page: 0, expected: "/inquiries" },
+      { page: 1, expected: "/inquiries?page=1" },
+    ])("페이지가 '$page'이면 '$expected'다", ({ page, expected }) => {
+      expect(inquiriesPath(page)).toBe(expected);
+    });
   });
 });

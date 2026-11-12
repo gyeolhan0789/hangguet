@@ -1,31 +1,34 @@
+// 기준: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 스트릭 유지권, 날짜 클릭 → 그날의
+//   S08(사용자 결정 2026-10-23으로 그날을 고른 연습 기록)) · Swagger 2.1 내 정보 · 3.2 통계 · 3.3 연습 달력(month=YYYY-MM)
+// 달력 칸 계산(띠 · 주 경계 · 오늘 · 앞날)과 month 형식 규칙은 단위 테스트(calendar.test.ts)가, 여기서는 page의 month 해석 · 내 정보 없음
+// 분기와 달을 넘기는 이동을 본다.
 import type { Page } from "@playwright/test";
 import type { MswFixture } from "next/experimental/testmode/playwright/msw";
 
-import { E2E_TODAY_HEADER } from "../src/lib/today";
-
-import { ME, PRACTICE_LOGS_FIGMA, SESSION_LIST, STATS } from "./mocks/data";
-import { api, expect, http, HttpResponse, test } from "./test";
-
-// S09 마이페이지
-// 근거: Figma S09 마이페이지(18:2848) · 기획 메모 S09(18:1173: 프로필 → 통계 타일 4개 → 스트릭 달력 · 스트릭 유지권, 날짜 클릭 → 그날의 S08(사용자 결정 2026-10-23으로 그날을 고른 연습 기록),
-//   지원 관리는 비활성 · 클릭 불가 — 사용자 결정 2026-10-29로 목록 연결) · 모션 메모 S09(18:3109: ✎ → S09-1 프로필 사진)
-//   · Swagger 2.1 내 정보 · 3.2 통계 · 3.3 연습 달력(month=YYYY-MM)
-// 달력 칸 계산(띠 · 주 경계 · 오늘 · 앞날)과 시간 표기는 단위 테스트(calendar.test.ts)가, 카운트업 · 월 슬라이드 연출은 브라우저 화면 확인이 맡는다.
+import { PRACTICE_LOGS_FIGMA, PROBLEM } from "./mocks/data";
+import {
+  api,
+  expect,
+  fixServerToday,
+  http,
+  HttpResponse,
+  hydrated,
+  problemResponse,
+  test,
+} from "./test";
 
 /** Figma S09 달력의 '오늘'(2026년 10월 13일) */
 const TODAY = "2026-10-13";
-test.use({ extraHTTPHeaders: { [E2E_TODAY_HEADER]: TODAY } });
 
 const main = (page: Page) => page.getByRole("main");
 const calendar = (page: Page) => main(page).getByRole("grid", { name: /연습 달력/ });
+const monthTitle = (page: Page, name: string) => main(page).getByText(name, { exact: true });
 
-/** 3.3 요청의 month를 모아 두고, 그 달의 연습 기록(Figma와 같은 10월 기록 중 그 달 것)으로 답한다. */
-function recordMonths(msw: MswFixture) {
-  const months: (string | null)[] = [];
+/** 3.3: 요청한 달(month)의 연습 기록으로 답하는 서버 흉내(Figma와 같은 10월 기록 중 그 달 것, 다른 달은 0일) */
+function monthLogs(msw: MswFixture) {
   msw.use(
     http.get(api("/practice-logs"), ({ request }) => {
       const month = new URL(request.url).searchParams.get("month");
-      months.push(month);
       return HttpResponse.json({
         content: PRACTICE_LOGS_FIGMA.content.filter((log) =>
           log.practiceDate.startsWith(`${month}-`),
@@ -33,124 +36,64 @@ function recordMonths(msw: MswFixture) {
       });
     }),
   );
-  return months;
 }
 
-test.beforeEach(async ({ signIn }) => {
+/** 로그인한 채 시작한다(권한 test는 다른 쿠키로 시작하므로 그 describe에는 걸지 않는다) */
+async function signedIn({ signIn, msw }: { signIn: () => Promise<void>; msw: MswFixture }) {
   await signIn();
+  monthLogs(msw);
+}
+
+test.beforeEach(async ({ page }) => {
+  await fixServerToday(page, TODAY);
 });
 
-test.describe("S09 마이페이지 · 프로필 · 통계", () => {
-  test("닉네임 · '이메일 · 가입 달 시작' · 최근 직무 칩 · [설정]이 보인다", async ({ page }) => {
-    await page.goto("/mypage");
+test.describe("S09 · 마이페이지", () => {
+  test.describe("사용자 조작", () => {
+    test.beforeEach(signedIn);
 
-    await expect(main(page).getByRole("heading", { level: 1 })).toHaveText(ME.nickname);
-    await expect(main(page).getByText(`${ME.email} · 2026년 9월 시작`)).toBeVisible();
-    await expect(main(page).getByText(`${STATS.latestJobTitle} 준비 중`)).toBeVisible();
-    await expect(main(page).getByRole("link", { name: "설정" })).toHaveAttribute(
-      "href",
-      "/mypage/settings",
-    );
+    test("[이전 달]을 누르면 그 달 주소로 가 그 달 연습 기록으로 달력을 다시 그린다", async ({
+      page,
+    }) => {
+      await page.goto("/mypage");
+      const previous = main(page).getByRole("link", { name: "이전 달" });
+      await hydrated(previous);
+
+      await previous.click();
+
+      await expect(page).toHaveURL("/mypage?month=2026-09");
+      await expect(monthTitle(page, "2026년 9월")).toBeVisible();
+      await expect(main(page).getByText("이번 달 0일 연습")).toBeVisible();
+    });
   });
 
-  test("통계 타일 4개: 현재 스트릭 · 최장 스트릭 · 총 면접 · 총 연습 시간(분 → 시간 · 분)", async ({
-    page,
-  }) => {
-    await page.goto("/mypage");
-    const tiles = main(page).getByRole("list", { name: "통계" }).getByRole("listitem");
+  test.describe("입력 검증", () => {
+    test.beforeEach(signedIn);
 
-    await expect(tiles).toHaveCount(4);
-    // 숫자는 0부터 세어 올라가므로, 화면 읽기 프로그램이 읽는 최종 값(sr-only)과 이름으로 확인한다.
-    await expect(tiles.nth(0)).toContainText("7일현재 스트릭");
-    await expect(tiles.nth(1)).toContainText("12일최장 스트릭");
-    await expect(tiles.nth(2)).toContainText("23회총 면접");
-    await expect(tiles.nth(3)).toContainText("6시간 40분총 연습 시간");
-  });
-});
+    // month가 없을 때도 같은 대체 갈래(parseMonth(...) ?? 오늘이 든 달)를 지난다.
 
-test.describe("S09 마이페이지 · 스트릭 달력", () => {
-  test("이번 달을 보여 주고, 연습한 날 · 오늘은 누를 수 있으며 앞날은 누를 수 없다", async ({
-    page,
-    msw,
-  }) => {
-    const months = recordMonths(msw);
-    // '지금 N일 연속'은 3.2 통계의 currentStreak에서 온다(웹 Swagger 3.2). 헤더(2.1)의 값과 구분되게 바꿔 둔다.
-    msw.use(
-      http.get(api("/users/me/stats"), () => HttpResponse.json({ ...STATS, currentStreak: 5 })),
-    );
-    await page.goto("/mypage");
+    test("주소의 month 형식이 틀리면(2026-13) 오늘이 든 달 달력을 그린다", async ({ page }) => {
+      await page.goto("/mypage?month=2026-13");
 
-    await expect(main(page).getByText("2026년 10월", { exact: true })).toBeVisible();
-    // 처음 화면을 그릴 때 이번 달을 부른다(링크 미리 불러오기로 다른 달을 더 부를 수 있어 첫 요청만 본다).
-    expect(months[0]).toBe("2026-10");
-    await expect(calendar(page).getByRole("link", { name: "10월 1일 연습함" })).toBeVisible();
-    await expect(calendar(page).getByRole("link", { name: "10월 13일 오늘" })).toBeVisible();
-    await expect(calendar(page).getByRole("link", { name: "10월 4일" })).toBeVisible();
-    await expect(calendar(page).getByRole("link", { name: /10월 14일/ })).toHaveCount(0);
-    await expect(calendar(page).getByText("14", { exact: true })).toBeVisible();
-    await expect(main(page).getByText("이번 달 10일 연습 · 지금 5일 연속!")).toBeVisible();
+      await expect(monthTitle(page, "2026년 10월")).toBeVisible();
+      await expect(calendar(page).getByRole("link", { name: "10월 13일 오늘" })).toBeVisible();
+      await expect(calendar(page).getByRole("link", { name: "10월 1일 연습함" })).toBeVisible();
+    });
   });
 
-  test("연습한 날을 누르면 그날을 고른 연습 기록으로 가 그날 면접 목록을 보여 준다", async ({
-    page,
-    msw,
-  }) => {
-    recordMonths(msw);
-    // 5.13: Swagger '완료·분석 중' 예시를 10월 1일 목록으로 쓴다. 물은 쿼리를 모아 둔다.
-    const sessionQueries: Record<string, string>[] = [];
-    msw.use(
-      http.get(api("/interview-sessions"), ({ request }) => {
-        sessionQueries.push(Object.fromEntries(new URL(request.url).searchParams));
-        return HttpResponse.json(SESSION_LIST.DAILY);
-      }),
-    );
-    await page.goto("/mypage");
+  test.describe("권한 · 로그인", () => {
+    test("재발급이 실패해 로그인 정보가 없으면 로그인 화면으로 보낸다", async ({
+      page,
+      signIn,
+      msw,
+    }) => {
+      // 재발급이 500이면 proxy는 쿠키를 지우지 않고 화면에 맡긴다. 액세스 토큰이 없어 page의 내 정보가 비어 있다.
+      await signIn({ access: false });
+      msw.use(http.post(api("/auth/token/refresh"), () => problemResponse(PROBLEM.INTERNAL_ERROR)));
 
-    await calendar(page).getByRole("link", { name: "10월 1일 연습함" }).click();
+      await page.goto("/mypage");
 
-    await expect(page).toHaveURL("/records?date=2026-10-01");
-    await expect(main(page).getByRole("heading", { level: 2, name: "10월 1일" })).toBeVisible();
-    await expect(
-      main(page).getByRole("region", { name: "면접 목록" }).getByRole("article"),
-    ).toHaveCount(2);
-    expect(sessionQueries).toContainEqual({ practiceDate: "2026-10-01", page: "0", size: "5" });
-  });
-
-  test("‹ · ›로 달을 옮기면 그 달(month)로 3.3을 다시 불러 보여 준다", async ({ page, msw }) => {
-    const months = recordMonths(msw);
-    await page.goto("/mypage");
-
-    await main(page).getByRole("link", { name: "이전 달" }).click();
-    await expect(page).toHaveURL("/mypage?month=2026-09");
-    await expect(main(page).getByText("2026년 9월", { exact: true })).toBeVisible();
-
-    await main(page).getByRole("link", { name: "다음 달" }).click();
-    await expect(page).toHaveURL("/mypage?month=2026-10");
-    await expect(main(page).getByText("2026년 10월", { exact: true })).toBeVisible();
-    // 링크 미리 불러오기(prefetch)로 앞뒤 달을 더 부를 수 있어, 순서 대신 옮긴 달을 불렀는지만 본다.
-    expect(months).toContain("2026-09");
-  });
-
-  test("주소의 month 형식이 틀리면 이번 달을 보여 준다", async ({ page, msw }) => {
-    const months = recordMonths(msw);
-    await page.goto("/mypage?month=2026-13");
-
-    await expect(main(page).getByText("2026년 10월", { exact: true })).toBeVisible();
-    // 처음 화면을 그릴 때 이번 달을 부른다(링크 미리 불러오기로 다른 달을 더 부를 수 있어 첫 요청만 본다).
-    expect(months[0]).toBe("2026-10");
-  });
-});
-
-// 사용자 결정(2026-10-29): '지원 관리' 카드를 켜서 지원 관리 목록으로 연결('개발 중' 칩 · 토스트 제거)
-test.describe("S09 마이페이지 · 지원 관리", () => {
-  test("지원 관리 카드를 누르면 지원 관리 목록으로 간다", async ({ page }) => {
-    await page.goto("/mypage");
-
-    await main(page)
-      .getByRole("link", { name: /지원 관리/ })
-      .click();
-
-    await expect(page).toHaveURL("/applications");
-    await expect(main(page).getByRole("heading", { level: 1 })).toHaveText("지원 관리");
+      await expect(page).toHaveURL("/login");
+    });
   });
 });

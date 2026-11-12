@@ -1,34 +1,24 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MotionGlobalConfig } from "motion/react";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+// 기준: Figma S09 스트릭 유지권 박스(18:3075) · S09-2 사용 확인 모달(265:1314) · S09-3 사용 완료 모달(266:1553)
+// · Swagger 8.13 내 스트릭 유지권(MyStreakFreezesResponse) · 8.14 유지권 사용 · 기획 메모 S09 · S09-2 · S09-3
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Toast } from "@/components/toast";
+import { applyStreakFreeze } from "@/lib/user/actions";
+import { useToastStore } from "@/stores/toast-store";
+import { deferred } from "@/test/deferred";
 import { flushPromises } from "@/test/flush";
-import type { MyStreakFreezesResponse } from "@/types/api";
+import type { MyStreakFreezesResponse, StreakFreezeUseResponse } from "@/types/api";
 
 import { StreakFreezeCard } from "./streak-freeze-card";
 
-vi.mock("motion/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("motion/react")>()),
-  useReducedMotion: () => true,
-}));
-// 열림 · 닫힘 애니메이션을 건너뛰어 실제 시간을 기다리지 않는다
-beforeAll(() => {
-  MotionGlobalConfig.skipAnimations = true;
-});
-afterAll(() => {
-  MotionGlobalConfig.skipAnimations = false;
-});
+// 경계 mock: 서버 액션(8.14)과 연출(motion)
+vi.mock("@/lib/user/actions", () => ({ applyStreakFreeze: vi.fn() }));
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
 
-// 서버 액션 경계만 바꾼다. 실제 메우기 · 다시 그리기는 E2E(notice-streak-freeze.spec.ts)가 본다.
-const applyStreakFreeze = vi.fn();
-vi.mock("@/lib/user/actions", () => ({
-  applyStreakFreeze: (...args: unknown[]) => applyStreakFreeze(...args),
-}));
-
-// 기준: Figma S09 스트릭 유지권 박스 · S09-2 · S09-3 · 기획 메모 S09 · S09-2 · S09-3 · Swagger 8.13 '2개 있음' 예시 · 8.14
-
-const FREEZES = {
+// 예시 데이터: Swagger 8.13 '2개 있음' 예시 · 8.14 200 예시
+const FREEZES: MyStreakFreezesResponse = {
   availableCount: 2,
   freezes: [
     {
@@ -44,114 +34,167 @@ const FREEZES = {
       expiresAt: "2026-11-06T00:00:00+09:00",
     },
   ],
-} satisfies MyStreakFreezesResponse;
+};
+const USED: StreakFreezeUseResponse = {
+  practiceDate: "2026-10-19",
+  freezeId: 31,
+  availableCount: 1,
+  currentStreak: 9,
+};
+const CONFIRM_TITLE = "스트릭 유지권을 사용하시겠습니까?";
 
-afterEach(() => {
-  cleanup();
-  vi.clearAllMocks();
-});
+/** 유지권 줄의 [메우기](n번째) */
+const rowFill = (index: number) => screen.getAllByRole("button", { name: "메우기" })[index];
+const dialog = () => screen.queryByRole("dialog");
+/** 모달 안 버튼 */
+const modalButton = (name: string) =>
+  within(screen.getByRole("dialog")).getByRole("button", { name });
 
-function renderCard(freezes: MyStreakFreezesResponse = FREEZES) {
-  render(
-    <>
-      <StreakFreezeCard freezes={freezes} />
-      <Toast />
-    </>,
-  );
+/** 첫 유지권으로 확인 모달을 연다 */
+function openFirst() {
+  render(<StreakFreezeCard freezes={FREEZES} />);
+  fireEvent.click(rowFill(0));
 }
 
-const card = () => screen.getByRole("region", { name: "스트릭 유지권" });
+/** 첫 유지권을 써서 사용 완료 화면까지 간다 */
+async function useFirst() {
+  vi.mocked(applyStreakFreeze).mockResolvedValue({ used: USED });
+  openFirst();
+  fireEvent.click(modalButton("메우기"));
+  await flushPromises();
+}
 
-describe("StreakFreezeCard (S09 스트릭 유지권)", () => {
-  it("소유한 개수와 유지권마다 메울 날짜 · 만료 날짜 · [메우기]를 보여 준다", () => {
-    renderCard();
+beforeEach(() => {
+  useToastStore.setState({ toast: null });
+});
 
-    expect(card().textContent).toContain("소유한 유지권 2개");
-    expect(screen.getByText("10월 19일")).toBeTruthy();
-    expect(screen.getByText("11.03까지")).toBeTruthy();
-    expect(screen.getByText("10월 22일")).toBeTruthy();
-    expect(screen.getByText("11.06까지")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "메우기" })).toHaveLength(2);
-  });
+describe("StreakFreezeCard · 스트릭 유지권", () => {
+  describe("유지권 목록", () => {
+    describe("화면 표시", () => {
+      it("유지권이 없으면 '아직 받은 유지권이 없어요'만 보여 준다", () => {
+        render(<StreakFreezeCard freezes={{ availableCount: 0, freezes: [] }} />);
 
-  it("유지권이 없으면 '아직 받은 유지권이 없어요'만 보여 준다", () => {
-    renderCard({ availableCount: 0, freezes: [] });
+        expect(screen.getByText("아직 받은 유지권이 없어요")).toBeDefined();
+        expect(screen.queryByText(/소유한 유지권/)).toBeNull();
+        expect(screen.queryByRole("button", { name: "메우기" })).toBeNull();
+      });
 
-    expect(screen.getByText("아직 받은 유지권이 없어요")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "메우기" })).toBeNull();
-  });
+      it("유지권이 있으면 쓸 수 있는 개수를 '소유한 유지권 N개'로 보여 준다", () => {
+        render(<StreakFreezeCard freezes={FREEZES} />);
 
-  it("[메우기] → 그 유지권의 날짜로 확인 모달(S09-2), [취소] · Esc로 닫힌다", async () => {
-    renderCard();
+        expect(screen.getByText("소유한 유지권", { exact: false }).textContent).toBe(
+          "소유한 유지권 2개",
+        );
+      });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[1]);
-    const dialog = screen.getByRole("dialog", { name: "스트릭 유지권을 사용하시겠습니까?" });
-    expect(dialog.textContent).toContain("날짜 : 2026.10.22");
+      it("유지권마다 메울 날짜를 'M월 D일', 만료를 'MM.DD까지'로 보여 준다", () => {
+        render(<StreakFreezeCard freezes={FREEZES} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "취소" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-
-    fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(applyStreakFreeze).not.toHaveBeenCalled();
-  });
-
-  it("모달의 [메우기] → 8.14로 그 유지권을 쓰고, 성공하면 '유지권 사용 완료!'(S09-3) → [확인]으로 닫힌다", async () => {
-    applyStreakFreeze.mockResolvedValue({
-      used: { practiceDate: "2026-10-19", freezeId: 31, availableCount: 1, currentStreak: 9 },
+        const rows = screen.getAllByRole("listitem").map((row) => row.textContent);
+        expect(rows[0]).toContain("10월 19일");
+        expect(rows[0]).toContain("11.03까지");
+        expect(rows[1]).toContain("10월 22일");
+        expect(rows[1]).toContain("11.06까지");
+      });
     });
-    renderCard();
-
-    fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
-    await flushPromises();
-
-    expect(applyStreakFreeze).toHaveBeenCalledWith(31);
-    const done = await screen.findByRole("dialog", { name: "유지권 사용 완료!" });
-    expect(done.textContent).not.toContain("날짜 :");
-
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("실패하면(409 등) 모달을 닫고 서버 문구를 토스트로 알린다", async () => {
-    applyStreakFreeze.mockResolvedValue({ error: "이미 연습한 날이라 메울 수 없어요." });
-    renderCard();
+  describe("사용 확인 모달", () => {
+    describe("사용자 조작", () => {
+      it("[메우기]를 누르면 그 유지권의 날짜로 확인 모달을 연다", () => {
+        render(<StreakFreezeCard freezes={FREEZES} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "메우기" }));
-    await flushPromises();
+        fireEvent.click(rowFill(1));
 
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(screen.getByRole("status").textContent).toBe("이미 연습한 날이라 메울 수 없어요.");
-  });
+        expect(screen.getByRole("dialog", { name: CONFIRM_TITLE }).textContent).toContain(
+          "날짜 : 2026.10.22",
+        );
+      });
 
-  it("메우는 동안에는 [취소] · [메우기]를 누를 수 없고 Esc로도 닫히지 않는다", async () => {
-    let resolve: (value: unknown) => void = () => {};
-    applyStreakFreeze.mockReturnValue(new Promise((r) => (resolve = r)));
-    renderCard();
+      it("[취소]를 누르면 모달을 닫는다", () => {
+        openFirst();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "메우기" })[0]);
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "메우기" }));
+        fireEvent.click(screen.getByRole("button", { name: "취소" }));
 
-    await waitFor(() =>
-      expect(within(dialog).getByRole("button", { name: "취소" }).hasAttribute("disabled")).toBe(
-        true,
-      ),
-    );
-    expect(within(dialog).getByRole("button", { name: "메우기" }).hasAttribute("disabled")).toBe(
-      true,
-    );
-    fireEvent.keyDown(dialog, { key: "Escape" });
-    expect(screen.getByRole("dialog")).toBeTruthy();
+        expect(dialog()).toBeNull();
+      });
 
-    await act(async () =>
-      resolve({
-        used: { practiceDate: "2026-10-19", freezeId: 31, availableCount: 1, currentStreak: 9 },
-      }),
-    );
-    expect(await screen.findByRole("dialog", { name: "유지권 사용 완료!" })).toBeTruthy();
+      it("Esc를 누르면 모달을 닫는다", () => {
+        openFirst();
+
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+        expect(dialog()).toBeNull();
+      });
+
+      it("사용 완료 화면에서 [확인]을 누르면 모달을 닫는다", async () => {
+        await useFirst();
+
+        fireEvent.click(screen.getByRole("button", { name: "확인" }));
+
+        expect(dialog()).toBeNull();
+      });
+
+      it("사용 완료 화면에서는 Esc로 닫지 않는다", async () => {
+        await useFirst();
+
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+        expect(screen.getByRole("dialog", { name: "유지권 사용 완료!" })).toBeDefined();
+      });
+    });
+
+    describe("정상 처리", () => {
+      it("모달의 [메우기]로 그 유지권을 쓰면 '유지권 사용 완료!'를 보여 준다", async () => {
+        await useFirst();
+
+        expect(applyStreakFreeze).toHaveBeenCalledWith(31);
+        expect(screen.getByRole("dialog", { name: "유지권 사용 완료!" })).toBeDefined();
+      });
+    });
+
+    describe("상태 변화", () => {
+      it("사용 완료 뒤 닫고 다른 유지권을 열면 확인 화면부터 보여 준다", async () => {
+        await useFirst();
+        fireEvent.click(screen.getByRole("button", { name: "확인" }));
+
+        fireEvent.click(rowFill(1));
+
+        expect(screen.getByRole("dialog", { name: CONFIRM_TITLE }).textContent).toContain(
+          "날짜 : 2026.10.22",
+        );
+      });
+    });
+
+    describe("오류 처리", () => {
+      it("쓰지 못하면 모달을 닫고 서버 문구를 토스트로 알린다", async () => {
+        vi.mocked(applyStreakFreeze).mockResolvedValue({
+          error: "이미 연습한 날이라 메울 수 없어요.",
+        });
+        openFirst();
+
+        fireEvent.click(modalButton("메우기"));
+        await flushPromises();
+
+        expect(dialog()).toBeNull();
+        expect(useToastStore.getState().toast?.text).toBe("이미 연습한 날이라 메울 수 없어요.");
+      });
+    });
+
+    describe("중복 · 경쟁 처리", () => {
+      it("메우는 동안에는 두 버튼을 누를 수 없고 Esc로도 닫지 않는다", async () => {
+        const response = deferred<{ used: StreakFreezeUseResponse }>();
+        vi.mocked(applyStreakFreeze).mockReturnValue(response.promise);
+        openFirst();
+
+        fireEvent.click(modalButton("메우기"));
+        fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+        expect(modalButton("메우기").hasAttribute("disabled")).toBe(true);
+        expect(modalButton("취소").hasAttribute("disabled")).toBe(true);
+        expect(screen.getByRole("dialog", { name: CONFIRM_TITLE })).toBeDefined();
+        await act(async () => response.resolve({ used: USED }));
+      });
+    });
   });
 });

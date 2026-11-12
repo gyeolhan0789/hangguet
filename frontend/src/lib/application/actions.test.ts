@@ -1,291 +1,203 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Swagger 4.1 지원서 작성(201 · 400 VALIDATION_FAILED coverLetterItems) · 4.5 지원서 삭제(204 · 404 APPLICATION_NOT_FOUND)
+// · 사용자 결정(2026-10-29: 저장 뒤 들어온 곳으로, 삭제 실패면 모달 안 서버 문구 · 성공이면 목록으로)
+import { describe, expect, it, vi } from "vitest";
 
+import { refresh } from "next/cache";
+import { redirect, RedirectType } from "next/navigation";
+
+import { RETRY_LATER } from "@/lib/api/problem-detail";
+import type { ApplicationResponse } from "@/types/api";
+import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
+import { RedirectError } from "@/test/next-navigation";
 import { redirectTo } from "@/test/redirect";
 
-import { axiosProblem } from "@/test/axios-problem";
-import type { ApplicationCreateRequest, ApplicationResponse, ProblemDetail } from "@/types/api";
+import { createApplication, deleteApplication } from "./actions";
 
-// 기준: Swagger 4.1 지원서 작성(coverLetterItems · 201 · 400 VALIDATION_FAILED · 503 COVER_LETTER_CHECK_UNAVAILABLE)
-// · 4.5 지원서 삭제(204 · 404 APPLICATION_NOT_FOUND, 면접에 쓴 지원서도 지운다)
-// · 사용자 결정(2026-10-29: 저장 뒤 지원서 쓰기를 연 곳으로 — 지원 관리면 새 지원서 상세, S03이면 새 지원서를 골라 둔 S03.
-//   삭제에 실패하면 모달에 서버 문구, 204 · 404면 목록으로)
-// · Next 16 refresh: 저장 · 삭제가 성공하면 redirect 전에 불러, 뒤로 가기로 돌아간 목록이 BFCache의 옛 4.3을 보여 주지 않게 한다
+// 경계 mock: HTTP(api)와 Next 런타임(redirect · unstable_rethrow · refresh)
+const api = vi.hoisted(() => ({ post: vi.fn(), delete: vi.fn() }));
+vi.mock("@/lib/api/client", () => ({ api }));
+vi.mock("next/navigation", () => import("@/test/next-navigation"));
+vi.mock("next/cache", () => import("@/test/next-cache"));
 
-const { post, del } = vi.hoisted(() => ({ post: vi.fn(), del: vi.fn() }));
-vi.mock("@/lib/api/client", () => ({ api: { post, delete: del } }));
-
-// Next의 redirect는 특별한 오류를 던져 이동시킨다. unstable_rethrow는 그 오류만 다시 던진다.
-class RedirectSignal extends Error {}
-// 두 번째 인자(RedirectType)는 toHaveBeenCalledWith로 확인한다.
-const redirect = vi.fn<(url: string, type?: string) => never>((url) => {
-  throw new RedirectSignal(`REDIRECT ${url}`);
-});
-vi.mock("next/navigation", () => ({
-  RedirectType: { push: "push", replace: "replace" },
-  redirect: (url: string, type?: string) => redirect(url, type),
-  unstable_rethrow: (error: unknown) => {
-    if (error instanceof RedirectSignal) throw error;
-  },
-}));
-
-// 클라이언트 BFCache를 비우는 refresh(서버 액션 전용)
-const refresh = vi.fn();
-vi.mock("next/cache", () => ({ refresh: () => refresh() }));
-
-/** refresh가 한 번, redirect보다 먼저 불렸다(redirect가 던지면 그 뒤 코드는 돌지 않는다). */
-function expectRefreshBeforeRedirect() {
-  expect(refresh).toHaveBeenCalledTimes(1);
-  expect(redirect).toHaveBeenCalledTimes(1);
-  expect(refresh.mock.invocationCallOrder[0]).toBeLessThan(redirect.mock.invocationCallOrder[0]);
-}
-
-const { createApplication, deleteApplication } = await import("./actions");
-
-const values = {
+// 예시 데이터: Swagger 4.1 201 · 400 COVER_LETTER_UNUSABLE · 4.5 404 예시
+const VALUES = {
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
   coverLetterItems: [
-    { question: "지원 동기", answer: "저는…" },
-    { question: "협업 경험", answer: "4명이 함께한…" },
+    {
+      question: "지원 동기",
+      answer: "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어요.",
+    },
   ],
-} satisfies ApplicationCreateRequest;
-
-// Swagger 4.1 201 예시
-const created = {
+};
+const CREATED: ApplicationResponse = {
   id: 13,
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
   coverLetterItems: [
-    { itemOrder: 1, question: "지원 동기", answer: "저는…" },
-    { itemOrder: 2, question: "협업 경험", answer: "4명이 함께한…" },
+    {
+      itemOrder: 1,
+      question: "지원 동기",
+      answer: "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어요.",
+    },
   ],
   createdAt: "2026-10-29T10:00:00+09:00",
-} satisfies ApplicationResponse;
-
-const validationFailed = (errors: ProblemDetail["errors"]): ProblemDetail => ({
+};
+const COVER_LETTER_UNUSABLE_REASON =
+  "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.";
+const COVER_LETTER_UNUSABLE = {
   title: "Bad Request",
   status: 400,
   detail: "입력값을 확인해 주세요.",
   instance: "/api/v1/applications",
   code: "VALIDATION_FAILED",
-  errors,
-});
+  errors: [{ field: "coverLetterItems", reason: COVER_LETTER_UNUSABLE_REASON }],
+};
+const APPLICATION_NOT_FOUND = {
+  title: "Not Found",
+  status: 404,
+  detail: "지원서를 찾을 수 없어요.",
+  instance: "/api/v1/applications/0",
+  code: "APPLICATION_NOT_FOUND",
+};
 
-const signedOut = new RedirectSignal("REDIRECT /api/auth/signed-out?next=%2Fapplications");
+/** refresh가 redirect보다 먼저 불렸는지(redirect가 던지면 뒤 코드는 돌지 않는다) */
+const refreshedBeforeRedirect = () =>
+  vi.mocked(refresh).mock.invocationCallOrder[0] < vi.mocked(redirect).mock.invocationCallOrder[0];
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
+describe("createApplication · 지원서 작성", () => {
+  describe("정상 처리", () => {
+    it("지원 관리에서 열었으면 새 지원서 상세로 기록을 바꿔치기해 간다", async () => {
+      api.post.mockResolvedValue({ data: CREATED });
 
-describe("createApplication (4.1 지원서 작성)", () => {
-  it("문항을 적은 순서대로, 칸마다 앞뒤 공백을 지워 보내고, 지원 관리에서 열었으면 만든 지원서 상세로 간다", async () => {
-    post.mockResolvedValue({ data: created });
+      await expect(createApplication(VALUES, "applications")).rejects.toThrow(
+        redirectTo("/applications/13"),
+      );
+      expect(vi.mocked(redirect).mock.calls[0][1]).toBe(RedirectType.replace);
+    });
 
-    await expect(
-      createApplication(
-        {
-          companyName: "  ○○전자 ",
-          jobTitle: "백엔드 개발자\n",
-          coverLetterItems: [
-            { question: " 지원 동기", answer: "저는…\n" },
-            { question: "협업 경험 ", answer: " 4명이 함께한…" },
-          ],
-        },
-        "applications",
-      ),
-    ).rejects.toThrow(redirectTo("/applications/13"));
+    it("연습 S03에서 열었으면 막 저장한 표시와 함께 새 지원서를 골라 둔 S03로 간다", async () => {
+      api.post.mockResolvedValue({ data: CREATED });
 
-    expect(post).toHaveBeenCalledWith("/applications", values);
-    // 뒤로 가기로 저장한 지원서 쓰기에 돌아가지 않게 기록을 바꿔치기한다
-    expect(redirect).toHaveBeenCalledWith("/applications/13", "replace");
-    // 뒤로 가기로 돌아간 지원 관리 목록이 새 지원서를 담은 4.3을 다시 받게 한다
-    expectRefreshBeforeRedirect();
+      await expect(createApplication(VALUES, "practice")).rejects.toThrow(
+        redirectTo("/practice?applicationId=13&added=1"),
+      );
+    });
+
+    it("저장에 성공하면 이동하기 전에 화면을 다시 그린다", async () => {
+      api.post.mockResolvedValue({ data: CREATED });
+
+      await expect(createApplication(VALUES, "applications")).rejects.toThrow(RedirectError);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(refreshedBeforeRedirect()).toBe(true);
+    });
   });
 
-  it("S03 [+ 추가하기]로 열었으면 만든 지원서를 골라 둔 S03로 돌아간다(막 저장한 표시 added=1)", async () => {
-    post.mockResolvedValue({ data: created });
-
-    await expect(createApplication(values, "practice")).rejects.toThrow(
-      redirectTo("/practice?applicationId=13&added=1"),
-    );
-    expect(redirect).toHaveBeenCalledWith("/practice?applicationId=13&added=1", "replace");
-    expectRefreshBeforeRedirect();
-  });
-
-  it.each([
-    {
-      // Swagger 4.1 400 예시(질문을 만들기 어려운 자기소개서)
-      name: "자기소개서를 거절 → 칸별 오류",
-      errors: [
-        {
-          field: "coverLetterItems",
-          reason:
-            "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
-        },
-      ],
-      expected: {
-        fieldErrors: {
-          coverLetterItems:
-            "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
-        },
-      },
-    },
-    {
-      // 문항 하나의 형식 오류는 화면 검사가 먼저 막으므로, 서버가 거절하면 폼 아래 문구(detail)로 알린다.
-      name: "문항 하나의 칸만 거절 → 폼 오류(detail)",
-      errors: [{ field: "coverLetterItems[0].answer", reason: "1~20,000자입니다." }],
-      expected: { formError: "입력값을 확인해 주세요." },
-    },
-    {
-      name: "폼에 없는 칸만 거절 → 폼 오류(detail)",
-      errors: [{ field: "unknown", reason: "필수 값입니다." }],
-      expected: { formError: "입력값을 확인해 주세요." },
-    },
-    {
-      name: "폼에 있는 칸과 없는 칸이 섞임 → 칸별 오류 + 폼 오류",
-      errors: [
-        { field: "companyName", reason: "1~100자입니다." },
-        { field: "unknown", reason: "필수 값입니다." },
-      ],
-      expected: {
-        fieldErrors: { companyName: "1~100자입니다." },
+  describe("입력 검증", () => {
+    it("입력이 규칙에 맞지 않으면 보내지 않고 입력 확인 안내를 돌려준다", async () => {
+      expect(await createApplication({ ...VALUES, jobTitle: "   " }, "applications")).toEqual({
         formError: "입력값을 확인해 주세요.",
-      },
-    },
-    {
-      name: "칸 정보 없이 거절 → 폼 오류(detail)",
-      errors: [],
-      expected: { formError: "입력값을 확인해 주세요." },
-    },
-  ])("VALIDATION_FAILED: $name", async ({ errors, expected }) => {
-    post.mockRejectedValue(axiosProblem(validationFailed(errors)));
-
-    expect(await createApplication(values, "applications")).toEqual(expected);
-    expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it("자기소개서를 판단하지 못하면(503 COVER_LETTER_CHECK_UNAVAILABLE) 서버 문구를 폼 오류로 돌려준다", async () => {
-    // Swagger 4.1 503 예시
-    post.mockRejectedValue(
-      axiosProblem({
-        title: "Service Unavailable",
-        status: 503,
-        detail: "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
-        instance: "/api/v1/applications",
-        code: "COVER_LETTER_CHECK_UNAVAILABLE",
-      }),
-    );
-
-    expect(await createApplication(values, "applications")).toEqual({
-      formError: "자기소개서를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+      });
+      expect(api.post).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
     });
-    expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    post.mockRejectedValue(new Error("network"));
+  describe("오류 처리", () => {
+    it("서버가 자기소개서를 거절하면(400 coverLetterItems) 그 칸 오류로 돌려주고 화면을 다시 그리지 않는다", async () => {
+      api.post.mockRejectedValue(axiosProblem(COVER_LETTER_UNUSABLE));
 
-    expect(await createApplication(values, "applications")).toEqual({
-      formError: "잠시 후 다시 시도해 주세요.",
+      expect(await createApplication(VALUES, "applications")).toEqual({
+        fieldErrors: { coverLetterItems: COVER_LETTER_UNUSABLE_REASON },
+      });
+      expect(refresh).not.toHaveBeenCalled();
     });
-    expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 삼키지 않고 그대로 이동한다", async () => {
-    post.mockRejectedValue(signedOut);
+  describe("권한 · 로그인", () => {
+    it("토큰 재발급 · 로그아웃으로 이동해야 하면 그 이동을 그대로 던지고 화면을 다시 그리지 않는다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
 
-    await expect(createApplication(values, "applications")).rejects.toBe(signedOut);
-    expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { name: "공백만 있는 직무", input: { ...values, jobTitle: "   " } },
-    {
-      name: "공백만 있는 답변",
-      input: { ...values, coverLetterItems: [{ question: "지원 동기", answer: " " }] },
-    },
-    {
-      name: "6개째 문항",
-      input: {
-        ...values,
-        coverLetterItems: Array.from({ length: 6 }, () => ({ question: "문항", answer: "답변" })),
-      },
-    },
-  ])("$name은 서버에 보내지 않는다", async ({ input }) => {
-    const result = await createApplication(input, "applications");
-
-    expect(result).toEqual({ formError: "입력값을 확인해 주세요." });
-    expect(post).not.toHaveBeenCalled();
-    expect(refresh).not.toHaveBeenCalled();
+      await expect(createApplication(VALUES, "applications")).rejects.toBe(moveToRefresh);
+      expect(refresh).not.toHaveBeenCalled();
+    });
   });
 });
 
-describe("deleteApplication (4.5 지원서 삭제)", () => {
-  it("삭제하고(204) 지원 관리 목록으로 간다", async () => {
-    del.mockResolvedValue({ status: 204 });
+describe("deleteApplication · 지원서 삭제", () => {
+  describe("정상 처리", () => {
+    it("지우면 화면을 다시 그린 뒤 지원 관리 목록으로 기록을 바꿔치기해 간다", async () => {
+      api.delete.mockResolvedValue({ status: 204 });
 
-    await expect(deleteApplication(9)).rejects.toThrow(redirectTo("/applications"));
-    expect(del).toHaveBeenCalledWith("/applications/9");
-    // 뒤로 가기로 지운 지원서의 상세에 돌아가지 않게 기록을 바꿔치기한다
-    expect(redirect).toHaveBeenCalledWith("/applications", "replace");
-    // 지운 지원서가 뒤로 가기로 돌아간 지원 관리 목록 · S03에 남지 않게 한다
-    expectRefreshBeforeRedirect();
+      await expect(deleteApplication(12)).rejects.toThrow(redirectTo("/applications"));
+      expect(vi.mocked(redirect).mock.calls[0][1]).toBe(RedirectType.replace);
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(refreshedBeforeRedirect()).toBe(true);
+    });
   });
 
-  it("이미 없는 지원서(404 APPLICATION_NOT_FOUND)도 목록으로 간다", async () => {
-    // Swagger 4.5 404 예시
-    del.mockRejectedValue(
-      axiosProblem({
-        title: "Not Found",
-        status: 404,
-        detail: "지원서를 찾을 수 없어요.",
-        instance: "/api/v1/applications/0",
-        code: "APPLICATION_NOT_FOUND",
-      }),
-    );
-
-    await expect(deleteApplication(10)).rejects.toThrow(redirectTo("/applications"));
-    expectRefreshBeforeRedirect();
+  describe("입력 검증", () => {
+    it.each([
+      { label: "0", id: 0 },
+      { label: "음수", id: -1 },
+      { label: "소수", id: 1.5 },
+      { label: "NaN", id: Number.NaN },
+      { label: "안전한 정수 범위 밖", id: Number.MAX_SAFE_INTEGER + 1 },
+    ])("지원서 id가 '$label'이면 요청하지 않고 지원 관리 목록으로 간다", async ({ id }) => {
+      await expect(deleteApplication(id)).rejects.toThrow(redirectTo("/applications"));
+      expect(api.delete).not.toHaveBeenCalled();
+    });
   });
 
-  it("서버 오류(500 INTERNAL_ERROR)면 이동하지 않고 서버 문구를 돌려준다", async () => {
-    del.mockRejectedValue(
-      axiosProblem({
-        title: "Internal Server Error",
-        status: 500,
-        detail: "서버에 문제가 생겼어요.",
-        instance: "/api/v1/applications/9",
-        code: "INTERNAL_ERROR",
-      }),
-    );
+  describe("경계값", () => {
+    it("지원서 id가 가장 작은 유효값 1이면 요청한다", async () => {
+      api.delete.mockResolvedValue({ status: 204 });
 
-    expect(await deleteApplication(9)).toEqual({ error: "서버에 문제가 생겼어요." });
-    expect(redirect).not.toHaveBeenCalled();
-    expect(refresh).not.toHaveBeenCalled();
+      await expect(deleteApplication(1)).rejects.toThrow(redirectTo("/applications"));
+      expect(api.delete).toHaveBeenCalledTimes(1);
+    });
   });
 
-  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    del.mockRejectedValue(new Error("network"));
+  describe("오류 처리", () => {
+    it("이미 없는 지원서(404 APPLICATION_NOT_FOUND)면 지운 것처럼 목록으로 간다", async () => {
+      api.delete.mockRejectedValue(axiosProblem(APPLICATION_NOT_FOUND));
 
-    expect(await deleteApplication(9)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
-    expect(refresh).not.toHaveBeenCalled();
-  });
+      await expect(deleteApplication(12)).rejects.toThrow(redirectTo("/applications"));
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
 
-  it("api가 401로 재발급 · 로그아웃 화면에 보내면(redirect) 삼키지 않고 그대로 이동한다", async () => {
-    del.mockRejectedValue(signedOut);
+    it("서버가 문구와 함께 실패하면 이동하지 않고 그 문구를 돌려준다", async () => {
+      api.delete.mockRejectedValue(
+        axiosProblem({
+          title: "Internal Server Error",
+          status: 500,
+          detail: "서버에 문제가 생겼어요.",
+          instance: "/api/v1/applications/12",
+          code: "INTERNAL_ERROR",
+        }),
+      );
 
-    await expect(deleteApplication(10)).rejects.toBe(signedOut);
-    expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it.each([0, -1, 1.5, Number.NaN])(
-    "지원서 id가 양의 정수가 아니면(%s) 서버에 보내지 않고 목록으로 간다",
-    async (applicationId) => {
-      await expect(deleteApplication(applicationId)).rejects.toThrow(redirectTo("/applications"));
-      expect(del).not.toHaveBeenCalled();
-      // 아무것도 지우지 않았으니 다시 받을 것도 없다
+      expect(await deleteApplication(12)).toEqual({ error: "서버에 문제가 생겼어요." });
       expect(refresh).not.toHaveBeenCalled();
-    },
-  );
+      expect(redirect).not.toHaveBeenCalled();
+    });
+
+    it("서버 문구 없이 실패하면 다시 시도 안내를 돌려준다", async () => {
+      api.delete.mockRejectedValue(axiosNoResponse());
+
+      expect(await deleteApplication(12)).toEqual({ error: RETRY_LATER });
+    });
+  });
+
+  describe("권한 · 로그인", () => {
+    it("토큰 재발급 · 로그아웃으로 이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.delete.mockRejectedValue(moveToRefresh);
+
+      await expect(deleteApplication(12)).rejects.toBe(moveToRefresh);
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -1,74 +1,89 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
-
-import type { ApplicationCreateRequest } from "@/types/api";
-
-import { applicationSchema, type ApplicationValues } from "./schemas";
-
+// @vitest-environment node
 // 기준: Swagger 4.1 ApplicationCreateRequest(회사명 · 직무 1~100자, coverLetterItems 1~5개, 문항 1~255자 · 답변 1~20,000자)
 // · ERD cover_letter_items(지원서당 최대 5개) · 사용자 결정(2026-10-29: 문항 · 답변이 하나라도 비면 거절)
+import { describe, expect, it } from "vitest";
 
-const item = { question: "지원 동기", answer: "저는…" };
-const values = { companyName: "○○전자", jobTitle: "백엔드 개발자", coverLetterItems: [item] };
+import { applicationSchema } from "./schemas";
 
-describe("applicationSchema (Swagger 4.1 요청 본문 · 지원서 쓰기 폼)", () => {
-  // 타입 검사는 tsc가 한다: 스키마나 4.1 요청 타입 어느 쪽이 바뀌어도 여기서 컴파일 오류가 난다.
-  it("검증을 통과한 값의 타입이 4.1 요청 타입(ApplicationCreateRequest)과 같다", () => {
-    expectTypeOf<ApplicationValues>().toEqualTypeOf<ApplicationCreateRequest>();
-  });
+// 예시 데이터: Swagger 4.1 요청 예시
+const ITEM = { question: "지원 동기", answer: "저는 대용량 트래픽을 안정적으로 처리하고 싶어요." };
+const VALUES = { companyName: "○○전자", jobTitle: "백엔드 개발자", coverLetterItems: [ITEM] };
 
-  it("모두 채워져 있으면 통과하고, 칸마다 앞뒤 공백은 지운다", () => {
-    expect(
-      applicationSchema.parse({
-        companyName: " ○○전자 ",
-        jobTitle: "백엔드 개발자\n",
-        coverLetterItems: [{ question: " 지원 동기 ", answer: "저는…\n" }],
-      }),
-    ).toEqual(values);
-  });
+type Field = "companyName" | "jobTitle" | "question" | "answer";
 
-  it.each(["companyName", "jobTitle"] as const)("%s가 비었거나 공백만 있으면 거절한다", (field) => {
-    for (const blank of ["", "  \n "]) {
-      expect(applicationSchema.safeParse({ ...values, [field]: blank }).success).toBe(false);
-    }
-  });
+/** 한 칸만 바꾼 입력. 문항 · 답변은 첫 문항의 칸이다. */
+function withField(field: Field, value: string) {
+  if (field === "question" || field === "answer") {
+    return { ...VALUES, coverLetterItems: [{ ...ITEM, [field]: value }] };
+  }
+  return { ...VALUES, [field]: value };
+}
 
-  it("회사명 · 직무는 100자까지만 받는다", () => {
-    for (const field of ["companyName", "jobTitle"] as const) {
-      expect(applicationSchema.safeParse({ ...values, [field]: "가".repeat(100) }).success).toBe(
-        true,
-      );
-      expect(applicationSchema.safeParse({ ...values, [field]: "가".repeat(101) }).success).toBe(
-        false,
-      );
-    }
-  });
+/** 거절 문구(통과하면 null) */
+function rejection(input: unknown) {
+  const result = applicationSchema.safeParse(input);
+  return result.success ? null : result.error.issues[0].message;
+}
 
-  it("문항은 1~5개만 받는다", () => {
-    const of = (count: number) => ({ ...values, coverLetterItems: Array(count).fill(item) });
-    expect(applicationSchema.safeParse(of(0)).success).toBe(false);
-    expect(applicationSchema.safeParse(of(5)).success).toBe(true);
-    expect(applicationSchema.safeParse(of(6)).success).toBe(false);
-  });
+const withItems = (count: number) => ({ ...VALUES, coverLetterItems: Array(count).fill(ITEM) });
 
-  it.each(["question", "answer"] as const)(
-    "어느 문항이든 %s가 비었거나 공백만 있으면 거절한다",
-    (field) => {
-      for (const blank of ["", "  \n "]) {
-        const coverLetterItems = [item, { ...item, [field]: blank }];
-        expect(applicationSchema.safeParse({ ...values, coverLetterItems }).success).toBe(false);
-      }
-    },
-  );
-
-  it("문항 질문은 255자, 답변은 문항마다 20,000자까지 받는다", () => {
-    const withItem = (question: string, answer: string) => ({
-      ...values,
-      coverLetterItems: [item, { question, answer }],
+describe("applicationSchema · 지원서 입력 규칙", () => {
+  describe("정상 처리", () => {
+    it("모든 칸을 채우면 통과하고 칸마다 앞뒤 공백을 지운다", () => {
+      expect(
+        applicationSchema.parse({
+          companyName: " ○○전자 ",
+          jobTitle: "백엔드 개발자\n",
+          coverLetterItems: [{ question: " 지원 동기 ", answer: `${ITEM.answer}\n` }],
+        }),
+      ).toEqual(VALUES);
     });
-    expect(
-      applicationSchema.safeParse(withItem("가".repeat(255), "가".repeat(20000))).success,
-    ).toBe(true);
-    expect(applicationSchema.safeParse(withItem("가".repeat(256), "답변")).success).toBe(false);
-    expect(applicationSchema.safeParse(withItem("문항", "가".repeat(20001))).success).toBe(false);
+  });
+
+  describe("입력 검증", () => {
+    it.each(
+      (
+        [
+          { field: "companyName", message: "회사명을 입력해 주세요." },
+          { field: "jobTitle", message: "직무를 입력해 주세요." },
+          { field: "question", message: "문항을 입력해 주세요." },
+          { field: "answer", message: "답변을 입력해 주세요." },
+        ] as const
+      ).flatMap((row) => [
+        { ...row, label: "빈 값", input: "" },
+        { ...row, label: "공백만", input: "  \n " },
+      ]),
+    )("'$field'가 '$label'이면 '$message' 문구로 거절한다", ({ field, input, message }) => {
+      expect(rejection(withField(field, input))).toBe(message);
+    });
+  });
+
+  describe("경계값", () => {
+    it.each([
+      { field: "companyName", max: 100, message: "회사명은 100자까지 쓸 수 있어요." },
+      { field: "jobTitle", max: 100, message: "직무는 100자까지 쓸 수 있어요." },
+      { field: "question", max: 255, message: "문항은 255자까지 쓸 수 있어요." },
+      { field: "answer", max: 20000, message: "답변은 20,000자까지 쓸 수 있어요." },
+    ] as const)(
+      "'$field'는 '$max'자면 통과하고 하나 더 많으면 '$message' 문구로 거절한다",
+      ({ field, max, message }) => {
+        expect(rejection(withField(field, "가".repeat(max)))).toBeNull();
+        expect(rejection(withField(field, "가".repeat(max + 1)))).toBe(message);
+      },
+    );
+
+    it("앞뒤 공백을 뺀 길이가 100자면 회사명을 통과시킨다", () => {
+      expect(rejection(withField("companyName", ` ${"가".repeat(100)} `))).toBeNull();
+    });
+
+    it("문항이 1개면 통과하고 0개면 거절한다", () => {
+      expect(applicationSchema.safeParse(withItems(1)).success).toBe(true);
+      expect(applicationSchema.safeParse(withItems(0)).success).toBe(false);
+    });
+
+    it("문항이 5개면 통과하고 6개면 거절한다", () => {
+      expect(applicationSchema.safeParse(withItems(5)).success).toBe(true);
+      expect(applicationSchema.safeParse(withItems(6)).success).toBe(false);
+    });
   });
 });

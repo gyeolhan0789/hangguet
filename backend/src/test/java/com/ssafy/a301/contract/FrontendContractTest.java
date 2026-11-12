@@ -4,6 +4,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 
 import au.com.dius.pact.provider.junit5.HttpTestTarget;
@@ -20,6 +22,10 @@ import com.ssafy.a301.admin.repository.AdminRepository;
 import com.ssafy.a301.admin.service.AdminNoticeService;
 import com.ssafy.a301.admin.service.StreakFreezeGrantService;
 import com.ssafy.a301.admin.service.StreakFreezeService;
+import com.ssafy.a301.alarm.kakao.KakaoApiException;
+import com.ssafy.a301.alarm.kakao.KakaoMessageClient;
+import com.ssafy.a301.alarm.kakao.KakaoMessageClient.KakaoConsent;
+import com.ssafy.a301.alarm.kakao.KakaoMessageClient.KakaoToken;
 import com.ssafy.a301.application.dto.ApplicationDtos.ApplicationCreateRequest;
 import com.ssafy.a301.application.dto.ApplicationDtos.CoverLetterItemRequest;
 import com.ssafy.a301.application.repository.CoverLetterCheckQueue;
@@ -28,9 +34,13 @@ import com.ssafy.a301.application.service.ApplicationService;
 import com.ssafy.a301.auth.dto.AgreementRequest;
 import com.ssafy.a301.auth.dto.LoginRequest;
 import com.ssafy.a301.auth.dto.SignupRequest;
+import com.ssafy.a301.auth.dto.SocialSignupRequest;
 import com.ssafy.a301.auth.dto.TokenResponse;
+import com.ssafy.a301.auth.oauth.KakaoLoginClient;
+import com.ssafy.a301.auth.oauth.SocialProfile;
 import com.ssafy.a301.auth.repository.PasswordResetTokenStore;
 import com.ssafy.a301.auth.service.AuthService;
+import com.ssafy.a301.auth.service.SocialAuthService;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.idempotency.IdempotencyStore;
@@ -44,6 +54,7 @@ import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewMode;
 import com.ssafy.a301.interview.domain.Persona;
+import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.dto.InterviewDtos.AnswerRequest;
 import com.ssafy.a301.interview.dto.InterviewDtos.RoomResponse;
 import com.ssafy.a301.interview.dto.InterviewDtos.SessionCreateRequest;
@@ -57,6 +68,7 @@ import com.ssafy.a301.interview.service.InterviewSessionService;
 import com.ssafy.a301.storage.s3.PresignedUrl;
 import com.ssafy.a301.storage.s3.S3FileStorage;
 import com.ssafy.a301.storage.s3.StoredFile;
+import com.ssafy.a301.user.domain.SocialProvider;
 import com.ssafy.a301.user.domain.TermsType;
 import com.ssafy.a301.user.service.UserService;
 import jakarta.mail.Session;
@@ -92,11 +104,13 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
  * FE가 만든 Pact 계약(frontend/pacts)을 실제로 띄운 BE로 검증한다. 상호작용마다 테스트가 하나씩 생긴다. 상황(given)은 BE 서비스로 만들고, 만든
- * 값(토큰 · id · 날짜)은 Map으로 돌려줘 요청에 넣는다. BE 밖으로 나가는 연결(LiveKit · S3 · AI 작업 큐 · 자기소개서 판단)만 가짜로 바꾼다.
+ * 값(토큰 · id · 날짜)은 Map으로 돌려줘 요청에 넣는다. BE 밖으로 나가는 연결(LiveKit · S3 · AI 작업 큐 · 자기소개서 판단 · 메일 · 카카오)만
+ * 가짜로 바꾼다.
  */
 @Tag("contract")
 @Provider("a301-backend")
@@ -104,10 +118,12 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class FrontendContractTest {
     private static final String PASSWORD = "abcd1234";
+    private static final String KAKAO_REDIRECT_URI = "https://hangguet.co.kr/oauth/kakao/callback";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @LocalServerPort private int port;
     @Autowired private AuthService auth;
+    @Autowired private SocialAuthService socialAuth;
     @Autowired private PasswordResetTokenStore resetTokens;
     @Autowired private UserService users;
     @Autowired private ApplicationService applications;
@@ -130,6 +146,10 @@ class FrontendContractTest {
     @MockitoBean private InterviewRoom rooms;
     @MockitoBean private S3FileStorage storage;
     @MockitoBean private JavaMailSender mailSender;
+    @MockitoBean private KakaoMessageClient kakaoMessages;
+
+    /** 1.6 로그인이 제공자 목록을 만들 때 provider()가 필요해 진짜 객체를 감싸고, 카카오에 인가 코드를 확인하는 fetchProfile만 바꾼다 */
+    @MockitoSpyBean private KakaoLoginClient kakaoLogin;
 
     /** 이번 상호작용의 상황이 만든 값. 다음 상황이 이어서 쓴다(상호작용마다 테스트 인스턴스가 새로 생긴다). */
     private final Map<String, Object> values = new HashMap<>();
@@ -223,6 +243,71 @@ class FrontendContractTest {
         return values;
     }
 
+    /** 카카오로 가입한 회원(1.6 → 1.7). 카카오는 인가 코드를 이 회원의 카카오 계정으로 확인해 준다(1.6 가입한 회원 · 2.9의 같은 카카오 계정). */
+    @State("카카오 회원")
+    Map<String, Object> kakaoMember() {
+        SocialProfile profile = kakaoAccount(true);
+        String signupToken =
+                socialAuth.login("kakao", "code", KAKAO_REDIRECT_URI).signup().signupToken();
+        TokenResponse token = socialAuth.signup(new SocialSignupRequest(signupToken, agreements()));
+        created.users.add(token.user().id());
+        values.put("userId", token.user().id());
+        values.put("email", profile.email());
+        values.put("kakaoUserId", profile.providerUserId());
+        values.put("accessToken", token.accessToken());
+        values.put("refreshToken", token.refreshToken());
+        return values;
+    }
+
+    /** 카카오는 인가 코드를 아직 가입 · 연결하지 않은 카카오 계정으로 확인해 준다(1.6 처음 온 사람 · 2.12 연결) */
+    @State("가입하지 않은 카카오 계정")
+    void newKakaoAccount() {
+        kakaoAccount(true);
+    }
+
+    /** 1.6 400 SOCIAL_EMAIL_REQUIRED. 이메일 제공에 동의하지 않은 카카오 계정 */
+    @State("이메일을 주지 않은 카카오 계정")
+    void kakaoAccountWithoutEmail() {
+        kakaoAccount(false);
+    }
+
+    /** 1.6 401 SOCIAL_LOGIN_FAILED. 카카오가 인가 코드를 받아 주지 않았다 */
+    @State("카카오가 거절한 인가 코드")
+    void kakaoLoginRejected() {
+        doThrow(new ApiException(ErrorCode.SOCIAL_LOGIN_FAILED))
+                .when(kakaoLogin)
+                .fetchProfile(anyString(), anyString());
+    }
+
+    /** 1.7. 1.6이 처음 온 사람에게 준 가입 토큰. 재생된 1.7이 만든 회원은 이메일로 찾아 지운다 */
+    @State("카카오 가입 토큰")
+    Map<String, Object> kakaoSignupToken() {
+        SocialProfile profile = kakaoAccount(true);
+        created.emails.add(profile.email());
+        values.put(
+                "signupToken",
+                socialAuth.login("kakao", "code", KAKAO_REDIRECT_URI).signup().signupToken());
+        return values;
+    }
+
+    /** 2.9. 카카오가 인가 코드를 토큰으로 바꿔 주고, '카카오 회원'의 카카오 계정이 메시지 전송에 동의했다고 알려 준다 */
+    @State("카카오 메시지 동의")
+    void kakaoMessageConsent() {
+        kakaoMessagesConfigured();
+        when(kakaoMessages.exchange(anyString(), anyString()))
+                .thenReturn(new KakaoToken("kakao-access", 21599L, "kakao-refresh", 5183999L));
+        when(kakaoMessages.consent(anyString()))
+                .thenReturn(new KakaoConsent((String) values.get("kakaoUserId"), true));
+    }
+
+    /** 2.9 400 KAKAO_CONSENT_FAILED. 카카오가 인가 코드를 받아 주지 않았다(invalid_grant) */
+    @State("카카오가 거절한 알림 인가 코드")
+    void kakaoMessageRejected() {
+        kakaoMessagesConfigured();
+        when(kakaoMessages.exchange(anyString(), anyString()))
+                .thenThrow(new KakaoApiException(KakaoApiException.Kind.REJECTED, "invalid_grant"));
+    }
+
     /** 비즈니스 로직은 언제나 지금부터 유효한 토큰을 발급하므로 만료된 토큰만 직접 서명한다(AuthControllerTest와 같음). */
     @State("만료된 토큰")
     Map<String, Object> expiredToken() {
@@ -283,7 +368,8 @@ class FrontendContractTest {
     /**
      * 면접을 단계(stage)까지 진행한다. GENERATING(질문 준비 중) · PLAN_FAILED · PLAN_READY · IN_PROGRESS(1번 질문) ·
      * ANSWERED(1번 답함) · ANALYZING · COMPLETED · ABORTED(답 없이 끝냄). previousDay면 먼저 어제 결과가 나온 면접을 하나
-     * 둔다.
+     * 둔다. 화상 면접은 에이전트가 들은 답변(answer.completed)으로 답하고, recording이 READY면 녹화를 합친
+     * 결과(recording.merged)까지 받는다.
      */
     @State("면접")
     Map<String, Object> interview(Map<String, Object> params) {
@@ -293,7 +379,7 @@ class FrontendContractTest {
             application();
         }
         if (Boolean.TRUE.equals(params.get("previousDay"))) {
-            completedYesterday(mode);
+            completedDaysAgo(mode, 1);
         }
         long sessionId =
                 sessions.create(
@@ -316,6 +402,8 @@ class FrontendContractTest {
             return values;
         }
         sessions.start(userId(), sessionId);
+        // 합친 영상의 0초. 답변을 듣기 시작한 때보다 앞선다
+        OffsetDateTime videoZero = OffsetDateTime.now();
         aiResult(
                 Map.of(
                         "type",
@@ -340,45 +428,92 @@ class FrontendContractTest {
             sessions.end(userId(), sessionId, null);
             return values;
         }
-        long answerId =
-                answers.submit(
-                                userId(),
-                                sessionId,
-                                questionId,
-                                new AnswerRequest(InputType.TEXT, "캐시 무효화 시점을 직접 설계했습니다."))
-                        .id();
+        long answerId = answer(mode, sessionId, questionId);
         if (stage.equals("ANSWERED")) {
             return values;
         }
         sessions.end(userId(), sessionId, null);
         if (stage.equals("COMPLETED")) {
-            aiResult(evaluationCompleted(sessionId, answerId, 70));
+            aiResult(evaluationCompleted(sessionId, answerId, 70, mode == InterviewMode.VIDEO));
+            if ("READY".equals(params.get("recording"))) {
+                aiResult(
+                        Map.of(
+                                "type",
+                                "recording.merged",
+                                "sessionId",
+                                sessionId,
+                                "objectKey",
+                                Recording.sessionVideoKey(sessionId),
+                                "recordingStartedAt",
+                                videoZero.toString()));
+            }
         }
         return values;
     }
 
+    /** 1번 질문에 답한다. 채팅은 5.7로, 화상은 에이전트가 들은 답변(answer.completed)으로 */
+    private long answer(InterviewMode mode, long sessionId, long questionId) {
+        if (mode == InterviewMode.CHAT) {
+            return answers.submit(
+                            userId(),
+                            sessionId,
+                            questionId,
+                            new AnswerRequest(InputType.TEXT, "캐시 무효화 시점을 직접 설계했습니다."))
+                    .id();
+        }
+        aiResult(
+                Map.of(
+                        "type",
+                        "answer.completed",
+                        "sessionId",
+                        sessionId,
+                        "seq",
+                        1,
+                        "content",
+                        "음… 서버 쪽이…",
+                        "answerStartedAt",
+                        OffsetDateTime.now().toString()));
+        return answerIdOf(sessionId);
+    }
+
+    private long answerIdOf(long sessionId) {
+        return jdbc.queryForObject(
+                "SELECT a.id FROM answers a JOIN interview_questions q ON q.id ="
+                        + " a.question_id WHERE q.session_id = ?",
+                Long.class,
+                sessionId);
+    }
+
+    /** 3.1 NOT_DONE_TODAY · BROKEN. daysAgo일 전에 결과가 나온 면접 하나만 있는 회원 */
+    @State("지난 면접")
+    Map<String, Object> pastInterview(Map<String, Object> params) {
+        completedDaysAgo(InterviewMode.CHAT, ((Number) params.get("daysAgo")).intValue());
+        return values;
+    }
+
     /**
-     * 어제 결과가 나온 면접(오늘보다 낮은 점수). 서비스는 언제나 지금 시각으로 기록하므로 만든 뒤 날짜만 하루 앞으로 옮긴다(만료된 토큰처럼 비즈니스 로직으로 만들 수
-     * 없는 예외).
+     * days일 전에 결과가 나온 면접(오늘보다 낮은 점수). 서비스는 언제나 지금 시각으로 기록하므로 만든 뒤 날짜만 그만큼 앞으로 옮긴다(만료된 토큰처럼 비즈니스
+     * 로직으로 만들 수 없는 예외). 회원의 첫 면접이어야 한다(연습 기록을 모두 옮긴다).
      */
-    private void completedYesterday(InterviewMode mode) {
+    private void completedDaysAgo(InterviewMode mode, int days) {
         interview(Map.of("stage", "ANALYZING", "mode", mode.name()));
         long sessionId = (Long) values.get("sessionId");
-        long answerId =
-                jdbc.queryForObject(
-                        "SELECT a.id FROM answers a JOIN interview_questions q ON q.id ="
-                                + " a.question_id WHERE q.session_id = ?",
-                        Long.class,
-                        sessionId);
-        aiResult(evaluationCompleted(sessionId, answerId, 60));
+        aiResult(
+                evaluationCompleted(
+                        sessionId, answerIdOf(sessionId), 60, mode == InterviewMode.VIDEO));
         jdbc.update(
-                "UPDATE interview_sessions SET started_at = started_at - INTERVAL '1 day', ended_at"
-                    + " = ended_at - INTERVAL '1 day', created_at = created_at - INTERVAL '1 day'"
-                    + " WHERE id = ?",
+                "UPDATE interview_sessions SET started_at = started_at - make_interval(days => ?),"
+                        + " ended_at = ended_at - make_interval(days => ?), created_at = created_at"
+                        + " - make_interval(days => ?) WHERE id = ?",
+                days,
+                days,
+                days,
                 sessionId);
         jdbc.update(
-                "UPDATE practice_logs SET practice_date = practice_date - 1, created_at ="
-                        + " created_at - INTERVAL '1 day' WHERE user_id = ?",
+                "UPDATE practice_logs SET practice_date = practice_date - ?, created_at ="
+                        + " created_at - make_interval(days => ?) WHERE user_id = ?",
+                days,
+                days,
                 userId());
     }
 
@@ -425,6 +560,15 @@ class FrontendContractTest {
     @State("업로드한 문의 사진")
     Map<String, Object> uploadedInquiryPhoto() {
         values.put("objectKey", inquiryPhotoKey());
+        return values;
+    }
+
+    /** 9.1 · 9.4 404 FILE_NOT_FOUND. 업로드 주소(9.11)는 받았지만 S3에 올리지 않은 사진 */
+    @State("업로드하지 않은 문의 사진")
+    Map<String, Object> notUploadedInquiryPhoto() {
+        String key = inquiryPhotoKey();
+        when(storage.find(key)).thenReturn(Optional.empty());
+        values.put("objectKey", key);
         return values;
     }
 
@@ -481,6 +625,24 @@ class FrontendContractTest {
         return (Long) values.get("userId");
     }
 
+    /** 카카오가 인가 코드를 확인해 돌려줄 카카오 계정. 이메일은 카카오가 확인한 이메일이다 */
+    private SocialProfile kakaoAccount(boolean withEmail) {
+        String id = String.valueOf(Math.abs(UUID.randomUUID().getMostSignificantBits()));
+        SocialProfile profile =
+                new SocialProfile(
+                        SocialProvider.KAKAO,
+                        id,
+                        withEmail ? "contract-" + UUID.randomUUID() + "@example.com" : null,
+                        "면접왕");
+        doReturn(profile).when(kakaoLogin).fetchProfile(anyString(), anyString());
+        return profile;
+    }
+
+    private void kakaoMessagesConfigured() {
+        when(kakaoMessages.isConfigured()).thenReturn(true);
+        when(kakaoMessages.isAllowedRedirectUri(anyString())).thenReturn(true);
+    }
+
     private long admin() {
         long id =
                 admins.saveAndFlush(new Admin("contract-" + UUID.randomUUID(), "hash", "계약 검증"))
@@ -494,14 +656,14 @@ class FrontendContractTest {
     }
 
     private static SignupRequest signup(String email) {
-        return new SignupRequest(
-                email,
-                PASSWORD,
-                "면접왕",
-                List.of(
-                        new AgreementRequest(TermsType.TERMS, "1.0"),
-                        new AgreementRequest(TermsType.PRIVACY, "1.0"),
-                        new AgreementRequest(TermsType.RECORDING, "1.0")));
+        return new SignupRequest(email, PASSWORD, "면접왕", agreements());
+    }
+
+    private static List<AgreementRequest> agreements() {
+        return List.of(
+                new AgreementRequest(TermsType.TERMS, "1.0"),
+                new AgreementRequest(TermsType.PRIVACY, "1.0"),
+                new AgreementRequest(TermsType.RECORDING, "1.0"));
     }
 
     private static InquiryCreateRequest inquiryRequest(
@@ -542,7 +704,39 @@ class FrontendContractTest {
                 "contract");
     }
 
-    private Map<String, Object> evaluationCompleted(long sessionId, long answerId, int score) {
+    /** video면 답변 채점 결과에 다시보기 타임라인(AI 명세 4장, 답변 기준 밀리초)을 넣는다 */
+    private Map<String, Object> evaluationCompleted(
+            long sessionId, long answerId, int score, boolean video) {
+        Map<String, Object> evaluation = new HashMap<>(Map.of("scoreMethod", "FINAL"));
+        if (video) {
+            Map<String, Object> reason =
+                    Map.of(
+                            "metric",
+                            "FILLER",
+                            "count",
+                            3,
+                            "text",
+                            "'음'이 이어졌어요. 생각할 때는 소리 없이 잠깐 멈춰도 괜찮아요.");
+            Map<String, Object> checkpoint =
+                    Map.of(
+                            "atMs",
+                            3000,
+                            "startMs",
+                            2000,
+                            "endMs",
+                            3000,
+                            "value",
+                            -2.1,
+                            "reasons",
+                            List.of(reason));
+            evaluation.put(
+                    "timeline",
+                    Map.of(
+                            "points",
+                            List.of(Map.of("atMs", 1000, "value", 0.4)),
+                            "checkpoints",
+                            List.of(checkpoint)));
+        }
         return Map.of(
                 "type",
                 "evaluation.completed",
@@ -562,7 +756,7 @@ class FrontendContractTest {
                                 "improvePoint",
                                 "고칠 점",
                                 "evaluation",
-                                Map.of("scoreMethod", "FINAL"))),
+                                evaluation)),
                 "sessionScores",
                 List.of(Criterion.values()).stream()
                         .map(

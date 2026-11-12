@@ -1,6 +1,9 @@
 import { MatchersV3 } from "@pact-foundation/pact";
-import { describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { GET as kakaoCallback } from "@/app/oauth/kakao/callback/route";
+import { ACCESS_TOKEN_COOKIE } from "@/lib/api/auth-cookies";
 import { refreshTokens } from "@/lib/api/token-refresh";
 import {
   asGuest,
@@ -14,7 +17,7 @@ import {
   providerValue,
   shape,
 } from "@/test/pact";
-import type { MeResponse, RefreshResponse } from "@/types/api";
+import type { MeResponse, RefreshResponse, SocialSignup } from "@/types/api";
 
 import {
   checkEmailAvailable,
@@ -24,16 +27,18 @@ import {
   resetPassword,
   signup,
 } from "./actions";
-import { NOTICE_COOKIE, SOCIAL_SIGNUP_COOKIE } from "./kakao";
+import {
+  NOTICE_COOKIE,
+  OAUTH_STATE_COOKIE,
+  SOCIAL_LOGIN_FAILED,
+  SOCIAL_SIGNUP_COOKIE,
+} from "./kakao";
 import { getMe } from "./session";
 import { socialSignup } from "./social-actions";
 
 // 기준: Swagger 1.1 이메일 사용 가능 여부 · 1.2 회원가입 · 1.3 로그인(429 LOGIN_LOCKED 포함) · 1.4 토큰 재발급 · 1.5 로그아웃
-// · 1.7 소셜 회원가입 · 1.8 비밀번호 찾기 메일 요청 · 1.9 비밀번호 재설정
-// · 2.1 내 정보 · 공통 401(TOKEN_EXPIRED · UNAUTHORIZED) 예시
-// 1.6 소셜 로그인과 1.7 성공은 BE 계약 테스트에 카카오 클라이언트(@MockitoBean)와 가입 토큰 · 카카오 회원 상황(@State)이 있어야
-// 재현된다. 아직 BE에 없어 이번에는 상황 없이 재현되는 1.7 무효 가입 토큰만 넣었다. BE 상황이 생기면 1.6(가입한 회원 · 처음 온
-// 사람)과 1.7 성공을 더한다.
+// · 1.6 소셜 로그인(가입한 회원 · 처음 온 사람 · 400 SOCIAL_EMAIL_REQUIRED · 401 SOCIAL_LOGIN_FAILED) · 1.7 소셜 회원가입
+// · 1.8 비밀번호 찾기 메일 요청 · 1.9 비밀번호 재설정 · 2.1 내 정보 · 공통 401(TOKEN_EXPIRED · UNAUTHORIZED) 예시
 const { like } = MatchersV3;
 const pact = contract();
 
@@ -114,6 +119,29 @@ describe("인증", () => {
             fieldErrors: { email: "이미 사용 중인 이메일이에요." },
           }),
         ),
+      ));
+
+  it("1.7 약관에 동의하면 가입하고 홈으로 간다", () =>
+    pact
+      .addInteraction()
+      .given("카카오 가입 토큰")
+      .uponReceiving("1.7 소셜 회원가입")
+      .withRequest("POST", "/api/v1/auth/oauth/signup", (b) =>
+        b.jsonBody({
+          signupToken: providerValue("signupToken", "Zm9v…"),
+          agreements: signupBody.agreements,
+        }),
+      )
+      .willRespondWith(201, (b) => b.jsonBody(like(tokens)))
+      .executeTest(
+        asGuest(async () => {
+          cookieValues[SOCIAL_SIGNUP_COOKIE] = "Zm9v…";
+          await expect(
+            socialSignup({ AGE: true, TERMS: true, PRIVACY: true, RECORDING: true }),
+          ).rejects.toThrow("REDIRECT /home");
+          expect(cookieValues[ACCESS_TOKEN_COOKIE]).toBe(tokens.accessToken);
+          expect(cookieValues).not.toHaveProperty(SOCIAL_SIGNUP_COOKIE);
+        }),
       ));
 
   it("1.7 가입 토큰이 무효면 S01로 돌아간다(401 SIGNUP_TOKEN_INVALID)", () =>
@@ -340,5 +368,107 @@ describe("인증", () => {
       .willRespondWith(401, (b) => problem(b, { code: "UNAUTHORIZED" }))
       .executeTest(
         asMember(() => expect(getMe()).rejects.toThrow("REDIRECT /api/auth/signed-out")),
+      ));
+});
+
+describe("소셜 로그인", () => {
+  const redirectUri = "https://hangguet.co.kr/oauth/kakao/callback";
+  const socialLogin = { code: "Ab3x…", redirectUri };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** 카카오가 로그인 용도(state 쿠키)로 돌려보낸 콜백. 로그인 전이라 토큰 쿠키가 없다 */
+  function callback() {
+    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+    vi.stubEnv("KAKAO_REDIRECT_URI", redirectUri);
+    return kakaoCallback(
+      new NextRequest(`${redirectUri}?code=${encodeURIComponent(socialLogin.code)}&state=st`, {
+        headers: { cookie: `${OAUTH_STATE_COOKIE}=login.st` },
+      }),
+    );
+  }
+
+  const noticeOf = (response: Awaited<ReturnType<typeof callback>>) =>
+    JSON.parse(response.cookies.get(NOTICE_COOKIE)?.value ?? "null");
+
+  it("1.6 가입한 회원이면 토큰을 저장하고 홈으로 간다", () =>
+    pact
+      .addInteraction()
+      .given("카카오 회원")
+      .uponReceiving("1.6 가입한 회원의 소셜 로그인")
+      .withRequest("POST", "/api/v1/auth/oauth/kakao", (b) => b.jsonBody(socialLogin))
+      // 가입한 회원이면 FE는 signupRequired와 토큰 세 값만 읽는다(setAuthCookies)
+      .willRespondWith(200, (b) =>
+        b.jsonBody({ ...shape({ signupRequired: false }, "signupRequired"), token: like(tokens) }),
+      )
+      .executeTest(
+        asGuest(async () => {
+          const response = await callback();
+          expect(response.headers.get("location")).toBe("/home");
+          expect(response.cookies.get(ACCESS_TOKEN_COOKIE)?.value).toBe(tokens.accessToken);
+        }),
+      ));
+
+  it("1.6 처음 온 사람이면 가입 토큰을 저장하고 약관 동의(S01-3)로 간다", () => {
+    const signup = { signupToken: "Zm9v…", expiresIn: 600 } satisfies Pick<
+      SocialSignup,
+      "signupToken" | "expiresIn"
+    >;
+    return pact
+      .addInteraction()
+      .given("가입하지 않은 카카오 계정")
+      .uponReceiving("1.6 처음 온 사람의 소셜 로그인")
+      .withRequest("POST", "/api/v1/auth/oauth/kakao", (b) => b.jsonBody(socialLogin))
+      .willRespondWith(200, (b) =>
+        b.jsonBody({ ...shape({ signupRequired: true }, "signupRequired"), signup: like(signup) }),
+      )
+      .executeTest(
+        asGuest(async () => {
+          const response = await callback();
+          expect(response.headers.get("location")).toBe("/login");
+          expect(response.cookies.get(SOCIAL_SIGNUP_COOKIE)?.value).toBe(signup.signupToken);
+        }),
+      );
+  });
+
+  it("1.6 이메일 제공에 동의하지 않았으면 서버 문구를 S01에 보인다(400 SOCIAL_EMAIL_REQUIRED)", () =>
+    pact
+      .addInteraction()
+      .given("이메일을 주지 않은 카카오 계정")
+      .uponReceiving("1.6 이메일 없는 카카오 계정의 소셜 로그인")
+      .withRequest("POST", "/api/v1/auth/oauth/kakao", (b) => b.jsonBody(socialLogin))
+      .willRespondWith(400, (b) =>
+        problem(b, {
+          detail: "이메일 제공에 동의해야 가입할 수 있어요.",
+          code: "SOCIAL_EMAIL_REQUIRED",
+        }),
+      )
+      .executeTest(
+        asGuest(async () => {
+          const response = await callback();
+          expect(response.headers.get("location")).toBe("/login");
+          expect(noticeOf(response)).toEqual({
+            target: "login",
+            text: "이메일 제공에 동의해야 가입할 수 있어요.",
+          });
+        }),
+      ));
+
+  it("1.6 카카오가 인가 코드를 거절하면 정해 둔 문구를 S01에 보인다(401 SOCIAL_LOGIN_FAILED)", () =>
+    pact
+      .addInteraction()
+      .given("카카오가 거절한 인가 코드")
+      .uponReceiving("1.6 거절된 인가 코드로 소셜 로그인")
+      .withRequest("POST", "/api/v1/auth/oauth/kakao", (b) => b.jsonBody(socialLogin))
+      // FE는 detail을 읽지 않고 정해 둔 문구를 쓴다
+      .willRespondWith(401, (b) => problem(b, { code: "SOCIAL_LOGIN_FAILED" }, { generic: true }))
+      .executeTest(
+        asGuest(async () => {
+          const response = await callback();
+          expect(response.headers.get("location")).toBe("/login");
+          expect(noticeOf(response)).toEqual({ target: "login", text: SOCIAL_LOGIN_FAILED });
+        }),
       ));
 });

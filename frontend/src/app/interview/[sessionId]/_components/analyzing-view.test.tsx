@@ -1,19 +1,18 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S06-1 결과 분석 중(18:4437) · Swagger 5.2 status · analysisStep · 모션 메모 S06-1(18:4469: 30초 초과 '조금만 더 기다려 주세요')
+import { act, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { spyTimers } from "@/test/timers";
 import type { SessionResponse } from "@/types/api";
 
 import { analysisProgress, AnalyzingView, LONG_WAIT_MS } from "./analyzing-view";
 
-vi.mock("motion/react", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("motion/react")>()),
-  useReducedMotion: () => true,
-}));
+// 경계 mock: 연출(motion)은 건너뛴다
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
 
-// 기준: Figma S06-1(18:4437: 1단계 완료 · 2단계 진행 · 3단계 대기, 진행 바 210/372) · Swagger 5.2 analysisStep
-// · 모션 메모 S06-1(18:4469: 실제 API 진행에 맞춰 단계 체크, 30초 초과: '조금만 더 기다려 주세요')
-
-// Swagger 5.2 200 예시 'S06-1 결과 분석 중'
+// 예시 데이터: Swagger 5.2 200 예시 'S06-1 결과 분석 중'
 const SESSION: SessionResponse = {
   id: 55,
   applicationId: 10,
@@ -35,59 +34,87 @@ const SESSION: SessionResponse = {
   room: null,
 };
 
-afterEach(() => {
-  cleanup();
-  vi.useRealTimers();
+/** 단계 줄마다 [진행 중인지, 아이콘 파일] */
+function steps() {
+  return screen
+    .getAllByRole("listitem")
+    .map((item) => [
+      item.getAttribute("aria-current") === "step",
+      item.querySelector("img")?.getAttribute("src") ?? "",
+    ]);
+}
+
+const DONE = [false, expect.stringContaining("icon-circle-check.svg")];
+const DOING = [true, expect.stringContaining("icon-loader-circle.svg")];
+const WAITING = [false, expect.stringContaining("icon-circle.svg")];
+
+describe("analysisProgress · 결과 분석 진행 비율", () => {
+  describe("정상 처리", () => {
+    it("2단계 진행 중이면 Figma 비율 210/372를 돌려준다", () => {
+      expect(analysisProgress(1)).toBeCloseTo(210 / 372);
+    });
+  });
+
+  describe("경계값", () => {
+    it("모든 단계를 마쳤으면(3) 1을 돌려준다", () => {
+      expect(analysisProgress(3)).toBe(1);
+    });
+  });
 });
 
-const current = () =>
-  screen.getAllByRole("listitem").findIndex((item) => item.getAttribute("aria-current") === "step");
-const filled = () => screen.getByRole("progressbar").getAttribute("value");
+describe("AnalyzingView · 결과 분석 중 화면", () => {
+  describe("화면 표시", () => {
+    it("분석 단계가 SCORING이면 그 단계를 진행 중으로, 앞은 끝남 · 뒤는 기다림으로 보인다", () => {
+      render(<AnalyzingView session={SESSION} />);
 
-describe("AnalyzingView (S06-1 결과 분석 중)", () => {
-  it("Figma 제목 · 단계 문구 · 팁과 면접관 썸네일을 보여 주고, '보통 10초 안에 끝나요'는 두지 않는다", () => {
-    render(<AnalyzingView session={SESSION} />);
+      expect(steps()).toEqual([DONE, DOING, WAITING]);
+    });
 
-    expect(screen.getByRole("heading", { name: "면접관이 답변을 검토하고 있어요" })).toBeTruthy();
-    // 사용자 요청(2026-10-27)으로 뺀 안내
-    expect(screen.queryByText("보통 10초 안에 끝나요")).toBeNull();
-    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "답변을 정리했어요",
-      "평가 기준별로 분석하는 중…",
-      "피드백을 쓰는 중",
-    ]);
-    expect(screen.getByText("기다리는 동안 한 줄 팁 · 꼬리 질문엔 근거부터 짧게!")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "악마 면접관" })).toBeTruthy();
+    it("결과가 나왔으면(COMPLETED) 모든 단계를 끝남으로 보인다", () => {
+      render(<AnalyzingView session={{ ...SESSION, status: "COMPLETED", analysisStep: null }} />);
+
+      expect(steps()).toEqual([DONE, DONE, DONE]);
+    });
+
+    it("진행 바 값은 진행 비율을 백분율로 반올림해 보인다", () => {
+      render(<AnalyzingView session={{ ...SESSION, analysisStep: "WRITING_FEEDBACK" }} />);
+
+      expect(
+        screen.getByRole("progressbar", { name: "결과 분석 진행" }).getAttribute("value"),
+      ).toBe("85");
+    });
   });
 
-  it.each([
-    ["ORGANIZING_ANSWERS", 0, "28"],
-    ["SCORING", 1, "56"],
-    ["WRITING_FEEDBACK", 2, "85"],
-  ] as const)("analysisStep %s면 %i번째 줄이 진행 중이고 진행 바는 %s", (step, index, percent) => {
-    render(<AnalyzingView session={{ ...SESSION, analysisStep: step }} />);
-    expect(current()).toBe(index);
-    expect(filled()).toBe(percent);
+  describe("경계값", () => {
+    it("분석 단계를 모르면(null) 첫 단계를 진행 중으로 보인다", () => {
+      render(<AnalyzingView session={{ ...SESSION, analysisStep: null }} />);
+
+      expect(steps()).toEqual([DOING, WAITING, WAITING]);
+    });
   });
 
-  it("결과가 나왔으면(COMPLETED) 모든 단계를 마치고 진행 바를 채운다", () => {
-    render(<AnalyzingView session={{ ...SESSION, status: "COMPLETED", analysisStep: null }} />);
-    expect(current()).toBe(-1);
-    expect(filled()).toBe("100");
+  describe("시간 경과", () => {
+    it("30초가 되면 '조금만 더 기다려 주세요'를 보인다", () => {
+      vi.useFakeTimers();
+      render(<AnalyzingView session={SESSION} />);
+
+      act(() => vi.advanceTimersByTime(29_999));
+      expect(screen.queryByText("조금만 더 기다려 주세요")).toBeNull();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByText("조금만 더 기다려 주세요")).toBeDefined();
+    });
   });
 
-  it("2단계 진행 중 채움은 Figma와 같다(210/372)", () => {
-    expect(analysisProgress(1)).toBeCloseTo(210 / 372);
-  });
+  describe("정리", () => {
+    it("30초 전에 화면을 떠나면 타이머를 거둔다", () => {
+      vi.useFakeTimers();
+      const timers = spyTimers();
+      const { unmount } = render(<AnalyzingView session={SESSION} />);
 
-  it("30초가 지나도 끝나지 않으면 '조금만 더 기다려 주세요'를 보인다", () => {
-    vi.useFakeTimers();
-    render(<AnalyzingView session={SESSION} />);
+      unmount();
 
-    act(() => vi.advanceTimersByTime(LONG_WAIT_MS - 1));
-    expect(screen.queryByText("조금만 더 기다려 주세요")).toBeNull();
-
-    act(() => vi.advanceTimersByTime(1));
-    expect(screen.getByText("조금만 더 기다려 주세요")).toBeTruthy();
+      expect(timers.cleared("timeout", LONG_WAIT_MS)).toBe(true);
+    });
   });
 });
