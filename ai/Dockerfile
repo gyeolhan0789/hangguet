@@ -12,8 +12,11 @@ ENV UV_VERSION=0.12.5 \
 RUN pip install --no-cache-dir "uv==${UV_VERSION}"
 WORKDIR /app
 
+# 공용 패키지(저장소 최상위 shared/)는 빌드할 때 추가 빌드 컨텍스트 shared로 수신한다(compose additional_contexts, docker build --build-context).
+# pyproject.toml의 경로(../shared)와 같은 위치에 복사하고, 실행 이미지에는 /shared가 없으므로 수정 불가 형태로 설치한다.
+COPY --from=shared . /shared
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --no-dev
+RUN uv sync --locked --no-dev --no-editable
 
 # 실행: 같은 Python 이미지에 가상 환경과 앱 코드만 담는다.
 FROM python:3.13-slim

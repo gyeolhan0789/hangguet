@@ -57,6 +57,9 @@ x-livekit-env: &livekit-env
 x-ai-worker: &ai-worker
   build:
     context: ../../ai
+    # 공용 패키지(shared/)를 AI 이미지의 추가 빌드 컨텍스트로 전달한다(ai/Dockerfile)
+    additional_contexts:
+      shared: ../../shared
   restart: unless-stopped
   command: ["python", "-m", "app.worker"]
   depends_on:
@@ -206,6 +209,9 @@ services:
   a301-dev-ai:
     build:
       context: ../../ai
+      # 공용 패키지(shared/)를 AI 이미지의 추가 빌드 컨텍스트로 전달한다(ai/Dockerfile)
+      additional_contexts:
+        shared: ../../shared
     image: a301-dev-ai:${IMAGE_TAG:-local}
     container_name: a301-dev-ai
     restart: unless-stopped
@@ -224,6 +230,9 @@ services:
   a301-dev-ai-agent:
     build:
       context: ../../ai
+      # 공용 패키지(shared/)를 AI 이미지의 추가 빌드 컨텍스트로 전달한다(ai/Dockerfile)
+      additional_contexts:
+        shared: ../../shared
     image: a301-dev-ai-agent:${IMAGE_TAG:-local}
     container_name: a301-dev-ai-agent
     restart: unless-stopped

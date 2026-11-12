@@ -972,15 +972,17 @@ prod-build:
       trap 'docker logout >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
       printf '%s' "$DOCKERHUB_PUSH_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin >/dev/null
       for SVC in be fe ai admin; do
+        EXTRA_CONTEXT=""
         case "$SVC" in
           be) CONTEXT="backend" ;;
           fe) CONTEXT="frontend" ;;
-          ai) CONTEXT="ai" ;;
+          # AI 이미지는 공용 패키지(shared/)를 추가 빌드 컨텍스트로 전달한다(ai/Dockerfile)
+          ai) CONTEXT="ai"; EXTRA_CONTEXT="--build-context shared=shared" ;;
           admin) CONTEXT="admin" ;;
         esac
         IMAGE="${DOCKERHUB_REPO}:${SVC}-${IMAGE_TAG}"
         echo "== ${IMAGE} (${CONTEXT}/)"
-        docker build --pull -t "$IMAGE" "$CONTEXT"
+        docker build --pull $EXTRA_CONTEXT -t "$IMAGE" "$CONTEXT"
         docker push "$IMAGE"
         docker rmi "$IMAGE" >/dev/null
       done
