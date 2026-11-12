@@ -517,6 +517,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `interview.question` | 에이전트 → 화면 | `seq`, `content`, `speech`(`started`·`ended`·`failed`), `alignment`(`started`에만 `{ chars[] }`, `chars[]` = `{ char, startMs, endMs }`, 질문 음성 맨 앞이 0. 그 밖에는 null. 키는 항상 담는다) |
 | `interview.reaction` | 에이전트 → 화면 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가, 화면은 가장 큰 값만 씀), `reaction`(`type`·`expression`·`gesture`·`intensity`·`durationMs`, 판단하지 못했거나 반응할 내용이 없으면 null), `attitude`(`interest`·`trust`, 0~1, 첫 판단 전에는 0.5), `interrupt`(`reason`: `OFF_TOPIC`·`TOO_LONG`, `text`, 채팅은 항상 null) |
 | `interview.answerState` | 에이전트 → 화면 | `seq`(질문 순서), `state`: `autoSubmitted` · `timedOut` · `sttReconnecting` · `sttFailed` · `submitted` · `submitFailed` |
+| `interview.attitude` | 에이전트 → 화면 | `score`(면접 태도, 0~100 정수. 쓸 수 있는 사진이 없으면 null). 화상 답변을 듣는 동안 인상 판단(6.6)이 올 때마다 다시 계산해 바뀌었을 때만 보낸다 **[제안]** |
 | `interview.answerSubmit` | 화면 → 에이전트 | `seq`(질문 순서), `content`(채팅만, 5.7로 제출한 답변 글, 1,000자 이하. 화상은 null). 응답 `{ "accepted": true }`, 이미 제출 중이면 `false`. `submitFailed` 뒤에 수신하면 보관한 답변을 다시 전송하고 `true`로 응답한다(6.5) |
 | `interview.chatInput` | 화면 → 에이전트 | `questionSeq`(질문 순서), `seq`(그 답변 안에서 1부터 증가), `text`(입력 칸 전체, 1,000자 이하), `pauseMs`. 응답 `{ "accepted": true }`. 현재 진행 중인 질문이 아니거나 그 질문에서 이미 수신한 `seq` 이하면 판단하지 않고 `false`로 응답한다. `true`는 판단 대상으로 수신했다는 뜻이며 리액션 판단의 성공을 뜻하지 않는다 |
 
@@ -562,7 +563,9 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 ### 6.6 인상 판단 (Jev 이미지) **[제안]**
 
-화상 답변을 듣는 동안 지원자 카메라 사진으로 인상 6가지를 1초마다 판단해, 그 답변의 `speech.impressions`(6.2)에 담는다. 나중에 다시보기 타임라인에서 지표가 유난히 낮은 구간을 짚는 데 쓰며, 지금은 저장만 한다.
+화상 답변을 듣는 동안 지원자 카메라 사진으로 인상 6가지를 1초마다 판단해, 그 답변의 `speech.impressions`(6.2)에 담는다. 다시보기 타임라인에서 지표가 유난히 낮은 구간을 짚는 데 쓰고, 답변 중에는 면접 태도 점수로 화면에 보여 준다.
+
+- **면접 태도** 판단이 올 때마다 가장 최근 사진부터 3초(임시 값) 안에 찍은 판단으로 계산해 `interview.attitude`(6.3)로 지원자에게 보낸다. 얼굴 기준(0.5) 미만인 사진은 빼고, 사진마다 받은 점수를 평균한 뒤 사진들의 평균을 다시 평균해 정수로 반올림한다. 결과 타임라인과 같은 기준이다. 점수가 바뀔 때만 보내고, 보내는 중에 새 점수가 나오면 마지막 값만 보낸다. 쓸 수 있는 사진이 처음부터 없으면 보내지 않고, 점수를 보낸 뒤 없어지면 null을 보낸다. 답변이 끝나면 보내지 못한 점수는 버린다. 화면이 받지 못해도 면접은 계속 진행한다
 
 - **판단 구간** 화상 답변을 듣는 동안(6.2 2~4번) 받은 사진만 판단한다. 질문 음성 재생 중·답변 사이·채팅 면접의 사진은 버린다. 저장 위치가 답변이기 때문이다
 - **시각 `atMs`** 사진을 찍은 시각에서 `answerStartedAt`을 뺀 값(밀리초)이다. 찍은 시각은 에이전트가 받은 시각에서 `ageMs`(6.3)를 뺀다. 브라우저 시계는 서버와 어긋날 수 있어 쓰지 않는다. 0 미만이면 버린다

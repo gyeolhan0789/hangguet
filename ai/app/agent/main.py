@@ -20,6 +20,7 @@ from app.agent.answer_capture import AnswerCapture, CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.attitude import ATTITUDE_METHOD, AttitudePublisher
 from app.agent.followup import followup_generator
 from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
 from app.agent.interview import InterviewRunner
@@ -190,7 +191,8 @@ async def entrypoint(ctx: JobContext) -> None:
 class RoomCapture:
     """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다.
 
-    impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담는다(AI 명세 6.6).
+    impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담고(AI 명세 6.6),
+    판단이 올 때마다 면접 태도 점수를 지원자 화면에 보낸다(6.3 interview.attitude).
     """
 
     def __init__(
@@ -202,10 +204,21 @@ class RoomCapture:
         on_sentence: Callable[[Sentence, str], None],
         on_stt_state: Callable[[SttState], None],
         impressions: ImpressionRecorder | None = None,
+        session_id: int | None = None,
     ) -> None:
         self._room = room
         self._identity = identity
         self._impressions = impressions
+        self._attitude = (
+            None
+            if impressions is None or session_id is None
+            else AttitudePublisher(
+                lambda payload: send_room_message(
+                    room.local_participant, identity, ATTITUDE_METHOD, payload
+                ),
+                session_id,
+            )
+        )
         self._on_stt_state = on_stt_state
         self._stop = asyncio.Event()
         self._publisher = TranscriptPublisher(room.local_participant, identity)
@@ -230,7 +243,7 @@ class RoomCapture:
         )
         chunks = audio_chunks(stream, self._stop)
         if self._impressions is not None:
-            self._impressions.start()
+            self._impressions.start(None if self._attitude is None else self._attitude.update)
         try:
             answer = await self._capture.run(chunks)
         finally:
@@ -265,6 +278,8 @@ class RoomCapture:
         if self._impressions is not None:
             # 폐기한 답변(퇴장 등)에서 판단 중이던 사진은 다음 답변에 섞이지 않게 버린다
             self._impressions.stop()
+        if self._attitude is not None:
+            await self._attitude.aclose()
         await self._publisher.aclose()
 
 
@@ -336,7 +351,14 @@ async def run_interview(
         assignment,
         speaker,
         lambda identity, on_speech, on_sentence, on_stt_state: RoomCapture(
-            room, identity, settings, on_speech, on_sentence, on_stt_state, impressions
+            room,
+            identity,
+            settings,
+            on_speech,
+            on_sentence,
+            on_stt_state,
+            impressions,
+            assignment.session_id,
         ),
         lambda destination, payload: send_room_message(
             room.local_participant, destination, ANSWER_STATE_METHOD, payload

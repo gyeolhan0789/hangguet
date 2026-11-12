@@ -187,6 +187,34 @@ def test_judged_keeps_listening() -> None:
     asyncio.run(run())
 
 
+def test_each_judgment_calls_listener_until_answer_ends() -> None:
+    async def run() -> None:
+        judge = FakeJudge()
+        frames = recorder(judge)
+        seen: list[int] = []
+        frames.start(lambda judged: seen.append(len(judged)))
+        frames.submit(b"first", 0)
+        await settle()
+        judge.pending[0].set_result(IMPRESSION)
+        await settle()
+        frames.submit(b"second", 0)
+        await settle()
+        judge.pending[1].set_result(IMPRESSION)
+        await settle()
+        assert seen == [1, 2]
+        frames.stop()
+        # 다음 답변을 리스너 없이 시작하면 이전 리스너를 부르지 않는다
+        frames.start()
+        frames.submit(b"next", 0)
+        await settle()
+        judge.pending[2].set_result(IMPRESSION)
+        await settle()
+        assert seen == [1, 2]
+        frames.stop()
+
+    asyncio.run(run())
+
+
 def test_received_stream_is_read_then_judged() -> None:
     async def run() -> None:
         judge = FakeJudge()
