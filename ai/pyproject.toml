@@ -12,6 +12,7 @@ dependencies = [
     "prometheus-client>=0.26,<1",
     "redis>=8.1.0",
     "uvicorn[standard]>=0.54.0",
+    "company-taxonomy",
 ]
 
 [dependency-groups]
@@ -26,6 +27,11 @@ dev = [
 # 배포용 패키지를 만들지 않는 애플리케이션 프로젝트다.
 [tool.uv]
 package = false
+
+# 회사 카드 파이프라인과 함께 사용하는 회사 카드 분류 목록(저장소 최상위 공용 패키지).
+# 로컬에서는 고친 내용이 바로 반영되도록 수정 가능 형태로 설치하고, 이미지에는 --no-editable로 설치한다.
+[tool.uv.sources]
+company-taxonomy = { path = "../shared", editable = true }
 
 [tool.ruff]
 line-length = 100
