@@ -25,7 +25,7 @@ from collections.abc import AsyncIterable, Callable, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, NoReturn
 
 import aiohttp
 
@@ -342,37 +342,45 @@ class SonioxSTT:
                 await connection
                 return
             except _ConnectionLostError as lost:
-                self._failures.append(lost.reason)
-                feed.detach()
-                self._keep_interim()
-                # 응답을 수신하기 전에 다시 끊겼으면 같은 끊김이 이어지는 것이다
-                self._resumed_ms = None
-                if self._outage_start_ms is None:
-                    self._outage_start_ms = self._last_response_ms
-                    # 답변이 이미 끝났으면 다시 연결하지 않으므로 통지하지 않는다
-                    if not feed.ended.is_set():
-                        self._notify(SttState.RECONNECTING)
-                if self._attempts >= len(self._reconnect_delays):
-                    self._close_gap(feed.position_ms)
-                    self._gave_up = True
-                    raise SttError("Soniox STT에 다시 연결하지 못했습니다") from lost
-                delay = self._reconnect_delays[self._attempts]
-                self._attempts += 1
-                self._reconnects += 1
-                log.warning(
-                    "Soniox STT 다시 연결 %d/%d: %s, 마지막 응답 뒤 %.1f초",
-                    self._attempts,
-                    len(self._reconnect_delays),
-                    lost,
-                    asyncio.get_running_loop().time() - self._last_response_at,
-                    extra={"reason": str(lost.reason), "detail": lost.detail},
-                )
+                delay = self._connection_lost(lost, feed)
                 if await self._ended_while_waiting(delay, feed, pump):
                     # 다시 연결하기 전에 답변이 끝났으면 더 전송할 음성이 없다
                     self._close_gap(feed.position_ms)
                     return
                 sink = feed.attach()
                 offset_ms = feed.position_ms
+
+    def _connection_lost(self, lost: _ConnectionLostError, feed: _AudioFeed) -> float:
+        """끊긴 연결을 기록하고 다시 연결하기 전 대기 시간을 반환한다.
+
+        다시 연결할 횟수를 다 썼으면 SttError를 발생시킨다.
+        """
+        self._failures.append(lost.reason)
+        feed.detach()
+        self._keep_interim()
+        # 응답을 수신하기 전에 다시 끊겼으면 같은 끊김이 이어지는 것이다
+        self._resumed_ms = None
+        if self._outage_start_ms is None:
+            self._outage_start_ms = self._last_response_ms
+            # 답변이 이미 끝났으면 다시 연결하지 않으므로 통지하지 않는다
+            if not feed.ended.is_set():
+                self._notify(SttState.RECONNECTING)
+        if self._attempts >= len(self._reconnect_delays):
+            self._close_gap(feed.position_ms)
+            self._gave_up = True
+            raise SttError("Soniox STT에 다시 연결하지 못했습니다") from lost
+        delay = self._reconnect_delays[self._attempts]
+        self._attempts += 1
+        self._reconnects += 1
+        log.warning(
+            "Soniox STT 다시 연결 %d/%d: %s, 마지막 응답 뒤 %.1f초",
+            self._attempts,
+            len(self._reconnect_delays),
+            lost,
+            asyncio.get_running_loop().time() - self._last_response_at,
+            extra={"reason": str(lost.reason), "detail": lost.detail},
+        )
+        return delay
 
     async def _ended_while_waiting(
         self, delay: float, feed: _AudioFeed, pump: asyncio.Task[None]
@@ -420,7 +428,7 @@ class SonioxSTT:
                             "enable_endpoint_detection": True,
                         }
                     )
-            except (aiohttp.ClientError, OSError, TimeoutError) as e:
+            except (aiohttp.ClientError, OSError) as e:
                 raise _ConnectionLostError(LostReason.CONNECT_FAILED, type(e).__name__) from e
             log.info("Soniox STT 연결 완료")
             self._last_response_at = loop.time()
@@ -449,7 +457,7 @@ class SonioxSTT:
                 for task in done:
                     failure = task.exception()
                     if failure is not None:
-                        raise _lost(roles.get(task), failure, ended)
+                        _raise_lost(roles.get(task), failure, ended)
                 if not ended.is_set():
                     if receiver in done:
                         raise _ConnectionLostError(LostReason.FINISHED_EARLY)
@@ -458,7 +466,7 @@ class SonioxSTT:
                 await asyncio.wait({sender})
                 failure = sender.exception()
                 if failure is not None:
-                    raise _lost(LostReason.SEND_FAILED, failure, ended)
+                    _raise_lost(LostReason.SEND_FAILED, failure, ended)
                 await asyncio.wait_for(receiver, timeout=FINISH_TIMEOUT_SECONDS)
             finally:
                 for task in tasks:
@@ -552,17 +560,17 @@ def _raise_for_error(response: dict[str, Any]) -> None:
         raise _SonioxResponseError(response.get("error_code", "unknown"))
 
 
-def _lost(role: LostReason | None, error: BaseException, ended: asyncio.Event) -> BaseException:
-    """연결 작업의 오류를 원인별 _ConnectionLostError로 분류해 반환한다.
+def _raise_lost(role: LostReason | None, error: BaseException, ended: asyncio.Event) -> NoReturn:
+    """연결 작업의 오류를 원인별 _ConnectionLostError로 분류해 발생시킨다.
 
     음성을 다 전송한 뒤의 오류와 예상하지 못한 오류는 다시 연결해도 해결되지 않으므로,
-    분류하지 않고 원래 오류를 그대로 반환한다.
+    분류하지 않고 원래 오류를 그대로 발생시킨다.
     """
     expected = (aiohttp.ClientError, OSError, TimeoutError, SttError)
     if isinstance(error, _ConnectionLostError) or role is None or ended.is_set():
-        return error
+        raise error
     if not isinstance(error, expected):
-        return error
+        raise error
     if isinstance(error, _SonioxResponseError):
         lost = _ConnectionLostError(LostReason.SONIOX_ERROR, f"code={error.code}")
     elif isinstance(error, _ClosedError):
@@ -570,4 +578,4 @@ def _lost(role: LostReason | None, error: BaseException, ended: asyncio.Event) -
     else:
         lost = _ConnectionLostError(role, type(error).__name__)
     lost.__cause__ = error
-    return lost
+    raise lost

@@ -147,6 +147,13 @@ def _seconds(answer: TimelineAnswer) -> list[_Second]:
     if end is None:
         return []
     seconds = [_Second() for _ in range(end // STEP_MS + 1)]
+    _fill_impressions(answer, seconds)
+    _fill_voice(answer, seconds)
+    return seconds
+
+
+def _fill_impressions(answer: TimelineAnswer, seconds: list[_Second]) -> None:
+    """얼굴로 본 인상 사진을 1초마다 모아 평균을 채운다."""
     samples = answer.timeline.impressions if answer.timeline is not None else None
     by_second: dict[int, list[dict[str, float]]] = {}
     for sample in samples or ():
@@ -160,6 +167,10 @@ def _seconds(answer: TimelineAnswer) -> list[_Second]:
             values = [scores[key] for scores in found if key in scores]
             if values:
                 second.items[key] = _mean(values)
+
+
+def _fill_voice(answer: TimelineAnswer, seconds: list[_Second]) -> None:
+    """1초마다 앞뒤 5초의 음성 사건 횟수와 곡선 값을 채운다."""
     events = _events(answer)
     for index, second in enumerate(seconds):
         center = index * STEP_MS
@@ -171,7 +182,6 @@ def _seconds(answer: TimelineAnswer) -> list[_Second]:
             near = [amount for t, amount in happened if abs(t - center) <= WINDOW_MS]
             second.counts[metric] = len(near)
             second.amounts[metric] = sum(near)
-    return seconds
 
 
 def _mean(values: Sequence[float]) -> float:
@@ -194,96 +204,137 @@ def _scale(values: Sequence[float]) -> _Scale | None:
     return _Scale(mean, math.sqrt(_mean([(v - mean) ** 2 for v in values])))
 
 
+@dataclass(frozen=True)
+class _Scales:
+    """면접 전체로 구한 인상·인상 항목·음성 값의 표준화 기준."""
+
+    impression: _Scale | None
+    items: Mapping[str, _Scale | None]
+    voice: Mapping[Metric, _Scale | None]
+
+
+def _scales(pooled: Sequence[_Second]) -> _Scales:
+    return _Scales(
+        impression=_scale([s.impression for s in pooled if s.impression is not None]),
+        items={
+            key: _scale([s.items[key] for s in pooled if key in s.items])
+            for key in IMPRESSION_METRICS
+        },
+        voice={
+            metric: _scale([a for s in pooled if (a := s.amounts.get(metric)) is not None])
+            for metric in VOICE_METRICS
+        },
+    )
+
+
+def _composite(second: _Second, scales: _Scales) -> float | None:
+    """1초의 인상·음성 표준화 값을 가중 평균한다. 구할 값이 없으면 None이다."""
+    parts: list[tuple[float, float]] = []
+    if second.impression is not None and scales.impression is not None:
+        parts.append((IMPRESSION_WEIGHT, scales.impression.z(second.impression)))
+    for metric in VOICE_METRICS:
+        amount = second.amounts.get(metric)
+        scale = scales.voice[metric]
+        if amount is not None and scale is not None:
+            parts.append((VOICE_WEIGHTS[metric], -scale.z(amount)))
+    if not parts:
+        return None
+    return sum(w * z for w, z in parts) / sum(w for w, _ in parts)
+
+
+def _reasons(found: list[_Second], index: int, scales: _Scales) -> tuple[Reason, ...]:
+    """체크포인트 1초의 이유. 기준 이하인 것을 낮은 순으로, 없으면 가장 낮은 하나다."""
+    window = found[max(0, index - WINDOW_MS // STEP_MS) : index + WINDOW_MS // STEP_MS + 1]
+    scored: list[tuple[float, Reason]] = []
+    for key, metric in IMPRESSION_METRICS.items():
+        scale = scales.items[key]
+        values = [s.items[key] for s in window if key in s.items]
+        if scale is not None and values:
+            scored.append((_mean([scale.z(v) for v in values]), Reason(metric, None)))
+    for metric in VOICE_METRICS:
+        count = found[index].counts.get(metric)
+        amount = found[index].amounts.get(metric)
+        scale = scales.voice[metric]
+        # 일어나지 않은 음성 사건은 이유가 될 수 없다
+        if count and amount is not None and scale is not None:
+            scored.append((-scale.z(amount), Reason(metric, count)))
+    chosen = sorted((item for item in scored if item[0] <= REASON_LIMIT), key=lambda item: item[0])
+    if not chosen and scored:
+        chosen = [min(scored, key=lambda item: item[0])]
+    return tuple(reason for _, reason in chosen)
+
+
+def _low_runs(values: list[float | None]) -> list[tuple[float, int, int, int]]:
+    """LOW_LIMIT 이하로 이어진 구간마다 (가장 낮은 값, 그 초, 시작 초, 끝 초)."""
+    candidates: list[tuple[float, int, int, int]] = []
+    start: int | None = None
+    for index, v in enumerate([*values, None]):
+        if v is not None and v <= LOW_LIMIT:
+            start = index if start is None else start
+            continue
+        if start is not None:
+            run = range(start, index)
+            lowest = min(run, key=lambda i: values[i] or 0.0)
+            candidates.append((values[lowest] or 0.0, lowest, start, index - 1))
+            start = None
+    return candidates
+
+
+def _spaced(
+    candidates: list[tuple[float, int, int, int]],
+) -> list[tuple[float, int, int, int]]:
+    """낮은 구간부터 고르되 이미 고른 것과 MIN_GAP_MS보다 가까우면 뺀다."""
+    chosen: list[tuple[float, int, int, int]] = []
+    for candidate in sorted(candidates):
+        if all(abs(candidate[1] - c[1]) * STEP_MS >= MIN_GAP_MS for c in chosen):
+            chosen.append(candidate)
+    return chosen
+
+
+def _answer_timeline(
+    answer_id: int,
+    found: list[_Second],
+    raw: list[float | None],
+    overall: _Scale,
+    scales: _Scales,
+) -> AnswerTimeline | None:
+    """답변 하나의 곡선과 체크포인트. 곡선 값이 하나도 없으면 None이다."""
+    values = [None if v is None else overall.z(v) for v in raw]
+    points = tuple(
+        (index * STEP_MS, round_half_up_float(v, VALUE_DIGITS))
+        for index, v in enumerate(values)
+        if v is not None
+    )
+    if not points:
+        return None
+    checkpoints = tuple(
+        Checkpoint(
+            at_ms=lowest * STEP_MS,
+            start_ms=first * STEP_MS,
+            end_ms=last * STEP_MS,
+            value=round_half_up_float(value, VALUE_DIGITS),
+            reasons=_reasons(found, lowest, scales),
+        )
+        for value, lowest, first, last in sorted(_spaced(_low_runs(values)), key=lambda c: c[1])
+    )
+    return AnswerTimeline(answer_id, points, checkpoints)
+
+
 def build_timelines(answers: Sequence[TimelineAnswer]) -> dict[int, AnswerTimeline]:
     """답변마다 곡선과 낮은 체크포인트. 구할 값이 하나도 없는 답변은 결과에 없다."""
     seconds = {answer.answer_id: _seconds(answer) for answer in answers}
-    pooled = [second for found in seconds.values() for second in found]
-    impression = _scale([s.impression for s in pooled if s.impression is not None])
-    items = {
-        key: _scale([s.items[key] for s in pooled if key in s.items]) for key in IMPRESSION_METRICS
-    }
-    voice = {
-        metric: _scale([a for s in pooled if (a := s.amounts.get(metric)) is not None])
-        for metric in VOICE_METRICS
-    }
-
-    def composite(second: _Second) -> float | None:
-        parts: list[tuple[float, float]] = []
-        if second.impression is not None and impression is not None:
-            parts.append((IMPRESSION_WEIGHT, impression.z(second.impression)))
-        for metric in VOICE_METRICS:
-            amount = second.amounts.get(metric)
-            scale = voice[metric]
-            if amount is not None and scale is not None:
-                parts.append((VOICE_WEIGHTS[metric], -scale.z(amount)))
-        if not parts:
-            return None
-        return sum(w * z for w, z in parts) / sum(w for w, _ in parts)
-
-    raw = {aid: [composite(second) for second in found] for aid, found in seconds.items()}
+    scales = _scales([second for found in seconds.values() for second in found])
+    raw = {aid: [_composite(second, scales) for second in found] for aid, found in seconds.items()}
     overall = _scale([v for values in raw.values() for v in values if v is not None])
     if overall is None:
         return {}
-
-    def reasons(found: list[_Second], index: int) -> tuple[Reason, ...]:
-        window = found[max(0, index - WINDOW_MS // STEP_MS) : index + WINDOW_MS // STEP_MS + 1]
-        scored: list[tuple[float, Reason]] = []
-        for key, metric in IMPRESSION_METRICS.items():
-            scale = items[key]
-            values = [s.items[key] for s in window if key in s.items]
-            if scale is not None and values:
-                scored.append((_mean([scale.z(v) for v in values]), Reason(metric, None)))
-        for metric in VOICE_METRICS:
-            count = found[index].counts.get(metric)
-            amount = found[index].amounts.get(metric)
-            scale = voice[metric]
-            # 일어나지 않은 음성 사건은 이유가 될 수 없다
-            if count and amount is not None and scale is not None:
-                scored.append((-scale.z(amount), Reason(metric, count)))
-        chosen = sorted(
-            (item for item in scored if item[0] <= REASON_LIMIT), key=lambda item: item[0]
-        )
-        if not chosen and scored:
-            chosen = [min(scored, key=lambda item: item[0])]
-        return tuple(reason for _, reason in chosen)
-
     timelines = {}
     for answer in answers:
-        found = seconds[answer.answer_id]
-        values = [None if v is None else overall.z(v) for v in raw[answer.answer_id]]
-        points = tuple(
-            (index * STEP_MS, round_half_up_float(v, VALUE_DIGITS))
-            for index, v in enumerate(values)
-            if v is not None
+        timeline = _answer_timeline(
+            answer.answer_id, seconds[answer.answer_id], raw[answer.answer_id], overall, scales
         )
-        if not points:
-            continue
-        candidates: list[tuple[float, int, int, int]] = []
-        start: int | None = None
-        for index, v in enumerate([*values, None]):
-            if v is not None and v <= LOW_LIMIT:
-                start = index if start is None else start
-                continue
-            if start is not None:
-                run = range(start, index)
-                lowest = min(run, key=lambda i: values[i] or 0.0)
-                candidates.append((values[lowest] or 0.0, lowest, start, index - 1))
-                start = None
-        chosen: list[tuple[float, int, int, int]] = []
-        for candidate in sorted(candidates):
-            if all(abs(candidate[1] - c[1]) * STEP_MS >= MIN_GAP_MS for c in chosen):
-                chosen.append(candidate)
-        checkpoints = tuple(
-            Checkpoint(
-                at_ms=lowest * STEP_MS,
-                start_ms=first * STEP_MS,
-                end_ms=last * STEP_MS,
-                value=round_half_up_float(value, VALUE_DIGITS),
-                reasons=reasons(found, lowest),
-            )
-            for value, lowest, first, last in sorted(chosen, key=lambda c: c[1])
-        )
-        timelines[answer.answer_id] = AnswerTimeline(answer.answer_id, points, checkpoints)
+        if timeline is not None:
+            timelines[answer.answer_id] = timeline
     return timelines
 
 

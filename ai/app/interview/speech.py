@@ -23,11 +23,13 @@ _HESITATION = re.compile(r"^(?:음+|어+|아+|에+|으+|흠+)$")
 _DISCOURSE_MARKERS = frozenset(
     {"그", "저", "이제", "뭐", "막", "약간", "좀", "그냥", "그러니까", "이렇게", "뭔가"}
 )
-_MARKS = re.compile(r"[.,?!…]+")
+# 군말 판정·단어 붙이기에서 빼는 문장부호
+_MARK_CHARS = ".,?!…"
+_DROP_MARKS = str.maketrans("", "", _MARK_CHARS)
 _CUT_OFF = re.compile(r"[,.…]$")
 # API 명세 5.11 문장 끝: 마침표·물음표·느낌표·말줄임표와 공백을 제외한 글이
 # 종결어미로 끝나면 문장 끝, 쉼표로 끝나면 아님
-_TRAILING = re.compile(r"[.?!…\s]+$")
+_TRAILING_MARKS = ".?!…"
 _SENTENCE_ENDINGS = frozenset({"다", "요", "까", "죠"})
 _HANGUL_SYLLABLE = re.compile(r"[가-힣]")
 
@@ -83,7 +85,7 @@ def group_words(tokens: list[dict[str, Any]]) -> list[Word]:
             continue
         if not text:
             start = int(token["startMs"])
-        punctuation_only = bool(text) and _MARKS.fullmatch(body) is not None
+        punctuation_only = bool(text) and not body.strip(_MARK_CHARS)
         text += body
         if not punctuation_only:
             end = int(token["endMs"])
@@ -96,15 +98,17 @@ def group_words(tokens: list[dict[str, Any]]) -> list[Word]:
 
 
 def is_filler(word: str) -> bool:
-    core = _MARKS.sub("", word)
+    core = word.translate(_DROP_MARKS)
     if _HESITATION.match(core):
         return True
     return core in _DISCOURSE_MARKERS and bool(_CUT_OFF.search(word))
 
 
 def ends_sentence(word: str) -> bool:
-    body = _TRAILING.sub("", word)
-    return body[-1:] in _SENTENCE_ENDINGS
+    end = len(word)
+    while end and (word[end - 1] in _TRAILING_MARKS or word[end - 1].isspace()):
+        end -= 1
+    return word[:end][-1:] in _SENTENCE_ENDINGS
 
 
 def _touches_gap(start_ms: int, end_ms: int, gaps: Sequence[SttGap]) -> bool:
