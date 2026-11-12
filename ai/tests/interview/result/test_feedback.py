@@ -3,6 +3,7 @@ from dataclasses import replace
 from typing import Any, cast
 
 import pytest
+from company_taxonomy.talent_criteria import EXECUTIVE_CRITERIA, PRACTICAL_CRITERIA
 
 from app.common.answer import SttGap
 from app.common.gms import GmsBadOutputError, GmsClient, GmsResult, GmsUnavailableError
@@ -24,8 +25,6 @@ from app.interview.result.feedback import (
 from app.interview.scoring.judge import Criterion, StructureBrokenError
 from app.interview.talent import (
     ALL_CRITERIA,
-    EXECUTIVE_CRITERIA,
-    PRACTICAL_CRITERIA,
     Criteria,
     criteria_lines,
 )
