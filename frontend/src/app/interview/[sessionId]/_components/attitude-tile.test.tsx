@@ -1,5 +1,5 @@
 // 기준: Figma 면접 태도 타일(531:2475 상태 모음 · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude
-// · 사용자 결정(2026-11-12: 숫자 하나와 선 하나 · 최근 30초)
+// · 사용자 결정(2026-11-12: 숫자 하나와 선 하나 · 최근 30초 · 처음에는 접힘)
 // 상태별 문구 · 색 · 그래프 모양은 다시 적지 않고, 상태 계산 · 숫자 대체 · 접기 · 펼치기 분기만 본다.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -57,16 +57,17 @@ describe("AttitudeTile · 면접 태도 타일", () => {
       expect(tile().textContent).not.toContain("72");
     });
 
-    it("펼침 여부를 아직 고르지 않았으면 화면 폭에 맡기도록 카드와 한 줄을 둘 다 그린다", () => {
+    it("처음에는 접힌 한 줄로 시작한다", () => {
       render(<AttitudeTile samples={[sample(72)]} answering />);
 
-      expect(screen.getByRole("button", { name: "면접 태도 접기" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "면접 태도 펼치기" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "면접 태도 접기" })).toBeNull();
     });
   });
 
   describe("사용자 조작", () => {
     it("[접기]를 누르면 접힌 것을 기억하고 점수가 남은 한 줄만 보인다", () => {
+      useInterviewStore.getState().setAttitudeOpen(true);
       render(<AttitudeTile samples={[sample(72)]} answering />);
 
       fireEvent.click(screen.getByRole("button", { name: "면접 태도 접기" }));

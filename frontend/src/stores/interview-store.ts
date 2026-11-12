@@ -24,8 +24,8 @@ interface InterviewState {
   /** 오리 면접관이 감탄한(답변 제출이 시작된) 시각(performance.now). 면접관 장면이 놀람 동작을 한다. 없으면 null */
   exclaimedAt: number | null;
   exclaim: () => void;
-  /** 면접 태도 타일을 펼쳤다. null이면 기본(데스크톱은 펼침, 모바일은 접힘)이다(Figma 면접 태도 타일 · 모바일 접힘) */
-  attitudeOpen: boolean | null;
+  /** 면접 태도 타일을 펼쳤다. 처음에는 접혀 있다(사용자 결정 2026-11-12) */
+  attitudeOpen: boolean;
   setAttitudeOpen: (open: boolean) => void;
   openEnd: () => void;
   closeEnd: () => void;
@@ -46,7 +46,7 @@ const initial = {
   collapsed: false,
   uiHidden: false,
   exclaimedAt: null,
-  attitudeOpen: null,
+  attitudeOpen: false,
 };
 
 // 레벨업은 S06-1 · S07 · S08에서 새로고침해도 S08까지 남아야 해서 sessionStorage에 둔다(탭을 닫으면 지워진다).

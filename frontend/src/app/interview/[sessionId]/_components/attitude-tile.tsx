@@ -9,7 +9,7 @@ import { useInterviewStore } from "@/stores/interview-store";
 
 // 기준: Figma 면접 태도 타일(531:2386 S06 측정 중 · 531:2475 상태 모음: 측정 중 · 얼굴 확인 중 · 대기 · 접힘
 // · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude(0~100, 얼굴을 확인할 수 없으면 null)
-// · 사용자 결정(2026-11-12: 내 카메라 아래 · 숫자 하나와 선 하나 · 설명 문구 없음 · 최근 30초)
+// · 사용자 결정(2026-11-12: 내 카메라 아래 · 숫자 하나와 선 하나 · 설명 문구 없음 · 최근 30초 · 처음에는 접힘)
 
 /** 대기: 답할 차례가 아니다 · 측정 중: 마지막 점수가 있다 · 얼굴 확인 중: 답하는 중인데 마지막 점수가 없다(null) */
 type AttitudeStatus = "idle" | "measuring" | "checking";
@@ -34,7 +34,7 @@ export function AttitudeTile({
   samples,
   answering,
 }: Readonly<{ samples: readonly AttitudeSample[]; answering: boolean }>) {
-  const stored = useInterviewStore((state) => state.attitudeOpen);
+  const open = useInterviewStore((state) => state.attitudeOpen);
   const setOpen = useInterviewStore((state) => state.setAttitudeOpen);
   const { status, score } = attitudeView(samples, answering);
   const shown = score === null ? "–" : String(score);
@@ -94,23 +94,12 @@ export function AttitudeTile({
     </div>
   );
 
-  // 아직 누르지 않았으면 화면 폭(CSS)으로 고른다: 데스크톱은 펼침, 모바일은 접힘. 서버에서 그린 첫 화면부터 맞아 깜빡이지 않는다
-  let body;
-  if (stored === null)
-    body = (
-      <>
-        <div className="hidden md:block">{card}</div>
-        <div className="md:hidden">{pill}</div>
-      </>
-    );
-  else body = stored ? card : pill;
-
   return (
     <section
       aria-label="면접 태도"
       className="absolute top-[216px] right-4 z-10 w-[180px] md:top-[260px] md:right-6 md:w-60"
     >
-      {body}
+      {open ? card : pill}
     </section>
   );
 }
