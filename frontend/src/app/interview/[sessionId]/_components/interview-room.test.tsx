@@ -8,6 +8,7 @@ import { useInterviewStore } from "@/stores/interview-store";
 import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type {
   AnswerStateMessage,
+  AttitudeSample,
   QuestionMessage,
   ReactionSnapshot,
 } from "@/lib/interview/room-messages";
@@ -75,6 +76,7 @@ const room = vi.hoisted(() => ({
   interimText: "",
   question: null as QuestionMessage | null,
   reaction: null as ReactionSnapshot | null,
+  attitude: [] as AttitudeSample[],
   retry: () => {},
   submitAnswer: (async () => "accepted") as (seq: number) => Promise<string>,
   sendChatInput: vi.fn(),
@@ -96,6 +98,7 @@ vi.mock("@/components/interview/use-interview-room", async () => {
         interimText: room.interimText,
         question: room.question,
         reaction: room.reaction,
+        attitude: room.attitude,
         retry: room.retry,
         submitAnswer: room.submitAnswer,
         sendChatInput: room.sendChatInput,
@@ -159,6 +162,7 @@ beforeEach(() => {
   room.interimText = "";
   room.question = null;
   room.reaction = null;
+  room.attitude = [];
   stageRender.mockClear();
   room.retry = vi.fn();
   room.submitAnswer = vi.fn(async () => "accepted");
@@ -1476,6 +1480,7 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
       camera(),
       screen.getByRole("region", { name: "악마 면접관 질문" }),
       screen.getByTestId("waveform"),
+      screen.getByRole("region", { name: "면접 태도" }),
       submitButton(),
     ];
     for (const part of parts()) expect(hiddenBox(part)).toBeNull();
@@ -1483,6 +1488,7 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
 
     expect(hiddenBox(screen.getByRole("region", { name: "내 답변 음성 인식" }))).toBeTruthy();
     expect(hiddenBox(camera())).toBeTruthy();
+    expect(hiddenBox(screen.getByRole("region", { name: "면접 태도" }))).toBeTruthy();
     // [면접 종료]는 남고, 상단 바의 면접관 · 진행 표시는 숨긴다
     expect(hiddenBox(screen.getByRole("button", { name: "면접 종료" }))).toBeNull();
     expect(screen.getByText("질문 3 / 5").closest(".invisible")).toBeTruthy();
@@ -1502,6 +1508,8 @@ describe("InterviewRoom (채팅 대기 화면 · 화면 숨기기 · 끝난 뒤)
   it("채팅: 화면을 숨기면 질문 · 답변 입력을 숨기고 [면접 종료] · [화면 보이기]만 남긴다", () => {
     render(chatRoom());
     const hiddenBox = (element: Element | null) => element?.closest(".hidden") ?? null;
+    // 면접 태도는 카메라로 재므로 채팅에는 없다
+    expect(screen.queryByRole("region", { name: "면접 태도" })).toBeNull();
     expect(hiddenBox(screen.getByRole("textbox", { name: "답변" }))).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "화면 숨기기" }));
     expect(hiddenBox(screen.getByRole("textbox", { name: "답변" }))).toBeTruthy();

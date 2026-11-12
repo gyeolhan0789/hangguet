@@ -8,6 +8,9 @@ import {
   ANSWER_REJECTED_CODES,
   ANSWER_STATE_METHOD,
   ANSWER_SUBMIT_METHOD,
+  ATTITUDE_METHOD,
+  attitudeMessageSchema,
+  type AttitudeSample,
   QUESTION_METHOD,
   CHAT_INPUT_METHOD,
   FRAME_TOPIC,
@@ -39,6 +42,17 @@ export interface RoomPresentation {
   question: QuestionMessage | null;
   reaction: ReactionSnapshot | null;
   listening: ListeningActivity | null;
+}
+
+/** 면접 태도 그래프에 남기는 기간. 이보다 오래된 점수는 버린다(사용자 결정 2026-11-12: 최근 30초 추이) */
+export const ATTITUDE_HISTORY_MS = 30_000;
+
+/** 최근 30초 점수만 남긴다. 점수는 바뀔 때만 오므로 30초 전에 받은 마지막 점수는 그때까지 이어진 값이라, 30초 경계로 옮겨 남긴다 */
+function recentAttitude(samples: readonly AttitudeSample[], now: number): AttitudeSample[] {
+  const from = now - ATTITUDE_HISTORY_MS;
+  const inside = samples.filter((sample) => sample.receivedAt >= from);
+  const before = samples.findLast((sample) => sample.receivedAt < from);
+  return before ? [{ score: before.score, receivedAt: from }, ...inside] : inside;
 }
 
 const INITIAL = {
@@ -96,6 +110,7 @@ export function useInterviewRoom(
   const [question, setQuestion] = useState<QuestionMessage | null>(null);
   const [reaction, setReaction] = useState<ReactionSnapshot | null>(null);
   const [listening, setListening] = useState<ListeningActivity | null>(null);
+  const [attitude, setAttitude] = useState<AttitudeSample[]>([]);
   const closedQuestions = useRef(new Set<number>());
   const pendingSubmissions = useRef(new Map<Room, number>());
   const questionSequence = useRef(questionSeq);
@@ -113,6 +128,7 @@ export function useInterviewRoom(
   }, [question, reaction, listening, questionSeq, onPresentation]);
   useEffect(() => () => onPresentation?.(null), [onPresentation]);
   const retry = useCallback(() => {
+    setAttitude([]);
     setReaction(null);
     setListening(null);
     setAttempt((value) => value + 1);
@@ -190,6 +206,8 @@ export function useInterviewRoom(
           return;
         latestQuestion = message;
         if (message.speech === "started") {
+          // 새 질문(꼬리질문 포함)이면 지난 답변의 면접 태도는 지운다
+          setAttitude([]);
           setReaction(null);
           setListening(null);
           if (currentStream) retiredStreams.add(currentStream);
@@ -209,9 +227,32 @@ export function useInterviewRoom(
       return "";
     });
 
+    /** 면접 태도 점수(AI 명세 6.3 interview.attitude). 화상 답변 중에만 오고, 질문을 말하는 동안 늦게 온 것은 버린다 */
+    function acceptAttitude(payload: string) {
+      try {
+        const parsed = attitudeMessageSchema.safeParse(JSON.parse(payload));
+        if (!parsed.success || parsed.data.sessionId !== sessionId) return;
+        if (latestQuestion?.speech === "started") return;
+        const now = performance.now();
+        setAttitude((previous) => [
+          ...recentAttitude(previous, now),
+          { score: parsed.data.score, receivedAt: now },
+        ]);
+      } catch {
+        // 형식이 잘못된 점수는 표시하지 않는다.
+      }
+    }
+    if (!listenOnly) {
+      room.registerRpcMethod(ATTITUDE_METHOD, async (data) => {
+        if (!disposed && fromAgent(data.callerIdentity)) acceptAttitude(data.payload);
+        return "";
+      });
+    }
+
     function fail() {
       if (!disposed) {
         failed = true;
+        setAttitude([]);
         setReaction(null);
         setListening(null);
         setState((previous) => ({ ...previous, status: "failed" }));
@@ -344,6 +385,7 @@ export function useInterviewRoom(
       try {
         const access = await issueRoomToken(sessionId);
         if (disposed) return;
+        setAttitude([]);
         setReaction(null);
         setListening(null);
         setQuestion(null);
@@ -393,6 +435,7 @@ export function useInterviewRoom(
       room.unregisterRpcMethod(ANSWER_STATE_METHOD);
       room.unregisterRpcMethod(QUESTION_METHOD);
       room.unregisterRpcMethod(REACTION_METHOD);
+      if (!listenOnly) room.unregisterRpcMethod(ATTITUDE_METHOD);
       room.unregisterTextStreamHandler(STT_TOPIC);
       publishedMicrophone?.off(TrackEvent.Muted, keepMicrophoneOn);
       room.removeAllListeners();
@@ -494,6 +537,7 @@ export function useInterviewRoom(
     ...state,
     question,
     reaction,
+    attitude,
     retry,
     submitAnswer,
     sendChatInput,
