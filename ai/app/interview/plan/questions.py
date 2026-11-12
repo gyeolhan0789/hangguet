@@ -45,8 +45,25 @@ _COMPANY_GUIDES: Mapping[Persona, str] = {
 }
 
 
+# 연결한 회사 항목에 따른 질문 형식(AI 명세 2장 회사 카드 사용).
+# 인재상은 지원자가 과거에 실제로 한 행동으로 확인하는 가치이고,
+# 사업 방향·시장·최근 이슈는 지원자가 앞으로 담당할 회사 상황이므로 형식을 나눈다
+_FORMAT_RULES = (
+    f"- 질문 형식: [{TALENT_TITLE}] 항목과 연결한 질문과 회사 정보와 연결하지 않은 질문은 "
+    "과거 경험 질문이다. 자소서 경험에서 본인이 한 행동과 그 결과를 묻는다. "
+    f"[{BUSINESS_TITLE}]·[{RECENT_TITLE}] 항목과 연결한 질문은 가정 상황 질문이다. "
+    "회사 항목의 원문을 인용해 상황을 제시하고, "
+    "자소서 경험의 방법을 그 상황에 어떻게 적용할지 묻는다\n"
+    "- 회사 항목과 연결한 질문의 문장에는 그 항목의 내용이 들어가야 한다\n"
+    "- 회사의 사건을 기준으로 지원자 경험이 충분한지 평가하는 질문과 "
+    "회사 내부 사정을 알아야 답할 수 있는 질문은 하지 않는다\n"
+)
+
+
 def _guide(persona: Persona) -> str:
-    return interviewer_guide(persona, COVER_LETTER) + _COMPANY_GUIDES.get(persona, "")
+    return (
+        interviewer_guide(persona, COVER_LETTER) + _COMPANY_GUIDES.get(persona, "") + _FORMAT_RULES
+    )
 
 
 def question_system(persona: Persona) -> str:

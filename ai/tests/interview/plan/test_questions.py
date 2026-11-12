@@ -385,3 +385,28 @@ def test_company_item_that_is_not_text_is_output_error() -> None:
     content = {"questions": [{**question(1), "companyItem": 1}]}
     with pytest.raises(PlanOutputError):
         parse_questions(content)
+
+
+# 기준: AI 명세 2장 회사 카드 사용(연결 항목별 질문 형식)
+FORMAT_RULES = (
+    "- 질문 형식: [회사 인재상] 항목과 연결한 질문과 회사 정보와 연결하지 않은 질문은 "
+    "과거 경험 질문이다. 자소서 경험에서 본인이 한 행동과 그 결과를 묻는다. "
+    "[회사 사업 방향·시장]·[회사 최근 이슈] 항목과 연결한 질문은 가정 상황 질문이다. "
+    "회사 항목의 원문을 인용해 상황을 제시하고, "
+    "자소서 경험의 방법을 그 상황에 어떻게 적용할지 묻는다\n"
+    "- 회사 항목과 연결한 질문의 문장에는 그 항목의 내용이 들어가야 한다\n"
+    "- 회사의 사건을 기준으로 지원자 경험이 충분한지 평가하는 질문과 "
+    "회사 내부 사정을 알아야 답할 수 있는 질문은 하지 않는다\n"
+)
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_question_format_depends_on_linked_company_item(persona: Persona) -> None:
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 연결 항목별 질문 형식을 지시한다."""
+    job = replace(JOB, persona=persona)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert FORMAT_RULES in messages[0]["content"]

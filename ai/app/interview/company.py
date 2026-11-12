@@ -101,21 +101,36 @@ def _matching_summary(entry: Mapping[str, Any], subcategories: Collection[str]) 
     return summary[0]
 
 
+def _with_quote(text: str, entry: Mapping[str, Any]) -> str:
+    """항목 글 뒤에 원문을 덧붙인다. 원문이 없으면 항목 글만 반환한다.
+
+    사업 방향·시장·최근 이슈에 연결한 질문은 회사 항목의 원문을 인용해 상황을 제시하므로
+    원문을 함께 전달한다(AI 명세 2장 회사 카드 사용).
+    """
+    quote = _texts(entry.get("quote"))
+    return f"{text} (원문: {quote[0]})" if quote else text
+
+
 def _business_candidates(
     card: Mapping[str, Any], subcategories: Collection[str]
 ) -> list[Candidate]:
-    """사업 방향·시장 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다."""
+    """사업 방향·시장 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다.
+
+    항목은 「구분: 요약 (원문: …)」 형식이다.
+    """
     candidates: list[Candidate] = []
     for key, label in (("direction", "사업 방향"), ("market", "시장")):
         for entry in _entries(card, key):
             summary = _matching_summary(entry, subcategories)
             if summary is not None:
-                candidates.append((f"{label}: {summary}", None))
+                candidates.append((_with_quote(f"{label}: {summary}", entry), None))
     return candidates
 
 
 def _recent_candidates(card: Mapping[str, Any], subcategories: Collection[str]) -> list[Candidate]:
-    """최근 이슈 항목 중 분류값에 지원 직무 세분류가 있는 항목을 「기사 날짜: 요약」으로 반환한다.
+    """최근 이슈 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다.
+
+    항목은 「기사 날짜: 요약 (원문: …)」 형식이다.
 
     질문이 언제의 이슈인지 드러나도록 기사 날짜를 함께 전달한다. 날짜가 없으면 요약만 전달한다.
     """
@@ -125,7 +140,8 @@ def _recent_candidates(card: Mapping[str, Any], subcategories: Collection[str]) 
         if summary is None:
             continue
         published = _texts(entry.get("published"))
-        candidates.append((f"{published[0]}: {summary}" if published else summary, None))
+        text = f"{published[0]}: {summary}" if published else summary
+        candidates.append((_with_quote(text, entry), None))
     return candidates
 
 

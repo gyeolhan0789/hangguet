@@ -26,7 +26,7 @@ CARD: dict[str, Any] = {
     "direction": [
         {
             "summary": "해외 결제 확대",
-            "quote": "원문",
+            "quote": "해외 결제 서비스를 확대할 계획이다",
             "source": "사업보고서",
             "ncs_subcategories": ["응용SW엔지니어링"],
         }
@@ -34,7 +34,7 @@ CARD: dict[str, Any] = {
     "market": [
         {
             "summary": "간편결제 점유율 1위",
-            "quote": "원문",
+            "quote": "간편결제 시장 점유율 1위를 유지하고 있다",
             "source": "사업보고서",
             "ncs_subcategories": ["IT마케팅", "DB엔지니어링"],
         }
@@ -42,6 +42,7 @@ CARD: dict[str, Any] = {
     "recent": [
         {
             "summary": "새 결제 서비스 출시",
+            "quote": "한끗페이, 새 결제 서비스 출시",
             "published": "2026-10-30",
             "ncs_subcategories": ["응용SW엔지니어링"],
         }
@@ -70,7 +71,12 @@ def test_devil_uses_talent_and_recent_issues() -> None:
         CompanyItem(
             "co2", "회사 인재상", "고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게", ("c2",)
         ),
-        CompanyItem("co3", "회사 최근 이슈", "2026-10-30: 새 결제 서비스 출시", None),
+        CompanyItem(
+            "co3",
+            "회사 최근 이슈",
+            "2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)",
+            None,
+        ),
     ]
 
 
@@ -117,12 +123,27 @@ def test_coffee_chat_business_and_recent_items_need_job_subcategory() -> None:
     분류값에 지원 직무 세분류가 있는 항목만 후보이고 주장 제한이 없다.
     """
     assert items(CARD, Persona.COFFEE_CHAT) == [
-        CompanyItem("co1", "회사 사업 방향·시장", "사업 방향: 해외 결제 확대", None),
-        CompanyItem("co2", "회사 사업 방향·시장", "시장: 간편결제 점유율 1위", None),
-        CompanyItem("co3", "회사 최근 이슈", "2026-10-30: 새 결제 서비스 출시", None),
+        CompanyItem(
+            "co1",
+            "회사 사업 방향·시장",
+            "사업 방향: 해외 결제 확대 (원문: 해외 결제 서비스를 확대할 계획이다)",
+            None,
+        ),
+        CompanyItem(
+            "co2",
+            "회사 사업 방향·시장",
+            "시장: 간편결제 점유율 1위 (원문: 간편결제 시장 점유율 1위를 유지하고 있다)",
+            None,
+        ),
+        CompanyItem(
+            "co3",
+            "회사 최근 이슈",
+            "2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)",
+            None,
+        ),
     ]
     assert [item.text for item in items(CARD, Persona.COFFEE_CHAT, ("DB엔지니어링",))] == [
-        "시장: 간편결제 점유율 1위"
+        "시장: 간편결제 점유율 1위 (원문: 간편결제 시장 점유율 1위를 유지하고 있다)"
     ]
 
 
@@ -171,8 +192,11 @@ def test_duck_uses_all_sections_with_continued_numbers() -> None:
     assert company_section(result) == (
         "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다 (연결 가능한 주장: c1, c3)\n"
         "co2 고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게 (연결 가능한 주장: c2)\n\n"
-        "[회사 사업 방향·시장]\nco3 사업 방향: 해외 결제 확대\nco4 시장: 간편결제 점유율 1위\n\n"
-        "[회사 최근 이슈]\nco5 2026-10-30: 새 결제 서비스 출시"
+        "[회사 사업 방향·시장]\n"
+        "co3 사업 방향: 해외 결제 확대 (원문: 해외 결제 서비스를 확대할 계획이다)\n"
+        "co4 시장: 간편결제 점유율 1위 (원문: 간편결제 시장 점유율 1위를 유지하고 있다)\n\n"
+        "[회사 최근 이슈]\n"
+        "co5 2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)"
     )
 
 
@@ -180,8 +204,22 @@ def test_duck_skips_section_without_candidates() -> None:
     card = {"talent": [], "direction": CARD["direction"]}
 
     assert company_section(items(card, Persona.DUCK)) == (
-        "[회사 사업 방향·시장]\nco1 사업 방향: 해외 결제 확대"
+        "[회사 사업 방향·시장]\n"
+        "co1 사업 방향: 해외 결제 확대 (원문: 해외 결제 서비스를 확대할 계획이다)"
     )
+
+
+def test_business_and_recent_items_without_quote_keep_summary_only() -> None:
+    """원문이 없는 항목은 원문 없이 전달한다."""
+    card = {
+        "direction": [{"summary": "해외 결제 확대", "ncs_subcategories": ["응용SW엔지니어링"]}],
+        "recent": [{"summary": "새 결제 서비스 출시", "ncs_subcategories": ["응용SW엔지니어링"]}],
+    }
+
+    assert [item.text for item in items(card, Persona.COFFEE_CHAT)] == [
+        "사업 방향: 해외 결제 확대",
+        "새 결제 서비스 출시",
+    ]
 
 
 @pytest.mark.parametrize("persona", list(Persona))
