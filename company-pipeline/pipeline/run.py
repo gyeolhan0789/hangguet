@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from pipeline import candidates, card, dart, extract, news, storage, verify, viewer
+from pipeline import candidates, card, classify, dart, extract, news, storage, verify, viewer
 
 HERE = Path(__file__).parent
 DATA = HERE / "data"
@@ -34,7 +34,8 @@ def recent_issues(name: str, code: str) -> list[dict[str, Any]]:
     llm = card.call_llm(card.build_recent_messages(name, news_text))
     kept, dropped = verify.verify_card({"recent": llm.get("recent", [])}, {"recent": news_text})
     _log_dropped(name, dropped)
-    return card.link_articles(kept["recent"], articles)
+    recent = card.link_articles(kept["recent"], articles)
+    return classify.add_subcategories(name, {"recent": recent})["recent"]
 
 
 def _save(result: dict[str, Any], data: Path) -> Path:
@@ -89,6 +90,9 @@ def build_one(company: dict[str, str], data: Path = DATA) -> Path:
         result, {"talent": talent, "direction": business, "market": market}
     )
     _log_dropped(name, dropped)
+    result["talent"] = classify.add_criteria(name, result["talent"])
+    business_items = {"direction": result["direction"], "market": result["market"]}
+    result.update(classify.add_subcategories(name, business_items))
     try:
         result["recent"] = recent_issues(name, corp_code)
     except (OSError, ValueError):  # LLM 오류·시간 초과·잘린 JSON
@@ -110,6 +114,28 @@ def refresh_recent(company: dict[str, str], data: Path = DATA) -> Path:
             result["generated_at"] = date.today().isoformat()
             return _save(result, data)
     return build_one(company, data)
+
+
+def fill_classification(data: Path = DATA) -> list[Path]:
+    """저장된 카드에서 분류값이 없는 항목만 채워 저장하고, 저장한 카드 경로를 반환한다.
+
+    분류값을 추가하기 전에 만든 카드와 분류에 실패한 항목을 채우기 위함이다.
+    카드 전체 생성은 항목 문장까지 다시 추출해 카드 내용이 변경되므로 사용하지 않는다.
+    이미 분류값이 있는 항목과 `prompt_version`·`generated_at`은 변경하지 않는다.
+    """
+    saved = []
+    for path in sorted((data / "cards").glob("*.json")):
+        result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        name = result["name"]
+        sections = {key: result[key] for key in classify.NCS_SECTIONS}
+        filled = {
+            **result,
+            "talent": classify.add_criteria(name, result["talent"]),
+            **classify.add_subcategories(name, sections),
+        }
+        if filled != result:
+            saved.append(_save(filled, data))
+    return saved
 
 
 def main() -> None:
