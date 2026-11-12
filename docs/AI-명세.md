@@ -26,7 +26,7 @@
 
 BE ─ Redis 작업 큐 3개(1.3) ─▶ AI 분석 작업자 ─▶ GMS · ffmpeg   PLAN · EXTRACT_CLAIMS · SCORE_ANSWER · EVALUATE · MERGE_RECORDING
 BE ◀─ Redis 결과 큐 ai:results ─ AI 분석 작업자 · AI 면접 에이전트
-BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준) · 방 삭제 · Egress 녹화
+BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기준 · 연결 회사 항목) · 방 삭제 · Egress 녹화
 ```
 
 - **AI는 DB에 접속하지 않는다** **[결정]**(읽기 · 쓰기 모두). 입력은 BE가 작업 메시지(1.3)와 에이전트 배정 정보(6.1)에 담아 보내고, 출력은 결과 메시지(1.4)로 돌려준다. BE가 받아 검증한 뒤 DB와 Redis 진행 상태에 쓴다
@@ -233,7 +233,7 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   - 남는 주장이 없으면 출력 구조 깨짐과 같이 처리한다(5장)
 - **진행률** STEP 01이 끝나면 `plan.progress`(50), STEP 02가 끝나면 `plan.completed`. 개인 면접은 주장을 입력으로 수신하므로 PLAN을 시작할 때 `plan.progress`(50)를 전송한다
 - **결과** `plan.completed`에 위 JSON과 `promptVersion`·`modelVersion`을 담는다. 개인 면접의 `claims`는 입력으로 수신한 주장 그대로다. `modelVersion`은 GMS 응답에 실린 모델 이름이다(9장). BE가 `interview_plans(session_id PK·FK, claims, questions, prompt_version, model_version, created_at)`에 저장한다
-- **질문 출제** 질문 5개와 채점 기준은 BE가 5.4에서 면접 에이전트 배정 정보로 넘긴다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
+- **질문 출제** 질문 5개와 채점 기준·연결 회사 항목은 BE가 5.4에서 면접 에이전트 배정 정보로 전달한다(6.1). 1·3번은 그대로 출제하고, 2·4·5번은 꼬리질문(2.2)을 생성하지 못했을 때 출제하는 예비 질문이다. `interview_questions` 행은 에이전트가 질문을 말하기 시작할 때(`question.started`) 실제로 출제한 질문 글로 BE가 만든다. 질문 수는 5개 고정이다. 그룹 면접은 개인 맞춤 질문 2개를 그대로 출제하고 예비 질문이 없다(6.7)
 - **질문 보관함** BE는 `plan.completed`로 수신한 질문을 「지원서 + 면접관(`persona`)」마다 하나인 보관함에 질문 하나당 한 행으로 저장한다. 꼬리질문이 대신 출제되어 출제하지 않은 예비 질문을 같은 지원서·같은 면접관의 다음 면접에서 다시 사용하기 위함이다
   - 행마다 질문의 `content`·`criteria`·`claimId`·`companyItem`과 그 질문을 만든 `promptVersion`·`modelVersion`을 저장한다
   - 그룹 면접의 질문은 보관함에 넣지 않는다. 그룹 면접은 개인 맞춤 질문을 매번 생성하고 예비 질문이 없기 때문이다(6.7)
@@ -285,16 +285,17 @@ BE ─ LiveKit 서버 API ─▶ 에이전트 배정(질문 5개 · 채점 기�
   | 4·5 | 꼬리질문 2개 | 3번 답변이 끝난 직후 한 번에 |
 
   - 4·5번은 3번 답변의 서로 다른 측면을 묻는다. 한 번에 생성하는 것은 두 질문이 겹치지 않게 하고 5번 질문 앞에서 기다리지 않게 하기 위함이다
-- **입력** 면접관(`persona`), 직전 기본 질문의 글·채점 기준, 그 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `answer.submit`의 `content`, 6.3)
+- **입력** 면접관(`persona`), 직전 기본 질문의 글·채점 기준, 그 답변 글(화상은 `answer.completed`의 `content`, 채팅은 `answer.submit`의 `content`, 6.3), 직전 기본 질문의 연결 회사 항목(배정 정보의 `companyItem`, 6.1. 연결하지 않은 질문이면 null)
 - **출력** 질문마다 `content`(질문 글)·`criteria`(채점 기준). 답변 채점(3장)은 출제한 질문의 채점 기준을 사용한다
 - **생성 지침**
   - 한 질문에서 한 가지만 묻는다
-  - 답변과 직전 질문에 없는 사실을 전제로 질문하지 않는다
+  - 답변, 직전 질문, 그 질문의 연결 회사 항목에 없는 사실을 전제로 질문하지 않는다
+  - 직전 기본 질문에 연결 회사 항목이 있으면 답변에서 그 회사 항목과 관련된 지점을 파고들 수 있다
   - 면접관별 질문 수준과 인재상 기준은 2장과 같다. 악마 면접관의 압박 어조는 쓰지 않는다. 압박 어조를 지시하면 답변에 없는 부정적 사실을 전제로 묻기 때문이다
 - **검증** JSON이 아니거나, 질문 수가 맞지 않거나, 질문 글·채점 기준이 비어 있으면 생성 실패로 처리한다. 기다리는 시간이 짧으므로 재시도하지 않는다
 - **예비 질문** 답변이 끝난 시점부터 4초(임시 값) 안에 생성하지 못하거나 생성에 실패하면 같은 순서의 미리 만든 질문(2장)을 출제한다. 4·5번은 함께 생성하므로 함께 예비 질문으로 대체한다. 직전 답변을 전송하지 않았으면(6.5 저장할 수 없는 답변) 생성하지 않고 예비 질문을 출제한다
   - 4초는 실측(`gpt-5.6-terra`, 1개 1.5~2.8초·2개 2.1~2.3초, 각 3회)의 최댓값에 여유를 둔 값이다. 질문 음성 합성 시간은 포함하지 않으며, 별도로 0.5~1.7초(57자 질문, 3회)가 걸린다
-- **버전** 프롬프트 버전은 `followup-v1`, 모델은 PLAN과 같다(9장). 생성한 질문은 `question.started`에 `promptVersion`·`modelVersion`을 담고, 예비 질문은 둘 다 null이다
+- **버전** 프롬프트 버전은 `followup-v2`, 모델은 PLAN과 같다(9장). 생성한 질문은 `question.started`에 `promptVersion`·`modelVersion`을 담고, 예비 질문은 둘 다 null이다
 
 ## 3. SCORE_ANSWER: 답변 채점
 
@@ -444,11 +445,12 @@ BE가 5.4에서 LiveKit `AgentDispatchService.CreateDispatch`로 에이전트를
 ```json
 { "sessionId": 55, "mode": "VIDEO", "persona": "DEVIL", "currentSeq": 1,
   "questions": [
-    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거" }
+    { "seq": 1, "content": "응답 시간을 40% 줄인 과정은?", "criteria": "원인 분석 · 수치 근거", "companyItem": null }
   ] }
 ```
 
 - `questions`는 미리 만든 5개 전부. 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준을 여기서 받는다. 2·4·5번은 꼬리질문의 예비 질문으로 사용한다(2.2)
+- `companyItem`은 플랜의 질문별 연결 회사 항목(2장)을 그대로 담는다. 꼬리질문 생성(2.2)의 입력으로 사용한다. 필드가 없으면 null로 처리한다. 필드를 추가하기 전에 BE가 전송한 배정과 배포 순서 차이를 처리하기 위함이다
 - 형식이 틀리면(질문 5개가 아님, 질문 글·채점 기준이 비어 있음, 512KiB 초과 등) 에이전트는 배정을 거절한다(6.5)
 - `currentSeq`: 몇 번 질문부터 할지. 처음엔 1이고, 에이전트가 중간에 끊겨 다시 배정할 때 이어 갈 번호다
 - 면접이 끝나면 BE가 방을 삭제(`RoomService.DeleteRoom`)하고 에이전트는 그 면접을 정리한다. 끝나지 않은 답변은 보내지 않는다
@@ -601,7 +603,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
                        { "content": "의견이 다른 동료와 문제를 해결한 경험은?", "criteria": "갈등 상황 · 본인 행동 · 결과" } ],
   "participants": [
     { "sessionId": 55, "identity": "candidate-55",
-      "personalQuestions": [ { "content": "…", "criteria": "…" }, { "content": "…", "criteria": "…" } ] } ] }
+      "personalQuestions": [ { "content": "…", "criteria": "…", "companyItem": null }, { "content": "…", "criteria": "…", "companyItem": null } ] } ] }
 ```
 
 - 방 이름 `group-{groupId}`, 지원자 참가자 이름 `candidate-{sessionId}`, 에이전트는 6.1과 같은 `interviewer`
@@ -628,7 +630,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 - 한 사람당 0~2개이고 필수가 아니다. 미리 만든 예비 질문이 없다. 남은 수는 방 정보 `turn.followupsLeft`로 받는다(0이면 BE가 `DECIDING`을 건너뛴다)
 - 판단 재료는 최종 답변이다: 화상은 자기가 보낸 `answer.completed`의 글, 채팅은 BE가 `SendData`로 보낸 `group.answer`(아래)의 글. 채팅 작성 중인 글(`chat.input`)로는 판단하지 않는다
 - 같은 `(sessionId, seq)`는 한 번만 판단한다. 같은 답변 글을 다시 받으면 처음 결과를 다시 보낸다
-- 필요하면 질문 글 · 채점 기준을 만들고(생성 지침 · 검증은 2.2), 아니면 `needed: false`. 판단 방법(필요 여부를 어떻게 정할지)은 **[미정]**
+- 필요하면 질문 글 · 채점 기준을 만들고(입력 · 생성 지침 · 검증은 2.2. 직전 질문이 개인 맞춤 질문이면 그 질문의 `companyItem`을 입력에 포함한다), 아니면 `needed: false`. 판단 방법(필요 여부를 어떻게 정할지)은 정하지 않았다
 - BE는 `DECIDING`을 시작하고 7초(설정 값) 안에 온 판단만 쓴다. 늦으면 꼬리질문 없이 넘어가므로 에이전트는 기다리지 말고 바로 보낸다. 구현 뒤 응답 시간을 보고 2~3초로 줄일 수 있다
 - 만든 꼬리질문은 BE가 그 사람의 `FOLLOWUP` 차례를 정할 때까지 들고 있다. 다른 차례가 오면 버린다
 
@@ -655,7 +657,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 ```json
 { "type": "followup.decided", "sessionId": 55, "seq": 2, "turnVersion": 18,
   "needed": true, "content": "그때 팀원 의견을 어떻게 모았나요?", "criteria": "의견 수렴 방법 · 결과",
-  "promptVersion": "followup-v1", "modelVersion": "…",
+  "promptVersion": "followup-v2", "modelVersion": "…",
   "receivedAt": "2026-11-04T14:05:03.210+09:00", "generationMs": 1830, "occurredAt": "2026-11-04T14:05:05.100+09:00" }
 ```
 
