@@ -255,7 +255,7 @@ com.ssafy.a301
 1. 5.8 한 트랜잭션: `end()` → true면 `PracticeLog`를 해당 시작일(한국 시간, `started_at` 기준) 처음일 때만 저장
    - 응답의 `leveledUp`: 이번에 `PracticeLog`가 새로 저장됐고, 저장 후 `currentStreak`의 뱃지 구간이 저장 전과 다르면 true(6.1). 저장되지 않았으면(같은 날 두 번째 면접, 답변 0개) false
    - 동시 요청 대비: `INSERT … ON CONFLICT (user_id, practice_date) DO NOTHING`으로 넣는다(`PracticeLogRepository.insertIfAbsent`). 제약 위반 예외를 잡고 계속 진행하면 PostgreSQL에서는 트랜잭션 전체가 실패한다
-   - 답변 ≥1이면 EVALUATE enqueue → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue하고 합친 녹화 행을 `MERGING`으로 저장한다(5.9에서는 다시 하지 않음)
+   - 답변 ≥1이면 EVALUATE enqueue(면접의 `company_card_id` 카드를 `companyCard`로 담고, 없으면 생략. AI 명세 4장) → Redis `startAnalysis`(analysisStep ORGANIZING_ANSWERS, 시작 시각, 이번 EVALUATE `jobId`). 5.9도 같다. 화상이면 MERGE_RECORDING도 enqueue하고 합친 녹화 행을 `MERGING`으로 저장한다(5.9에서는 다시 하지 않음)
    - 커밋 뒤 면접방을 삭제(에이전트 퇴장)하고, 화상이면 Egress 녹화를 멈춘다(5.6)
    - 그룹 세션은 `GroupEndService`가 그룹 행 → 참가자 면접 행 순서로 잠그고 같은 종료 처리(`SessionEnder`)를 한다. 녹화 합치기와 면접방 정리는 그룹 단위로 한다(그룹 면접 설계 6.10)
 2. 결과 생성은 **비동기**: BE가 결과 메시지 `evaluation.progress`를 받아 `analysisStep`을 `ORGANIZING_ANSWERS → SCORING → WRITING_FEEDBACK`으로 Redis에 갱신한다. 화면은 5.2를 2초마다(임시 값, B-11) 불러 확인한다
