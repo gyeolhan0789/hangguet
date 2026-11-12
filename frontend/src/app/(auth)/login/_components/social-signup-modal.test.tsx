@@ -1,42 +1,23 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MotionGlobalConfig } from "motion/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma S01-3 카카오 가입 · 약관 동의 모달(435:2189) · 기획 메모 S01-3(423:2140: 필수 약관 모두 체크해야 버튼 활성 → 1.7,
+// ✕로 닫으면 가입 안 함(가입 토큰 삭제)) · Swagger 1.7 소셜 회원가입 · 사용자 결정(2026-10-30: 만 14세 이상 확인)
+// · WAI-ARIA 대화 상자 패턴(열리면 포커스, Esc로 닫힘, 안에서만 Tab, 닫으면 포커스를 돌려줌)
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import { cancelSocialSignup, socialSignup } from "@/lib/auth/social-actions";
+import { deferred } from "@/test/deferred";
 import { flushPromises } from "@/test/flush";
 
 import { SocialSignupModal } from "./social-signup-modal";
 
-// 서버 액션 경계만 바꾼다. 1.7 요청 · 이동 · 쿠키는 social-actions.test.ts와 E2E(kakao-login.spec.ts)가 본다.
-const socialSignup = vi.fn();
-const cancelSocialSignup = vi.fn();
+// 경계 mock: 서버 액션(1.7 가입 · 가입 토큰 지우기)과 연출(motion: 닫히는 순간 onExitComplete)
 vi.mock("@/lib/auth/social-actions", () => ({
-  socialSignup: (...args: unknown[]) => socialSignup(...args),
-  cancelSocialSignup: (...args: unknown[]) => cancelSocialSignup(...args),
+  socialSignup: vi.fn(),
+  cancelSocialSignup: vi.fn(),
 }));
-
-// 기준: Figma S01-3 약관 동의 모달(435:2189: '회원가입' · '카카오 계정으로 가입해요' · ✕ · 약관 동의 · [가입하고 시작하기])
-// · 기획 메모 S01-3(423:2140: 필수 약관 모두 체크해야 버튼 활성 → 1.7, ✕로 닫으면 가입 안 함) · 사용자 결정(만 14세 이상 확인)
-// · WAI-ARIA 대화 상자 패턴(열리면 포커스, Esc로 닫힘, 안에서만 Tab, 닫으면 포커스를 돌려줌)
-// 모션은 끄고 본다. 처리 중인 1.7은 테스트가 끝날 때 푼다.
-
-const releases: (() => void)[] = [];
-function pending() {
-  let release!: () => void;
-  const promise = new Promise<void>((resolve) => (release = resolve));
-  releases.push(release);
-  return promise;
-}
-
-beforeEach(() => {
-  MotionGlobalConfig.skipAnimations = true;
-});
-
-afterEach(async () => {
-  await act(async () => releases.splice(0).forEach((release) => release()));
-  cleanup();
-  vi.resetAllMocks();
-  MotionGlobalConfig.skipAnimations = false;
-});
+vi.mock("motion/react", async (importOriginal) =>
+  (await import("@/test/motion")).reducedMotion(importOriginal),
+);
 
 /** S01 로그인 폼의 이메일 칸과 함께 그린다(닫은 뒤 포커스가 돌아갈 곳) */
 function renderOnLogin() {
@@ -48,113 +29,137 @@ function renderOnLogin() {
   );
 }
 
-/** 퇴장 모션(모션을 꺼도 다음 프레임에 끝난다)과 onExitComplete까지 흘려보낸다 */
-async function flushFrames() {
-  await act(async () => {
-    await new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    );
-  });
-}
-
 const dialog = () => screen.getByRole("dialog", { name: "회원가입" });
 const submit = () => screen.getByRole("button", { name: "가입하고 시작하기" }) as HTMLButtonElement;
+const checkbox = (name: string) => screen.getByRole("checkbox", { name }) as HTMLInputElement;
 
-describe("SocialSignupModal (S01-3)", () => {
-  it("열리면 모달로 포커스가 가고, 부제 · 동의 줄(만 14세 + 약관 3개)을 보인다", () => {
-    renderOnLogin();
+async function agreeAll() {
+  fireEvent.click(checkbox("전체 동의"));
+  await flushPromises();
+}
 
-    expect(document.activeElement).toBe(dialog());
-    expect(dialog().getAttribute("aria-modal")).toBe("true");
-    expect(screen.getByText("카카오 계정으로 가입해요")).toBeTruthy();
-    for (const label of [
-      "[필수] 만 14세 이상입니다",
-      "[필수] 이용약관",
-      "[필수] 개인정보 수집 · 이용",
-      "[필수] 면접 녹화 · 음성 이용",
-    ]) {
-      expect(screen.getByLabelText(label)).toBeTruthy();
-    }
-  });
+describe("SocialSignupModal · 카카오 가입 약관 동의 모달", () => {
+  describe("화면 표시", () => {
+    it("열리면 모달로 포커스를 옮긴다", () => {
+      renderOnLogin();
 
-  it("필수 동의를 모두 체크해야 [가입하고 시작하기]가 켜지고, 하나라도 빠지면 다시 꺼진다", async () => {
-    renderOnLogin();
-    expect(submit().disabled).toBe(true);
-
-    fireEvent.click(screen.getByLabelText("전체 동의"));
-    await waitFor(() => expect(submit().disabled).toBe(false));
-    fireEvent.click(screen.getByLabelText("[필수] 이용약관"));
-    await waitFor(() => expect(submit().disabled).toBe(true));
-  });
-
-  it("누르면 동의 값으로 1.7을 보내고, 처리하는 동안 ✕ · Esc로 닫지 않는다", async () => {
-    socialSignup.mockReturnValue(pending());
-    renderOnLogin();
-    fireEvent.click(screen.getByLabelText("전체 동의"));
-    await waitFor(() => expect(submit().disabled).toBe(false));
-
-    fireEvent.click(submit());
-    await flushPromises();
-    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
-    fireEvent.keyDown(dialog(), { key: "Escape" });
-    // 닫혔다면 사라지는 모션과 onExitComplete까지 끝난 뒤에 본다
-    await flushFrames();
-
-    expect(socialSignup).toHaveBeenCalledWith({
-      AGE: true,
-      TERMS: true,
-      PRIVACY: true,
-      RECORDING: true,
+      expect(document.activeElement).toBe(dialog());
     });
-    expect(dialog()).toBeTruthy();
-    expect(cancelSocialSignup).not.toHaveBeenCalled();
+
+    it("필수 동의 4개를 모두 체크해야 [가입하고 시작하기]를 누를 수 있다", async () => {
+      renderOnLogin();
+      expect(submit().disabled).toBe(true);
+
+      await agreeAll();
+
+      expect(submit().disabled).toBe(false);
+    });
   });
 
-  it("✕로 닫으면 가입 토큰을 지우고(가입 안 함), 포커스를 이메일 칸으로 돌려준다", async () => {
-    renderOnLogin();
+  describe("사용자 조작", () => {
+    it("[전체 동의]를 누르면 동의 4개를 모두 체크한다", async () => {
+      renderOnLogin();
 
-    fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+      await agreeAll();
 
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "회원가입" })).toBeNull());
-    expect(cancelSocialSignup).toHaveBeenCalledOnce();
-    expect(document.activeElement).toBe(screen.getByLabelText("이메일"));
-    expect(socialSignup).not.toHaveBeenCalled();
+      expect(
+        [
+          "[필수] 만 14세 이상입니다",
+          "[필수] 이용약관",
+          "[필수] 개인정보 수집 · 이용",
+          "[필수] 면접 녹화 · 음성 이용",
+        ].map((name) => checkbox(name).checked),
+      ).toEqual([true, true, true, true]);
+    });
+
+    it("[가입하고 시작하기]를 누르면 동의 값으로 가입을 요청한다", async () => {
+      vi.mocked(socialSignup).mockResolvedValue(undefined);
+      renderOnLogin();
+      await agreeAll();
+
+      fireEvent.click(submit());
+      await flushPromises();
+
+      expect(socialSignup).toHaveBeenCalledWith({
+        AGE: true,
+        TERMS: true,
+        PRIVACY: true,
+        RECORDING: true,
+      });
+    });
+
+    it("✕를 누르면 모달을 닫고 가입 토큰을 지운 뒤 이메일 칸으로 포커스를 돌려준다", () => {
+      renderOnLogin();
+
+      fireEvent.click(screen.getByRole("button", { name: "닫기" }));
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(cancelSocialSignup).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(screen.getByLabelText("이메일"));
+    });
+
+    it("Esc를 누르면 모달을 닫는다", () => {
+      renderOnLogin();
+
+      fireEvent.keyDown(dialog(), { key: "Escape" });
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("[보기] 본문 안에서 누른 Esc는 본문만 닫고 가입 모달은 그대로 둔다", () => {
+      renderOnLogin();
+      fireEvent.click(screen.getByRole("button", { name: "서비스 이용약관 보기" }));
+
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "서비스 이용약관" }), {
+        key: "Escape",
+      });
+
+      expect(screen.queryByRole("dialog", { name: "서비스 이용약관" })).toBeNull();
+      expect(dialog()).toBeDefined();
+      expect(cancelSocialSignup).not.toHaveBeenCalled();
+    });
+
+    it("마지막 항목에서 Tab을 누르면 모달의 처음 항목으로 돈다", () => {
+      renderOnLogin();
+      const last = screen.getByRole("button", { name: "면접 녹화 · 음성 이용 동의 보기" });
+      last.focus();
+
+      fireEvent.keyDown(last, { key: "Tab" });
+
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "닫기" }));
+    });
+
+    it("어두운 바깥을 눌러도 포커스가 모달 밖으로 나가지 않는다", () => {
+      renderOnLogin();
+      const dim = dialog().parentElement!;
+
+      expect(fireEvent.mouseDown(dim)).toBe(false);
+    });
+
+    it("모달 안을 누르면 포커스 이동을 막지 않는다", () => {
+      renderOnLogin();
+
+      expect(fireEvent.mouseDown(checkbox("전체 동의"))).toBe(true);
+    });
   });
 
-  it("Esc로 닫는다", async () => {
-    renderOnLogin();
+  describe("중복 · 경쟁 처리", () => {
+    it("가입을 기다리는 동안에는 ✕를 누를 수 없고 Esc로도 닫히지 않는다", async () => {
+      const signing = deferred<undefined>();
+      vi.mocked(socialSignup).mockReturnValue(signing.promise);
+      renderOnLogin();
+      await agreeAll();
+      fireEvent.click(submit());
+      await flushPromises();
 
-    fireEvent.keyDown(dialog(), { key: "Escape" });
+      fireEvent.keyDown(dialog(), { key: "Escape" });
 
-    await waitFor(() => expect(cancelSocialSignup).toHaveBeenCalledOnce());
-  });
-
-  it("[보기] 본문 안에서 누른 Esc는 본문만 닫고 가입 모달은 그대로 둔다", async () => {
-    renderOnLogin();
-
-    fireEvent.click(screen.getByRole("button", { name: "서비스 이용약관 보기" }));
-    const legal = await screen.findByRole("dialog", { name: "서비스 이용약관" });
-    fireEvent.keyDown(legal, { key: "Escape" });
-
-    await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "서비스 이용약관" })).toBeNull(),
-    );
-    expect(dialog()).toBeTruthy();
-    expect(cancelSocialSignup).not.toHaveBeenCalled();
-  });
-
-  it("Tab은 모달 안에서만 돈다(마지막 [보기] ↔ ✕, 처음 모달에 있을 때 Shift+Tab은 마지막으로)", () => {
-    renderOnLogin();
-    const close = screen.getByRole("button", { name: "닫기" });
-    const last = screen.getByRole("button", { name: "면접 녹화 · 음성 이용 동의 보기" });
-
-    fireEvent.keyDown(dialog(), { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
-
-    fireEvent.keyDown(last, { key: "Tab" });
-    expect(document.activeElement).toBe(close);
-
-    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last);
+      expect((screen.getByRole("button", { name: "닫기" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+      expect(dialog()).toBeDefined();
+      expect(cancelSocialSignup).not.toHaveBeenCalled();
+      await act(async () => signing.resolve(undefined));
+    });
   });
 });

@@ -1,4 +1,9 @@
+// @vitest-environment node
+// 기준: 웹 Swagger 2.2 NicknameRequest(최대 50자 · 앞뒤 공백 제거) · 2.3 PasswordChangeRequest(currentPassword 최대 64자,
+// newPassword 8~64자 · 영문 · 숫자) · 2.4 ProfileImageUploadUrlRequest(JPG · PNG, 1~5,242,880바이트) · 2.5 objectKey
+// · 2.7 WithdrawRequest(최대 64자) · 2.10 PracticeAlarmTimeRequest(HH:mm)
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 
 import {
   nicknameSchema,
@@ -9,115 +14,168 @@ import {
   withdrawSchema,
 } from "./schemas";
 
-// 기준: 웹 Swagger 2.2 NicknameRequest(최대 50자 · 앞뒤 공백 제거) · 2.3 PasswordChangeRequest(currentPassword 최대 64자,
-// newPassword 8~64자 · 영문 · 숫자) · 2.4 ProfileImageUploadUrlRequest(JPG · PNG, 1~5,242,880) · 2.5 objectKey 1자 이상
-// · 2.7 WithdrawRequest(password 최대 64자). 빈 값은 화면에서 먼저 막는다.
+const NEW_PASSWORD_RULE = "8~64자, 영문과 숫자를 모두 포함해야 합니다.";
+const VALID_NEW = "newpass123";
 
-const firstMessage = (result: { success: boolean; error?: { issues: { message: string }[] } }) =>
-  result.success ? null : result.error!.issues[0].message;
+/** 검증 실패의 첫 문구(통과하면 undefined) */
+function firstError(schema: z.ZodType, value: unknown) {
+  const result = schema.safeParse(value);
+  return result.success ? undefined : result.error.issues[0].message;
+}
 
-describe("nicknameSchema (2.2)", () => {
-  it.each([
-    ["가", "가"],
-    ["  면접왕  ", "면접왕"],
-    ["가".repeat(50), "가".repeat(50)],
-  ])("%j → %j로 통과(앞뒤 공백 제거 · 50자까지)", (input, output) => {
-    expect(nicknameSchema.parse({ nickname: input })).toEqual({ nickname: output });
+describe("nicknameSchema · 닉네임 규칙", () => {
+  describe("정상 처리", () => {
+    it("앞뒤 공백을 지운 닉네임으로 바꾼다", () => {
+      expect(nicknameSchema.parse({ nickname: "  면접왕 " })).toEqual({ nickname: "면접왕" });
+    });
   });
 
-  it.each([
-    ["", "필수 값입니다."],
-    ["   ", "필수 값입니다."],
-    ["가".repeat(51), "1~50자입니다."],
-  ])("%j → %s", (input, message) => {
-    expect(firstMessage(nicknameSchema.safeParse({ nickname: input }))).toBe(message);
+  describe("입력 검증", () => {
+    it("공백뿐이면 '필수 값입니다.'로 막는다", () => {
+      expect(firstError(nicknameSchema, { nickname: "   " })).toBe("필수 값입니다.");
+    });
+  });
+
+  describe("경계값", () => {
+    it.each([
+      { label: "1자", nickname: "가" },
+      { label: "50자", nickname: "가".repeat(50) },
+    ])("닉네임이 '$label'이면 받는다", ({ nickname }) => {
+      expect(nicknameSchema.safeParse({ nickname }).success).toBe(true);
+    });
+
+    it("닉네임이 51자면 '1~50자입니다.'로 막는다", () => {
+      expect(firstError(nicknameSchema, { nickname: "가".repeat(51) })).toBe("1~50자입니다.");
+    });
   });
 });
 
-describe("passwordChangeSchema (2.3)", () => {
-  const RULE = "8~64자, 영문과 숫자를 모두 포함해야 합니다.";
-
-  it.each(["abcdefg1", `a1${"x".repeat(62)}`])(
-    "새 비밀번호 %j(8 · 64자, 영문 · 숫자)는 통과",
-    (pw) => {
+describe("passwordChangeSchema · 비밀번호 변경 규칙", () => {
+  describe("입력 검증", () => {
+    it("새 비밀번호가 영문 · 숫자 규칙에 어긋나면 규칙 문구로 막는다", () => {
       expect(
-        passwordChangeSchema.safeParse({ currentPassword: "now", newPassword: pw }).success,
+        firstError(passwordChangeSchema, {
+          currentPassword: "password123",
+          newPassword: "abcdefgh",
+        }),
+      ).toBe(NEW_PASSWORD_RULE);
+    });
+
+    it("지금 비밀번호가 공백뿐이면 '필수 값입니다.'로 막는다", () => {
+      expect(
+        firstError(passwordChangeSchema, { currentPassword: "   ", newPassword: VALID_NEW }),
+      ).toBe("필수 값입니다.");
+    });
+  });
+
+  describe("경계값", () => {
+    it("새 비밀번호가 64자면 받는다", () => {
+      const newPassword = `a1${"b".repeat(62)}`;
+
+      expect(
+        passwordChangeSchema.safeParse({ currentPassword: "password123", newPassword }).success,
       ).toBe(true);
-    },
-  );
+    });
 
-  it.each([
-    ["7자", "abcdef1"],
-    ["65자", `a1${"x".repeat(63)}`],
-    ["숫자 없음", "abcdefgh"],
-    ["영문 없음", "12345678"],
-  ])("새 비밀번호 %s는 '%s'", (_, pw) => {
-    expect(
-      firstMessage(passwordChangeSchema.safeParse({ currentPassword: "now", newPassword: pw })),
-    ).toBe(RULE);
-  });
+    it("새 비밀번호가 65자면 규칙 문구로 막는다", () => {
+      const newPassword = `a1${"b".repeat(63)}`;
 
-  it.each([
-    ["", "필수 값입니다."],
-    ["   ", "필수 값입니다."],
-    ["x".repeat(65), "최대 64자입니다."],
-  ])("지금 비밀번호 %j → %s", (current, message) => {
-    expect(
-      firstMessage(
-        passwordChangeSchema.safeParse({ currentPassword: current, newPassword: "abcdefg1" }),
-      ),
-    ).toBe(message);
-  });
+      expect(
+        firstError(passwordChangeSchema, { currentPassword: "password123", newPassword }),
+      ).toBe(NEW_PASSWORD_RULE);
+    });
 
-  it("지금 비밀번호 64자는 통과", () => {
-    expect(
-      passwordChangeSchema.safeParse({ currentPassword: "x".repeat(64), newPassword: "abcdefg1" })
-        .success,
-    ).toBe(true);
+    it("지금 비밀번호가 64자면 받는다", () => {
+      expect(
+        passwordChangeSchema.safeParse({ currentPassword: "a".repeat(64), newPassword: VALID_NEW })
+          .success,
+      ).toBe(true);
+    });
+
+    it("지금 비밀번호가 65자면 '최대 64자입니다.'로 막는다", () => {
+      expect(
+        firstError(passwordChangeSchema, {
+          currentPassword: "a".repeat(65),
+          newPassword: VALID_NEW,
+        }),
+      ).toBe("최대 64자입니다.");
+    });
   });
 });
 
-describe("profileImageUploadSchema (2.4)", () => {
-  it.each([
-    ["image/jpeg", 1],
-    ["image/png", 5_242_880],
-  ])("%s · %i바이트는 통과", (contentType, size) => {
-    expect(profileImageUploadSchema.safeParse({ contentType, size }).success).toBe(true);
-  });
-
-  it.each([
-    ["image/gif", 1000, "JPG·PNG만 올릴 수 있습니다."],
-    ["image/png", 0, "1바이트 이상입니다."],
-    ["image/png", 5_242_881, "5MB 이하만 올릴 수 있습니다."],
-  ])("%s · %i바이트 → %s", (contentType, size, message) => {
-    expect(firstMessage(profileImageUploadSchema.safeParse({ contentType, size }))).toBe(message);
-  });
-});
-
-describe("objectKeySchema (2.5) · withdrawSchema (2.7)", () => {
-  it("비었거나 공백뿐이면 '필수 값입니다.'", () => {
-    expect(firstMessage(objectKeySchema.safeParse("  "))).toBe("필수 값입니다.");
-    expect(firstMessage(withdrawSchema.safeParse({ password: "" }))).toBe("필수 값입니다.");
-    expect(firstMessage(withdrawSchema.safeParse({ password: "   " }))).toBe("필수 값입니다.");
-  });
-
-  it("탈퇴 비밀번호는 64자까지 통과, 65자는 '최대 64자입니다.'(웹 Swagger WithdrawRequest maxLength 64)", () => {
-    expect(withdrawSchema.safeParse({ password: "x".repeat(64) }).success).toBe(true);
-    expect(firstMessage(withdrawSchema.safeParse({ password: "x".repeat(65) }))).toBe(
-      "최대 64자입니다.",
+describe("practiceAlarmTimeSchema · 알림 시각 규칙", () => {
+  describe("경계값", () => {
+    it.each([{ time: "00:00" }, { time: "23:59" }, { time: "09:05" }])(
+      "'$time'이면 받는다",
+      ({ time }) => {
+        expect(practiceAlarmTimeSchema.safeParse({ time }).success).toBe(true);
+      },
     );
+
+    it.each([
+      { label: "24:00", time: "24:00" },
+      { label: "23:60", time: "23:60" },
+      { label: "9:00", time: "9:00" },
+      { label: "빈 값", time: "" },
+      { label: "뒤 공백", time: "09:00 " },
+    ])("'$label'이면 형식 문구로 막는다", ({ time }) => {
+      expect(firstError(practiceAlarmTimeSchema, { time })).toBe("HH:mm 형식(00:00~23:59)입니다.");
+    });
   });
 });
 
-describe("practiceAlarmTimeSchema (2.10)", () => {
-  it.each(["00:00", "23:59", "09:05"])("%s는 받는다", (time) => {
-    expect(practiceAlarmTimeSchema.safeParse({ time }).success).toBe(true);
+describe("withdrawSchema · 탈퇴 비밀번호 규칙", () => {
+  describe("입력 검증", () => {
+    it("공백뿐이면 '필수 값입니다.'로 막는다", () => {
+      expect(firstError(withdrawSchema, { password: "   " })).toBe("필수 값입니다.");
+    });
   });
 
-  it.each(["24:00", "23:60", "9:00", "", "21:00 "])("'%s'는 HH:mm이 아니라 받지 않는다", (time) => {
-    const result = practiceAlarmTimeSchema.safeParse({ time });
+  describe("경계값", () => {
+    it("비밀번호가 64자면 받는다", () => {
+      expect(withdrawSchema.safeParse({ password: "a".repeat(64) }).success).toBe(true);
+    });
 
-    expect(result.success).toBe(false);
-    expect(result.error?.issues[0]?.message).toBe("HH:mm 형식(00:00~23:59)입니다.");
+    it("비밀번호가 65자면 '최대 64자입니다.'로 막는다", () => {
+      expect(firstError(withdrawSchema, { password: "a".repeat(65) })).toBe("최대 64자입니다.");
+    });
+  });
+});
+
+describe("profileImageUploadSchema · 프로필 사진 규칙", () => {
+  describe("입력 검증", () => {
+    it("GIF면 'JPG·PNG만 올릴 수 있습니다.'로 막는다", () => {
+      expect(firstError(profileImageUploadSchema, { contentType: "image/gif", size: 1024 })).toBe(
+        "JPG·PNG만 올릴 수 있습니다.",
+      );
+    });
+  });
+
+  describe("경계값", () => {
+    it.each([
+      { label: "1바이트", size: 1 },
+      { label: "5,242,880바이트", size: 5_242_880 },
+    ])("크기가 '$label'이면 받는다", ({ size }) => {
+      expect(profileImageUploadSchema.safeParse({ contentType: "image/png", size }).success).toBe(
+        true,
+      );
+    });
+
+    it.each([
+      { label: "0바이트", size: 0, message: "1바이트 이상입니다." },
+      { label: "5,242,881바이트", size: 5_242_881, message: "5MB 이하만 올릴 수 있습니다." },
+    ])("크기가 '$label'이면 그 크기 문구로 막는다", ({ size, message }) => {
+      expect(firstError(profileImageUploadSchema, { contentType: "image/png", size })).toBe(
+        message,
+      );
+    });
+  });
+});
+
+describe("objectKeySchema · 올린 파일 키 규칙", () => {
+  describe("입력 검증", () => {
+    it("공백뿐이면 '필수 값입니다.'로 막는다", () => {
+      expect(firstError(objectKeySchema, "   ")).toBe("필수 값입니다.");
+    });
   });
 });

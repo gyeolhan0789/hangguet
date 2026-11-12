@@ -30,7 +30,7 @@ import {
 } from "./actions";
 import { getInquiry, getMyInquiries } from "./queries";
 
-// 기준: Swagger 9.1~9.5 · 9.11 문의 · 8.8~8.9 공지 예시
+// 기준: Swagger 9.1~9.5 · 9.11 문의(9.1 · 9.4 사진 키 400 · 404 FILE_NOT_FOUND 포함) · 8.8~8.9 공지 예시
 const { like, eachLike, equal } = MatchersV3;
 const pact = contract();
 
@@ -77,6 +77,14 @@ const noPhotoBody = {
 const detail = (path: string) =>
   providerPath(`/inquiries/\${inquiryId}${path}`, `/inquiries/7${path}`);
 const guestPassword = { "X-Inquiry-Password": "1234" };
+// 9.1 · 9.4 사진 키 오류(웹 Swagger 9.1 · 9.4 예시)
+const NOT_ISSUED_KEY = "inquiry/not-issued.png";
+const keyNotIssued = {
+  code: "VALIDATION_FAILED",
+  errors: [{ field: "attachmentKeys", reason: "발급되지 않았거나 이미 쓴 키입니다." }],
+};
+const fileNotFound = { detail: "업로드한 파일을 찾을 수 없어요.", code: "FILE_NOT_FOUND" };
+const notUploadedKey = providerValue("objectKey", "inquiry/7f3c.png");
 
 describe("문의(회원)", () => {
   it("9.1 문의를 쓰면 그 문의로 간다", () =>
@@ -199,6 +207,55 @@ describe("문의(회원)", () => {
         ),
       ));
 
+  it("9.4 발급받지 않은 사진 키면 서버가 준 이유를 보인다(400 attachmentKeys)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("문의")
+      .uponReceiving("9.4 발급받지 않은 사진 키로 문의 이어서 쓰기(회원)")
+      .withRequest("POST", detail("/messages"), (b) =>
+        b
+          .headers(bearer)
+          .jsonBody({ content: "확인 부탁드려요.", attachmentKeys: [NOT_ISSUED_KEY] }),
+      )
+      // FE는 code가 아니라 attachmentKeys 칸의 이유만 읽는다
+      .willRespondWith(400, (b) => problem(b, keyNotIssued, { generic: true }))
+      .executeTest(
+        asMember(async () =>
+          expect(
+            await addInquiryMessage(7, {
+              content: "확인 부탁드려요.",
+              attachmentKeys: [NOT_ISSUED_KEY],
+            }),
+          ).toEqual({ error: "발급되지 않았거나 이미 쓴 키입니다." }),
+        ),
+      ));
+
+  it("9.4 올라가지 않은 사진이면 서버 문구(404 FILE_NOT_FOUND)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("문의")
+      .given("업로드하지 않은 문의 사진")
+      .uponReceiving("9.4 올라가지 않은 사진으로 문의 이어서 쓰기(회원)")
+      .withRequest("POST", detail("/messages"), (b) =>
+        b
+          .headers(bearer)
+          .jsonBody({ content: "확인 부탁드려요.", attachmentKeys: [notUploadedKey] }),
+      )
+      .willRespondWith(404, (b) => problem(b, fileNotFound, { generic: true }))
+      .executeTest(
+        asMember(async () =>
+          // 문의가 없거나 종료된 경우(notFound · closed)와 달리 문구만 보인다
+          expect(
+            await addInquiryMessage(7, {
+              content: "확인 부탁드려요.",
+              attachmentKeys: ["inquiry/7f3c.png"],
+            }),
+          ).toEqual({ error: "업로드한 파일을 찾을 수 없어요." }),
+        ),
+      ));
+
   it("9.5 문의를 종료한다", () =>
     pact
       .addInteraction()
@@ -286,6 +343,39 @@ describe("문의(비회원)", () => {
         ),
       ));
 
+  it("9.1 발급받지 않은 사진 키면 서버가 준 이유를 보인다(400 attachmentKeys)", () =>
+    pact
+      .addInteraction()
+      .uponReceiving("9.1 발급받지 않은 사진 키로 문의 작성(비회원)")
+      .withRequest("POST", "/api/v1/inquiries", (b) =>
+        b.jsonBody({ ...guest, attachmentKeys: [NOT_ISSUED_KEY] }),
+      )
+      .willRespondWith(400, (b) => problem(b, keyNotIssued))
+      .executeTest(
+        asGuest(async () =>
+          expect(await createGuestInquiry(guest, [NOT_ISSUED_KEY])).toEqual({
+            formError: "발급되지 않았거나 이미 쓴 키입니다.",
+          }),
+        ),
+      ));
+
+  it("9.1 올라가지 않은 사진이면 서버 문구(404 FILE_NOT_FOUND)", () =>
+    pact
+      .addInteraction()
+      .given("업로드하지 않은 문의 사진")
+      .uponReceiving("9.1 올라가지 않은 사진으로 문의 작성(비회원)")
+      .withRequest("POST", "/api/v1/inquiries", (b) =>
+        b.jsonBody({ ...guest, attachmentKeys: [notUploadedKey] }),
+      )
+      .willRespondWith(404, (b) => problem(b, fileNotFound, { generic: true }))
+      .executeTest(
+        asGuest(async () =>
+          expect(await createGuestInquiry(guest, ["inquiry/7f3c.png"])).toEqual({
+            formError: "업로드한 파일을 찾을 수 없어요.",
+          }),
+        ),
+      ));
+
   it("9.3 문의번호와 조회 비밀번호로 연다", () =>
     pact
       .addInteraction()
@@ -297,6 +387,27 @@ describe("문의(비회원)", () => {
         asGuest(async () =>
           expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "1234" })).toEqual({
             inquiry: noPhotoInquiry,
+          }),
+        ),
+      ));
+
+  it("9.3 조회 비밀번호가 틀리면 서버 문구를 폼 아래에 보인다(404 INQUIRY_NOT_FOUND)", () =>
+    pact
+      .addInteraction()
+      .given("비회원 문의")
+      .uponReceiving("9.3 틀린 조회 비밀번호로 문의 조회(비회원)")
+      .withRequest("GET", detail(""), (b) => b.headers({ "X-Inquiry-Password": "9999" }))
+      .willRespondWith(404, (b) =>
+        problem(
+          b,
+          { detail: "문의를 찾을 수 없어요.", code: "INQUIRY_NOT_FOUND" },
+          { generic: true },
+        ),
+      )
+      .executeTest(
+        asGuest(async () =>
+          expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "9999" })).toEqual({
+            formError: "문의를 찾을 수 없어요.",
           }),
         ),
       ));

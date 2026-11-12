@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { GET as kakaoCallback } from "@/app/oauth/kakao/callback/route";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/api/auth-cookies";
-import { NOTICE_COOKIE, OAUTH_STATE_COOKIE } from "@/lib/auth/kakao";
+import { KAKAO_CONSENT_FAILED, NOTICE_COOKIE, OAUTH_STATE_COOKIE } from "@/lib/auth/kakao";
 import { getHome } from "@/lib/home/queries";
 import {
   asMember,
@@ -37,15 +37,12 @@ import {
   registerProfileImage,
   unlinkKakao,
   withdraw,
+  withdrawSocial,
 } from "./actions";
 import { getPracticeAlarm, getPracticeLogs, getStats, getStreakFreezes } from "./queries";
 
 // 기준: Swagger 2.2~2.13 회원 · 연습 알림 · 소셜 계정 연결 · 3.1~3.3 홈 · 통계 · 연습 달력 · 8.13~8.14 스트릭 유지권 예시
-// 2.7 소셜 회원 탈퇴(본문 {}) · 2.8 available true · 2.9 성공과 KAKAO_CONSENT_FAILED · 2.10 성공은 BE 계약 테스트에 카카오 회원
-// 상황(@State)과 카카오 메시지 클라이언트(@MockitoBean)가 있어야 재현된다. 아직 BE에 없어 이번에는 '회원'(이메일 회원) 상황으로
-// 재현되는 응답만 넣었다. 2.12 소셜 계정 연결은 성공 · 실패 모두 BE가 카카오에 인가 코드를 확인해야 정해져(카카오 로그인 클라이언트
-// @MockitoBean 필요) 이번에는 넣지 않았다. 2.13 409 PASSWORD_NOT_SET은 소셜 회원 상황(@State)이 있어야 재현된다.
-// BE 상황이 생기면 위 계약을 더한다.
+// 2.9 · 2.12는 카카오가 돌려보낸 콜백(app/oauth/kakao/callback)이 부른다. 카카오 인가 코드 확인은 BE 상황이 가짜로 정한다.
 const { like, eachLike } = MatchersV3;
 const CRITERIA = ["JOB_FIT", "COVER_LETTER", "LOGIC", "DELIVERY"] as const;
 const pact = contract();
@@ -190,6 +187,39 @@ describe("회원", () => {
         asMember(() => expect(withdraw({ password: "abcd1234" })).rejects.toThrow(/^REDIRECT /)),
       ));
 
+  it("2.7 소셜 회원은 비밀번호 없이 탈퇴하고 랜딩으로 간다", () =>
+    pact
+      .addInteraction()
+      .given("카카오 회원")
+      .uponReceiving("2.7 소셜 회원 탈퇴")
+      .withRequest("POST", "/api/v1/users/me", (b) => b.headers(bearer).jsonBody({}))
+      .willRespondWith(204)
+      .executeTest(asMember(() => expect(withdrawSocial()).rejects.toThrow(/^REDIRECT /))));
+
+  it("2.7 진행 중인 면접이 있으면 서버 문구(409 INTERVIEW_IN_PROGRESS)", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("면접", { stage: "IN_PROGRESS", mode: "CHAT" })
+      .uponReceiving("2.7 면접 중에 탈퇴")
+      .withRequest("POST", "/api/v1/users/me", (b) =>
+        b.headers(bearer).jsonBody({ password: "abcd1234" }),
+      )
+      .willRespondWith(409, (b) =>
+        problem(
+          b,
+          { detail: "진행 중인 면접을 끝낸 뒤 탈퇴할 수 있어요.", code: "INTERVIEW_IN_PROGRESS" },
+          { generic: true },
+        ),
+      )
+      .executeTest(
+        asMember(async () =>
+          expect(await withdraw({ password: "abcd1234" })).toEqual({
+            formError: "진행 중인 면접을 끝낸 뒤 탈퇴할 수 있어요.",
+          }),
+        ),
+      ));
+
   it("2.7 비밀번호가 틀리면 칸 오류(400 PASSWORD_MISMATCH)", () =>
     pact
       .addInteraction()
@@ -275,6 +305,82 @@ describe("홈 · 통계 · 연습 달력", () => {
         }),
       )
       .executeTest(asMember(async () => expect((await getHome()).homeState).toBe("DONE_TODAY")));
+  });
+
+  // 어제만 연습했다(첫 연습일이라 최근 리뷰의 기준 · 변화는 null)
+  it("3.1 어제 연습하고 오늘 아직 안 한 회원의 홈(NOT_DONE_TODAY)", () => {
+    const review = {
+      practiceDate: "2026-10-14",
+      companyName: "○○전자",
+      criterion: null,
+      delta: null,
+    } satisfies RecentReviewItem;
+    const home = {
+      homeState: "NOT_DONE_TODAY",
+      currentStreak: 1,
+      bestStreak: 1,
+      practiceDates: ["2026-10-14"],
+      todayInterviewCount: 0,
+      todayPracticeMinutes: 0,
+      todayImprovements: [],
+      nextActions: ["꼬리 질문엔 근거부터 짧게"],
+      nextActionsDate: "2026-10-14",
+      recentReviews: [review],
+    } satisfies HomeResponse;
+    return pact
+      .addInteraction()
+      .given("회원")
+      .given("지난 면접", { daysAgo: 1 })
+      .uponReceiving("3.1 어제 연습한 회원의 홈")
+      .withRequest("GET", "/api/v1/home", (b) => b.headers(bearer))
+      .willRespondWith(200, (b) =>
+        b.jsonBody({
+          ...shape(home, "homeState", "currentStreak", "todayInterviewCount"),
+          practiceDates: eachLike("2026-10-14"),
+          nextActions: eachLike("꼬리 질문엔 근거부터 짧게"),
+          recentReviews: [shape(review, "criterion", "delta")],
+        }),
+      )
+      .executeTest(
+        asMember(async () => expect((await getHome()).homeState).toBe("NOT_DONE_TODAY")),
+      );
+  });
+
+  // 그저께만 연습했다: 스트릭이 끊겨 지난 최고 기록(bestStreak) · 지난번 마지막 연습(recentReviews[0])을 보인다
+  it("3.1 스트릭이 끊긴 회원의 홈(BROKEN)", () => {
+    const review = {
+      practiceDate: "2026-10-12",
+      companyName: "○○전자",
+      criterion: null,
+      delta: null,
+    } satisfies RecentReviewItem;
+    const home = {
+      homeState: "BROKEN",
+      currentStreak: 0,
+      bestStreak: 1,
+      practiceDates: ["2026-10-12"],
+      todayInterviewCount: 0,
+      todayPracticeMinutes: 0,
+      todayImprovements: [],
+      nextActions: ["꼬리 질문엔 근거부터 짧게"],
+      nextActionsDate: "2026-10-12",
+      recentReviews: [review],
+    } satisfies HomeResponse;
+    return pact
+      .addInteraction()
+      .given("회원")
+      .given("지난 면접", { daysAgo: 2 })
+      .uponReceiving("3.1 스트릭이 끊긴 회원의 홈")
+      .withRequest("GET", "/api/v1/home", (b) => b.headers(bearer))
+      .willRespondWith(200, (b) =>
+        b.jsonBody({
+          ...shape(home, "homeState", "currentStreak", "todayInterviewCount"),
+          practiceDates: eachLike("2026-10-12"),
+          nextActions: eachLike("꼬리 질문엔 근거부터 짧게"),
+          recentReviews: [shape(review, "criterion", "delta")],
+        }),
+      )
+      .executeTest(asMember(async () => expect((await getHome()).homeState).toBe("BROKEN")));
   });
 
   it("3.2 통계를 받는다", () => {
@@ -376,6 +482,27 @@ describe("스트릭 유지권", () => {
       ));
 });
 
+const kakaoCode = { code: "Ab3x…", redirectUri: "https://hangguet.co.kr/oauth/kakao/callback" };
+
+/** 로그인한 회원이 알림 켜기 · 계정 연결 용도(state 쿠키)로 카카오에서 돌아온 콜백 */
+function kakaoReturn(purpose: "alarm" | "link") {
+  vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
+  vi.stubEnv("KAKAO_REDIRECT_URI", kakaoCode.redirectUri);
+  return kakaoCallback(
+    new NextRequest(
+      `${kakaoCode.redirectUri}?code=${encodeURIComponent(kakaoCode.code)}&state=st`,
+      {
+        headers: {
+          cookie: `${OAUTH_STATE_COOKIE}=${purpose}.st; ${ACCESS_TOKEN_COOKIE}=${EXAMPLE_ACCESS_TOKEN}`,
+        },
+      },
+    ),
+  );
+}
+
+const noticeOf = (response: Awaited<ReturnType<typeof kakaoReturn>>) =>
+  JSON.parse(response.cookies.get(NOTICE_COOKIE)?.value ?? "null");
+
 describe("연습 알림", () => {
   const unavailable = {
     detail: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
@@ -405,39 +532,63 @@ describe("연습 알림", () => {
         ),
       ));
 
-  it("2.9 카카오 회원이 아니면 S09-1로 돌아가 서버 문구(409 PRACTICE_ALARM_UNAVAILABLE)", () => {
-    vi.stubEnv("KAKAO_CLIENT_ID", "client-id");
-    vi.stubEnv("KAKAO_REDIRECT_URI", "https://hangguet.co.kr/oauth/kakao/callback");
-    return pact
+  it("2.9 카카오 동의를 받으면 문구 없이 S09-1로 돌아간다", () =>
+    pact
+      .addInteraction()
+      .given("카카오 회원")
+      .given("카카오 메시지 동의")
+      .uponReceiving("2.9 연습 알림 켜기")
+      .withRequest("PUT", "/api/v1/users/me/practice-alarm", (b) =>
+        b.headers(bearer).jsonBody(kakaoCode),
+      )
+      // 켜면 S09-1을 다시 열어 2.8로 받으므로 응답 본문을 읽지 않는다
+      .willRespondWith(200)
+      .executeTest(
+        asMember(async () => {
+          const response = await kakaoReturn("alarm");
+          expect(response.headers.get("location")).toBe("/mypage/settings");
+          expect(response.cookies.get(NOTICE_COOKIE)).toBeUndefined();
+        }),
+      ));
+
+  it("2.9 카카오 동의를 확인하지 못하면 정해 둔 문구(400 KAKAO_CONSENT_FAILED)", () =>
+    pact
+      .addInteraction()
+      .given("카카오 회원")
+      .given("카카오가 거절한 알림 인가 코드")
+      .uponReceiving("2.9 거절된 인가 코드로 연습 알림 켜기")
+      .withRequest("PUT", "/api/v1/users/me/practice-alarm", (b) =>
+        b.headers(bearer).jsonBody(kakaoCode),
+      )
+      // FE는 detail을 읽지 않고 정해 둔 문구를 쓴다
+      .willRespondWith(400, (b) => problem(b, { code: "KAKAO_CONSENT_FAILED" }, { generic: true }))
+      .executeTest(
+        asMember(async () => {
+          const response = await kakaoReturn("alarm");
+          expect(response.headers.get("location")).toBe("/mypage/settings");
+          expect(noticeOf(response)).toEqual({ target: "settings", text: KAKAO_CONSENT_FAILED });
+        }),
+      ));
+
+  it("2.9 카카오 회원이 아니면 S09-1로 돌아가 서버 문구(409 PRACTICE_ALARM_UNAVAILABLE)", () =>
+    pact
       .addInteraction()
       .given("회원")
       .uponReceiving("2.9 이메일 회원의 연습 알림 켜기")
       .withRequest("PUT", "/api/v1/users/me/practice-alarm", (b) =>
-        b.headers(bearer).jsonBody({
-          code: "Ab3x…",
-          redirectUri: "https://hangguet.co.kr/oauth/kakao/callback",
-        }),
+        b.headers(bearer).jsonBody(kakaoCode),
       )
       .willRespondWith(409, (b) => problem(b, unavailable))
       .executeTest(
         asMember(async () => {
-          const request = new NextRequest(
-            `https://hangguet.co.kr/oauth/kakao/callback?code=${encodeURIComponent("Ab3x…")}&state=st`,
-            {
-              headers: {
-                cookie: `${OAUTH_STATE_COOKIE}=alarm.st; ${ACCESS_TOKEN_COOKIE}=${EXAMPLE_ACCESS_TOKEN}`,
-              },
-            },
-          );
-          const response = await kakaoCallback(request);
+          const response = await kakaoReturn("alarm");
           expect(response.headers.get("location")).toBe("/mypage/settings");
-          expect(JSON.parse(response.cookies.get(NOTICE_COOKIE)?.value ?? "null")).toEqual({
+          expect(noticeOf(response)).toEqual({
             target: "settings",
             text: "카카오 계정을 연결한 회원만 연습 알림을 받을 수 있어요.",
           });
         }),
-      );
-  });
+      ));
 
   it("2.10 카카오 회원이 아니면 서버 문구(409 PRACTICE_ALARM_UNAVAILABLE)", () =>
     pact
@@ -467,6 +618,51 @@ describe("연습 알림", () => {
 });
 
 describe("소셜 계정 연결", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("2.12 카카오 계정을 연결하면 S09-1에 완료 안내를 띄운다", () =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("가입하지 않은 카카오 계정")
+      .uponReceiving("2.12 소셜 계정 연결")
+      .withRequest("PUT", "/api/v1/users/me/social-accounts/kakao", (b) =>
+        b.headers(bearer).jsonBody(kakaoCode),
+      )
+      // S09-1을 다시 열어 2.1로 받으므로 응답 본문을 읽지 않는다
+      .willRespondWith(200)
+      .executeTest(
+        asMember(async () => {
+          const response = await kakaoReturn("link");
+          expect(response.headers.get("location")).toBe("/mypage/settings");
+          expect(noticeOf(response)).toEqual({ target: "settings", linked: true });
+        }),
+      ));
+
+  it("2.12 카카오 계정이 이미 연결된 회원이면 서버 문구(409 SOCIAL_ALREADY_LINKED)", () =>
+    pact
+      .addInteraction()
+      .given("카카오 회원")
+      .uponReceiving("2.12 카카오로 가입한 회원의 소셜 계정 연결")
+      .withRequest("PUT", "/api/v1/users/me/social-accounts/kakao", (b) =>
+        b.headers(bearer).jsonBody(kakaoCode),
+      )
+      .willRespondWith(409, (b) =>
+        problem(b, { detail: "이미 연결한 소셜 계정이 있어요.", code: "SOCIAL_ALREADY_LINKED" }),
+      )
+      .executeTest(
+        asMember(async () => {
+          const response = await kakaoReturn("link");
+          expect(response.headers.get("location")).toBe("/mypage/settings");
+          expect(noticeOf(response)).toEqual({
+            target: "settings",
+            text: "이미 연결한 소셜 계정이 있어요.",
+          });
+        }),
+      ));
+
   it("2.13 카카오 연결을 해제한다(연결하지 않았어도 204)", () =>
     pact
       .addInteraction()

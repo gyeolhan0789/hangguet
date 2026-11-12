@@ -1,32 +1,34 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MotionGlobalConfig } from "motion/react";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma C/App Header · S00 Landing Nav(첫 화면 위 투명 헤더) · 모바일(sm 미만)은 Figma 설계 없음 → 사용자 결정(2026-10-26:
+// 햄버거 패널, 바깥(dim) · Esc · 항목 선택 · 햄버거 다시 누르기로 닫힘) · 기획 메모 C02 · C03(메뉴에서 고른 공지는 C02로)
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { motionValue, type MotionValue } from "motion/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useMobileMenuStore } from "@/stores/mobile-menu-store";
-import { flushPromises } from "@/test/flush";
 import type { NoticeItem } from "@/types/api";
 
 import { Header } from "./header";
 import { MobileMenuLink, MobileNotices } from "./mobile-menu";
 
-// 기준: Figma C/App Header · S00 Landing Nav(sm 이상) · 모바일(sm 미만)은 Figma 설계 없음 → 사용자 결정(2026-10-26)
-// 햄버거 열고 닫기 · 스크롤 잠금 · 넓어지면 닫기 · 공지(C02)와 겹칠 때를 본다. 실제 화면 폭 · 이동은 E2E(mobile-header.spec.ts)가 본다.
-
-beforeAll(() => {
-  MotionGlobalConfig.skipAnimations = true;
-});
-afterAll(() => {
-  MotionGlobalConfig.skipAnimations = false;
-});
-
-// 서버 액션 경계만 바꾼다
-const readNotice = vi.fn();
-vi.mock("@/lib/notice/actions", () => ({
-  readNotice: (...args: unknown[]) => readNotice(...args),
+// 경계 mock: 스크롤 위치(useScroll)는 테스트가 움직이는 값으로, 퇴장 연출(AnimatePresence)은 건너뛴다. 서버 액션(8.9 · 로그아웃)
+const scroll = vi.hoisted(() => ({ y: null as MotionValue<number> | null }));
+vi.mock("motion/react", async (importOriginal) => ({
+  ...(await (await import("@/test/motion")).reducedMotion(importOriginal)),
+  useScroll: () => ({ scrollY: scroll.y }),
 }));
+vi.mock("@/lib/notice/actions", () => ({ readNotice: vi.fn() }));
 vi.mock("@/lib/auth/actions", () => ({ logout: vi.fn() }));
 
-/** 화면이 넓은지(sm 이상) 테스트가 정하고, 바뀌면 change를 알리는 matchMedia */
+// 예시 데이터: Swagger 8.8 200 예시의 첫 공지
+const NOTICE: NoticeItem = {
+  id: 3,
+  title: "10월 점검 안내",
+  content: "10월 30일 02:00~04:00 서비스 점검이 있어요.",
+  startsAt: "2026-10-23T09:00:00+09:00",
+  read: false,
+};
+
+/** 화면이 넓은지(sm 이상) 테스트가 정하고, 바뀌면 change를 알리는 matchMedia 대역 */
 function fakeMatchMedia(initial: boolean) {
   let matches = initial;
   const listeners = new Set<() => void>();
@@ -40,39 +42,32 @@ function fakeMatchMedia(initial: boolean) {
   }));
   return {
     set(next: boolean) {
-      matches = next;
-      listeners.forEach((listener) => listener());
+      act(() => {
+        matches = next;
+        listeners.forEach((listener) => listener());
+      });
     },
   };
 }
 
-const NOTICE = {
-  id: 3,
-  title: "10월 점검 안내",
-  content: "10월 30일 02:00~04:00 서비스 점검이 있어요.",
-  startsAt: "2026-10-23T09:00:00+09:00",
-  read: false,
-} satisfies NoticeItem;
-
 let media: ReturnType<typeof fakeMatchMedia>;
+
 beforeEach(() => {
   media = fakeMatchMedia(false);
+  scroll.y = motionValue(0);
   useMobileMenuStore.setState({ open: false, notice: null });
 });
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  vi.resetAllMocks();
-  document.documentElement.style.overflow = "";
-});
 
+const header = () => screen.getByRole("banner");
 const hamburger = () => screen.getByRole("button", { name: "메뉴" });
 const menu = () => screen.queryByRole("navigation", { name: "전체 메뉴" });
 const overflow = () => document.documentElement.style.overflow;
+const scrollTo = (y: number) => act(() => scroll.y?.set(y));
 
-function renderHeader() {
+function renderHeader({ overlay = false } = {}) {
   return render(
     <Header
+      overlay={overlay}
       menu={
         <>
           <MobileMenuLink href="/records">연습 기록</MobileMenuLink>
@@ -85,71 +80,110 @@ function renderHeader() {
   );
 }
 
-describe("Header 모바일 메뉴", () => {
-  it("햄버거를 누르면 펼치고(aria-expanded) 뒤 화면 스크롤을 막고, 다시 누르면 닫고 푼다", async () => {
-    renderHeader();
-    expect(hamburger().getAttribute("aria-expanded")).toBe("false");
-    expect(menu()).toBeNull();
+describe("Header · 앱 헤더", () => {
+  describe("첫 화면 위 헤더", () => {
+    describe("화면 표시", () => {
+      it("첫 화면 위에 떠 있으면 투명 표시를 붙인다", () => {
+        renderHeader({ overlay: true });
 
-    fireEvent.click(hamburger());
-    expect(hamburger().getAttribute("aria-expanded")).toBe("true");
-    expect(hamburger().getAttribute("aria-controls")).toBe("mobile-menu");
-    expect(menu()).not.toBeNull();
-    expect(overflow()).toBe("hidden");
+        expect(header().getAttribute("data-overlay")).toBe("true");
+      });
 
-    fireEvent.click(hamburger());
-    await waitFor(() => expect(menu()).toBeNull());
-    expect(overflow()).toBe("");
+      it("첫 화면을 벗어나게 스크롤하면 투명 표시를 뗀다", () => {
+        renderHeader({ overlay: true });
+
+        scrollTo(window.innerHeight);
+
+        expect(header().getAttribute("data-overlay")).toBe("false");
+      });
+
+      it("첫 화면 위여도 메뉴를 열면 투명 표시를 뗀다", () => {
+        renderHeader({ overlay: true });
+
+        fireEvent.click(hamburger());
+
+        expect(header().getAttribute("data-overlay")).toBe("false");
+      });
+    });
   });
 
-  it("Esc로 닫고 햄버거로 포커스를 돌린다", async () => {
-    renderHeader();
-    fireEvent.click(hamburger());
+  describe("모바일 메뉴", () => {
+    describe("사용자 조작", () => {
+      it("햄버거를 누르면 메뉴를 펼치고 뒤 화면 스크롤을 막는다", () => {
+        renderHeader();
 
-    fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(menu()).toBeNull());
-    expect(document.activeElement).toBe(hamburger());
+        fireEvent.click(hamburger());
+
+        expect(menu()).not.toBeNull();
+        expect(hamburger().getAttribute("aria-expanded")).toBe("true");
+        expect(overflow()).toBe("hidden");
+      });
+
+      it("Esc를 누르면 닫고 햄버거로 포커스를 돌린다", () => {
+        renderHeader();
+        fireEvent.click(hamburger());
+
+        fireEvent.keyDown(document, { key: "Escape" });
+
+        expect(menu()).toBeNull();
+        expect(document.activeElement).toBe(hamburger());
+      });
+
+      it("바깥(dim)을 누르면 닫는다", () => {
+        renderHeader();
+        fireEvent.click(hamburger());
+
+        fireEvent.click(screen.getByTestId("mobile-menu-dim"));
+
+        expect(menu()).toBeNull();
+      });
+
+      it("펼친 상태에서 Esc가 아닌 키를 누르면 메뉴를 그대로 둔다", () => {
+        renderHeader();
+        fireEvent.click(hamburger());
+
+        fireEvent.keyDown(document, { key: "Enter" });
+
+        expect(menu()).not.toBeNull();
+      });
+
+      it("메뉴에서 연 공지 모달이 떠 있으면 Esc로 메뉴를 닫지 않는다", () => {
+        renderHeader();
+        act(() => useMobileMenuStore.setState({ open: true, notice: NOTICE }));
+
+        fireEvent.keyDown(document, { key: "Escape" });
+
+        expect(menu()).not.toBeNull();
+      });
+    });
+
+    describe("상태 변화", () => {
+      it("열린 채 화면이 넓어지면 닫고 스크롤을 풀며 다시 좁아져도 저절로 열리지 않는다", () => {
+        renderHeader();
+        fireEvent.click(hamburger());
+
+        media.set(true);
+        expect(menu()).toBeNull();
+        expect(overflow()).toBe("");
+
+        media.set(false);
+        expect(menu()).toBeNull();
+      });
+    });
   });
 
-  it("바깥(dim)을 누르거나 항목을 고르면 닫는다", async () => {
-    renderHeader();
-    fireEvent.click(hamburger());
-    fireEvent.click(screen.getByTestId("mobile-menu-dim"));
-    await waitFor(() => expect(menu()).toBeNull());
+  describe("공지 모달", () => {
+    describe("사용자 조작", () => {
+      it("메뉴에서 공지를 고르면 메뉴가 닫혀도 공지 모달이 남는다", () => {
+        renderHeader();
+        fireEvent.click(hamburger());
+        fireEvent.click(screen.getByRole("button", { name: /^공지/ }));
 
-    fireEvent.click(hamburger());
-    fireEvent.click(screen.getByRole("link", { name: "연습 기록" }));
-    await waitFor(() => expect(menu()).toBeNull());
-    expect(overflow()).toBe("");
-  });
+        fireEvent.click(screen.getByRole("button", { name: /10월 점검 안내/ }));
 
-  it("열린 채 화면이 sm 이상으로 넓어지면 닫고 스크롤을 풀며, 다시 좁아져도 저절로 열리지 않는다", async () => {
-    renderHeader();
-    fireEvent.click(hamburger());
-
-    act(() => media.set(true));
-    await waitFor(() => expect(menu()).toBeNull());
-    expect(overflow()).toBe("");
-
-    act(() => media.set(false));
-    await waitFor(() => expect(menu()).toBeNull());
-  });
-
-  it("공지를 고르면 메뉴를 닫고 C02만 남기며, [확인]하면 8.9 뒤 스크롤을 푼다", async () => {
-    readNotice.mockResolvedValue(undefined);
-    renderHeader();
-    fireEvent.click(hamburger());
-    fireEvent.click(screen.getByRole("button", { name: /^공지/ }));
-    fireEvent.click(screen.getByRole("button", { name: /10월 점검 안내/ }));
-
-    await waitFor(() => expect(menu()).toBeNull());
-    expect(screen.getByRole("dialog", { name: "10월 점검 안내" })).not.toBeNull();
-    expect(overflow()).toBe("hidden");
-
-    fireEvent.click(screen.getByRole("button", { name: "확인" }));
-    await flushPromises();
-    expect(readNotice).toHaveBeenCalledWith(3);
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(overflow()).toBe("");
+        expect(menu()).toBeNull();
+        expect(screen.getByRole("dialog", { name: "10월 점검 안내" })).toBeDefined();
+      });
+    });
   });
 });

@@ -18,7 +18,6 @@ import type {
   PracticeLogsResponse,
   ProblemDetail,
   SessionResponse,
-  SocialLoginResponse,
   StatsResponse,
   UploadUrlResponse,
 } from "../../src/types/api";
@@ -53,33 +52,12 @@ export const ME = {
   currentStreak: 7,
 } satisfies MeResponse;
 
-/** 2.1 내 정보 200 — 카카오로 가입한 회원(소셜 회원은 비밀번호가 없다) */
-export const KAKAO_ME = {
-  ...ME,
-  email: "a@kakao.com",
-  socialProvider: "KAKAO",
-} satisfies MeResponse;
-
 /** 2.8 연습 알림 설정 200 — 이메일 회원(카카오로 가입하지 않아 켤 수 없다) */
 export const PRACTICE_ALARM_UNAVAILABLE = {
   available: false,
   enabled: false,
   time: "21:00",
 } satisfies PracticeAlarmResponse;
-
-/** 2.8 연습 알림 설정 200 — 카카오 회원, 꺼짐 */
-export const PRACTICE_ALARM_OFF = {
-  available: true,
-  enabled: false,
-  time: "21:00",
-} satisfies PracticeAlarmResponse;
-
-/** 1.6 소셜 로그인 200 — 웹 Swagger 예시 '처음 온 사람' */
-export const SOCIAL_SIGNUP_REQUIRED = {
-  signupRequired: true,
-  token: null,
-  signup: { signupToken: "Zm9v", email: "a@kakao.com", nickname: "면접왕", expiresIn: 600 },
-} satisfies SocialLoginResponse;
 
 /** 2.2 닉네임 변경 200 — 웹 Swagger 예시(내 정보 + 토큰의 nickname이 바뀐 새 액세스 토큰) */
 export const NICKNAME_CHANGED = {
@@ -126,7 +104,7 @@ export const UPLOAD_URL = {
   expiresAt: "2026-10-15T12:10:00+09:00",
 } satisfies UploadUrlResponse;
 
-/** 3.1 홈 200 — Swagger 예시 4개(S02 · S02-B · S02-C · S02-D) */
+/** 3.1 홈 200 — Swagger 예시(S02 · S02-B) */
 export const HOME = {
   NOT_DONE_TODAY: {
     homeState: "NOT_DONE_TODAY",
@@ -175,33 +153,6 @@ export const HOME = {
       { practiceDate: "2026-10-15", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
       { practiceDate: "2026-10-14", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
     ],
-  },
-  BROKEN: {
-    homeState: "BROKEN",
-    currentStreak: 0,
-    bestStreak: 7,
-    practiceDates: ["2026-10-10", "2026-10-11", "2026-10-12"],
-    todayInterviewCount: 0,
-    todayPracticeMinutes: 0,
-    todayImprovements: [],
-    nextActions: ["꼬리 질문엔 근거부터 짧게"],
-    nextActionsDate: "2026-10-12",
-    recentReviews: [
-      { practiceDate: "2026-10-12", companyName: "○○전자", criterion: "DELIVERY", delta: 8 },
-      { practiceDate: "2026-10-11", companyName: "△△소프트", criterion: "LOGIC", delta: 4 },
-    ],
-  },
-  FIRST_VISIT: {
-    homeState: "FIRST_VISIT",
-    currentStreak: 0,
-    bestStreak: 0,
-    practiceDates: [],
-    todayInterviewCount: 0,
-    todayPracticeMinutes: 0,
-    todayImprovements: [],
-    nextActions: [],
-    nextActionsDate: null,
-    recentReviews: [],
   },
 } as const;
 
@@ -355,7 +306,7 @@ export const SESSION_STARTED = {
   },
 } as const satisfies SessionResponse;
 
-/** 5.2 면접 조회 200 — Swagger 예시 'S06·S06-B 면접 중' · 'S06 다음 질문 생성 중' · 'S06-1 결과 분석 중' */
+/** 5.2 면접 조회 200 — Swagger 예시 'S06·S06-B 면접 중' · 'S06-1 결과 분석 중' */
 export const SESSION_INTERVIEW = {
   IN_PROGRESS: {
     ...SESSION,
@@ -367,22 +318,24 @@ export const SESSION_INTERVIEW = {
     elapsedSeconds: 522,
     startedAt: "2026-10-15T12:00:00+09:00",
   },
-  NEXT_QUESTION_GENERATING: {
-    ...SESSION,
-    status: "IN_PROGRESS",
-    planStatus: "READY",
-    planProgress: null,
-    currentQuestion: null,
-    answeredCount: 3,
-    elapsedSeconds: 640,
-    startedAt: "2026-10-15T12:00:00+09:00",
-  },
   ANALYZING: {
     ...SESSION,
     status: "ANALYZING",
     planStatus: "READY",
     planProgress: null,
     analysisStep: "SCORING",
+    answeredCount: 5,
+    elapsedSeconds: 1080,
+    startedAt: "2026-10-15T12:00:00+09:00",
+    endedAt: "2026-10-15T12:18:00+09:00",
+  },
+  // 웹 Swagger 5.2에 COMPLETED 예시가 없어 'S06-1 결과 분석 중' 예시에서 status · analysisStep만 바꿨다
+  COMPLETED: {
+    ...SESSION,
+    status: "COMPLETED",
+    planStatus: "READY",
+    planProgress: null,
+    analysisStep: null,
     answeredCount: 5,
     elapsedSeconds: 1080,
     startedAt: "2026-10-15T12:00:00+09:00",
@@ -450,78 +403,6 @@ export { SESSION_CALENDAR, SESSION_LIST } from "../../src/test/session-list-exam
 
 /** 실패 응답 (RFC 9457 ProblemDetail + code) — 웹 Swagger 예시 */
 export const PROBLEM = {
-  LOGIN_FAILED: {
-    title: "Unauthorized",
-    status: 401,
-    detail: "이메일 또는 비밀번호를 확인해 주세요.",
-    instance: "/api/v1/auth/login",
-    code: "LOGIN_FAILED",
-  },
-  // 웹 Swagger 1.3 429 예시
-  LOGIN_LOCKED: {
-    title: "Too Many Requests",
-    status: 429,
-    detail: "로그인에 여러 번 실패했어요. 잠시 후 다시 시도해 주세요.",
-    instance: "/api/v1/auth/login",
-    code: "LOGIN_LOCKED",
-    retryAfterSeconds: 900,
-  },
-  // 웹 Swagger 1.9 400 예시
-  PASSWORD_RESET_TOKEN_INVALID: {
-    title: "Bad Request",
-    status: 400,
-    detail: "비밀번호 재설정 링크가 만료됐어요. 다시 요청해 주세요.",
-    instance: "/api/v1/auth/password-reset/confirm",
-    code: "PASSWORD_RESET_TOKEN_INVALID",
-  },
-  AGREEMENT_REQUIRED: {
-    title: "Bad Request",
-    status: 400,
-    detail: "필수 약관에 모두 동의해 주세요.",
-    instance: "/api/v1/auth/signup",
-    code: "AGREEMENT_REQUIRED",
-  },
-  VALIDATION_FAILED: {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/auth/signup",
-    code: "VALIDATION_FAILED",
-    errors: [{ field: "password", reason: "8~64자, 영문과 숫자를 모두 포함해야 합니다." }],
-  },
-  // 실제 mock 서버 응답(약관 2개만 보냈을 때). 폼에 없는 칸(agreements)의 오류다.
-  VALIDATION_FAILED_AGREEMENTS: {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/auth/signup",
-    code: "VALIDATION_FAILED",
-    errors: [{ field: "agreements", reason: "약관 3개가 필요합니다." }],
-  },
-  // Swagger 4.1 400 예시(질문을 만들기 어려운 자기소개서)
-  COVER_LETTER_UNUSABLE: {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/applications",
-    code: "VALIDATION_FAILED",
-    errors: [
-      {
-        field: "coverLetterItems",
-        reason:
-          "면접 질문을 만들기 어려운 자기소개서예요. 지원 동기나 경험을 조금 더 구체적으로 적어 주세요.",
-      },
-    ],
-  },
-  // 실제 mock 서버 응답(5.1에 Idempotency-Key 헤더 없이 보냈을 때). Swagger 5.1에는 400 예시가 없다.
-  VALIDATION_FAILED_IDEMPOTENCY_KEY: {
-    title: "Bad Request",
-    status: 400,
-    detail: "입력값을 확인해 주세요.",
-    instance: "/api/v1/interview-sessions",
-    code: "VALIDATION_FAILED",
-    errors: [{ field: "Idempotency-Key", reason: "필수 헤더입니다." }],
-  },
   // Swagger 4.2 · 4.5 · 4.6 404 예시
   APPLICATION_NOT_FOUND: {
     title: "Not Found",
@@ -554,30 +435,6 @@ export const PROBLEM = {
     instance: "/api/v1/interview-sessions/55/result",
     code: "RESULT_NOT_READY",
   },
-  // Swagger 6.3 409 예시
-  NO_RESULT: {
-    title: "Conflict",
-    status: 409,
-    detail: "답변 없이 끝난 면접은 결과가 없어요.",
-    instance: "/api/v1/interview-sessions/55/result",
-    code: "NO_RESULT",
-  },
-  // Swagger 5.4 409 예시
-  PLAN_NOT_READY: {
-    title: "Conflict",
-    status: 409,
-    detail: "면접관이 질문을 준비하고 있어요.",
-    instance: "/api/v1/interview-sessions/55/start",
-    code: "PLAN_NOT_READY",
-  },
-  // Swagger 2.3 · 2.7 400 예시(2.7 예시의 instance도 /password로 같다)
-  PASSWORD_MISMATCH: {
-    title: "Bad Request",
-    status: 400,
-    detail: "비밀번호가 맞지 않아요.",
-    instance: "/api/v1/users/me/password",
-    code: "PASSWORD_MISMATCH",
-  },
   // Swagger 2.5 404 예시
   FILE_NOT_FOUND: {
     title: "Not Found",
@@ -586,12 +443,30 @@ export const PROBLEM = {
     instance: "/api/v1/users/me/profile-image",
     code: "FILE_NOT_FOUND",
   },
-  EMAIL_DUPLICATED: {
+  // 웹 Swagger 1.6 · 1.7 409 예시
+  SOCIAL_EMAIL_DUPLICATED: {
     title: "Conflict",
     status: 409,
-    detail: "이미 사용 중인 이메일이에요.",
-    instance: "/api/v1/auth/signup",
-    code: "EMAIL_DUPLICATED",
+    detail: "이미 가입한 이메일이에요. 처음 가입한 방법으로 로그인해 주세요.",
+    instance: "/api/v1/auth/oauth/kakao",
+    code: "SOCIAL_EMAIL_DUPLICATED",
+  },
+  // 웹 Swagger 1.7 401 예시. detail만 테스트 값으로 바꿨다: 예시 문구가 FE 고정 문구(lib/auth/kakao.ts SIGNUP_TOKEN_INVALID)와
+  // 같아, 1.7을 부르지 않고 고정 문구를 보여도 '서버 문구' test가 통과하지 않게 한다(표준 4절).
+  SIGNUP_TOKEN_INVALID: {
+    title: "Unauthorized",
+    status: 401,
+    detail: "가입 정보가 만료됐어요. 카카오 로그인부터 다시 해 주세요.",
+    instance: "/api/v1/auth/oauth/signup",
+    code: "SIGNUP_TOKEN_INVALID",
+  },
+  // 웹 Swagger 9.3 · 9.4 · 9.5 404 예시
+  INQUIRY_NOT_FOUND: {
+    title: "Not Found",
+    status: 404,
+    detail: "문의를 찾을 수 없어요.",
+    instance: "/api/v1/inquiries/0",
+    code: "INQUIRY_NOT_FOUND",
   },
   REFRESH_TOKEN_INVALID: {
     title: "Unauthorized",
@@ -623,26 +498,6 @@ export const PROBLEM = {
     code: "INTERNAL_ERROR",
   },
 } as const satisfies Record<string, ProblemDetail>;
-
-/** 8.8 공지 목록 200 — Swagger 예시 '확인 안 함 1개 · 확인함 1개'(최신순) */
-export const NOTICES = {
-  content: [
-    {
-      id: 3,
-      title: "10월 점검 안내",
-      content: "10월 30일 02:00~04:00 서비스 점검이 있어요.",
-      startsAt: "2026-10-23T09:00:00+09:00",
-      read: false,
-    },
-    {
-      id: 2,
-      title: "채팅 면접이 열렸어요",
-      content: "이제 글로도 면접을 볼 수 있어요.",
-      startsAt: "2026-10-20T09:00:00+09:00",
-      read: true,
-    },
-  ],
-} satisfies NoticesResponse;
 
 /** 8.8 공지 목록 200 — Swagger 예시 '공지 없음'. 기본값으로 쓴다 */
 export const NOTICES_EMPTY = { content: [] } satisfies NoticesResponse;

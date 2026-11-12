@@ -1,411 +1,328 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MotionGlobalConfig } from "motion/react";
-import { Activity, type ReactNode } from "react";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Figma 지원 관리 · 상세 · 상세 · 면접에 씀 · 삭제 확인 · 기획 메모 지원 관리(면접 기록 줄: 분석 중 · 실패는 상태만)
+// · 모션 메모 삭제 확인(기다리는 동안 두 번 못 누름)
+// · Swagger 4.2 지원서 조회 · 4.5 지원서 삭제 · 4.6 지원서의 연습 면접 목록
+// · 사용자 결정(2026-10-29: [이 지원서로 면접 보기] → S04, 삭제 실패면 모달 안에 서버 문구, 면접 기록이 한 쪽을 넘으면 '‹ 1 / N ›')
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { Activity } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { deleteApplication, type DeleteApplicationResult } from "@/lib/application/actions";
 import type {
   ApplicationResponse,
   ApplicationSessionListResponse,
   SessionListItem,
 } from "@/types/api";
+import { deferred } from "@/test/deferred";
+import { flushPromises } from "@/test/flush";
+import { router } from "@/test/next-navigation";
+import { SESSION_LIST } from "@/test/session-list-examples";
 
 import { ApplicationDetail } from "./application-detail";
 
-// 기준: Figma 지원 관리 · 상세 · 상세 · 면접에 씀 · 삭제 확인 · 기획 메모 지원 관리(면접 기록 줄: 분석 중 · 실패는 상태만)
-// · 모션 메모 상세(하단 버튼은 페이지 끝에 닿으면 통통) · 모션 메모 삭제 확인(기다리는 동안 두 번 못 누름)
-// · Swagger 4.2 200 예시(coverLetterItems) · 4.5 지원서 삭제 · 4.6 지원서의 연습 면접 목록
-// · 사용자 결정(2026-10-29: [이 지원서로 면접 보기] → S04, 면접에 쓴 지원서도 [삭제], 삭제 실패면 모달 안에 서버 문구,
-//   실패는 '분석 실패', 면접 기록이 한 쪽을 넘으면 '‹ 1 / N ›')
-// 서버 액션 경계만 바꾼다. 실제 4.2 · 4.5 · 4.6 요청과 이동은 E2E(applications.spec.ts)가 본다.
-
-const deleteApplication = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/application/actions", () => ({
-  deleteApplication: (...args: unknown[]) => deleteApplication(...args),
+// 경계 mock: 서버 액션(4.5) · Next 라우터(bfcacheId) · 연출(motion)은 건너뛰고 useInView(페이지 끝에 닿음)는 대역으로 둔다
+vi.mock("@/lib/application/actions", () => ({ deleteApplication: vi.fn() }));
+vi.mock("next/navigation", () => import("@/test/next-navigation"));
+const inView = vi.hoisted(() => vi.fn());
+vi.mock("motion/react", async (importOriginal) => ({
+  ...(await (await import("@/test/motion")).reducedMotion(importOriginal)),
+  useInView: inView,
 }));
 
-// 새로 들어올 때마다 상세를 새로 그리는 키(bfcacheId)만 쓴다. push · replace는 테스트가 값을 바꿔 흉내 낸다.
-const router = vi.hoisted(() => ({ bfcacheId: "entry-1" }));
-vi.mock("next/navigation", () => ({ useRouter: () => router }));
-
-// 하단 버튼 통통(useAnimate의 animate)만 바꾸고, 모달 퇴장 연출(AnimatePresence)은 바로 지우게 한다.
-// 실제 시간(다음 프레임)을 기다리지 않기 위해서다. 나머지 motion은 그대로 쓴다.
-const bounce = vi.hoisted(() => vi.fn());
-vi.mock("motion/react", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("motion/react")>();
-  const { useRef } = await import("react");
-  return {
-    ...actual,
-    useAnimate: () => [useRef(null), bounce],
-    AnimatePresence: ({ children }: { children?: ReactNode }) => children,
-  };
-});
-
-/** 페이지 끝이 보이는지 알리는 IntersectionObserver(jsdom에 없다). 테스트가 '보였다'를 직접 알린다. */
-const observers: { callback: IntersectionObserverCallback; targets: Element[] }[] = [];
-function reachEnd() {
-  act(() => {
-    for (const { callback, targets } of observers) {
-      callback(
-        targets.map((target) => ({ isIntersecting: true, target }) as IntersectionObserverEntry),
-        {} as IntersectionObserver,
-      );
-    }
-  });
-}
-
-beforeAll(() => {
-  MotionGlobalConfig.skipAnimations = true;
-});
-afterAll(() => {
-  MotionGlobalConfig.skipAnimations = false;
-});
-beforeEach(() => {
-  deleteApplication.mockReset();
-  bounce.mockReset();
-  router.bfcacheId = "entry-1";
-  observers.length = 0;
-  vi.stubGlobal(
-    "IntersectionObserver",
-    class {
-      private entry: (typeof observers)[number];
-      constructor(callback: IntersectionObserverCallback) {
-        this.entry = { callback, targets: [] };
-        observers.push(this.entry);
-      }
-      observe(target: Element) {
-        this.entry.targets.push(target);
-      }
-      unobserve() {}
-      disconnect() {}
-    },
-  );
-});
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-});
-
-// Swagger 4.2 200 예시
-const APPLICATION = {
+// 예시 데이터: Swagger 4.2 200 '○○전자' · 4.6 200 '분석 중·실패' 예시, 결과가 나온 줄은 5.13 예시(같은 SessionListItem)
+const APPLICATION: ApplicationResponse = {
   id: 12,
   companyName: "○○전자",
   jobTitle: "백엔드 개발자",
   coverLetterItems: [
-    { itemOrder: 1, question: "지원 동기", answer: "저는…" },
-    { itemOrder: 2, question: "협업 경험", answer: "4명이 함께한…\n함께했습니다." },
+    {
+      itemOrder: 1,
+      question: "지원 동기",
+      answer: "저는 대용량 트래픽을 안정적으로 처리하는 서버를 만들고 싶어 지원했습니다.",
+    },
+    {
+      itemOrder: 2,
+      question: "협업 경험",
+      answer: "4명이 함께한 프로젝트에서 API 설계를 맡았습니다.",
+    },
   ],
   createdAt: "2026-10-15T11:55:00+09:00",
-} satisfies ApplicationResponse;
-
-// Swagger 4.6 예시의 면접 하나(5.13과 같은 항목)
-const SESSION = {
-  id: 55,
-  companyName: "○○전자",
-  jobTitle: "백엔드 개발자",
-  persona: "DEVIL",
-  mode: "VIDEO",
-  status: "COMPLETED",
-  startedAt: "2026-10-18T20:00:00+09:00",
-  endedAt: "2026-10-18T20:20:00+09:00",
-  answeredCount: 5,
-  summary: "논리는 탄탄했지만, 근거가 조금 아쉬웠어요",
+};
+const ANALYZING: SessionListItem = {
+  id: 54,
+  companyName: "△△소프트",
+  jobTitle: "서버 개발자",
+  persona: "COFFEE_CHAT",
+  mode: "CHAT",
+  status: "ANALYZING",
+  startedAt: "2026-10-21T19:30:00+09:00",
+  endedAt: "2026-10-21T19:42:00+09:00",
+  answeredCount: 3,
+  summary: null,
   criterionGrades: [],
-} satisfies SessionListItem;
-
-const sessionsOf = (
-  content: SessionListItem[],
-  page: Partial<ApplicationSessionListResponse["page"]> = {},
-): ApplicationSessionListResponse => ({
-  content,
-  page: { size: 10, number: 0, totalElements: content.length, totalPages: 1, ...page },
-});
-
-const NO_SESSIONS = sessionsOf([], { totalPages: 0 });
-
-// 서버가 삭제를 거절했을 때의 문구(500 INTERNAL_ERROR 등)
+};
+const COMPLETED = SESSION_LIST.DAILY.content[0];
+const COMPLETED_NO_SUMMARY = SESSION_LIST.DAY_20.content[1];
 const DELETE_FAILED = "서버에 문제가 생겼어요.";
 
-function openDelete() {
+function sessionsOf(
+  content: SessionListItem[],
+  page: Partial<ApplicationSessionListResponse["page"]> = {},
+): ApplicationSessionListResponse {
+  return {
+    content,
+    page: { size: 10, number: 0, totalElements: content.length, totalPages: 1, ...page },
+  };
+}
+const NO_SESSIONS = sessionsOf([], { totalPages: 0 });
+
+const renderDetail = (sessions = NO_SESSIONS) =>
+  render(<ApplicationDetail application={APPLICATION} sessions={sessions} />);
+
+/** 페이지의 [삭제]로 확인 모달을 연다 */
+function openConfirm() {
   fireEvent.click(screen.getByRole("button", { name: "삭제" }));
   return screen.getByRole("dialog", { name: "지원서를 삭제할까요?" });
 }
 
-describe("ApplicationDetail (지원서 상세)", () => {
-  it("'‹ 지원 관리' · '회사 · 직무' 제목 · 작성일을 보여 준다", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
+/** 모달의 [삭제]를 누르고 결과가 반영되기를 기다린다 */
+async function confirmDelete(dialog: HTMLElement) {
+  fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+  await flushPromises();
+}
 
-    expect(screen.getByRole("link", { name: "지원 관리" }).getAttribute("href")).toBe(
-      "/applications",
-    );
-    expect(screen.getByRole("heading", { level: 1, name: "○○전자 · 백엔드 개발자" })).toBeTruthy();
-    expect(screen.getByText("2026.10.15 작성")).toBeTruthy();
-  });
+beforeEach(() => {
+  inView.mockReturnValue(false);
+});
 
-  it("자기소개서 문항을 순서대로 Q 번호 · 문항 · 답변으로 보여 준다(답변의 줄바꿈은 그대로)", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
+describe("ApplicationDetail · 지원서 상세", () => {
+  describe("지원서", () => {
+    describe("화면 표시", () => {
+      it("제목은 '회사 · 직무', 그 아래에 'YYYY.MM.DD 작성'을 보여 준다", () => {
+        renderDetail();
 
-    const section = screen.getByRole("region", { name: "자기소개서" });
-    expect(
-      within(section)
-        .getAllByRole("listitem")
-        .map((li) => li.textContent),
-    ).toEqual(["Q1지원 동기저는…", "Q2협업 경험4명이 함께한…\n함께했습니다."]);
-  });
+        expect(
+          screen.getByRole("heading", { level: 1, name: "○○전자 · 백엔드 개발자" }),
+        ).toBeDefined();
+        expect(screen.getByText("2026.10.15 작성")).toBeDefined();
+      });
 
-  it("면접 기록이 없으면 '0회'와 빈 안내를 보여 주고 쪽 넘김은 없다", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
+      it("[이 지원서로 면접 보기]는 이 지원서로 면접관 선택에 간다", () => {
+        renderDetail();
 
-    const section = screen.getByRole("region", { name: "면접 기록" });
-    expect(within(section).getByText("0회")).toBeTruthy();
-    expect(within(section).getByText("아직 이 지원서로 본 면접이 없어요")).toBeTruthy();
-    expect(within(section).queryByRole("navigation")).toBeNull();
-  });
-
-  it("면접 기록은 전체 횟수와 줄마다 '날짜 · 면접관 · 방식'을 보여 주고, 결과가 나온 면접만 총평과 결과 · 다시보기로 간다", () => {
-    render(
-      <ApplicationDetail
-        application={APPLICATION}
-        sessions={sessionsOf(
-          [
-            {
-              ...SESSION,
-              id: 54,
-              persona: "COFFEE_CHAT",
-              mode: "CHAT",
-              status: "ANALYZING",
-              startedAt: "2026-10-21T19:30:00+09:00",
-              summary: null,
-            },
-            {
-              ...SESSION,
-              id: 53,
-              status: "FAILED",
-              startedAt: "2026-10-20T09:00:00+09:00",
-              summary: "보이면 안 되는 총평",
-            },
-            SESSION,
-          ],
-          { totalElements: 12, totalPages: 2 },
-        )}
-      />,
-    );
-
-    const section = screen.getByRole("region", { name: "면접 기록" });
-    expect(within(section).getByText("12회")).toBeTruthy();
-
-    const analyzing = within(section).getByRole("article", {
-      name: "10.21 · 개발자 커피챗 · 채팅",
+        expect(
+          screen.getByRole("link", { name: "이 지원서로 면접 보기" }).getAttribute("href"),
+        ).toBe("/practice/interviewer?applicationId=12");
+      });
     });
-    expect(analyzing.textContent).toBe("10.21 · 개발자 커피챗 · 채팅분석 중");
-    expect(within(analyzing).queryByRole("link")).toBeNull();
-    // 분석 중에만 상태 글자 옆에 도는 스피너(글자 없는 아이콘)가 붙는다
-    expect(within(analyzing).getByText("분석 중").querySelector("[aria-hidden]")).not.toBeNull();
-
-    const failed = within(section).getByRole("article", { name: "10.20 · 악마 면접관 · 화상" });
-    expect(failed.textContent).toBe("10.20 · 악마 면접관 · 화상분석 실패");
-    expect(within(failed).queryByRole("link")).toBeNull();
-    expect(within(failed).getByText("분석 실패").querySelector("[aria-hidden]")).toBeNull();
-
-    const completed = within(section).getByRole("article", { name: "10.18 · 악마 면접관 · 화상" });
-    expect(within(completed).getByText("논리는 탄탄했지만, 근거가 조금 아쉬웠어요")).toBeTruthy();
-    expect(
-      within(completed)
-        .getAllByRole("link")
-        .map((link) => [link.textContent, link.getAttribute("href")]),
-    ).toEqual([
-      ["상세 피드백›", "/interview/55/result"],
-      ["다시보기›", "/interview/55/replay"],
-    ]);
   });
 
-  it("총평이 없는(null) 완료 면접은 총평 줄 없이 보여 준다", () => {
-    render(
-      <ApplicationDetail
-        application={APPLICATION}
-        sessions={sessionsOf([{ ...SESSION, summary: null }])}
-      />,
-    );
+  describe("면접 기록", () => {
+    describe("화면 표시", () => {
+      it("면접 기록이 없으면 '0회'와 '아직 이 지원서로 본 면접이 없어요'를 보여 준다", () => {
+        renderDetail();
 
-    expect(screen.getByRole("article", { name: "10.18 · 악마 면접관 · 화상" }).textContent).toBe(
-      "10.18 · 악마 면접관 · 화상상세 피드백›다시보기›",
-    );
+        const records = screen.getByRole("region", { name: "면접 기록" });
+        expect(within(records).getByText("0회")).toBeDefined();
+        expect(within(records).getByText("아직 이 지원서로 본 면접이 없어요")).toBeDefined();
+      });
+
+      it("결과가 나온 면접 줄은 총평과 상세 피드백 · 다시보기 링크를 보여 준다", () => {
+        renderDetail(sessionsOf([COMPLETED]));
+
+        const row = screen.getByRole("article");
+        expect(within(row).getByText("논리는 탄탄했지만, 근거가 조금 아쉬웠어요")).toBeDefined();
+        expect(within(row).getByRole("link", { name: "상세 피드백" }).getAttribute("href")).toBe(
+          "/interview/55/result",
+        );
+        expect(within(row).getByRole("link", { name: "다시보기" }).getAttribute("href")).toBe(
+          "/interview/55/replay",
+        );
+      });
+
+      it("분석 중인 면접 줄은 상태만 보여 주고 링크 · 총평이 없다", () => {
+        // 총평이 있어도 숨기는지 보려고 총평을 넣는다. 상태별 문구는 pendingLabel(records/format) 소관이라 대표 한 줄만 본다
+        renderDetail(sessionsOf([{ ...ANALYZING, summary: "논리는 탄탄했어요" }]));
+
+        const row = screen.getByRole("article");
+        expect(within(row).getByText("분석 중")).toBeDefined();
+        expect(within(row).queryByRole("link")).toBeNull();
+        expect(within(row).queryByText("논리는 탄탄했어요")).toBeNull();
+      });
+
+      it("총평이 없는 완료 면접 줄은 총평 줄 없이 보여 준다", () => {
+        renderDetail(sessionsOf([COMPLETED_NO_SUMMARY]));
+
+        expect(screen.getByRole("article").textContent).toBe(
+          "10.20 · 악마 면접관 · 채팅상세 피드백›다시보기›",
+        );
+      });
+
+      it("면접 기록이 여러 쪽이면 쪽 넘김을 보여 주고 이 지원서의 다음 쪽 주소로 간다", () => {
+        renderDetail(sessionsOf([ANALYZING], { totalElements: 11, totalPages: 2 }));
+
+        const pager = screen.getByRole("navigation", { name: "페이지" });
+        expect(within(pager).getByRole("link", { name: "다음 페이지" }).getAttribute("href")).toBe(
+          "/applications/12?page=1",
+        );
+      });
+    });
+
+    describe("경계값", () => {
+      it("면접 기록이 한 쪽뿐이면 쪽 넘김을 보여 주지 않는다", () => {
+        renderDetail(sessionsOf([ANALYZING]));
+
+        expect(screen.queryByRole("navigation", { name: "페이지" })).toBeNull();
+      });
+    });
   });
 
-  it("면접 기록이 한 쪽뿐이면(totalPages 1) 쪽 넘김을 보여 주지 않는다", () => {
-    render(
-      <ApplicationDetail
-        application={APPLICATION}
-        sessions={sessionsOf([SESSION], { totalElements: 1, totalPages: 1 })}
-      />,
-    );
+  describe("삭제 확인", () => {
+    describe("사용자 조작", () => {
+      it("[삭제]를 누르면 설명이 연결된 확인 모달을 연다", () => {
+        renderDetail();
 
-    const section = screen.getByRole("region", { name: "면접 기록" });
-    expect(
-      within(section).getByRole("article", { name: "10.18 · 악마 면접관 · 화상" }),
-    ).toBeTruthy();
-    expect(within(section).queryByRole("navigation")).toBeNull();
-  });
+        fireEvent.click(screen.getByRole("button", { name: "삭제" }));
 
-  it.each([
-    { number: 0, prev: null, next: "/applications/12?page=1", label: "1 / 3" },
-    { number: 1, prev: "/applications/12", next: "/applications/12?page=2", label: "2 / 3" },
-    { number: 2, prev: "/applications/12?page=1", next: null, label: "3 / 3" },
-  ])(
-    "면접 기록이 여러 쪽이면 '‹ $label ›'로 넘기고, 처음 · 끝 쪽의 화살표는 누를 수 없다",
-    ({ number, prev, next, label }) => {
-      render(
-        <ApplicationDetail
-          application={APPLICATION}
-          sessions={sessionsOf([SESSION], { number, totalElements: 21, totalPages: 3 })}
-        />,
-      );
+        expect(
+          screen.getByRole("dialog", {
+            name: "지원서를 삭제할까요?",
+            description: "삭제하면 되돌릴 수 없어요",
+          }),
+        ).toBeDefined();
+      });
 
-      const pager = within(screen.getByRole("region", { name: "면접 기록" })).getByRole(
-        "navigation",
-        { name: "페이지" },
-      );
-      expect(within(pager).getByText(label)).toBeTruthy();
-      expect(
-        within(pager).queryByRole("link", { name: "이전 페이지" })?.getAttribute("href") ?? null,
-      ).toBe(prev);
-      expect(
-        within(pager).queryByRole("link", { name: "다음 페이지" })?.getAttribute("href") ?? null,
-      ).toBe(next);
-    },
-  );
+      it("모달의 [취소]를 누르면 닫고 포커스를 [삭제]로 돌려준다", () => {
+        renderDetail();
+        const dialog = openConfirm();
 
-  it("면접에 쓴 지원서에도 [삭제]가 보인다", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={sessionsOf([SESSION])} />);
+        fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
 
-    expect(screen.getByRole("button", { name: "삭제" })).toHaveProperty("disabled", false);
-  });
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: "삭제" }));
+      });
 
-  it("[이 지원서로 면접 보기]는 그 지원서로 S04 면접관 선택에 가고, 페이지 끝에 닿으면 통통 튄다", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
+      it("모달이 열린 상태에서 Esc를 누르면 닫는다", () => {
+        renderDetail();
+        openConfirm();
 
-    expect(screen.getByRole("link", { name: "이 지원서로 면접 보기" }).getAttribute("href")).toBe(
-      "/practice/interviewer?applicationId=12",
-    );
-    expect(bounce).not.toHaveBeenCalled();
+        fireEvent.keyDown(document, { key: "Escape" });
 
-    reachEnd();
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
 
-    expect(bounce).toHaveBeenCalledTimes(1);
-  });
+      it("모달의 [삭제]를 누르면 이 지원서 삭제를 요청한다", async () => {
+        vi.mocked(deleteApplication).mockResolvedValue({});
+        renderDetail();
 
-  it("[삭제]를 누르면 설명이 연결된 확인 모달이 뜨고, [취소] · Esc로 닫히면 포커스가 [삭제]로 돌아온다", () => {
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
-    const trigger = screen.getByRole("button", { name: "삭제" });
+        await confirmDelete(openConfirm());
 
-    const dialog = openDelete();
-    const bodyId = dialog.getAttribute("aria-describedby");
-    expect(bodyId && document.getElementById(bodyId)?.textContent).toBe(
-      "삭제하면 되돌릴 수 없어요",
-    );
-    fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
+        expect(deleteApplication).toHaveBeenCalledTimes(1);
+        expect(deleteApplication).toHaveBeenCalledWith(12);
+      });
+    });
 
-    openDelete();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-    expect(deleteApplication).not.toHaveBeenCalled();
-  });
+    describe("상태 변화", () => {
+      it("실패 문구가 남은 채 모달을 다시 열면 지난 문구를 지운다", async () => {
+        vi.mocked(deleteApplication).mockResolvedValue({ error: DELETE_FAILED });
+        renderDetail();
+        const dialog = openConfirm();
+        await confirmDelete(dialog);
+        expect(within(dialog).getByRole("alert")).toBeDefined();
+        fireEvent.click(within(dialog).getByRole("button", { name: "취소" }));
 
-  it("같은 상세에 새로 들어오면(push · replace로 bfcacheId가 바뀜) 처음부터 다시 그려 페이지 끝 통통이 다시 나온다", () => {
-    const { rerender } = render(
-      <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />,
-    );
-    const firstTitle = screen.getByRole("heading", { level: 1 });
-    reachEnd();
-    expect(bounce).toHaveBeenCalledTimes(1);
+        openConfirm();
 
-    // 뒤로 · 앞으로 가기(bfcacheId 그대로)는 그대로 두므로 다시 튀지 않는다
-    rerender(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
-    reachEnd();
-    expect(screen.getByRole("heading", { level: 1 })).toBe(firstTitle);
-    expect(bounce).toHaveBeenCalledTimes(1);
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
 
-    router.bfcacheId = "entry-2";
-    rerender(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
-    expect(screen.getByRole("heading", { level: 1 })).not.toBe(firstTitle);
-    reachEnd();
+      it("실패 문구가 있는 채 다시 [삭제]를 누르면 기다리는 동안 지난 문구를 지운다", async () => {
+        const second = deferred<DeleteApplicationResult>();
+        vi.mocked(deleteApplication)
+          .mockResolvedValueOnce({ error: DELETE_FAILED })
+          .mockReturnValueOnce(second.promise);
+        renderDetail();
+        const dialog = openConfirm();
+        await confirmDelete(dialog);
+        expect(within(dialog).getByRole("alert")).toBeDefined();
 
-    expect(bounce).toHaveBeenCalledTimes(2);
-  });
+        fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
-  it("같은 상세에 새로 들어오면(bfcacheId가 바뀜) 열려 있던 확인 모달은 닫힌 채로 시작한다", () => {
-    const { rerender } = render(
-      <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />,
-    );
-    openDelete();
+        expect(within(dialog).queryByRole("alert")).toBeNull();
+        await act(async () => second.resolve({}));
+      });
 
-    router.bfcacheId = "entry-2";
-    rerender(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
+      it("같은 상세에 새로 들어오면(bfcacheId가 바뀜) 열려 있던 모달은 닫힌 채로 시작한다", () => {
+        const { rerender } = renderDetail();
+        openConfirm();
 
-    expect(screen.queryByRole("dialog")).toBeNull();
-  });
+        router.bfcacheId = "entry-2";
+        rerender(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
 
-  it("뒤로 · 앞으로 가기로 떠났다 돌아와도(bfcacheId 그대로, Activity로 숨김) 열려 있던 확인 모달과 지난 문구를 닫는다", async () => {
-    deleteApplication.mockResolvedValue({ error: DELETE_FAILED });
-    const { rerender } = render(
-      <Activity mode="visible">
-        <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />
-      </Activity>,
-    );
-    const dialog = openDelete();
-    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
-    await within(dialog).findByRole("alert");
+        expect(screen.queryByRole("dialog")).toBeNull();
+      });
+    });
 
-    rerender(
-      <Activity mode="hidden">
-        <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />
-      </Activity>,
-    );
-    rerender(
-      <Activity mode="visible">
-        <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />
-      </Activity>,
-    );
+    describe("오류 처리", () => {
+      it("삭제가 실패하면 모달 안에 서버 문구를 보여 주고 모달을 그대로 둔다", async () => {
+        const response = deferred<DeleteApplicationResult>();
+        vi.mocked(deleteApplication).mockReturnValue(response.promise);
+        renderDetail();
+        const dialog = openConfirm();
+        fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
+        await act(async () => response.resolve({ error: DELETE_FAILED }));
 
-  it("모달의 [삭제]를 누르면 이 지원서를 지우고, 기다리는 동안 두 버튼을 막는다", async () => {
-    let respond!: (value: object) => void;
-    deleteApplication.mockReturnValue(new Promise((resolve) => (respond = resolve)));
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
-    const dialog = openDelete();
-    const confirm = within(dialog).getByRole("button", { name: "삭제" });
+        expect(screen.getByRole("dialog")).toBe(dialog);
+        expect(within(dialog).getByRole("alert").textContent).toBe(DELETE_FAILED);
+      });
+    });
 
-    fireEvent.click(confirm);
+    describe("중복 · 경쟁 처리", () => {
+      it("삭제 응답을 기다리는 동안 [취소] · [삭제]를 누를 수 없다", async () => {
+        const response = deferred<DeleteApplicationResult>();
+        vi.mocked(deleteApplication).mockReturnValue(response.promise);
+        renderDetail();
+        const dialog = openConfirm();
 
-    await waitFor(() => expect(confirm.getAttribute("aria-busy")).toBe("true"));
-    expect(confirm).toHaveProperty("disabled", true);
-    expect(within(dialog).getByRole("button", { name: "취소" })).toHaveProperty("disabled", true);
-    expect(deleteApplication).toHaveBeenCalledWith(12);
+        fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
-    await act(async () => respond({ error: DELETE_FAILED }));
-  });
+        expect(within(dialog).getByRole("button", { name: "취소" }).hasAttribute("disabled")).toBe(
+          true,
+        );
+        expect(within(dialog).getByRole("button", { name: "삭제" }).hasAttribute("disabled")).toBe(
+          true,
+        );
+        await act(async () => response.resolve({}));
+      });
 
-  it("서버가 거절하면 모달 안에 서버 문구를 보여 주고, 다시 열면 지난 문구는 지운다", async () => {
-    deleteApplication.mockResolvedValue({ error: DELETE_FAILED });
-    render(<ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />);
-    const dialog = openDelete();
+      it("삭제 응답을 기다리는 동안에는 Esc로 닫지 않는다", async () => {
+        const response = deferred<DeleteApplicationResult>();
+        vi.mocked(deleteApplication).mockReturnValue(response.promise);
+        renderDetail();
+        const dialog = openConfirm();
+        fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "삭제" }));
+        fireEvent.keyDown(document, { key: "Escape" });
 
-    expect((await within(dialog).findByRole("alert")).textContent).toBe(DELETE_FAILED);
-    // 문구가 먼저 그려지고, 삭제 요청(transition)이 끝나야 버튼이 다시 켜진다.
-    const cancel = within(dialog).getByRole("button", { name: "취소" });
-    await waitFor(() => expect(cancel).toHaveProperty("disabled", false));
+        expect(screen.getByRole("dialog")).toBe(dialog);
+        await act(async () => response.resolve({}));
+      });
+    });
 
-    fireEvent.click(cancel);
-    expect(screen.queryByRole("dialog")).toBeNull();
-    const reopened = openDelete();
+    describe("정리", () => {
+      it("화면이 숨겨지면(Activity hidden) 열려 있던 모달과 지난 문구를 닫는다", async () => {
+        vi.mocked(deleteApplication).mockResolvedValue({ error: DELETE_FAILED });
+        const detail = <ApplicationDetail application={APPLICATION} sessions={NO_SESSIONS} />;
+        const { rerender } = render(<Activity mode="visible">{detail}</Activity>);
+        await confirmDelete(openConfirm());
+        expect(screen.getByRole("alert")).toBeDefined();
 
-    expect(within(reopened).queryByRole("alert")).toBeNull();
+        rerender(<Activity mode="hidden">{detail}</Activity>);
+        rerender(<Activity mode="visible">{detail}</Activity>);
+
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
+    });
   });
 });

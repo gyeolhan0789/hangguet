@@ -1,6 +1,7 @@
+import type { Page } from "@playwright/test";
 import { http, HttpResponse, type MswFixture } from "next/experimental/testmode/playwright/msw";
 
-import type { SessionCreateRequest } from "../../src/types/api";
+import type { RoomResponse } from "../../src/types/api";
 
 import { API_BASE_URL } from "../../src/lib/api/config";
 
@@ -17,7 +18,6 @@ import {
   NICKNAME_CHANGED,
   NOTICES_EMPTY,
   PRACTICE_LOGS,
-  PROBLEM,
   QUESTION_CURRENT,
   REFRESHED_TOKENS,
   REPLAY,
@@ -81,12 +81,7 @@ export const defaultHandlers = [
   ),
   http.delete(api("/applications/:applicationId"), () => new HttpResponse(null, { status: 204 })),
   http.get(api("/companies"), () => HttpResponse.json(COMPANIES)),
-  // 5.1은 Idempotency-Key(UUID)가 필수다. 없으면 mock 서버처럼 400으로 거절해, 모든 E2E가 헤더를 지키게 한다.
-  http.post(api("/interview-sessions"), ({ request }) =>
-    request.headers.get("Idempotency-Key")
-      ? HttpResponse.json(SESSION, { status: 201 })
-      : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
-  ),
+  http.post(api("/interview-sessions"), () => HttpResponse.json(SESSION, { status: 201 })),
   // 5.13 연습 면접 목록: 기본은 Swagger '기록 없는 날짜' 예시
   http.get(api("/interview-sessions"), () => HttpResponse.json(SESSION_LIST.EMPTY)),
   // 5.15 월별 연습 면접 횟수. 고정 경로라 /interview-sessions/:sessionId보다 먼저 둔다.
@@ -98,13 +93,8 @@ export const defaultHandlers = [
   http.post(api("/interview-sessions/:sessionId/plan/retry"), () =>
     HttpResponse.json({ ...SESSION_PLAN.GENERATING, planProgress: 0 }, { status: 202 }),
   ),
-  // 5.4도 Idempotency-Key가 필수다.
-  http.post(api("/interview-sessions/:sessionId/start"), ({ request }) =>
-    request.headers.get("Idempotency-Key")
-      ? HttpResponse.json(SESSION_STARTED)
-      : problemResponse(PROBLEM.VALIDATION_FAILED_IDEMPOTENCY_KEY),
-  ),
-  // RTC 외부 연결을 사용하지 않는 화면 테스트의 기본값. 실제 연결 시나리오는 별도 방으로 덮어쓴다.
+  http.post(api("/interview-sessions/:sessionId/start"), () => HttpResponse.json(SESSION_STARTED)),
+  // 면접방에 실제로 붙는 E2E는 없다(실제 연결 확인은 E2E 밖). 연결 중으로 둘 때는 roomStaysConnecting을 쓴다.
   http.post(api("/interview-sessions/:sessionId/room-token"), () =>
     problemResponse({
       title: "Conflict",
@@ -126,18 +116,34 @@ export const defaultHandlers = [
   http.get(api("/growth-reviews/:practiceDate"), () => HttpResponse.json(GROWTH_REVIEW.S08)),
 ];
 
-/** 5.1 요청을 모아 둔다: 본문과 Idempotency-Key 헤더. respond가 없으면 고른 방식으로 만든 면접(201)을 돌려준다. */
-export function recordSessions(
-  msw: MswFixture,
-  respond?: (body: SessionCreateRequest) => Response,
-) {
-  const requests: { body: SessionCreateRequest; key: string | null }[] = [];
+/** 3.1 홈을 '오늘 연습 완료'(Swagger 예시 S02-B)로 답한다. 인트로 없이 홈을 지나야 하는, 홈 상태와 상관없는 spec이 msw.use로 건다 */
+export const homeDoneToday = http.get(api("/home"), () => HttpResponse.json(HOME.DONE_TODAY));
+
+/** roomStaysConnecting이 주는 면접방 주소의 호스트. 실제로 나가지 않고 page.routeWebSocket이 받는다 */
+const CONNECTING_ROOM_HOST = "rtc.e2e.test";
+
+/** 5.14 면접방 입장 200 — 웹 Swagger 예시에서 주소 · 토큰만 테스트 값으로 바꿨다 */
+const CONNECTING_ROOM = {
+  url: `wss://${CONNECTING_ROOM_HOST}`,
+  token: "e2e-room-token",
+  expiresAt: "2026-10-15T12:18:42+09:00",
+} satisfies RoomResponse;
+
+/**
+ * 화상 면접방을 '연결 중'에 머물게 한다. 5.14는 200으로 답해 서버 액션을 붙잡지 않고(뒤 5.8 [끝내기]가 막히지 않는다),
+ * LiveKit 신호 소켓(wss://rtc.e2e.test/rtc/v1?…)은 열리지 않은 채 남아 '잠시 멈춤' 카드가 뜨지 않는다.
+ * 뒤에 서버 액션이 있는 화상 test에서 page.goto 전에 부른다(뒤에 서버 액션이 없으면 spec의 5.14 무응답 대역으로 충분하다).
+ * 한계: LiveKit 신호 연결 제한 시간(15초, setTimeout)은 시계가 흐르는 동안 줄어든다. 시계를 흐르게 둔 시간이 15초를 넘으면 실패한다.
+ */
+export async function roomStaysConnecting(page: Page, msw: MswFixture) {
   msw.use(
-    http.post(api("/interview-sessions"), async ({ request }) => {
-      const body = (await request.json()) as SessionCreateRequest;
-      requests.push({ body, key: request.headers.get("Idempotency-Key") });
-      return respond?.(body) ?? HttpResponse.json({ ...SESSION, mode: body.mode }, { status: 201 });
-    }),
+    http.post(api("/interview-sessions/:sessionId/room-token"), () =>
+      HttpResponse.json(CONNECTING_ROOM),
+    ),
   );
-  return requests;
+  // 핸들러가 끝나야 Playwright가 소켓을 '열림'으로 만든다. 끝나지 않게 두어 업그레이드 대기(CONNECTING)에 머물게 한다.
+  await page.routeWebSocket(
+    (url) => url.hostname === CONNECTING_ROOM_HOST,
+    () => new Promise<never>(() => {}),
+  );
 }

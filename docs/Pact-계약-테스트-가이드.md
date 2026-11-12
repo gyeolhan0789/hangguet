@@ -111,7 +111,8 @@ cd backend && ./gradlew contractTest
 
 - 검증 대상은 배포된 서버가 아니다. 로컬로 띄운 BE에 검증한다(`@SpringBootTest(RANDOM_PORT)` + `HttpTestTarget`). **[공식]** [Verifying Pacts](https://docs.pact.io/provider)
 - 가짜로 바꾸는 것은 BE 밖으로 나가는 연결뿐이다. BE 코드 자체는 가짜로 바꾸지 않는다. **[공식]** 같음
-  - 지금 바꾸는 것: `CoverLetterCheckQueue` · `AiJobQueue` · `InterviewRoom`(LiveKit) · `S3FileStorage` · `JavaMailSender`(비밀번호 찾기 메일, `@MockitoBean`)
+  - 지금 바꾸는 것: `CoverLetterCheckQueue` · `AiJobQueue` · `InterviewRoom`(LiveKit) · `S3FileStorage` · `JavaMailSender`(비밀번호 찾기 메일) · `KakaoMessageClient`(연습 알림 카카오 동의, 여기까지 `@MockitoBean`)
+  - `KakaoLoginClient`(카카오 로그인 · 계정 연결)는 `@MockitoSpyBean`으로 감싸 카카오에 인가 코드를 확인하는 `fetchProfile`만 바꾼다. 로그인 서비스가 제공자 목록을 만들 때 `provider()`의 실제 값이 필요해서다. **[구현]**
 - DB는 로컬 PostgreSQL · Redis를 그대로 쓴다. **[공식]** 같음(가벼운 로컬 DB는 써도 된다)
 
 ### 3.2 상황(`@State`)
@@ -124,7 +125,7 @@ cd backend && ./gradlew contractTest
 | 상황 | 방법 | 이유 |
 | --- | --- | --- |
 | 만료된 토큰 | `JwtEncoder`로 직접 서명 | 서비스는 언제나 지금부터 유효한 토큰만 발급한다 |
-| 어제 본 면접 | 서비스로 만든 뒤 날짜만 SQL로 하루 앞당김 | 서비스는 언제나 오늘 날짜로 저장한다 |
+| 지난날 본 면접(어제 · 그저께) | 서비스로 만든 뒤 날짜만 SQL로 그 일수만큼 앞당김 | 서비스는 언제나 오늘 날짜로 저장한다 |
 | 관리자 | repository로 생성 | 관리자 가입 서비스가 없다 |
 | 다른 요청에 쓴 멱등 키 | `IdempotencyStore`에 직접 기록 | 멱등 처리는 HTTP 인터셉터에만 있다 |
 | 비밀번호 재설정 링크 | `PasswordResetTokenStore.issue`로 token 생성 | 서비스(1.8)는 token을 메일로만 보내고 돌려주지 않는다 |
@@ -135,7 +136,7 @@ cd backend && ./gradlew contractTest
 - 상호작용이 끝날 때마다 `@AfterEach`가 그 상호작용이 만든 데이터를 지운다(`ContractData`). **[구현]**
   - 재생된 요청이 만든 데이터도 지운다(회원가입이 만든 회원, 비회원 문의).
 - 같은 로컬 DB를 쓰는 다른 테스트 · 개발 데이터를 지우지 않게, 지울 범위를 좁힌다(예: 비회원 문의는 `GUEST_EMAIL` + 상호작용 시작 시각 이후). **[구현]**
-- `ContractData`는 PostgreSQL 행만 지운다. Redis의 멱등 키 · 면접 진행 키 · 로그인 잠금 키(`login-fail:`, 15분) · 비밀번호 재설정 키(`password-reset:` 30분 · `password-reset-wait:` 30초)는 지우지 않고 만료 시간(TTL)이 지나면 사라진다. 상황마다 회원 · 면접 id · 이메일이 새로 생겨 다음 상호작용과 겹치지 않는다. 그러니 이전 실행의 Redis 값에 기대는 계약은 만들지 않는다. **[구현]**
+- `ContractData`는 PostgreSQL 행만 지운다. Redis의 멱등 키 · 면접 진행 키 · 로그인 잠금 키(`login-fail:`, 15분) · 비밀번호 재설정 키(`password-reset:` 30분 · `password-reset-wait:` 30초) · 소셜 가입 토큰(`social-signup:` 10분)은 지우지 않고 만료 시간(TTL)이 지나면 사라진다. 상황마다 회원 · 면접 id · 이메일이 새로 생겨 다음 상호작용과 겹치지 않는다. 그러니 이전 실행의 Redis 값에 기대는 계약은 만들지 않는다. **[구현]**
 
 ## 4. CI와 계약 파일
 

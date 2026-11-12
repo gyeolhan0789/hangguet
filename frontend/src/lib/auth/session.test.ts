@@ -1,54 +1,41 @@
 // @vitest-environment node
-import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from "axios";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Swagger 2.1 내 정보 · 공통 오류(401 UNAUTHORIZED · TOKEN_EXPIRED)
+import { describe, expect, it, vi } from "vitest";
 
-const get = vi.fn();
-vi.mock("@/lib/api/client", () => ({ api: { get } }));
+import { axiosProblem } from "@/test/axios-problem";
+import { setCookie } from "@/test/next-headers";
+import { RedirectError } from "@/test/next-navigation";
 
-const has = vi.fn();
-vi.mock("next/headers", () => ({ cookies: async () => ({ has }) }));
+import { getMe } from "./session";
 
-// react의 cache는 서버 컴포넌트 요청 범위에서만 값을 기억해서, 테스트에서는 매번 새로 부른다.
-const { getMe } = await import("./session");
+// 경계 mock: HTTP(api)와 쿠키(next/headers)
+const api = vi.hoisted(() => ({ get: vi.fn() }));
+vi.mock("@/lib/api/client", () => ({ api }));
+vi.mock("next/headers", () => import("@/test/next-headers"));
 
-const user = {
-  id: 1,
-  email: "a@ssafy.com",
-  nickname: "면접왕",
-  profileImageUrl: null,
-  createdAt: "2026-09-01T10:00:00+09:00",
-  currentStreak: 7,
-};
+// 예시 데이터: Swagger 공통 401(API별 예시가 없어 모양만 맞춘다)
+const TOKEN_EXPIRED = { title: "Unauthorized", status: 401, code: "TOKEN_EXPIRED" };
 
-function unauthorized() {
-  const config = { headers: {} } as InternalAxiosRequestConfig;
-  const data = { status: 401, code: "UNAUTHORIZED", detail: "" };
-  const response = { status: 401, data, headers: {}, config } as AxiosResponse;
-  return new AxiosError("fail", undefined, config, null, response);
-}
+describe("getMe · 내 정보", () => {
+  describe("권한 · 로그인", () => {
+    it("토큰 쿠키가 없으면 요청하지 않고 null을 돌려준다", async () => {
+      expect(await getMe()).toBeNull();
+      expect(api.get).not.toHaveBeenCalled();
+    });
 
-beforeEach(() => vi.clearAllMocks());
+    it("방금 재발급했는데도 토큰 만료(401 TOKEN_EXPIRED)로 돌아오면 null을 돌려준다", async () => {
+      setCookie("hk_access", "access-1");
+      api.get.mockRejectedValue(axiosProblem(TOKEN_EXPIRED));
 
-describe("getMe", () => {
-  it("토큰 쿠키가 없으면 API를 부르지 않고 null", async () => {
-    has.mockReturnValue(false);
+      expect(await getMe()).toBeNull();
+    });
 
-    expect(await getMe()).toBeNull();
-    expect(get).not.toHaveBeenCalled();
-  });
+    it("토큰 재발급 · 로그아웃으로 이동해야 하면 그 이동을 그대로 던진다", async () => {
+      setCookie("hk_access", "access-1");
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.get.mockRejectedValue(moveToRefresh);
 
-  it("로그인했으면 내 정보를 돌려준다", async () => {
-    has.mockReturnValue(true);
-    get.mockResolvedValue({ data: user });
-
-    expect(await getMe()).toEqual(user);
-    expect(get).toHaveBeenCalledWith("/users/me");
-  });
-
-  it("토큰이 무효(401)면 null", async () => {
-    has.mockReturnValue(true);
-    get.mockRejectedValue(unauthorized());
-
-    expect(await getMe()).toBeNull();
+      await expect(getMe()).rejects.toBe(moveToRefresh);
+    });
   });
 });

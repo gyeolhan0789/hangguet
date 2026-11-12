@@ -1,10 +1,15 @@
+// @vitest-environment node
+// 기준: 웹 Swagger 6.4 ReplayItem.timeline(at · start · end는 영상 위치(초), value는 그 면접 평균이 0인 표준화 값)
+// · 사용자 결정(2026-10-30 · 11-02: 5초씩 묶어 평균, 값이 없는 시간은 평균(0), 체크포인트를 누르면 이유별로 보여 준다)
 import { describe, expect, it } from "vitest";
 
-import type { ReplayItem, TimelineCheckpoint } from "@/types/api";
+import { REPLAY } from "@/test/result-examples";
+import type { ReplayItem, TimelineCheckpoint, TimelinePoint } from "@/types/api";
 
 import { checkpointNear, clock, reasonLabel, timelineSeries, valueAt } from "./timeline";
 
-// 기준: 웹 Swagger 6.4 items[].timeline(at · start · end는 영상 위치(초)) · 사용자 결정(2026-10-30: 체크포인트를 누르면 이유별로 보여 준다)
+// 예시 데이터: Swagger 6.4 예시의 4번 질문(체크포인트 623.25초) + 테스트용 작은 점 목록
+const SAMPLE_CHECKPOINT = REPLAY.items[3].timeline!.checkpoints[0];
 
 const checkpoint = (at: number, start = at, end = at): TimelineCheckpoint => ({
   at,
@@ -14,111 +19,168 @@ const checkpoint = (at: number, start = at, end = at): TimelineCheckpoint => ({
   reasons: [],
 });
 
-const item = (timeline: ReplayItem["timeline"]): ReplayItem => ({
-  questionId: 1,
-  seq: 1,
-  question: "질문",
-  questionCreatedAt: "2026-10-15T12:00:00+09:00",
-  answer: "답",
-  answerCreatedAt: "2026-10-15T12:01:00+09:00",
-  grade: "GOOD",
-  timeline,
+const answer = (points: TimelinePoint[], checkpoints: TimelineCheckpoint[] = []): ReplayItem => ({
+  ...REPLAY.items[0],
+  timeline: { points, checkpoints },
 });
 
-describe("timelineSeries", () => {
-  it("영상 처음부터 끝까지 한 줄로 잇고, 값이 없는 시간은 평균(0)으로 둔다", () => {
-    const series = timelineSeries(
-      [
-        item({
-          points: [
-            { at: 10, value: 1 },
-            { at: 11, value: -1 },
-          ],
-          checkpoints: [checkpoint(11)],
-        }),
-        item(null),
-        item({ points: [{ at: 50, value: 0.5 }], checkpoints: [checkpoint(50)] }),
-      ],
-      60,
-    );
+const average = (time: number) => ({ time, value: 0, measured: false });
+const measured = (time: number, value: number) => ({ time, value, measured: true });
 
-    expect(series?.points).toEqual([
-      // 첫 답변 전: 영상 처음(평균)에서 첫 값으로(10초 안이라 가운데 한 점)
-      { time: 0, value: 0, measured: false },
-      { time: 5.25, value: 0, measured: false },
-      { time: 10.5, value: 0, measured: true },
-      // 답변 사이: 끝값에서 10초 동안 평균으로 갔다가 다음 답변 첫 값으로
-      { time: 20.5, value: 0, measured: false },
-      { time: 40, value: 0, measured: false },
-      { time: 50, value: 0.5, measured: true },
-      // 마지막 답변 뒤: 영상 끝까지 평균
-      { time: 55, value: 0, measured: false },
-      { time: 60, value: 0, measured: false },
-    ]);
-    expect(series?.checkpoints.map((c) => c.at)).toEqual([11, 50]);
+describe("timelineSeries · 다시보기 곡선", () => {
+  describe("정상 처리", () => {
+    it("답변 안의 점을 첫 점부터 5초씩 묶어 시각과 값을 평균한 점으로 바꾼다", () => {
+      const values = [0, 10, 0, 10, 0, 10, 0];
+      const series = timelineSeries([answer(values.map((value, i) => ({ at: 10 + i, value })))]);
+
+      // 10~14초 → 12초 · 평균 4, 15~16초(남은 점) → 15.5초 · 평균 5
+      expect(series?.points.filter((point) => point.measured)).toEqual([
+        measured(12, 4),
+        measured(15.5, 5),
+      ]);
+    });
+
+    it("영상 처음(0초)의 평균 점부터 첫 답변까지 잇는다", () => {
+      const series = timelineSeries([answer([{ at: 30, value: 1 }])]);
+
+      expect(series?.points).toEqual([average(0), average(10), average(20), measured(30, 1)]);
+    });
+
+    it("답변 사이 빈 시간은 양 끝에서 10초 떨어진 평균(0) 점으로 잇는다", () => {
+      const series = timelineSeries([
+        answer([{ at: 30, value: 1 }]),
+        answer([{ at: 70, value: -1 }]),
+      ]);
+
+      expect(series?.points.slice(3)).toEqual([
+        measured(30, 1),
+        average(40),
+        average(60),
+        measured(70, -1),
+      ]);
+    });
+
+    it("영상 길이가 마지막 답변보다 길면 영상 끝까지 평균 점으로 잇는다", () => {
+      const series = timelineSeries([answer([{ at: 30, value: 1 }])], 80);
+
+      expect(series?.points.slice(3)).toEqual([
+        measured(30, 1),
+        average(40),
+        average(70),
+        average(80),
+      ]);
+    });
+
+    it("여러 답변의 체크포인트를 영상 위치 순으로 모은다", () => {
+      const first = [checkpoint(14), checkpoint(11)];
+      const second = [checkpoint(50)];
+      const series = timelineSeries([
+        answer([{ at: 10, value: -2 }], first),
+        answer([{ at: 50, value: -2 }], second),
+      ]);
+
+      expect(series?.checkpoints).toEqual([first[1], first[0], second[0]]);
+    });
   });
 
-  it("곡선은 답변 안에서만 5초씩 묶어 시각과 값을 평균한 점으로 그린다", () => {
-    const values = [0, 10, 0, 10, 0, 10, 0];
-    const series = timelineSeries([
-      item({ points: values.map((value, at) => ({ at, value })), checkpoints: [] }),
-      item({ points: [{ at: 100, value: 7 }], checkpoints: [] }),
-    ]);
+  describe("경계값", () => {
+    it("빈 시간이 20초 이하이면 가운데에 평균 점 하나만 둔다", () => {
+      const series = timelineSeries([
+        answer([{ at: 30, value: 1 }]),
+        answer([{ at: 45, value: -1 }]),
+      ]);
 
-    // 0~4초 → 2초 · 평균 4, 5~6초(남은 점) → 5.5초 · 평균 5. 다음 답변 값은 앞 답변과 섞지 않는다
-    expect(series?.points.filter((point) => point.measured)).toEqual([
-      { time: 2, value: 4, measured: true },
-      { time: 5.5, value: 5, measured: true },
-      { time: 100, value: 7, measured: true },
-    ]);
+      expect(series?.points.slice(3)).toEqual([measured(30, 1), average(37.5), measured(45, -1)]);
+    });
+
+    it("영상 길이를 아직 모르면(0) 마지막 답변 뒤를 잇지 않는다", () => {
+      const series = timelineSeries([answer([{ at: 30, value: 1 }])], 0);
+
+      expect(series?.points.at(-1)).toEqual(measured(30, 1));
+    });
+
+    it("첫 답변이 0초에 시작하면 영상 처음 점을 따로 넣지 않는다", () => {
+      const series = timelineSeries([answer([{ at: 0, value: 1 }])]);
+
+      expect(series?.points).toEqual([measured(0, 1)]);
+    });
   });
 
-  it("타임라인이 있는 답변이 없으면 null", () => {
-    expect(timelineSeries([item(null), item({ points: [], checkpoints: [] })])).toBeNull();
+  describe("오류 처리", () => {
+    it.each([
+      { label: "없음(null)", timeline: null },
+      { label: "빈 점 목록", timeline: { points: [], checkpoints: [] } },
+    ])("타임라인이 '$label'뿐이면 null을 돌려준다", ({ timeline }) => {
+      expect(timelineSeries([{ ...REPLAY.items[0], timeline }])).toBeNull();
+    });
   });
 });
 
-describe("checkpointNear", () => {
-  const checkpoints = [checkpoint(100, 98, 101), checkpoint(200)];
+describe("valueAt · 체크포인트 점 높이", () => {
+  describe("정상 처리", () => {
+    it("평균으로 채운 점은 빼고 가장 가까운 측정 점의 값을 돌려준다", () => {
+      const points = [measured(10, 1), average(11), measured(20, -2)];
 
-  it("낮은 구간 안이거나 가장 낮은 지점에서 5초 안이면 고른다", () => {
-    expect(checkpointNear(checkpoints, 98)?.at).toBe(100);
-    expect(checkpointNear(checkpoints, 195)?.at).toBe(200);
-    expect(checkpointNear(checkpoints, 205)?.at).toBe(200);
-  });
-
-  it("5초보다 멀면 고르지 않는다", () => {
-    expect(checkpointNear(checkpoints, 150)).toBeNull();
-    expect(checkpointNear(checkpoints, 205.5)).toBeNull();
-  });
-
-  it("여럿이면 가장 낮은 지점이 가장 가까운 것을 고른다", () => {
-    expect(checkpointNear([checkpoint(10), checkpoint(14)], 13)?.at).toBe(14);
+      expect(valueAt(points, 12)).toBe(1);
+    });
   });
 });
 
-describe("valueAt", () => {
-  it("값이 없는(평균으로 채운) 점을 빼고 가장 가까운 점의 값", () => {
-    const points = [
-      { time: 10, value: 1, measured: true },
-      { time: 11, value: 0, measured: false },
-      { time: 20, value: -2, measured: true },
-    ];
+describe("checkpointNear · 누른 곳의 체크포인트", () => {
+  describe("정상 처리", () => {
+    it("누른 위치가 낮은 구간 안이면 그 체크포인트를 고른다", () => {
+      const wide = checkpoint(100, 90, 101);
 
-    expect(valueAt(points, 12)).toBe(1);
-    expect(valueAt(points, 18)).toBe(-2);
-    expect(valueAt([], 0)).toBeNull();
+      expect(checkpointNear([wide], 92)).toBe(wide);
+    });
+  });
+
+  describe("경계값", () => {
+    it("가장 낮은 지점에서 정확히 5초 떨어져 있으면 고른다", () => {
+      expect(checkpointNear([SAMPLE_CHECKPOINT], 628.25)).toBe(SAMPLE_CHECKPOINT);
+    });
+
+    it("구간 밖이고 가장 낮은 지점에서 5초보다 멀면 null을 돌려준다", () => {
+      expect(checkpointNear([SAMPLE_CHECKPOINT], 628.5)).toBeNull();
+    });
+
+    it("여럿이 가까우면 가장 낮은 지점이 가장 가까운 것을 고른다", () => {
+      const near = [checkpoint(10), checkpoint(14)];
+
+      expect(checkpointNear(near, 13)).toBe(near[1]);
+    });
+
+    it("거리가 같으면 앞의 체크포인트를 고른다", () => {
+      const near = [checkpoint(10), checkpoint(14)];
+
+      expect(checkpointNear(near, 12)).toBe(near[0]);
+    });
   });
 });
 
-describe("reasonLabel · clock", () => {
-  it("인상 이유는 이름만, 음성 이유는 횟수를 붙인다", () => {
-    expect(reasonLabel({ metric: "CONFIDENCE", count: null, text: "" })).toBe("자신감");
-    expect(reasonLabel({ metric: "FILLER", count: 3, text: "" })).toBe("군말 3회");
+describe("reasonLabel · 체크포인트 이유 이름", () => {
+  describe("정상 처리", () => {
+    it("횟수가 없으면 지표 이름만 쓴다", () => {
+      expect(reasonLabel(SAMPLE_CHECKPOINT.reasons[0])).toBe("자신감");
+    });
+
+    it("횟수가 있으면 '지표 이름 N회'로 쓴다", () => {
+      expect(reasonLabel(SAMPLE_CHECKPOINT.reasons[1])).toBe("군말 3회");
+    });
+  });
+});
+
+describe("clock · 영상 위치 표시", () => {
+  describe("정상 처리", () => {
+    it("초를 초 두 자리의 '분:초'로 바꾼다", () => {
+      expect(clock(5)).toBe("0:05");
+      expect(clock(605)).toBe("10:05");
+    });
   });
 
-  it("영상 위치를 분:초로 쓴다", () => {
-    expect(clock(623.25)).toBe("10:23");
-    expect(clock(5)).toBe("0:05");
+  describe("경계값", () => {
+    it("소수 초는 버린다", () => {
+      expect(clock(623.25)).toBe("10:23");
+    });
   });
 });

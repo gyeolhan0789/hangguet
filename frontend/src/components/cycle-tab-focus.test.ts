@@ -1,3 +1,4 @@
+// 기준: WAI-ARIA APG Dialog (Modal) 초점 가두기 · Figma S05-E(18:4013) 권한 안내 모달
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { cycleTabFocus } from "./cycle-tab-focus";
@@ -6,76 +7,94 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function setup() {
-  document.body.innerHTML = `
-    <div id="dialog" tabindex="-1">
-      <button id="first">첫째</button>
-      <button id="middle">가운데</button>
-      <button id="last">마지막</button>
-    </div>`;
-  const get = (id: string) => document.getElementById(id) as HTMLElement;
-  return {
-    dialog: get("dialog"),
-    items: [get("first"), get("middle"), get("last")],
-    get,
-  };
+/** 대화상자 안에 버튼 셋(처음 · 가운데 · 마지막)을 붙인다 */
+function dialogWithButtons() {
+  const dialog = document.createElement("div");
+  dialog.tabIndex = -1;
+  const items = ["처음", "가운데", "마지막"].map((name) => {
+    const button = document.createElement("button");
+    button.textContent = name;
+    dialog.append(button);
+    return button;
+  });
+  document.body.append(dialog);
+  const [first, middle, last] = items;
+  return { dialog, items, first, middle, last };
 }
 
-const tab = (shiftKey = false) => ({ shiftKey, preventDefault: vi.fn() });
+const tabKey = (shiftKey = false) => ({ shiftKey, preventDefault: vi.fn() });
 
-describe("cycleTabFocus (모달 초점 가두기)", () => {
-  it("마지막 요소에서 Tab을 누르면 처음 요소로 간다", () => {
-    const { items, get } = setup();
-    get("last").focus();
-    const event = tab();
-    cycleTabFocus(event, items);
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(document.activeElement).toBe(get("first"));
+describe("cycleTabFocus · 모달 초점 가두기", () => {
+  describe("사용자 조작", () => {
+    it("마지막 요소에서 Tab을 누르면 처음 요소로 간다", () => {
+      const { items, first, last } = dialogWithButtons();
+      last.focus();
+      const event = tabKey();
+
+      cycleTabFocus(event, items);
+
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(first);
+    });
+
+    it("처음 요소에서 Shift+Tab을 누르면 마지막 요소로 간다", () => {
+      const { items, first, last } = dialogWithButtons();
+      first.focus();
+      const event = tabKey(true);
+
+      cycleTabFocus(event, items);
+
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(last);
+    });
+
+    it("대화상자 자신에서 Shift+Tab을 누르면 마지막 요소로 간다", () => {
+      const { dialog, items, last } = dialogWithButtons();
+      dialog.focus();
+      const event = tabKey(true);
+
+      cycleTabFocus(event, items, dialog);
+
+      expect(event.preventDefault).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).toBe(last);
+    });
+
+    it("가운데 요소에서는 브라우저 기본 이동을 막지 않는다", () => {
+      const { dialog, items, middle } = dialogWithButtons();
+      middle.focus();
+      const forward = tabKey();
+      const backward = tabKey(true);
+
+      cycleTabFocus(forward, items, dialog);
+      cycleTabFocus(backward, items, dialog);
+
+      expect(forward.preventDefault).not.toHaveBeenCalled();
+      expect(backward.preventDefault).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(middle);
+    });
   });
 
-  it("처음 요소에서 Shift+Tab을 누르면 마지막 요소로 간다", () => {
-    const { items, get } = setup();
-    get("first").focus();
-    const event = tab(true);
-    cycleTabFocus(event, items);
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(document.activeElement).toBe(get("last"));
-  });
+  describe("경계값", () => {
+    it("초점 받을 요소가 없으면 아무것도 하지 않는다", () => {
+      const { dialog } = dialogWithButtons();
+      dialog.focus();
+      const event = tabKey(true);
 
-  it("가운데에서는 브라우저 기본 이동을 막지 않는다", () => {
-    const { items, get } = setup();
-    get("middle").focus();
-    const forward = tab();
-    const backward = tab(true);
-    cycleTabFocus(forward, items);
-    cycleTabFocus(backward, items);
-    expect(forward.preventDefault).not.toHaveBeenCalled();
-    expect(backward.preventDefault).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(get("middle"));
-  });
+      cycleTabFocus(event, [], dialog);
 
-  it("대화상자 자신에 초점이 있으면 Shift+Tab은 마지막 요소로 가고, container를 주지 않으면 그대로 둔다", () => {
-    const { dialog, items, get } = setup();
-    dialog.focus();
-    cycleTabFocus(tab(true), items);
-    expect(document.activeElement).toBe(dialog);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(dialog);
+    });
 
-    const event = tab(true);
-    cycleTabFocus(event, items, dialog);
-    expect(event.preventDefault).toHaveBeenCalledOnce();
-    expect(document.activeElement).toBe(get("last"));
-  });
+    it("대화상자를 주지 않았으면 대화상자 자신에서의 Shift+Tab은 막지 않는다", () => {
+      const { dialog, items } = dialogWithButtons();
+      dialog.focus();
+      const event = tabKey(true);
 
-  it("초점 받을 요소가 없으면 아무것도 하지 않는다", () => {
-    document.body.innerHTML = `<div id="dialog" tabindex="-1"></div>`;
-    const dialog = document.getElementById("dialog") as HTMLElement;
-    dialog.focus();
-    const forward = tab();
-    const backward = tab(true);
-    cycleTabFocus(forward, []);
-    cycleTabFocus(backward, [], dialog);
-    expect(forward.preventDefault).not.toHaveBeenCalled();
-    expect(backward.preventDefault).not.toHaveBeenCalled();
-    expect(document.activeElement).toBe(dialog);
+      cycleTabFocus(event, items);
+
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(dialog);
+    });
   });
 });
