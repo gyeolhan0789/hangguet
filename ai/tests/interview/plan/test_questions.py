@@ -12,7 +12,7 @@ from app.interview.plan.questions import (
     parse_questions,
     request_questions,
 )
-from app.worker.messages import Claim, ClaimType
+from app.worker.messages import AskedQuestion, Claim, ClaimType
 from tests.interview.plan.fakes import JOB, FakeChat, question
 
 CLAIMS = (
@@ -165,6 +165,43 @@ def test_parse_keeps_count_and_seq_as_received() -> None:
 def test_broken_question_is_output_error(content: dict[str, Any]) -> None:
     with pytest.raises(PlanOutputError):
         parse_questions(content)
+
+
+# 기준: AI 명세 2장 askedQuestions(같은 지원서·같은 면접관의 면접에서 출제한 보관함 질문)
+ASKED_JOB = replace(
+    JOB,
+    asked_questions=(
+        AskedQuestion("응답 시간을 40% 줄인 과정은?", "c1"),
+        AskedQuestion("캐시 계층의 구조는?", "c2"),
+    ),
+)
+ASKED_SECTION = (
+    "[이미 출제한 질문]\n"
+    "- (c1) 응답 시간을 40% 줄인 과정은?\n"
+    "- (c2) 캐시 계층의 구조는?\n"
+    "위 질문과 같은 질문은 만들지 않는다. "
+    "같은 주장이라도 위 질문과 다른 기준이나 다른 측면을 묻는 질문은 만든다"
+)
+
+
+def test_question_messages_list_asked_questions_not_to_repeat() -> None:
+    """출제한 질문과 같은 질문은 만들지 않고, 같은 주장을 다른 측면으로 묻는 질문은 만든다."""
+    user = build_question_messages(ASKED_JOB, CLAIMS)[1]["content"]
+
+    assert user.endswith(ASKED_SECTION)
+
+
+def test_regenerate_messages_also_list_asked_questions() -> None:
+    """질문 하나를 다시 생성할 때도 출제한 질문과 같은 질문을 만들지 않게 한다."""
+    user = build_regenerate_messages(ASKED_JOB, CLAIMS, 3)[1]["content"]
+
+    assert ASKED_SECTION in user
+
+
+def test_question_messages_without_asked_questions_have_no_section() -> None:
+    user = build_question_messages(JOB, CLAIMS)[1]["content"]
+
+    assert "[이미 출제한 질문]" not in user
 
 
 def test_request_questions_calls_gms_once_and_keeps_model() -> None:

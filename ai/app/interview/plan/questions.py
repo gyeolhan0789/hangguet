@@ -86,10 +86,27 @@ def _company(job: PlanJob) -> str:
     return f"{section}\n\n" if section else ""
 
 
+def _asked(job: PlanJob) -> str:
+    """이미 출제한 질문과 같은 질문을 만들지 않게 하는 입력(AI 명세 2장 askedQuestions).
+
+    같은 주장을 다른 측면으로 묻는 질문은 허용한다.
+    같은 주장 자체를 금지하면 주장이 적은 자기소개서로는 질문 5개를 만들 수 없기 때문이다
+    (11/10 GMS 실측).
+    """
+    if not job.asked_questions:
+        return ""
+    lines = "\n".join(f"- ({q.claim_id}) {q.content}" for q in job.asked_questions)
+    return (
+        f"\n\n[이미 출제한 질문]\n{lines}\n"
+        "위 질문과 같은 질문은 만들지 않는다. "
+        "같은 주장이라도 위 질문과 다른 기준이나 다른 측면을 묻는 질문은 만든다"
+    )
+
+
 def build_question_messages(job: PlanJob, claims: Sequence[Claim]) -> list[dict[str, str]]:
     user = (
         f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
-        f"{_company(job)}[주장]\n{claims_text(claims)}"
+        f"{_company(job)}[주장]\n{claims_text(claims)}{_asked(job)}"
     )
     return [
         {"role": "system", "content": question_system(job.persona)},
@@ -183,7 +200,7 @@ def build_regenerate_messages(
 ) -> list[dict[str, str]]:
     user = (
         f"회사: {job.company_name}\n직무: {job.job_title}\n\n"
-        f"{_company(job)}[주장]\n{claims_text(claims)}\n\n"
+        f"{_company(job)}[주장]\n{claims_text(claims)}{_asked(job)}\n\n"
         f"[다시 생성할 질문]\n{seq}번 질문. 이전 질문의 claimId가 주장 목록에 없었다."
     )
     return [

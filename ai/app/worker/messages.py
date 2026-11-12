@@ -70,6 +70,14 @@ class Claim:
 
 
 @dataclass(frozen=True)
+class AskedQuestion:
+    """같은 지원서·같은 면접관의 면접에서 이미 출제한 보관함 질문(AI 명세 2장 askedQuestions)."""
+
+    content: str
+    claim_id: str
+
+
+@dataclass(frozen=True)
 class EvaluateAnswer:
     answer_id: int
     seq: int
@@ -146,6 +154,9 @@ class PlanJob(Job):
     # 개인 면접은 지원서에 저장된 주장(AI 명세 2장 STEP 01)을 수신한다.
     # 그룹 면접이나 이 필드를 추가하기 전에 BE가 전송한 작업은 None이고, 질문 생성이 주장을 추출한다
     claims: tuple[Claim, ...] | None = None
+    # 이미 출제한 질문. 이 질문과 같은 질문은 생성하지 않는다(AI 명세 2장).
+    # 없거나 그룹 면접이면 비어 있다
+    asked_questions: tuple[AskedQuestion, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -444,6 +455,19 @@ def _stored_claims(data: Mapping[str, Any]) -> tuple[Claim, ...] | None:
     return claims
 
 
+def _asked_questions(data: Mapping[str, Any]) -> tuple[AskedQuestion, ...]:
+    if data.get("askedQuestions") is None:
+        return ()
+    asked = []
+    for i, item in enumerate(_list(data, "askedQuestions")):
+        path = f"askedQuestions[{i}]."
+        question = _object(item, f"askedQuestions[{i}]")
+        asked.append(
+            AskedQuestion(_text(question, "content", path), _text(question, "claimId", path))
+        )
+    return tuple(asked)
+
+
 def _earlier_summaries(data: Mapping[str, Any]) -> tuple[str, ...]:
     """없으면(이전 BE 메시지) 빈 목록이다. 빈 글은 반영할 내용이 없으므로 뺀다."""
     if data.get("earlierSummaries") is None:
@@ -604,6 +628,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
                 persona=_persona(data),
                 company_card=_company_card(data),
                 claims=_stored_claims(data),
+                asked_questions=_asked_questions(data),
             )
         case JobType.SCORE_ANSWER:
             return ScoreAnswerJob(

@@ -16,6 +16,7 @@ from app.common.answer import (
 from app.common.cover_letter import CoverLetterItem
 from app.common.session import InterviewMode, Persona
 from app.worker.messages import (
+    AskedQuestion,
     Claim,
     ClaimType,
     EvaluateAnswer,
@@ -199,6 +200,36 @@ def test_unknown_talent_criterion_name_is_kept() -> None:
 def test_wrong_stored_claims_are_invalid(claims: Any) -> None:
     with pytest.raises(InvalidJobError, match="claims"):
         parse_job(plan(claims=claims))
+
+
+def test_parses_asked_questions_of_plan_job() -> None:
+    """같은 지원서·같은 면접관의 면접에서 출제한 보관함 질문(AI 명세 2장 askedQuestions)."""
+    job = parse_job(plan(askedQuestions=[{"content": "응답 시간을 줄인 과정은?", "claimId": "c1"}]))
+
+    assert isinstance(job, PlanJob)
+    assert job.asked_questions == (AskedQuestion("응답 시간을 줄인 과정은?", "c1"),)
+
+
+def test_plan_job_without_asked_questions_has_none() -> None:
+    job = parse_job(plan())
+
+    assert isinstance(job, PlanJob)
+    assert job.asked_questions == ()
+
+
+@pytest.mark.parametrize(
+    "asked",
+    [
+        "질문",
+        ["질문"],
+        [{"content": " ", "claimId": "c1"}],
+        [{"content": "질문"}],
+        [{"content": "질문", "claimId": 1}],
+    ],
+)
+def test_wrong_asked_questions_are_invalid(asked: Any) -> None:
+    with pytest.raises(InvalidJobError, match="askedQuestions"):
+        parse_job(plan(askedQuestions=asked))
 
 
 def test_parses_extract_claims_job() -> None:
