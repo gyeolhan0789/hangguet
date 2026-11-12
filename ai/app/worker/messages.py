@@ -318,7 +318,7 @@ def _timeline(data: Mapping[str, Any], path: str = "") -> TimelineInput | None:
         return TimelineInput(
             trailing_off_at_ms=None if times is None else tuple(times), impressions=items
         )
-    except (InvalidJobError, ValueError) as e:
+    except ValueError as e:
         log.warning("%stimeline 형식이 틀려 타임라인 없이 진행한다: %s", path, e)
         return None
 

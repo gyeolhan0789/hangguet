@@ -245,6 +245,6 @@ class ImpressionRecorder:
     def _discard(self) -> None:
         self._recording = False
         self._frames = []
-        for task in list(self._judging):
+        for task in self._judging:
             task.cancel()
         self._judging.clear()
