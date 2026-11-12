@@ -1,39 +1,36 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// 기준: Swagger 9.1 문의 작성 · 9.3 문의 조회 · 9.4 이어서 쓰기(409 INQUIRY_CLOSED) · 9.5 종료 · 9.11 사진 업로드 주소
+// · 기획 메모 I01(→ I03) · I01-B(→ I01-1) · I04(→ I03) · I03 · I03-1
+import { describe, expect, it, vi } from "vitest";
 
+import { refresh } from "next/cache";
+import { redirect, RedirectType } from "next/navigation";
+
+import { RETRY_LATER } from "@/lib/api/problem-detail";
 import { axiosNoResponse, axiosProblem } from "@/test/axios-problem";
+import { RedirectError } from "@/test/next-navigation";
+import { redirectTo } from "@/test/redirect";
+import type { AttachmentUploadUrl, InquiryResponse } from "@/types/api";
 
-// HTTP 경계(api)와 Next 서버 함수(redirect · refresh · unstable_rethrow)만 바꾼다.
-const api = { get: vi.fn(), post: vi.fn() };
-vi.mock("@/lib/api/client", () => ({ api }));
-
-// 두 번째 인자(RedirectType)는 toHaveBeenCalledWith로 확인한다.
-class RedirectSignal extends Error {}
-const redirect = vi.fn<(url: string, type?: string) => never>((url) => {
-  throw new RedirectSignal(url);
-});
-vi.mock("next/navigation", () => ({
-  RedirectType: { push: "push", replace: "replace" },
-  redirect: (url: string, type?: string) => redirect(url, type),
-  unstable_rethrow: (error: unknown) => {
-    if (error instanceof RedirectSignal) throw error;
-  },
-}));
-
-const refresh = vi.fn();
-vi.mock("next/cache", () => ({ refresh: () => refresh() }));
-
-const {
+import {
   addInquiryMessage,
   closeInquiry,
   createGuestInquiry,
   createInquiry,
   createInquiryPhotoUploadUrls,
   openGuestInquiry,
-} = await import("./actions");
+} from "./actions";
+import { PHOTO_COUNT } from "./schemas";
 
-// Swagger 9.1 · 9.3 응답 예시
-const INQUIRY = {
+// 경계 mock: HTTP(api)와 Next 런타임(redirect · unstable_rethrow · refresh)
+const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+vi.mock("@/lib/api/client", () => ({ api }));
+vi.mock("next/navigation", () => import("@/test/next-navigation"));
+vi.mock("next/cache", () => import("@/test/next-cache"));
+
+// 예시 데이터: Swagger 9.1 · 9.3 · 9.4 · 9.11 예시
+const INVALID = "입력값을 확인해 주세요.";
+const INQUIRY: InquiryResponse = {
   id: 7,
   title: "비밀번호를 잊어버렸어요",
   status: "WAITING",
@@ -45,10 +42,32 @@ const INQUIRY = {
       authorType: "USER",
       content: "가입한 이메일은 a@ssafy.com이에요. 비밀번호를 바꿔 주세요.",
       createdAt: "2026-10-26T10:00:00+09:00",
+      attachments: [],
     },
   ],
 };
-// Swagger 9.3 404 · 9.4 409 예시
+const MESSAGE = {
+  id: 23,
+  authorType: "USER",
+  content: "확인 부탁드려요.",
+  createdAt: "2026-10-26T12:00:00+09:00",
+  attachments: [],
+};
+const PHOTO_KEY_INVALID = {
+  title: "Bad Request",
+  status: 400,
+  detail: "입력값을 확인해 주세요.",
+  instance: "/api/v1/inquiries",
+  code: "VALIDATION_FAILED",
+  errors: [{ field: "attachmentKeys", reason: "발급되지 않았거나 이미 쓴 키입니다." }],
+};
+const FILE_NOT_FOUND = {
+  title: "Not Found",
+  status: 404,
+  detail: "업로드한 파일을 찾을 수 없어요.",
+  instance: "/api/v1/inquiries",
+  code: "FILE_NOT_FOUND",
+};
 const INQUIRY_NOT_FOUND = {
   title: "Not Found",
   status: 404,
@@ -63,322 +82,340 @@ const INQUIRY_CLOSED = {
   instance: "/api/v1/inquiries/7/messages",
   code: "INQUIRY_CLOSED",
 };
-const GUEST = { email: "a@ssafy.com", accessPassword: "1234", title: "제목", content: "내용" };
+const UPLOAD_A: AttachmentUploadUrl = {
+  uploadUrl: "https://s3.example/inquiry/a.png?X-Amz-Signature=a",
+  objectKey: "inquiry/a.png",
+  expiresAt: "2026-10-26T10:10:00+09:00",
+};
+const UPLOAD_B: AttachmentUploadUrl = {
+  uploadUrl: "https://s3.example/inquiry/b.jpg?X-Amz-Signature=b",
+  objectKey: "inquiry/b.jpg",
+  expiresAt: "2026-10-26T10:10:00+09:00",
+};
+const PNG = { contentType: "image/png", size: 1024 } as const;
+const MEMBER = { title: "비밀번호를 잊어버렸어요", content: "비밀번호를 바꿔 주세요." };
+const GUEST = { email: "a@ssafy.com", accessPassword: "1234", ...MEMBER };
+const SIX_KEYS = Array.from({ length: 6 }, (_, index) => `inquiry/${index}.png`);
+const GUEST_PASSWORD = "1234";
 
-beforeEach(() => {
-  vi.resetAllMocks();
-});
+describe("createInquiryPhotoUploadUrls · 문의 사진 업로드 주소", () => {
+  describe("정상 처리", () => {
+    it("주소를 받으면 받은 업로드 주소 목록을 돌려준다", async () => {
+      api.post.mockResolvedValue({ data: { files: [UPLOAD_A, UPLOAD_B] } });
 
-describe("createInquiry (9.1 회원)", () => {
-  it("제목 · 내용만 보내고 만든 문의(I03)로 기록을 바꿔치기해 간다(뒤로 가기로 보낸 폼에 돌아가지 않게)", async () => {
-    api.post.mockResolvedValue({ data: INQUIRY });
-
-    await expect(createInquiry({ title: "제목", content: "내용" })).rejects.toThrow("/inquiries/7");
-    expect(api.post).toHaveBeenCalledWith("/inquiries", { title: "제목", content: "내용" });
-    expect(redirect).toHaveBeenCalledWith("/inquiries/7", "replace");
-  });
-
-  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
-    api.post.mockResolvedValue({ data: INQUIRY });
-
-    await expect(
-      createInquiry({ title: "제목", content: "내용" }, ["inquiry/a.png", "inquiry/b.jpg"]),
-    ).rejects.toThrow("/inquiries/7");
-    expect(api.post).toHaveBeenCalledWith("/inquiries", {
-      title: "제목",
-      content: "내용",
-      attachmentKeys: ["inquiry/a.png", "inquiry/b.jpg"],
+      expect(await createInquiryPhotoUploadUrls([PNG, PNG])).toEqual({
+        uploads: [UPLOAD_A, UPLOAD_B],
+      });
     });
   });
 
-  it("사진 키 오류(400 attachmentKeys)는 서버가 준 이유를 문구로 돌려준다", async () => {
-    api.post.mockRejectedValue(
-      axiosProblem({
-        status: 400,
-        detail: "입력값을 확인해 주세요.",
-        code: "VALIDATION_FAILED",
-        errors: [{ field: "attachmentKeys", reason: "발급되지 않았거나 이미 쓴 키입니다." }],
-      }),
-    );
-
-    expect(await createInquiry({ title: "제목", content: "내용" }, ["inquiry/a.png"])).toEqual({
-      formError: "발급되지 않았거나 이미 쓴 키입니다.",
-    });
-    expect(await createGuestInquiry(GUEST, ["inquiry/a.png"])).toEqual({
-      formError: "발급되지 않았거나 이미 쓴 키입니다.",
-    });
-    expect(
-      await addInquiryMessage(7, { content: "확인", attachmentKeys: ["inquiry/a.png"] }),
-    ).toEqual({ error: "발급되지 않았거나 이미 쓴 키입니다." });
-  });
-
-  it("사진 키가 6개 이상이면 보내지 않는다", async () => {
-    const keys = Array.from({ length: 6 }, (_, i) => `inquiry/${i}.png`);
-
-    expect(await createInquiry({ title: "제목", content: "내용" }, keys)).toEqual({
-      formError: "입력값을 확인해 주세요.",
-    });
-    expect(api.post).not.toHaveBeenCalled();
-  });
-
-  it("칸 오류(400)는 그 칸에 서버 문구로 돌려준다", async () => {
-    api.post.mockRejectedValue(
-      axiosProblem({
-        status: 400,
-        detail: "입력값을 확인해 주세요.",
-        code: "VALIDATION_FAILED",
-        errors: [{ field: "title", reason: "최대 100자입니다." }],
-      }),
-    );
-
-    expect(await createInquiry({ title: "제목", content: "내용" })).toEqual({
-      fieldErrors: { title: "최대 100자입니다." },
+  describe("입력 검증", () => {
+    it("사진이 6장이면 요청하지 않고 장수 문구를 돌려준다", async () => {
+      expect(await createInquiryPhotoUploadUrls(Array.from({ length: 6 }, () => PNG))).toEqual({
+        error: PHOTO_COUNT,
+      });
+      expect(api.post).not.toHaveBeenCalled();
     });
   });
 
-  it("빈 칸이면 보내지 않는다", async () => {
-    expect(await createInquiry({ title: " ", content: "내용" })).toEqual({
-      formError: "입력값을 확인해 주세요.",
+  describe("오류 처리", () => {
+    it("사유 없이 서버 문구만 있으면 그 문구를 돌려준다", async () => {
+      api.post.mockRejectedValue(
+        axiosProblem({
+          title: "Bad Request",
+          status: 400,
+          detail: "입력값을 확인해 주세요.",
+          instance: "/api/v1/inquiries/attachments/upload-url",
+          code: "VALIDATION_FAILED",
+        }),
+      );
+
+      expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({
+        error: "입력값을 확인해 주세요.",
+      });
     });
-    expect(api.post).not.toHaveBeenCalled();
-  });
-});
 
-describe("createGuestInquiry (9.1 비회원)", () => {
-  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
-    api.post.mockResolvedValue({ data: INQUIRY });
+    it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosNoResponse());
 
-    expect(await createGuestInquiry(GUEST, ["inquiry/a.png"])).toEqual({ inquiryId: 7 });
-    expect(api.post).toHaveBeenCalledWith("/inquiries", {
-      ...GUEST,
-      attachmentKeys: ["inquiry/a.png"],
+      expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({ error: RETRY_LATER });
     });
   });
 
-  it("이메일 · 조회 비밀번호까지 보내고 문의번호를 돌려준다", async () => {
-    api.post.mockResolvedValue({ data: INQUIRY });
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
 
-    expect(await createGuestInquiry(GUEST)).toEqual({ inquiryId: 7 });
-    expect(api.post).toHaveBeenCalledWith("/inquiries", GUEST);
-  });
-
-  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    api.post.mockRejectedValue(axiosNoResponse());
-
-    expect(await createGuestInquiry(GUEST)).toEqual({ formError: "잠시 후 다시 시도해 주세요." });
-  });
-
-  it("칸 오류(400)는 이메일 · 조회 비밀번호 칸에 서버 문구로 돌려준다", async () => {
-    api.post.mockRejectedValue(
-      axiosProblem({
-        status: 400,
-        detail: "입력값을 확인해 주세요.",
-        code: "VALIDATION_FAILED",
-        errors: [
-          { field: "email", reason: "필수 값입니다." },
-          { field: "accessPassword", reason: "필수 값입니다." },
-        ],
-      }),
-    );
-
-    expect(await createGuestInquiry(GUEST)).toEqual({
-      fieldErrors: { email: "필수 값입니다.", accessPassword: "필수 값입니다." },
+      await expect(createInquiryPhotoUploadUrls([PNG])).rejects.toBe(moveToRefresh);
     });
   });
 });
 
-describe("openGuestInquiry (9.3 비회원)", () => {
-  it("조회 비밀번호를 X-Inquiry-Password 헤더로 보낸다", async () => {
-    api.get.mockResolvedValue({ data: INQUIRY });
+describe("createInquiry · 문의 작성(회원)", () => {
+  describe("정상 처리", () => {
+    it("저장하면 만든 문의 주소로 기록을 바꿔치기해 보낸다", async () => {
+      api.post.mockResolvedValue({ data: INQUIRY });
 
-    expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "1234" })).toEqual({
-      inquiry: INQUIRY,
-    });
-    expect(api.get).toHaveBeenCalledWith("/inquiries/7", {
-      headers: { "X-Inquiry-Password": "1234" },
+      await expect(createInquiry(MEMBER)).rejects.toThrow(redirectTo("/inquiries/7"));
+      expect(vi.mocked(redirect).mock.calls[0][1]).toBe(RedirectType.replace);
     });
   });
 
-  it("문의번호가 양의 정수가 아니면 부르지 않는다", async () => {
-    expect(await openGuestInquiry({ inquiryId: "a7", accessPassword: "1234" })).toEqual({
-      formError: "입력값을 확인해 주세요.",
-    });
-    expect(api.get).not.toHaveBeenCalled();
-  });
-
-  it("없는 문의 · 틀린 조회 비밀번호(404)는 서버 문구를 돌려준다", async () => {
-    api.get.mockRejectedValue(axiosProblem(INQUIRY_NOT_FOUND));
-
-    expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "9999" })).toEqual({
-      formError: "문의를 찾을 수 없어요.",
-    });
-  });
-});
-
-describe("addInquiryMessage (9.4)", () => {
-  it("회원은 헤더 없이 보내고 화면을 다시 그린다", async () => {
-    api.post.mockResolvedValue({
-      data: { id: 23, authorType: "USER", content: "확인", createdAt: "" },
-    });
-
-    // 화면은 사진이 없으면 빈 목록을 넘긴다. 그때는 attachmentKeys를 보내지 않는다
-    const result = await addInquiryMessage(7, { content: "확인", attachmentKeys: [] });
-
-    expect(result.message?.id).toBe(23);
-    expect(api.post).toHaveBeenCalledWith("/inquiries/7/messages", { content: "확인" }, {});
-    expect(refresh).toHaveBeenCalledTimes(1);
-  });
-
-  it("붙인 사진이 있으면 attachmentKeys로 함께 보낸다", async () => {
-    api.post.mockResolvedValue({
-      data: { id: 23, authorType: "USER", content: "확인", createdAt: "", attachments: [] },
-    });
-
-    await addInquiryMessage(7, { content: "확인", attachmentKeys: ["inquiry/a.png"] }, "1234");
-
-    expect(api.post).toHaveBeenCalledWith(
-      "/inquiries/7/messages",
-      { content: "확인", attachmentKeys: ["inquiry/a.png"] },
-      { headers: { "X-Inquiry-Password": "1234" } },
-    );
-  });
-
-  it("비회원은 조회 비밀번호를 헤더로 보내고 다시 그리지 않는다(화면이 9.3을 다시 부른다)", async () => {
-    api.post.mockResolvedValue({
-      data: { id: 23, authorType: "USER", content: "확인", createdAt: "" },
-    });
-
-    await addInquiryMessage(7, { content: "확인" }, "1234");
-
-    expect(api.post).toHaveBeenCalledWith(
-      "/inquiries/7/messages",
-      { content: "확인" },
-      { headers: { "X-Inquiry-Password": "1234" } },
-    );
-    expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it("종료한 문의(409)는 closed와 서버 문구를 돌려주고 회원 I03을 다시 그린다", async () => {
-    api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_CLOSED));
-    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
-      error: "종료한 문의예요.",
-      closed: true,
-    });
-    expect(refresh).toHaveBeenCalledTimes(1);
-
-    api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_CLOSED));
-    expect(await addInquiryMessage(7, { content: "확인" }, "1234")).toEqual({
-      error: "종료한 문의예요.",
-      closed: true,
-    });
-    expect(refresh).toHaveBeenCalledTimes(1);
-  });
-
-  it("없는 문의(404)는 notFound를 함께 돌려준다", async () => {
-    api.post.mockRejectedValueOnce(axiosProblem(INQUIRY_NOT_FOUND));
-    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
-      error: "문의를 찾을 수 없어요.",
-      notFound: true,
+  describe("입력 검증", () => {
+    it.each([
+      { label: "제목 공백", values: { ...MEMBER, title: "   " }, keys: [] },
+      { label: "사진 키 6개", values: MEMBER, keys: SIX_KEYS },
+    ])("'$label'이면 요청하지 않고 입력 확인 문구를 돌려준다", async ({ values, keys }) => {
+      expect(await createInquiry(values, keys)).toEqual({ formError: INVALID });
+      expect(api.post).not.toHaveBeenCalled();
     });
   });
 
-  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    api.post.mockRejectedValue(axiosNoResponse());
+  describe("오류 처리", () => {
+    it("사진 키 오류(400 attachmentKeys)면 서버가 준 사유를 폼 오류로 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosProblem(PHOTO_KEY_INVALID));
 
-    expect(await addInquiryMessage(7, { content: "확인" })).toEqual({
-      error: "잠시 후 다시 시도해 주세요.",
+      expect(await createInquiry(MEMBER, ["inquiry/a.png"])).toEqual({
+        formError: "발급되지 않았거나 이미 쓴 키입니다.",
+      });
     });
-    expect(await closeInquiry(7)).toEqual({ error: "잠시 후 다시 시도해 주세요." });
-  });
 
-  it("빈 내용 · 잘못된 문의 id면 보내지 않는다", async () => {
-    expect(await addInquiryMessage(7, { content: "  " })).toEqual({
-      error: "입력값을 확인해 주세요.",
-    });
-    expect(await addInquiryMessage(0, { content: "확인" })).toEqual({
-      error: "입력값을 확인해 주세요.",
-    });
-    expect(api.post).not.toHaveBeenCalled();
-  });
-});
+    it("사진 키 오류가 아닌 서버 문구가 있는 실패면(404 FILE_NOT_FOUND) 그 문구를 폼 오류로 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosProblem(FILE_NOT_FOUND));
 
-describe("createInquiryPhotoUploadUrls (9.11)", () => {
-  const PNG = { contentType: "image/png", size: 204800 } as const;
-
-  it("사진마다 업로드 주소를 받아 요청한 순서대로 돌려준다", async () => {
-    const files = [
-      { uploadUrl: "https://s3.test/a", objectKey: "inquiry/a.png", expiresAt: "" },
-      { uploadUrl: "https://s3.test/b", objectKey: "inquiry/b.jpg", expiresAt: "" },
-    ];
-    api.post.mockResolvedValue({ data: { files } });
-
-    expect(
-      await createInquiryPhotoUploadUrls([PNG, { contentType: "image/jpeg", size: 1 }]),
-    ).toEqual({ uploads: files });
-    expect(api.post).toHaveBeenCalledWith("/inquiries/attachments/upload-url", {
-      files: [PNG, { contentType: "image/jpeg", size: 1 }],
+      expect(await createInquiry(MEMBER, ["inquiry/a.png"])).toEqual({
+        formError: "업로드한 파일을 찾을 수 없어요.",
+      });
     });
   });
 
-  it("형식 · 크기 · 장수가 맞지 않으면 보내지 않고 서버와 같은 문구를 돌려준다", async () => {
-    expect(
-      await createInquiryPhotoUploadUrls([{ contentType: "image/gif" as "image/png", size: 1 }]),
-    ).toEqual({ error: "JPG·PNG만 올릴 수 있습니다." });
-    expect(await createInquiryPhotoUploadUrls([{ ...PNG, size: 5_242_881 }])).toEqual({
-      error: "5MB 이하만 올릴 수 있습니다.",
-    });
-    expect(await createInquiryPhotoUploadUrls(Array(6).fill(PNG))).toEqual({
-      error: "사진은 5장까지 붙일 수 있습니다.",
-    });
-    expect(api.post).not.toHaveBeenCalled();
-  });
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
 
-  it("서버가 거절하면(400) 이유를 그대로 돌려준다", async () => {
-    api.post.mockRejectedValue(
-      axiosProblem({
-        status: 400,
-        detail: "입력값을 확인해 주세요.",
-        code: "VALIDATION_FAILED",
-        errors: [{ field: "files[0].size", reason: "5MB 이하만 올릴 수 있습니다." }],
-      }),
-    );
-
-    expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({
-      error: "5MB 이하만 올릴 수 있습니다.",
-    });
-  });
-
-  it("서버에 닿지 못하면 다시 시도 안내를 돌려준다", async () => {
-    api.post.mockRejectedValue(axiosNoResponse());
-
-    expect(await createInquiryPhotoUploadUrls([PNG])).toEqual({
-      error: "잠시 후 다시 시도해 주세요.",
+      await expect(createInquiry(MEMBER)).rejects.toBe(moveToRefresh);
     });
   });
 });
 
-describe("closeInquiry (9.5)", () => {
-  it("회원은 종료하고 다시 그린다", async () => {
-    api.post.mockResolvedValue({ status: 204 });
+describe("createGuestInquiry · 문의 작성(비회원)", () => {
+  describe("정상 처리", () => {
+    it("저장하면 문의번호를 돌려준다", async () => {
+      api.post.mockResolvedValue({ data: INQUIRY });
 
-    expect(await closeInquiry(7)).toEqual({ ok: true });
-    expect(api.post).toHaveBeenCalledWith("/inquiries/7/close", undefined, {});
-    expect(refresh).toHaveBeenCalledTimes(1);
-  });
-
-  it("비회원은 헤더를 보내고 다시 그리지 않는다", async () => {
-    api.post.mockResolvedValue({ status: 204 });
-
-    expect(await closeInquiry(7, "1234")).toEqual({ ok: true });
-    expect(api.post).toHaveBeenCalledWith("/inquiries/7/close", undefined, {
-      headers: { "X-Inquiry-Password": "1234" },
+      expect(await createGuestInquiry(GUEST)).toEqual({ inquiryId: 7 });
     });
-    expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("api가 재발급 · 로그아웃 화면으로 보내면(redirect) 그대로 이동한다", async () => {
-    api.post.mockRejectedValue(new RedirectSignal("REDIRECT /login"));
+  describe("입력 검증", () => {
+    it.each([
+      { label: "이메일 형식 아님", values: { ...GUEST, email: "a-ssafy.com" }, keys: [] },
+      { label: "사진 키 6개", values: GUEST, keys: SIX_KEYS },
+    ])("'$label'이면 요청하지 않고 입력 확인 문구를 돌려준다", async ({ values, keys }) => {
+      expect(await createGuestInquiry(values, keys)).toEqual({ formError: INVALID });
+      expect(api.post).not.toHaveBeenCalled();
+    });
+  });
 
-    await expect(closeInquiry(7)).rejects.toBeInstanceOf(RedirectSignal);
+  describe("오류 처리", () => {
+    it("사진 키 오류(400 attachmentKeys)면 서버가 준 사유를 폼 오류로 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosProblem(PHOTO_KEY_INVALID));
+
+      expect(await createGuestInquiry(GUEST, ["inquiry/a.png"])).toEqual({
+        formError: "발급되지 않았거나 이미 쓴 키입니다.",
+      });
+    });
+  });
+
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
+
+      await expect(createGuestInquiry(GUEST)).rejects.toBe(moveToRefresh);
+    });
+  });
+});
+
+describe("openGuestInquiry · 문의 조회(비회원)", () => {
+  describe("정상 처리", () => {
+    it("열면 그 문의를 돌려준다", async () => {
+      api.get.mockResolvedValue({ data: INQUIRY });
+
+      expect(await openGuestInquiry({ inquiryId: "7", accessPassword: GUEST_PASSWORD })).toEqual({
+        inquiry: INQUIRY,
+      });
+    });
+  });
+
+  describe("입력 검증", () => {
+    it("문의번호가 '0'이면 요청하지 않고 입력 확인 문구를 돌려준다", async () => {
+      expect(await openGuestInquiry({ inquiryId: "0", accessPassword: GUEST_PASSWORD })).toEqual({
+        formError: INVALID,
+      });
+      expect(api.get).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("오류 처리", () => {
+    it("없는 문의 · 틀린 조회 비밀번호(404)면 서버 문구를 폼 오류로 돌려준다", async () => {
+      api.get.mockRejectedValue(axiosProblem(INQUIRY_NOT_FOUND));
+
+      expect(await openGuestInquiry({ inquiryId: "7", accessPassword: "0000" })).toEqual({
+        formError: "문의를 찾을 수 없어요.",
+      });
+    });
+  });
+
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.get.mockRejectedValue(moveToRefresh);
+
+      await expect(
+        openGuestInquiry({ inquiryId: "7", accessPassword: GUEST_PASSWORD }),
+      ).rejects.toBe(moveToRefresh);
+    });
+  });
+});
+
+describe("addInquiryMessage · 문의 이어서 쓰기", () => {
+  const QUESTION = { content: "확인 부탁드려요." };
+
+  describe("정상 처리", () => {
+    it("회원이 쓰면 오류 없이 화면을 다시 그린다", async () => {
+      api.post.mockResolvedValue({ data: MESSAGE });
+
+      expect(await addInquiryMessage(7, QUESTION)).not.toHaveProperty("error");
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("비회원이 쓰면 오류 없이 화면을 다시 그리지 않는다", async () => {
+      api.post.mockResolvedValue({ data: MESSAGE });
+
+      expect(await addInquiryMessage(7, QUESTION, GUEST_PASSWORD)).not.toHaveProperty("error");
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("입력 검증", () => {
+    it.each([
+      { label: "0", id: 0 },
+      { label: "음수", id: -1 },
+      { label: "소수", id: 1.5 },
+    ])("문의 id가 '$label'이면 요청하지 않고 입력 확인 문구를 돌려준다", async ({ id }) => {
+      expect(await addInquiryMessage(id, QUESTION)).toEqual({ error: INVALID });
+      expect(api.post).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { label: "내용 공백", question: { content: "   " } },
+      { label: "사진 키 6개", question: { ...QUESTION, attachmentKeys: SIX_KEYS } },
+    ])("'$label'이면 요청하지 않고 입력 확인 문구를 돌려준다", async ({ question }) => {
+      expect(await addInquiryMessage(7, question)).toEqual({ error: INVALID });
+      expect(api.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("오류 처리", () => {
+    it("회원 문의가 그 사이 종료됐으면(409) 종료 표시와 서버 문구를 돌려주고 화면을 다시 그린다", async () => {
+      api.post.mockRejectedValue(axiosProblem(INQUIRY_CLOSED));
+
+      expect(await addInquiryMessage(7, QUESTION)).toEqual({
+        error: "종료한 문의예요.",
+        closed: true,
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("비회원 문의가 그 사이 종료됐으면(409) 종료 표시를 돌려주고 화면을 다시 그리지 않는다", async () => {
+      api.post.mockRejectedValue(axiosProblem(INQUIRY_CLOSED));
+
+      expect(await addInquiryMessage(7, QUESTION, GUEST_PASSWORD)).toEqual({
+        error: "종료한 문의예요.",
+        closed: true,
+      });
+      expect(refresh).not.toHaveBeenCalled();
+    });
+
+    it("없는 문의(404)면 없음 표시와 서버 문구를 돌려주고 화면을 다시 그리지 않는다", async () => {
+      api.post.mockRejectedValue(axiosProblem(INQUIRY_NOT_FOUND));
+
+      expect(await addInquiryMessage(7, QUESTION)).toEqual({
+        error: "문의를 찾을 수 없어요.",
+        notFound: true,
+      });
+      expect(refresh).not.toHaveBeenCalled();
+    });
+
+    it("사진 키 오류(400 attachmentKeys)면 서버가 준 사유를 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosProblem(PHOTO_KEY_INVALID));
+
+      expect(
+        await addInquiryMessage(7, { ...QUESTION, attachmentKeys: ["inquiry/a.png"] }),
+      ).toEqual({ error: "발급되지 않았거나 이미 쓴 키입니다." });
+    });
+
+    it("서버에 닿지 못하면 다시 시도 안내를 돌려주고 화면을 다시 그리지 않는다", async () => {
+      api.post.mockRejectedValue(axiosNoResponse());
+
+      expect(await addInquiryMessage(7, QUESTION)).toEqual({ error: RETRY_LATER });
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
+
+      await expect(addInquiryMessage(7, QUESTION)).rejects.toBe(moveToRefresh);
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe("closeInquiry · 문의 종료", () => {
+  describe("정상 처리", () => {
+    it("회원이 종료하면 오류 없이 화면을 다시 그린다", async () => {
+      api.post.mockResolvedValue({ status: 204 });
+
+      expect(await closeInquiry(7)).not.toHaveProperty("error");
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it("비회원이 종료하면 오류 없이 화면을 다시 그리지 않는다", async () => {
+      api.post.mockResolvedValue({ status: 204 });
+
+      expect(await closeInquiry(7, GUEST_PASSWORD)).not.toHaveProperty("error");
+      expect(refresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("입력 검증", () => {
+    it("문의 id가 양의 정수가 아니면 요청하지 않고 입력 확인 문구를 돌려준다", async () => {
+      expect(await closeInquiry(0)).toEqual({ error: INVALID });
+      expect(api.post).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("오류 처리", () => {
+    it("없는 문의(404)면 없음 표시와 서버 문구를 돌려준다", async () => {
+      api.post.mockRejectedValue(axiosProblem(INQUIRY_NOT_FOUND));
+
+      expect(await closeInquiry(7)).toEqual({ error: "문의를 찾을 수 없어요.", notFound: true });
+    });
+  });
+
+  describe("권한 · 로그인", () => {
+    it("이동해야 하면 그 이동을 그대로 던진다", async () => {
+      const moveToRefresh = new RedirectError("/api/auth/refresh");
+      api.post.mockRejectedValue(moveToRefresh);
+
+      await expect(closeInquiry(7)).rejects.toBe(moveToRefresh);
+      expect(refresh).not.toHaveBeenCalled();
+    });
   });
 });
