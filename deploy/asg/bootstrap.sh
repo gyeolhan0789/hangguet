@@ -17,7 +17,6 @@ REGION="ap-northeast-2"
 
 # 부팅이 끝까지 가지 못하면(이미지 받기 실패 · SSM 값 없음 등) 인스턴스를 비정상으로 알려 ASG가 바꿔 띄우게 한다.
 # 왜: 실패해도 EC2 상태 확인은 정상이라 ASG가 그대로 두고, 감시 스크립트도 뜨기 전이라 알릴 곳이 없다.
-#     11/07 운영 전환에서 Docker Hub 토큰 권한이 모자라 이미지를 받지 못한 인스턴스가 InService로 남아 면접관이 약 16분 비었다.
 # 시작 직후라 유예 기간을 지키지 않는다(지키면 ASG가 무시한다). 원인이 그대로면 바꿔 띄운 대도 같은 이유로 실패하고,
 # 그 반복이 ASG 활동 기록에 남는다. 원인은 /var/log/a301-userdata.log(Session Manager)에서 본다
 BOOT_OK=no
@@ -68,7 +67,7 @@ ssm_get() {
     --query Parameter.Value --output text
 }
 # 콘솔에 붙여 넣다 들어간 앞뒤 공백 · CR은 떼고, 줄바꿈이 있으면 어느 값인지 알리고 멈춘다.
-# 줄바꿈이 섞이면 뒤의 설정 파일 만들기(sed)가 알 수 없는 오류로 멈추고 감시 스크립트까지 뜨지 않는다(11/06 테스트)
+# 줄바꿈이 섞이면 뒤의 설정 파일 만들기(sed)가 알 수 없는 오류로 멈추고 감시 스크립트까지 뜨지 않는다
 clean() {
   local v=${2//$'\r'/}
   case "$v" in *$'\n'*) echo "FAIL: SSM ${PREFIX}/$1 값에 줄바꿈이 있다. 한 줄로 고친다" >&2; return 1 ;; esac
@@ -183,10 +182,10 @@ run_egress() {
 
   # 설정 본문은 한 줄 JSON(YAML로도 읽힌다)으로 env 파일에 넣는다. 여러 줄 YAML은 env 파일에 넣을 수 없다
   # - S3 키는 넣지 않는다. BE가 녹화 요청에 담아 보낸다(배포 계획 4.3)
-  # - track_cpu_cost 0.05: 2코어 한 대가 15초 안에 받는 녹화를 늘린다(계획 2.3, 11/07 테스트: 10건 동시 시작에 녹화 30개 모두 받음)
+  # - track_cpu_cost 0.05: 2코어 한 대가 15초 안에 받는 녹화를 늘린다(계획 2.3)
   # - max_memory 3: 컨테이너 상한(3g)이 차기 전에 새 녹화를 거절한다(계획 4.2). 실제 사용량 + 고정 여유 1GB가 3GB를 넘으면 거절
   # - memory_source cgroup: 기본값(proc_rss)은 프로세스마다 RSS를 더해 공유 메모리를 여러 번 센다.
-  #   11/07 테스트에서 실제 0.62GB를 2.22GB로 세어 10건 동시 시작 중 녹화 4개를 거절했다(LiveKit "no response from servers", 다시보기 실패 2건)
+  #   실제보다 3배 넘게 세어 동시에 시작한 녹화를 거절한다
   local redis_json body
   redis_json="\"address\":\"${REDIS_HOST}:6379\""
   [ -z "$REDIS_PASSWORD" ] || redis_json="${redis_json},\"password\":\"${REDIS_PASSWORD}\""

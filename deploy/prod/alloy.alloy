@@ -40,7 +40,7 @@ loki.write "a301" {
     url = "http://a301-prod-loki:3100/loki/api/v1/push"
   }
 
-  // 운영 서버와 같은 대시보드를 쓰도록 환경을 라벨로 붙인다
+  // 개발 서버와 같은 대시보드를 쓰도록 환경을 라벨로 붙인다
   external_labels = {
     env = "prod",
   }

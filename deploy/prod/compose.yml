@@ -191,8 +191,7 @@ services:
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       # 재설정 메일의 링크가 여는 FE 화면. 이 서버의 FE 주소다
       PASSWORD_RESET_URL: https://hangguet.co.kr/password-reset
-    # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 쓴다(10/27 로컬 실측, 운영과 같은 SerialGC).
-    # 768m에서는 부하만으로 90%에 닿아 강제 종료될 수 있어 여유를 두고 올렸다(배포 계획 3.2)
+    # 힙(512MB)을 다 쓰면 메타스페이스 · 코드 캐시 · 스레드까지 약 1.06GB를 써서 여유를 둔다(배포 계획 3.2)
     mem_limit: 1280m
     networks:
       - internal
@@ -331,7 +330,7 @@ services:
     labels:
       a301.config-hash: ${A301_NGINX_CONFIG_HASH:?A301_NGINX_CONFIG_HASH is set by deploy.sh}
     restart: unless-stopped
-    # LiveKit이 443을 쓰지 않게 바뀐 뒤에 뜬다. 예전 LiveKit이 서버 443을 쥐고 있을 때 먼저 뜨면 포트가 겹쳐 실패한다
+    # LiveKit 다음에 띄운다. LiveKit이 서버 443을 쥐고 있는 동안 먼저 뜨면 포트가 겹쳐 실패한다
     depends_on:
       a301-prod-livekit:
         condition: service_started
@@ -356,7 +355,7 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    # 64m → 256m: Cloudflare를 뺀 뒤 HTTPS를 Nginx가 직접 풀어 연결마다 수십 KB를 쓴다.
+    # HTTPS를 Nginx가 직접 풀어 연결마다 수십 KB를 쓴다.
     # 연결 한도만 올리면 사람이 몰릴 때 메모리 상한에 걸려 Nginx가 강제 종료될 수 있다(배포 계획 3.2)
     mem_limit: 256m
     networks:
@@ -377,13 +376,12 @@ services:
         condition: service_healthy
     environment:
       LIVEKIT_KEYS: "${LIVEKIT_API_KEY:?LIVEKIT_API_KEY CI/CD variable is required}: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET CI/CD variable is required}"
-      # livekit.yaml의 redis.password를 덮어쓴다(livekit-server v1.13.10 redis-password 플래그, 11/06 테스트 서버에서 확인)
+      # livekit.yaml의 redis.password를 덮어쓴다(livekit-server redis-password 플래그)
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD CI/CD variable is required}
     # MPTCP 끄기(배포 계획 5.2). 바깥에 열린 컨테이너(Nginx · LiveKit)만 둔다.
-    # 왜: 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연됨)의 수정 커널이 아직 정식 업데이트에 없다(11/06).
-    #     LiveKit(Go)은 MPTCP를 기본으로 써 7881/tcp가 MPTCP로 열려 있었다(Nginx도 MPTCP 소켓 1개).
+    # 왜: 커널 TCP 취약점 CVE-2026-98432(원격 코드 실행, MPTCP 리스너에서 시연됨). LiveKit(Go) · Nginx는 MPTCP 소켓을 기본으로 연다.
     #     꺼 두면 Go · Nginx는 일반 TCP로 열어 동작은 같다. MPTCP 설정은 컨테이너마다 따로라 서버(호스트) 설정으로는 안 된다.
-    # 수정 커널로 재부팅한 뒤에도 MPTCP가 필요 없으므로 남겨 둔다. MPTCP가 없는 커널(Docker Desktop 등)에서는 이 설정 때문에 컨테이너가 뜨지 않는다
+    # MPTCP가 필요 없으므로 수정 커널에서도 남겨 둔다. MPTCP가 없는 커널(Docker Desktop 등)에서는 이 설정 때문에 컨테이너가 뜨지 않는다
     sysctls:
       net.mptcp.enabled: "0"
     ports:
@@ -497,7 +495,7 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
       - /dev/disk/:/dev/disk:ro
-    # 로컬에서 운영 구성으로 띄웠을 때 256m의 87~93%를 써서 올렸다(배포 계획 3.2)
+    # 운영 구성에서 256m의 90% 안팎을 써서 여유를 둔다(배포 계획 3.2)
     mem_limit: 384m
     networks:
       - internal
@@ -598,8 +596,7 @@ services:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    # 384m에서는 프로세스 메모리만 약 380MB까지 올라 10/28에 두 번 강제 종료됐다(dmesg Memory cgroup out of memory).
-    # 실행 파일 페이지까지 밀려나 디스크를 계속 다시 읽었으므로 둘을 합친 약 580MB에 여유를 두었다(배포 계획 3.2)
+    # 프로세스 메모리(약 380MB)와 실행 파일 페이지를 합친 약 580MB에 여유를 둔다(배포 계획 3.2)
     mem_limit: 768m
     networks:
       - internal

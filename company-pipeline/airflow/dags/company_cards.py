@@ -32,8 +32,8 @@ def companies() -> list[dict[str, str]]:
     return json.loads(candidates.companies_file().read_text(encoding="utf-8"))
 
 
-# 기사 묶기(임베딩)도 Ollama를 써서 같은 풀로 줄 세운다. 11곳이 동시에 몰리면
-# Ollama 임베딩이 400, 네이버 검색 API가 429를 냈다(2026-10-21 첫 실행)
+# 기사 묶기(임베딩)도 같은 풀로 줄 세운다. 여러 회사가 동시에 몰리면
+# 임베딩이 400, 네이버 검색 API가 429를 낸다
 @task(map_index_template=BY_NAME, pool="llm", **RETRY)
 def collect_news(company: dict[str, str]) -> dict[str, str]:
     print(f"{_name(company)}: 기사 {len(news.collect(company))}건")
@@ -72,16 +72,16 @@ def publish_cards() -> str:
 
 
 # 회사별 작업이 하나라도 실패하면 실행 전체를 실패로 표시한다. 마지막 작업(write_viewer)이
-# all_done이라 이게 없으면 카카오가 3번 다 실패해도 실행이 성공으로 보였다(2026-10-21)
+# all_done이라 이게 없으면 회사 작업이 다시 시도까지 모두 실패해도 실행이 성공으로 보인다
 @task
 def all_companies_ok() -> None:
     pass
 
 
 @dag(
-    schedule="0 13 * * *",  # 노트북이 켜져 있는 점심시간
+    schedule="0 13 * * *",
     start_date=pendulum.datetime(2026, 10, 21, tz="Asia/Seoul"),
-    catchup=False,  # 노트북이 꺼져 있던 날은 몰아서 돌리지 않는다
+    catchup=False,  # 서버가 꺼져 있던 날은 몰아서 돌리지 않는다
     tags=["company-card"],
 )
 def company_news_daily() -> None:

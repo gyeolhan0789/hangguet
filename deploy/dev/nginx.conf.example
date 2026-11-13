@@ -100,10 +100,3 @@ server {
         proxy_pass $fe_upstream;
     }
 }
-
-# (선택) 이전 주소 hangguet-bemock.yobistory.com → 새 주소로 넘긴다. 308이라 POST도 그대로 유지된다.
-# server {
-#     listen 80;
-#     server_name hangguet-bemock.yobistory.com;
-#     return 308 https://hangguet.yobistory.com/mock/be$request_uri;
-# }
