@@ -47,6 +47,12 @@ import com.ssafy.a301.common.idempotency.IdempotencyStore;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardManifest;
 import com.ssafy.a301.company.service.CompanyCardWriter;
+import com.ssafy.a301.group.domain.JobCategory;
+import com.ssafy.a301.group.dto.GroupDtos.GroupCreateRequest;
+import com.ssafy.a301.group.dto.GroupDtos.GroupJoinRequest;
+import com.ssafy.a301.group.service.GroupResultService;
+import com.ssafy.a301.group.service.GroupStartService;
+import com.ssafy.a301.group.service.InterviewGroupService;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.AttachmentFile;
 import com.ssafy.a301.inquiry.dto.InquiryDtos.InquiryCreateRequest;
 import com.ssafy.a301.inquiry.service.InquiryService;
@@ -133,6 +139,9 @@ class FrontendContractTest {
     @Autowired private SessionRuntimeStore runtimes;
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private InquiryService inquiries;
+    @Autowired private InterviewGroupService groups;
+    @Autowired private GroupStartService groupStart;
+    @Autowired private GroupResultService groupResults;
     @Autowired private CompanyCardWriter companyCards;
     @Autowired private AdminRepository admins;
     @Autowired private AdminNoticeService notices;
@@ -482,6 +491,206 @@ class FrontendContractTest {
                         + " a.question_id WHERE q.session_id = ?",
                 Long.class,
                 sessionId);
+    }
+
+    /**
+     * 그룹 면접(10장). '회원'이 방장인 정원 2명 그룹을 단계(stage)까지 진행한다. WAITING(방장만 · 질문 준비 중) · READY(손님이 들어와 둘 다
+     * 질문 준비를 마치고 준비함) · IN_PROGRESS(10.7로 시작) · ANSWERING(첫 답변자가 질문을 들은 뒤 답하는 중). ANSWERING이면 요청을
+     * 보내는 회원 · 면접을 첫 답변자로 바꾸고(답변 순서는 BE가 무작위로 정한다) 그 질문 id를 돌려준다. nearDeadline이면 남은 답변 시간을 20초로
+     * 줄인다: 답변 마감은 서비스가 언제나 지금부터 2분으로 정해(그룹 설계 2장) 10.8이 받는 30초 이하를 만들 수 없어 마감만 SQL로 당긴다
+     * (InterviewGroupIntegrationTest와 같다). 에이전트 메시지는 그룹 결과 큐로 받은 것처럼 GroupResultService에 넘긴다.
+     */
+    @State("그룹")
+    Map<String, Object> group(Map<String, Object> params) {
+        String stage = (String) params.get("stage");
+        InterviewMode mode = InterviewMode.valueOf((String) params.getOrDefault("mode", "CHAT"));
+        if (!values.containsKey("applicationId")) {
+            application();
+        }
+        Map<Long, String> tokens = new HashMap<>();
+        long groupId =
+                groups.create(
+                                userId(),
+                                new GroupCreateRequest(
+                                        mode,
+                                        Persona.COFFEE_CHAT,
+                                        2,
+                                        JobCategory.DEVELOPMENT,
+                                        (Long) values.get("applicationId")))
+                        .groupId();
+        long hostSession = sessionIdOf(groupId, userId());
+        tokens.put(hostSession, (String) values.get("accessToken"));
+        values.put("groupId", groupId);
+        values.put("sessionId", hostSession);
+        values.put("inviteCode", inviteCodeOf(groupId));
+        if (stage.equals("WAITING")) {
+            return values;
+        }
+        Guest guest = joinAsGuest((String) values.get("inviteCode"));
+        tokens.put(guest.sessionId(), guest.accessToken());
+        for (long sessionId : tokens.keySet()) {
+            aiResult(groupPlanCompleted(sessionId));
+        }
+        groups.changeReady(userId(), groupId, true);
+        groups.changeReady(guest.userId(), groupId, true);
+        if (stage.equals("READY")) {
+            return values;
+        }
+        groupStart.start(userId(), groupId);
+        if (stage.equals("IN_PROGRESS")) {
+            return values;
+        }
+        long answerer =
+                jdbc.queryForObject(
+                        "SELECT turn_session_id FROM interview_groups WHERE id = ?",
+                        Long.class,
+                        groupId);
+        groupResult(groupQuestion("question.started", answerer, groupId));
+        groupResult(groupQuestion("question.spoken", answerer, groupId));
+        values.put("sessionId", answerer);
+        values.put("accessToken", tokens.get(answerer));
+        values.put(
+                "questionId",
+                questions.findFirstBySessionIdOrderBySeqDesc(answerer).orElseThrow().getId());
+        if (Boolean.TRUE.equals(params.get("nearDeadline"))) {
+            jdbc.update(
+                    "UPDATE interview_groups SET deadline_at = now() + interval '20 seconds' WHERE"
+                            + " id = ?",
+                    groupId);
+        }
+        return values;
+    }
+
+    /** 10.2 · 10.3. 다른 회원이 방장인 정원 2명 대기 그룹. full이면 손님이 들어와 자리가 찼다 */
+    @State("다른 회원의 그룹")
+    Map<String, Object> othersGroup(Map<String, Object> params) {
+        Guest host = newGuest();
+        long groupId =
+                groups.create(
+                                host.userId(),
+                                new GroupCreateRequest(
+                                        InterviewMode.CHAT,
+                                        Persona.COFFEE_CHAT,
+                                        2,
+                                        JobCategory.DEVELOPMENT,
+                                        host.applicationId()))
+                        .groupId();
+        values.put("inviteCode", inviteCodeOf(groupId));
+        if (Boolean.TRUE.equals(params.get("full"))) {
+            joinAsGuest((String) values.get("inviteCode"));
+        }
+        return values;
+    }
+
+    /** 그룹에 들어올 다른 회원(가입 · 지원서). 만든 회원은 끝나고 지운다 */
+    private Guest newGuest() {
+        TokenResponse token = auth.signup(signup("contract-" + UUID.randomUUID() + "@example.com"));
+        long guestId = token.user().id();
+        created.users.add(guestId);
+        long applicationId =
+                applications
+                        .create(
+                                guestId,
+                                new ApplicationCreateRequest(
+                                        "가온페이",
+                                        "데이터 엔지니어",
+                                        List.of(
+                                                new CoverLetterItemRequest(
+                                                        "지원 동기",
+                                                        "결제 데이터를 실시간으로 다루는 파이프라인을 만들고 싶어"
+                                                                + " 가온페이 데이터 엔지니어 직무에 지원했습니다."))))
+                        .id();
+        return new Guest(guestId, token.accessToken(), applicationId, 0);
+    }
+
+    private Guest joinAsGuest(String inviteCode) {
+        Guest guest = newGuest();
+        long groupId =
+                groups.join(
+                                guest.userId(),
+                                new GroupJoinRequest(
+                                        inviteCode, guest.applicationId(), JobCategory.DEVELOPMENT))
+                        .groupId();
+        return new Guest(
+                guest.userId(),
+                guest.accessToken(),
+                guest.applicationId(),
+                sessionIdOf(groupId, guest.userId()));
+    }
+
+    private record Guest(long userId, String accessToken, long applicationId, long sessionId) {}
+
+    private long sessionIdOf(long groupId, long memberId) {
+        return jdbc.queryForObject(
+                "SELECT session_id FROM interview_group_participants WHERE group_id = ? AND user_id"
+                        + " = ? AND left_at IS NULL",
+                Long.class,
+                groupId,
+                memberId);
+    }
+
+    private String inviteCodeOf(long groupId) {
+        return jdbc.queryForObject(
+                "SELECT invite_code FROM interview_groups WHERE id = ?", String.class, groupId);
+    }
+
+    /** 지금 차례의 질문 소식(question.started · question.spoken). 그룹 결과 큐 메시지는 지금 차례 번호를 싣는다 */
+    private Map<String, Object> groupQuestion(String type, long sessionId, long groupId) {
+        int turnVersion =
+                jdbc.queryForObject(
+                        "SELECT turn_version FROM interview_groups WHERE id = ?",
+                        Integer.class,
+                        groupId);
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", type);
+        message.put("sessionId", sessionId);
+        message.put("seq", 1);
+        message.put("turnVersion", turnVersion);
+        if (type.equals("question.started")) {
+            message.put("speechMs", 3000);
+            message.put("startedAt", OffsetDateTime.now().toString());
+            message.put("content", "1분 동안 자기소개를 해 주세요.");
+            message.put("criteria", "핵심 경험 · 지원 동기 · 전달력");
+        } else {
+            message.put("endedAt", OffsetDateTime.now().toString());
+            message.put("speech", "ENDED");
+        }
+        return message;
+    }
+
+    private void groupResult(Map<String, Object> message) {
+        groupResults.handle(JSON.writeValueAsString(message));
+    }
+
+    /** 그룹 면접의 개인 맞춤 질문 2개(그룹 설계 2장) */
+    private static Map<String, Object> groupPlanCompleted(long sessionId) {
+        return Map.of(
+                "type",
+                "plan.completed",
+                "sessionId",
+                sessionId,
+                "jobId",
+                "j1",
+                "claims",
+                List.of(Map.of("id", "c1", "text", "주장", "type", "NUMBER", "sentenceNo", 1)),
+                "questions",
+                IntStream.rangeClosed(1, 2)
+                        .mapToObj(
+                                seq ->
+                                        Map.of(
+                                                "seq",
+                                                seq,
+                                                "content",
+                                                "질문" + seq,
+                                                "criteria",
+                                                "기준" + seq,
+                                                "claimId",
+                                                "c1"))
+                        .toList(),
+                "promptVersion",
+                "plan-v1",
+                "modelVersion",
+                "gms-test");
     }
 
     /** 3.1 NOT_DONE_TODAY · BROKEN. daysAgo일 전에 결과가 나온 면접 하나만 있는 회원 */

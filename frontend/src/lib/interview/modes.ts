@@ -46,3 +46,14 @@ export const MODE_VALUES = Object.keys(MODE_INFO) as Mode[];
 export const MODES: readonly ModeInfo[] = MODE_VALUES.map((mode) => ({ mode, ...MODE_INFO[mode] }));
 
 export const modeInfo = (mode: Mode): ModeInfo => ({ mode, ...MODE_INFO[mode] });
+
+/** 주소의 mode 값을 읽는다. 5.1 · 10.1이 받는 값이 아니면 null */
+export function parseMode(value: string | string[] | undefined): Mode | null {
+  return typeof value === "string" && Object.hasOwn(MODE_INFO, value) ? (value as Mode) : null;
+}
+
+/** 칩 · 요약에 쓰는 짧은 이름(Figma [초안] G02 '면접 방식' 칩 · G01 부제목) */
+export const MODE_SHORT_LABEL = { VIDEO: "화상", CHAT: "채팅" } as const satisfies Record<
+  Mode,
+  string
+>;

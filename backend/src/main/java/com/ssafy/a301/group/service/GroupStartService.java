@@ -229,13 +229,21 @@ public class GroupStartService {
         return assignment;
     }
 
-    private List<Map<String, String>> personalQuestions(long sessionId) {
+    // 연결 회사 항목은 꼬리질문 생성의 입력이다. 연결하지 않은 질문은 null(AI 명세 6.7)
+    private List<Map<String, Object>> personalQuestions(long sessionId) {
         InterviewPlan plan =
                 plans.findById(sessionId)
                         .orElseThrow(() -> new IllegalStateException("플랜이 없다: " + sessionId));
         return plan.getQuestions().stream()
                 .sorted(Comparator.comparingInt(PlanQuestion::seq))
-                .map(q -> Map.of("content", q.content(), "criteria", q.criteria()))
+                .map(
+                        q -> {
+                            Map<String, Object> question = new LinkedHashMap<>();
+                            question.put("content", q.content());
+                            question.put("criteria", q.criteria());
+                            question.put("companyItem", q.companyItem());
+                            return question;
+                        })
                 .toList();
     }
 

@@ -97,6 +97,7 @@ class InterviewSessionIntegrationTest {
     @MockitoBean private InterviewRoom rooms;
     // 상한은 InterviewCapacityTest가 실제 DB로 확인한다. 여기서는 DB에 남은 다른 면접 수에 흔들리지 않게 바꾼다
     @MockitoBean private InterviewCapacity interviewCapacity;
+    private static final Map<String, Object> MARKET = Map.of("section", "market", "summary", "시장");
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
 
@@ -279,6 +280,70 @@ class InterviewSessionIntegrationTest {
                     .andExpect(status().isNotFound())
                     .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
         }
+    }
+
+    // 기준: AI 명세 2장 출제 자리 배정 · API 명세 5.1 · 6.1(보관함 질문이 5개 이상이면 AI 작업 없이 바로 준비하고, 배정 정보에 연결 회사 항목을
+    // 담는다)
+    @Test
+    @SuppressWarnings("unchecked")
+    void createWithEnoughPoolQuestionsIsReadyWithoutAskingAi() throws Exception {
+        long user = newUser();
+        long application = newApplication(user);
+        poolQuestions(application, 5);
+
+        String body =
+                mvc.perform(createRequest(user, application))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.planStatus").value("READY"))
+                        .andReturn()
+                        .getResponse()
+                        .getContentAsString();
+        long sessionId = json.readTree(body).path("id").asLong();
+
+        assertThat(runtimes.find(sessionId).orElseThrow().planStatus()).isEqualTo(PlanStatus.READY);
+        verify(queue, never()).push(any());
+        mvc.perform(
+                        as(
+                                user,
+                                idempotent(
+                                        post(
+                                                "/api/v1/interview-sessions/"
+                                                        + sessionId
+                                                        + "/start"))))
+                .andExpect(status().isOk());
+        ArgumentCaptor<Map<String, Object>> assignment = ArgumentCaptor.forClass(Map.class);
+        verify(rooms).open(eq(sessionId), eq(true), assignment.capture(), any());
+        List<Map<String, Object>> assigned =
+                (List<Map<String, Object>>) assignment.getValue().get("questions");
+        assertThat(assigned)
+                .extracting(question -> question.get("content"))
+                .containsExactly("보관1", "보관3", "보관2", "보관4", "보관5");
+        assertThat(assigned.get(2)).containsEntry("companyItem", MARKET);
+        assertThat(assigned.get(0)).containsEntry("companyItem", null);
+    }
+
+    // 기준: API 명세 5.3(질문 보관함은 5.1과 같이 쓴다)
+    @Test
+    void retryWithEnoughPoolQuestionsIsReadyWithoutAskingAi() throws Exception {
+        long user = newUser();
+        long application = newApplication(user);
+        long sessionId = create(user, application);
+        runtimes.values.put(sessionId, new SessionRuntime(PlanStatus.FAILED, null, null, 0));
+        poolQuestions(application, 5);
+
+        mvc.perform(as(user, post("/api/v1/interview-sessions/" + sessionId + "/plan/retry")))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.planStatus").value("READY"));
+
+        assertThat(runtimes.find(sessionId).orElseThrow().planStatus()).isEqualTo(PlanStatus.READY);
+        assertThat(
+                        jdbc.queryForObject(
+                                "SELECT count(*) FROM interview_plans WHERE session_id = ?",
+                                Integer.class,
+                                sessionId))
+                .isEqualTo(1);
+        // 면접을 만들 때 보낸 작업 하나뿐이다
+        verify(queue, times(1)).push(any());
     }
 
     @Test
@@ -1158,6 +1223,20 @@ class InterviewSessionIntegrationTest {
                         "extract-claims-v1",
                         "model"));
         return applicationId;
+    }
+
+    // 생성한 개인 면접 질문을 보관한 것처럼 면접관 DEVIL의 보관함에 넣는다. 2번째만 회사 정보와 연결한다
+    private void poolQuestions(long applicationId, int count) {
+        for (int i = 1; i <= count; i++) {
+            jdbc.update(
+                    "INSERT INTO question_pool_items (application_id, persona, content, criteria,"
+                            + " claim_id, company_item, prompt_version, model_version, created_at)"
+                            + " VALUES (?, 'DEVIL', ?, '기준', 'c1', CAST(? AS jsonb), 'plan-v8',"
+                            + " 'gms-test', now())",
+                    applicationId,
+                    "보관" + i,
+                    i == 2 ? json.writeValueAsString(MARKET) : null);
+        }
     }
 
     // 주장 추출 결과를 아직 받지 못한 지원서

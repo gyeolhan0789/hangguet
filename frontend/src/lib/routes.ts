@@ -1,4 +1,4 @@
-import type { Persona } from "@/types/api";
+import type { Mode, Persona } from "@/types/api";
 
 // 화면 주소 모음. 화면 번호는 Figma 기준이다.
 export const ROUTES = {
@@ -22,6 +22,8 @@ export const ROUTES = {
   practiceMode: "/practice/mode",
   /** S05 장치 점검(진행 4단계, 화상만). 주소에 sessionId를 붙인다. */
   practiceDevices: "/practice/devices",
+  /** G02 그룹 만들기(다대일 면접). S05-1 '친구와 함께 볼래요'에서 들어온다. 주소에 applicationId · persona · mode를 붙인다. */
+  groupNew: "/groups/new",
   /** 연습 기록(헤더 [연습 기록]). 볼 날짜(date) · 페이지(page)는 주소에 붙인다. */
   records: "/records",
   /** S09 마이페이지. 스트릭 달력에서 볼 달은 주소에 month(YYYY-MM)로 붙인다. */
@@ -61,9 +63,19 @@ export function interviewerPath(applicationId: number, persona?: Persona) {
   return `${ROUTES.practiceInterviewer}?applicationId=${applicationId}${personaQuery}`;
 }
 
-/** S05-1 면접 방식 선택. S05 [← 면접 방식]으로 돌아갈 때 그 면접의 지원서 · 면접관을 넘긴다. */
+/** S05-1 면접 방식 선택. S05 [← 면접 방식] · G02 [뒤로]로 돌아갈 때 그 면접의 지원서 · 면접관을 넘긴다. */
 export const modePath = (applicationId: number, persona: Persona) =>
   `${ROUTES.practiceMode}?applicationId=${applicationId}&persona=${persona}`;
+
+/** G02 그룹 만들기. S05-1에서 고른 지원서 · 면접관 · 방식을 미리 채운다. */
+export const groupNewPath = (applicationId: number, persona: Persona, mode: Mode) =>
+  `${ROUTES.groupNew}?applicationId=${applicationId}&persona=${persona}&mode=${mode}`;
+
+/** G01 그룹 면접 대기실(10.4). 그룹을 만들거나(10.1) 참가하면(10.3) 온다. */
+export const groupPath = (groupId: number) => `/groups/${groupId}`;
+
+/** G03 초대 확인 · 참가(10.2 · 10.3). 대기실의 [초대 링크 복사]가 이 주소를 복사한다. */
+export const groupInvitePath = (inviteCode: string) => `/groups/invite/${inviteCode}`;
 
 /** S05 장치 점검(화상). S05-1에서 만든 면접(5.1)의 id를 들고 간다. */
 export const devicesPath = (sessionId: number) =>

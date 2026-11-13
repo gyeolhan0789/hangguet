@@ -5,12 +5,21 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { MaskIcon } from "@/components/mask-icon";
 import { Spinner } from "@/components/spinner";
+import type { CheckStatus } from "@/lib/devices/media";
+
+import type { NetworkStatus } from "./use-device-check";
 
 // 기준: Figma S05 Check 카메라 · 마이크 · 스피커 · 네트워크(18:2423 · 18:2434 · 18:2446 · 18:2459: 흰 줄 · 40px 타일
 // · 제목 16 Bold · 설명 14 Medium text-3 · 오른쪽 circle-check 24 또는 [들어보기]) · S05-E 실패 줄(18:4103: danger-soft 배경
 // · danger 테두리 · 설명 danger · circle-x) · 모션 메모 S05(18:2492: 스피너 → 초록 체크 scale 0.6→1 spring, 권한 거부 시 빨간 테두리 + 흔들림)
 
 export type RowState = "checking" | "ok" | "fail";
+
+/** 점검 상태를 줄 상태로: 확인 중 · 됨 · 그 밖은 실패 */
+export function toRowState(status: CheckStatus | NetworkStatus): RowState {
+  if (status === "checking") return "checking";
+  return status === "ok" ? "ok" : "fail";
+}
 
 /** 장치 점검 체크 줄 하나. action이 있으면 오른쪽 상태 아이콘 대신 버튼을 둔다. */
 export function CheckRow({

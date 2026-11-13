@@ -37,6 +37,12 @@ const chatButton = () => screen.getByRole("button", { name: "채팅으로 면접
 
 describe("PermissionModal · S05-E 권한 안내", () => {
   describe("화면 표시", () => {
+    it("채팅으로 바꿀 수 없는 곳(onChat 없음: 그룹 대기실)이면 [채팅으로 면접 보기]를 두지 않는다", () => {
+      render(<PermissionModal open rechecking={false} onRecheck={vi.fn()} />);
+
+      expect(screen.queryByRole("button", { name: "채팅으로 면접 보기" })).toBeNull();
+    });
+
     it("닫혀 있으면 그리지 않는다", () => {
       render(<PermissionModal {...props} open={false} />);
 

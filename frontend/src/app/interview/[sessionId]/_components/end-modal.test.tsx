@@ -1,4 +1,4 @@
-// 기준: Figma S06-E 면접 종료 확인(18:4226) · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기) 강조, 답변 0개면 '결과 없이 나가요' + 스트릭 미인정) · 웹 Swagger 5.8 면접 끝내기 · API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257
+// 기준: Figma S06-E 면접 종료 확인(18:4226) · API 명세 10.10(그룹 5.8은 답변 저장을 기다리지 않는다) · 기획 메모 S06-E(18:3508: 안전한 쪽(계속하기) 강조, 답변 0개면 '결과 없이 나가요' + 스트릭 미인정) · 웹 Swagger 5.8 면접 끝내기 · API 명세 5.8 「직전 답변 저장 확인」 · S15P31A301-257
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -241,6 +241,22 @@ describe("EndModal · 면접 종료 확인 모달", () => {
     });
 
     describe("사용자 조작", () => {
+      it.each([
+        { label: "제출된 답변이 아직 저장되지 않음", submittedSeq: 3, answeredCount: 2 },
+        { label: "화상 답변 5개", submittedSeq: 5, answeredCount: 5 },
+      ])(
+        "그룹 면접(API 명세 10.10: 5.8은 저장을 기다릴 필요가 없다)이면 '$label'이어도 바로 끝내기를 요청한다",
+        async ({ submittedSeq, answeredCount }) => {
+          useInterviewStore.getState().setSubmittedSeq(submittedSeq);
+          render(<EndModal sessionId={55} answeredCount={answeredCount} video group />);
+
+          await clickEnd();
+
+          expect(endSession).toHaveBeenCalledTimes(1);
+          expect(savingNotice()).toBeNull();
+        },
+      );
+
       it.each([
         { label: "이미 저장됨", submittedSeq: 3, answeredCount: 3 },
         { label: "제출된 답변 없음", submittedSeq: null, answeredCount: 2 },

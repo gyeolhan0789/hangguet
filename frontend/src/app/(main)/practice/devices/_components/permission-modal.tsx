@@ -31,15 +31,16 @@ export function PermissionModal({
   open,
   rechecking,
   onRecheck,
-  switchingToChat,
+  switchingToChat = false,
   onChat,
   error,
 }: Readonly<{
   open: boolean;
   rechecking: boolean;
   onRecheck: () => void;
-  switchingToChat: boolean;
-  onChat: () => void;
+  /** 채팅으로 바꾸는 중. 채팅으로 바꿀 수 없는 곳(그룹 대기실: 방식은 방장이 정함)이면 onChat을 주지 않는다 */
+  switchingToChat?: boolean;
+  onChat?: () => void;
   /** 채팅 면접으로 바꾸지 못했을 때 문구 */
   error?: string;
 }>) {
@@ -147,21 +148,23 @@ export function PermissionModal({
             )}
 
             <div className="flex w-full flex-col-reverse gap-2.5 sm:flex-row">
-              <ModalButton
-                tone="surface"
-                icon={
-                  <MaskIcon
-                    src="/devices/icon-message-square.svg"
-                    size={18}
-                    className="bg-text-1"
-                  />
-                }
-                onClick={onChat}
-                pending={switchingToChat}
-                disabled={rechecking}
-              >
-                채팅으로 면접 보기
-              </ModalButton>
+              {onChat && (
+                <ModalButton
+                  tone="surface"
+                  icon={
+                    <MaskIcon
+                      src="/devices/icon-message-square.svg"
+                      size={18}
+                      className="bg-text-1"
+                    />
+                  }
+                  onClick={onChat}
+                  pending={switchingToChat}
+                  disabled={rechecking}
+                >
+                  채팅으로 면접 보기
+                </ModalButton>
+              )}
               <ModalButton
                 tone="brand"
                 icon={<Image src="/devices/icon-rotate-cw.svg" alt="" width={18} height={18} />}

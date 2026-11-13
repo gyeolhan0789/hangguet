@@ -759,6 +759,17 @@ class InterviewGroupIntegrationTest {
         assertThat(firstParticipant.path("personalQuestions").size()).isEqualTo(2);
         assertThat(firstParticipant.path("personalQuestions").get(0).path("content").asString())
                 .isEqualTo("질문1");
+        // 연결 회사 항목은 꼬리질문 생성의 입력이다. 연결하지 않은 질문은 null(AI 명세 6.7)
+        assertThat(
+                        firstParticipant
+                                .path("personalQuestions")
+                                .get(0)
+                                .path("companyItem")
+                                .path("section")
+                                .asString())
+                .isEqualTo("market");
+        assertThat(firstParticipant.path("personalQuestions").get(1).get("companyItem").isNull())
+                .isTrue();
     }
 
     private void assertFirstTurnRoomInfo(JsonNode roomInfo, long first) {
@@ -2416,6 +2427,7 @@ class InterviewGroupIntegrationTest {
                 "SELECT status FROM interview_groups WHERE id = ?", String.class, groupId);
     }
 
+    // 1번 질문만 회사 정보와 연결한다
     private static String planCompleted(long sessionId, int questionCount) {
         StringBuilder questionsJson = new StringBuilder();
         for (int seq = 1; seq <= questionCount; seq++) {
@@ -2423,9 +2435,15 @@ class InterviewGroupIntegrationTest {
                     .append(seq == 1 ? "" : ",")
                     .append(
                             """
-                            {"seq":%d,"content":"질문%d","criteria":"기준%d","claimId":"c1"}
+                            {"seq":%d,"content":"질문%d","criteria":"기준%d","claimId":"c1","companyItem":%s}
                             """
-                                    .formatted(seq, seq, seq)
+                                    .formatted(
+                                            seq,
+                                            seq,
+                                            seq,
+                                            seq == 1
+                                                    ? "{\"section\":\"market\",\"summary\":\"시장\"}"
+                                                    : "null")
                                     .strip());
         }
         return """

@@ -68,6 +68,10 @@ public class QuestionPoolItem {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    // 실제로 출제한(question.started) 시각. 출제하지 않은 질문은 null이고 사용 처리한 질문은 다시 배정하지 않는다
+    @Column(name = "used_at")
+    private OffsetDateTime usedAt;
+
     public QuestionPoolItem(
             Application application,
             Persona persona,
@@ -82,5 +86,17 @@ public class QuestionPoolItem {
         this.companyItem = question.companyItem();
         this.promptVersion = promptVersion;
         this.modelVersion = modelVersion;
+    }
+
+    /** 사용 처리. 두 면접에 배정돼 이미 사용 처리했으면 처음 출제한 시각을 둔다 */
+    public void markUsed(OffsetDateTime at) {
+        if (usedAt == null) {
+            usedAt = at;
+        }
+    }
+
+    /** 면접 계획의 질문으로. seq는 배정한 자리다 */
+    public PlanQuestion toPlanQuestion(int seq) {
+        return new PlanQuestion(seq, content, criteria, claimId, companyItem, id);
     }
 }

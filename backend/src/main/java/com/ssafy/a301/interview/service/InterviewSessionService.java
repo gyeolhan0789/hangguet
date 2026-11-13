@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
 import com.ssafy.a301.application.repository.ApplicationClaimRepository;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
@@ -47,7 +48,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 /**
  * 5.1~5.5 면접 만들기부터 시작까지(그룹 면접 참가자의 면접 만들기 포함), 5.8·5.9 끝내기·결과 재생성. 회원은 토큰의 회원 id로만 찾고, 없거나 남의 면접은
  * 404다. 플랜 생성 상태(Redis)는 작업이 큐로 나가기 전, 트랜잭션 안에서 기록한다. 커밋 뒤에 쓰면 작업자가 먼저 PLAN을 꺼내 GENERATING이 아니라며 버릴
- * 수 있다(BE 설계 5.1).
+ * 수 있다(BE 설계 5.1). 질문 보관함으로 바로 준비한 READY는 기다릴 작업이 없어 커밋 뒤에 기록한다.
  */
 @Service
 public class InterviewSessionService {
@@ -70,6 +71,7 @@ public class InterviewSessionService {
     private final GroupTurnService groupTurns;
     private final InterviewGroupRepository groups;
     private final ApplicationClaimRepository applicationClaims;
+    private final QuestionPoolAssigner pools;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -88,7 +90,8 @@ public class InterviewSessionService {
             GroupEndService groupEnds,
             GroupTurnService groupTurns,
             InterviewGroupRepository groups,
-            ApplicationClaimRepository applicationClaims) {
+            ApplicationClaimRepository applicationClaims,
+            QuestionPoolAssigner pools) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -106,6 +109,7 @@ public class InterviewSessionService {
         this.groupTurns = groupTurns;
         this.groups = groups;
         this.applicationClaims = applicationClaims;
+        this.pools = pools;
     }
 
     /**
@@ -133,9 +137,8 @@ public class InterviewSessionService {
                                                     .orElse(null),
                                             request.persona(),
                                             request.mode()));
-                    startPlan(session, now);
                     return InterviewMapper.toSessionResponse(
-                            session, SessionRuntime.generating(), null, 0, now, null);
+                            session, prepare(session, now), null, 0, now, null);
                 });
     }
 
@@ -192,9 +195,8 @@ public class InterviewSessionService {
                             != PlanStatus.FAILED) {
                         throw new ApiException(ErrorCode.PLAN_NOT_FAILED);
                     }
-                    startPlan(session, now);
                     return InterviewMapper.toGroupSessionResponse(
-                            session, SessionRuntime.generating(), null, 0, now, groupOf(session));
+                            session, prepare(session, now), null, 0, now, groupOf(session));
                 });
     }
 
@@ -276,14 +278,19 @@ public class InterviewSessionService {
                 "questions",
                 plan.getQuestions().stream()
                         .sorted(Comparator.comparingInt(PlanQuestion::seq))
-                        .map(
-                                question ->
-                                        Map.of(
-                                                "seq", question.seq(),
-                                                "content", question.content(),
-                                                "criteria", question.criteria()))
+                        .map(InterviewSessionService::assignedQuestion)
                         .toList());
         return assignment;
+    }
+
+    // 연결 회사 항목은 꼬리질문 생성의 입력이다. 연결하지 않은 질문은 null(AI 명세 6.1)
+    private static Map<String, Object> assignedQuestion(PlanQuestion question) {
+        Map<String, Object> assigned = new LinkedHashMap<>();
+        assigned.put("seq", question.seq());
+        assigned.put("content", question.content());
+        assigned.put("criteria", question.criteria());
+        assigned.put("companyItem", question.companyItem());
+        return assigned;
     }
 
     // 면접방을 연 뒤 커밋하지 못하면(롤백) 방을 지운다. 에이전트·녹화가 혼자 남지 않게 한다
@@ -366,6 +373,28 @@ public class InterviewSessionService {
     private InterviewSession lock(long userId, long sessionId) {
         return sessions.findForUpdate(sessionId, userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
+    }
+
+    // 5.1 · 5.3. 개인 면접은 질문 보관함에 사용하지 않은 질문이 5개 이상이면 바로 배정해 플랜을 저장하고 AI 작업을 요청하지 않는다(AI 명세 2장).
+    // 그 밖에는 질문 생성을 시작한다
+    private SessionRuntime prepare(InterviewSession session, OffsetDateTime now) {
+        if (!session.isGroup()) {
+            Optional<InterviewPlan> assigned =
+                    pools.assign(
+                            session,
+                            applicationClaims
+                                    .findByApplicationIdOrderById(session.getApplication().getId())
+                                    .stream()
+                                    .map(ApplicationClaim::toPlanClaim)
+                                    .toList());
+            if (assigned.isPresent()) {
+                plans.save(assigned.get());
+                runtimes.markPlanReadyAfterCommit(session.getId());
+                return SessionRuntime.ready();
+            }
+        }
+        startPlan(session, now);
+        return SessionRuntime.generating();
     }
 
     // 트랜잭션 안에서 부른다. 상태를 먼저 기록하고 작업을 Outbox에 넣는다.

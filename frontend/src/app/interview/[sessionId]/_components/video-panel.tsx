@@ -220,14 +220,17 @@ export function MicToast({
 export function AnswerNotice({
   message,
   action,
+  assertive = action !== undefined,
 }: Readonly<{
   message: string;
   action?: { label: string; onClick: () => void; disabled?: boolean };
+  /** 바로 읽어야 하는 알림(role=alert)인지. 기본은 버튼이 있을 때(오류 · 다시 시도). 안내에 버튼이 있으면 false로 준다 */
+  assertive?: boolean;
 }>) {
   const reduce = useReducedMotion();
   return (
     <motion.div
-      role={action ? "alert" : "status"}
+      role={assertive ? "alert" : "status"}
       className="flex min-h-14 w-full max-w-[500px] items-center gap-2.5 self-center rounded-2xl bg-[#191f28] px-[18px] py-3 tracking-[-0.2px]"
       initial={reduce ? { opacity: 0 } : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}

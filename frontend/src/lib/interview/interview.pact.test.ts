@@ -50,6 +50,8 @@ const ready = {
   analysisStep: null,
   answeredCount: 0,
   elapsedSeconds: 0,
+  // 개인 면접은 null(API 명세 10.10). 면접 화면은 null 여부로 그룹 면접방을 그릴지 정한다
+  group: null,
 } satisfies SessionView;
 const inProgress = {
   ...ready,
@@ -144,17 +146,17 @@ describe("면접 만들기 · 조회", () => {
     {
       stage: "GENERATING",
       example: ready,
-      exact: ["persona", "mode", "status", "planStatus", "answeredCount"] as const,
+      exact: ["persona", "mode", "status", "planStatus", "answeredCount", "group"] as const,
     },
     {
       stage: "IN_PROGRESS",
       example: inProgress,
-      exact: ["persona", "mode", "status", "planStatus", "answeredCount"] as const,
+      exact: ["persona", "mode", "status", "planStatus", "answeredCount", "group"] as const,
     },
     {
       stage: "ANALYZING",
       example: analyzing,
-      exact: ["persona", "mode", "status", "analysisStep", "answeredCount"] as const,
+      exact: ["persona", "mode", "status", "analysisStep", "answeredCount", "group"] as const,
     },
   ])("5.2 $stage 면접을 조회한다", ({ stage, example, exact }) =>
     pact
@@ -165,6 +167,33 @@ describe("면접 만들기 · 조회", () => {
       .withRequest("GET", sessionPath(""), (b) => b.headers(bearer))
       .willRespondWith(200, (b) => b.jsonBody(shape(example, ...exact)))
       .executeTest(asMember(async () => expect(await getSession(55)).toEqual(example))),
+  );
+
+  // API 명세 10.10: 그룹 면접은 5.2에 group(groupId · status)이 있다. 면접 화면은 시작 전이면 대기실로 보내고, 시작했으면 그룹 면접방을 그린다
+  it.each([
+    {
+      stage: "WAITING",
+      example: { ...ready, persona: "COFFEE_CHAT" as const, mode: "CHAT" as const },
+    },
+    { stage: "IN_PROGRESS", example: { ...inProgress, persona: "COFFEE_CHAT" as const } },
+  ])("5.2 그룹 $stage 면접을 그룹 정보와 함께 조회한다", ({ stage, example }) =>
+    pact
+      .addInteraction()
+      .given("회원")
+      .given("그룹", { stage, mode: "CHAT" })
+      .uponReceiving(`5.2 그룹 ${stage} 면접 조회`)
+      .withRequest("GET", sessionPath(""), (b) => b.headers(bearer))
+      .willRespondWith(200, (b) =>
+        b.jsonBody({
+          ...shape(example satisfies SessionView, "persona", "mode", "status"),
+          group: { groupId: like(7), status: stage },
+        }),
+      )
+      .executeTest(
+        asMember(async () =>
+          expect(await getSession(55)).toMatchObject({ group: { groupId: 7, status: stage } }),
+        ),
+      ),
   );
 
   it("5.2 없는 면접은 null(404 SESSION_NOT_FOUND)", () =>

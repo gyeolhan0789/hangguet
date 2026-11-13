@@ -73,6 +73,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private GroupEndService groupEnds;
     @Mock private GroupTurnService groupTurns;
     @Mock private InterviewGroupRepository groups;
+    @Mock private QuestionPoolAssigner pools;
     private InterviewSessionService service;
 
     @BeforeEach
@@ -104,7 +105,8 @@ class InterviewSessionPracticeDateTest {
                         groupEnds,
                         groupTurns,
                         groups,
-                        applicationClaims);
+                        applicationClaims,
+                        pools);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

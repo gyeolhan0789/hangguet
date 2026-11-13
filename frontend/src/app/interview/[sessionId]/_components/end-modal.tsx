@@ -36,11 +36,17 @@ export function EndModal({
   sessionId,
   answeredCount,
   video,
+  group = false,
 }: Readonly<{
   sessionId: number;
   answeredCount: number;
   /** 화상 면접. 마지막 답변 뒤 면접 화면이 5.8을 보내고 실패해도 다시 보낸다 */
   video: boolean;
+  /**
+   * 그룹 면접(API 명세 10.10 5.8: 답변 저장을 기다릴 필요가 없다 — BE가 저장한 뒤 다음 차례로 넘긴다).
+   * 저장 확인 · 마지막 답변 자동 끝내기 기다림 없이 바로 5.8을 보낸다.
+   */
+  group?: boolean;
 }>) {
   const reduce = useReducedMotion();
   const open = useInterviewStore((state) => state.endOpen);
@@ -55,11 +61,11 @@ export function EndModal({
   // 화상에서 제출됨을 받은 답변이 아직 answeredCount에 보이지 않으면, [끝내기] 뒤 저장을 확인하고(최대 10초) 끝낸다.
   // 채팅은 5.7 응답으로 저장을 확인했으므로 기다리지 않는다(submittedSeq를 쓰지 않는다).
   const submittedSeq = useInterviewStore((state) => state.submittedSeq);
-  const unsaved = submittedSeq !== null && answeredCount < submittedSeq;
+  const unsaved = !group && submittedSeq !== null && answeredCount < submittedSeq;
   // 화상: 마지막(5번째) 답변이 제출됐거나 5개가 저장됐으면 면접 화면이 스스로 끝낸다(5.8, 실패하면 다시 보낸다). 모달은 저장 중임만
   // 알리고(화면이 결과 분석으로 넘어갈 때까지) 보내지 않는다(두 번 보내지 않게). 채팅의 마지막 5.8은 다시 보내지 않으므로 모달이 보낸다.
   const autoEnding =
-    video && (submittedSeq === TOTAL_QUESTIONS || answeredCount >= TOTAL_QUESTIONS);
+    !group && video && (submittedSeq === TOTAL_QUESTIONS || answeredCount >= TOTAL_QUESTIONS);
   const [confirming, setConfirming] = useState(false);
   const confirmed = useSaveConfirmed(confirming, !unsaved);
   const saving = confirming && (!confirmed || autoEnding);

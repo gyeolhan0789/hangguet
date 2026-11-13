@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { RoomInfo } from "@/types/api";
+
 // 기준: API 명세 면접방 메시지(answer.state · answer.submit) · 5.7(채팅은 202 또는 409 ANSWER_ALREADY_SUBMITTED를
 // 받으면 answer.submit을 보낸다) · AI 명세 6.3(interview.answerState · interview.answerSubmit).
 // 면접방 메시지는 웹 Swagger에 없는, 같은 면접방의 에이전트와 주고받는 LiveKit RPC 본문이다.
@@ -118,4 +120,55 @@ export const answerSubmitResponseSchema = z.object({ accepted: z.boolean() });
 /** content는 채팅이 5.7로 낸 답변 글(꼬리질문 생성용), 화상은 null */
 export function answerSubmitPayload(sessionId: number, seq: number, content: string | null) {
   return JSON.stringify({ type: "answer.submit", sessionId, seq, content });
+}
+
+// 기준: API 명세 10.11 그룹 면접방 정보 · 메시지(question · reaction은 모두에게 오고 sessionId가 지금 답변자다)
+// · BE Swagger RoomInfo · TurnInfo(seq는 그 면접 안의 질문 순서 1~6: 기본 4 + 꼬리질문 0~2)
+/** 그룹 면접의 질문 순서 상한(기본 질문 4 + 꼬리질문 2) */
+const GROUP_MAX_SEQ = 6;
+const groupSeq = z.number().int().min(1).max(GROUP_MAX_SEQ);
+export const groupQuestionMessageSchema = questionMessageSchema.extend({ seq: groupSeq });
+export const groupReactionMessageSchema = reactionMessageSchema.extend({ questionSeq: groupSeq });
+export const groupAnswerStateSchema = answerStateSchema.extend({ seq: groupSeq });
+
+const participantState = z.enum(["WAITING", "PRESENT", "ABSENT", "DONE", "ENDED"]);
+const groupStatus = z.enum(["WAITING", "IN_PROGRESS", "START_FAILED", "ENDED", "CANCELLED"]);
+
+/** 그룹 면접방 정보(LiveKit room metadata). BE만 쓰고 화면은 읽는다 */
+export const roomInfoSchema = z.object({
+  turnVersion: z.number().int(),
+  serverTime: z.string(),
+  groupStatus,
+  round: z.number().int(),
+  phase: z.enum(["ASKING", "SPEAKING", "ANSWERING", "DECIDING", "WAITING"]).nullable(),
+  turn: z
+    .object({
+      sessionId: z.number().int().positive(),
+      seq: groupSeq,
+      kind: z.enum(["COMMON", "PERSONAL", "FOLLOWUP"]),
+      baseIndex: z.number().int().nullable(),
+      announce: z.enum(["FULL", "CALL"]),
+      deadlineAt: z.string().nullable(),
+      extended: z.boolean(),
+      followupsLeft: z.number().int(),
+    })
+    .nullable(),
+  participants: z.array(
+    z.object({
+      sessionId: z.number().int().positive(),
+      turnOrder: z.number().int(),
+      state: participantState,
+      absentUntil: z.string().nullable(),
+      endReason: z
+        .enum(["ALL_ANSWERED", "USER_ENDED", "DISCONNECTED", "AI_FAILURE", "CLEANUP"])
+        .nullable(),
+    }),
+  ),
+  upcoming: z.array(z.number().int()),
+}) satisfies z.ZodType<RoomInfo>;
+
+/** 받은 면접방 정보와, 받은 순간 BE 시각과 내 시계의 차이(ms, BE − 나). 남은 시간은 이 차이로 보정한다 */
+export interface RoomInfoSnapshot {
+  info: RoomInfo;
+  offsetMs: number;
 }

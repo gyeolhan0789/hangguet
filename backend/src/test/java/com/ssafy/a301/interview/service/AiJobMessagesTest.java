@@ -23,6 +23,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
+import com.ssafy.a301.interview.domain.QuestionPoolItem;
 import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.user.domain.User;
@@ -75,9 +76,10 @@ class AiJobMessagesTest {
                         Map.entry("persona", "DEVIL"));
     }
 
-    // 기준: AI 명세 1.3·8장(PLAN만 면접에 남긴 회사 카드를 그대로 담는다. SCORE_ANSWER·EVALUATE에는 아직 담지 않는다)
+    // 기준: AI 명세 1.3·8장(PLAN·EVALUATE는 면접에 남긴 같은 회사 카드를 그대로 담고, 카드가 없으면 넣지 않는다. SCORE_ANSWER에는 담지
+    // 않는다)
     @Test
-    void planMessageHasCompanyCardOfSession() {
+    void planAndEvaluateMessagesHaveSameCompanyCardOfSession() {
         Map<String, Object> card =
                 Map.of(
                         "corp_code",
@@ -91,6 +93,14 @@ class AiJobMessagesTest {
                 .containsEntry("companyCard", card);
         assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
                 .doesNotContainKey("companyCard");
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .containsEntry("companyCard", card);
+    }
+
+    @Test
+    void evaluateMessageOfSessionWithoutCompanyCardHasNoCard() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT);
+
         assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
                 .doesNotContainKey("companyCard");
     }
@@ -425,6 +435,28 @@ class AiJobMessagesTest {
                 .containsEntry("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
     }
 
+    // 기준: AI 명세 2장(개인 면접 PLAN의 askedQuestions는 같은 지원서 · 같은 면접관에서 출제한 보관함 질문. 없으면 생략)
+    @Test
+    void planMessageHasAskedPoolQuestionsOfSameApplicationAndPersona() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        Application application = session.getApplication();
+        poolItem(application, Persona.DEVIL, "출제1", "c1").markUsed(CREATED_AT);
+        poolItem(application, Persona.DEVIL, "주장 없는 질문", null).markUsed(CREATED_AT);
+        poolItem(application, Persona.DEVIL, "출제하지 않은 질문", "c1");
+        poolItem(application, Persona.COFFEE_CHAT, "다른 면접관", "c1").markUsed(CREATED_AT);
+        poolItem(application, Persona.DEVIL, "출제2", "c2").markUsed(CREATED_AT);
+        em.flush();
+
+        assertThat(messages.of(withId(AiJob.plan(session.getId()))))
+                .containsEntry(
+                        "askedQuestions",
+                        List.of(
+                                Map.of("content", "출제1", "claimId", "c1"),
+                                Map.of("content", "출제2", "claimId", "c2")));
+        assertThat(messages.of(withId(AiJob.plan(newSession(InterviewMode.CHAT).getId()))))
+                .doesNotContainKey("askedQuestions");
+    }
+
     @Test
     void jobWithoutPlanCannotBeSent() {
         InterviewSession session = newSession(InterviewMode.CHAT);
@@ -475,6 +507,19 @@ class AiJobMessagesTest {
     }
 
     // 주장 추출 결과(claims.extracted)로 저장한 것처럼 넣는다
+    private QuestionPoolItem poolItem(
+            Application application, Persona persona, String content, String claimId) {
+        QuestionPoolItem item =
+                new QuestionPoolItem(
+                        application,
+                        persona,
+                        new PlanQuestion(1, content, "기준", claimId, null, null),
+                        "plan-v8",
+                        "gms-test");
+        em.persist(item);
+        return item;
+    }
+
     private void saveClaims(Application application) {
         em.persist(
                 new ApplicationClaim(
@@ -545,7 +590,12 @@ class AiJobMessagesTest {
                                 .mapToObj(
                                         seq ->
                                                 new PlanQuestion(
-                                                        seq, "질문" + seq, "기준" + seq, "c1", null))
+                                                        seq,
+                                                        "질문" + seq,
+                                                        "기준" + seq,
+                                                        "c1",
+                                                        null,
+                                                        null))
                                 .toList(),
                         "plan-v1",
                         "gms-test"));

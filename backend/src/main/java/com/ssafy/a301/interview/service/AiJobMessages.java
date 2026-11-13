@@ -20,6 +20,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.QuestionPoolItemRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
@@ -46,6 +47,7 @@ public class AiJobMessages {
     private final InterviewQuestionRepository questions;
     private final ApplicationRepository applications;
     private final ApplicationClaimRepository applicationClaims;
+    private final QuestionPoolItemRepository poolItems;
 
     public AiJobMessages(
             InterviewSessionRepository sessions,
@@ -53,13 +55,15 @@ public class AiJobMessages {
             AnswerRepository answers,
             InterviewQuestionRepository questions,
             ApplicationRepository applications,
-            ApplicationClaimRepository applicationClaims) {
+            ApplicationClaimRepository applicationClaims,
+            QuestionPoolItemRepository poolItems) {
         this.sessions = sessions;
         this.plans = plans;
         this.answers = answers;
         this.questions = questions;
         this.applications = applications;
         this.applicationClaims = applicationClaims;
+        this.poolItems = poolItems;
     }
 
     /** 작업에 쓸 지원서·면접·플랜·답변이 없으면 IllegalStateException(보낼 수 없는 작업) */
@@ -118,10 +122,7 @@ public class AiJobMessages {
         message.put("jobTitle", application.getJobTitle());
         message.put("coverLetterItems", coverLetterItems(application));
         message.put(PERSONA, session.getPersona().name());
-        // 회사를 찾지 못했거나 카드가 없으면 넣지 않는다(AI 명세 8장)
-        if (session.getCompanyCard() != null) {
-            message.put("companyCard", session.getCompanyCard().getCard());
-        }
+        putCompanyCard(message, session);
         // 그룹 면접만 보낸다. 없으면 AI가 5개를 만든다(개인 면접은 지금과 같다)
         if (session.isGroup()) {
             message.put("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
@@ -134,6 +135,24 @@ public class AiJobMessages {
                         .toList();
         if (!claims.isEmpty()) {
             message.put("claims", claims);
+        }
+        // 같은 보관함에서 이미 출제한 질문과 같은 질문은 만들지 않게 한다. AI가 claimId를 필수로 읽으므로 주장을 가리키지 않는 질문은 뺀다(AI 명세 2장)
+        List<Map<String, Object>> asked =
+                poolItems
+                        .findByApplicationIdAndPersonaAndUsedAtIsNotNullOrderById(
+                                application.getId(), session.getPersona())
+                        .stream()
+                        .filter(item -> item.getClaimId() != null)
+                        .map(
+                                item -> {
+                                    Map<String, Object> entry = new LinkedHashMap<>();
+                                    entry.put("content", item.getContent());
+                                    entry.put("claimId", item.getClaimId());
+                                    return entry;
+                                })
+                        .toList();
+        if (!asked.isEmpty()) {
+            message.put("askedQuestions", asked);
         }
     }
 
@@ -180,6 +199,14 @@ public class AiJobMessages {
                         .toList();
         message.put("answers", answered);
         message.put("earlierSummaries", earlierSummaries(session));
+        putCompanyCard(message, session);
+    }
+
+    // 면접을 만들 때 정한 카드라 PLAN과 EVALUATE에 같은 카드가 간다. 회사를 찾지 못했거나 카드가 없으면 넣지 않는다(AI 명세 8장)
+    private static void putCompanyCard(Map<String, Object> message, InterviewSession session) {
+        if (session.getCompanyCard() != null) {
+            message.put("companyCard", session.getCompanyCard().getCard());
+        }
     }
 
     // 다시보기 타임라인 입력(AI 명세 4장). 에이전트가 answers.speech에 남긴 말끝 흐림 시각 · 인상 판단. 둘 다 없으면 넣지 않는다

@@ -1,4 +1,4 @@
-// 기준: Figma S06-B Chat Input(18:2606) · 웹 Swagger 5.7 답변 제출(TEXT · content 1~1,000자) · 5.8 면접 끝내기(isLastQuestion이면 자동) · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈) · API 명세 5.7(202 또는 409 ANSWER_ALREADY_SUBMITTED면 에이전트에 [답변 완료])
+// 기준: API 명세 10.10(그룹 5.7: isLastQuestion은 늘 false) · 10.9(새로고침 복구 글) · Figma S06-B Chat Input(18:2606) · 웹 Swagger 5.7 답변 제출(TEXT · content 1~1,000자) · 5.8 면접 끝내기(isLastQuestion이면 자동) · 기획 메모 S06-B(18:1050: Enter 전송 / Shift+Enter 줄바꿈) · API 명세 5.7(202 또는 409 ANSWER_ALREADY_SUBMITTED면 에이전트에 [답변 완료])
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -55,6 +55,12 @@ describe("ChatPanel · 채팅 답변 입력", () => {
 
         expect(input().readOnly).toBe(true);
         expect(sendButton()).toHaveProperty("disabled", true);
+      });
+
+      it("처음 글(initialText)이 있으면 그 글로 시작한다", () => {
+        render(<ChatPanel sessionId={55} question={QUESTION} initialText="쓰던 답변" />);
+
+        expect(input().value).toBe("쓰던 답변");
       });
 
       it("질문 메시지만 있으면 쓸 수 있지만 보내기는 막는다", () => {
@@ -344,6 +350,16 @@ describe("ChatPanel · 채팅 답변 입력", () => {
         expect(endSession).toHaveBeenCalledTimes(1);
       });
 
+      it("그룹 면접(API 명세 10.10: 질문 순서가 1~6)이면 이미 낸 답변이 5번째 질문이어도 끝내지 않는다", async () => {
+        vi.mocked(submitTextAnswer).mockResolvedValue(ALREADY);
+        render(<ChatPanel sessionId={55} question={LAST_QUESTION} group />);
+        type("다섯 번째 답");
+
+        await enter();
+
+        expect(endSession).not.toHaveBeenCalled();
+      });
+
       it("이미 낸 답변이 4번째 질문이면 끝내지 않는다", async () => {
         vi.mocked(submitTextAnswer).mockResolvedValue(ALREADY);
         render(<ChatPanel sessionId={55} question={{ ...QUESTION, id: 304, seq: 4 }} />);
@@ -376,6 +392,15 @@ describe("ChatPanel · 채팅 답변 입력", () => {
     });
 
     describe("상태 변화", () => {
+      it("글이 바뀌면 바뀐 글을 onTextChange로 알린다", () => {
+        const onTextChange = vi.fn();
+        render(<ChatPanel sessionId={55} question={QUESTION} onTextChange={onTextChange} />);
+
+        type("캐시");
+
+        expect(onTextChange).toHaveBeenCalledWith("캐시");
+      });
+
       it("입력 신호를 보낼 때마다 순번을 하나씩 늘린다", () => {
         const onChatInput = vi.fn();
         render(<ChatPanel sessionId={55} question={QUESTION} onChatInput={onChatInput} />);

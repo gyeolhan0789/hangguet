@@ -42,6 +42,9 @@ export function ChatPanel({
   onChatInput,
   inputQuestionSeq,
   onSubmitStart,
+  group = false,
+  initialText = "",
+  onTextChange,
 }: Readonly<{
   sessionId: number;
   /** 답할 질문. 다음 질문을 기다리는 중이면 null */
@@ -55,6 +58,15 @@ export function ChatPanel({
   inputQuestionSeq?: number;
   /** [답변 완료]로 5.7을 요청하는 때(오리 면접관은 이때 호응 효과음을 낸다, API 명세 면접방 메시지) */
   onSubmitStart?: () => void;
+  /**
+   * 그룹 면접(API 명세 10.10 5.7: isLastQuestion은 늘 false, 끝은 면접방 정보로 안다). 이미 낸 답변이 5번째 질문이어도 5.8을 보내지 않는다
+   * (그룹 질문 순서는 1~6이라 5번째가 마지막이 아니다)
+   */
+  group?: boolean;
+  /** 처음 입력칸 글(그룹: 새로고침 전 sessionStorage에 둔 작성 중인 글, API 명세 10.9) */
+  initialText?: string;
+  /** 입력칸 글이 바뀔 때마다(그룹: sessionStorage에 둔다) */
+  onTextChange?: (text: string) => void;
 }>) {
   const reduce = useReducedMotion();
   const setAnsweredQuestion = useInterviewStore((state) => state.setAnsweredQuestion);
@@ -75,7 +87,7 @@ export function ChatPanel({
     formState: { errors },
   } = useForm<AnswerTextValues>({
     resolver: zodResolver(answerTextSchema),
-    defaultValues: { content: "" },
+    defaultValues: { content: initialText },
   });
   const length = useWatch({ control, name: "content" }).length;
   // 면접관 질문 메시지가 오면(inputQuestionSeq) 질문 ID(5.5)를 받기 전이라도 쓰기 시작할 수 있다. 내기는 ID를 받은 뒤에만 한다.
@@ -93,6 +105,7 @@ export function ChatPanel({
 
   function inputChanged(text: string) {
     fit();
+    onTextChange?.(text);
     clearTimeout(inputTimer.current);
     if (chatSeq === undefined || pending || !onChatInput || text.length > ANSWER_TEXT_MAX) return;
     const changedAt = performance.now();
@@ -139,7 +152,7 @@ export function ChatPanel({
       requestAnimationFrame(fit);
       setAnsweredQuestion(question.id);
       onAnswered?.(question.seq, values.content);
-      if (result.isLastQuestion || (already && question.seq === TOTAL_QUESTIONS)) {
+      if (result.isLastQuestion || (!group && already && question.seq === TOTAL_QUESTIONS)) {
         endKey.current ??= crypto.randomUUID();
         const ended = await endSession(sessionId, endKey.current);
         if (ended.keySpent) endKey.current = null;

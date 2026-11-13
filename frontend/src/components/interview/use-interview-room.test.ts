@@ -2,6 +2,7 @@
 // · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · AI 명세 6.3(question · reaction · attitude · interview.frame · RPC 오류 2001 · 2002)
 // · 사용자 결정(2026-11-12 인상 점수는 최근 30초 추이)
 // · 사용자 승인 STT 표시 계약 · 사용자 결정(2026-10-27 카메라 송출 실패해도 계속 · 2026-11-09 마이크를 다시 받으면 송출 트랙만 바꿈)
+// · API 명세 10.11 그룹 면접방(방 정보 room metadata · 지금 답변자의 sessionId로 오는 question · reaction)
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -71,6 +72,8 @@ const sdk = vi.hoisted(() => {
     connectGate: Promise<void> | null = null;
     publishGate: Promise<void> | null = null;
     microphone: MicrophonePublication | undefined = undefined;
+    /** 그룹 면접방 정보(LiveKit room metadata) */
+    metadata: string | undefined = undefined;
     handlers = new Map<string, Handler>();
     rpcHandlers = new Map<string, RpcHandler>();
     textHandler: TextHandler | undefined = undefined;
@@ -137,6 +140,7 @@ vi.mock("livekit-client", () => ({
     Reconnecting: "reconnecting",
     Reconnected: "reconnected",
     Disconnected: "disconnected",
+    RoomMetadataChanged: "roomMetadataChanged",
     TrackSubscribed: "trackSubscribed",
     TrackUnsubscribed: "trackUnsubscribed",
   },
@@ -178,6 +182,7 @@ interface Props {
 async function join(
   options: {
     listenOnly?: boolean;
+    group?: boolean;
     stream?: MediaStream | null;
     questionSeq?: number;
     onAnswerState?: (message: AnswerStateMessage) => void;
@@ -195,6 +200,7 @@ async function join(
     (current: Props) =>
       useInterviewRoom(55, current.stream, {
         listenOnly,
+        group: options.group,
         onAnswerState: current.onAnswerState,
         questionSeq: current.questionSeq,
         onPresentation,
@@ -1664,6 +1670,185 @@ describe("useInterviewRoom · 면접방 연결", () => {
         room.localParticipant.sendBytes.mockRejectedValue(new Error("send failed"));
 
         await expect(result.current.sendFrame(JPEG, 1000)).resolves.toBeUndefined();
+      });
+    });
+  });
+  describe("그룹 면접방", () => {
+    /** 면접방 정보(API 명세 10.11 예시). turnVersion만 바꿔 쓴다 */
+    const roomInfo = (turnVersion: number, phase = "ANSWERING") =>
+      JSON.stringify({
+        turnVersion,
+        serverTime: "2026-11-04T14:03:00.120+09:00",
+        groupStatus: "IN_PROGRESS",
+        round: 2,
+        phase,
+        turn: {
+          sessionId: 56,
+          seq: 6,
+          kind: "FOLLOWUP",
+          baseIndex: null,
+          announce: "FULL",
+          deadlineAt: "2026-11-04T14:05:02.000+09:00",
+          extended: false,
+          followupsLeft: 0,
+        },
+        participants: [
+          { sessionId: 55, turnOrder: 1, state: "PRESENT", absentUntil: null, endReason: null },
+        ],
+        upcoming: [],
+      });
+
+    describe("정상 처리", () => {
+      it("들어갈 때 방에 있던 정보를 받는다", async () => {
+        sdk.FakeRoom.prepare = (room) => {
+          room.metadata = roomInfo(17);
+        };
+
+        const { result } = await join({ group: true });
+
+        expect(result.current.roomInfo?.info.turnVersion).toBe(17);
+      });
+
+      it("다른 참가자 차례의 질문(다른 sessionId · 꼬리질문 6번)도 받는다", async () => {
+        const { result, room } = await join({ group: true });
+
+        await rpc(room, QUESTION_METHOD, { ...question(6, "started"), sessionId: 56 });
+
+        expect(result.current.question).toMatchObject({ sessionId: 56, seq: 6 });
+      });
+    });
+
+    describe("상태 변화", () => {
+      it("들어갈 때 방에 있던 정보로는 시계 차이를 재지 않고(만든 시각을 몰라), 바뀐 순간 받은 정보로 잰다", async () => {
+        vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-11-04T14:03:10.120+09:00") });
+        sdk.FakeRoom.prepare = (room) => {
+          room.metadata = roomInfo(17);
+        };
+        const { result, room } = await join({ group: true });
+        expect(result.current.roomInfo?.offsetMs).toBe(0);
+
+        emit(room, "roomMetadataChanged", roomInfo(18));
+
+        expect(result.current.roomInfo?.offsetMs).toBe(-10_000);
+      });
+
+      it("답변 중 나갔다 돌아온 사람에게 같은 순서로 다시 물으면(새 말하기 시작) 새 질문으로 받는다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, question(3, "started", 56));
+        await rpc(room, QUESTION_METHOD, question(3, "ended", 56));
+
+        await rpc(room, QUESTION_METHOD, question(3, "started", 56));
+
+        expect(result.current.question).toMatchObject({ sessionId: 56, seq: 3, speech: "started" });
+      });
+
+      it("다음 답변자 차례 뒤에 늦게 온 앞 답변자의 말하기 끝 소식은 버린다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, question(3, "started", 56));
+        await rpc(room, QUESTION_METHOD, question(3, "started", 57));
+
+        await rpc(room, QUESTION_METHOD, question(3, "ended", 56));
+
+        expect(result.current.question).toMatchObject({ sessionId: 57, speech: "started" });
+      });
+
+      it("방 정보가 바뀌면 새 정보로 바꾼다", async () => {
+        const { result, room } = await join({ group: true });
+
+        emit(room, "roomMetadataChanged", roomInfo(18, "DECIDING"));
+
+        expect(result.current.roomInfo?.info).toMatchObject({ turnVersion: 18, phase: "DECIDING" });
+      });
+
+      it("다시 들어가면 지난 방 정보를 지우고 새 방의 정보를 기다린다", async () => {
+        sdk.FakeRoom.prepare = (room) => {
+          room.metadata = roomInfo(17);
+        };
+        const { result } = await join({ group: true });
+        sdk.FakeRoom.prepare = null;
+
+        act(() => result.current.retry());
+        await flushPromises();
+
+        expect(result.current.roomInfo).toBeNull();
+      });
+
+      it("리액션 순서는 답변자마다 따로 센다(같은 질문 순서여도 다음 답변자의 첫 리액션을 받는다)", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, question(3, "ended", 56));
+        await rpc(room, REACTION_METHOD, reaction(3, 5, { sessionId: 56 }));
+        await rpc(room, QUESTION_METHOD, question(3, "started", 57));
+        await rpc(room, QUESTION_METHOD, question(3, "ended", 57));
+
+        await rpc(room, REACTION_METHOD, reaction(3, 1, { sessionId: 57 }));
+
+        expect(result.current.reaction?.message).toMatchObject({ sessionId: 57, seq: 1 });
+      });
+
+      it("내가 답을 낸 질문과 순서가 같아도 다른 답변자의 질문에 대한 리액션은 받는다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, question(3, "ended"));
+        await rpc(room, ANSWER_STATE_METHOD, answerState(3, "submitted"));
+        await rpc(room, QUESTION_METHOD, question(3, "started", 56));
+        await rpc(room, QUESTION_METHOD, question(3, "ended", 56));
+
+        await rpc(room, REACTION_METHOD, reaction(3, 1, { sessionId: 56 }));
+
+        expect(result.current.reaction?.message).toMatchObject({ sessionId: 56, questionSeq: 3 });
+      });
+
+      it("답변자가 바뀌면 앞 사람 질문보다 순서가 작아도 새 질문으로 받는다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, { ...question(4, "ended"), sessionId: 56 });
+
+        await rpc(room, QUESTION_METHOD, { ...question(2, "started"), sessionId: 57 });
+
+        expect(result.current.question).toMatchObject({ sessionId: 57, seq: 2 });
+      });
+    });
+
+    describe("입력 검증", () => {
+      it.each([
+        { label: "가진 것과 같은 차례 번호", metadata: roomInfo(17) },
+        { label: "형식 오류", metadata: "{" },
+      ])("'$label'인 방 정보는 버린다", async ({ metadata }) => {
+        sdk.FakeRoom.prepare = (room) => {
+          room.metadata = roomInfo(17);
+        };
+        const { result, room } = await join({ group: true });
+
+        emit(room, "roomMetadataChanged", metadata);
+
+        expect(result.current.roomInfo?.info.phase).toBe("ANSWERING");
+      });
+
+      it("개인 면접이면 방 정보를 받지 않는다", async () => {
+        sdk.FakeRoom.prepare = (room) => {
+          room.metadata = roomInfo(17);
+        };
+
+        const { result } = await join();
+
+        expect(result.current.roomInfo).toBeNull();
+      });
+
+      it("앞 답변자의 지난 질문 메시지가 다음 답변자 차례 뒤에 늦게 오면 버린다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, question(4, "started", 56));
+        await rpc(room, QUESTION_METHOD, question(2, "started", 57));
+
+        await rpc(room, QUESTION_METHOD, question(3, "started", 56));
+
+        expect(result.current.question).toMatchObject({ sessionId: 57, seq: 2 });
+      });
+
+      it("지금 답변자가 아닌 사람의 질문에 대한 리액션은 버린다", async () => {
+        const { result, room } = await join({ group: true });
+        await rpc(room, QUESTION_METHOD, { ...question(3, "ended"), sessionId: 56 });
+
+        await rpc(room, REACTION_METHOD, { ...reaction(3, 1), sessionId: 57 });
+
+        expect(result.current.reaction).toBeNull();
       });
     });
   });
