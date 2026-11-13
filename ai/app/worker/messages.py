@@ -36,8 +36,8 @@ from app.common.cover_letter import (
     parse_cover_letter_items,
 )
 from app.common.session import (
+    GROUP_MAX_SEQ,
     GROUP_PERSONAL_QUESTION_COUNT,
-    MAX_SEQ,
     MIN_SEQ,
     QUESTION_COUNT,
     InterviewMode,
@@ -227,9 +227,13 @@ def _positive_id(data: Mapping[str, Any], key: str, path: str = "") -> int:
 
 
 def _seq(data: Mapping[str, Any], path: str = "") -> int:
+    """채점·결과 생성 작업의 질문 번호. 개인 면접은 1~5, 그룹 면접은 1~6이다(AI 명세 1.3·6.7).
+
+    작업 메시지에 개인·그룹 면접을 구분하는 필드가 없으므로 두 면접 모두 1~6을 받는다.
+    """
     value = _int(data, "seq", path)
-    if not MIN_SEQ <= value <= MAX_SEQ:
-        raise InvalidJobError(f"{path}seq는 {MIN_SEQ}~{MAX_SEQ} 사이여야 한다")
+    if not MIN_SEQ <= value <= GROUP_MAX_SEQ:
+        raise InvalidJobError(f"{path}seq는 {MIN_SEQ}~{GROUP_MAX_SEQ} 사이여야 한다")
     return value
 
 

@@ -196,6 +196,18 @@ def test_publishes_each_step_then_completed_result() -> None:
     assert completed["summary"] == "근거가 분명한 면접이었습니다."
 
 
+def test_group_interview_with_six_answers_completes() -> None:
+    """그룹 면접은 답변이 6개(seq 1~6)일 수 있고 답변마다 피드백을 작성한다(AI 명세 6.7)."""
+    group = job(*[answer(900 + seq, seq, evaluation()) for seq in range(1, 7)], mode="CHAT")
+
+    messages, _, _ = run(group)
+
+    completed = messages[-1]
+    assert completed["type"] == "evaluation.completed"
+    assert [a["answerId"] for a in completed["answers"]] == [901, 902, 903, 904, 905, 906]
+    assert completed["answers"][5]["goodPoint"] == "잘한 점 6"
+
+
 def test_confirmed_cover_letter_score_is_used_for_averages() -> None:
     """자소서 검증 판정을 확정한 뒤의 점수로 답변·항목 평균을 계산한다(AI 명세 4장)."""
     completed = run()[0][-1]
