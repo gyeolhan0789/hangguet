@@ -9,6 +9,7 @@ from app.interview.plan.questions import (
     Question,
     build_question_messages,
     build_regenerate_messages,
+    company_candidates,
     parse_questions,
     request_questions,
 )
@@ -217,10 +218,22 @@ def test_request_questions_calls_gms_once_and_keeps_model() -> None:
 # 기준: AI 명세 2장 회사 카드 사용
 # (악마 면접관은 인재상, 개발자 면접관은 사업 방향·시장, 오리 면접관은 둘 다)
 CARD: dict[str, Any] = {
-    "talent": [{"title": "해결", "details": ["스스로 문제를 정의하고 해결한다"]}],
-    "direction": [{"summary": "해외 결제 확대"}],
+    "talent": [
+        {
+            "title": "해결",
+            "details": ["스스로 문제를 정의하고 해결한다"],
+            "criterion": "실행·성과",
+        }
+    ],
+    "direction": [{"summary": "해외 결제 확대", "ncs_subcategories": ["응용SW엔지니어링"]}],
     "market": [],
 }
+# 회사 인재상 항목은 분류값과 인재상 기준이 같은 주장(c1)과만 연결할 수 있고,
+# 항목 줄에 그 주장을 함께 작성한다
+CLASSIFIED_CLAIMS = (
+    Claim("c1", "주문 조회 응답 시간을 40% 줄였다", ClaimType.NUMBER, 4, ("실행·성과",)),
+    Claim("c2", "캐시 계층을 설계했다", ClaimType.EXPERIENCE, 5, ("전문성·성장",)),
+)
 COMPANY_RULES = {
     Persona.DEVIL: "- [회사 인재상]이 주어지면 자소서 주장을 회사 인재상과 연결해 묻는다",
     Persona.COFFEE_CHAT: (
@@ -232,30 +245,133 @@ COMPANY_RULES = {
         "자소서 경험과 이어지는 경우에만 회사 정보와 연결해 묻는다"
     ),
 }
+RECENT_RULES = {
+    Persona.DEVIL: (
+        "- [회사 최근 이슈]가 주어지면 자소서 주장과 이어지는 경우 "
+        "그 이슈에 대한 지원자의 판단을 묻는다"
+    ),
+    Persona.COFFEE_CHAT: (
+        "- [회사 최근 이슈]가 주어지면 경험과 이어지는 경우에만 사업 관련 이슈와 연결해 묻는다"
+    ),
+    Persona.DUCK: "- [회사 최근 이슈]가 주어지면 경험과 이어지는 경우에만 이슈와 연결해 묻는다",
+}
 NO_INVENTED_COMPANY = "주어지지 않은 회사 정보를 전제로 묻지 않는다"
 COMPANY_SECTIONS = {
-    Persona.DEVIL: "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n\n[주장]\n",
+    Persona.DEVIL: (
+        "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다 (연결 가능한 주장: c1)\n\n"
+        "[주장]\n"
+    ),
     Persona.COFFEE_CHAT: "[회사 사업 방향·시장]\nco1 사업 방향: 해외 결제 확대\n\n[주장]\n",
     # 오리 면접관은 두 구역을 모두 사용하고 번호를 이어서 매긴다
     Persona.DUCK: (
-        "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다\n\n"
+        "[회사 인재상]\nco1 해결: 스스로 문제를 정의하고 해결한다 (연결 가능한 주장: c1)\n\n"
         "[회사 사업 방향·시장]\nco2 사업 방향: 해외 결제 확대\n\n[주장]\n"
     ),
 }
+# 백엔드 개발자의 NCS 세분류(응용SW엔지니어링·SW아키텍처·DB엔지니어링) 능력단위
+BACKEND_UNITS = "\n\n[직무 능력단위]\n요구사항 확인, 데이터 입출력 구현, 통합 구현, "
 
 
 @pytest.mark.parametrize("persona", list(Persona))
 def test_company_card_is_sent_for_interviewer(persona: Persona) -> None:
-    """처음 생성과 질문 하나를 다시 생성할 때 모두 면접관이 사용할 회사 정보를 전송한다."""
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 면접관의 회사 정보 지침을 전송하고,
+    처음 생성에는 면접관이 사용할 회사 항목을 전송한다.
+    """
     job = replace(JOB, persona=persona, company_card=CARD)
 
     for messages in (
-        build_question_messages(job, CLAIMS),
-        build_regenerate_messages(job, CLAIMS, 3),
+        build_question_messages(job, CLASSIFIED_CLAIMS),
+        build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3),
     ):
         assert COMPANY_RULES[persona] in messages[0]["content"]
+        assert RECENT_RULES[persona] in messages[0]["content"]
         assert NO_INVENTED_COMPANY in messages[0]["content"]
-        assert COMPANY_SECTIONS[persona] in messages[1]["content"]
+    assert (
+        COMPANY_SECTIONS[persona] in build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+    )
+
+
+def test_regenerating_unlinked_question_sends_no_company_items() -> None:
+    """회사 정보와 연결하지 않은 질문을 다시 생성할 때는 회사 항목을 전송하지 않는다."""
+    job = replace(JOB, persona=Persona.DUCK, company_card=CARD)
+
+    user = build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3)[1]["content"]
+
+    assert "[회사" not in user
+    assert user.endswith(
+        "3번 질문. 이전 질문의 claimId가 주장 목록에 없었다. 회사 정보와 연결하지 않는다."
+    )
+
+
+def test_regenerating_linked_question_sends_only_that_company_item() -> None:
+    """회사 항목과 연결한 질문을 다시 생성할 때는 그 항목만 전송하고 그 항목과 연결하게 한다."""
+    job = replace(JOB, persona=Persona.DUCK, company_card=CARD)
+    item = company_candidates(job, CLASSIFIED_CLAIMS)[1]
+
+    user = build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3, item)[1]["content"]
+
+    assert user.startswith(
+        f"회사: {JOB.company_name}\n직무: {JOB.job_title}\n\n"
+        "[회사 사업 방향·시장]\nco2 사업 방향: 해외 결제 확대\n\n[주장]\n"
+    )
+    assert user.endswith(
+        "3번 질문. 이전 질문의 claimId가 주장 목록에 없었다. 회사 항목 co2와 연결해 질문한다."
+    )
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_every_interviewer_receives_recent_issues_with_article_date(persona: Persona) -> None:
+    """세 면접관 모두 최근 이슈를 사용하고, 언제의 이슈인지 기사 날짜를 함께 전송한다."""
+    recent = {"summary": "결제 지연 장애 재발 방지책 발표", "published": "2026-11-03"}
+    card = {"recent": [{**recent, "ncs_subcategories": ["응용SW엔지니어링"]}]}
+    job = replace(JOB, persona=persona, company_card=card)
+
+    user = build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+
+    assert "[회사 최근 이슈]\nco1 2026-11-03: 결제 지연 장애 재발 방지책 발표\n\n[주장]\n" in user
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_question_messages_end_with_job_competency_units(persona: Persona) -> None:
+    """회사 항목이 지원 직무가 담당할 상황인지 판단하도록 직무 능력단위를 함께 전송한다."""
+    job = replace(JOB, persona=persona, company_card=CARD)
+
+    user = build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+
+    assert BACKEND_UNITS in user
+    assert user.endswith("SQL활용, SQL응용, SQL작성")
+
+
+def test_regenerate_messages_do_not_send_job_competency_units() -> None:
+    """질문 하나를 다시 생성할 때는 회사 항목을 연결하지 않으므로 능력단위를 전송하지 않는다."""
+    job = replace(JOB, company_card=CARD)
+
+    user = build_regenerate_messages(job, CLASSIFIED_CLAIMS, 3)[1]["content"]
+
+    assert "[직무 능력단위]" not in user
+
+
+@pytest.mark.parametrize(
+    ("card", "job_title"),
+    [
+        # 분류값을 추가하기 전에 만든 카드
+        pytest.param(
+            {"direction": [{"summary": "해외 결제 확대"}]}, "백엔드 개발자", id="unclassified"
+        ),
+        # 직무 묶음에 해당하지 않는 직무명
+        pytest.param(CARD, "마케팅", id="job-without-subcategory"),
+    ],
+)
+def test_no_company_section_or_units_without_candidates(card: Any, job_title: str) -> None:
+    job = replace(JOB, company_card=card, job_title=job_title)
+
+    user = build_question_messages(job, CLASSIFIED_CLAIMS)[1]["content"]
+
+    assert user == (
+        f"회사: ○○전자\n직무: {job_title}\n\n[주장]\n"
+        "c1 (NUMBER, 문장 4) 주문 조회 응답 시간을 40% 줄였다\n"
+        "c2 (EXPERIENCE, 문장 5) 캐시 계층을 설계했다"
+    )
 
 
 @pytest.mark.parametrize("persona", list(Persona))
@@ -271,14 +387,11 @@ def test_no_company_section_without_card(persona: Persona) -> None:
     )
 
 
-# 개발자 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다
-COMPANY_ITEM_COUNTS = {
-    Persona.DEVIL: "1~2개",
-    Persona.COFFEE_CHAT: "0~2개",
-    Persona.DUCK: "0~2개",
-}
+# 모든 면접관은 경험과 이어지지 않으면 회사 정보와 연결하지 않아도 된다(AI 명세 2장, 0~2개)
 COMPANY_ITEM_RULE = (
     "질문만 회사 정보와 연결하고, 연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
+    "인재상 항목은 괄호에 적힌 주장과만 연결하고, "
+    "회사 항목이 경험과 이어지지 않으면 연결하지 않는다. "
     "질문 내용이 회사 정보를 다루지 않으면 연결하지 않는다"
 )
 
@@ -286,7 +399,7 @@ COMPANY_ITEM_RULE = (
 @pytest.mark.parametrize("persona", list(Persona))
 def test_questions_name_linked_company_item(persona: Persona) -> None:
     system = build_question_messages(replace(JOB, persona=persona), CLAIMS)[0]["content"]
-    rule = f"- companyItem: 회사 정보가 주어지면 {COMPANY_ITEM_COUNTS[persona]} {COMPANY_ITEM_RULE}"
+    rule = f"- companyItem: 회사 정보가 주어지면 0~2개 {COMPANY_ITEM_RULE}"
 
     assert rule in system
     assert '"companyItem": str' in system
@@ -305,3 +418,49 @@ def test_company_item_that_is_not_text_is_output_error() -> None:
     content = {"questions": [{**question(1), "companyItem": 1}]}
     with pytest.raises(PlanOutputError):
         parse_questions(content)
+
+
+# 기준: AI 명세 2장 회사 카드 사용(연결 항목별 질문 형식)
+FORMAT_RULES = (
+    "- 질문 형식: [회사 인재상] 항목과 연결한 질문과 회사 정보와 연결하지 않은 질문은 "
+    "과거 경험 질문이다. 자소서 경험에서 본인이 한 행동과 그 결과를 묻는다. "
+    "[회사 사업 방향·시장]·[회사 최근 이슈] 항목과 연결한 질문은 가정 상황 질문이다. "
+    "회사 항목의 원문을 인용해 상황을 제시하고, "
+    "자소서 경험의 방법을 그 상황에 어떻게 적용할지 묻는다\n"
+    "- 회사 항목과 연결한 질문의 문장에는 그 항목의 내용이 들어가야 한다\n"
+    "- 회사의 사건을 기준으로 지원자 경험이 충분한지 평가하는 질문과 "
+    "회사 내부 사정을 알아야 답할 수 있는 질문은 하지 않는다\n"
+)
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_question_format_depends_on_linked_company_item(persona: Persona) -> None:
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 연결 항목별 질문 형식을 지시한다."""
+    job = replace(JOB, persona=persona)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert FORMAT_RULES in messages[0]["content"]
+
+
+# 기준: AI 명세 2장 회사 카드 사용(회사 연결 질문의 채점 기준)
+CRITERIA_RULES = (
+    "- 회사 항목과 연결한 질문의 criteria에는 그 항목의 내용을 좋은 답변이 갖춰야 할 내용으로 "
+    "포함한다. 지원자가 회사 이름이나 회사 항목을 직접 말하도록 요구하지 않는다. "
+    "회사 이름·제품명이나 '회사 사업 방향' 같은 표현 없이, 항목의 내용을 답변이 다룰 상황으로 "
+    "작성한다(예: 배송·결제 속도가 경쟁 요소인 상황의 문제 정의 · 적용 방법과 이유 · 확인 방법)\n"
+)
+
+
+@pytest.mark.parametrize("persona", list(Persona))
+def test_linked_question_criteria_include_company_item(persona: Persona) -> None:
+    """처음 생성과 질문 하나를 다시 생성할 때 모두 회사 연결 질문의 채점 기준을 지시한다."""
+    job = replace(JOB, persona=persona)
+
+    for messages in (
+        build_question_messages(job, CLAIMS),
+        build_regenerate_messages(job, CLAIMS, 3),
+    ):
+        assert CRITERIA_RULES in messages[0]["content"]

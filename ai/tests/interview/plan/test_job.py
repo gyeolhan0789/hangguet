@@ -18,9 +18,10 @@ from app.interview.plan.job import (
     PROMPT_VERSION,
     PlanJobHandler,
     gms_plan_chat,
+    question_json,
     register_plan_handler,
 )
-from app.interview.plan.questions import build_question_messages
+from app.interview.plan.questions import Question, build_question_messages
 from app.worker.dispatch import Dispatcher, DispatchResult
 from app.worker.main import lazy_gms_client
 from app.worker.messages import Claim, ClaimType
@@ -107,13 +108,43 @@ def test_publishes_progress_then_completed_plan() -> None:
                     "content": f"{seq}번 질문의 근거는 무엇인가?",
                     "criteria": "원인 분석 · 수치 근거",
                     "claimId": "c2" if seq % 2 == 0 else "c1",
+                    "companyItem": None,
                 }
                 for seq in range(1, 6)
             ],
-            "promptVersion": "plan-v6",
+            "promptVersion": "plan-v8",
             "modelVersion": "gms-served",
         },
     ]
+
+
+def test_completed_plan_has_linked_company_item_as_card_entry() -> None:
+    """질문에 연결한 회사 항목은 카드 칸 이름과 카드 항목의 칸을 그대로 담는다(AI 명세 2장)."""
+    entry = {
+        "summary": "해외 결제 확대",
+        "quote": "해외 결제 서비스를 확대할 계획이다",
+        "source": "사업보고서",
+        "ncs_subcategories": ["응용SW엔지니어링"],
+    }
+    linked = {
+        "questions": [
+            {**q, "companyItem": "co1"} if q["seq"] == 1 else q for q in QUESTIONS["questions"]
+        ]
+    }
+    run, redis = make(FakeChat([CLAIMS, linked]))
+
+    run(replace(JOB, company_card={"direction": [entry]}))
+
+    questions = pushed(redis)[1]["questions"]
+    assert questions[0]["companyItem"] == {"section": "direction", **entry}
+    assert [q["companyItem"] for q in questions[1:]] == [None] * 4
+
+
+def test_question_json_without_items_has_no_company_item() -> None:
+    """회사 항목을 전달하지 않은 호출은 연결 번호가 있어도 companyItem이 null이다."""
+    question = Question(1, "질문", "기준", "c1", "co1")
+
+    assert question_json(question)["companyItem"] is None
 
 
 def test_completed_plan_keeps_claims_not_passed_to_question_generation() -> None:
@@ -389,7 +420,7 @@ def test_registered_as_plan_handler() -> None:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v6"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v8"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:

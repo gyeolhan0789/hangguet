@@ -372,11 +372,22 @@ def test_uses_all_claims_when_no_claim_shows_interviewer_criterion() -> None:
     assert [q.claim_id for q in result.questions] == ["c2", "c3", "c2", "c2", "c2"]
 
 
-# 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 개발자 면접관이므로 사업 방향·시장을 사용한다.
+# 회사 정보 연결(AI 명세 2장 회사 카드 사용). JOB은 백엔드 개발자를 뽑는 개발자 면접관이므로
+# 사업 방향·시장 중 응용SW엔지니어링 분류값이 부여된 항목을 사용한다.
 # 회사 항목은 co1부터 번호를 매긴다(co1 해외 결제 확대, co2 점유율 1위)
-CARD = {"direction": [{"summary": "해외 결제 확대"}], "market": [{"summary": "점유율 1위"}]}
+SW = ["응용SW엔지니어링"]
+CARD = {
+    "direction": [{"summary": "해외 결제 확대", "ncs_subcategories": SW}],
+    "market": [{"summary": "점유율 1위", "ncs_subcategories": SW}],
+}
 CARD_JOB = replace(JOB, company_card=CARD)
-DEVIL_CARD_JOB = replace(JOB, persona=Persona.DEVIL, company_card={"talent": [{"title": "해결"}]})
+# 악마 면접관 기준이 드러난 주장이 없어 두 주장을 모두 사용하고(면접관별 주장 선택),
+# 인재상 항목(co1)은 분류값과 기준이 같은 c1과만 연결할 수 있다
+DEVIL_CARD_JOB = replace(
+    JOB,
+    persona=Persona.DEVIL,
+    company_card={"talent": [{"title": "해결", "criterion": "실행·성과"}]},
+)
 
 
 def linked(*items: str) -> dict[str, Any]:
@@ -397,30 +408,18 @@ def test_practical_interview_accepts_zero_to_two_company_links(items: tuple[str,
     assert [q.company_item for q in result.questions[: len(items)]] == [i or None for i in items]
 
 
-def test_duck_interview_accepts_no_company_link() -> None:
-    """오리 면접관은 회사 정보 연결을 강제하지 않는다(AI 명세 2장, 0~2개)."""
-    duck = replace(CARD_JOB, persona=Persona.DUCK)
-    chat = FakeChat([linked()])
+@pytest.mark.parametrize("persona", list(Persona))
+@pytest.mark.parametrize("items", [(), ("co1",)])
+def test_every_interviewer_accepts_zero_or_one_company_link(
+    persona: Persona, items: tuple[str, ...]
+) -> None:
+    """모든 면접관이 회사 정보 연결을 강제하지 않는다(AI 명세 2장, 0~2개)."""
+    card = {**CARD, "talent": [{"title": "해결", "criterion": "실행·성과"}]}
+    chat = FakeChat([linked(*items)])
 
-    generate_questions(chat, duck, CLAIMS)
-
-    assert len(chat.calls) == 1
-
-
-def test_executive_interview_accepts_one_company_link() -> None:
-    chat = FakeChat([linked("co1")])
-
-    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+    generate_questions(chat, replace(JOB, persona=persona, company_card=card), CLAIMS)
 
     assert len(chat.calls) == 1
-
-
-def test_executive_interview_without_company_link_is_retried() -> None:
-    chat = FakeChat([linked(), linked("co1")])
-
-    generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
-
-    assert len(chat.calls) == 2
 
 
 @pytest.mark.parametrize(
@@ -439,6 +438,28 @@ def test_wrong_company_links_are_retried_once(first: dict[str, Any]) -> None:
     assert len(chat.calls) == 2
 
 
+def test_talent_link_to_claim_with_other_criterion_is_retried() -> None:
+    """인재상 항목은 분류값과 인재상 기준이 같은 주장과만 연결할 수 있다(AI 명세 2장)."""
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c2"
+    chat = FakeChat([wrong, linked("co1")])
+
+    result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    assert len(chat.calls) == 2
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c1", "co1")
+
+
+def test_link_to_unclassified_item_is_retried() -> None:
+    """분류값이 없는 항목은 후보가 아니므로 번호가 매겨지지 않는다."""
+    job = replace(JOB, company_card={"direction": [{"summary": "해외 결제 확대"}]})
+    chat = FakeChat([linked("co1"), five()])
+
+    generate_questions(chat, job, CLAIMS)
+
+    assert len(chat.calls) == 2
+
+
 def test_company_link_without_card_is_retried() -> None:
     """카드가 없는데 회사 항목을 연결했다면 주어지지 않은 회사 정보를 전제로 한 질문이다."""
     chat = FakeChat([linked("co1"), five()])
@@ -450,9 +471,61 @@ def test_company_link_without_card_is_retried() -> None:
 
 def test_last_attempt_keeps_questions_with_wrong_company_links() -> None:
     """회사 정보 연결이 어긋나도 플랜 생성 전체가 실패하지 않도록 마지막 시도는 그대로 사용한다."""
-    chat = FakeChat([linked(), linked()])
+    three = linked("co1", "co1", "co1")
+    chat = FakeChat([three, three])
 
     result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
 
     assert len(chat.calls) == 2
-    assert all(q.company_item is None for q in result.questions)
+    assert [q.company_item for q in result.questions] == ["co1", "co1", "co1", None, None]
+
+
+def test_last_attempt_drops_company_item_not_in_candidates(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """마지막 시도에서 후보에 없는 회사 항목 번호는 가리키는 항목이 없어 연결하지 않는다."""
+    wrong = linked("co9", "co1")
+    chat = FakeChat([wrong, wrong])
+
+    result = generate_questions(chat, CARD_JOB, CLAIMS)
+
+    assert [q.company_item for q in result.questions[:2]] == [None, "co1"]
+    assert "회사 항목 번호가 후보에 없어 연결하지 않는다 seq=1" in caplog.text
+
+
+def test_regenerated_question_keeps_company_item() -> None:
+    """회사 항목과 연결한 질문을 다시 생성하면 같은 회사 항목과 연결한다."""
+    first = linked("co1")
+    first["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([first, regenerated("c2")])
+
+    result = generate_questions(chat, CARD_JOB, CLAIMS)
+
+    item = result.company_items[0]
+    assert chat.calls[1] == build_regenerate_messages(CARD_JOB, CLAIMS, 1, item)
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c2", "co1")
+
+
+def test_regenerated_talent_question_uses_only_claims_of_that_item() -> None:
+    """인재상 항목과 연결한 질문은 그 항목과 연결할 수 있는 주장으로만 다시 생성한다."""
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([wrong, wrong, regenerated("c1")])
+
+    result = generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)
+
+    item = result.company_items[0]
+    assert chat.calls[2] == build_regenerate_messages(DEVIL_CARD_JOB, CLAIMS[:1], 1, item)
+    assert (result.questions[0].claim_id, result.questions[0].company_item) == ("c1", "co1")
+
+
+def test_regenerated_talent_question_with_claim_not_given_fails() -> None:
+    """인재상 항목과 연결할 수 없는 주장은 다시 생성할 때 전달하지 않은 주장이므로
+    다른 claimId 오류와 같이 처리한다.
+    """
+    wrong = linked("co1")
+    wrong["questions"][0]["claimId"] = "c9"
+    chat = FakeChat([wrong, wrong, regenerated("c2")])
+
+    with pytest.raises(PlanFailedError):
+        generate_questions(chat, DEVIL_CARD_JOB, CLAIMS)

@@ -47,6 +47,7 @@ from app.common.results import (
     ResultType,
 )
 from app.common.versions import REGISTRY, VersionKind
+from app.interview.company import CompanyItem
 from app.interview.plan.generate import extract_claims, generate_questions
 from app.interview.plan.llm import PlanFailedError
 from app.interview.plan.questions import Question
@@ -58,7 +59,7 @@ log = logging.getLogger(__name__)
 
 # claims.py·questions.py의 프롬프트를 변경하면 이 버전을 올리고 versions.py에 등록한다.
 # 등록되지 않았으면 작업을 처리하기 전에 import 단계에서 실패한다
-PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-v6")
+PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-v8")
 # BE 최대 대기 시간(BE 설계 5.1, application.yml ai-job.plan-timeout, AI 명세 5장)과 같은 값이다.
 # BE가 작업을 요청한 시각(requestedAt)부터 계산해 큐에서 대기한 시간까지 포함한다(AI 명세 5장)
 PLAN_TIMEOUT_SECONDS = 180.0
@@ -78,13 +79,22 @@ def claim_json(claim: Claim) -> dict[str, Any]:
     }
 
 
-def question_json(question: Question) -> dict[str, Any]:
-    """AI 명세 2장 questions 항목 형식이다."""
+def question_json(
+    question: Question, *, items: Mapping[str, CompanyItem] | None = None
+) -> dict[str, Any]:
+    """AI 명세 2장 questions 항목 형식이다.
+
+    items는 회사 항목 번호별 회사 항목이고, 생략하면 companyItem은 null이다.
+    회사 항목을 반환하기 전에 작성한 호출(효용지표 골든셋 질문 생성)이
+    그대로 동작하게 하기 위함이다.
+    """
+    item = items[question.company_item] if items is not None and question.company_item else None
     return {
         "seq": question.seq,
         "content": question.content,
         "criteria": question.criteria,
         "claimId": question.claim_id,
+        "companyItem": item.json() if item else None,
     }
 
 
@@ -128,7 +138,10 @@ class PlanJobHandler:
             ResultType.PLAN_COMPLETED,
             {
                 "claims": [claim_json(c) for c in claims],
-                "questions": [question_json(q) for q in questions.questions],
+                "questions": [
+                    question_json(q, items={item.id: item for item in questions.company_items})
+                    for q in questions.questions
+                ],
                 "promptVersion": PROMPT_VERSION,
                 # 채점 기준을 생성한 질문 생성 단계 응답의 모델 이름을 기록한다
                 "modelVersion": questions.model,
