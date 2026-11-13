@@ -23,9 +23,16 @@
   다시 인코딩하면 합치기가 면접 길이에 비례해 오래 걸려
   뒤에 대기한 작업이 밀리기 때문이다(AI 명세 7장).
   그래서 영상 여러 개는 다시 인코딩이 필요한 concat 필터 대신 concat 형식 입력으로 이어 붙인다.
+- 그룹 면접은 본인 답변 구간만 남기므로(AI 명세 7장) 구간마다 따로 다시 인코딩한 뒤 이어 붙인다.
+  키프레임이 약 100초에 하나뿐이라 복사로는 구간 경계에서 정확히 자를 수 없기 때문이다.
+  음성은 구간마다 PCM으로 저장해 이어 붙인 뒤 AAC로 한 번만 인코딩한다.
+  AAC는 파일 앞의 인코더 지연과 끝의 채움 샘플이 있어,
+  구간마다 AAC로 인코딩해 이어 붙이면 브라우저가 경계마다 이를 재생하므로
+  음성이 경계마다 약 30ms씩 늦어지기 때문이다.
 """
 
 import subprocess
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,11 +44,28 @@ from app.recording.storage import StoredObject
 
 
 class TrackKind(StrEnum):
-    """트랙 파일 이름의 앞부분(AI 명세 7장 원본 트랙 파일)."""
+    """트랙 종류(AI 명세 7장 원본 트랙 파일)."""
 
-    CANDIDATE_VIDEO = "candidate-video-"
-    CANDIDATE_AUDIO = "candidate-audio-"
-    INTERVIEWER_AUDIO = "interviewer-audio-"
+    CANDIDATE_VIDEO = "candidate-video"
+    CANDIDATE_AUDIO = "candidate-audio"
+    INTERVIEWER_AUDIO = "interviewer-audio"
+
+
+# 개인 면접의 지원자 참가자 이름(AI 명세 6.1). 그룹 면접은 candidate-{sessionId}다(AI 명세 6.7)
+PERSONAL_CANDIDATE = "candidate"
+
+
+def _prefixes(candidate: str) -> dict[TrackKind, str]:
+    """종류별 트랙 파일 이름의 앞부분({참가자 이름}-{트랙 종류}-, AI 명세 7장).
+
+    그룹 면접은 같은 위치에 다른 참가자의 트랙도 있으므로 그 면접 지원자의 참가자 이름으로 찾는다.
+    면접관은 그룹에 하나라 함께 사용한다.
+    """
+    return {
+        TrackKind.CANDIDATE_VIDEO: f"{candidate}-video-",
+        TrackKind.CANDIDATE_AUDIO: f"{candidate}-audio-",
+        TrackKind.INTERVIEWER_AUDIO: "interviewer-audio-",
+    }
 
 
 # ffmpeg 디코더·필터·인코더가 각각 사용하는 스레드 수.
@@ -95,19 +119,22 @@ class PlacedTracks[T]:
     origin: datetime
 
 
-def _group_by_kind(keys: Iterable[str], raw_prefix: str) -> dict[TrackKind, list[str]]:
+def _group_by_kind(
+    keys: Iterable[str], raw_prefix: str, candidate: str
+) -> dict[TrackKind, list[str]]:
     """원본 위치 바로 아래의 트랙 파일을 종류별로 모은다.
 
     한 종류라도 없으면 MissingTrackError다.
     """
+    prefixes = _prefixes(candidate)
     found: dict[TrackKind, list[str]] = {kind: [] for kind in TrackKind}
     for key in keys:
         name = key.removeprefix(raw_prefix)
         # 다른 면접이나 하위 폴더의 파일을 합치지 않도록 원본 위치 바로 아래의 파일만 본다
         if name == key or "/" in name:
             continue
-        for kind in TrackKind:
-            if name.startswith(kind.value):
+        for kind, prefix in prefixes.items():
+            if name.startswith(prefix):
                 found[kind].append(key)
     missing = [kind.name for kind, files in found.items() if not files]
     if missing:
@@ -121,7 +148,7 @@ def select_tracks(objects: Iterable[StoredObject], raw_prefix: str) -> Tracks:
     한 종류라도 없으면 MissingTrackError다.
     """
     uploaded = {item.key: item.last_modified for item in objects}
-    found = _group_by_kind(uploaded, raw_prefix)
+    found = _group_by_kind(uploaded, raw_prefix, PERSONAL_CANDIDATE)
     ordered = {kind: tuple(sorted(keys, key=uploaded.__getitem__)) for kind, keys in found.items()}
     return Tracks(
         candidate_video=ordered[TrackKind.CANDIDATE_VIDEO],
@@ -130,14 +157,19 @@ def select_tracks(objects: Iterable[StoredObject], raw_prefix: str) -> Tracks:
     )
 
 
-def place_tracks(started: Iterable[tuple[str, datetime]], raw_prefix: str) -> PlacedTracks[str]:
+def place_tracks(
+    started: Iterable[tuple[str, datetime]],
+    raw_prefix: str,
+    candidate: str = PERSONAL_CANDIDATE,
+) -> PlacedTracks[str]:
     """(저장소 키, 녹화 시작 시각) 목록을 종류별로 모아 시작 시각 위치에 배치한다.
 
+    candidate는 지원자의 참가자 이름이다.
     세 종류 트랙 중 가장 이른 시작 시각이 0초다. 세 종류에 맞지 않는 파일은 무시한다.
     한 종류라도 없으면 MissingTrackError다.
     """
     starts = dict(started)
-    found = _group_by_kind(starts, raw_prefix)
+    found = _group_by_kind(starts, raw_prefix, candidate)
     origin = min(starts[key] for keys in found.values() for key in keys)
     placed = {
         kind: tuple(
@@ -447,3 +479,256 @@ def merge_placed_tracks(
         ffmpeg=ffmpeg,
     )
     _run(command, output, ffmpeg, timeout_seconds)
+
+
+@dataclass(frozen=True)
+class Piece:
+    """답변 구간 하나에 들어가는 트랙 한 개의 조각."""
+
+    track: Path
+    # 트랙 파일의 처음부터 읽기 시작할 위치(초)
+    seek_seconds: float
+    duration_seconds: float
+    # 답변 구간 안에서 조각을 배치할 위치(초)
+    position_seconds: float
+
+
+def pieces(placed: Sequence[Placed[Path]], start: float, end: float) -> list[Piece]:
+    """같은 종류 트랙 중 [start, end) 구간과 겹치는 부분이다. 위치는 T0 기준 초다.
+
+    각 트랙은 다음 트랙이 시작할 때까지 사용한다(segments와 같다).
+    마지막 트랙은 끝을 알 수 없으므로 구간 끝까지 읽게 하고,
+    파일이 먼저 끝나면 ffmpeg가 짧게 읽는다.
+    """
+    found: list[Piece] = []
+    for track, length in segments(placed):
+        track_end = end if length is None else track.offset_seconds + length
+        first, last = max(start, track.offset_seconds), min(end, track_end)
+        if last > first:
+            found.append(
+                Piece(track.track, first - track.offset_seconds, last - first, first - start)
+            )
+    return found
+
+
+# 그룹 면접 작업 하나의 합치기 상한(초, AI 명세 7장 임시 값).
+# 구간마다 ffmpeg를 실행하므로 구간 전체와 이어 붙이기까지 합한 시간에 적용한다
+GROUP_MERGE_TIMEOUT_SECONDS = 600.0
+# 구간 파일을 다시 인코딩하지 않고 이어 붙이려면 형식이 같아야 하므로 프레임 수를 고정한다
+SEGMENT_FPS = 30
+SEGMENT_SAMPLE_RATE = 48_000
+SEGMENT_VIDEO_LIST_FILE = "segment-videos.txt"
+SEGMENT_AUDIO_LIST_FILE = "segment-audios.txt"
+
+
+def build_segment_command(
+    video: Sequence[Piece],
+    audio: Sequence[Piece],
+    length_seconds: float,
+    size: tuple[int, int],
+    video_output: Path,
+    audio_output: Path,
+    *,
+    ffmpeg: str = "ffmpeg",
+    threads: int = FFMPEG_THREADS,
+) -> list[str]:
+    """답변 구간 하나를 length_seconds 길이의 영상과 음성 파일로 만드는 ffmpeg 명령이다.
+
+    영상은 H.264 mp4, 음성은 PCM wav다.
+
+    조각마다 입력 앞에 -ss를 지정해 그 위치 앞 키프레임으로 건너뛰어 읽는다.
+    처음부터 끝까지 읽지 않으므로 다시 인코딩 시간이 구간 길이에 비례한다(AI 명세 7장 실측).
+    영상은 검은 화면 위에 조각을 위치에 맞춰 겹치고, 조각이 끝나면 마지막 화면을 유지한다.
+    음성은 구간 길이의 무음에 조각을 위치만큼 지연시켜 혼합한다.
+    """
+    inputs: list[str] = []
+    for piece in (*video, *audio):
+        inputs += [
+            "-threads",
+            str(threads),
+            "-ss",
+            f"{piece.seek_seconds:.3f}",
+            "-t",
+            f"{piece.duration_seconds:.3f}",
+            "-i",
+            str(piece.track),
+        ]
+    width, height = size
+    length = f"{length_seconds:.3f}"
+    filters = [f"color=c=black:s={width}x{height}:r={SEGMENT_FPS}:d={length}[v0]"]
+    for index, piece in enumerate(video):
+        # 재접속으로 해상도가 달라져도 같은 화면 크기로 맞춘다
+        filters.append(
+            f"[{index}:v]setpts=PTS-STARTPTS+{piece.position_seconds:.3f}/TB,"
+            f"scale={width}:{height},setsar=1[p{index}]"
+        )
+        filters.append(f"[v{index}][p{index}]overlay=eof_action=repeat[v{index + 1}]")
+    labels = []
+    for offset, piece in enumerate(audio):
+        index = len(video) + offset
+        delay = round(piece.position_seconds * 1000)
+        filters.append(f"[{index}:a]asetpts=PTS-STARTPTS,adelay=delays={delay}:all=1[a{offset}]")
+        labels.append(f"[a{offset}]")
+    # 구간 길이의 무음을 첫 입력으로 배치해 조각이 없거나 짧아도 음성 길이가 구간 길이와 같게 한다
+    filters.append(f"anullsrc=r={SEGMENT_SAMPLE_RATE}:cl=stereo,atrim=end={length}[silence]")
+    filters.append(
+        f"[silence]{''.join(labels)}amix=inputs={len(labels) + 1}:duration=first:normalize=0[a]"
+    )
+    return [
+        *_command_head(ffmpeg, threads),
+        *inputs,
+        "-filter_complex",
+        ";".join(filters),
+        "-map",
+        f"[v{len(video)}]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        str(SEGMENT_FPS),
+        "-threads",
+        str(threads),
+        "-t",
+        length,
+        str(video_output),
+        "-map",
+        "[a]",
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        str(SEGMENT_SAMPLE_RATE),
+        "-t",
+        length,
+        str(audio_output),
+    ]
+
+
+def build_concat_command(
+    video_list: Path,
+    audio_list: Path,
+    output: Path,
+    *,
+    ffmpeg: str = "ffmpeg",
+    threads: int = FFMPEG_THREADS,
+) -> list[str]:
+    """구간 영상과 구간 음성을 목록 순서로 이어 붙여 mp4 하나로 합치는 ffmpeg 명령이다.
+
+    영상은 다시 인코딩하지 않고 복사하고, 음성은 이어 붙인 뒤 AAC로 한 번만 인코딩한다.
+
+    두 목록은 concat 형식 목록 파일이고 같은 구간 순서다.
+    """
+    concat = ["-f", "concat", "-safe", "0"]
+    return [
+        *_command_head(ffmpeg, threads),
+        *concat,
+        "-i",
+        str(video_list),
+        *concat,
+        "-i",
+        str(audio_list),
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-threads",
+        str(threads),
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+
+
+def video_size(path: Path, *, ffprobe: str = "ffprobe") -> tuple[int, int]:
+    """영상의 가로·세로 크기를 짝수로 내린 값이다. H.264 yuv420p는 짝수 크기만 인코딩한다.
+
+    읽지 못하면 MergeError를 발생시킨다.
+    """
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height",
+        "-of",
+        "csv=p=0",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS, check=False
+        )
+    except FileNotFoundError as e:
+        raise MergeError(f"ffprobe를 실행할 수 없다: {ffprobe}") from e
+    except subprocess.TimeoutExpired as e:
+        raise MergeError(f"ffprobe가 {PROBE_TIMEOUT_SECONDS:.0f}초 안에 끝나지 않았다") from e
+    try:
+        width, height = (int(value) for value in completed.stdout.strip().split(","))
+    except ValueError as e:
+        raise MergeError(f"영상 크기를 해석하지 못했다: {completed.stdout.strip()}") from e
+    return width - width % 2, height - height % 2
+
+
+def merge_group_segments(
+    video: Sequence[Placed[Path]],
+    candidate_audio: Sequence[Placed[Path]],
+    interviewer_audio: Sequence[Placed[Path]],
+    spans: Sequence[tuple[float, float]],
+    output: Path,
+    *,
+    ffmpeg: str = "ffmpeg",
+    ffprobe: str = "ffprobe",
+    timeout_seconds: float = GROUP_MERGE_TIMEOUT_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """그룹 면접 녹화에서 본인 답변 구간만 잘라 이어 붙여 output에 mp4를 생성한다.
+
+    spans는 T0 기준 (시작, 끝) 초이고 시간 순이다(AI 명세 7장 segments).
+    구간마다 영상을 다시 인코딩하고 길이를 끝 − 시작으로 맞춘다.
+    다시보기가 구간 길이를 차례로 더해 위치를 계산하기 때문이다(API 명세 6.4).
+    output과 같은 폴더에 구간 파일과 목록 파일을 작성한다. 실패하면 MergeError를 발생시킨다.
+    """
+    deadline = clock() + timeout_seconds
+    size = video_size(video[0].track, ffprobe=ffprobe)
+    videos: list[Path] = []
+    audios: list[Path] = []
+    for index, (start, end) in enumerate(spans):
+        part_video = output.with_name(f"segment-{index}.mp4")
+        part_audio = output.with_name(f"segment-{index}.wav")
+        command = build_segment_command(
+            pieces(video, start, end),
+            [*pieces(candidate_audio, start, end), *pieces(interviewer_audio, start, end)],
+            end - start,
+            size,
+            part_video,
+            part_audio,
+            ffmpeg=ffmpeg,
+        )
+        _run(command, part_video, ffmpeg, _remaining(deadline, clock, timeout_seconds))
+        if not part_audio.is_file() or part_audio.stat().st_size == 0:
+            raise MergeError("ffmpeg가 구간 음성 파일을 생성하지 않았다")
+        videos.append(part_video)
+        audios.append(part_audio)
+    video_list = write_concat_list(videos, output.with_name(SEGMENT_VIDEO_LIST_FILE))
+    audio_list = write_concat_list(audios, output.with_name(SEGMENT_AUDIO_LIST_FILE))
+    _run(
+        build_concat_command(video_list, audio_list, output, ffmpeg=ffmpeg),
+        output,
+        ffmpeg,
+        _remaining(deadline, clock, timeout_seconds),
+    )
+
+
+def _remaining(deadline: float, clock: Callable[[], float], timeout_seconds: float) -> float:
+    left = deadline - clock()
+    if left <= 0:
+        raise MergeError(f"그룹 녹화 합치기가 {timeout_seconds:.0f}초 안에 끝나지 않았다")
+    return left

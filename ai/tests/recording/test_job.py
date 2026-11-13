@@ -16,7 +16,7 @@ from app.recording.job import (
 )
 from app.recording.merge import MergeError
 from app.recording.storage import StorageError, StoredObject
-from app.worker.messages import MergeRecordingJob
+from app.worker.messages import GroupRecording, MergeRecordingJob, RecordingSegment
 
 RAW = "recordings/raw/55/"
 VIDEO = RAW + "candidate-video-TR_V1.mp4"
@@ -40,8 +40,9 @@ JOB = MergeRecordingJob(
 class FakeStorage:
     """목록 조회마다 다음 목록을 반환하고, 마지막 목록은 계속 반환한다."""
 
-    def __init__(self, *listings: list[str], source: Path | None = None) -> None:
+    def __init__(self, *listings: list[str], source: Path | None = None, prefix: str = RAW) -> None:
         self.listings = list(listings)
+        self.prefix = prefix
         self.listed = 0
         self.source = source
         self.downloaded: list[tuple[str, Path]] = []
@@ -49,7 +50,7 @@ class FakeStorage:
         self.fail_on: str | None = None
 
     def list(self, prefix: str) -> list[StoredObject]:
-        assert prefix == RAW
+        assert prefix == self.prefix
         if self.fail_on == "list":
             raise StorageError("목록 조회 실패")
         listing = self.listings[min(self.listed, len(self.listings) - 1)]
@@ -121,6 +122,7 @@ def merger(
     *,
     merge: Any = fake_merge,
     merge_placed: Any = fake_merge,
+    merge_group: Any = None,
     clock: FakeTime | None = None,
     track_starts: Any = None,
 ) -> RecordingMerger:
@@ -128,9 +130,10 @@ def merger(
     return RecordingMerger(
         lambda: storage,
         results,  # type: ignore[arg-type]
-        track_starts=track_starts or (lambda _session_id: None),
+        track_starts=track_starts or (lambda _room: None),
         merge=merge,
         merge_placed=merge_placed,
+        merge_group=merge_group or (lambda *kinds: kinds[-1].write_bytes(b"mp4")),
         sleep=time.sleep,
         clock=lambda: time.now,
         work_root=tmp_path,
@@ -241,11 +244,11 @@ def started(second: float) -> datetime:
 
 
 def lookup(*tracks: tuple[str, float]) -> Any:
-    """면접 id로 녹화 목록 조회를 흉내 내고, 조회한 면접 id를 기록한다."""
-    calls: list[int] = []
+    """면접방 이름으로 녹화 목록 조회를 대신하고, 조회한 면접방 이름을 기록한다."""
+    calls: list[str] = []
 
-    def track_starts(session_id: int) -> list[tuple[str, datetime]]:
-        calls.append(session_id)
+    def track_starts(room: str) -> list[tuple[str, datetime]]:
+        calls.append(room)
         return [(key, started(second)) for key, second in tracks]
 
     track_starts.calls = calls  # type: ignore[attr-defined]
@@ -289,7 +292,7 @@ def test_tracks_are_placed_at_recording_start_times(tmp_path: Path) -> None:
         track_starts=track_starts,
     )(JOB)
 
-    assert track_starts.calls == [55]
+    assert track_starts.calls == ["interview-55"]
     assert placed == [
         (
             (("candidate-video-TR_V1.mp4", 2.0), ("candidate-video-TR_V0.mp4", 12.0)),
@@ -439,3 +442,123 @@ def test_real_ffmpeg_merge_from_storage(tmp_path: Path) -> None:
         ("recording.merged", {"objectKey": "recordings/55.mp4", "recordingStartedAt": None})
     ]
     assert storage.uploaded == [("merged.mp4", "recordings/55.mp4")]
+
+
+# 그룹 면접(AI 명세 7장): 그룹 면접방 녹화 위치에 참가자 두 명(55·56)과 면접관 트랙이 있다
+GROUP_RAW = "recordings/raw/group-12/1794550000000/"
+MY_VIDEO = GROUP_RAW + "candidate-55-video-TR_V1.mp4"
+MY_AUDIO = GROUP_RAW + "candidate-55-audio-TR_A1.ogg"
+OTHER_VIDEO = GROUP_RAW + "candidate-56-video-TR_V2.mp4"
+OTHER_AUDIO = GROUP_RAW + "candidate-56-audio-TR_A2.ogg"
+GROUP_INTERVIEWER = GROUP_RAW + "interviewer-audio-TR_A3.ogg"
+GROUP_FILES = [MY_VIDEO, MY_AUDIO, OTHER_VIDEO, OTHER_AUDIO, GROUP_INTERVIEWER]
+# 면접관 음성이 0초, 다른 참가자가 1초, 이 지원자가 3초에 녹화를 시작했다
+GROUP_STARTS = (
+    (GROUP_INTERVIEWER, 0.0),
+    (OTHER_VIDEO, 1.0),
+    (OTHER_AUDIO, 1.0),
+    (MY_VIDEO, 3.0),
+    (MY_AUDIO, 3.5),
+)
+GROUP_JOB = MergeRecordingJob(
+    job_id=JOB.job_id,
+    session_id=55,
+    requested_at=JOB.requested_at,
+    raw_prefix=GROUP_RAW,
+    object_key="recordings/55.mp4",
+    group=GroupRecording(
+        room_name="group-12",
+        candidate_identity="candidate-55",
+        segments=(
+            RecordingSegment(started(10.0), started(70.5)),
+            RecordingSegment(started(200.0), started(260.0)),
+        ),
+    ),
+)
+
+
+def group_merge(merged: list[tuple[Any, ...]]) -> Any:
+    def merge_group(*kinds: Any) -> None:
+        *tracks, spans, output = kinds
+        merged.append(
+            (*(tuple((p.track.name, p.offset_seconds) for p in kind) for kind in tracks), spans)
+        )
+        output.write_bytes(b"mp4")
+
+    return merge_group
+
+
+def test_group_recording_uses_only_own_tracks_and_answer_segments(tmp_path: Path) -> None:
+    """그룹 면접방 녹화에서 이 지원자와 면접관 트랙만 배치하고 본인 답변 구간만 합친다."""
+    storage, results = FakeStorage(GROUP_FILES, prefix=GROUP_RAW), FakeResults()
+    merged: list[tuple[Any, ...]] = []
+    track_starts = lookup(*GROUP_STARTS)
+
+    merger(storage, results, tmp_path, merge_group=group_merge(merged), track_starts=track_starts)(
+        GROUP_JOB
+    )
+
+    assert track_starts.calls == ["group-12"]
+    assert merged == [
+        (
+            (("candidate-55-video-TR_V1.mp4", 3.0),),
+            (("candidate-55-audio-TR_A1.ogg", 3.5),),
+            (("interviewer-audio-TR_A3.ogg", 0.0),),
+            # 구간은 가장 이른 트랙(면접관 음성) 시작 시각 기준 초다
+            [(10.0, 70.5), (200.0, 260.0)],
+        )
+    ]
+    assert {key for key, _ in storage.downloaded} == {MY_VIDEO, MY_AUDIO, GROUP_INTERVIEWER}
+    assert storage.uploaded == [("merged.mp4", "recordings/55.mp4")]
+    # 잘라 붙인 영상의 0초는 첫 구간의 시작 시각이다
+    assert results.published == [
+        (
+            "recording.merged",
+            {
+                "objectKey": "recordings/55.mp4",
+                "recordingStartedAt": "2026-10-27T23:00:10.000+09:00",
+            },
+        )
+    ]
+
+
+def test_group_recording_without_start_times_fails_without_listing(tmp_path: Path) -> None:
+    """그룹 면접은 업로드 순서로 이어 붙이지 않는다. 다른 참가자 차례가 남기 때문이다."""
+    storage, results = FakeStorage(GROUP_FILES, prefix=GROUP_RAW), FakeResults()
+
+    merger(storage, results, tmp_path)(GROUP_JOB)
+
+    assert results.published == [("recording.mergeFailed", {"reason": "MERGE_ERROR"})]
+    assert storage.listed == 0
+    assert storage.downloaded == []
+
+
+@pytest.mark.parametrize(
+    "starts",
+    [
+        pytest.param(GROUP_STARTS[:3], id="own-tracks-not-recorded"),
+        pytest.param(GROUP_STARTS[1:], id="interviewer-not-recorded"),
+    ],
+)
+def test_group_recording_without_needed_track_is_track_not_found(
+    tmp_path: Path, starts: tuple[tuple[str, float], ...]
+) -> None:
+    """다른 참가자의 트랙은 이 지원자의 트랙을 대신하지 않는다."""
+    storage, results = FakeStorage(GROUP_FILES, prefix=GROUP_RAW), FakeResults()
+
+    merger(storage, results, tmp_path, track_starts=lookup(*starts))(GROUP_JOB)
+
+    assert results.published == [("recording.mergeFailed", {"reason": "TRACK_NOT_FOUND"})]
+    assert storage.downloaded == []
+
+
+def test_group_recording_with_listed_file_missing_in_storage_is_track_not_found(
+    tmp_path: Path,
+) -> None:
+    stored = [key for key in GROUP_FILES if key != MY_AUDIO]
+    storage, results = FakeStorage(stored, prefix=GROUP_RAW), FakeResults()
+
+    merger(storage, results, tmp_path, track_starts=lookup(*GROUP_STARTS))(GROUP_JOB)
+
+    assert results.published == [("recording.mergeFailed", {"reason": "TRACK_NOT_FOUND"})]
+    assert storage.downloaded == []

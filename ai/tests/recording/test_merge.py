@@ -7,20 +7,26 @@ from pathlib import Path
 import pytest
 
 from app.recording.merge import (
+    GROUP_MERGE_TIMEOUT_SECONDS,
     MERGE_TIMEOUT_SECONDS,
     VIDEO_LIST_FILE,
     MergeError,
     MissingTrackError,
+    Piece,
     Placed,
     PlacedTracks,
     Tracks,
     build_merge_command,
     build_placed_merge_command,
+    build_segment_command,
+    merge_group_segments,
     merge_placed_tracks,
     merge_tracks,
+    pieces,
     place_tracks,
     segments,
     select_tracks,
+    video_size,
     video_start_seconds,
     write_placed_list,
 )
@@ -507,3 +513,215 @@ def test_real_ffmpeg_cuts_video_with_nonzero_first_timestamp_at_placed_length(
     # 앞 영상 1초(15프레임)와 뒤 영상 1초(15프레임)가 이어진다
     assert int(video["nb_frames"]) == 30
     assert float(video["duration"]) == pytest.approx(2.0, abs=0.1)
+
+
+# 그룹 면접(AI 명세 7장): 본인 답변 구간만 잘라 이어 붙인다
+
+
+def test_pieces_follow_reconnected_tracks_within_span() -> None:
+    # 0초에 시작한 트랙이 끊기고 50초에 재접속했다
+    tracks = [Placed(Path("a.mp4"), 0.0), Placed(Path("b.mp4"), 50.0)]
+
+    assert pieces(tracks, 40.0, 60.0) == [
+        Piece(Path("a.mp4"), 40.0, 10.0, 0.0),
+        Piece(Path("b.mp4"), 0.0, 10.0, 10.0),
+    ]
+
+
+def test_pieces_start_inside_span_when_track_starts_late() -> None:
+    assert pieces([Placed(Path("a.mp4"), 3.0)], 1.0, 5.0) == [Piece(Path("a.mp4"), 0.0, 2.0, 2.0)]
+
+
+def test_pieces_are_empty_when_track_starts_after_span() -> None:
+    assert pieces([Placed(Path("a.mp4"), 10.0)], 1.0, 5.0) == []
+
+
+def test_segment_command_seeks_each_piece_and_places_it_in_span() -> None:
+    command = build_segment_command(
+        [Piece(Path("v.mp4"), 40.0, 10.0, 0.0), Piece(Path("w.mp4"), 0.0, 10.0, 10.0)],
+        [Piece(Path("c.ogg"), 40.0, 20.0, 0.0), Piece(Path("i.ogg"), 1.5, 18.0, 2.0)],
+        20.0,
+        (640, 480),
+        Path("s.mp4"),
+        Path("s.wav"),
+    )
+
+    inputs = [command[i + 1 : i + 6 : 2] for i, arg in enumerate(command) if arg == "-ss"]
+    assert inputs == [
+        ["40.000", "10.000", "v.mp4"],
+        ["0.000", "10.000", "w.mp4"],
+        ["40.000", "20.000", "c.ogg"],
+        ["1.500", "18.000", "i.ogg"],
+    ]
+    assert command[command.index("-filter_complex") + 1] == (
+        "color=c=black:s=640x480:r=30:d=20.000[v0];"
+        "[0:v]setpts=PTS-STARTPTS+0.000/TB,scale=640:480,setsar=1[p0];"
+        "[v0][p0]overlay=eof_action=repeat[v1];"
+        "[1:v]setpts=PTS-STARTPTS+10.000/TB,scale=640:480,setsar=1[p1];"
+        "[v1][p1]overlay=eof_action=repeat[v2];"
+        "[2:a]asetpts=PTS-STARTPTS,adelay=delays=0:all=1[a0];"
+        "[3:a]asetpts=PTS-STARTPTS,adelay=delays=2000:all=1[a1];"
+        "anullsrc=r=48000:cl=stereo,atrim=end=20.000[silence];"
+        "[silence][a0][a1]amix=inputs=3:duration=first:normalize=0[a]"
+    )
+    outputs = command[command.index("-filter_complex") + 2 :]
+    # 영상과 음성을 따로 저장해 음성은 이어 붙인 뒤 AAC로 한 번만 인코딩한다
+    assert outputs[:2] == ["-map", "[v2]"]
+    assert outputs[outputs.index("s.mp4") - 2 : outputs.index("s.mp4") + 1] == [
+        "-t",
+        "20.000",
+        "s.mp4",
+    ]
+    assert outputs[outputs.index("s.mp4") + 1 :] == [
+        "-map",
+        "[a]",
+        "-c:a",
+        "pcm_s16le",
+        "-ar",
+        "48000",
+        "-t",
+        "20.000",
+        "s.wav",
+    ]
+
+
+def test_odd_video_size_is_rounded_down_to_even(monkeypatch: pytest.MonkeyPatch) -> None:
+    """H.264 yuv420p는 짝수 크기만 인코딩한다."""
+    result = subprocess.CompletedProcess([], 0, "641,481\n", "")
+    monkeypatch.setattr(subprocess, "run", fake_run(result))
+    assert video_size(Path("v.mp4")) == (640, 480)
+
+
+def test_group_timeout_is_contract_value() -> None:
+    assert GROUP_MERGE_TIMEOUT_SECONDS == 600.0
+
+
+def test_group_merge_stops_when_segments_use_up_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """상한은 ffmpeg 실행마다가 아니라 그룹 작업 하나 전체에 적용한다."""
+    timeouts: list[object] = []
+    now = [0.0]
+
+    def run(command: list[str], **kwargs: object) -> object:
+        if command[0] == "ffprobe":
+            return subprocess.CompletedProcess(command, 0, "640,480\n", "")
+        timeouts.append(kwargs["timeout"])
+        for arg in command:
+            if arg.endswith((".mp4", ".wav")):
+                Path(arg).write_bytes(b"x")
+        now[0] += 400.0
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    track = [Placed(tmp_path / "t", 0.0)]
+
+    with pytest.raises(MergeError, match="600초"):
+        merge_group_segments(
+            track, track, track, [(0.0, 1.0), (2.0, 3.0)], tmp_path / "o.mp4", clock=lambda: now[0]
+        )
+    assert timeouts == [600.0, 200.0]
+
+
+def lumas(ffmpeg: str, path: Path) -> list[tuple[float, float]]:
+    """영상 프레임마다 (표시 시각, 평균 밝기)다."""
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-nostdin",
+            "-i",
+            str(path),
+            "-vf",
+            "signalstats,metadata=mode=print",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    times = [
+        float(line.split("pts_time:")[1].split()[0])
+        for line in result.stderr.splitlines()
+        if "pts_time:" in line
+    ]
+    values = [
+        float(line.split("lavfi.signalstats.YAVG=")[1])
+        for line in result.stderr.splitlines()
+        if "lavfi.signalstats.YAVG=" in line
+    ]
+    return list(zip(times, values, strict=True))
+
+
+def pcm(ffmpeg: str, path: Path) -> list[float]:
+    """음성을 타임스탬프와 관계없이 디코딩한 순서대로 48kHz 모노 샘플로 반환한다."""
+    result = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(path), "-ac", "1", "-ar", "48000", "-f", "f32le", "-"],
+        capture_output=True,
+        check=True,
+    )
+    return list(memoryview(result.stdout).cast("f"))
+
+
+def loudness_edges(samples: list[float]) -> list[float]:
+    """10ms 단위로 소리가 있고 없음이 바뀌는 위치(초)다. 위치는 샘플 순서로 계산한다."""
+    block = 480
+    loud = [
+        max(abs(x) for x in samples[i : i + block]) > 0.01
+        for i in range(0, len(samples) - block + 1, block)
+    ]
+    return [index / 100 for index in range(1, len(loud)) if loud[index] != loud[index - 1]]
+
+
+@pytest.mark.skipif(FFMPEG is None or FFPROBE is None, reason="ffmpeg가 설치되지 않았다")
+def test_real_ffmpeg_cuts_group_answer_segments_at_exact_positions(tmp_path: Path) -> None:
+    assert FFMPEG is not None
+    assert FFPROBE is not None
+    # 지원자 영상은 파일 안 t초의 밝기가 20 + 20t인 10초 영상이다.
+    # 키프레임을 처음 하나만 생성해 구간 시작 위치를 키프레임이 아닌 곳에서 찾게 한다
+    brightness = "nullsrc=s=320x240:r=30:d=10,geq=lum='20+20*T':cb=128:cr=128"
+    video = synthesize(FFMPEG, brightness, [*WEBRTC_H264, "-g", "1000"], tmp_path / "v.mp4")
+    candidate = synthesize(FFMPEG, "sine=frequency=440:duration=10", OPUS, tmp_path / "c.ogg")
+    interviewer = synthesize(FFMPEG, "sine=frequency=660:duration=2", OPUS, tmp_path / "i.ogg")
+    output = tmp_path / "merged.mp4"
+
+    # 면접관 음성은 0~2초, 지원자 트랙은 3~13초에 녹화되었다
+    merge_group_segments(
+        [Placed(video, 3.0)],
+        [Placed(candidate, 3.0)],
+        [Placed(interviewer, 0.0)],
+        [(1.0, 5.0), (8.0, 10.5), (12.0, 14.0)],
+        output,
+        ffmpeg=FFMPEG,
+        ffprobe=FFPROBE,
+    )
+
+    streams = probe(FFPROBE, output)
+    # 구간 길이(4 + 2.5 + 2초)를 더한 길이다
+    assert float(streams["video"]["duration"]) == pytest.approx(8.5, abs=0.01)
+    assert float(streams["audio"]["duration"]) == pytest.approx(8.5, abs=0.01)
+    frames = dict(lumas(FFMPEG, output))
+    expected = {
+        0.0: 16.0,  # 첫 구간 1초: 지원자 영상 시작 전이라 검은 화면이다
+        2.0: 20.0,  # 3초: 지원자 영상 첫 화면
+        3.9: 58.0,  # 4.9초
+        4.0: 120.0,  # 둘째 구간 8초: 파일 안 5초
+        6.4: 168.0,  # 10.4초
+        6.5: 200.0,  # 셋째 구간 12초: 파일 안 9초
+        8.4: 220.0,  # 13.9초: 영상이 13초에 끝나 마지막 화면을 유지한다
+    }
+    for second, luma in expected.items():
+        nearest = min(frames, key=lambda t: abs(t - second))
+        assert abs(nearest - second) < 0.02
+        assert frames[nearest] == pytest.approx(luma, abs=4), second
+    # 다른 구간의 음성이 섞이지 않는다: 면접관이 끝난 2초부터 지원자가 시작한 3초까지,
+    # 지원자 녹화가 끝난 13초부터 14초까지만 무음이다
+    found = silences(FFMPEG, output)
+    assert len(found) == 2
+    for (start, end), (want_start, want_end) in zip(found, ((1.0, 2.0), (7.5, 8.5)), strict=True):
+        assert start == pytest.approx(want_start, abs=0.05)
+        assert end == pytest.approx(want_end, abs=0.05)
+    # 브라우저처럼 샘플을 차례로 재생해도 구간 경계(4초, 6.5초) 뒤 음성이 늦어지지 않는다
+    assert loudness_edges(pcm(FFMPEG, output)) == pytest.approx([1.0, 2.0, 7.5], abs=0.02)
