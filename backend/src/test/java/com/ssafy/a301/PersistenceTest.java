@@ -214,10 +214,10 @@ class PersistenceTest {
         plans.save(
                 new InterviewPlan(
                         session.getId(),
-                        List.of(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4)),
+                        List.of(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, null)),
                         List.of(
-                                new PlanQuestion(1, "질문1", "기준1", "c1"),
-                                new PlanQuestion(2, "질문2", "기준2", "c1")),
+                                new PlanQuestion(1, "질문1", "기준1", "c1", null),
+                                new PlanQuestion(2, "질문2", "기준2", "c1", null)),
                         "plan-v1",
                         "gms-test"));
         em.flush();
@@ -225,7 +225,7 @@ class PersistenceTest {
 
         InterviewPlan plan = em.find(InterviewPlan.class, session.getId());
         assertThat(plan.getClaims())
-                .containsExactly(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4));
+                .containsExactly(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, null));
         assertThat(plan.question(2))
                 .hasValueSatisfying(
                         q -> {
@@ -273,7 +273,7 @@ class PersistenceTest {
                             em.persist(
                                     new ApplicationClaim(
                                             em.getReference(Application.class, application.getId()),
-                                            new PlanClaim("c1", "다른 주장", "EXPERIENCE", 5),
+                                            new PlanClaim("c1", "다른 주장", "EXPERIENCE", 5, null),
                                             "extract-claims-v1",
                                             "gms-test"));
                             em.flush();

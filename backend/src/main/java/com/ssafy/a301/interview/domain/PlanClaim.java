@@ -15,10 +15,4 @@ import java.util.List;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record PlanClaim(
-        String id, String text, String type, Integer sentenceNo, List<String> talentCriteria) {
-
-    /** 인재상 기준 없이 */
-    public PlanClaim(String id, String text, String type, Integer sentenceNo) {
-        this(id, text, type, sentenceNo, null);
-    }
-}
+        String id, String text, String type, Integer sentenceNo, List<String> talentCriteria) {}

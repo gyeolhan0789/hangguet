@@ -15,10 +15,8 @@ import java.util.Map;
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record PlanQuestion(
-        int seq, String content, String criteria, String claimId, Map<String, Object> companyItem) {
-
-    /** 회사 항목에 연결하지 않은 질문 */
-    public PlanQuestion(int seq, String content, String criteria, String claimId) {
-        this(seq, content, criteria, claimId, null);
-    }
-}
+        int seq,
+        String content,
+        String criteria,
+        String claimId,
+        Map<String, Object> companyItem) {}

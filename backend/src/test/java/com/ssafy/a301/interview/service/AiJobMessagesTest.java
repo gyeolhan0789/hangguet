@@ -294,7 +294,7 @@ class AiJobMessagesTest {
                 .containsEntry("mode", "CHAT")
                 .containsEntry("persona", "DEVIL")
                 .containsEntry("coverLetterItems", COVER_LETTER_ITEMS)
-                .containsEntry("claims", List.of(new PlanClaim("c1", "주장", "NUMBER", 1)));
+                .containsEntry("claims", List.of(new PlanClaim("c1", "주장", "NUMBER", 1, null)));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> answered = (List<Map<String, Object>>) message.get("answers");
         assertThat(answered)
@@ -540,10 +540,12 @@ class AiJobMessagesTest {
         plans.save(
                 new InterviewPlan(
                         session.getId(),
-                        List.of(new PlanClaim("c1", "주장", "NUMBER", 1)),
+                        List.of(new PlanClaim("c1", "주장", "NUMBER", 1, null)),
                         IntStream.rangeClosed(1, 5)
                                 .mapToObj(
-                                        seq -> new PlanQuestion(seq, "질문" + seq, "기준" + seq, "c1"))
+                                        seq ->
+                                                new PlanQuestion(
+                                                        seq, "질문" + seq, "기준" + seq, "c1", null))
                                 .toList(),
                         "plan-v1",
                         "gms-test"));

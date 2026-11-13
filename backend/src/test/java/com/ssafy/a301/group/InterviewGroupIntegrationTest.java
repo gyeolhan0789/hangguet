@@ -266,7 +266,7 @@ class InterviewGroupIntegrationTest {
         applicationClaims.saveAndFlush(
                 new ApplicationClaim(
                         applications.getReferenceById(application),
-                        new PlanClaim("c1", "주장", "EXPERIENCE", 1),
+                        new PlanClaim("c1", "주장", "EXPERIENCE", 1, null),
                         "extract-claims-v1",
                         "model"));
 

@@ -793,10 +793,12 @@ class AiResultServiceTest {
         plans.save(
                 new InterviewPlan(
                         session.getId(),
-                        List.of(new PlanClaim("c1", "주장", "NUMBER", 1)),
+                        List.of(new PlanClaim("c1", "주장", "NUMBER", 1, null)),
                         IntStream.rangeClosed(1, 5)
                                 .mapToObj(
-                                        seq -> new PlanQuestion(seq, "질문" + seq, "기준" + seq, "c1"))
+                                        seq ->
+                                                new PlanQuestion(
+                                                        seq, "질문" + seq, "기준" + seq, "c1", null))
                                 .toList(),
                         "plan-v1",
                         "gms-test"));
