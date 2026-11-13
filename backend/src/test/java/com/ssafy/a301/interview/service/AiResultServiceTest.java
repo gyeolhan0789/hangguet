@@ -72,6 +72,7 @@ class AiResultServiceTest {
     @Autowired private AiJobRepository jobs;
     @Autowired private ApplicationClaimRepository applicationClaims;
     @Autowired private QuestionPoolItemRepository poolItems;
+    @Autowired private QuestionPoolAssigner assigner;
     @Autowired private EntityManager em;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private InterviewRoom rooms;
@@ -288,6 +289,64 @@ class AiResultServiceTest {
         assertThat(plans.findById(session.getId()).orElseThrow().question(3).orElseThrow())
                 .extracting(PlanQuestion::companyItem)
                 .isEqualTo(companyItem);
+    }
+
+    // 기준: AI 명세 2장 출제 자리 배정(보관함에 넣은 뒤 오래된 미사용 질문부터 배정하고 배정한 질문의 버전으로 저장한다)
+    @Test
+    void personalPlanIsAssignedFromOldestUnusedPoolQuestions() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        Application application = session.getApplication();
+        poolItem(application, "사용한 질문").markUsed(STARTED_AT);
+        QuestionPoolItem older1 = poolItem(application, "예비1");
+        QuestionPoolItem older2 = poolItem(application, "예비2");
+        runtimes.startPlan(session.getId(), STARTED_AT.toInstant());
+
+        assertThat(results.handle(planCompleted(session, 5))).isEqualTo(Outcome.SAVED);
+
+        InterviewPlan plan = plans.findById(session.getId()).orElseThrow();
+        assertThat(plan.getQuestions())
+                .extracting(PlanQuestion::content)
+                .containsExactly("예비1", "질문1", "예비2", "질문2", "질문3");
+        assertThat(plan.getQuestions())
+                .extracting(PlanQuestion::poolItemId)
+                .doesNotContainNull()
+                .contains(older1.getId(), older2.getId());
+        assertThat(plan.getPromptVersion()).isEqualTo("plan-v1");
+        assertThat(plan.getClaims()).extracting(PlanClaim::id).containsExactly("c1");
+    }
+
+    // 기준: AI 명세 2장 사용 처리(1·3번은 항상, 2·4·5번은 예비 질문을 출제했을 때만 보관함 질문이다)
+    @Test
+    void askedPoolQuestionsAreMarkedUsedButFollowUpSeatsAreNot() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        List<QuestionPoolItem> pool =
+                IntStream.rangeClosed(1, 5)
+                        .mapToObj(seq -> poolItem(session.getApplication(), "질문" + seq))
+                        .toList();
+        plans.save(assigner.assign(session, List.of()).orElseThrow());
+        session.start(STARTED_AT.minusMinutes(1));
+        em.flush();
+
+        results.handle(questionStarted(session, 1));
+        results.handle(questionStarted(session, 3));
+        results.handle(questionStarted(session, 4));
+        results.handle(
+                """
+                {"type":"question.started","sessionId":%d,"seq":2,
+                 "startedAt":"2026-10-15T12:01:00+09:00","content":"꼬리질문2",
+                 "criteria":"꼬리기준2","promptVersion":"followup-v2","modelVersion":"gms-test"}
+                """
+                        .formatted(session.getId()));
+
+        // 3번 자리에는 1번 다음으로 오래된 보관함 질문이 간다
+        assertThat(pool)
+                .extracting(item -> item.getUsedAt() == null ? null : item.getUsedAt().toInstant())
+                .containsExactly(
+                        STARTED_AT.toInstant(),
+                        STARTED_AT.toInstant(),
+                        null,
+                        STARTED_AT.toInstant(),
+                        null);
     }
 
     @Test
@@ -789,6 +848,18 @@ class AiResultServiceTest {
                 .formatted(applicationId);
     }
 
+    private QuestionPoolItem poolItem(Application application, String content) {
+        QuestionPoolItem item =
+                new QuestionPoolItem(
+                        application,
+                        Persona.DEVIL,
+                        new PlanQuestion(1, content, "기준", "c1", null, null),
+                        "plan-v0",
+                        "gms-test");
+        em.persist(item);
+        return item;
+    }
+
     private void savePlan(InterviewSession session) {
         plans.save(
                 new InterviewPlan(
@@ -798,7 +869,12 @@ class AiResultServiceTest {
                                 .mapToObj(
                                         seq ->
                                                 new PlanQuestion(
-                                                        seq, "질문" + seq, "기준" + seq, "c1", null))
+                                                        seq,
+                                                        "질문" + seq,
+                                                        "기준" + seq,
+                                                        "c1",
+                                                        null,
+                                                        null))
                                 .toList(),
                         "plan-v1",
                         "gms-test"));

@@ -21,6 +21,10 @@ public record SessionRuntime(
         return new SessionRuntime(PlanStatus.GENERATING, 0, null, 0);
     }
 
+    public static SessionRuntime ready() {
+        return new SessionRuntime(PlanStatus.READY, null, null, 0);
+    }
+
     // 면접 경과 시간(초). 시작 전이면 0, 끝났으면 종료 시각 기준
     public int elapsedSeconds(InterviewSession session, OffsetDateTime now) {
         if (session.getStartedAt() == null) {

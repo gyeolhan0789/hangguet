@@ -20,6 +20,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.QuestionPoolItemRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
@@ -46,6 +47,7 @@ public class AiJobMessages {
     private final InterviewQuestionRepository questions;
     private final ApplicationRepository applications;
     private final ApplicationClaimRepository applicationClaims;
+    private final QuestionPoolItemRepository poolItems;
 
     public AiJobMessages(
             InterviewSessionRepository sessions,
@@ -53,13 +55,15 @@ public class AiJobMessages {
             AnswerRepository answers,
             InterviewQuestionRepository questions,
             ApplicationRepository applications,
-            ApplicationClaimRepository applicationClaims) {
+            ApplicationClaimRepository applicationClaims,
+            QuestionPoolItemRepository poolItems) {
         this.sessions = sessions;
         this.plans = plans;
         this.answers = answers;
         this.questions = questions;
         this.applications = applications;
         this.applicationClaims = applicationClaims;
+        this.poolItems = poolItems;
     }
 
     /** 작업에 쓸 지원서·면접·플랜·답변이 없으면 IllegalStateException(보낼 수 없는 작업) */
@@ -131,6 +135,24 @@ public class AiJobMessages {
                         .toList();
         if (!claims.isEmpty()) {
             message.put("claims", claims);
+        }
+        // 같은 보관함에서 이미 출제한 질문과 같은 질문은 만들지 않게 한다. AI가 claimId를 필수로 읽으므로 주장을 가리키지 않는 질문은 뺀다(AI 명세 2장)
+        List<Map<String, Object>> asked =
+                poolItems
+                        .findByApplicationIdAndPersonaAndUsedAtIsNotNullOrderById(
+                                application.getId(), session.getPersona())
+                        .stream()
+                        .filter(item -> item.getClaimId() != null)
+                        .map(
+                                item -> {
+                                    Map<String, Object> entry = new LinkedHashMap<>();
+                                    entry.put("content", item.getContent());
+                                    entry.put("claimId", item.getClaimId());
+                                    return entry;
+                                })
+                        .toList();
+        if (!asked.isEmpty()) {
+            message.put("askedQuestions", asked);
         }
     }
 

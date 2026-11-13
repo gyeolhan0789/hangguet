@@ -69,6 +69,17 @@ public class SessionRuntimeService {
         onRollback(sessionId, () -> store.failPlanIfGenerating(sessionId));
     }
 
+    /** 질문 보관함으로 바로 준비한 면접(AI 명세 2장)을 커밋 뒤 READY로 둔다. 되돌려졌을 때 플랜 없이 READY가 남지 않는다 */
+    public void markPlanReadyAfterCommit(long sessionId) {
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        store.markPlanReady(sessionId);
+                    }
+                });
+    }
+
     /** 되돌려지면 보내지 않은 작업의 시작 시각·작업 id가 남지 않게 지운다 */
     public void startAnalysis(long sessionId, Instant now, UUID evaluateJobId) {
         store.startAnalysis(sessionId, now, evaluateJobId);
