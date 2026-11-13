@@ -3,7 +3,12 @@ from typing import Any
 
 import pytest
 
-from app.agent.assignment import MAX_METADATA_BYTES, AssignmentError, parse_assignment
+from app.agent.assignment import (
+    MAX_METADATA_BYTES,
+    Assignment,
+    AssignmentError,
+    parse_assignment,
+)
 from app.common.session import InterviewMode, Persona
 
 
@@ -26,8 +31,15 @@ def metadata(**overrides: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
+def individual(raw: str) -> Assignment:
+    """kind가 없는 개인 면접 배정 정보로 읽는다(AI 명세 6.1)."""
+    assignment = parse_assignment(raw)
+    assert isinstance(assignment, Assignment)
+    return assignment
+
+
 def test_be_assignment_is_parsed() -> None:
-    assignment = parse_assignment(metadata())
+    assignment = individual(metadata())
     assert assignment.session_id == 55
     assert assignment.mode is InterviewMode.VIDEO
     assert assignment.persona is Persona.DEVIL
@@ -37,20 +49,20 @@ def test_be_assignment_is_parsed() -> None:
 
 
 def test_questions_out_of_order_are_parsed_by_seq() -> None:
-    assignment = parse_assignment(metadata(questions=questions()[::-1]))
+    assignment = individual(metadata(questions=questions()[::-1]))
     assert [assignment.question(seq) for seq in range(1, 6)] == [
         f"{seq}번 질문" for seq in range(1, 6)
     ]
 
 
 def test_missing_question_is_reported_without_content() -> None:
-    assignment = parse_assignment(metadata())
+    assignment = individual(metadata())
     with pytest.raises(AssignmentError, match="6번 질문"):
         assignment.criteria(6)
 
 
 def test_unknown_fields_are_ignored() -> None:
-    assert parse_assignment(metadata(extra={"key": "value"})).session_id == 55
+    assert individual(metadata(extra={"key": "value"})).session_id == 55
 
 
 def with_question(**fields: Any) -> list[dict[str, Any]]:
@@ -63,7 +75,7 @@ def test_company_item_is_kept_as_received() -> None:
     """연결 회사 항목은 꼬리질문 생성에 전달하도록 받은 객체 그대로 보관한다(AI 명세 6.1)."""
     item = {"section": "market", "summary": "간편결제 점유율 1위", "quote": "점유율 1위"}
 
-    assignment = parse_assignment(metadata(questions=with_question(companyItem=item)))
+    assignment = individual(metadata(questions=with_question(companyItem=item)))
 
     assert assignment.questions[1].company_item == item
 
@@ -71,7 +83,7 @@ def test_company_item_is_kept_as_received() -> None:
 @pytest.mark.parametrize("fields", [{"companyItem": None}, {}], ids=["null", "missing"])
 def test_unlinked_or_missing_company_item_is_none(fields: dict[str, Any]) -> None:
     """필드를 추가하기 전에 BE가 전송한 배정도 연결 없음으로 시작한다(AI 명세 6.1)."""
-    assignment = parse_assignment(metadata(questions=with_question(**fields)))
+    assignment = individual(metadata(questions=with_question(**fields)))
 
     assert assignment.questions[1].company_item is None
 
@@ -108,7 +120,7 @@ def test_malformed_assignment_is_rejected(raw: str) -> None:
 def test_metadata_size_boundary_is_utf8_bytes() -> None:
     base = metadata(padding="")
     room = MAX_METADATA_BYTES - len(base.encode("utf-8"))
-    assert parse_assignment(metadata(padding="a" * room)).session_id == 55
+    assert individual(metadata(padding="a" * room)).session_id == 55
     over_ascii = metadata(padding="a" * (room + 1))
     with pytest.raises(AssignmentError, match="바이트"):
         parse_assignment(over_ascii)
