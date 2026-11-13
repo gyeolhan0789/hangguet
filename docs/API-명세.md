@@ -1136,9 +1136,9 @@ soft delete. 관리 목록·8.8·8.9·8.15에서 빠진다.
 | 메시지 | 그룹 면접에서 |
 |---|---|
 | `question` · `reaction` | 모두에게 보내고 `sessionId`(누구 차례인지)를 더한다 |
-| `interview.stt` · `answer.state` | 지금 답변자에게만. `answer.state`의 60초 무응답(`timedOut`)은 보내지 않는다(답변 시간이 대신함) |
+| `interview.stt` · `answer.state` · `attitude` | 지금 답변자에게만. `answer.state`의 60초 무응답(`timedOut`)은 보내지 않는다(답변 시간이 대신함) |
 | `answer.submit` | 화상만. 지금 답변자가 아니면 거절된다 |
-| `chat.input` | 리액션용으로 그대로 쓴다. 지금 답변자의 것만 판단한다 **[미정]**(AI 명세 6.7) |
+| `chat.input` | 리액션용으로 그대로 쓴다. 지금 답변자의 것만 판단한다(AI 명세 6.7). 보내는 형식은 같다 |
 | `interview.frame` | 그대로 보내고, 에이전트가 지금 답변자 것만 판단한다 |
 
 - 질문 음성이 나오는 동안(`SPEAKING`) 화면은 남은 시간을 표시하지 않고 입력을 잠근다(지금 규칙과 같음)
