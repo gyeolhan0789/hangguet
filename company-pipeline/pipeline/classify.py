@@ -22,7 +22,7 @@ SUBCATEGORIES = "ncs_subcategories"
 MAX_SUBCATEGORIES = 3
 NCS_SECTIONS = ("direction", "market", "recent")
 
-# 2026-11-10 연결 후보 실측(회사 연결 53/53 통과)에서 사용한 지시와 같게 기준 이름만 제시한다
+# 연결 후보 실측에서 사용한 지시와 같게 기준 이름만 제시한다
 CRITERION_SYSTEM = (
     "너는 회사 인재상 항목을 분류한다.\n"
     "- no: 항목 번호를 그대로 작성한다\n"

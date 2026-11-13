@@ -142,10 +142,9 @@ done
 # 이미지 · 환경 변수 · 설정 해시 라벨이 바뀐 서비스만 다시 만든다(compose가 Recreate로 출력한다)
 "${COMPOSE[@]}" up -d --remove-orphans
 
-# 저장소만 다시 만들어지고 BE는 그대로 남으면, BE가 예전 IP로 계속 다시 붙으려 해 그 저장소를 못 쓴다
-# (11/07 운영 전환: AGENT_ASG_ENABLED로 Redis 포트만 바뀌어 Redis만 새로 만들어졌고 BE(Lettuce)가 약 7분 동안 Redis에 붙지 못했다).
+# 저장소만 다시 만들어지고 BE는 그대로 남으면, BE(Lettuce)가 예전 IP로 계속 다시 붙으려 해 그 저장소를 못 쓴다.
 # AI 작업자(Python) · LiveKit · Egress(Go)는 다시 붙을 때 이름을 새로 찾아 스스로 복구한다.
-# PostgreSQL(JDBC)은 같은 일을 겪지 않았지만 확인하지 않았으므로 같이 본다. 저장소보다 BE가 먼저 떠 있으면 BE를 다시 시작한다.
+# PostgreSQL(JDBC)은 확인하지 않았으므로 같이 본다. 저장소보다 BE가 먼저 떠 있으면 BE를 다시 시작한다.
 # 저장소 설정이 바뀌는 배포(이미지 · 설정 · 포트 · AGENT_ASG_ENABLED 켜고 끄기)마다 해당한다
 be_started="$(docker inspect -f '{{.State.StartedAt}}' a301-prod-be)"
 for dep in "${BE_DEPS[@]}"; do
@@ -171,7 +170,7 @@ if [ "${AGENT_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-a
   echo "OK: a301-prod-ai-agent 내림"
   removed_main=yes
 fi
-# Egress도 같다. SIGTERM이면 새 녹화를 받지 않고 진행 중 녹화를 마친 뒤 종료한다(11/07 Egress ASG 보고서 2.1).
+# Egress도 같다. SIGTERM이면 새 녹화를 받지 않고 진행 중 녹화를 마친 뒤 종료한다.
 # 녹화는 면접이 끝나 방이 닫히면 같이 끝나므로 상한은 에이전트와 같다
 if [ "${EGRESS_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-egress >/dev/null 2>&1; then
   log "메인 서버 Egress 내리기 (진행 중 녹화를 최대 ${AGENT_DRAIN_SECONDS}초 기다림)"
@@ -183,7 +182,7 @@ if [ "${EGRESS_ASG_ENABLED:-}" = "true" ] && docker container inspect a301-prod-
 fi
 if [ -n "$removed_main" ]; then
   # Prometheus는 에이전트 · Egress를 이름(DNS)으로 찾는데, 켜진 뒤에 컨테이너가 사라지면 이름 찾기가 실패해도 예전 대상을 붙잡아
-  # up=0과 "지표 수집 실패" 알림이 남는다(11/07, 로컬에서 재현). 다시 시작하면 대상 없이 뜬다. 지표는 볼륨에 남는다
+  # up=0과 "지표 수집 실패" 알림이 남는다. 다시 시작하면 대상 없이 뜬다. 지표는 볼륨에 남는다
   docker restart a301-prod-prometheus >/dev/null
   echo "OK: a301-prod-prometheus 다시 시작(꺼진 대상 지우기)"
 fi
@@ -233,7 +232,7 @@ check_http "AI" "http://127.0.0.1:18083/health" a301-prod-ai
 
 # 바깥 주소로 한 바퀴. 도메인 3개를 모두 본다(배포 계획 5.1). DNS(서버 IP) → 서버 443 → Nginx 길로 간다.
 # 확인을 `docker logs | grep -q`로 하지 않는다: pipefail에서 로그가 길면 grep이 줄을 찾고 먼저 끝나 docker logs가 SIGPIPE(141)로 죽어,
-# 줄이 있어도 실패가 된다(10/29 무렵 배포가 이것으로 실패). 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다.
+# 줄이 있어도 실패가 된다. 아래 curl | grep은 응답이 수백 바이트라 curl이 먼저 다 쓰고 끝나므로 이 문제가 없다.
 # 실패하면 그 경로 서비스의 로그를 남긴다
 # check_public <이름> <주소> <응답에 있어야 할 패턴(grep -E)> <로그를 남길 서비스...>
 check_public() {

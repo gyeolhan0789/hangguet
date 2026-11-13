@@ -19,12 +19,12 @@ from pipeline import dart, storage
 API = "https://openapi.naver.com/v1/search/news.json"
 DAYS = 30
 # 같은 사건 기준값은 임베딩 모델마다 다르다 (실제 기사 제목 646개, 쌍 약 6만 개로 측정).
-# text-embedding-3-large(GMS): 0.58 이상이면 거의 같은 사건 (2026-10-22)
+# text-embedding-3-large(GMS): 0.58 이상이면 거의 같은 사건
 # bge-m3(로컬 Ollama): 0.65. 로컬로 되돌리면 SAME_EVENT=0.65
 # text-embedding-3-small은 0.50~0.60에서 같은 사건·다른 사건이 섞여 쓰지 않는다
 SAME_EVENT = float(os.environ.get("SAME_EVENT", "0.58"))
 # 회사 이야기가 아닌 기사: 주가·시황, 증권사(현대차증권 등 다른 회사·애널리스트), 광고·이벤트·퀴즈.
-# '코스피'는 뺐다: "코스피200 연계 펀드 출시" 같은 상품 기사까지 버려졌다
+# '코스피'는 넣지 않는다: "코스피200 연계 펀드 출시" 같은 상품 기사까지 버려진다
 _NOISE = re.compile(
     r"주가|목표가|특징주|증시|순매수|순매도|급등|급락|반등|상한가|하한가|52주|시총|\d+%대|\w증권"
     # '↑'만으로는 "전력 효율성↑" 같은 기사도 걸려서 숫자%↑만. 證은 "KB證"처럼 증권사 한자 표기
@@ -112,7 +112,7 @@ def group(vectors: list[list[float]], threshold: float = SAME_EVENT) -> list[int
 
     비슷한 쌍을 모두 이어 붙이면(A~B, B~C → A~C) 크래프톤 91건 중 84건이 한 묶음이 될 만큼
     번져서, 묶음의 첫 기사하고만 비교한다.
-    ponytail: 기사 n건 × 묶음 수만큼 비교(회사당 100건 안팎이라 1초 이내). 수천 건이면 pgvector로.
+    기사 n건 × 묶음 수만큼 비교한다(회사당 100건 안팎이라 1초 이내). 수천 건이면 pgvector로 바꾼다.
     """
     leaders: list[list[float]] = []
     groups = []

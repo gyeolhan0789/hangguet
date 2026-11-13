@@ -10,7 +10,7 @@ prometheus.scrape "role" {
   forward_to      = [prometheus.remote_write.main.receiver]
 }
 
-// 인스턴스 CPU · 메모리 · 디스크. 확장 기준(CPU 40%)과 대당 부하를 Grafana에서 instance_id별로 본다(11/07)
+// 인스턴스 CPU · 메모리 · 디스크. 확장 기준(CPU 40%)과 대당 부하를 Grafana에서 instance_id별로 본다
 // 컨테이너 안에서 돌므로 호스트의 /proc · /sys · /를 /host/* 로 읽는다(bootstrap.sh start_alloy가 마운트한다)
 prometheus.exporter.unix "host" {
   set_collectors = ["cpu", "loadavg", "meminfo", "filesystem"]
@@ -20,7 +20,7 @@ prometheus.exporter.unix "host" {
 }
 
 // job은 메인 서버 node-exporter(a301-node)와 다르게 둔다. 같으면 메인 서버 CPU 패널에 인스턴스 값이 섞인다
-// exporter 대상에는 job="integrations/unix"가 미리 붙어 있어 scrape의 job_name이 무시된다(11/07 운영에서 확인). 여기서 덮어쓴다
+// exporter 대상에는 job="integrations/unix"가 미리 붙어 있어 scrape의 job_name이 무시된다. 여기서 덮어쓴다
 discovery.relabel "host" {
   targets = prometheus.exporter.unix.host.targets
 
@@ -72,7 +72,7 @@ discovery.relabel "role" {
   }
 
   // service는 메인 서버 compose의 서비스 이름(a301-prod-ai-agent · a301-prod-egress)과 같게 둔다. 로그 대시보드가 이 이름으로 찾는다.
-  // 컨테이너 이름(a301-ai-agent)을 그대로 쓰면 ASG로 옮긴 뒤 대시보드의 에이전트 로그 패널이 비었다(11/07)
+  // 컨테이너 이름(a301-ai-agent)을 그대로 쓰면 대시보드의 에이전트 로그 패널이 비어 보인다
   rule {
     target_label = "service"
     replacement  = "@@SERVICE@@"

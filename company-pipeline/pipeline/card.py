@@ -13,13 +13,13 @@ from pipeline.verify import normalize
 
 PROMPT_VERSION = "card-v11"
 INPUT_LIMIT = 6000
-NEWS_EVENTS = 12  # 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개부터 반복 오류가 났다
+# 최근 이슈 입력에 넣는 사건 묶음 수 (큰 것부터). 16개 이상이면 모델이 같은 말을 반복한다
+NEWS_EVENTS = 12
 MAX_OUTPUT_TOKENS = 1500
 REASONING_TOKENS = 2000  # gpt-5 계열 추론 몫
 
-# card-v1은 '사업의 개요' + '기타 참고사항' 앞부분만 넣어서, 회사 계획 문장(보통 2만~3만 자 뒤
-# 사업부문별 현황)이 빠지고 시장 전망·ESG 문장이 방향으로 뽑혔다. 그래서 '사업의 내용' 전체에서
-# 계획·강화 표현이 있는 문장만 후보로 골라 넣는다.
+# 회사 계획 문장은 '사업의 내용' 뒤쪽(보통 2만~3만 자 뒤 사업부문별 현황)에 있어서, '사업의 내용'
+# 전체에서 계획·강화 표현이 있는 문장만 후보로 골라 넣는다.
 _PLAN = re.compile(
     r"계획|예정|나갈 것|목표로|추진|주력|집중|모색|도모|선도|(강화|확대|확장)(하고|해|할)"
 )
@@ -29,21 +29,17 @@ _SKIP = re.compile(
     r"|인증|정보보호|리스크|위험|환율|통화|금리|차입|이자|대손|보안"
 )
 
-# 인재상은 card-v5부터 사업 방향과 따로 부른다(사업보고서 문장 6000자에 묻혀서).
-# card-v4~v8은 개수 제한(1~3개, 7개), 원칙 합치기·쪼개기, 제목 중복,
-# 계층형 원문(현대자동차 분류 5개 > 세부 10개)에서 분류와 세부를 섞는 문제가 이어졌다.
-# card-v9부터 원문 구조를 그대로 옮기는 추출기로
-# 바꿨다: title(항목명 원문 그대로)·parent(상위 범주)·details(설명 원문 구절)를 받아 셋 다 원문과
-# 대조한다. 63곳 시험(2026-10-29, gpt-5.6-terra)에서 원문에 없는 값 0개, 같은 원문은 같은 구조였다.
-# 프롬프트가 길어 파일로 둔다
+# 인재상은 사업 방향과 따로 부른다(사업보고서 문장 6000자에 묻혀서).
+# 원문 구조를 그대로 옮기는 추출기다: title(항목명 원문 그대로)·parent(상위 범주)·
+# details(설명 원문 구절)를 받아 셋 다 원문과 대조한다. 프롬프트가 길어 파일로 둔다
 TALENT_SYSTEM = (Path(__file__).parent / "talent_prompt.txt").read_text(encoding="utf-8")
 
 
 def talent_model() -> str:
     """인재상만 다른 모델로 부른다(TALENT_LLM_MODEL, 비우면 LLM_MODEL).
 
-    계층형 원문의 상위·하위 구분을 gpt-4.1-mini는 지키지 못했다(현대자동차 15개, 한화시스템 분류
-    중복). 인재상은 카드 전체를 만들 때만 회사당 한 번 불러서 강한 모델을 써도 부담이 작다.
+    계층형 원문의 상위·하위 구분은 작은 모델(gpt-4.1-mini 등)이 지키지 못한다.
+    인재상은 카드 전체를 만들 때만 회사당 한 번 불러서 강한 모델을 써도 부담이 작다.
     """
     return os.environ.get("TALENT_LLM_MODEL") or os.environ.get("LLM_MODEL", "")
 
@@ -60,8 +56,8 @@ DIRECTION_SYSTEM = (
 )
 
 
-# 경쟁·시장: 회사의 시장 위치, 주요 고객, 경쟁 요소. 한 번에 넣으면 입력이 1만 자를 넘어
-# 로컬 모델 문맥(10240 토큰)에 빠듯해서 따로 호출한다
+# 경쟁·시장: 회사의 시장 위치, 주요 고객, 경쟁 요소. 사업 방향과 한 번에 넣으면 입력이 1만 자를
+# 넘어서 따로 호출한다
 _MARKET = re.compile(
     r"점유율|경쟁사|경쟁 ?우위|경쟁 ?요소|경쟁력|시장 ?지위|선두|1위|주요 ?고객|매출처|거래처"
 )
@@ -109,7 +105,7 @@ def build_market_messages(name: str, market_text: str) -> list[dict[str, str]]:
 
 
 # 최근 이슈: news.py가 규칙으로 거르고 같은 사건끼리 묶은(group) 기사에서 묶음마다 1건만 넣는다.
-# 8B 모델에 '같은 사건은 하나만'이라고 시키면 지키지 못해서 묶기는 임베딩으로 했다.
+# 모델에 '같은 사건은 하나만'이라고 시키면 지키지 못해서 묶기는 임베딩으로 한다.
 # 남은 주가·연예·일정 기사를 빼는 판단은 모델에 맡긴다
 RECENT_SYSTEM = (
     "너는 회사 자료를 면접 준비용 카드로 요약한다. 주어진 원문에 없는 내용은 쓰지 않는다.\n"
@@ -126,8 +122,8 @@ RECENT_SYSTEM = (
 def news_input(articles: list[dict[str, Any]]) -> str:
     """같은 사건 묶음마다 최신 기사 1건: '[날짜 · 기사 N건] 제목' 줄과 요약 줄.
 
-    큰 묶음부터 NEWS_EVENTS개까지만 넣는다. 카카오 기사가 32묶음으로 쌓이자 6000자에서 기사
-    중간이 잘린 입력에 모델이 같은 말을 반복하다 멈췄다("token repeat limit", 2026-10-22).
+    큰 묶음부터 NEWS_EVENTS개까지만 넣는다. 묶음이 많으면 기사 중간이 잘린 입력에 모델이 같은 말을
+    반복하다 멈춘다.
     """
     sizes = Counter(a.get("group") for a in articles)
     firsts = {a.get("group", n): a for n, a in reversed(list(enumerate(articles)))}.values()
@@ -178,7 +174,7 @@ def call_llm(messages: list[dict[str, str]], model: str | None = None) -> dict[s
         "messages": messages,
         "response_format": {"type": "json_object"},
         "temperature": 0,
-        # 모델이 같은 말을 끝없이 반복하면 5분 시간 초과까지 기다렸다(카카오, 2026-10-22).
+        # 모델이 같은 말을 끝없이 반복하면 5분 시간 초과까지 기다리게 된다.
         # 카드 응답은 길어야 수백 토큰이라 넘으면 바로 끊는다(잘린 JSON은 파싱 오류로 실패)
         "max_tokens": MAX_OUTPUT_TOKENS,
     }
