@@ -24,6 +24,11 @@ import {
   answerSubmitPayload,
   answerSubmitResponseSchema,
   type AnswerStateMessage,
+  groupAnswerStateSchema,
+  groupQuestionMessageSchema,
+  groupReactionMessageSchema,
+  roomInfoSchema,
+  type RoomInfoSnapshot,
 } from "@/lib/interview/room-messages";
 import { STT_TOPIC, transcriptSchema } from "@/lib/interview/transcript";
 import type { ListeningActivity } from "@/lib/interviewer/reaction";
@@ -35,6 +40,8 @@ import type { ListeningActivity } from "@/lib/interviewer/reaction";
 // · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · RPC(https://docs.livekit.io/transport/data/rpc/)
 // · API 명세 녹화(화면은 카메라 영상을 H.264로 송출한다) · AI 명세 7장(candidate-video H.264 → mp4)
 // · 사용자 결정(2026-10-27: 카메라 송출이 실패해도 면접은 표시 없이 계속)
+// · API 명세 10.11 그룹 면접방(group): 방 정보(room metadata)로 차례 · 단계 · 마감을 받고, question · reaction은 지금 답변자의
+//   sessionId로 모두에게 온다(질문 순서는 답변자 면접 안의 순서라 답변자가 바뀌면 새 질문으로 본다)
 export type InterviewRoomStatus =
   "idle" | "connecting" | "listening" | "reconnecting" | "failed" | "sttFailed";
 
@@ -89,11 +96,14 @@ export function useInterviewRoom(
   stream: MediaStream | null,
   {
     listenOnly = false,
+    group = false,
     onAnswerState,
     questionSeq,
     onPresentation,
   }: {
     listenOnly?: boolean;
+    /** 그룹 면접방(API 명세 10.11) */
+    group?: boolean;
     onAnswerState?: (message: AnswerStateMessage) => void;
     questionSeq?: number;
     onPresentation?: (value: RoomPresentation | null) => void;
@@ -111,7 +121,11 @@ export function useInterviewRoom(
   const [reaction, setReaction] = useState<ReactionSnapshot | null>(null);
   const [listening, setListening] = useState<ListeningActivity | null>(null);
   const [attitude, setAttitude] = useState<AttitudeSample[]>([]);
-  const closedQuestions = useRef(new Set<number>());
+  const [roomInfo, setRoomInfo] = useState<RoomInfoSnapshot | null>(null);
+  // 마지막으로 잰 BE 시각 − 내 시각. 다시 들어가도 이어 쓴다
+  const clockOffset = useRef(0);
+  // 답을 낸 질문(면접 id:질문 순서). 그룹은 답변자마다 질문 순서가 1부터라 면접 id를 함께 쓴다
+  const closedQuestions = useRef(new Set<string>());
   const pendingSubmissions = useRef(new Map<Room, number>());
   const questionSequence = useRef(questionSeq);
   useEffect(() => {
@@ -162,8 +176,25 @@ export function useInterviewRoom(
     let sttStatus: InterviewRoomStatus = "connecting";
     const retiredStreams = new Set<string>();
     let latestQuestion: QuestionMessage | null = null;
-    const reactionSequences = new Map<number, number>();
+    // 면접(답변자)마다 마지막으로 받은 질문. 그룹은 답변자가 번갈아 바뀌어 늦게 온 지난 메시지를 면접별로 걸러야 한다
+    const lastQuestions = new Map<number, QuestionMessage>();
+    const reactionSequences = new Map<string, number>();
     closedQuestions.current.clear();
+
+    /** 지금 질문(면접 id · 순서). 그룹은 지금 답변자의 질문, 개인은 메시지 · 5.5 중 뒤 순서 */
+    function activeQuestion(): { owner: number; seq: number } | null {
+      if (group)
+        return latestQuestion && { owner: latestQuestion.sessionId, seq: latestQuestion.seq };
+      return {
+        owner: sessionId,
+        seq: Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0),
+      };
+    }
+    /** 내 지금 질문 순서(자막 · 답변 상태 대상). 그룹에서 지금 질문이 내 것이 아니면 0 */
+    function myActiveSeq() {
+      const active = activeQuestion();
+      return active?.owner === sessionId ? active.seq : 0;
+    }
 
     // 면접관(에이전트)이 보낸 RPC만 받는다. 응답은 늘 빈 글이고(에이전트는 응답을 쓰지 않는다), 받아들일지는 아래 함수들이 정한다.
     const fromAgent = (identity: string) => Boolean(room.remoteParticipants.get(identity)?.isAgent);
@@ -172,20 +203,30 @@ export function useInterviewRoom(
     function acceptReaction(payload: string) {
       try {
         if (new TextEncoder().encode(payload).length > 15 * 1024) return;
-        const parsed = reactionMessageSchema.safeParse(JSON.parse(payload));
-        if (!parsed.success || parsed.data.sessionId !== sessionId) return;
+        const parsed = (group ? groupReactionMessageSchema : reactionMessageSchema).safeParse(
+          JSON.parse(payload),
+        );
+        if (!parsed.success) return;
         const message = parsed.data;
-        const active = Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0);
+        // 그룹: 지금 답변자(질문 메시지의 sessionId)의 질문에 대한 리액션만 받는다
         if (
-          message.questionSeq !== active ||
+          group ? message.sessionId !== latestQuestion?.sessionId : message.sessionId !== sessionId
+        )
+          return;
+        const active = activeQuestion();
+        const activeKey = active && questionKey(active.owner, active.seq);
+        if (
+          !active ||
+          !activeKey ||
+          message.questionSeq !== active.seq ||
           latestQuestion?.speech === "started" ||
-          closedQuestions.current.has(active) ||
+          closedQuestions.current.has(activeKey) ||
           pendingSubmissions.current.has(room)
         )
           return;
         if (listenOnly && message.interrupt !== null) return;
-        if (message.seq <= (reactionSequences.get(active) ?? 0)) return;
-        reactionSequences.set(active, message.seq);
+        if (message.seq <= (reactionSequences.get(activeKey) ?? 0)) return;
+        reactionSequences.set(activeKey, message.seq);
         setReaction({ message, receivedAt: performance.now() });
       } catch {
         // 형식이 잘못된 리액션은 면접 진행에 반영하지 않는다.
@@ -195,17 +236,31 @@ export function useInterviewRoom(
     /** 면접관 질문. 앞선 질문이거나, 같은 질문의 말하기 시작이 아닌 소식이 다시 온 것은 버린다 */
     function acceptQuestion(payload: string) {
       try {
-        const parsed = questionMessageSchema.safeParse(JSON.parse(payload));
-        if (!parsed.success || parsed.data.sessionId !== sessionId) return;
+        const parsed = (group ? groupQuestionMessageSchema : questionMessageSchema).safeParse(
+          JSON.parse(payload),
+        );
+        if (!parsed.success || (!group && parsed.data.sessionId !== sessionId)) return;
         const message = parsed.data;
+        // 같은 면접(답변자)의 지난 질문 · 이미 받은 소식은 버린다. 그룹은 답변자가 바뀌면 순서와 상관없이 새 질문이다
+        const last = lastQuestions.get(message.sessionId);
+        const sameAnswerer = latestQuestion?.sessionId === message.sessionId;
+        // 그룹: 지금 답변자가 아닌 사람의 '말하기 끝' 소식은 다음 답변자 차례 뒤에 늦게 온 것이라 버린다
+        if (group && latestQuestion && !sameAnswerer && message.speech !== "started") return;
+        // 그룹: 답변 중 나갔던 사람이 돌아오면 같은 순서로 다시 묻는다(그룹 설계 6.9). 같은 순서의 새 '말하기 시작'은 받는다
+        const reasked =
+          group &&
+          last?.seq === message.seq &&
+          message.speech === "started" &&
+          last.speech !== "started";
         if (
-          latestQuestion &&
-          (message.seq < latestQuestion.seq ||
-            (message.seq === latestQuestion.seq && latestQuestion.speech !== "started"))
+          last &&
+          !reasked &&
+          (message.seq < last.seq || (message.seq === last.seq && last.speech !== "started"))
         )
           return;
+        lastQuestions.set(message.sessionId, message);
         latestQuestion = message;
-        if (message.speech === "started") {
+        if (message.speech === "started" || (group && !sameAnswerer)) {
           // 새 질문(꼬리질문 포함)이면 지난 답변의 인상 점수는 지운다
           setAttitude([]);
           setReaction(null);
@@ -271,6 +326,25 @@ export function useInterviewRoom(
       if (!disposed) setState((previous) => ({ ...previous, status: sttStatus }));
     });
     room.on(RoomEvent.Disconnected, fail);
+
+    // 그룹 면접방 정보(API 명세 10.11). 들어갈 때와 바뀔 때 받고, 가진 차례 번호(turnVersion) 이하는 버린다.
+    // serverTime은 그 정보를 만든 BE 시각이라 바뀐 순간(이벤트)에 받은 것으로만 시계 차이를 잰다. 들어갈 때 방에 있던 정보는
+    // 언제 만든 것인지 몰라(만든 뒤 흐른 시간만큼 남은 시간이 늘어 보인다) 전에 잰 차이(처음이면 0)를 쓴다.
+    let turnVersion = -1;
+    function acceptRoomInfo(metadata: string | undefined, fresh = true) {
+      if (!group || disposed || !metadata) return;
+      try {
+        const parsed = roomInfoSchema.safeParse(JSON.parse(metadata));
+        if (!parsed.success || parsed.data.turnVersion <= turnVersion) return;
+        turnVersion = parsed.data.turnVersion;
+        const measured = Date.parse(parsed.data.serverTime) - Date.now();
+        if (fresh && Number.isFinite(measured)) clockOffset.current = measured;
+        setRoomInfo({ info: parsed.data, offsetMs: clockOffset.current });
+      } catch {
+        // 형식이 틀린 방 정보는 버린다.
+      }
+    }
+    room.on(RoomEvent.RoomMetadataChanged, (metadata) => acceptRoomInfo(metadata));
     let publishedMicrophone: LocalTrack | undefined;
     const keepMicrophoneOn = (muted: LocalTrack) => {
       if (disposed || muted.mediaStreamTrack.readyState !== "live") return;
@@ -310,9 +384,7 @@ export function useInterviewRoom(
           if (retiredStreams.has(snapshot.streamId)) return;
           if (currentStream !== snapshot.streamId) {
             if (currentStream)
-              closedQuestions.current.delete(
-                Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0),
-              );
+              closedQuestions.current.delete(questionKey(sessionId, myActiveSeq()));
             if (currentStream) retiredStreams.add(currentStream);
             currentStream = snapshot.streamId;
             latestText = "";
@@ -323,7 +395,7 @@ export function useInterviewRoom(
           revision = snapshot.revision;
           sttStatus = snapshot.state === "failed" ? "sttFailed" : "listening";
           const caption = (snapshot.confirmedText + snapshot.interimText).trim();
-          const active = Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0);
+          const active = myActiveSeq();
           if (snapshot.state === "failed" || !caption) setListening(null);
           else if (
             !listenOnly &&
@@ -333,7 +405,7 @@ export function useInterviewRoom(
             caption !== latestText &&
             active > 0 &&
             latestQuestion?.speech !== "started" &&
-            !closedQuestions.current.has(active)
+            !closedQuestions.current.has(questionKey(sessionId, active))
           ) {
             setListening({
               questionSeq: active,
@@ -357,15 +429,17 @@ export function useInterviewRoom(
     // 에이전트의 답변 상태(자동 제출 · 제출됨 · 제출 실패 등). 화면이 할 일은 받은 쪽이 정한다.
     function acceptAnswerState(payload: string) {
       try {
-        const parsed = answerStateSchema.safeParse(JSON.parse(payload));
+        const parsed = (group ? groupAnswerStateSchema : answerStateSchema).safeParse(
+          JSON.parse(payload),
+        );
         if (!disposed && parsed.success && parsed.data.sessionId === sessionId) {
-          if (parsed.data.seq === Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0))
-            setListening(null);
+          const current = parsed.data.seq === myActiveSeq();
+          if (current) setListening(null);
           if (
-            parsed.data.seq === Math.max(latestQuestion?.seq ?? 0, questionSequence.current ?? 0) &&
+            current &&
             ["autoSubmitted", "submitted", "submitFailed"].includes(parsed.data.state)
           ) {
-            closedQuestions.current.add(parsed.data.seq);
+            closedQuestions.current.add(questionKey(sessionId, parsed.data.seq));
             setReaction(null);
             setListening(null);
           }
@@ -389,6 +463,7 @@ export function useInterviewRoom(
         setReaction(null);
         setListening(null);
         setQuestion(null);
+        setRoomInfo(null);
         if (!access.ok || track?.readyState === "ended") {
           fail();
           return;
@@ -399,6 +474,7 @@ export function useInterviewRoom(
           return;
         }
         connected.current = room;
+        acceptRoomInfo(room.metadata, false);
         // 채팅은 송출하지 않는다(웹 Swagger 5.4). 들어가면 면접관 음성을 듣는 중이다(STT 메시지는 오지 않는다).
         if (!track) {
           sttStatus = "listening";
@@ -443,7 +519,7 @@ export function useInterviewRoom(
       // 마이크 소유자는 기존 useInterviewMedia다. SDK가 원본 트랙을 중지하지 않게 한다.
       void room.disconnect(false);
     };
-  }, [sessionId, hasMicrophone, camera, listenOnly, attempt]);
+  }, [sessionId, hasMicrophone, camera, listenOnly, group, attempt]);
 
   // [답변 완료]를 에이전트에 보낸다(answer.submit). 방에 들어가 있지 않거나 에이전트가 없으면 보내지 못한다.
   const submitAnswer = useCallback(
@@ -462,7 +538,7 @@ export function useInterviewRoom(
         });
         if (connected.current !== room) return "failed";
         if (!accepted(response)) return "rejected";
-        closedQuestions.current.add(seq);
+        closedQuestions.current.add(questionKey(sessionId, seq));
         setReaction(null);
         setListening(null);
         return "accepted";
@@ -538,6 +614,7 @@ export function useInterviewRoom(
     question,
     reaction,
     attitude,
+    roomInfo,
     retry,
     submitAnswer,
     sendChatInput,
@@ -578,4 +655,9 @@ async function publishCamera(room: Room, camera: MediaStreamTrack) {
   } catch {
     // 카메라 송출 실패는 면접 진행에 영향을 주지 않는다.
   }
+}
+
+/** 답을 낸 질문 · 리액션 순서를 기억하는 키(면접 id:질문 순서) */
+function questionKey(owner: number, seq: number) {
+  return `${owner}:${seq}`;
 }

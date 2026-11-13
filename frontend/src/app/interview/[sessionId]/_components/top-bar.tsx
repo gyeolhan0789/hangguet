@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ProgressBar } from "@/components/progress-bar";
 import { useOnline } from "@/components/use-online";
@@ -34,12 +34,15 @@ export function TopBar({
   session,
   question,
   uiHidden = false,
+  center,
 }: Readonly<{
   session: SessionResponse;
   /** 화면 숨기기(눈 버튼) 중: [면접 종료]만 남긴다(사용자 요청 2026-10-27) */
   uiHidden?: boolean;
   /** 5.5 지금 질문. 다음 질문을 기다리는 중이면 null */
   question: CurrentQuestion | null;
+  /** 가운데 진행 알약 안 내용. 그룹 면접방은 '질문 n / 5' · 경과 시간 대신 차례 · 남은 시간을 둔다(사용자 결정 2026-11-12) */
+  center?: ReactNode;
 }>) {
   const openEnd = useInterviewStore((state) => state.openEnd);
   const online = useOnline();
@@ -72,12 +75,16 @@ export function TopBar({
       <div
         className={`${pill} order-last h-11 w-full justify-center gap-3.5 px-[18px] md:absolute md:top-5 md:left-1/2 md:order-none md:w-[360px] md:-translate-x-1/2 ${uiHidden ? "invisible" : ""}`}
       >
-        <ProgressPill seq={seq} />
-        <Elapsed
-          seconds={session.elapsedSeconds}
-          // 연결이 끊긴 동안은 멈춘다(웹 Swagger elapsedSeconds: 연결이 끊겨 멈춘 시간은 빠진다).
-          running={session.status === "IN_PROGRESS" && online}
-        />
+        {center ?? (
+          <>
+            <ProgressPill seq={seq} />
+            <Elapsed
+              seconds={session.elapsedSeconds}
+              // 연결이 끊긴 동안은 멈춘다(웹 Swagger elapsedSeconds: 연결이 끊겨 멈춘 시간은 빠진다).
+              running={session.status === "IN_PROGRESS" && online}
+            />
+          </>
+        )}
       </div>
 
       <button

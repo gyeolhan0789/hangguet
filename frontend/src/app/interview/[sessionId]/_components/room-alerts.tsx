@@ -193,6 +193,31 @@ export function PausedModal({
   );
 }
 
+/**
+ * 그룹 면접이 면접관 장애로 끝났을 때(API 명세 10.11 endReason AI_FAILURE: 면접관 연결이 끊겨 면접을 마쳤다고 안내한다
+ * · 그룹 설계 6.11-5 문구 '면접관 연결이 끊겨 면접을 마쳤습니다'). 본문은 두지 않는다(사용자 결정 2026-11-13, 빈칸 기본안).
+ * [확인] → 다시 그려 결과 분석(또는 홈)으로 넘어간다.
+ */
+export function GroupAiFailureModal({
+  open,
+  onConfirm,
+}: Readonly<{ open: boolean; onConfirm: () => void }>) {
+  return (
+    <RoomModal
+      open={open}
+      icon={<Image src="/interview/icon-wifi-off.svg" alt="" width={28} height={28} />}
+      title="면접관 연결이 끊겨 면접을 마쳤습니다"
+      buttons={
+        <button type="button" onClick={onConfirm} className={primaryButton} autoFocus>
+          확인
+        </button>
+      }
+    >
+      {null}
+    </RoomModal>
+  );
+}
+
 /** S06-F2 면접관을 연결하지 못했어요(5.2 START_FAILED): [나가기] → 홈 · [다시 시작] → 5.4 */
 export function StartFailedModal({
   open,
