@@ -1753,7 +1753,7 @@ describe("InterviewRoom · 면접 화면", () => {
 
   describe("화면 숨기기", () => {
     describe("화면 표시", () => {
-      it("화상에서 화면을 숨기면 내 카메라 · 면접 태도 · 질문 · 내 답변 · 마이크 안내를 숨긴다", () => {
+      it("화상에서 화면을 숨기면 내 카메라 · 인상 점수 · 질문 · 내 답변 · 마이크 안내를 숨긴다", () => {
         media.level = motionValue(0);
         render(view());
         advance(SILENT_TOAST_MS);
@@ -1761,7 +1761,7 @@ describe("InterviewRoom · 면접 화면", () => {
         fireEvent.click(screen.getByRole("button", { name: "화면 숨기기" }));
 
         expect(hiddenBox(screen.getByText("나", { exact: true }))).not.toBeNull();
-        expect(hiddenBox(screen.getByRole("region", { name: "면접 태도" }))).not.toBeNull();
+        expect(hiddenBox(screen.getByRole("region", { name: "인상 점수" }))).not.toBeNull();
         expect(hiddenBox(screen.getByRole("region", { name: "악마 면접관 질문" }))).not.toBeNull();
         expect(hiddenBox(caption())).not.toBeNull();
         expect(hiddenBox(screen.getByText(MIC_TOAST))).not.toBeNull();
@@ -1778,12 +1778,12 @@ describe("InterviewRoom · 면접 화면", () => {
     });
   });
 
-  describe("면접 태도", () => {
+  describe("인상 점수", () => {
     describe("화면 표시", () => {
-      it("채팅이면 카메라로 재는 면접 태도를 그리지 않는다", () => {
+      it("채팅이면 카메라로 재는 인상 점수를 그리지 않는다", () => {
         render(chatView());
 
-        expect(screen.queryByRole("region", { name: "면접 태도" })).toBeNull();
+        expect(screen.queryByRole("region", { name: "인상 점수" })).toBeNull();
       });
     });
   });

@@ -44,7 +44,7 @@ export interface RoomPresentation {
   listening: ListeningActivity | null;
 }
 
-/** 면접 태도 그래프에 남기는 기간. 이보다 오래된 점수는 버린다(사용자 결정 2026-11-12: 최근 30초 추이) */
+/** 인상 점수 그래프에 남기는 기간. 이보다 오래된 점수는 버린다(사용자 결정 2026-11-12: 최근 30초 추이) */
 const ATTITUDE_HISTORY_MS = 30_000;
 
 /** 최근 30초 점수만 남긴다. 점수는 바뀔 때만 오므로 30초 전에 받은 마지막 점수는 그때까지 이어진 값이라, 30초 경계로 옮겨 남긴다 */
@@ -206,7 +206,7 @@ export function useInterviewRoom(
           return;
         latestQuestion = message;
         if (message.speech === "started") {
-          // 새 질문(꼬리질문 포함)이면 지난 답변의 면접 태도는 지운다
+          // 새 질문(꼬리질문 포함)이면 지난 답변의 인상 점수는 지운다
           setAttitude([]);
           setReaction(null);
           setListening(null);
@@ -227,7 +227,7 @@ export function useInterviewRoom(
       return "";
     });
 
-    /** 면접 태도 점수(AI 명세 6.3 interview.attitude). 화상 답변 중에만 오고, 질문을 말하는 동안 늦게 온 것은 버린다 */
+    /** 인상 점수(AI 명세 6.3 interview.attitude). 화상 답변 중에만 오고, 질문을 말하는 동안 늦게 온 것은 버린다 */
     function acceptAttitude(payload: string) {
       try {
         const parsed = attitudeMessageSchema.safeParse(JSON.parse(payload));

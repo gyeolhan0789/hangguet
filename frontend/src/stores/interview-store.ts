@@ -24,7 +24,7 @@ interface InterviewState {
   /** 오리 면접관이 감탄한(답변 제출이 시작된) 시각(performance.now). 면접관 장면이 놀람 동작을 한다. 없으면 null */
   exclaimedAt: number | null;
   exclaim: () => void;
-  /** 면접 태도 타일을 펼쳤다. 처음에는 접혀 있다(사용자 결정 2026-11-12) */
+  /** 인상 점수 타일을 펼쳤다. 처음에는 접혀 있다(사용자 결정 2026-11-12) */
   attitudeOpen: boolean;
   setAttitudeOpen: (open: boolean) => void;
   openEnd: () => void;

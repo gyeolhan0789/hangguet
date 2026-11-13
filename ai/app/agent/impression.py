@@ -197,7 +197,7 @@ class ImpressionRecorder:
     def start(self, on_judged: Callable[[tuple[TimedImpression, ...]], None] | None = None) -> None:
         """답변을 듣기 시작한다. 이전 답변에서 남은 판단은 버린다.
 
-        on_judged가 있으면 판단이 올 때마다 지금까지 받은 판단(judged)으로 부른다(면접 태도, 6.3).
+        on_judged가 있으면 판단이 올 때마다 지금까지 받은 판단(judged)으로 부른다(인상 점수, 6.3).
         """
         self._discard()
         self._recording = True

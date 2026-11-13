@@ -1,6 +1,6 @@
 // 기준: 웹 Swagger 5.14 면접방 입장 · 5.4(채팅도 면접방에 들어간다(송출 없이 수신 · 메시지만))
 // · API 명세 면접방 메시지(answer.state 수신 · answer.submit 전송) · AI 명세 6.3(question · reaction · attitude · interview.frame · RPC 오류 2001 · 2002)
-// · 사용자 결정(2026-11-12 면접 태도는 최근 30초 추이)
+// · 사용자 결정(2026-11-12 인상 점수는 최근 30초 추이)
 // · 사용자 승인 STT 표시 계약 · 사용자 결정(2026-10-27 카메라 송출 실패해도 계속 · 2026-11-09 마이크를 다시 받으면 송출 트랙만 바꿈)
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -1148,7 +1148,7 @@ describe("useInterviewRoom · 면접방 연결", () => {
     });
   });
 
-  describe("면접 태도 메시지", () => {
+  describe("인상 점수 메시지", () => {
     describe("정상 처리", () => {
       it("면접관이 보낸 이 면접의 점수를 받은 차례대로 쌓고 얼굴을 확인할 수 없다는 null도 쌓는다", async () => {
         const { result, room } = await join();
@@ -1213,7 +1213,7 @@ describe("useInterviewRoom · 면접방 연결", () => {
         expect(result.current.attitude).toEqual([]);
       });
 
-      it("채팅이면 면접 태도를 받지 않는다", async () => {
+      it("채팅이면 인상 점수를 받지 않는다", async () => {
         const { room } = await join({ listenOnly: true });
 
         expect(room.rpcHandlers.has(ATTITUDE_METHOD)).toBe(false);
