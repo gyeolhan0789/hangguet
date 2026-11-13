@@ -110,6 +110,7 @@ public class AiResultService {
     private final QuestionPoolItemRepository poolItems;
     private final SessionRuntimeService runtimeService;
     private final QuestionPoolAssigner pools;
+    private final QuestionPoolDiscarder discarder;
 
     public AiResultService(
             InterviewSessionRepository sessions,
@@ -129,7 +130,8 @@ public class AiResultService {
             ApplicationClaimRepository applicationClaims,
             QuestionPoolItemRepository poolItems,
             SessionRuntimeService runtimeService,
-            QuestionPoolAssigner pools) {
+            QuestionPoolAssigner pools,
+            QuestionPoolDiscarder discarder) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -148,6 +150,7 @@ public class AiResultService {
         this.poolItems = poolItems;
         this.runtimeService = runtimeService;
         this.pools = pools;
+        this.discarder = discarder;
     }
 
     /**
@@ -250,8 +253,9 @@ public class AiResultService {
                                         modelVersion));
                         return;
                     }
-                    // 개인 면접은 받은 질문을 질문 보관함에 넣고 보관함에서 배정한 질문 5개로 저장한다. 플랜과 같은 트랜잭션이라 같은 결과가 두 번
-                    // 와도 한 번만 들어간다. 주장은 입력으로 보낸 지원서 주장 그대로 돌아온다(AI 명세 2장)
+                    // 개인 면접은 프롬프트 버전이 다른 보관함 질문을 버리고, 받은 질문을 보관함에 넣은 뒤 보관함에서 배정한 질문 5개로 저장한다.
+                    // 플랜과 같은 트랜잭션이라 같은 결과가 두 번 와도 한 번만 들어간다. 주장은 입력으로 보낸 지원서 주장 그대로 돌아온다(AI 명세 2장)
+                    discarder.discardOtherVersions(session, promptVersion);
                     savePoolItems(session, planQuestions, promptVersion, modelVersion);
                     plans.save(
                             pools.assign(session, claims)
