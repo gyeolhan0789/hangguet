@@ -95,7 +95,7 @@ def test_video_result_contains_only_contract_fields() -> None:
     )
     evaluation = message["evaluation"]
     assert set(evaluation) == {"criteria", "speech", "promptVersion", "modelVersion"}
-    assert evaluation["promptVersion"] == "score-answer-v2"
+    assert evaluation["promptVersion"] == "score-answer-v3"
     assert evaluation["modelVersion"] == "served-model"
     assert evaluation["criteria"]["LOGIC"] == {
         "level": 3,
