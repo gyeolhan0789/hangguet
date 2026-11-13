@@ -629,15 +629,15 @@ def test_company_card_that_is_not_object_is_invalid(card: Any) -> None:
         parse_job(message)
 
 
-@pytest.mark.parametrize("seq", [0, 6, "3", True])
+@pytest.mark.parametrize("seq", [0, 7, "3", True])
 def test_seq_outside_question_range_is_invalid(seq: Any) -> None:
-    """질문은 seq 1~5로 5개다(AI 명세 2장)."""
+    """질문 번호는 개인 면접 1~5, 그룹 면접 1~6이다(AI 명세 1.3·6.7)."""
     message = score(seq=seq)
     with pytest.raises(InvalidJobError, match="seq"):
         parse_job(message)
 
 
-@pytest.mark.parametrize("seq", [1, 5])
+@pytest.mark.parametrize("seq", [1, 5, 6])
 def test_seq_boundaries_are_valid(seq: int) -> None:
     job = parse_job(score(seq=seq))
 
@@ -704,7 +704,7 @@ def test_evaluate_with_empty_claims_is_valid() -> None:
     ("override", "path"),
     [
         ({"answerId": 0}, r"answers\[1\]\.answerId"),
-        ({"seq": 6}, r"answers\[1\]\.seq"),
+        ({"seq": 7}, r"answers\[1\]\.seq"),
         ({"question": ""}, r"answers\[1\]\.question"),
         ({"criteria": ...}, r"answers\[1\]\.criteria"),
         ({"content": " "}, r"answers\[1\]\.content"),
@@ -720,6 +720,19 @@ def test_invalid_evaluate_answer_reports_its_position(override: dict[str, Any], 
     message = evaluate(answers=[answer(), second])
     with pytest.raises(InvalidJobError, match=path):
         parse_job(message)
+
+
+def test_evaluate_reads_six_answers_of_group_interview() -> None:
+    """그룹 면접은 답변이 6개일 수 있다(AI 명세 6.7).
+
+    공통 질문 2개, 개인 맞춤 질문 2개, 꼬리질문 2개다.
+    """
+    answers = [answer(answerId=900 + seq, seq=seq) for seq in range(1, 7)]
+
+    job = parse_job(evaluate(answers=answers))
+
+    assert isinstance(job, EvaluateJob)
+    assert [a.seq for a in job.answers] == [1, 2, 3, 4, 5, 6]
 
 
 def test_evaluate_answer_must_be_object() -> None:
