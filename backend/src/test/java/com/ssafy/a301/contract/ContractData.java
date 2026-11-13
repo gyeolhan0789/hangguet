@@ -62,13 +62,14 @@ final class ContractData {
     }
 
     /**
-     * 그룹 면접(10장)은 회원 여럿의 면접을 묶어 회원마다 지우기 전에 먼저 푼다: 그룹의 지금 차례 → 참가자 → 면접의 그룹 → 그룹(방장) 순서.
-     * 방장이 바뀌었어도(대기실 방장 넘김) 상황이 만든 회원끼리의 그룹이라 모두 지워진다.
+     * 그룹 면접(10장)은 회원 여럿의 면접을 묶어 회원마다 지우기 전에 먼저 푼다: 그룹의 지금 차례 → 참가자 → 면접의 그룹 → 그룹(방장) 순서. 방장이
+     * 바뀌었어도(대기실 방장 넘김) 상황이 만든 회원끼리의 그룹이라 모두 지워진다.
      */
     private void deleteGroups(JdbcTemplate jdbc) {
         for (long id : users) {
             jdbc.update(
-                    "UPDATE interview_groups SET turn_session_id = NULL WHERE host_user_id = ?", id);
+                    "UPDATE interview_groups SET turn_session_id = NULL WHERE host_user_id = ?",
+                    id);
             jdbc.update("DELETE FROM interview_group_participants WHERE user_id = ?", id);
             jdbc.update("UPDATE interview_sessions SET group_id = NULL WHERE user_id = ?", id);
         }

@@ -495,9 +495,9 @@ class FrontendContractTest {
 
     /**
      * 그룹 면접(10장). '회원'이 방장인 정원 2명 그룹을 단계(stage)까지 진행한다. WAITING(방장만 · 질문 준비 중) · READY(손님이 들어와 둘 다
-     * 질문 준비를 마치고 준비함) · IN_PROGRESS(10.7로 시작) · ANSWERING(첫 답변자가 질문을 들은 뒤 답하는 중). ANSWERING이면 요청을 보내는
-     * 회원 · 면접을 첫 답변자로 바꾸고(답변 순서는 BE가 무작위로 정한다) 그 질문 id를 돌려준다. nearDeadline이면 남은 답변 시간을 20초로 줄인다:
-     * 답변 마감은 서비스가 언제나 지금부터 2분으로 정해(그룹 설계 2장) 10.8이 받는 30초 이하를 만들 수 없어 마감만 SQL로 당긴다
+     * 질문 준비를 마치고 준비함) · IN_PROGRESS(10.7로 시작) · ANSWERING(첫 답변자가 질문을 들은 뒤 답하는 중). ANSWERING이면 요청을
+     * 보내는 회원 · 면접을 첫 답변자로 바꾸고(답변 순서는 BE가 무작위로 정한다) 그 질문 id를 돌려준다. nearDeadline이면 남은 답변 시간을 20초로
+     * 줄인다: 답변 마감은 서비스가 언제나 지금부터 2분으로 정해(그룹 설계 2장) 10.8이 받는 30초 이하를 만들 수 없어 마감만 SQL로 당긴다
      * (InterviewGroupIntegrationTest와 같다). 에이전트 메시지는 그룹 결과 큐로 받은 것처럼 GroupResultService에 넘긴다.
      */
     @State("그룹")
@@ -584,8 +584,7 @@ class FrontendContractTest {
 
     /** 그룹에 들어올 다른 회원(가입 · 지원서). 만든 회원은 끝나고 지운다 */
     private Guest newGuest() {
-        TokenResponse token =
-                auth.signup(signup("contract-" + UUID.randomUUID() + "@example.com"));
+        TokenResponse token = auth.signup(signup("contract-" + UUID.randomUUID() + "@example.com"));
         long guestId = token.user().id();
         created.users.add(guestId);
         long applicationId =
@@ -623,8 +622,8 @@ class FrontendContractTest {
 
     private long sessionIdOf(long groupId, long memberId) {
         return jdbc.queryForObject(
-                "SELECT session_id FROM interview_group_participants WHERE group_id = ? AND user_id ="
-                        + " ? AND left_at IS NULL",
+                "SELECT session_id FROM interview_group_participants WHERE group_id = ? AND user_id"
+                        + " = ? AND left_at IS NULL",
                 Long.class,
                 groupId,
                 memberId);
