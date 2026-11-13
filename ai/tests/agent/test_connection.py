@@ -10,7 +10,7 @@ from livekit import rtc
 from livekit.agents import AgentServer, AutoSubscribe
 
 from app.agent.answer_capture import CapturedAnswer
-from app.agent.assignment import parse_assignment
+from app.agent.assignment import Assignment, parse_assignment
 from app.agent.jev import JevJudge
 from app.agent.main import (
     RoomCapture,
@@ -448,7 +448,7 @@ def test_be_assignment_is_read_from_job_metadata() -> None:
     ctx = context()
     ctx.job.metadata = ASSIGNMENT_JSON
     assignment = job_assignment(ctx)
-    assert assignment is not None
+    assert isinstance(assignment, Assignment)
     assert assignment.session_id == 55
     assert assignment.current_seq == 1
 
@@ -488,6 +488,7 @@ def test_interview_subscribes_candidate_microphone_only_for_video(
     async def run() -> None:
         ctx = context()
         assignment = parse_assignment(ASSIGNMENT_JSON.replace("VIDEO", mode))
+        assert isinstance(assignment, Assignment)
         mic = Mock(source=rtc.TrackSource.SOURCE_MICROPHONE)
         candidate = Mock(identity="candidate", track_publications={"mic": mic})
         ctx.room.remote_participants = {"candidate": candidate}
@@ -512,6 +513,7 @@ def test_question_speaker_uses_elevenlabs_key_and_result_queue(
     monkeypatch.setenv("ELEVENLABS_API_KEY", "voice-key")
     ctx = context()
     assignment = parse_assignment(ASSIGNMENT_JSON)
+    assert isinstance(assignment, Assignment)
     with (
         patch("app.agent.main.QuestionSpeaker") as speaker,
         patch("app.agent.main.create_publisher_redis") as redis,

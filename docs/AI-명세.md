@@ -636,15 +636,16 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 
 | `phase` | 에이전트가 하는 일 |
 |---|---|
-| `ASKING` | `turn`의 질문을 말한다. `baseIndex` 1 · 3은 `commonQuestions[0]` · `[1]`, 2 · 4는 그 사람의 `personalQuestions[0]` · `[1]`, `FOLLOWUP`은 그 사람에게 만든 꼬리질문이다. `announce`가 `CALL`이면 질문 대신 미리 합성한 호명 문구(**[미정]**)를 말한다. 이때도 `question.started` · `interview.question`의 글 · 채점 기준은 그 공통 질문이고(질문 행 · 화면 표시에 쓴다), `interview.question`의 `alignment`는 실제로 말하는 호명 음성의 발음 시각이다(면접관 입 모양에 쓴다). 음성 첫 소리를 보낼 때 `question.started`, 마지막 소리를 보내거나 합성 · 송출에 실패하면 `question.spoken`을 보낸다. 같은 `(sessionId, seq)`로 다시 오면(답변 중 나갔다 돌아온 사람, [그룹 면접 설계](그룹면접-설계.md) 6.9) 같은 질문을 다시 말하고 `question.started`부터 다시 보낸다. 꼬리질문은 다시 묻지 않는다(답변 중 나가면 BE가 닫는다) |
+| `ASKING` | `turn`의 질문을 말한다. `baseIndex` 1 · 3은 `commonQuestions[0]` · `[1]`, 2 · 4는 그 사람의 `personalQuestions[0]` · `[1]`, `FOLLOWUP`은 그 사람에게 만든 꼬리질문이다. `announce`가 `CALL`이면 질문 대신 미리 합성한 호명 문구 「다음 지원자분, 같은 질문에 답변해 주세요.」(면접관 공통)를 말한다. 이때도 `question.started` · `interview.question`의 글 · 채점 기준은 그 공통 질문이고(질문 행 · 화면 표시에 쓴다), `interview.question`의 `alignment`는 실제로 말하는 호명 음성의 발음 시각이다(면접관 입 모양에 쓴다). 음성 첫 소리를 보낼 때 `question.started`, 마지막 소리를 보내거나 합성 · 송출에 실패하면 `question.spoken`을 보낸다. 같은 `(sessionId, seq)`로 다시 오면(답변 중 나갔다 돌아온 사람, [그룹 면접 설계](그룹면접-설계.md) 6.9) 같은 질문을 다시 말하고 `question.started`부터 다시 보낸다. 꼬리질문은 다시 묻지 않는다(답변 중 나가면 BE가 닫는다) |
 | `SPEAKING` | 질문 음성을 계속 보낸다(BE가 `question.started`를 받은 뒤의 단계) |
-| `ANSWERING` | `turn.sessionId`의 마이크 트랙**만** 구독해 STT에 넘긴다(이전 답변자 구독은 끊는다). 리액션 · 인상 판단은 6.3 · 6.4 · 6.6과 같다. 화상은 7초 침묵 · `answer.submit` · `deadlineAt` 도달 중 먼저 오는 것으로 답변을 끝내 `answer.completed`를 보낸다. `deadlineAt`까지 한마디도 안 했으면 보내지 않는다(BE가 닫는다). 채팅은 답변을 받지 않는다(BE가 5.7 · 마감으로 확정) |
+| `ANSWERING` | `turn.sessionId`의 마이크 트랙**만** 구독해 STT에 넘긴다(이전 답변자 구독은 끊는다). 리액션 · 인상 판단은 6.3 · 6.4 · 6.6과 같다. 화상은 7초 침묵 · `answer.submit` · `deadlineAt` 도달 중 먼저 오는 것으로 답변을 끝내 `answer.completed`를 보낸다. `deadlineAt`에 끝내면 7초 침묵과 같이 `answer.state`(`autoSubmitted`)를 보낸다. `deadlineAt`까지 한마디도 안 했으면 보내지 않는다(BE가 닫는다). 채팅은 답변을 받지 않는다(BE가 5.7 · 마감으로 확정) |
 | `DECIDING` | BE가 최종 답변을 저장했다는 뜻이다. 그 답변으로 꼬리질문이 필요한지 **한 번만** 판단해 `followup.decided`를 보낸다(아래) |
 | `WAITING` | 아무것도 하지 않는다 |
 
 - `participants[].state`가 `ENDED`가 된 사람은 구독 · 보관한 꼬리질문을 정리한다. `groupStatus`가 `ENDED`면 면접을 정리한다(BE가 곧 방을 지운다)
 - 답변 중 지원자가 방을 나가면 6.5처럼 그 답변을 버린다. 다음 차례는 BE가 정한다
 - 6.2의 60초 무응답 안내(`timedOut`)는 보내지 않는다. 답변 시간(화상 2분 · 채팅 5분)이 대신한다
+- 6.5의 `room.closed`는 보내지 않는다. BE가 그룹의 이탈 · 종료를 웹훅과 서버 확인으로 직접 처리한다
 - BE가 기다리는 시간(BE 설정, 임시 값): `ASKING`을 정하고 20초 안에 `question.started`가 오지 않으면 방 정보를 한 번 더 보내고 10초 더 기다린다. 그래도 오지 않으면 AI 정체로 보고, 그룹이 질문을 하나도 내지 않았으면 시작 실패, 냈으면 AI 장애로 면접을 끝낸다. 화상은 `deadlineAt` 뒤 5초까지 `answer.completed`(`TIME_LIMIT`)를 받고, 그 뒤에는 답 없이 질문을 닫는다
 
 **꼬리질문** 2.2와 다르다.
