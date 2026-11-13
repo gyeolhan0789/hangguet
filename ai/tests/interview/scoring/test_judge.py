@@ -24,7 +24,7 @@ def result(content: Mapping[str, Any] | None = None) -> GmsResult:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "score-answer-v2"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "score-answer-v3"
 
 
 def test_prompt_uses_supplied_evidence_without_new_graduate_restriction() -> None:
@@ -123,3 +123,25 @@ def test_prompt_without_stt_gaps_has_no_gap_section() -> None:
     messages = build_judge_messages("질문", "기준", "답변", None)
     assert all("음성 인식" not in m["content"] for m in messages)
     assert all("앞뒤의 말 중단·반복" not in m["content"] for m in messages)
+
+
+# 기준: AI 명세 3장 판정 지침(JOB_FIT·LOGIC 단계 설명, 가정 상황 질문 해석)
+@pytest.mark.parametrize(
+    "line",
+    [
+        "- JOB_FIT 3: 질문이 확인하는 역량에 대해 본인이 수행한 구체적 행동과 사용한 방법, "
+        "그 방법을 선택한 이유를 제시해 경험과 직무 요구를 연결한다",
+        "  JOB_FIT 2: 관련 경험과 본인 행동은 제시하지만 "
+        "방법을 선택한 이유나 직무 요구와의 연결이 누락되어 있다",
+        "  JOB_FIT 1: 결과·수치나 일반론만 제시하고 본인이 수행한 행동이나 방법이 없다",
+        "- LOGIC 3: 원인(상황) → 조치 → 결과(확인 방법) 순서가 분명하다",
+        "  LOGIC 2: 셋 중 하나가 누락되었거나 서로 연결되지 않는다",
+        "  LOGIC 1: 셋 중 둘 이상이 누락되었거나 결과만 나열한다",
+        "- 가정 상황 질문은 원인을 문제 정의로, 조치를 적용할 방법과 그 이유로, "
+        "결과를 적용 결과를 확인할 방법으로 해석한다",
+    ],
+)
+def test_system_has_level_descriptions(line: str) -> None:
+    system = build_judge_messages("질문", "기준", "답변", None)[0]["content"]
+
+    assert f"{line}\n" in system.split("단계 기준:\n", 1)[1]

@@ -247,7 +247,7 @@ def test_unscored_answer_is_scored_before_cover_letter() -> None:
     assert "자기소개서" not in score.calls[0][1]["content"]
     rescored = messages[-1]["answers"][1]["evaluation"]
     assert rescored["criteria"]["LOGIC"]["score"] == 90
-    assert rescored["promptVersion"] == "score-answer-v2"
+    assert rescored["promptVersion"] == "score-answer-v3"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(결과 생성은 작업의 면접관 기준으로 세부 피드백을 작성)
@@ -394,7 +394,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v2,evaluate-cover-letter-v1,evaluate-feedback-v8" in caplog.text
+    assert "prompt=score-answer-v3,evaluate-cover-letter-v1,evaluate-feedback-v8" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 
