@@ -1,15 +1,18 @@
 // 기준: Figma S05-1 면접 방식 선택(18:2219) · 기획 메모 S05-1([다음] 문구: 화상 '다음: 장치 점검' · 채팅 '면접 시작')
 // · Swagger 5.1 면접 만들기(Idempotency-Key: 같은 키 · 같은 본문이면 처음 결과를 그대로 반환)
+// · Figma [초안] S05-1 함께 보기(488:2510: '친구와 함께 볼래요'를 켜면 [다음: 그룹 만들기] → G02)
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createSession, type SessionActionResult } from "@/lib/interview/actions";
 import { deferred } from "@/test/deferred";
+import { router } from "@/test/next-navigation";
 
 import { ModeForm } from "./mode-form";
 
-// 경계 mock: 서버 액션(5.1) · 연출(motion) · 멱등 키 난수(crypto.randomUUID, 순번으로 고정). 방식 카드(ModeCards)는 진짜로 그린다
+// 경계 mock: 서버 액션(5.1) · 화면 이동(next/navigation) · 연출(motion) · 멱등 키 난수(crypto.randomUUID, 순번으로 고정). 방식 카드(ModeCards)는 진짜로 그린다
 vi.mock("@/lib/interview/actions", () => ({ createSession: vi.fn() }));
+vi.mock("next/navigation", () => import("@/test/next-navigation"));
 vi.mock("motion/react", async (importOriginal) =>
   (await import("@/test/motion")).reducedMotion(importOriginal),
 );
@@ -60,6 +63,34 @@ describe("ModeForm · S05-1 면접 방식 선택", () => {
       choose(/채팅으로 할래요/);
 
       expect(screen.getByRole("button", { name: "면접 시작" })).toBeDefined();
+    });
+  });
+
+  describe("함께 보기", () => {
+    describe("화면 표시", () => {
+      it("'친구와 함께 볼래요'를 켜면 [다음] 문구가 '다음: 그룹 만들기'로 바뀐다", () => {
+        renderForm();
+        choose(/채팅으로 할래요/);
+
+        fireEvent.click(screen.getByRole("switch", { name: "친구와 함께 볼래요" }));
+
+        expect(screen.getByRole("button", { name: "다음: 그룹 만들기" })).toBeDefined();
+      });
+    });
+
+    describe("사용자 조작", () => {
+      it("켜고 [다음]을 누르면 면접을 만들지 않고 고른 지원서 · 면접관 · 방식으로 그룹 만들기로 간다", () => {
+        renderForm();
+        choose(/채팅으로 할래요/);
+        fireEvent.click(screen.getByRole("switch", { name: "친구와 함께 볼래요" }));
+
+        fireEvent.click(screen.getByRole("button", { name: "다음: 그룹 만들기" }));
+
+        expect(router.push).toHaveBeenCalledWith(
+          "/groups/new?applicationId=12&persona=DEVIL&mode=CHAT",
+        );
+        expect(createSession).not.toHaveBeenCalled();
+      });
     });
   });
 
