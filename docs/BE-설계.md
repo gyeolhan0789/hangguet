@@ -162,7 +162,7 @@ com.ssafy.a301
 | `PracticeAlarm` | `practice_alarms` | 1:1 User(PK `user_id`) | 카카오톡 연습 알림(V14). 알림 시각(`alarm_time`, 분 단위, 기본 21:00)은 끈 뒤에도 남고, 켜져 있을 때만 카카오 토큰(액세스 · 리프레시, 암호화)과 만료 시각이 있다(넷이 함께 있거나 함께 없음, CHECK). `last_sent_on`(한국 날짜)으로 하루 한 번만 보낸다. 회원이 탈퇴하면 행을 지운다 |
 | `InterviewSession` | `interview_sessions` | N:1 User, N:1 Application, N:1 CompanyCard(null 가능) | 상태 전이는 엔티티 메서드로만(4장). `company_card_id`(V15)는 면접을 만들 때 지원서 회사명으로 찾은 회사 카드이고 바꾸지 않는다(5.1). 못 찾으면 null. `headline`(30자, V11)은 결과 화면 맨 위 한 줄 총평, `summary`는 성장 리뷰의 다음에 해볼 것(그날 이 면접까지의 누적 요약). V11 전에 끝난 면접은 `headline`이 없다(화면은 그 줄을 그리지 않는다) |
 | `InterviewQuestion` | `interview_questions` | N:1 Session | **질문을 낸 시점에 행 생성** **[결정]**. 낸 시점 = AI 에이전트가 그 질문을 말하기 시작한 때(결과 메시지 `question.started`의 `startedAt`을 `created_at`으로, 엔티티가 직접 정함) **[결정]**. `(session_id, seq)` UNIQUE. `content`·`criteria`·`prompt_version`·`model_version`은 `question.started`로 받은 실제 출제 질문의 값이다. 채점 기준 · 버전 컬럼은 V18에서 더했고, V18 전 행의 `criteria`는 그 면접 플랜의 같은 seq 기준으로 채웠다. 2·4·5번은 꼬리질문이라 플랜과 다를 수 있으므로 채점·결과·다시보기는 플랜이 아니라 이 행의 글과 채점 기준을 사용한다(AI 명세 2.2). 버전은 꼬리질문만 있고 그 밖에는 null |
-| `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 보낸 기록 로그라 면접·답변에 외래키 없음. 큐에 보내면 `published_at` |
+| `AiJob` | `ai_job_outbox` | - | AI 작업 Outbox(5.0). id = 메시지의 `jobId`(UUID). 면접 작업은 `session_id`, 주장 추출(EXTRACT_CLAIMS)은 지원서 단위라 `application_id`만 값이 있다(V31, CHECK). 보낸 기록 로그라 면접·답변·지원서에 외래키 없음. 큐에 보내면 `published_at` |
 | `InterviewPlan` | `interview_plans` | 1:1 Session(PK 공유) | 질문 5개·질문별 채점 기준·질문별 연결 회사 항목·주장(JSONB)·버전. 면접당 한 번 저장하고 변경하지 않는다(`claims`는 `PlanClaim`, 질문은 `PlanQuestion`). 개인 면접은 질문 보관함에서 배정한 질문 5개와 지원서 주장으로, 그룹 면접은 결과 메시지 `plan.completed`의 질문과 주장으로 저장한다(AI 명세 2장). V13 전에 만든 플랜의 `claims` `sentenceNo`는 문항으로 옮기기 전 자기소개서 글 하나로 센 번호라, 옮기며 붙은 질문 줄('자기소개서')만큼 지금 문항 글의 번호와 어긋난다 |
 | `QuestionPoolItem` | `question_pool_items` | N:1 Application | 질문 보관함의 질문 하나(AI 명세 2장). 보관함은 지원서·면접관(`persona`)마다 하나다. `plan.completed`로 수신한 개인 면접 질문의 `content`·`criteria`·`claimId`·`companyItem`과 그 결과의 `promptVersion`·`modelVersion`을 질문마다 한 행으로 저장하고, 같은 결과를 두 번 수신해도 한 번만 저장한다. 그룹 면접의 질문은 저장하지 않는다. 배정 순서를 정하기 위해 저장 순서를 남기고, `question.started`로 실제로 출제한 질문은 사용 처리해 다시 배정하지 않는다. 폐기 기준(연결한 최근 이슈의 기사 날짜 30일 경과, 연결 항목이 최신 카드에 없음, 다른 프롬프트 버전)에 맞는 질문은 폐기한다 |
 | `Answer` | `answers` | 1:1 Question | `question_id` UNIQUE. 점수·피드백은 결과 생성 때 채움. `tokens`(JSONB, 화상 확정 토큰)·`speech`(JSONB, 말끝 흐림·억양 폭, 다시보기 타임라인용 `trailingOffAtMs`·`impressions`)·`started_at`(듣기 시작한 시각, `answerStartedAt`)은 `answer.completed`로 받아 저장(V4 마이그레이션). `evaluation`(JSONB, 채점 판정)은 `answer.scored`(비어 있을 때만)·`evaluation.completed`(확정본)로 받아 저장한다. 덮어쓰기 규칙은 [AI 명세](AI-명세.md) 1.4 |
@@ -215,7 +215,7 @@ com.ssafy.a301
 ## 5. 처리 흐름
 
 ### 5.0 AI 작업 전송 (Outbox) **[결정]**
-1. 업무 트랜잭션 안에서 `AiJobService.enqueue(AiJob.plan/scoreAnswer/evaluate(...))`로 `ai_job_outbox`에 넣는다. 트랜잭션 밖에서 부르면 예외(업무가 롤백되면 작업도 남지 않음)
+1. 업무 트랜잭션 안에서 `AiJobService.enqueue(AiJob.plan/extractClaims/scoreAnswer/evaluate(...))`로 `ai_job_outbox`에 넣는다. 트랜잭션 밖에서 부르면 예외(업무가 롤백되면 작업도 남지 않음)
 2. 커밋 직후 `AiJobPublisher`가 작업 종류에 맞는 Redis 큐(PLAN·EXTRACT_CLAIMS `ai:jobs:plan`, MERGE_RECORDING `ai:jobs:recording`, 그 밖 `ai:jobs`, AI 명세 1.3)에 `LPUSH`하고 `published_at`을 남긴다. 실패해도 업무 응답은 성공이다
 3. 보내지 못한 작업은 5초(`ai-job.republish-interval`)마다 다시 보낸다. 행을 `FOR UPDATE SKIP LOCKED`로 잡아 같은 작업을 동시에 두 번 보내지 않는다
 4. 큐에 넣은 뒤 기록에 실패하면 같은 작업이 한 번 더 갈 수 있다. AI는 같은 작업을 두 번 처리해도 되고, 중복 결과는 BE가 결과 큐 처리에서 거른다([AI 명세](AI-명세.md) 1.4)

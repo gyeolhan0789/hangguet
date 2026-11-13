@@ -42,6 +42,7 @@ class RedisAiJobQueueTest {
     @ParameterizedTest
     @CsvSource({
         "PLAN, ai:jobs:plan",
+        "EXTRACT_CLAIMS, ai:jobs:plan",
         "MERGE_RECORDING, ai:jobs:recording",
         "SCORE_ANSWER, ai:jobs",
         "EVALUATE, ai:jobs",

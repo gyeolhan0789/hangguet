@@ -258,6 +258,17 @@ public interface InterviewSessionRepository extends JpaRepository<InterviewSessi
                     + " where s.id = :id and s.user.id = :userId")
     Optional<InterviewSession> findForUpdate(@Param("id") long id, @Param("userId") long userId);
 
+    /**
+     * 지원서로 만든 개인 면접 중 플랜이 아직 없는 면접의 id. 지원서 주장을 받았을 때 주장을 기다리던 면접을 찾는다(AI 명세 1.4 claims.*). 지금 플랜을
+     * 만드는 중인지는 진행 상태(Redis)로 거른다.
+     */
+    @Query(
+            "select s.id from InterviewSession s where s.application.id = :applicationId"
+                    + " and s.groupId is null"
+                    + " and not exists (select p from InterviewPlan p where p.sessionId = s.id)"
+                    + " order by s.id")
+    List<Long> findPersonalIdsWithoutPlan(@Param("applicationId") long applicationId);
+
     /** AI 결과를 저장할 때 쓴다(회원 요청이 아니라 회원 id가 없음). 요청 처리(5.7·5.8)와 겹쳐도 면접 상태를 한 번에 하나씩 바꾼다. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from InterviewSession s where s.id = :id")

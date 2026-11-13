@@ -1,13 +1,18 @@
 package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
+import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
+import com.ssafy.a301.interview.domain.AiJobType;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerSpeech;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.RecordingSegment;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -39,32 +44,32 @@ public class AiJobMessages {
     private final InterviewPlanRepository plans;
     private final AnswerRepository answers;
     private final InterviewQuestionRepository questions;
+    private final ApplicationRepository applications;
+    private final ApplicationClaimRepository applicationClaims;
 
     public AiJobMessages(
             InterviewSessionRepository sessions,
             InterviewPlanRepository plans,
             AnswerRepository answers,
-            InterviewQuestionRepository questions) {
+            InterviewQuestionRepository questions,
+            ApplicationRepository applications,
+            ApplicationClaimRepository applicationClaims) {
         this.sessions = sessions;
         this.plans = plans;
         this.answers = answers;
         this.questions = questions;
+        this.applications = applications;
+        this.applicationClaims = applicationClaims;
     }
 
-    /** 작업에 쓸 면접·플랜·답변이 없으면 IllegalStateException(보낼 수 없는 작업) */
+    /** 작업에 쓸 지원서·면접·플랜·답변이 없으면 IllegalStateException(보낼 수 없는 작업) */
     public Map<String, Object> of(AiJob job) {
+        if (job.getJobType() == AiJobType.EXTRACT_CLAIMS) {
+            return extractClaims(job);
+        }
         InterviewSession session =
                 sessions.findById(job.getSessionId()).orElseThrow(() -> missing(job, "면접"));
-        Map<String, Object> message = new LinkedHashMap<>();
-        message.put("jobType", job.getJobType().name());
-        message.put("jobId", job.getId().toString());
-        message.put("sessionId", job.getSessionId());
-        // Outbox에 넣은 시각. AI도 최대 대기 시간을 여기부터 센다(AI 명세 1.3·5장)
-        message.put(
-                "requestedAt",
-                job.getCreatedAt()
-                        .atZoneSameInstant(KoreaTime.ZONE)
-                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+        Map<String, Object> message = header(job, "sessionId", job.getSessionId());
         switch (job.getJobType()) {
             case PLAN -> putPlan(message, session);
             case SCORE_ANSWER -> putScoreAnswer(message, job, session);
@@ -75,8 +80,39 @@ public class AiJobMessages {
         return message;
     }
 
+    // 공통 필드(AI 명세 1.3). 주장 추출은 면접이 아니라 지원서 단위라 sessionId 대신 applicationId를 담는다
+    private static Map<String, Object> header(AiJob job, String targetKey, Long targetId) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("jobType", job.getJobType().name());
+        message.put("jobId", job.getId().toString());
+        message.put(targetKey, targetId);
+        // Outbox에 넣은 시각. AI도 최대 대기 시간을 여기부터 센다(AI 명세 1.3·5장)
+        message.put(
+                "requestedAt",
+                job.getCreatedAt()
+                        .atZoneSameInstant(KoreaTime.ZONE)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+        return message;
+    }
+
+    // AI 명세 2장 STEP 01. 주장 추출은 회사명 · 직무 · 자기소개서만 쓴다
+    private Map<String, Object> extractClaims(AiJob job) {
+        Application application =
+                applications
+                        .findById(job.getApplicationId())
+                        .orElseThrow(
+                                () ->
+                                        new IllegalStateException(
+                                                "지원서가 없어 AI 작업을 보낼 수 없다: " + job.getId()));
+        Map<String, Object> message = header(job, "applicationId", job.getApplicationId());
+        message.put("companyName", application.getCompanyName());
+        message.put("jobTitle", application.getJobTitle());
+        message.put("coverLetterItems", coverLetterItems(application));
+        return message;
+    }
+
     // AI 명세 2장
-    private static void putPlan(Map<String, Object> message, InterviewSession session) {
+    private void putPlan(Map<String, Object> message, InterviewSession session) {
         Application application = session.getApplication();
         message.put("companyName", application.getCompanyName());
         message.put("jobTitle", application.getJobTitle());
@@ -89,6 +125,15 @@ public class AiJobMessages {
         // 그룹 면접만 보낸다. 없으면 AI가 5개를 만든다(개인 면접은 지금과 같다)
         if (session.isGroup()) {
             message.put("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
+            return;
+        }
+        // 개인 면접은 저장된 지원서 주장을 담고 AI는 주장을 추출하지 않는다. 주장이 없으면 넣지 않고 AI가 PLAN 안에서 추출한다(AI 명세 2장)
+        List<PlanClaim> claims =
+                applicationClaims.findByApplicationIdOrderById(application.getId()).stream()
+                        .map(ApplicationClaim::toPlanClaim)
+                        .toList();
+        if (!claims.isEmpty()) {
+            message.put("claims", claims);
         }
     }
 

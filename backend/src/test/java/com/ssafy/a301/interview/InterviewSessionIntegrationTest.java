@@ -20,6 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -28,6 +30,7 @@ import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -83,6 +86,7 @@ class InterviewSessionIntegrationTest {
     @Autowired private MockMvc mvc;
     @Autowired private UserRepository users;
     @Autowired private ApplicationRepository applications;
+    @Autowired private ApplicationClaimRepository applicationClaims;
     @Autowired private InterviewSessionRepository sessions;
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private AnswerRepository answers;
@@ -125,6 +129,16 @@ class InterviewSessionIntegrationTest {
             jdbc.update("DELETE FROM speech_metrics WHERE session_id IN (" + sessionsOfUser + ")");
             jdbc.update("DELETE FROM practice_logs WHERE user_id = ?", id);
             jdbc.update("DELETE FROM interview_sessions WHERE user_id = ?", id);
+            String applicationsOfUser = "SELECT id FROM applications WHERE user_id = " + id;
+            for (String table :
+                    List.of("ai_job_outbox", "application_claims", "question_pool_items")) {
+                jdbc.update(
+                        "DELETE FROM "
+                                + table
+                                + " WHERE application_id IN ("
+                                + applicationsOfUser
+                                + ")");
+            }
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
             jdbc.update("DELETE FROM users WHERE id = ?", id);
         }
@@ -170,6 +184,27 @@ class InterviewSessionIntegrationTest {
         mvc.perform(as(user, get("/api/v1/interview-sessions/" + sessionId)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.companyName").value("○○전자"));
+    }
+
+    // 기준: AI 명세 2장 STEP 01 · BE 설계 5.1(주장이 없는 지원서면 질문 생성 대신 주장 추출을 다시 요청한다. 추출 중인지는 따로 관리하지 않는다)
+    @Test
+    void createWithoutClaimsAsksClaimExtractionInsteadOfPlan() throws Exception {
+        long user = newUser();
+        long application = newApplicationWithoutClaims(user, "○○전자");
+
+        long sessionId = create(user, application);
+
+        assertThat(runtimes.find(sessionId))
+                .contains(new SessionRuntime(PlanStatus.GENERATING, 0, null, 0));
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        "EXTRACT_CLAIMS".equals(job.get("jobType"))
+                                                && Long.valueOf(application)
+                                                        .equals(job.get("applicationId"))
+                                                && !job.containsKey("sessionId")));
+        verify(queue, never()).push(argThat(job -> "PLAN".equals(job.get("jobType"))));
     }
 
     // 기준: AI 명세 1.3 persona(오리 면접관 DUCK도 면접을 만들 때 고르고 PLAN에 담는다)
@@ -1113,7 +1148,20 @@ class InterviewSessionIntegrationTest {
         return newApplication(userId, "○○전자");
     }
 
+    // 주장을 추출해 둔 지원서. 개인 면접을 만들면 바로 질문 생성(PLAN)을 요청한다(AI 명세 2장)
     private long newApplication(long userId, String companyName) {
+        long applicationId = newApplicationWithoutClaims(userId, companyName);
+        applicationClaims.saveAndFlush(
+                new ApplicationClaim(
+                        applications.getReferenceById(applicationId),
+                        new PlanClaim("c1", "주장", "EXPERIENCE", 1, List.of("실행·성과")),
+                        "extract-claims-v1",
+                        "model"));
+        return applicationId;
+    }
+
+    // 주장 추출 결과를 아직 받지 못한 지원서
+    private long newApplicationWithoutClaims(long userId, String companyName) {
         return applications
                 .saveAndFlush(
                         new Application(users.getReferenceById(userId), companyName, "백엔드 개발자"))
