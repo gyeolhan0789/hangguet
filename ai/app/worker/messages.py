@@ -35,7 +35,14 @@ from app.common.cover_letter import (
     InvalidCoverLetterError,
     parse_cover_letter_items,
 )
-from app.common.session import MAX_SEQ, MIN_SEQ, InterviewMode, Persona
+from app.common.session import (
+    GROUP_PERSONAL_QUESTION_COUNT,
+    MAX_SEQ,
+    MIN_SEQ,
+    QUESTION_COUNT,
+    InterviewMode,
+    Persona,
+)
 
 log = logging.getLogger(__name__)
 
@@ -157,6 +164,9 @@ class PlanJob(Job):
     # 이미 출제한 질문. 이 질문과 같은 질문은 생성하지 않는다(AI 명세 2장).
     # 없거나 그룹 면접이면 비어 있다
     asked_questions: tuple[AskedQuestion, ...] = ()
+    # 생성할 질문 수(AI 명세 2장 questionCount).
+    # 그룹 면접의 개인 맞춤 질문이면 2, 개인 면접은 필드가 없어 5다
+    question_count: int = QUESTION_COUNT
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -470,6 +480,21 @@ def _asked_questions(data: Mapping[str, Any]) -> tuple[AskedQuestion, ...]:
     return tuple(asked)
 
 
+def _question_count(data: Mapping[str, Any]) -> int:
+    """생성할 질문 수(AI 명세 2장 questionCount). 개인 면접은 필드가 없어 5개다.
+
+    2·5 밖의 값은 질문을 몇 개 생성할지 알 수 없으므로 형식 오류다.
+    """
+    if data.get("questionCount") is None:
+        return QUESTION_COUNT
+    value = _int(data, "questionCount", "")
+    if value not in (QUESTION_COUNT, GROUP_PERSONAL_QUESTION_COUNT):
+        raise InvalidJobError(
+            f"questionCount는 {GROUP_PERSONAL_QUESTION_COUNT} 또는 {QUESTION_COUNT}이어야 한다"
+        )
+    return value
+
+
 def _earlier_summaries(data: Mapping[str, Any]) -> tuple[str, ...]:
     """없으면(이전 BE 메시지) 빈 목록이다. 빈 글은 반영할 내용이 없으므로 뺀다."""
     if data.get("earlierSummaries") is None:
@@ -631,6 +656,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
                 company_card=_company_card(data),
                 claims=_stored_claims(data),
                 asked_questions=_asked_questions(data),
+                question_count=_question_count(data),
             )
         case JobType.SCORE_ANSWER:
             return ScoreAnswerJob(

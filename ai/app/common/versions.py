@@ -66,6 +66,7 @@ REGISTRY = VersionRegistry(
             "plan-v6",
             "plan-v7",
             "plan-v8",
+            "plan-group-v1",
             "extract-claims-v1",
             "score-answer-v1",
             "score-answer-v2",

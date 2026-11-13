@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.gms import Chat
-from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, Persona
+from app.common.session import MIN_SEQ, QUESTION_COUNT, Persona
 from app.interview.company import (
     BUSINESS_TITLE,
     RECENT_TITLE,
@@ -81,20 +81,24 @@ def _guide(persona: Persona) -> str:
     )
 
 
-def question_system(persona: Persona) -> str:
+def question_system(persona: Persona, count: int = QUESTION_COUNT) -> str:
+    """count는 생성할 질문 수다(AI 명세 2장 questionCount).
+
+    그룹 면접은 질문 수와 회사 정보 연결 상한만 다르고 나머지 지침은 개인 면접과 같다.
+    """
     return (
         "너는 지원자의 자기소개서 주장을 검증하는 면접 질문을 생성한다. "
         "주어진 주장에 없는 경험을 전제로 질문하지 않는다.\n"
         f"{_guide(persona)}"
-        f"- questions: 정확히 {QUESTION_COUNT}개, seq는 {MIN_SEQ}부터 {MAX_SEQ}까지 하나씩\n"
+        f"- questions: 정확히 {count}개, seq는 {MIN_SEQ}부터 {MIN_SEQ + count - 1}까지 하나씩\n"
         "- claimId: 주장 목록에 있는 주장의 id만 그대로 작성한다. "
-        f"주장이 {QUESTION_COUNT}개보다 적으면 "
+        f"주장이 {count}개보다 적으면 "
         "같은 주장을 위 기준 중 다른 기준으로 나누어 다시 질문하고, "
         "많으면 검증 가치가 큰 주장을 고른다\n"
         "- content: 지원자에게 묻는 질문 한 문장\n"
         "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
         "- companyItem: 회사 정보가 주어지면 "
-        f"0~{COMPANY_LINKED_MAX}개 질문만 회사 정보와 연결하고, "
+        f"0~{COMPANY_LINKED_MAX[count]}개 질문만 회사 정보와 연결하고, "
         "연결한 질문에는 연결한 회사 항목 번호를 그대로 작성한다. "
         "인재상 항목은 괄호에 적힌 주장과만 연결하고, "
         "회사 항목이 경험과 이어지지 않으면 연결하지 않는다. "
@@ -181,7 +185,7 @@ def build_question_messages(job: PlanJob, claims: Sequence[Claim]) -> list[dict[
         f"{_company(items)}[주장]\n{claims_text(claims)}{_asked(job)}{_units(job, items)}"
     )
     return [
-        {"role": "system", "content": question_system(job.persona)},
+        {"role": "system", "content": question_system(job.persona, job.question_count)},
         {"role": "user", "content": user},
     ]
 
@@ -229,17 +233,20 @@ def request_questions(chat: Chat, job: PlanJob, claims: Sequence[Claim]) -> Ques
     return QuestionSet(parse_questions(result.content), result.model)
 
 
-def check_question_set(questions: Sequence[Question]) -> tuple[Question, ...]:
-    """질문이 정확히 5개이고 seq가 1~5에 하나씩인지 검사하고 seq 순서로 반환한다."""
-    if sorted(q.seq for q in questions) != list(range(MIN_SEQ, MAX_SEQ + 1)):
-        raise PlanOutputError(f"questions는 seq {MIN_SEQ}~{MAX_SEQ}의 {QUESTION_COUNT}개여야 한다")
+def check_question_set(questions: Sequence[Question], count: int) -> tuple[Question, ...]:
+    """질문이 정확히 count개이고 seq가 1~count에 하나씩인지 검사하고 seq 순서로 반환한다."""
+    last = MIN_SEQ + count - 1
+    if sorted(q.seq for q in questions) != list(range(MIN_SEQ, last + 1)):
+        raise PlanOutputError(f"questions는 seq {MIN_SEQ}~{last}의 {count}개여야 한다")
     return tuple(sorted(questions, key=lambda q: q.seq))
 
 
-def check_company_links(questions: Sequence[Question], items: Sequence[CompanyItem]) -> None:
+def check_company_links(
+    questions: Sequence[Question], items: Sequence[CompanyItem], count: int
+) -> None:
     """회사 정보와 연결한 질문 수와 연결한 항목·주장의 짝을 검사한다.
 
-    회사 정보와 연결한 질문은 COMPANY_LINKED_MAX개 이하여야 하고,
+    회사 정보와 연결한 질문은 질문 수(count)별 상한 COMPANY_LINKED_MAX개 이하여야 하고,
     연결한 항목 번호는 후보 항목이어야 한다(카드에 없는 회사 정보를 전제로 묻지 않음).
     인재상 항목은 그 항목의 분류값과 인재상 기준이 같은 주장과만 연결할 수 있다(AI 명세 2장).
     """
@@ -251,8 +258,8 @@ def check_company_links(questions: Sequence[Question], items: Sequence[CompanyIt
             raise PlanOutputError("questions.companyItem이 주어진 회사 항목이 아니다")
         if item.claim_ids is not None and q.claim_id not in item.claim_ids:
             raise PlanOutputError("questions.companyItem이 연결 후보가 아닌 주장과 연결되어 있다")
-    if len(linked) > COMPANY_LINKED_MAX:
-        raise PlanOutputError(f"회사 정보와 연결한 질문은 0~{COMPANY_LINKED_MAX}개여야 한다")
+    if len(linked) > COMPANY_LINKED_MAX[count]:
+        raise PlanOutputError(f"회사 정보와 연결한 질문은 0~{COMPANY_LINKED_MAX[count]}개여야 한다")
 
 
 def regenerate_system(persona: Persona) -> str:
@@ -274,7 +281,7 @@ def build_regenerate_messages(
     """seq번 질문 하나를 다시 생성하는 메시지를 반환한다.
 
     item은 이전 질문에 연결한 회사 항목이고, 다시 생성한 질문도 그 항목과 연결한다.
-    회사 정보와 연결할 질문은 질문 5개를 생성할 때 이미 정했고, 회사 항목을 전달하면
+    회사 정보와 연결할 질문은 질문 전체를 생성할 때 이미 정했고, 회사 항목을 전달하면
     연결하지 않은 질문에 회사 정보가 포함될 수 있으므로 회사 항목을 전달하지 않는다.
     """
     link = f"회사 항목 {item.id}와 연결해 질문한다." if item else "회사 정보와 연결하지 않는다."

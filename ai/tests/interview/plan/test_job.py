@@ -14,6 +14,7 @@ from app.common.results import KST, RESULT_QUEUE_KEY, ResultPublisher, ResultPub
 from app.common.settings import SettingsError, load_settings
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.plan.job import (
+    GROUP_PROMPT_VERSION,
     PLAN_TIMEOUT_SECONDS,
     PROMPT_VERSION,
     PlanJobHandler,
@@ -421,6 +422,20 @@ def test_registered_as_plan_handler() -> None:
 
 def test_prompt_version_is_registered() -> None:
     assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "plan-v8"
+    assert REGISTRY.require(VersionKind.PROMPT, GROUP_PROMPT_VERSION) == "plan-group-v1"
+
+
+def test_group_plan_has_two_questions_and_group_prompt_version() -> None:
+    """그룹 면접(questionCount 2)은 질문 2개를 담고 그룹 프롬프트 버전을 기록한다(AI 명세 2장)."""
+    two = {"questions": [question(seq) for seq in (1, 2)]}
+    run, redis = make(FakeChat([CLAIMS, two]))
+
+    run(replace(JOB, question_count=2))
+
+    completed = pushed(redis)[-1]
+    assert completed["type"] == "plan.completed"
+    assert [q["seq"] for q in completed["questions"]] == [1, 2]
+    assert completed["promptVersion"] == "plan-group-v1"
 
 
 def test_plan_chat_checks_gms_settings_on_call() -> None:

@@ -232,6 +232,21 @@ def test_wrong_asked_questions_are_invalid(asked: Any) -> None:
         parse_job(plan(askedQuestions=asked))
 
 
+# 기준: AI 명세 2장 questionCount(그룹 면접의 개인 맞춤 질문이면 2, 없으면 5)
+@pytest.mark.parametrize(("value", "expected"), [(..., 5), (None, 5), (2, 2), (5, 5)])
+def test_reads_question_count_of_plan_job(value: Any, expected: int) -> None:
+    job = parse_job(plan(questionCount=value))
+
+    assert isinstance(job, PlanJob)
+    assert job.question_count == expected
+
+
+@pytest.mark.parametrize("value", [0, 1, 3, 6, "2", 2.0, True])
+def test_other_question_count_is_invalid(value: Any) -> None:
+    with pytest.raises(InvalidJobError, match="questionCount"):
+        parse_job(plan(questionCount=value))
+
+
 def test_parses_extract_claims_job() -> None:
     assert parse_job(json.dumps(extract())) == ExtractClaimsJob(
         job_id=JOB_ID,
