@@ -31,7 +31,7 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, "followup-v1") == "followup-v1"
+    assert REGISTRY.require(VersionKind.PROMPT, "followup-v2") == "followup-v2"
 
 
 def test_generated_questions_carry_prompt_and_response_model_versions() -> None:
@@ -48,16 +48,31 @@ def test_generated_questions_carry_prompt_and_response_model_versions() -> None:
 
     assert questions == (
         AssignedQuestion(
-            "어떤 지표로 원인을 찾았나요?", "지표 근거", "followup-v1", "gpt-5.6-terra-2026-01-01"
+            "어떤 지표로 원인을 찾았나요?", "지표 근거", "followup-v2", "gpt-5.6-terra-2026-01-01"
         ),
         AssignedQuestion(
-            "다른 방법은 검토했나요?", "대안 비교", "followup-v1", "gpt-5.6-terra-2026-01-01"
+            "다른 방법은 검토했나요?", "대안 비교", "followup-v2", "gpt-5.6-terra-2026-01-01"
         ),
     )
     [messages] = chat.messages
     assert BASE.content in messages[1]["content"]
     assert BASE.criteria in messages[1]["content"]
     assert "답변 글" in messages[1]["content"]
+    assert "[직전 질문과 연결한 회사 정보]" not in messages[1]["content"]
+
+
+def test_previous_question_company_item_is_sent() -> None:
+    """직전 기본 질문의 연결 회사 항목을 꼬리질문 생성 입력에 포함한다(AI 명세 2.2)."""
+    item = {"section": "market", "summary": "간편결제 점유율 1위"}
+    base = AssignedQuestion(BASE.content, BASE.criteria, company_item=item)
+    chat = FakeChat({"questions": [{"content": "질문", "criteria": "기준"}]})
+
+    asyncio.run(GmsFollowups(chat).generate(Persona.DUCK, base, "답변", 1))
+
+    [messages] = chat.messages
+    assert messages[1]["content"].endswith(
+        "[직전 질문과 연결한 회사 정보]\n시장: 간편결제 점유율 1위"
+    )
 
 
 @pytest.mark.parametrize(

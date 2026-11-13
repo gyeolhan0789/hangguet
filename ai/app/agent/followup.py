@@ -50,7 +50,9 @@ class GmsFollowups:
 
         생성하지 못하면 FollowupError를 발생시킨다.
         """
-        messages = followup_messages(persona, question.content, question.criteria, answer, count)
+        messages = followup_messages(
+            persona, question.content, question.criteria, answer, count, question.company_item
+        )
         started = time.monotonic()
         try:
             result = await asyncio.to_thread(self._chat, messages)

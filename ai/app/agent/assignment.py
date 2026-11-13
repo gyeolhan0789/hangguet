@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, InterviewMode, Persona
 
@@ -32,6 +33,9 @@ class AssignedQuestion:
     # AI 명세 6.2: 꼬리질문이면 생성한 프롬프트·모델 버전이고, 미리 만든 질문이면 None이다
     prompt_version: str | None = None
     model_version: str | None = None
+    # AI 명세 6.1: 질문을 연결한 회사 항목(companyItem)이다.
+    # 연결하지 않은 질문과 꼬리질문은 None이다
+    company_item: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,7 @@ def parse_assignment(metadata: str) -> Assignment:
         questions[seq] = AssignedQuestion(
             content=_required(item.get("content"), f"{seq}번 질문 글"),
             criteria=_required(item.get("criteria"), f"{seq}번 채점 기준"),
+            company_item=_company_item(item.get("companyItem"), seq),
         )
     return Assignment(
         session_id=_positive(raw.get("sessionId"), "sessionId"),
@@ -110,6 +115,16 @@ def _required(value: object, name: str) -> str:
     # 같은 기준으로 검사한다
     if not isinstance(value, str) or not value.strip():
         raise AssignmentError(f"배정 정보의 {name}이 비어 있다")
+    return value
+
+
+def _company_item(value: object, seq: int) -> Mapping[str, Any] | None:
+    # 필드가 없으면 null과 같다(AI 명세 6.1). BE는 플랜의 객체를 그대로 저장해 전달하므로
+    # 객체도 null도 아니면 다른 필드와 같게 형식 오류로 거절한다
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AssignmentError(f"배정 정보의 {seq}번 연결 회사 항목이 객체가 아니다")
     return value
 
 
