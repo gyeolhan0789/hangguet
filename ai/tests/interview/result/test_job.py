@@ -257,6 +257,16 @@ def test_feedback_is_written_with_job_persona(persona: Persona) -> None:
     assert written.calls[0][0]["content"] == feedback_system(persona)
 
 
+def test_feedback_gets_job_company_card() -> None:
+    """작업 메시지의 회사 카드를 피드백 작성에 전달한다(AI 명세 4장 회사 정보 반영)."""
+    card = {"recent": [{"summary": "결제 지연 장애", "published": "2026-11-03"}]}
+
+    _, _, written = run(replace(JOB, company_card=card))
+
+    assert written.calls[0][0]["content"] == feedback_system(JOB.persona, with_company=True)
+    assert "결제 지연 장애" in written.calls[0][1]["content"]
+
+
 def test_stored_speech_is_aggregated_as_judged() -> None:
     """이미 채점한 답변은 전달력 판정에 사용한 speech를 그대로 집계한다."""
     metrics = run()[0][-1]["speechMetrics"]
@@ -384,7 +394,7 @@ def test_missing_gms_settings_publishes_internal_error(caplog: pytest.LogCapture
 def test_failure_log_records_versions(caplog: pytest.LogCaptureFixture) -> None:
     with caplog.at_level(logging.ERROR):
         run(score=FakeChat(COVER_LETTER, GmsUnavailableError("503")))
-    assert "prompt=score-answer-v2,evaluate-cover-letter-v1,evaluate-feedback-v7" in caplog.text
+    assert "prompt=score-answer-v2,evaluate-cover-letter-v1,evaluate-feedback-v8" in caplog.text
     assert "model=gpt-judge,gpt-score" in caplog.text
     assert not caplog.records[-1].exc_info
 
