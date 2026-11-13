@@ -86,6 +86,29 @@ export const interviewEndpoints = {
   end: (sessionId: Id) => `/interview-sessions/${sessionId}/end`,
   /** 5.9 POST 결과 재생성 */
   analysisRetry: (sessionId: Id) => `/interview-sessions/${sessionId}/analysis/retry`,
+  /** 10.9 PUT 작성 중인 답변 저장(그룹 채팅 면접) */
+  answerDraft: (sessionId: Id, questionId: Id) =>
+    `/interview-sessions/${sessionId}/questions/${questionId}/draft`,
+} as const;
+
+/** 10. 그룹 면접(BE Swagger 10장. 웹 mock에는 없다) */
+export const groupEndpoints = {
+  /** 10.1 POST 그룹 만들기 (Idempotency-Key 필수) */
+  root: "/interview-groups",
+  /** 10.2 GET 초대 확인 */
+  invite: (inviteCode: string) => `/interview-groups/invites/${encodeURIComponent(inviteCode)}`,
+  /** 10.3 POST 그룹 참가 (Idempotency-Key 필수) */
+  join: "/interview-groups/join",
+  /** 10.4 GET 그룹 조회 */
+  detail: (groupId: Id) => `/interview-groups/${groupId}`,
+  /** 10.5 PUT 준비 · 준비 취소 */
+  ready: (groupId: Id) => `/interview-groups/${groupId}/ready`,
+  /** 10.6 DELETE 그룹 나가기 */
+  leave: (groupId: Id) => `/interview-groups/${groupId}/participants/me`,
+  /** 10.7 POST 그룹 면접 시작 (Idempotency-Key 필수) */
+  start: (groupId: Id) => `/interview-groups/${groupId}/start`,
+  /** 10.8 POST 답변 시간 연장 */
+  extend: (groupId: Id) => `/interview-groups/${groupId}/turn/extend`,
 } as const;
 
 /** 6. 녹화 · 결과 · 다시보기 */
@@ -139,6 +162,7 @@ export const endpoints = {
   home: homeEndpoints,
   applications: applicationEndpoints,
   interviews: interviewEndpoints,
+  groups: groupEndpoints,
   results: resultEndpoints,
   growthReviews: growthReviewEndpoints,
   notices: noticeEndpoints,

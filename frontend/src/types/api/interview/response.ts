@@ -1,5 +1,6 @@
 // 5. 면접 진행 응답. 기준: 웹 Swagger 5.1 ~ 5.15.
 import type { LocalDate, OffsetDateTime, Page } from "../common";
+import type { SessionGroup } from "../group/response";
 import type { Criterion, Grade } from "../growth/response";
 import type { InputType, Mode, Persona } from "./request";
 
@@ -67,6 +68,8 @@ export interface SessionResponse {
   leveledUp: boolean | null;
   /** 면접방 입장 정보. 5.4 응답에만 값이 있고, 그 외에는 null */
   room: RoomResponse | null;
+  /** 그룹 면접이면 그룹 정보(BE Swagger · API 명세 10.10). 개인 면접은 null */
+  group?: SessionGroup | null;
 }
 
 /** 5.5 지금 질문 (200) */
