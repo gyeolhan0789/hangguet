@@ -177,7 +177,7 @@ function needsSessionPoll(
  * active인 동안 delay 뒤 화면을 다시 그려 서버 컴포넌트가 5.2 · 5.5를 다시 부르게 한다. 다시 그리기가 끝난 뒤에 다음 조회를
  * 예약해 요청이 겹치지 않게 하고(S05 질문 준비와 같은 방식), 인터넷이 끊기면 멈췄다가 다시 연결되면 이어서 한다.
  */
-function useRefreshWhile(active: boolean) {
+export function useRefreshWhile(active: boolean) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
   const online = useOnline();
@@ -413,7 +413,7 @@ function PlanFailed({ sessionId }: Readonly<{ sessionId: number }>) {
 }
 
 /** 아래 가운데 대화 영역(Figma Dialog 820) */
-function Dialog({
+export function Dialog({
   bottom,
   hidden = false,
   children,
@@ -701,7 +701,7 @@ function shownLiveQuestion<Q extends { seq: number }>(
  * S06-A 답변 상태 토스트 문구(answer.state). 위에 있는 것이 먼저다. 음성 인식이 끊긴 것은 자막 스트림이 알려 줄 수도 있다(sttFailed).
  * 띄울 것이 없으면 null
  */
-function answerNoticeText({
+export function answerNoticeText({
   savingLast,
   notice,
   sttFailed,
@@ -901,7 +901,7 @@ function recheckDelay(count: number): number {
 }
 
 /** active인 동안 페이지를 떠나려 하면(탭 닫기 · 새로고침 · 주소 이동) 브라우저 기본 확인 창을 띄운다(MDN beforeunload) */
-function useLeaveConfirm(active: boolean) {
+export function useLeaveConfirm(active: boolean) {
   useEffect(() => {
     if (!active) return;
     const confirm = (event: BeforeUnloadEvent) => {
@@ -915,7 +915,7 @@ function useLeaveConfirm(active: boolean) {
 }
 
 /** 질문이 바뀔 때만 번개처럼 깜빡이는 빛(악마 면접관 배경). 처음 화면에 들어올 때는 깜빡이지 않는다. */
-function LightningFlash({ questionId }: Readonly<{ questionId: number | null }>) {
+export function LightningFlash({ questionId }: Readonly<{ questionId: number | null }>) {
   const reduce = useReducedMotion();
   const [scope, animate] = useAnimate<HTMLDivElement>();
   const previous = useRef(questionId);

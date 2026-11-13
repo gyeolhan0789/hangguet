@@ -3,9 +3,12 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
+import { unlessTemporary } from "@/lib/api/temporary-failure";
+import { getGroup } from "@/lib/group/queries";
 import { getCurrentQuestion, getSession, parseSessionId } from "@/lib/interview/queries";
-import { devicesPath, ROUTES, resultPath } from "@/lib/routes";
+import { devicesPath, groupPath, ROUTES, resultPath } from "@/lib/routes";
 
+import { GroupInterviewRoom } from "./_components/group-room";
 import { InterviewRoom } from "./_components/interview-room";
 
 export const metadata: Metadata = { title: "면접 · 한끗" };
@@ -28,6 +31,26 @@ async function Interview({
   if (!session) redirect(ROUTES.practice);
   if (session.status === "COMPLETED") redirect(resultPath(session.id));
   if (session.status === "ABORTED") redirect(ROUTES.home);
+  // 그룹 면접(API 명세 10.10 · 5.2 group): 시작 전이면 대기실로 보내고, 차례 · 남은 시간을 보이는 그룹 면접방을 그린다.
+  if (session.group) {
+    const groupStarted =
+      session.group.status !== "WAITING" && session.group.status !== "START_FAILED";
+    if (session.status === "READY" || !groupStarted) redirect(groupPath(session.group.groupId));
+    const [group, groupQuestion] = await Promise.all([
+      // 닉네임 · 차례 보조용 10.4. BE가 잠깐 답하지 못하면(undefined) 면접방은 직전에 받은 값을 그대로 둔다
+      unlessTemporary(getGroup(session.group.groupId)),
+      session.status === "IN_PROGRESS" ? getCurrentQuestion(session.id) : null,
+    ]);
+    return (
+      <GroupInterviewRoom
+        key={session.id}
+        session={session}
+        currentQuestion={groupQuestion}
+        members={group === undefined ? undefined : (group?.participants ?? [])}
+        turn={group === undefined ? undefined : (group?.turn ?? null)}
+      />
+    );
+  }
   if (session.mode === "VIDEO" && session.status === "READY") redirect(devicesPath(session.id));
   // 면접 중이면 지금 답할 질문은 5.5로 받는다(다음 질문을 만드는 중이면 null).
   const question = session.status === "IN_PROGRESS" ? await getCurrentQuestion(session.id) : null;

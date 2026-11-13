@@ -6,6 +6,7 @@ import { useEffect, useState, useTransition, type FormEvent, type ReactNode } fr
 import { PracticeActionBar, PracticeNextButton } from "@/components/practice/practice-action-bar";
 import { PracticeSteps } from "@/components/practice/practice-steps";
 import { useVoiceCheck, type VoiceCheck } from "@/components/use-voice-check";
+import { CHECKING_TEXT, deviceText } from "@/lib/devices/device-text";
 import type { CheckStatus } from "@/lib/devices/media";
 import { PLAY_TEXT, RECORD_TEXT } from "@/lib/devices/voice-text";
 import { createSession, startSession } from "@/lib/interview/actions";
@@ -15,7 +16,7 @@ import { useInterviewerPreloadStore } from "@/stores/interviewer-preload-store";
 import type { SessionResponse } from "@/types/api";
 
 import { CameraPreview } from "./camera-preview";
-import { CheckRow, RowButton, type RowState } from "./check-row";
+import { CheckRow, RowButton, toRowState } from "./check-row";
 import { PermissionModal } from "./permission-modal";
 import { PlanProgress } from "./plan-progress";
 import { useDeviceCheck, type NetworkStatus } from "./use-device-check";
@@ -26,37 +27,11 @@ import { useDeviceCheck, type NetworkStatus } from "./use-device-check";
 // · 사용자 결정(2026-10-22: 면접관 3D 모델도 다 받아야 [면접 시작] 활성화)
 // · 기획 메모 S05-E(18:3468: [채팅으로 면접 보기] → S06-B) · Swagger 5.1 면접 만들기 · 5.4 면접 시작(Idempotency-Key)
 
-/** 체크 줄 설명(Figma S05 · S05-E 문구. 확인 중 · 장치 없음 · 사용 중 · 끊김 · 미지원은 Figma에 없어 새로 정함) */
-const DEVICE_TEXT = {
-  camera: { ok: "잘 보이고 있어요" },
-  mic: { ok: "목소리가 잘 들려요" },
-} as const;
-
-const FAILURE_TEXT: Record<Exclude<CheckStatus, "checking" | "ok">, string> = {
-  denied: "권한이 없어요",
-  missing: "장치를 찾을 수 없어요",
-  busy: "다른 앱이 사용 중이에요",
-  ended: "연결이 끊겼어요",
-  unsupported: "이 브라우저에서는 확인할 수 없어요",
-};
-
 const NETWORK_TEXT: Record<NetworkStatus, string> = {
-  checking: "확인하고 있어요",
+  checking: CHECKING_TEXT,
   ok: "연결 상태 양호",
   offline: "인터넷 연결이 끊겼어요",
 };
-
-function rowState(status: CheckStatus | NetworkStatus): RowState {
-  if (status === "checking") return "checking";
-  if (status === "ok") return "ok";
-  return "fail";
-}
-
-function deviceText(device: keyof typeof DEVICE_TEXT, status: CheckStatus): string {
-  if (status === "checking") return "확인하고 있어요";
-  if (status === "ok") return DEVICE_TEXT[device].ok;
-  return FAILURE_TEXT[status];
-}
 
 export function DevicesCheck({
   sessionId,
@@ -162,7 +137,7 @@ export function DevicesCheck({
                 icon="/devices/icon-camera.svg"
                 title="카메라"
                 description={deviceText("camera", camera)}
-                state={rowState(camera)}
+                state={toRowState(camera)}
                 action={retryButton(camera)}
               />
               <CheckRow
@@ -179,7 +154,7 @@ export function DevicesCheck({
                 icon="/devices/icon-wifi.svg"
                 title="네트워크"
                 description={NETWORK_TEXT[network]}
-                state={rowState(network)}
+                state={toRowState(network)}
               />
             </ul>
 
@@ -238,9 +213,9 @@ function micRow(
   retry: ReactNode,
 ): RowProps {
   if (mic !== "ok") {
-    return { description: deviceText("mic", mic), state: rowState(mic), action: retry };
+    return { description: deviceText("mic", mic), state: toRowState(mic), action: retry };
   }
-  if (recorded) return { description: DEVICE_TEXT.mic.ok, state: "ok" };
+  if (recorded) return { description: deviceText("mic", "ok"), state: "ok" };
   switch (voice.status) {
     case "recording":
       return {
