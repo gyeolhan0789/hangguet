@@ -97,7 +97,9 @@ class InterviewSessionIntegrationTest {
     @MockitoBean private InterviewRoom rooms;
     // 상한은 InterviewCapacityTest가 실제 DB로 확인한다. 여기서는 DB에 남은 다른 면접 수에 흔들리지 않게 바꾼다
     @MockitoBean private InterviewCapacity interviewCapacity;
-    private static final Map<String, Object> MARKET = Map.of("section", "market", "summary", "시장");
+    // 오늘 기사라 버리지 않는 최근 이슈(AI 명세 2장 폐기)
+    private static final Map<String, Object> RECENT =
+            Map.of("section", "recent", "summary", "이슈", "published", today().toString());
     private final JsonMapper json = JsonMapper.builder().build();
     private final List<Long> userIds = new ArrayList<>();
 
@@ -318,7 +320,7 @@ class InterviewSessionIntegrationTest {
         assertThat(assigned)
                 .extracting(question -> question.get("content"))
                 .containsExactly("보관1", "보관3", "보관2", "보관4", "보관5");
-        assertThat(assigned.get(2)).containsEntry("companyItem", MARKET);
+        assertThat(assigned.get(2)).containsEntry("companyItem", RECENT);
         assertThat(assigned.get(0)).containsEntry("companyItem", null);
     }
 
@@ -344,6 +346,41 @@ class InterviewSessionIntegrationTest {
                 .isEqualTo(1);
         // 면접을 만들 때 보낸 작업 하나뿐이다
         verify(queue, times(1)).push(any());
+    }
+
+    // 기준: AI 명세 2장 폐기(보관함 질문 수를 세기 전에 기사 날짜로부터 30일이 지난 최근 이슈 질문을 버린다)
+    @Test
+    void createDiscardsOldRecentIssueQuestionBeforeCounting() throws Exception {
+        long user = newUser();
+        long application = newApplication(user);
+        poolQuestions(application, 4);
+        poolQuestion(
+                application,
+                "지난 이슈",
+                Map.of(
+                        "section",
+                        "recent",
+                        "summary",
+                        "이슈",
+                        "published",
+                        today().minusDays(31).toString()));
+
+        long sessionId = create(user, application);
+
+        verify(queue)
+                .push(
+                        argThat(
+                                job ->
+                                        "PLAN".equals(job.get("jobType"))
+                                                && Long.valueOf(sessionId)
+                                                        .equals(job.get("sessionId"))));
+        assertThat(
+                        jdbc.queryForList(
+                                "SELECT content FROM question_pool_items WHERE application_id = ?"
+                                        + " ORDER BY id",
+                                String.class,
+                                application))
+                .containsExactly("보관1", "보관2", "보관3", "보관4");
     }
 
     @Test
@@ -1228,15 +1265,19 @@ class InterviewSessionIntegrationTest {
     // 생성한 개인 면접 질문을 보관한 것처럼 면접관 DEVIL의 보관함에 넣는다. 2번째만 회사 정보와 연결한다
     private void poolQuestions(long applicationId, int count) {
         for (int i = 1; i <= count; i++) {
-            jdbc.update(
-                    "INSERT INTO question_pool_items (application_id, persona, content, criteria,"
-                            + " claim_id, company_item, prompt_version, model_version, created_at)"
-                            + " VALUES (?, 'DEVIL', ?, '기준', 'c1', CAST(? AS jsonb), 'plan-v8',"
-                            + " 'gms-test', now())",
-                    applicationId,
-                    "보관" + i,
-                    i == 2 ? json.writeValueAsString(MARKET) : null);
+            poolQuestion(applicationId, "보관" + i, i == 2 ? RECENT : null);
         }
+    }
+
+    private void poolQuestion(long applicationId, String content, Map<String, Object> companyItem) {
+        jdbc.update(
+                "INSERT INTO question_pool_items (application_id, persona, content, criteria,"
+                        + " claim_id, company_item, prompt_version, model_version, created_at)"
+                        + " VALUES (?, 'DEVIL', ?, '기준', 'c1', CAST(? AS jsonb), 'plan-v8',"
+                        + " 'gms-test', now())",
+                applicationId,
+                content,
+                companyItem == null ? null : json.writeValueAsString(companyItem));
     }
 
     // 주장 추출 결과를 아직 받지 못한 지원서
