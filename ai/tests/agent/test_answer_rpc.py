@@ -113,3 +113,12 @@ def test_answer_states_follow_spec() -> None:
         "submitted",
         "submitFailed",
     ]
+
+
+def test_group_answer_submit_accepts_seq_up_to_six() -> None:
+    """그룹 면접 질문 번호는 1~6이다(AI 명세 6.7). 개인 면접은 그대로 1~5다."""
+    assert parse_answer_submit(submit(seq=6), SESSION_ID, max_seq=6) == AnswerSubmit(6, None)
+    with pytest.raises(InvalidAnswerSubmitError):
+        parse_answer_submit(submit(seq=6), SESSION_ID)
+    with pytest.raises(InvalidAnswerSubmitError):
+        parse_answer_submit(submit(seq=7), SESSION_ID, max_seq=6)

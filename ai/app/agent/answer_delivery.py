@@ -15,12 +15,17 @@
 
 import asyncio
 import logging
+from collections.abc import Mapping
+from datetime import datetime
+from typing import Any, Protocol
 
 from app.agent.interview import FinishedAnswer
-from app.common.answer import SpeechToken, VoiceMetrics
+from app.common.answer import SpeechToken, SttGap, VoiceMetrics
 from app.common.results import ResultPublisher
 from app.interview.realtime.impression import impressions_json
 from app.interview.realtime.progress import (
+    EndReason,
+    ProgressMessage,
     ProgressMessageError,
     answer_completed,
     check_answer_content,
@@ -28,6 +33,25 @@ from app.interview.realtime.progress import (
 from app.interview.realtime.voice import pcm16_samples, trailing_off_at_ms, voice_metrics
 
 log = logging.getLogger(__name__)
+
+
+class AnswerMessageBuilder(Protocol):
+    """answer.completed를 만든다. 그룹 면접은 그룹 필드를 더한 함수를 쓴다(AI 명세 6.7)."""
+
+    def __call__(
+        self,
+        session_id: int,
+        seq: int,
+        answer_started_at: datetime,
+        content: str,
+        tokens: tuple[SpeechToken, ...] | None,
+        speech: VoiceMetrics | None,
+        end_reason: EndReason,
+        *,
+        trailing_off_at_ms: tuple[int, ...] | None = None,
+        impressions: Mapping[str, Any] | None = None,
+        stt_gaps: tuple[SttGap, ...] = (),
+    ) -> ProgressMessage: ...
 
 
 class AnswerDelivery:
@@ -38,12 +62,14 @@ class AnswerDelivery:
         sample_rate: int,
         *,
         impression_model: str | None = None,
+        build: AnswerMessageBuilder = answer_completed,
     ) -> None:
         """impression_model은 인상 판단에 쓴 Jev 모델이고, 판단하지 않으면 None이다."""
         self._session_id = session_id
         self._results = results
         self._sample_rate = sample_rate
         self._impression_model = impression_model
+        self._build = build
 
     async def deliver(self, finished: FinishedAnswer) -> bool:
         """답변을 전달하면 True, BE가 저장할 수 없는 답변이라 전달하지 않았으면 False다."""
@@ -64,7 +90,7 @@ class AnswerDelivery:
             else impressions_json(answer.impressions, answer.started_at, self._impression_model)
         )
         try:
-            message = answer_completed(
+            message = self._build(
                 self._session_id,
                 finished.seq,
                 answer.started_at,

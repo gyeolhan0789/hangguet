@@ -1,6 +1,7 @@
 """배정받은 LiveKit 방에서 지원자의 마이크를 Soniox STT로 전달하고, 질문을 음성으로 말한다.
 
 배정 정보가 있는 면접은 InterviewRunner로 첫 질문부터 마지막 답변까지 진행한다.
+그룹 면접 배정 정보(kind GROUP)는 GroupInterviewRunner가 면접방 정보를 따라 진행한다(AI 명세 6.7).
 배정 정보가 없는 시험 방(connect --room)은 지금처럼 자막만 처리한다.
 """
 
@@ -11,6 +12,7 @@ import os
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Mapping
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from datetime import datetime
 from typing import Any
 
 from livekit import rtc
@@ -19,26 +21,35 @@ from livekit.agents import AgentServer, AutoSubscribe, JobContext, JobRequest, c
 from app.agent.answer_capture import AnswerCapture, CapturedAnswer
 from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
-from app.agent.assignment import Assignment, AssignmentError, parse_assignment
+from app.agent.assignment import Assignment, AssignmentError, GroupAssignment, parse_assignment
 from app.agent.attitude import ATTITUDE_METHOD, AttitudePublisher
 from app.agent.followup import followup_generator
+from app.agent.group_interview import GroupInterviewRunner, RoomVoice, per_participant
+from app.agent.group_room import RoomInfoTracker
 from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
-from app.agent.interview import InterviewRunner
+from app.agent.interview import FinishedAnswer, InterviewRunner
 from app.agent.jev import JevJudge
 from app.agent.metrics import ACTIVE_INTERVIEWS, METRICS_DIR, METRICS_PORT
 from app.agent.praise import load_praises
-from app.agent.question import QuestionSpeaker
+from app.agent.question import QuestionSpeaker, publish_voice
 from app.agent.reaction import CHAT_INPUT_METHOD, REACTION_METHOD, ReactionStream
-from app.agent.rejection import rejected_session_id, send_rejection
+from app.agent.rejection import (
+    is_group_room,
+    rejected_group_id,
+    rejected_session_id,
+    send_group_rejection,
+    send_rejection,
+)
 from app.agent.room_closed import closed_by_livekit, send_room_closed
 from app.agent.stt import CHUNK_MS, SAMPLE_RATE, SonioxSTT, SttSettings, SttState
 from app.agent.transcript import TranscriptPublisher
 from app.agent.tts import ElevenLabsTTS
 from app.common.answer import SpeechToken
 from app.common.redis import create_publisher_redis
-from app.common.results import FailureReason, ResultPublisher
-from app.common.session import InterviewMode, Persona
+from app.common.results import GROUP_RESULT_QUEUE_KEY, FailureReason, ResultPublisher
+from app.common.session import GROUP_CANDIDATE_PREFIX, InterviewMode, Persona, group_candidate
 from app.common.settings import Settings, load_settings
+from app.interview.realtime.progress import ProgressMessage, group_answer_completed
 from app.interview.realtime.sentence import Sentence
 
 log = logging.getLogger(__name__)
@@ -88,8 +99,19 @@ def agent_results() -> ResultPublisher:
     return ResultPublisher(create_publisher_redis(load_settings(os.environ)))
 
 
+@functools.cache
+def group_results() -> ResultPublisher:
+    """그룹 면접 결과 큐(ai:results:group) 전송기다(AI 명세 6.7). 처음 전송할 때 생성한다."""
+    return ResultPublisher(
+        create_publisher_redis(load_settings(os.environ)), queue=GROUP_RESULT_QUEUE_KEY
+    )
+
+
 async def accept_request(
-    request: JobRequest, *, results: Callable[[], ResultPublisher] = agent_results
+    request: JobRequest,
+    *,
+    results: Callable[[], ResultPublisher] = agent_results,
+    group: Callable[[], ResultPublisher] = group_results,
 ) -> None:
     """형식이 틀린 배정 정보로 온 배정은 방에 들어가기 전에 거절하고 BE에 알린다.
 
@@ -104,13 +126,18 @@ async def accept_request(
         except AssignmentError as e:
             log.error("배정 정보가 올바르지 않아 배정을 거절한다: %s", e)
             await request.reject(terminate=True)
-            session_id = rejected_session_id(metadata, request.room.name)
+            room = request.room.name
+            if is_group_room(metadata, room):
+                group_id = rejected_group_id(metadata, room)
+                await send_group_rejection(group(), group_id, FailureReason.INVALID_ASSIGNMENT)
+                return
+            session_id = rejected_session_id(metadata, room)
             await send_rejection(results(), session_id, FailureReason.INVALID_ASSIGNMENT)
             return
     await request.accept(name=AGENT_IDENTITY, identity=AGENT_IDENTITY)
 
 
-def job_assignment(ctx: JobContext) -> Assignment | None:
+def job_assignment(ctx: JobContext) -> Assignment | GroupAssignment | None:
     """BE 배정 없이 테스트 방에 직접 연결하면(connect --room) 배정 정보가 없어 질문하지 않는다.
 
     형식이 틀린 배정 정보는 accept_request가 거절하므로 여기까지 오지 않는다.
@@ -146,7 +173,12 @@ async def entrypoint(ctx: JobContext) -> None:
         await ctx.connect(auto_subscribe=AutoSubscribe.SUBSCRIBE_NONE)
         log.info("LiveKit 방 참가 완료", extra={"room": ctx.room.name})
         work: asyncio.Task[None]
-        if assignment is not None:
+        if isinstance(assignment, GroupAssignment):
+            interviewing = asyncio.create_task(
+                counted_interview(run_group_interview(ctx, closed, settings, assignment))
+            )
+            work = interviewing
+        elif assignment is not None:
             speaker = question_speaker(ctx, assignment)
             interviewing = asyncio.create_task(
                 counted_interview(run_interview(ctx, closed, settings, speaker, assignment))
@@ -183,8 +215,9 @@ async def entrypoint(ctx: JobContext) -> None:
             ctx.room.off("disconnected", on_disconnected)
             log.info("LiveKit 방 연결 종료")
     # 지원자가 모두 떠나 LiveKit이 방을 닫았으면 BE가 면접을 끝내도록 알린다.
-    # 배정 없이 테스트 방에 연결했으면 끝낼 면접이 없다
-    if assignment is not None and closed_by_livekit(disconnected):
+    # 배정 없이 테스트 방에 연결했으면 끝낼 면접이 없다.
+    # 그룹 면접은 BE가 이탈 · 종료를 직접 확인하므로 보내지 않는다(AI 명세 6.7)
+    if isinstance(assignment, Assignment) and closed_by_livekit(disconnected):
         await send_room_closed(agent_results(), assignment.session_id)
 
 
@@ -376,6 +409,163 @@ async def run_interview(
         await speaker.publish_track()
         await runner.run()
         await closed.wait()
+
+
+async def run_group_interview(
+    ctx: JobContext,
+    closed: asyncio.Event,
+    settings: SttSettings,
+    assignment: GroupAssignment,
+) -> None:
+    """그룹 면접을 진행한다. 그룹이 끝나도 BE가 면접방을 지울 때까지 남는다(AI 명세 6.7)."""
+    room = ctx.room
+    video = assignment.mode is InterviewMode.VIDEO
+    common = load_settings(os.environ)
+    results = ResultPublisher(create_publisher_redis(common), queue=GROUP_RESULT_QUEUE_KEY)
+    impressions = impression_recorder(common) if video else None
+    judge = reaction_judge(common, off_topic=video)
+    tts = ElevenLabsTTS(common.elevenlabs_api_key)
+    if not tts.configured:
+        log.warning("ELEVENLABS_API_KEY가 없어 질문 음성 없이 진행한다")
+    tracker = RoomInfoTracker()
+
+    async def send(destination: str, method: str, payload: str) -> None:
+        await send_room_message(room.local_participant, destination, method, payload)
+
+    async def publish(message: ProgressMessage) -> None:
+        await asyncio.to_thread(message.publish, results)
+
+    async def deliver(
+        session_id: int, finished: FinishedAnswer, turn_version: int, ended_at: datetime
+    ) -> bool:
+        delivery = AnswerDelivery(
+            session_id,
+            results,
+            SAMPLE_RATE,
+            impression_model=None if impressions is None else impressions.model,
+            build=functools.partial(
+                group_answer_completed, turn_version=turn_version, answer_ended_at=ended_at
+            ),
+        )
+        return await delivery.deliver(finished)
+
+    def subscribe(session_id: int) -> None:
+        target = group_candidate(session_id)
+        for participant in room.remote_participants.values():
+            for pub in participant.track_publications.values():
+                if pub.source == rtc.TrackSource.SOURCE_MICROPHONE:
+                    pub.set_subscribed(participant.identity == target)
+
+    async def broadcast_reaction(_destination: str, payload: str) -> None:
+        # 리액션은 방의 지원자 모두에게 보낸다. 누구 차례인지는 본문의 sessionId로 안다(AI 명세 6.7)
+        await asyncio.gather(
+            *(
+                send(identity, REACTION_METHOD, payload)
+                for identity in room.remote_participants
+                if identity.startswith(GROUP_CANDIDATE_PREFIX)
+            )
+        )
+
+    def reactions(session_id: int) -> ReactionStream | None:
+        if judge is None:
+            return None
+        return ReactionStream(
+            session_id,
+            judge,
+            broadcast_reaction,
+            question=lambda seq: runner.question(session_id, seq),
+            criteria=lambda seq: runner.criteria(session_id, seq),
+            latest_only=not video,
+            persona=assignment.persona if video else None,
+        )
+
+    source = await publish_voice(room.local_participant)
+    voice = RoomVoice(tts, source, assignment.persona)
+    runner = GroupInterviewRunner(
+        assignment,
+        voice,
+        send,
+        publish,
+        lambda identity, session_id, on_speech, on_sentence, on_stt_state: RoomCapture(
+            room,
+            identity,
+            settings,
+            on_speech,
+            on_sentence,
+            on_stt_state,
+            impressions,
+            session_id,
+        ),
+        deliver,
+        tracker,
+        subscribe=subscribe,
+        reactions=per_participant(reactions),
+        praises=load_praises() if assignment.persona is Persona.DUCK else None,
+    )
+
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(voice.aclose)
+        if judge is not None:
+            cleanup.push_async_callback(judge.aclose)
+        _watch_group_room(cleanup, room, runner, tracker, impressions)
+        await runner.run()
+        await closed.wait()
+
+
+def _watch_group_room(
+    cleanup: AsyncExitStack,
+    room: rtc.Room,
+    runner: GroupInterviewRunner,
+    tracker: RoomInfoTracker,
+    impressions: ImpressionRecorder | None,
+) -> None:
+    """그룹 면접방 이벤트와 RPC 처리 함수를 등록하고, 면접이 끝나면 해제하도록 cleanup에 넣는다."""
+
+    def info_changed(_old: str, new: str) -> None:
+        info = tracker.update(new)
+        if info is not None:
+            runner.room_info_changed(info)
+
+    def subscribe(pub: rtc.RemoteTrackPublication, owner: rtc.RemoteParticipant) -> None:
+        if pub.source == rtc.TrackSource.SOURCE_MICROPHONE:
+            pub.set_subscribed(owner.identity == runner.subscribed_identity)
+
+    def joined(participant: rtc.RemoteParticipant) -> None:
+        for pub in participant.track_publications.values():
+            subscribe(pub, participant)
+        runner.candidate_joined(participant.identity)
+
+    def left(participant: rtc.RemoteParticipant) -> None:
+        runner.candidate_left(participant.identity)
+
+    def frame_received(reader: rtc.ByteStreamReader, identity: str) -> None:
+        # 지금 답변자 사진만 판단한다(AI 명세 6.7)
+        if impressions is None or identity != runner.answering_identity:
+            reader.close()
+            return
+        impressions.receive(lambda: read_frame(reader))
+
+    if impressions is not None:
+        cleanup.push_async_callback(impressions.aclose)
+        room.register_byte_stream_handler(FRAME_TOPIC, frame_received)
+        cleanup.callback(room.unregister_byte_stream_handler, FRAME_TOPIC)
+    room.on("room_metadata_changed", info_changed)
+    cleanup.callback(room.off, "room_metadata_changed", info_changed)
+    room.on("track_published", subscribe)
+    cleanup.callback(room.off, "track_published", subscribe)
+    room.on("participant_connected", joined)
+    cleanup.callback(room.off, "participant_connected", joined)
+    room.on("participant_disconnected", left)
+    cleanup.callback(room.off, "participant_disconnected", left)
+    room.local_participant.register_rpc_method(
+        ANSWER_SUBMIT_METHOD,
+        lambda data: runner.submit_requested(data.caller_identity, data.payload),
+    )
+    cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
+    for participant in room.remote_participants.values():
+        joined(participant)
+    # BE는 면접방을 만들 때 방 정보를 함께 넣으므로 접속할 때도 읽는다(AI 명세 6.7)
+    info_changed("", room.metadata)
 
 
 def _reaction_stream(

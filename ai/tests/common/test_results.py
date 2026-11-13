@@ -14,6 +14,7 @@ from app.common.results import (
     APPLICATION_RESULT_TYPES,
     BACKOFF_SECONDS,
     FAILED_RESULT_TYPES,
+    GROUP_RESULT_QUEUE_KEY,
     KST,
     RESULT_QUEUE_KEY,
     FailureReason,
@@ -260,7 +261,7 @@ def test_non_finite_number_is_rejected_before_push() -> None:
 
 
 def test_result_type_values_match_spec() -> None:
-    """AI 명세 1.4 표의 type 이름과 같다."""
+    """AI 명세 1.4 표와 6.7(그룹 면접에서 새로 생긴 종류)의 type 이름과 같다."""
     assert {t.value for t in ResultType} == {
         "plan.progress",
         "plan.completed",
@@ -277,6 +278,8 @@ def test_result_type_values_match_spec() -> None:
         "answer.completed",
         "assignment.rejected",
         "room.closed",
+        "question.spoken",
+        "followup.decided",
     }
 
 
@@ -393,3 +396,41 @@ def test_failure_reasons_match_spec_table() -> None:
         "INVALID_ASSIGNMENT",
     ]
     assert all(value == reason.name for value, reason in zip(values, FailureReason, strict=True))
+
+
+# 기준: AI 명세 1.4 · 6.7(그룹 면접의 면접 에이전트 결과는 ai:results:group으로 보낸다)
+def test_group_publisher_pushes_to_group_queue() -> None:
+    redis = FakeRedis()
+
+    publisher = ResultPublisher(cast(Redis, redis), queue=GROUP_RESULT_QUEUE_KEY, clock=lambda: NOW)
+    publisher.publish(ResultType.QUESTION_SPOKEN, 55, {"seq": 6})
+
+    assert RESULT_QUEUE_KEY not in redis.lists
+    assert [json.loads(raw)["type"] for raw in redis.lists[GROUP_RESULT_QUEUE_KEY]] == [
+        "question.spoken"
+    ]
+
+
+# 기준: AI 명세 6.7(그룹 배정 거절은 sessionId 없이 groupId를 담는다)
+def test_group_rejection_has_group_id_instead_of_session_id() -> None:
+    redis = FakeRedis()
+
+    make(redis).publish_group_rejection(12, {"reason": "INVALID_ASSIGNMENT"})
+
+    assert pushed(redis) == [
+        {
+            "type": "assignment.rejected",
+            "groupId": 12,
+            "reason": "INVALID_ASSIGNMENT",
+            "occurredAt": "2026-10-22T14:03:12.987+09:00",
+        }
+    ]
+
+
+def test_group_rejection_needs_reason() -> None:
+    redis = FakeRedis()
+
+    with pytest.raises(ValueError, match="reason"):
+        make(redis).publish_group_rejection(12, {})
+
+    assert redis.calls == 0

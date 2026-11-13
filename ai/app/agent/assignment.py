@@ -1,9 +1,11 @@
 """BE가 에이전트를 배정할 때 넘긴 배정 정보(job metadata)를 읽는다.
 
-기준: AI 명세 6.1 배정 정보, BE InterviewSessionService.assignment.
+기준: AI 명세 6.1 배정 정보 · 6.7 그룹 면접 배정 정보,
+BE InterviewSessionService.assignment · GroupStartService.assignment.
 에이전트는 DB를 읽지 않으므로 질문 글과 채점 기준은 이 값으로만 받는다.
 형식이 틀린 배정 정보로 면접을 시작하면 질문 도중에 진행할 수 없게 되므로,
 시작 전에 질문 5개와 채점 기준까지 전체를 검사한다.
+kind가 GROUP이면 그룹 면접 배정 정보이고, 없으면 개인 면접 배정 정보다(AI 명세 6.7).
 """
 
 from __future__ import annotations
@@ -13,10 +15,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from app.common.session import MAX_SEQ, MIN_SEQ, QUESTION_COUNT, InterviewMode, Persona
+from app.common.session import (
+    GROUP_COMMON_QUESTION_COUNT,
+    GROUP_PERSONAL_QUESTION_COUNT,
+    MAX_SEQ,
+    MIN_SEQ,
+    QUESTION_COUNT,
+    InterviewMode,
+    Persona,
+    group_candidate,
+)
 
 # AI 명세 6.1: 배정 정보는 512KiB 이하다(UTF-8 바이트 기준)
 MAX_METADATA_BYTES = 512 * 1024
+# AI 명세 6.7: 그룹 면접 배정 정보의 kind 값과 참가자 수
+GROUP_KIND = "GROUP"
+MIN_GROUP_PARTICIPANTS = 2
+MAX_GROUP_PARTICIPANTS = 3
 
 
 class AssignmentError(ValueError):
@@ -60,7 +75,33 @@ class Assignment:
             raise AssignmentError(f"배정 정보에 {seq}번 질문이 없다") from None
 
 
-def parse_assignment(metadata: str) -> Assignment:
+@dataclass(frozen=True)
+class GroupParticipant:
+    """그룹 면접 참가자 한 명(AI 명세 6.7 participants[]). 배정 정보의 순서가 답변 순서다."""
+
+    session_id: int
+    # 면접방의 지원자 참가자 이름(candidate-{sessionId})
+    identity: str
+    # 그룹용 PLAN의 개인 맞춤 질문 2개(AI 명세 2장)
+    personal_questions: tuple[AssignedQuestion, ...]
+
+
+@dataclass(frozen=True)
+class GroupAssignment:
+    """그룹 면접 배정 정보(AI 명세 6.7). 진행 순서 · 시간은 면접방 정보로 받는다."""
+
+    group_id: int
+    mode: InterviewMode
+    persona: Persona
+    # 자기소개 · 인성 순서의 공통 질문 2개
+    common_questions: tuple[AssignedQuestion, ...]
+    participants: tuple[GroupParticipant, ...]
+
+    def participant(self, session_id: int) -> GroupParticipant | None:
+        return next((p for p in self.participants if p.session_id == session_id), None)
+
+
+def parse_assignment(metadata: str) -> Assignment | GroupAssignment:
     """배정 정보 JSON을 해석한다.
 
     모르는 필드는 작업 메시지(AI 명세 1.3)와 같게 무시한다.
@@ -80,6 +121,11 @@ def parse_assignment(metadata: str) -> Assignment:
         persona = Persona(_text(raw.get("persona")))
     except ValueError as e:
         raise AssignmentError("배정 정보의 mode·persona가 올바르지 않다") from e
+    kind = raw.get("kind")
+    if kind == GROUP_KIND:
+        return _group_assignment(raw, mode, persona)
+    if kind is not None:
+        raise AssignmentError("배정 정보의 kind가 올바르지 않다")
     questions: dict[int, AssignedQuestion] = {}
     items = raw.get("questions")
     # 질문 5개를 배정 때 모두 받아야 다음 질문을 진행할 수 있다(AI 명세 6.1)
@@ -103,6 +149,58 @@ def parse_assignment(metadata: str) -> Assignment:
         current_seq=_seq(raw.get("currentSeq")),
         questions=questions,
     )
+
+
+def _group_assignment(
+    raw: Mapping[str, Any], mode: InterviewMode, persona: Persona
+) -> GroupAssignment:
+    common = _questions(raw.get("commonQuestions"), GROUP_COMMON_QUESTION_COUNT, "공통 질문")
+    items = raw.get("participants")
+    if not isinstance(items, list) or not (
+        MIN_GROUP_PARTICIPANTS <= len(items) <= MAX_GROUP_PARTICIPANTS
+    ):
+        limits = f"{MIN_GROUP_PARTICIPANTS}~{MAX_GROUP_PARTICIPANTS}명"
+        raise AssignmentError(f"배정 정보의 participants가 {limits}이 아니다")
+    participants: list[GroupParticipant] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise AssignmentError("배정 정보의 참가자 형식이 올바르지 않다")
+        session_id = _positive(item.get("sessionId"), "참가자 sessionId")
+        if any(p.session_id == session_id for p in participants):
+            raise AssignmentError(f"배정 정보의 참가자 {session_id}가 중복된다")
+        # 방에 들어오는 참가자 이름이 면접 id와 맞아야 그 사람의 마이크만 들을 수 있다
+        if item.get("identity") != group_candidate(session_id):
+            raise AssignmentError(f"배정 정보의 참가자 {session_id}의 identity가 올바르지 않다")
+        personal = _questions(
+            item.get("personalQuestions"),
+            GROUP_PERSONAL_QUESTION_COUNT,
+            f"참가자 {session_id}의 개인 질문",
+        )
+        participants.append(GroupParticipant(session_id, group_candidate(session_id), personal))
+    return GroupAssignment(
+        group_id=_positive(raw.get("groupId"), "groupId"),
+        mode=mode,
+        persona=persona,
+        common_questions=common,
+        participants=tuple(participants),
+    )
+
+
+def _questions(items: object, count: int, name: str) -> tuple[AssignedQuestion, ...]:
+    if not isinstance(items, list) or len(items) != count:
+        raise AssignmentError(f"배정 정보의 {name}가 {count}개가 아니다")
+    questions = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise AssignmentError(f"배정 정보의 {name} 형식이 올바르지 않다")
+        questions.append(
+            AssignedQuestion(
+                content=_required(item.get("content"), f"{name} {index}번 글"),
+                criteria=_required(item.get("criteria"), f"{name} {index}번 채점 기준"),
+                company_item=_company_item(item.get("companyItem"), index),
+            )
+        )
+    return tuple(questions)
 
 
 def _text(value: object) -> str:
