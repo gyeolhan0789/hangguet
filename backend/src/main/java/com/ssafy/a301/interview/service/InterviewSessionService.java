@@ -72,6 +72,7 @@ public class InterviewSessionService {
     private final InterviewGroupRepository groups;
     private final ApplicationClaimRepository applicationClaims;
     private final QuestionPoolAssigner pools;
+    private final QuestionPoolDiscarder discarder;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -91,7 +92,8 @@ public class InterviewSessionService {
             GroupTurnService groupTurns,
             InterviewGroupRepository groups,
             ApplicationClaimRepository applicationClaims,
-            QuestionPoolAssigner pools) {
+            QuestionPoolAssigner pools,
+            QuestionPoolDiscarder discarder) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -110,6 +112,7 @@ public class InterviewSessionService {
         this.groups = groups;
         this.applicationClaims = applicationClaims;
         this.pools = pools;
+        this.discarder = discarder;
     }
 
     /**
@@ -375,10 +378,11 @@ public class InterviewSessionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
     }
 
-    // 5.1 · 5.3. 개인 면접은 질문 보관함에 사용하지 않은 질문이 5개 이상이면 바로 배정해 플랜을 저장하고 AI 작업을 요청하지 않는다(AI 명세 2장).
-    // 그 밖에는 질문 생성을 시작한다
+    // 5.1 · 5.3. 개인 면접은 회사 정보가 바뀐 보관함 질문을 버린 뒤, 사용하지 않은 질문이 5개 이상이면 바로 배정해 플랜을 저장하고
+    // AI 작업을 요청하지 않는다(AI 명세 2장). 그 밖에는 질문 생성을 시작한다
     private SessionRuntime prepare(InterviewSession session, OffsetDateTime now) {
         if (!session.isGroup()) {
+            discarder.discardOutdated(session, now.toLocalDate());
             Optional<InterviewPlan> assigned =
                     pools.assign(
                             session,

@@ -315,6 +315,25 @@ class AiResultServiceTest {
         assertThat(plan.getClaims()).extracting(PlanClaim::id).containsExactly("c1");
     }
 
+    // 기준: AI 명세 2장 폐기(보관함에 넣기 전에 받은 결과와 프롬프트 버전이 다른 미사용 질문을 버린다)
+    @Test
+    void planCompletedDiscardsUnusedPoolQuestionsOfOtherPromptVersion() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        Application application = session.getApplication();
+        poolItem(application, "이전 버전", "plan-v0");
+        poolItem(application, "사용한 이전 버전", "plan-v0").markUsed(STARTED_AT);
+        poolItem(application, "같은 버전");
+        runtimes.startPlan(session.getId(), STARTED_AT.toInstant());
+
+        assertThat(results.handle(planCompleted(session, 5))).isEqualTo(Outcome.SAVED);
+
+        assertThat(
+                        poolItems.findByApplicationIdAndPersonaOrderById(
+                                application.getId(), Persona.DEVIL))
+                .extracting(QuestionPoolItem::getContent)
+                .containsExactly("사용한 이전 버전", "같은 버전", "질문1", "질문2", "질문3", "질문4", "질문5");
+    }
+
     // 기준: AI 명세 2장 사용 처리(1·3번은 항상, 2·4·5번은 예비 질문을 출제했을 때만 보관함 질문이다)
     @Test
     void askedPoolQuestionsAreMarkedUsedButFollowUpSeatsAreNot() {
@@ -849,12 +868,17 @@ class AiResultServiceTest {
     }
 
     private QuestionPoolItem poolItem(Application application, String content) {
+        return poolItem(application, content, "plan-v1");
+    }
+
+    private QuestionPoolItem poolItem(
+            Application application, String content, String promptVersion) {
         QuestionPoolItem item =
                 new QuestionPoolItem(
                         application,
                         Persona.DEVIL,
                         new PlanQuestion(1, content, "기준", "c1", null, null),
-                        "plan-v0",
+                        promptVersion,
                         "gms-test");
         em.persist(item);
         return item;
