@@ -7,7 +7,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
+import com.ssafy.a301.group.domain.InterviewGroup;
+import com.ssafy.a301.group.domain.JobCategory;
 import com.ssafy.a301.interview.InMemorySessionRuntimeStore;
+import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.AiJobType;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerImpressions;
@@ -21,6 +26,7 @@ import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.QuestionPoolItem;
 import com.ssafy.a301.interview.domain.SessionStatus;
 import com.ssafy.a301.interview.domain.SttGap;
 import com.ssafy.a301.interview.repository.AiJobQueue;
@@ -28,6 +34,7 @@ import com.ssafy.a301.interview.repository.AiJobRepository;
 import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
+import com.ssafy.a301.interview.repository.QuestionPoolItemRepository;
 import com.ssafy.a301.interview.room.InterviewRoom;
 import com.ssafy.a301.interview.service.AiResultService.Outcome;
 import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted;
@@ -63,6 +70,8 @@ class AiResultServiceTest {
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private AnswerRepository answers;
     @Autowired private AiJobRepository jobs;
+    @Autowired private ApplicationClaimRepository applicationClaims;
+    @Autowired private QuestionPoolItemRepository poolItems;
     @Autowired private EntityManager em;
     @MockitoBean private AiJobQueue queue;
     @MockitoBean private InterviewRoom rooms;
@@ -137,6 +146,171 @@ class AiResultServiceTest {
         // 실패한 뒤 늦게 온 완료 결과는 버린다(5.3으로 다시 만든다)
         assertThat(results.handle(planCompleted(session, 5))).isEqualTo(Outcome.DISCARDED);
         assertThat(plans.existsById(session.getId())).isFalse();
+    }
+
+    // 기준: AI 명세 1.4 claims.extracted(지원서 주장이 없을 때만 저장하고, 그 지원서에서 주장을 기다리는 면접의 PLAN 등록)
+    // · BE 설계 5.1(주장을 기다린 면접은 PLAN을 등록할 때 planStartedAt을 다시 기록한다)
+    @Test
+    void claimsAreSavedOnceAndOnlyWaitingSessionAsksPlan() {
+        InterviewSession waiting = newSession(InterviewMode.CHAT);
+        Application application = waiting.getApplication();
+        runtimes.startPlan(waiting.getId(), STARTED_AT.toInstant());
+        // 같은 지원서의 면접이지만 주장을 기다리지 않는다: 플랜이 이미 있다 · 플랜 생성이 실패했다
+        InterviewSession planned = sessionOf(application, InterviewMode.CHAT);
+        runtimes.startPlan(planned.getId(), STARTED_AT.toInstant());
+        savePlan(planned);
+        InterviewSession failed = sessionOf(application, InterviewMode.CHAT);
+        runtimes.startPlan(failed.getId(), STARTED_AT.toInstant());
+        runtimes.failPlanIfGenerating(failed.getId());
+
+        assertThat(results.handle(claimsExtracted(application.getId(), "c1")))
+                .isEqualTo(Outcome.SAVED);
+
+        assertThat(applicationClaims.findByApplicationIdOrderById(application.getId()))
+                .extracting(ApplicationClaim::toPlanClaim)
+                .containsExactly(
+                        new PlanClaim("c1", "조회 응답 시간을 40% 줄였다", "NUMBER", 4, List.of("실행·성과")),
+                        new PlanClaim("c2", "팀 갈등을 조율했다", "EXPERIENCE", 7, List.of()));
+        assertThat(applicationClaims.findByApplicationIdOrderById(application.getId()))
+                .allSatisfy(
+                        claim -> {
+                            assertThat(claim.getPromptVersion()).isEqualTo("extract-claims-v1");
+                            assertThat(claim.getModelVersion()).isEqualTo("gms-test");
+                        });
+        assertThat(planJobs(waiting)).hasSize(1);
+        assertThat(planJobs(planned)).isEmpty();
+        assertThat(planJobs(failed)).isEmpty();
+        assertThat(runtimes.find(waiting.getId()).orElseThrow().planStatus())
+                .isEqualTo(PlanStatus.GENERATING);
+        assertThat(runtimes.findPlanStartedAt(waiting.getId()).orElseThrow())
+                .isAfter(STARTED_AT.toInstant());
+
+        // 같은 작업의 결과가 다시 오거나, 5.1 · 5.3이 다시 요청한 추출의 결과가 와도 처음 주장을 그대로 둔다
+        assertThat(results.handle(claimsExtracted(application.getId(), "c9")))
+                .isEqualTo(Outcome.DISCARDED);
+        assertThat(applicationClaims.findByApplicationIdOrderById(application.getId()))
+                .extracting(ApplicationClaim::getClaimId)
+                .containsExactly("c1", "c2");
+        assertThat(planJobs(waiting)).hasSize(1);
+        // 없는 지원서의 결과는 버린다
+        assertThat(results.handle(claimsExtracted(-1L, "c1"))).isEqualTo(Outcome.DISCARDED);
+    }
+
+    // 기준: AI 명세 1.4 claims.extractFailed(주장을 기다리는 면접을 planStatus FAILED로 변경)
+    @Test
+    void claimExtractionFailureFailsOnlyWaitingSession() {
+        InterviewSession waiting = newSession(InterviewMode.CHAT);
+        Application application = waiting.getApplication();
+        runtimes.startPlan(waiting.getId(), STARTED_AT.toInstant());
+        InterviewSession planned = sessionOf(application, InterviewMode.CHAT);
+        runtimes.startPlan(planned.getId(), STARTED_AT.toInstant());
+        savePlan(planned);
+
+        assertThat(results.handle(claimsExtractFailed(application.getId())))
+                .isEqualTo(Outcome.SAVED);
+
+        assertThat(runtimes.find(waiting.getId()).orElseThrow().planStatus())
+                .isEqualTo(PlanStatus.FAILED);
+        assertThat(runtimes.find(planned.getId()).orElseThrow().planStatus())
+                .isEqualTo(PlanStatus.GENERATING);
+    }
+
+    // 다른 추출이 먼저 성공해 주장이 있으면, 그 뒤에 온 실패는 기다리는 면접을 실패시키지 않는다
+    @Test
+    void claimExtractionFailureAfterSavedClaimsIsDiscarded() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        long applicationId = session.getApplication().getId();
+        runtimes.startPlan(session.getId(), STARTED_AT.toInstant());
+        assertThat(results.handle(claimsExtracted(applicationId, "c1"))).isEqualTo(Outcome.SAVED);
+
+        assertThat(results.handle(claimsExtractFailed(applicationId))).isEqualTo(Outcome.DISCARDED);
+        assertThat(runtimes.find(session.getId()).orElseThrow().planStatus())
+                .isEqualTo(PlanStatus.GENERATING);
+    }
+
+    // 질문 생성에 그대로 넣는 주장이라 AI가 작업에서 확인하는 칸(AI 명세 2장)이 틀리면 저장하지 않는다
+    @Test
+    void claimsResultWithoutApplicationOrWithBrokenClaimsIsInvalid() {
+        long applicationId = newSession(InterviewMode.CHAT).getApplication().getId();
+        String valid = claimsExtracted(applicationId, "c1");
+        for (String raw :
+                List.of(
+                        valid.replace("\"applicationId\":" + applicationId + ",", ""),
+                        "{\"type\":\"claims.extracted\",\"applicationId\":%d,\"claims\":[],\"promptVersion\":\"p\",\"modelVersion\":\"m\"}"
+                                .formatted(applicationId),
+                        valid.replace("\"type\":\"NUMBER\"", "\"type\":\"OPINION\""),
+                        valid.replace("\"id\":\"c2\"", "\"id\":\"c1\""),
+                        valid.replace("\"sentenceNo\":4", "\"sentenceNo\":0"),
+                        valid.replace("\"text\":\"팀 갈등을 조율했다\"", "\"text\":\" \""),
+                        valid.replace("\"id\":\"c2\"", "\"id\":\"" + "c".repeat(51) + "\""),
+                        valid.replace(",\"promptVersion\":\"extract-claims-v1\"", ""))) {
+            assertThatThrownBy(() -> results.handle(raw))
+                    .as(raw)
+                    .isInstanceOf(InvalidAiResultException.class);
+        }
+        assertThat(applicationClaims.existsByApplicationId(applicationId)).isFalse();
+    }
+
+    // 기준: AI 명세 2장 질문 보관함(개인 면접의 질문을 질문마다 한 행으로, 같은 결과를 두 번 받아도 한 번만) · 1.4(폐기한 결과는 보관함에도 넣지 않는다)
+    @Test
+    void personalPlanQuestionsAreKeptInQuestionPoolOnce() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        runtimes.startPlan(session.getId(), STARTED_AT.toInstant());
+        Map<String, Object> companyItem =
+                Map.of("section", "market", "summary", "배송·결제 속도가 경쟁 요소", "quote", "…");
+        String completed =
+                planCompleted(session, 5)
+                        .replace(
+                                "\"criteria\":\"기준3\",\"claimId\":\"c1\"}",
+                                "\"criteria\":\"기준3\",\"claimId\":\"c1\",\"companyItem\":{\"section\":\"market\",\"summary\":\"배송·결제"
+                                    + " 속도가 경쟁 요소\",\"quote\":\"…\"}}");
+
+        assertThat(results.handle(completed)).isEqualTo(Outcome.SAVED);
+        assertThat(results.handle(completed)).isEqualTo(Outcome.DISCARDED);
+
+        List<QuestionPoolItem> pool =
+                poolItems.findByApplicationIdAndPersonaOrderById(
+                        session.getApplication().getId(), Persona.DEVIL);
+        assertThat(pool)
+                .extracting(QuestionPoolItem::getContent)
+                .containsExactly("질문1", "질문2", "질문3", "질문4", "질문5");
+        assertThat(pool)
+                .allSatisfy(
+                        item -> {
+                            assertThat(item.getClaimId()).isEqualTo("c1");
+                            assertThat(item.getPromptVersion()).isEqualTo("plan-v1");
+                            assertThat(item.getModelVersion()).isEqualTo("gms-test");
+                        });
+        assertThat(pool.get(2).getCriteria()).isEqualTo("기준3");
+        assertThat(pool.get(2).getCompanyItem()).isEqualTo(companyItem);
+        assertThat(pool.get(0).getCompanyItem()).isNull();
+        // 면접 계획에도 연결 회사 항목이 남는다
+        assertThat(plans.findById(session.getId()).orElseThrow().question(3).orElseThrow())
+                .extracting(PlanQuestion::companyItem)
+                .isEqualTo(companyItem);
+    }
+
+    @Test
+    void lateOrGroupPlanQuestionsAreNotKeptInQuestionPool() {
+        InterviewSession failed = newSession(InterviewMode.CHAT);
+        runtimes.startPlan(failed.getId(), STARTED_AT.toInstant());
+        runtimes.failPlanIfGenerating(failed.getId());
+        InterviewSession group = groupSession();
+        runtimes.startPlan(group.getId(), STARTED_AT.toInstant());
+
+        assertThat(results.handle(planCompleted(failed, 5))).isEqualTo(Outcome.DISCARDED);
+        assertThat(results.handle(planCompleted(group, InterviewPlan.GROUP_QUESTION_COUNT)))
+                .isEqualTo(Outcome.SAVED);
+
+        assertThat(
+                        poolItems.findByApplicationIdAndPersonaOrderById(
+                                failed.getApplication().getId(), Persona.DEVIL))
+                .isEmpty();
+        assertThat(
+                        poolItems.findByApplicationIdAndPersonaOrderById(
+                                group.getApplication().getId(), Persona.DEVIL))
+                .isEmpty();
+        assertThat(plans.existsById(group.getId())).isTrue();
     }
 
     @Test
@@ -557,6 +731,62 @@ class AiResultServiceTest {
         session.start(STARTED_AT.minusMinutes(1));
         em.flush();
         return session;
+    }
+
+    // 같은 지원서로 만든 다른 개인 면접
+    private InterviewSession sessionOf(Application application, InterviewMode mode) {
+        InterviewSession session =
+                new InterviewSession(application.getUser(), application, Persona.DEVIL, mode);
+        em.persist(session);
+        em.flush();
+        return session;
+    }
+
+    private InterviewSession groupSession() {
+        User host = new User("ai-result-" + UUID.randomUUID() + "@example.com", "hash", "방장");
+        em.persist(host);
+        InterviewGroup group =
+                new InterviewGroup(
+                        host,
+                        InterviewMode.CHAT,
+                        Persona.DEVIL,
+                        JobCategory.DEVELOPMENT,
+                        2,
+                        UUID.randomUUID().toString().substring(0, 6));
+        em.persist(group);
+        Application application = new Application(host, "○○전자", "백엔드 개발자");
+        em.persist(application);
+        InterviewSession session =
+                InterviewSession.ofGroup(
+                        host, application, null, Persona.DEVIL, InterviewMode.CHAT, group.getId());
+        em.persist(session);
+        em.flush();
+        return session;
+    }
+
+    private List<AiJob> planJobs(InterviewSession session) {
+        return jobs.findAll().stream()
+                .filter(
+                        job ->
+                                job.getJobType() == AiJobType.PLAN
+                                        && session.getId().equals(job.getSessionId()))
+                .toList();
+    }
+
+    // 주장 2개. firstId로 첫 주장의 id를 바꿔 다른 추출 결과를 만든다
+    private static String claimsExtracted(long applicationId, String firstId) {
+        return """
+        {"type":"claims.extracted","applicationId":%d,"jobId":"j1",
+         "claims":[{"id":"%s","text":"조회 응답 시간을 40%% 줄였다","type":"NUMBER","sentenceNo":4,"talentCriteria":["실행·성과"]},{"id":"c2","text":"팀 갈등을 조율했다","type":"EXPERIENCE","sentenceNo":7,"talentCriteria":[]}],"promptVersion":"extract-claims-v1","modelVersion":"gms-test"}
+        """
+                .formatted(applicationId, firstId);
+    }
+
+    private static String claimsExtractFailed(long applicationId) {
+        return """
+        {"type":"claims.extractFailed","applicationId":%d,"jobId":"j1","reason":"INVALID_OUTPUT"}
+        """
+                .formatted(applicationId);
     }
 
     private void savePlan(InterviewSession session) {

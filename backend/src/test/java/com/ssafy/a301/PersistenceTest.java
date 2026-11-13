@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerToken;
 import com.ssafy.a301.interview.domain.Criterion;
@@ -15,6 +17,7 @@ import com.ssafy.a301.interview.domain.InterviewSession;
 import com.ssafy.a301.interview.domain.Persona;
 import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
+import com.ssafy.a301.interview.domain.QuestionPoolItem;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.SessionScore;
 import com.ssafy.a301.interview.domain.SpeechMetric;
@@ -240,6 +243,94 @@ class PersistenceTest {
                             em.flush();
                         })
                 .hasMessageContaining("interview_plans_pkey");
+    }
+
+    // 기준: BE 설계 3장 ApplicationClaim(지원서마다 주장 id가 겹치지 않는다, 인재상 기준은 목록 그대로)
+    @Test
+    void applicationClaimsKeepTalentCriteriaAndAreUniquePerApplication() {
+        Application application =
+                newSession("claim@ssafy.com", InterviewMode.CHAT).getApplication();
+        em.persist(
+                new ApplicationClaim(
+                        application,
+                        new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, List.of("실행·성과")),
+                        "extract-claims-v1",
+                        "gms-test"));
+        em.flush();
+        em.clear();
+
+        ApplicationClaim claim =
+                em.createQuery(
+                                "select c from ApplicationClaim c where c.application.id = :id",
+                                ApplicationClaim.class)
+                        .setParameter("id", application.getId())
+                        .getSingleResult();
+        assertThat(claim.toPlanClaim())
+                .isEqualTo(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, List.of("실행·성과")));
+        assertThat(claim.getCreatedAt()).isNotNull();
+        assertThatThrownBy(
+                        () -> {
+                            em.persist(
+                                    new ApplicationClaim(
+                                            em.getReference(Application.class, application.getId()),
+                                            new PlanClaim("c1", "다른 주장", "EXPERIENCE", 5),
+                                            "extract-claims-v1",
+                                            "gms-test"));
+                            em.flush();
+                        })
+                .hasMessageContaining("uk_application_claims_application_claim");
+    }
+
+    // 기준: BE 설계 3장 QuestionPoolItem(연결 회사 항목은 받은 객체 그대로 둔다)
+    @Test
+    void questionPoolItemKeepsCompanyItemAsReceived() {
+        Application application = newSession("pool@ssafy.com", InterviewMode.CHAT).getApplication();
+        Map<String, Object> companyItem =
+                Map.of(
+                        "section",
+                        "market",
+                        "summary",
+                        "배송·결제 속도가 경쟁 요소",
+                        "ncs_subcategories",
+                        List.of("응용SW엔지니어링"));
+        QuestionPoolItem item =
+                new QuestionPoolItem(
+                        application,
+                        Persona.COFFEE_CHAT,
+                        new PlanQuestion(3, "질문3", "기준3", "c1", companyItem),
+                        "plan-v8",
+                        "gms-test");
+        em.persist(item);
+        em.flush();
+        em.clear();
+
+        QuestionPoolItem found = em.find(QuestionPoolItem.class, item.getId());
+        assertThat(found.getPersona()).isEqualTo(Persona.COFFEE_CHAT);
+        assertThat(found.getContent()).isEqualTo("질문3");
+        assertThat(found.getCompanyItem()).isEqualTo(companyItem);
+        assertThat(found.getPromptVersion()).isEqualTo("plan-v8");
+    }
+
+    // 기준: AI 명세 1.3(주장 추출은 지원서 단위 작업). Outbox 행은 면접과 지원서 중 하나만 가리킨다
+    @Test
+    void aiJobPointsToEitherSessionOrApplication() {
+        Application application = newSession("job@ssafy.com", InterviewMode.CHAT).getApplication();
+        AiJob job = AiJob.extractClaims(application.getId());
+        em.persist(job);
+        em.flush();
+        em.clear();
+
+        AiJob found = em.find(AiJob.class, job.getId());
+        assertThat(found.getApplicationId()).isEqualTo(application.getId());
+        assertThat(found.getSessionId()).isNull();
+        assertThatThrownBy(
+                        () ->
+                                em.createNativeQuery(
+                                                "INSERT INTO ai_job_outbox (id, job_type,"
+                                                        + " created_at) VALUES"
+                                                        + " (gen_random_uuid(), 'PLAN', now())")
+                                        .executeUpdate())
+                .hasMessageContaining("ck_ai_job_outbox_target");
     }
 
     @Test

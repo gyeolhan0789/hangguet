@@ -148,10 +148,16 @@ public class AiResultConsumer implements SmartLifecycle {
     static String describe(String message) {
         try {
             JsonNode node = JSON.readTree(message);
+            // 주장 추출 결과는 sessionId 대신 applicationId를 담는다(AI 명세 1.3)
+            String application =
+                    node.has("applicationId")
+                            ? " applicationId=" + node.path("applicationId").asString(null)
+                            : "";
             return "type="
                     + node.path("type").asString(null)
                     + " sessionId="
                     + node.path("sessionId").asString(null)
+                    + application
                     + " jobId="
                     + node.path("jobId").asString(null);
         } catch (JacksonException | IllegalArgumentException ex) {

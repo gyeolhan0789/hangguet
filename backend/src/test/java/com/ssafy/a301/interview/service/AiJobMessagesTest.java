@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.domain.Company;
 import com.ssafy.a301.company.domain.CompanyCard;
+import com.ssafy.a301.group.domain.InterviewGroup;
+import com.ssafy.a301.group.domain.JobCategory;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.AnswerImpressions;
@@ -382,6 +385,46 @@ class AiJobMessagesTest {
                 .containsEntry("persona", persona.name());
     }
 
+    // 기준: AI 명세 1.3(주장 추출은 지원서 단위라 sessionId 대신 applicationId) · 2장 STEP 01(회사명 · 직무 · 자기소개서만 입력)
+    @Test
+    void extractClaimsMessageHasApplicationInsteadOfSession() {
+        InterviewSession session = newSession(InterviewMode.CHAT);
+        long applicationId = session.getApplication().getId();
+
+        assertThat(messages.of(withId(AiJob.extractClaims(applicationId))))
+                .containsExactly(
+                        Map.entry("jobType", "EXTRACT_CLAIMS"),
+                        Map.entry("jobId", JOB_ID.toString()),
+                        Map.entry("applicationId", applicationId),
+                        Map.entry("requestedAt", "2026-10-22T14:03:13+09:00"),
+                        Map.entry("companyName", "○○전자"),
+                        Map.entry("jobTitle", "백엔드 개발자"),
+                        Map.entry("coverLetterItems", COVER_LETTER_ITEMS));
+        AiJob ofMissingApplication = withId(AiJob.extractClaims(-1L));
+        assertThatThrownBy(() -> messages.of(ofMissingApplication))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    // 기준: AI 명세 2장(개인 면접의 PLAN은 저장된 지원서 주장을 저장한 순서대로 claims로 담는다. 그룹 면접은 생략)
+    @Test
+    void planMessageHasSavedClaimsOnlyForPersonalInterview() {
+        InterviewSession personal = newSession(InterviewMode.CHAT);
+        saveClaims(personal.getApplication());
+        InterviewSession group = groupSession();
+        saveClaims(group.getApplication());
+
+        assertThat(messages.of(withId(AiJob.plan(personal.getId()))))
+                .containsEntry(
+                        "claims",
+                        List.of(
+                                new PlanClaim(
+                                        "c1", "응답 시간을 40% 줄였다", "NUMBER", 4, List.of("실행·성과")),
+                                new PlanClaim("c2", "갈등을 조율했다", "EXPERIENCE", 7, List.of())));
+        assertThat(messages.of(withId(AiJob.plan(group.getId()))))
+                .doesNotContainKey("claims")
+                .containsEntry("questionCount", InterviewPlan.GROUP_QUESTION_COUNT);
+    }
+
     @Test
     void jobWithoutPlanCannotBeSent() {
         InterviewSession session = newSession(InterviewMode.CHAT);
@@ -429,6 +472,45 @@ class AiJobMessagesTest {
                 .setParameter(3, question)
                 .setParameter(4, answer)
                 .executeUpdate();
+    }
+
+    // 주장 추출 결과(claims.extracted)로 저장한 것처럼 넣는다
+    private void saveClaims(Application application) {
+        em.persist(
+                new ApplicationClaim(
+                        application,
+                        new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, List.of("실행·성과")),
+                        "extract-claims-v1",
+                        "gms-test"));
+        em.persist(
+                new ApplicationClaim(
+                        application,
+                        new PlanClaim("c2", "갈등을 조율했다", "EXPERIENCE", 7, List.of()),
+                        "extract-claims-v1",
+                        "gms-test"));
+        em.flush();
+    }
+
+    private InterviewSession groupSession() {
+        User host = new User("job-msg-" + UUID.randomUUID() + "@example.com", "hash", "방장");
+        em.persist(host);
+        InterviewGroup group =
+                new InterviewGroup(
+                        host,
+                        InterviewMode.CHAT,
+                        Persona.DEVIL,
+                        JobCategory.DEVELOPMENT,
+                        2,
+                        UUID.randomUUID().toString().substring(0, 6));
+        em.persist(group);
+        Application application = new Application(host, "○○전자", "백엔드 개발자");
+        em.persist(application);
+        InterviewSession session =
+                InterviewSession.ofGroup(
+                        host, application, null, Persona.DEVIL, InterviewMode.CHAT, group.getId());
+        em.persist(session);
+        em.flush();
+        return session;
     }
 
     private InterviewSession plannedSession(InterviewMode mode) {

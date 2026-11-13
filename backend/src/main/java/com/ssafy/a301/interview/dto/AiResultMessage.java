@@ -16,18 +16,23 @@ import java.util.Map;
 /**
  * AI 결과 메시지(AI 명세 1.4). 종류(type)마다 쓰는 필드가 달라 쓰지 않는 필드는 null이다. AI가 필드를 더해도 읽을 수 있게 모르는 필드는 무시한다.
  *
- * @param type plan.*·question.started·answer.*·evaluation.*·recording.*·assignment.rejected(AI 명세
+ * @param type
+ *     plan.*·claims.*·question.started·answer.*·evaluation.*·recording.*·assignment.rejected(AI 명세
  *     1.4)
+ * @param sessionId 면접 결과의 면접. claims.*에는 없다
+ * @param applicationId claims.* 주장을 추출한 지원서(지원서 단위 작업이라 sessionId 대신 담는다, AI 명세 1.3)
  * @param jobId 작업에서 나온 결과만. 받은 작업의 jobId
  * @param occurredAt 결과가 생긴 시각. assignment.rejected는 이 시각으로 다시 시작하기 전의 거절인지 가린다
  * @param progress plan.progress 진행률
- * @param claims plan.completed 자소서 주장
+ * @param claims plan.completed 자소서 주장, claims.extracted 추출한 지원서 주장
  * @param questions plan.completed 질문 5개
  * @param seq question.started·answer.completed 질문 순서
  * @param startedAt question.started 질문을 말하기 시작한 시각
  * @param answerStartedAt answer.completed 답변을 듣기 시작한 시각(tokens 시각의 0ms)
- * @param promptVersion plan.completed 플랜, question.started 꼬리질문의 프롬프트 버전(예비 질문은 null)
- * @param modelVersion plan.completed 플랜, question.started 꼬리질문의 모델 버전(예비 질문은 null)
+ * @param promptVersion plan.completed 플랜, claims.extracted 주장, question.started 꼬리질문의 프롬프트 버전(예비
+ *     질문은 null)
+ * @param modelVersion plan.completed 플랜, claims.extracted 주장, question.started 꼬리질문의 모델 버전(예비 질문은
+ *     null)
  * @param content question.started 실제로 출제한 질문 글, answer.completed 인식한 답변 글
  * @param criteria question.started 실제로 출제한 질문의 채점 기준
  * @param tokens answer.completed 확정 토큰과 말한 시각
@@ -50,6 +55,7 @@ import java.util.Map;
 public record AiResultMessage(
         String type,
         Long sessionId,
+        Long applicationId,
         String jobId,
         OffsetDateTime occurredAt,
         Integer progress,

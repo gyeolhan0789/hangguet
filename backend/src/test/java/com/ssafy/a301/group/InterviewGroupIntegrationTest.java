@@ -24,6 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -39,6 +41,7 @@ import com.ssafy.a301.interview.domain.Answer;
 import com.ssafy.a301.interview.domain.InputType;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanStatus;
 import com.ssafy.a301.interview.domain.SessionRuntime;
 import com.ssafy.a301.interview.domain.SessionStatus;
@@ -114,6 +117,7 @@ class InterviewGroupIntegrationTest {
     @Autowired private UserRepository users;
     @Autowired private PasswordEncoder passwordEncoder;
     @Autowired private ApplicationRepository applications;
+    @Autowired private ApplicationClaimRepository applicationClaims;
     @Autowired private InterviewSessionRepository sessions;
     @Autowired private InterviewQuestionRepository questions;
     @Autowired private AnswerRepository answers;
@@ -180,6 +184,16 @@ class InterviewGroupIntegrationTest {
             jdbc.update("DELETE FROM interview_groups WHERE host_user_id = ?", id);
         }
         for (long id : userIds) {
+            String applicationsOfUser = "SELECT id FROM applications WHERE user_id = " + id;
+            for (String table :
+                    List.of("ai_job_outbox", "application_claims", "question_pool_items")) {
+                jdbc.update(
+                        "DELETE FROM "
+                                + table
+                                + " WHERE application_id IN ("
+                                + applicationsOfUser
+                                + ")");
+            }
             jdbc.update("DELETE FROM applications WHERE user_id = ?", id);
             jdbc.update("DELETE FROM users WHERE id = ?", id);
         }
@@ -244,9 +258,17 @@ class InterviewGroupIntegrationTest {
                 .andExpect(jsonPath("$.code").value("GROUP_SESSION"));
     }
 
+    // 개인 면접은 주장을 추출해 둔 지원서여야 바로 질문 생성(PLAN)을 요청한다(AI 명세 2장)
     @Test
     void personalPlanJobHasNoQuestionCount() throws Exception {
         long user = newUser("개인");
+        long application = newApplication(user);
+        applicationClaims.saveAndFlush(
+                new ApplicationClaim(
+                        applications.getReferenceById(application),
+                        new PlanClaim("c1", "주장", "EXPERIENCE", 1),
+                        "extract-claims-v1",
+                        "model"));
 
         mvc.perform(
                         as(user, idempotent(post("/api/v1/interview-sessions")))
@@ -255,7 +277,7 @@ class InterviewGroupIntegrationTest {
                                         json.writeValueAsString(
                                                 Map.of(
                                                         "applicationId",
-                                                        newApplication(user),
+                                                        application,
                                                         "persona",
                                                         "DEVIL",
                                                         "mode",

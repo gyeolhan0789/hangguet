@@ -80,6 +80,15 @@ final class ContractData {
                         + inquiries
                         + "))");
         jdbc.update("DELETE FROM inquiry_messages WHERE inquiry_id IN (" + inquiries + ")");
+        // 지원서 주장 · 질문 보관함 · 주장 추출 작업은 면접이 아니라 지원서를 가리킨다
+        for (String table : List.of("ai_job_outbox", "application_claims", "question_pool_items")) {
+            jdbc.update(
+                    "DELETE FROM "
+                            + table
+                            + " WHERE application_id IN (SELECT id FROM applications WHERE user_id"
+                            + " = ?)",
+                    id);
+        }
         jdbc.update(
                 "DELETE FROM cover_letter_items WHERE application_id IN (SELECT id FROM"
                         + " applications WHERE user_id = ?)",

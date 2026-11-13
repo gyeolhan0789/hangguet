@@ -13,6 +13,8 @@ import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
 import com.ssafy.a301.common.time.KoreaTime;
+import com.ssafy.a301.interview.domain.AiJob;
+import com.ssafy.a301.interview.service.AiJobService;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.util.List;
 import org.springframework.data.domain.Page;
@@ -41,19 +43,25 @@ public class ApplicationService {
     private final UserRepository users;
     private final TransactionTemplate transactions;
     private final CoverLetterCheckQueue coverLetterChecks;
+    private final AiJobService aiJobs;
 
     public ApplicationService(
             ApplicationRepository applications,
             UserRepository users,
             TransactionTemplate transactions,
-            CoverLetterCheckQueue coverLetterChecks) {
+            CoverLetterCheckQueue coverLetterChecks,
+            AiJobService aiJobs) {
         this.applications = applications;
         this.users = users;
         this.transactions = transactions;
         this.coverLetterChecks = coverLetterChecks;
+        this.aiJobs = aiJobs;
     }
 
-    /** 검증 결과를 기다리는 동안 트랜잭션을 열어 두지 않도록, 먼저 판단받고 지원서와 문항을 함께 저장한다. */
+    /**
+     * 검증 결과를 기다리는 동안 트랜잭션을 열어 두지 않도록, 먼저 판단받고 지원서와 문항을 함께 저장한다. 저장하며 지원서 주장 추출을 요청하고, 응답은 추출을 기다리지
+     * 않는다(API 명세 4.1, AI 명세 2장 STEP 01).
+     */
     public ApplicationResponse create(long userId, ApplicationCreateRequest request) {
         checkCoverLetter(request.companyName(), request.jobTitle(), request.coverLetterItems());
         return transactions.execute(
@@ -66,7 +74,9 @@ public class ApplicationService {
                     for (CoverLetterItemRequest item : request.coverLetterItems()) {
                         application.addCoverLetterItem(item.question(), item.answer());
                     }
-                    return ApplicationMapper.toResponse(applications.saveAndFlush(application));
+                    Application saved = applications.saveAndFlush(application);
+                    aiJobs.enqueue(AiJob.extractClaims(saved.getId()));
+                    return ApplicationMapper.toResponse(saved);
                 });
     }
 

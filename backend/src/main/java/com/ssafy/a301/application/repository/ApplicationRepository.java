@@ -29,4 +29,12 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
             "select a from Application a"
                     + " where a.id = :id and a.user.id = :userId and a.deletedAt is null")
     Optional<Application> findForUpdate(@Param("id") long id, @Param("userId") long userId);
+
+    /**
+     * 지원서 주장 결과(claims.extracted · claims.extractFailed)를 저장할 때 쓴다(회원 요청이 아니라 회원 id가 없음). 면접
+     * 만들기(5.1)와 같은 행을 잠가, 주장을 확인하는 면접 만들기와 주장 저장이 겹치지 않게 한다. 지운 지원서도 찾는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select a from Application a where a.id = :id")
+    Optional<Application> findByIdForUpdate(@Param("id") long id);
 }

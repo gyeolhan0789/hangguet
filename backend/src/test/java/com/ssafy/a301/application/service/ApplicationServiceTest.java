@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -24,6 +25,8 @@ import com.ssafy.a301.application.repository.CoverLetterCheckQueue.Verdict;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
 import com.ssafy.a301.common.error.FieldValidationException;
+import com.ssafy.a301.interview.domain.AiJobType;
+import com.ssafy.a301.interview.service.AiJobService;
 import com.ssafy.a301.user.domain.User;
 import com.ssafy.a301.user.repository.UserRepository;
 import java.time.OffsetDateTime;
@@ -40,6 +43,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 // 기준: API 명세 4.1 · 4.2 · 4.3 · 4.5(문항 단위 자기소개서, 수정 없음, 지워도 행은 남김) · AI 명세 2.1 자기소개서 검증
+// · AI 명세 2장 STEP 01(지원서를 저장하며 주장 추출을 요청하고, 저장 응답은 추출을 기다리지 않는다)
 class ApplicationServiceTest {
     private static final long USER_ID = 7L;
     private static final List<CoverLetterItemRequest> ITEMS =
@@ -53,6 +57,7 @@ class ApplicationServiceTest {
     private final ApplicationRepository applications = mock(ApplicationRepository.class);
     private final UserRepository users = mock(UserRepository.class);
     private final CoverLetterCheckQueue coverLetterChecks = mock(CoverLetterCheckQueue.class);
+    private final AiJobService aiJobs = mock(AiJobService.class);
     // 실제 TransactionTemplate으로 콜백을 실행하고, 커밋·롤백은 가짜 매니저로 확인한다
     private final PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
     private final User user = withId(new User("a@test.com", "hash", "회원"), USER_ID);
@@ -63,7 +68,11 @@ class ApplicationServiceTest {
     void setUp() {
         service =
                 new ApplicationService(
-                        applications, users, new TransactionTemplate(txManager), coverLetterChecks);
+                        applications,
+                        users,
+                        new TransactionTemplate(txManager),
+                        coverLetterChecks,
+                        aiJobs);
         when(coverLetterChecks.check(any(), any(), any())).thenReturn(Verdict.USABLE);
         application = withId(new Application(user, "○○전자", "백엔드 개발자"), 10);
         application.addCoverLetterItem("지원 동기", "저는…");
@@ -87,10 +96,18 @@ class ApplicationServiceTest {
                 .containsExactly(
                         new CoverLetterItem(1, "지원 동기", "저는…"),
                         new CoverLetterItem(2, "협업 경험", "함께했습니다."));
-        // AI 검증은 트랜잭션을 열기 전에 끝낸다(검증을 기다리는 동안 DB 연결을 잡지 않음)
-        InOrder order = inOrder(coverLetterChecks, txManager);
+        // AI 검증은 트랜잭션을 열기 전에 끝낸다(검증을 기다리는 동안 DB 연결을 잡지 않음).
+        // 주장 추출은 저장과 같은 트랜잭션에서 Outbox에 넣는다(커밋되어야 큐로 간다)
+        InOrder order = inOrder(coverLetterChecks, txManager, aiJobs);
         order.verify(coverLetterChecks).check("△△소프트", "서버 개발자", CHECK_ITEMS);
         order.verify(txManager).getTransaction(any());
+        order.verify(aiJobs)
+                .enqueue(
+                        argThat(
+                                job ->
+                                        job.getJobType() == AiJobType.EXTRACT_CLAIMS
+                                                && Long.valueOf(11).equals(job.getApplicationId())
+                                                && job.getSessionId() == null));
         order.verify(txManager).commit(any());
     }
 
@@ -168,6 +185,7 @@ class ApplicationServiceTest {
                                     .isEqualTo(ApplicationService.UNUSABLE_COVER_LETTER);
                         });
         verify(applications, never()).saveAndFlush(any());
+        verify(aiJobs, never()).enqueue(any());
     }
 
     @Test

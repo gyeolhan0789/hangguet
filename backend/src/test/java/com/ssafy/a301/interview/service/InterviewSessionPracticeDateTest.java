@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.company.service.CompanyCardFinder;
@@ -58,6 +59,7 @@ class InterviewSessionPracticeDateTest {
     @Mock private AnswerRepository answers;
     @Mock private InterviewPlanRepository plans;
     @Mock private ApplicationRepository applications;
+    @Mock private ApplicationClaimRepository applicationClaims;
     @Mock private UserRepository users;
     @Mock private PracticeLogRepository practiceLogs;
     @Mock private SessionRuntimeService runtimes;
@@ -101,7 +103,8 @@ class InterviewSessionPracticeDateTest {
                         ender,
                         groupEnds,
                         groupTurns,
-                        groups);
+                        groups,
+                        applicationClaims);
         when(transactions.execute(any()))
                 .thenAnswer(
                         invocation -> {

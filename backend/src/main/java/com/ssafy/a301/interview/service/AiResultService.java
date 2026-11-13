@@ -1,5 +1,9 @@
 package com.ssafy.a301.interview.service;
 
+import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.domain.ApplicationClaim;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
+import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.time.KoreaTime;
 import com.ssafy.a301.interview.domain.AiJob;
 import com.ssafy.a301.interview.domain.AnalysisStep;
@@ -10,8 +14,10 @@ import com.ssafy.a301.interview.domain.Criterion;
 import com.ssafy.a301.interview.domain.InterviewPlan;
 import com.ssafy.a301.interview.domain.InterviewQuestion;
 import com.ssafy.a301.interview.domain.InterviewSession;
+import com.ssafy.a301.interview.domain.PlanClaim;
 import com.ssafy.a301.interview.domain.PlanQuestion;
 import com.ssafy.a301.interview.domain.PlanStatus;
+import com.ssafy.a301.interview.domain.QuestionPoolItem;
 import com.ssafy.a301.interview.domain.Recording;
 import com.ssafy.a301.interview.domain.RecordingStatus;
 import com.ssafy.a301.interview.domain.SessionScore;
@@ -26,6 +32,7 @@ import com.ssafy.a301.interview.repository.AnswerRepository;
 import com.ssafy.a301.interview.repository.InterviewPlanRepository;
 import com.ssafy.a301.interview.repository.InterviewQuestionRepository;
 import com.ssafy.a301.interview.repository.InterviewSessionRepository;
+import com.ssafy.a301.interview.repository.QuestionPoolItemRepository;
 import com.ssafy.a301.interview.repository.RecordingRepository;
 import com.ssafy.a301.interview.repository.SessionRuntimeStore;
 import com.ssafy.a301.interview.repository.SessionScoreRepository;
@@ -35,6 +42,8 @@ import com.ssafy.a301.interview.service.TrackRecordingCheck.FirstQuestionStarted
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -68,6 +77,12 @@ public class AiResultService {
     private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
     // 면접의 첫 질문 순서(AI 명세 2장)
     private static final int FIRST_SEQ = 1;
+    private static final String CLAIMS_EXTRACTED = "claims.extracted";
+    private static final String CLAIMS_EXTRACT_FAILED = "claims.extractFailed";
+    // 주장 종류(AI 명세 2장)
+    private static final Set<String> CLAIM_TYPES = Set.of("EXPERIENCE", "NUMBER");
+    // application_claims.claim_id 길이
+    private static final int MAX_CLAIM_ID_LENGTH = 50;
 
     /** 처리 결과. 둘 다 처리를 끝낸 것이라 큐에서 지운다 */
     public enum Outcome {
@@ -88,6 +103,10 @@ public class AiResultService {
     private final ApplicationEventPublisher events;
     private final SessionEnder ender;
     private final TransactionTemplate transactions;
+    private final ApplicationRepository applications;
+    private final ApplicationClaimRepository applicationClaims;
+    private final QuestionPoolItemRepository poolItems;
+    private final SessionRuntimeService runtimeService;
 
     public AiResultService(
             InterviewSessionRepository sessions,
@@ -102,7 +121,11 @@ public class AiResultService {
             InterviewRoom rooms,
             ApplicationEventPublisher events,
             SessionEnder ender,
-            TransactionTemplate transactions) {
+            TransactionTemplate transactions,
+            ApplicationRepository applications,
+            ApplicationClaimRepository applicationClaims,
+            QuestionPoolItemRepository poolItems,
+            SessionRuntimeService runtimeService) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -116,6 +139,10 @@ public class AiResultService {
         this.events = events;
         this.ender = ender;
         this.transactions = transactions;
+        this.applications = applications;
+        this.applicationClaims = applicationClaims;
+        this.poolItems = poolItems;
+        this.runtimeService = runtimeService;
     }
 
     /**
@@ -123,9 +150,22 @@ public class AiResultService {
      */
     public Outcome handle(String raw) {
         AiResultMessage message = parse(raw);
+        String type = required(message.type(), "type");
+        // 주장 추출은 면접이 아니라 지원서 단위 작업이라 sessionId 대신 applicationId를 담는다(AI 명세 1.3)
+        if (type.equals(CLAIMS_EXTRACTED) || type.equals(CLAIMS_EXTRACT_FAILED)) {
+            long applicationId = required(message.applicationId(), "applicationId");
+            Outcome outcome =
+                    type.equals(CLAIMS_EXTRACTED)
+                            ? claimsExtracted(applicationId, message)
+                            : claimsExtractFailed(applicationId);
+            if (outcome == Outcome.DISCARDED) {
+                LOG.info("AI 결과를 버렸다: {} application={}", type, applicationId);
+            }
+            return outcome;
+        }
         long sessionId = required(message.sessionId(), "sessionId");
         Outcome outcome =
-                switch (required(message.type(), "type")) {
+                switch (type) {
                     case "plan.progress" ->
                             planProgress(sessionId, required(message.progress(), "progress"));
                     case "plan.completed" -> planCompleted(sessionId, message);
@@ -189,17 +229,123 @@ public class AiResultService {
             runtimes.markPlanReady(sessionId);
             return Outcome.DISCARDED;
         }
+        List<PlanClaim> claims = required(message.claims(), "claims");
+        String promptVersion = required(message.promptVersion(), "promptVersion");
+        String modelVersion = required(message.modelVersion(), "modelVersion");
         transactions.executeWithoutResult(
-                status ->
-                        plans.save(
-                                new InterviewPlan(
-                                        sessionId,
-                                        required(message.claims(), "claims"),
-                                        planQuestions,
-                                        required(message.promptVersion(), "promptVersion"),
-                                        required(message.modelVersion(), "modelVersion"))));
+                status -> {
+                    plans.save(
+                            new InterviewPlan(
+                                    sessionId, claims, planQuestions, promptVersion, modelVersion));
+                    // 개인 면접의 질문은 질문 보관함에도 넣는다. 플랜과 같은 트랜잭션이라 같은 결과가 두 번 와도 한 번만 들어간다.
+                    // 그룹 면접은 개인 맞춤 질문을 매번 만들고 예비 질문이 없어 넣지 않는다(AI 명세 2장 질문 보관함)
+                    if (!session.isGroup()) {
+                        savePoolItems(session, planQuestions, promptVersion, modelVersion);
+                    }
+                });
         runtimes.markPlanReady(sessionId);
         return Outcome.SAVED;
+    }
+
+    // 저장 순서가 배정 순서이므로 seq 순으로 넣는다(AI 명세 2장 출제 자리 배정)
+    private void savePoolItems(
+            InterviewSession session,
+            List<PlanQuestion> planQuestions,
+            String promptVersion,
+            String modelVersion) {
+        Application application = applications.getReferenceById(session.getApplication().getId());
+        poolItems.saveAll(
+                planQuestions.stream()
+                        .sorted(Comparator.comparingInt(PlanQuestion::seq))
+                        .map(
+                                question ->
+                                        new QuestionPoolItem(
+                                                application,
+                                                session.getPersona(),
+                                                question,
+                                                promptVersion,
+                                                modelVersion))
+                        .toList());
+    }
+
+    /**
+     * 지원서 주장(AI 명세 1.4 claims.extracted). 지원서 행을 잠가 주장을 확인하는 면접 만들기(5.1)와 겹치지 않게 하고, 주장이 이미 있으면(같은
+     * 작업의 중복, 5.1 · 5.3이 다시 요청한 추출) 버린다. 저장하면 그 지원서에서 주장을 기다리던 면접의 질문 생성을 요청한다.
+     */
+    private Outcome claimsExtracted(long applicationId, AiResultMessage message) {
+        List<PlanClaim> claims = validClaims(required(message.claims(), "claims"), applicationId);
+        String promptVersion = required(message.promptVersion(), "promptVersion");
+        String modelVersion = required(message.modelVersion(), "modelVersion");
+        OffsetDateTime now = OffsetDateTime.now(KoreaTime.ZONE);
+        return transactions.execute(
+                status -> {
+                    Application application =
+                            applications.findByIdForUpdate(applicationId).orElse(null);
+                    if (application == null
+                            || applicationClaims.existsByApplicationId(applicationId)) {
+                        return Outcome.DISCARDED;
+                    }
+                    applicationClaims.saveAll(
+                            claims.stream()
+                                    .map(
+                                            claim ->
+                                                    new ApplicationClaim(
+                                                            application,
+                                                            claim,
+                                                            promptVersion,
+                                                            modelVersion))
+                                    .toList());
+                    for (long sessionId : waitingForClaims(applicationId)) {
+                        // AI가 질문 생성 작업의 requestedAt부터 최대 대기 시간을 세므로 시작 시각을 다시 기록한다(BE 설계 5.1)
+                        runtimeService.startPlan(sessionId, now.toInstant());
+                        aiJobs.enqueue(AiJob.plan(sessionId));
+                    }
+                    return Outcome.SAVED;
+                });
+    }
+
+    // 주장을 추출하지 못했다(AI 명세 1.4 claims.extractFailed). 주장을 기다리던 면접을 실패로 바꿔 화면이 다시 만들기(5.3)로 넘어가게 한다
+    private Outcome claimsExtractFailed(long applicationId) {
+        return transactions.execute(
+                status -> {
+                    if (applications.findByIdForUpdate(applicationId).isEmpty()
+                            || applicationClaims.existsByApplicationId(applicationId)) {
+                        return Outcome.DISCARDED;
+                    }
+                    List<Long> waiting = waitingForClaims(applicationId);
+                    waiting.forEach(runtimes::failPlanIfGenerating);
+                    return waiting.isEmpty() ? Outcome.DISCARDED : Outcome.SAVED;
+                });
+    }
+
+    // 주장이 없는 지원서로 만든 개인 면접은 질문 생성 대신 주장 추출을 요청하므로, 플랜이 없고 플랜을 만드는 중인 면접이 주장을 기다리는 면접이다
+    private List<Long> waitingForClaims(long applicationId) {
+        return sessions.findPersonalIdsWithoutPlan(applicationId).stream()
+                .filter(this::isPlanGenerating)
+                .toList();
+    }
+
+    // 질문 생성에 그대로 넣으므로 AI가 작업에서 확인하는 칸(AI 명세 2장)과 저장 컬럼 길이를 확인한다
+    private static List<PlanClaim> validClaims(List<PlanClaim> claims, long applicationId) {
+        if (claims.isEmpty()) {
+            throw new InvalidAiResultException("주장이 없다: application=" + applicationId);
+        }
+        Set<String> ids = new HashSet<>();
+        for (PlanClaim claim : claims) {
+            boolean valid =
+                    claim != null
+                            && !isBlank(claim.id())
+                            && claim.id().length() <= MAX_CLAIM_ID_LENGTH
+                            && ids.add(claim.id())
+                            && !isBlank(claim.text())
+                            && CLAIM_TYPES.contains(claim.type())
+                            && claim.sentenceNo() != null
+                            && claim.sentenceNo() >= 1;
+            if (!valid) {
+                throw new InvalidAiResultException("주장 형식이 틀렸다: application=" + applicationId);
+            }
+        }
+        return claims;
     }
 
     private Outcome planFailed(long sessionId) {

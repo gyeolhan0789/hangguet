@@ -1,6 +1,7 @@
 package com.ssafy.a301.interview.service;
 
 import com.ssafy.a301.application.domain.Application;
+import com.ssafy.a301.application.repository.ApplicationClaimRepository;
 import com.ssafy.a301.application.repository.ApplicationRepository;
 import com.ssafy.a301.common.error.ApiException;
 import com.ssafy.a301.common.error.ErrorCode;
@@ -68,6 +69,7 @@ public class InterviewSessionService {
     private final GroupEndService groupEnds;
     private final GroupTurnService groupTurns;
     private final InterviewGroupRepository groups;
+    private final ApplicationClaimRepository applicationClaims;
 
     public InterviewSessionService(
             InterviewSessionRepository sessions,
@@ -85,7 +87,8 @@ public class InterviewSessionService {
             SessionEnder ender,
             GroupEndService groupEnds,
             GroupTurnService groupTurns,
-            InterviewGroupRepository groups) {
+            InterviewGroupRepository groups,
+            ApplicationClaimRepository applicationClaims) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -102,6 +105,7 @@ public class InterviewSessionService {
         this.groupEnds = groupEnds;
         this.groupTurns = groupTurns;
         this.groups = groups;
+        this.applicationClaims = applicationClaims;
     }
 
     /**
@@ -129,7 +133,7 @@ public class InterviewSessionService {
                                                     .orElse(null),
                                             request.persona(),
                                             request.mode()));
-                    startPlan(session.getId(), now);
+                    startPlan(session, now);
                     return InterviewMapper.toSessionResponse(
                             session, SessionRuntime.generating(), null, 0, now, null);
                 });
@@ -159,7 +163,7 @@ public class InterviewSessionService {
                                 persona,
                                 mode,
                                 groupId));
-        startPlan(session.getId(), now);
+        startPlan(session, now);
         return session;
     }
 
@@ -188,7 +192,7 @@ public class InterviewSessionService {
                             != PlanStatus.FAILED) {
                         throw new ApiException(ErrorCode.PLAN_NOT_FAILED);
                     }
-                    startPlan(sessionId, now);
+                    startPlan(session, now);
                     return InterviewMapper.toGroupSessionResponse(
                             session, SessionRuntime.generating(), null, 0, now, groupOf(session));
                 });
@@ -364,10 +368,17 @@ public class InterviewSessionService {
                 .orElseThrow(() -> new ApiException(ErrorCode.SESSION_NOT_FOUND));
     }
 
-    // 트랜잭션 안에서 부른다. 상태를 먼저 기록하고 작업을 Outbox에 넣는다
-    private void startPlan(long sessionId, OffsetDateTime now) {
-        runtimes.startPlan(sessionId, now.toInstant());
-        aiJobs.enqueue(AiJob.plan(sessionId));
+    // 트랜잭션 안에서 부른다. 상태를 먼저 기록하고 작업을 Outbox에 넣는다.
+    // 개인 면접은 지원서 주장이 있으면 질문 생성, 없으면 주장 추출을 요청한다. 주장을 저장하면 결과 처리가 이 면접의 질문 생성을 요청한다(AI 명세 2장).
+    // 5.3은 지원서를 잠그지 않으므로 상태를 먼저 기록해야, 주장 저장과 겹쳐도 주장 저장이 이 면접을 주장을 기다리는 면접으로 찾는다
+    private void startPlan(InterviewSession session, OffsetDateTime now) {
+        runtimes.startPlan(session.getId(), now.toInstant());
+        long applicationId = session.getApplication().getId();
+        if (session.isGroup() || applicationClaims.existsByApplicationId(applicationId)) {
+            aiJobs.enqueue(AiJob.plan(session.getId()));
+            return;
+        }
+        aiJobs.enqueue(AiJob.extractClaims(applicationId));
     }
 
     // 트랜잭션 안에서 부른다. 작업을 Outbox에 넣고 그 jobId와 함께 상태를 기록한다(작업은 커밋 뒤에 보내므로 결과가 먼저 오지 않는다)

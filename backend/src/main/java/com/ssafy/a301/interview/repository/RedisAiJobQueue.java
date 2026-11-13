@@ -17,7 +17,7 @@ import tools.jackson.databind.json.JsonMapper;
 @Component
 public class RedisAiJobQueue implements AiJobQueue {
     static final String KEY = "ai:jobs";
-    // 사용자가 화면 앞에서 기다리는 질문 생성이 녹화 합치기 · 결과 생성 뒤에서 대기하지 않도록 별도 큐로 둔다
+    // 사용자가 화면 앞에서 기다리는 질문 생성(주장 추출 포함)이 녹화 합치기 · 결과 생성 뒤에서 대기하지 않도록 별도 큐로 둔다
     static final String PLAN_KEY = "ai:jobs:plan";
     // ffmpeg로 오래 걸리는 녹화 합치기가 다른 작업을 지연시키지 않도록 별도 큐로 둔다
     static final String RECORDING_KEY = "ai:jobs:recording";
@@ -40,7 +40,8 @@ public class RedisAiJobQueue implements AiJobQueue {
 
     /** 작업 종류의 큐. 나머지 작업은 큐를 나누기 전부터 쓰던 ai:jobs에 추가한다 */
     static String keyOf(Object jobType) {
-        if (AiJobType.PLAN.name().equals(jobType)) {
+        if (AiJobType.PLAN.name().equals(jobType)
+                || AiJobType.EXTRACT_CLAIMS.name().equals(jobType)) {
             return PLAN_KEY;
         }
         if (AiJobType.MERGE_RECORDING.name().equals(jobType)) {
