@@ -7,6 +7,8 @@ import type {
   ApplicationResponse,
   ApplicationSessionListResponse,
   CompanyListResponse,
+  GroupResponse,
+  InviteResponse,
   PendingResponse,
   QuestionResponse,
   MeResponse,
@@ -528,3 +530,51 @@ export const STREAK_FREEZE_USED = {
   availableCount: 1,
   currentStreak: 9,
 } satisfies StreakFreezeUseResponse;
+
+/** 10.4 그룹 조회 200 — BE Swagger 예시(그룹 7 · 방장 3 · 내 면접 55, 채팅 · 정원 2 · 대기 중) */
+export const GROUP = {
+  groupId: 7,
+  status: "WAITING",
+  mode: "CHAT",
+  persona: "COFFEE_CHAT",
+  jobCategory: "DEVELOPMENT",
+  capacity: 2,
+  inviteCode: "K7Q2ZP",
+  hostUserId: 3,
+  mySessionId: 55,
+  participants: [
+    {
+      userId: 3,
+      nickname: "김하나",
+      profileImageUrl: null,
+      jobCategory: "DEVELOPMENT",
+      sessionId: 55,
+      planStatus: "GENERATING",
+      ready: false,
+      turnOrder: null,
+      state: "WAITING",
+    },
+  ],
+  jobCategoryMismatch: null,
+  turn: null,
+  room: null,
+} as const satisfies GroupResponse;
+
+/** 10.2 초대 확인 200 — BE Swagger 예시 */
+export const INVITE = {
+  groupId: 7,
+  hostNickname: "면접왕",
+  mode: "CHAT",
+  persona: "COFFEE_CHAT",
+  jobCategory: "DEVELOPMENT",
+  capacity: 2,
+  participantCount: 1,
+} as const satisfies InviteResponse;
+
+/** 5.2 그룹 면접 200 — 그룹 대기실에서 준비 중인 면접(API 명세 10.10 group) */
+export const SESSION_GROUP_WAITING = {
+  ...SESSION,
+  mode: "CHAT",
+  persona: "COFFEE_CHAT",
+  group: { groupId: 7, status: "WAITING" },
+} as const satisfies SessionResponse;
