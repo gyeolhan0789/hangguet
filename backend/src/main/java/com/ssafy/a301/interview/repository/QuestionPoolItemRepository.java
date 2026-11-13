@@ -11,4 +11,12 @@ public interface QuestionPoolItemRepository extends JpaRepository<QuestionPoolIt
     /** 보관함의 질문을 저장한 순서대로 */
     List<QuestionPoolItem> findByApplicationIdAndPersonaOrderById(
             long applicationId, Persona persona);
+
+    /** 배정할 수 있는(사용 처리하지 않은) 질문을 저장한 순서대로 */
+    List<QuestionPoolItem> findByApplicationIdAndPersonaAndUsedAtIsNullOrderById(
+            long applicationId, Persona persona);
+
+    /** 출제한(사용 처리한) 질문을 저장한 순서대로 */
+    List<QuestionPoolItem> findByApplicationIdAndPersonaAndUsedAtIsNotNullOrderById(
+            long applicationId, Persona persona);
 }

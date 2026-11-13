@@ -216,8 +216,8 @@ class PersistenceTest {
                         session.getId(),
                         List.of(new PlanClaim("c1", "응답 시간을 40% 줄였다", "NUMBER", 4, null)),
                         List.of(
-                                new PlanQuestion(1, "질문1", "기준1", "c1", null),
-                                new PlanQuestion(2, "질문2", "기준2", "c1", null)),
+                                new PlanQuestion(1, "질문1", "기준1", "c1", null, null),
+                                new PlanQuestion(2, "질문2", "기준2", "c1", null, null)),
                         "plan-v1",
                         "gms-test"));
         em.flush();
@@ -297,7 +297,7 @@ class PersistenceTest {
                 new QuestionPoolItem(
                         application,
                         Persona.COFFEE_CHAT,
-                        new PlanQuestion(3, "질문3", "기준3", "c1", companyItem),
+                        new PlanQuestion(3, "질문3", "기준3", "c1", companyItem, null),
                         "plan-v8",
                         "gms-test");
         em.persist(item);

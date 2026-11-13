@@ -77,6 +77,8 @@ public class AiResultService {
     private static final Set<String> REJECT_REASONS = Set.of("INVALID_ASSIGNMENT");
     // 면접의 첫 질문 순서(AI 명세 2장)
     private static final int FIRST_SEQ = 1;
+    // 꼬리질문 없이 플랜 질문을 그대로 출제하는 자리(AI 명세 2장 질문 출제)
+    private static final Set<Integer> ALWAYS_PLANNED_SEQS = Set.of(1, 3);
     private static final String CLAIMS_EXTRACTED = "claims.extracted";
     private static final String CLAIMS_EXTRACT_FAILED = "claims.extractFailed";
     // 주장 종류(AI 명세 2장)
@@ -107,6 +109,7 @@ public class AiResultService {
     private final ApplicationClaimRepository applicationClaims;
     private final QuestionPoolItemRepository poolItems;
     private final SessionRuntimeService runtimeService;
+    private final QuestionPoolAssigner pools;
 
     public AiResultService(
             InterviewSessionRepository sessions,
@@ -125,7 +128,8 @@ public class AiResultService {
             ApplicationRepository applications,
             ApplicationClaimRepository applicationClaims,
             QuestionPoolItemRepository poolItems,
-            SessionRuntimeService runtimeService) {
+            SessionRuntimeService runtimeService,
+            QuestionPoolAssigner pools) {
         this.sessions = sessions;
         this.questions = questions;
         this.answers = answers;
@@ -143,6 +147,7 @@ public class AiResultService {
         this.applicationClaims = applicationClaims;
         this.poolItems = poolItems;
         this.runtimeService = runtimeService;
+        this.pools = pools;
     }
 
     /**
@@ -234,14 +239,26 @@ public class AiResultService {
         String modelVersion = required(message.modelVersion(), "modelVersion");
         transactions.executeWithoutResult(
                 status -> {
-                    plans.save(
-                            new InterviewPlan(
-                                    sessionId, claims, planQuestions, promptVersion, modelVersion));
-                    // 개인 면접의 질문은 질문 보관함에도 넣는다. 플랜과 같은 트랜잭션이라 같은 결과가 두 번 와도 한 번만 들어간다.
-                    // 그룹 면접은 개인 맞춤 질문을 매번 만들고 예비 질문이 없어 넣지 않는다(AI 명세 2장 질문 보관함)
-                    if (!session.isGroup()) {
-                        savePoolItems(session, planQuestions, promptVersion, modelVersion);
+                    // 그룹 면접은 개인 맞춤 질문을 매번 만들고 예비 질문이 없어 받은 질문 그대로 저장한다(AI 명세 2장 질문 보관함)
+                    if (session.isGroup()) {
+                        plans.save(
+                                new InterviewPlan(
+                                        sessionId,
+                                        claims,
+                                        planQuestions,
+                                        promptVersion,
+                                        modelVersion));
+                        return;
                     }
+                    // 개인 면접은 받은 질문을 질문 보관함에 넣고 보관함에서 배정한 질문 5개로 저장한다. 플랜과 같은 트랜잭션이라 같은 결과가 두 번
+                    // 와도 한 번만 들어간다. 주장은 입력으로 보낸 지원서 주장 그대로 돌아온다(AI 명세 2장)
+                    savePoolItems(session, planQuestions, promptVersion, modelVersion);
+                    plans.save(
+                            pools.assign(session, claims)
+                                    .orElseThrow(
+                                            () ->
+                                                    new IllegalStateException(
+                                                            "보관함에 넣은 질문을 배정하지 못했다: " + sessionId)));
                 });
         runtimes.markPlanReady(sessionId);
         return Outcome.SAVED;
@@ -385,6 +402,7 @@ public class AiResultService {
                                     message.promptVersion(),
                                     message.modelVersion(),
                                     startedAt));
+                    markPoolItemUsed(sessionId, seq, message.promptVersion(), startedAt);
                     // 첫 질문 때는 트랙이 올라와 있으므로 녹화가 모두 시작됐는지 확인한다
                     if (seq == FIRST_SEQ && session.isVideo()) {
                         events.publishEvent(
@@ -392,6 +410,20 @@ public class AiResultService {
                     }
                     return Outcome.SAVED;
                 });
+    }
+
+    // 출제한 질문이 보관함 질문이면 다시 배정하지 않게 사용 처리한다. 1·3번은 항상 플랜 질문이고, 2·4·5번은 꼬리질문 대신 예비 질문을
+    // 출제했을 때(promptVersion이 null)만 플랜 질문이다. 보관함에서 배정하지 않은 플랜이거나 그 사이 폐기한 질문이면 그대로 둔다(AI 명세 2장)
+    private void markPoolItemUsed(
+            long sessionId, int seq, String promptVersion, OffsetDateTime startedAt) {
+        if (!ALWAYS_PLANNED_SEQS.contains(seq) && promptVersion != null) {
+            return;
+        }
+        plans.findById(sessionId)
+                .flatMap(plan -> plan.question(seq))
+                .map(PlanQuestion::poolItemId)
+                .flatMap(poolItems::findById)
+                .ifPresent(item -> item.markUsed(startedAt));
     }
 
     // 화상 답변. 질문 하나에 답변 하나이며(5.7과 같은 규칙), 저장하면 채점 작업을 넣는다

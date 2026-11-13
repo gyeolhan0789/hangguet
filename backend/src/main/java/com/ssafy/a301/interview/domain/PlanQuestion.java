@@ -12,6 +12,8 @@ import java.util.Map;
  * @param claimId 질문이 파고드는 자소서 주장 id
  * @param companyItem 질문을 연결한 회사 항목. section(카드 칸 이름)과 그 카드 항목의 칸을 이름 그대로 담는다. 연결하지 않은 질문과 이 필드를 더하기
  *     전에 만든 플랜은 null이다(AI 명세 2장)
+ * @param poolItemId 보관함에서 배정한 질문이면 그 보관함 질문 id. 출제하면(question.started) 이 값으로 사용 처리한다(BE 설계 5.2).
+ *     AI가 보낸 질문(plan.completed)과 그룹 면접 · 보관함 전에 만든 플랜은 null이다
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record PlanQuestion(
@@ -19,4 +21,5 @@ public record PlanQuestion(
         String content,
         String criteria,
         String claimId,
-        Map<String, Object> companyItem) {}
+        Map<String, Object> companyItem,
+        Long poolItemId) {}
