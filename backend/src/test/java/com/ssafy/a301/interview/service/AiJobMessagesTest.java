@@ -75,9 +75,10 @@ class AiJobMessagesTest {
                         Map.entry("persona", "DEVIL"));
     }
 
-    // 기준: AI 명세 1.3·8장(PLAN만 면접에 남긴 회사 카드를 그대로 담는다. SCORE_ANSWER·EVALUATE에는 아직 담지 않는다)
+    // 기준: AI 명세 1.3·8장(PLAN·EVALUATE는 면접에 남긴 같은 회사 카드를 그대로 담고, 카드가 없으면 넣지 않는다. SCORE_ANSWER에는 담지
+    // 않는다)
     @Test
-    void planMessageHasCompanyCardOfSession() {
+    void planAndEvaluateMessagesHaveSameCompanyCardOfSession() {
         Map<String, Object> card =
                 Map.of(
                         "corp_code",
@@ -91,6 +92,14 @@ class AiJobMessagesTest {
                 .containsEntry("companyCard", card);
         assertThat(messages.of(withId(AiJob.scoreAnswer(session.getId(), answer.getId()))))
                 .doesNotContainKey("companyCard");
+        assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
+                .containsEntry("companyCard", card);
+    }
+
+    @Test
+    void evaluateMessageOfSessionWithoutCompanyCardHasNoCard() {
+        InterviewSession session = plannedSession(InterviewMode.CHAT);
+
         assertThat(messages.of(withId(AiJob.evaluate(session.getId()))))
                 .doesNotContainKey("companyCard");
     }
