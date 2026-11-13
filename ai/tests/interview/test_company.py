@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 
 from app.common.session import Persona
-from app.interview.company import CompanyItem, company_items, company_section
+from app.interview.company import CompanyItem, company_item_text, company_items, company_section
 from app.worker.messages import Claim, ClaimType
 
 # 기준: company-pipeline/pipeline/README.md 카드 형식(card-v11, 분류값 포함)
@@ -262,3 +262,44 @@ def test_item_json_is_card_section_and_entry() -> None:
         {"section": "market", **CARD["market"][0]},
         {"section": "recent", **CARD["recent"][0]},
     ]
+
+
+@pytest.mark.parametrize(
+    ("section", "entry", "text"),
+    [
+        ("talent", CARD["talent"][1], "고민은 사용자로부터(페이코드): 금융을 쉽게 / 편하게"),
+        (
+            "direction",
+            CARD["direction"][0],
+            "사업 방향: 해외 결제 확대 (원문: 해외 결제 서비스를 확대할 계획이다)",
+        ),
+        (
+            "market",
+            CARD["market"][0],
+            "시장: 간편결제 점유율 1위 (원문: 간편결제 시장 점유율 1위를 유지하고 있다)",
+        ),
+        (
+            "recent",
+            CARD["recent"][0],
+            "2026-10-30: 새 결제 서비스 출시 (원문: 한끗페이, 새 결제 서비스 출시)",
+        ),
+        ("recent", {"summary": "새 결제 서비스 출시"}, "새 결제 서비스 출시"),
+    ],
+    ids=["talent", "direction", "market", "recent", "recent-without-date-and-quote"],
+)
+def test_company_item_text_by_section(section: str, entry: dict[str, Any], text: str) -> None:
+    """카드 칸 이름과 카드 항목으로 질문 생성 후보와 같은 형식의 글을 만든다."""
+    assert company_item_text(section, entry) == text
+
+
+@pytest.mark.parametrize(
+    ("section", "entry"),
+    [
+        ("talent", {"details": ["설명만 있음"]}),
+        ("direction", {"quote": "요약 없음"}),
+        ("unknown", {"summary": "모르는 칸"}),
+    ],
+    ids=["talent-without-title", "without-summary", "unknown-section"],
+)
+def test_company_item_text_is_none_without_text(section: str, entry: dict[str, Any]) -> None:
+    assert company_item_text(section, entry) is None
