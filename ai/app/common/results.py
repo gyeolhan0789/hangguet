@@ -27,6 +27,8 @@ log = logging.getLogger(__name__)
 # AI 명세 1.4의 이름이다.
 # BE가 BLMOVE로 ai:results:processing에 옮겨 처리한다
 RESULT_QUEUE_KEY = "ai:results"
+# 그룹 면접의 면접 에이전트 결과 큐(AI 명세 1.4 · 6.7). 분석 작업자 결과는 ai:results로 보낸다
+GROUP_RESULT_QUEUE_KEY = "ai:results:group"
 # AI 명세 5장: 결과 큐 전송은 1·2·4초 간격으로 3회 재시도한다
 BACKOFF_SECONDS = (1.0, 2.0, 4.0)
 # 명세 예시(2026-10-22T14:03:12.418+09:00)와 같이 한국 시간으로 기록한다.
