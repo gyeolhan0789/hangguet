@@ -38,9 +38,10 @@ KST = timezone(timedelta(hours=9))
 TYPE = "type"
 SESSION_ID = "sessionId"
 APPLICATION_ID = "applicationId"
+GROUP_ID = "groupId"
 JOB_ID = "jobId"
 OCCURRED_AT = "occurredAt"
-_COMMON_FIELDS = frozenset({TYPE, SESSION_ID, APPLICATION_ID, JOB_ID, OCCURRED_AT})
+_COMMON_FIELDS = frozenset({TYPE, SESSION_ID, APPLICATION_ID, GROUP_ID, JOB_ID, OCCURRED_AT})
 
 
 class ResultType(StrEnum):
@@ -61,6 +62,8 @@ class ResultType(StrEnum):
     ANSWER_COMPLETED = "answer.completed"
     ASSIGNMENT_REJECTED = "assignment.rejected"
     ROOM_CLOSED = "room.closed"
+    QUESTION_SPOKEN = "question.spoken"
+    FOLLOWUP_DECIDED = "followup.decided"
 
 
 # 면접 에이전트가 전송하는 종류는 작업 결과가 아니므로 jobId가 없다
@@ -70,6 +73,8 @@ AGENT_RESULT_TYPES = frozenset(
         ResultType.ANSWER_COMPLETED,
         ResultType.ASSIGNMENT_REJECTED,
         ResultType.ROOM_CLOSED,
+        ResultType.QUESTION_SPOKEN,
+        ResultType.FOLLOWUP_DECIDED,
     }
 )
 # 지원서 단위 작업의 결과라 sessionId 대신 applicationId를 담는 종류다(AI 명세 1.3)
@@ -138,10 +143,16 @@ class ResultPublisher:
         self,
         client: Redis,
         *,
+        queue: str = RESULT_QUEUE_KEY,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], datetime] = _now,
     ) -> None:
+        """queue는 결과 큐다.
+
+        그룹 면접의 면접 에이전트는 GROUP_RESULT_QUEUE_KEY를 쓴다(AI 명세 6.7).
+        """
         self._client = client
+        self._queue = queue
         self._sleep = sleep
         self._clock = clock
 
@@ -184,6 +195,13 @@ class ResultPublisher:
         """
         self._publish(ResultType(result_type), APPLICATION_ID, application_id, fields, job_id)
 
+    def publish_group_rejection(self, group_id: int, fields: Mapping[str, Any]) -> None:
+        """그룹 면접 배정 거절은 sessionId 대신 groupId를 담는다(AI 명세 6.7).
+
+        실패 처리는 publish와 같다.
+        """
+        self._publish(ResultType.ASSIGNMENT_REJECTED, GROUP_ID, group_id, fields, None)
+
     def _publish(
         self,
         result_type: ResultType,
@@ -195,7 +213,7 @@ class ResultPublisher:
         raw = self._encode(result_type, target_key, target_id, fields, job_id)
         for attempt in range(len(BACKOFF_SECONDS) + 1):
             try:
-                self._client.lpush(RESULT_QUEUE_KEY, raw)
+                self._client.lpush(self._queue, raw)
                 return
             except RedisError as e:
                 if attempt == len(BACKOFF_SECONDS):
@@ -223,7 +241,8 @@ class ResultPublisher:
     ) -> str:
         # BE가 처리하지 못하는 메시지는 결과 큐에 추가하기 전에 프로그램 오류로 처리한다
         expected_key = APPLICATION_ID if result_type in APPLICATION_RESULT_TYPES else SESSION_ID
-        if target_key != expected_key:
+        group_rejection = result_type is ResultType.ASSIGNMENT_REJECTED and target_key == GROUP_ID
+        if target_key != expected_key and not group_rejection:
             raise ValueError(f"{result_type}는 {expected_key}를 담는다")
         if (job_id is None) != (result_type in AGENT_RESULT_TYPES):
             raise ValueError(f"{result_type}의 jobId는 작업 결과에만 담는다")

@@ -126,6 +126,42 @@ def playout_limit_ms(audio: SpeechAudio) -> int:
     return audio.duration_ms + round(PLAYOUT_MARGIN_SECONDS * 1000)
 
 
+async def publish_voice(participant: rtc.LocalParticipant) -> rtc.AudioSource:
+    """면접관 음성 트랙을 올린다. 녹화 파일 이름 때문에 트랙은 하나만 올린다(AI 명세 7장)."""
+    source = rtc.AudioSource(SAMPLE_RATE, 1)
+    track = rtc.LocalAudioTrack.create_audio_track(TRACK_NAME, source)
+    await participant.publish_track(
+        track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+    )
+    return source
+
+
+async def play(
+    source: rtc.AudioSource,
+    audio: SpeechAudio,
+    *,
+    on_start: Callable[[], None] | None = None,
+) -> None:
+    """음성을 끝까지 송출한다. on_start는 첫 프레임을 보내기 직전에 부른다.
+
+    송출에 실패하거나 재생 상한(playout_limit_ms)을 넘기거나 취소되면 남은 음성을 폐기하고 전파한다.
+    상한을 넘기면 TimeoutError다(AI 명세 6.5).
+    """
+    try:
+        if on_start is not None:
+            on_start()
+        # 대기열이 가득 차 프레임을 전송하는 단계에서도 멈출 수 있으므로,
+        # 재생 완료 대기와 함께 제한한다
+        async with asyncio.timeout(playout_limit_ms(audio) / 1000):
+            for frame in audio_frames(audio.pcm):
+                await source.capture_frame(frame)
+            await source.wait_for_playout()
+    except (asyncio.CancelledError, Exception):
+        # 면접방이 닫히거나, 안내를 멈추거나, 송출이 실패·멈추면 남은 음성을 폐기한다
+        source.clear_queue()
+        raise
+
+
 class QuestionSpeaker:
     def __init__(
         self,
@@ -155,12 +191,7 @@ class QuestionSpeaker:
         self._sending = asyncio.Lock()
 
     async def publish_track(self) -> None:
-        source = rtc.AudioSource(SAMPLE_RATE, 1)
-        track = rtc.LocalAudioTrack.create_audio_track(TRACK_NAME, source)
-        await self._participant.publish_track(
-            track, rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
-        )
-        self._source = source
+        self._source = await publish_voice(self._participant)
 
     async def prepare(self, seq: int, question: AssignedQuestion) -> SpeechAudio | None:
         """질문 음성을 미리 합성한다. 실패하면 None이고, ask가 failed로 알린다."""
@@ -285,20 +316,7 @@ class QuestionSpeaker:
         self, audio: SpeechAudio, *, on_start: Callable[[], None] | None = None
     ) -> None:
         assert self._source is not None
-        source = self._source
-        try:
-            if on_start is not None:
-                on_start()
-            # 대기열이 가득 차 프레임을 전송하는 단계에서도 멈출 수 있으므로,
-            # 재생 완료 대기와 함께 제한한다
-            async with asyncio.timeout(playout_limit_ms(audio) / 1000):
-                for frame in audio_frames(audio.pcm):
-                    await source.capture_frame(frame)
-                await source.wait_for_playout()
-        except (asyncio.CancelledError, Exception):
-            # 면접방이 닫히거나, 안내를 멈추거나, 송출이 실패·멈추면 남은 음성을 폐기한다
-            source.clear_queue()
-            raise
+        await play(self._source, audio, on_start=on_start)
 
     def _start_sending(self, seq: int, question: AssignedQuestion, started_at: datetime) -> None:
         self._started[seq] = question_started(

@@ -72,6 +72,16 @@ Cloud 전용 호스팅·추론 기능을 사용하지 않으며, 자체 서버�
 - `currentSeq`로 이어 시작해 직전 답변이 없으면 예비 질문을 출제한다.
 - 요청에 답변이 담기므로 질문 글과 답변은 로그에 남기지 않는다. `꼬리질문 생성 완료 ms=…`와 실패 경고 로그로 소요 시간과 대체 여부를 확인한다.
 
+## 그룹 면접
+
+- 배정 정보의 `kind`가 `GROUP`이면 그룹 면접이다(AI 명세 6.7). 방 이름은 `group-{groupId}`, 지원자 참가자 이름은 `candidate-{sessionId}`다. 형식이 틀리면 `groupId`를 담아 그룹 결과 큐(`ai:results:group`)로 `assignment.rejected`를 보낸다.
+- 진행은 BE가 정한다. `group_room.py`가 면접방 정보(room metadata)를 접속할 때와 바뀔 때 읽어 `turnVersion`이 가장 큰 것만 남기고, `group_interview.py`의 `GroupInterviewRunner`가 단계(`ASKING`·`SPEAKING`·`ANSWERING`·`DECIDING`·`WAITING`)를 따라 움직인다. 더 새 차례·단계가 오면 말하던 음성이나 듣던 답변을 멈춘다.
+- 질문 음성은 차례가 오는 순서(공통1 → 호명 → 참가자별 개인1 → 공통2 → 참가자별 개인2)로 하나씩 미리 합성한다. BE는 차례를 정하고 20초(+10초) 안에 `question.started`가 오지 않으면 AI 정체로 본다.
+- 그 차례 답변자의 마이크만 구독한다. 화상 답변은 7초 침묵 · `[답변 완료]` · 마감(`deadlineAt`) 중 먼저 오는 것으로 끝내고, 마감에는 말한 게 있을 때만 `TIME_LIMIT`으로 낸다. 60초 무응답 안내는 보내지 않는다. 채팅 답변은 듣지 않는다.
+- 꼬리질문 판단(`DECIDING`)은 판단 · 생성을 만들기 전까지 바로 `needed: false`를 보낸다.
+- 오리 면접관은 답변을 전달한 뒤 1초 기다렸다가 칭찬하고, 그 사람이 마지막 질문을 마쳤으면(`DONE`·`ENDED`) 하지 않는다.
+- 결과 메시지는 모두 `ai:results:group`으로 보내고 받은 방 정보의 `turnVersion`을 담는다. `room.closed`는 보내지 않는다.
+
 ## 면접 화면 연결
 
 화면의 면접방 연결과 재접속은 AI 명세 6.3·6.5를 따른다.

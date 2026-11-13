@@ -58,10 +58,11 @@ class AnswerSubmit:
     content: str | None
 
 
-def parse_answer_submit(payload: str, session_id: int) -> AnswerSubmit:
+def parse_answer_submit(payload: str, session_id: int, *, max_seq: int = MAX_SEQ) -> AnswerSubmit:
     """[답변 완료] 본문의 질문 순서(seq)와 답변 글(content)을 반환한다.
 
     다른 면접의 메시지이거나 형식이 틀리면 InvalidAnswerSubmitError를 발생시킨다.
+    max_seq는 질문 번호 상한이다(그룹 면접은 GROUP_MAX_SEQ).
     """
     try:
         message = json.loads(payload)
@@ -75,8 +76,8 @@ def parse_answer_submit(payload: str, session_id: int) -> AnswerSubmit:
         raise InvalidAnswerSubmitError("다른 면접의 메시지다")
     seq = message.get("seq")
     # bool은 int에 속하므로 true를 질문 순서 1로 허용하지 않도록 형식을 비교한다.
-    if type(seq) is not int or not MIN_SEQ <= seq <= MAX_SEQ:
-        raise InvalidAnswerSubmitError(f"seq는 {MIN_SEQ}~{MAX_SEQ}의 정수여야 한다")
+    if type(seq) is not int or not MIN_SEQ <= seq <= max_seq:
+        raise InvalidAnswerSubmitError(f"seq는 {MIN_SEQ}~{max_seq}의 정수여야 한다")
     content = message.get("content")
     if content is not None and (
         not isinstance(content, str) or len(content) > MAX_SUBMIT_CONTENT_LENGTH
