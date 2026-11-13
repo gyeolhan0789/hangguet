@@ -27,6 +27,26 @@ def test_question_count_matches_spec() -> None:
     assert QUESTION_COUNT == 5
 
 
+@pytest.mark.parametrize("persona", list(Persona))
+def test_group_prompt_differs_only_in_question_count_and_company_links(persona: Persona) -> None:
+    """그룹 면접(questionCount 2)은 질문 수와 회사 정보 연결 상한만 다르다(AI 명세 2장).
+
+    개인 면접 프롬프트(plan-v8)는 그대로 유지한다.
+    """
+    job = replace(JOB, persona=persona)
+    personal = build_question_messages(job, CLAIMS)
+    group = build_question_messages(replace(job, question_count=2), CLAIMS)
+
+    assert group[1] == personal[1]
+    assert group[0]["content"] == (
+        personal[0]["content"]
+        .replace("정확히 5개, seq는 1부터 5까지 하나씩", "정확히 2개, seq는 1부터 2까지 하나씩")
+        .replace("주장이 5개보다 적으면", "주장이 2개보다 적으면")
+        .replace("회사 정보가 주어지면 0~2개", "회사 정보가 주어지면 0~1개")
+    )
+    assert group[0]["content"] != personal[0]["content"]
+
+
 def test_messages_list_claims_with_ids() -> None:
     messages = build_question_messages(JOB, CLAIMS)
 

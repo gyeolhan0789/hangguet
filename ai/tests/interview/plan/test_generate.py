@@ -199,7 +199,7 @@ def test_extract_keeps_half_claim_from_live_cover_letter(text: str) -> None:
 def test_check_question_set_sorts_by_seq() -> None:
     questions = [Question(seq, "질문", "기준", "c1") for seq in (3, 1, 5, 2, 4)]
 
-    assert [q.seq for q in check_question_set(questions)] == [1, 2, 3, 4, 5]
+    assert [q.seq for q in check_question_set(questions, 5)] == [1, 2, 3, 4, 5]
 
 
 @pytest.mark.parametrize(
@@ -210,7 +210,22 @@ def test_check_question_set_rejects_count_or_seq(seqs: tuple[int, ...]) -> None:
     questions = [Question(seq, "질문", "기준", "c1") for seq in seqs]
 
     with pytest.raises(PlanOutputError):
-        check_question_set(questions)
+        check_question_set(questions, 5)
+
+
+def test_check_question_set_of_group_needs_seq_one_and_two() -> None:
+    """그룹 면접(questionCount 2)은 seq 1~2로 정확히 2개다(AI 명세 2장)."""
+    questions = [Question(seq, "질문", "기준", "c1") for seq in (2, 1)]
+
+    assert [q.seq for q in check_question_set(questions, 2)] == [1, 2]
+
+
+@pytest.mark.parametrize("seqs", [(1,), (1, 2, 3), (1, 1), (2, 3), (1, 2, 3, 4, 5)])
+def test_check_question_set_of_group_rejects_count_or_seq(seqs: tuple[int, ...]) -> None:
+    questions = [Question(seq, "질문", "기준", "c1") for seq in seqs]
+
+    with pytest.raises(PlanOutputError):
+        check_question_set(questions, 2)
 
 
 def test_generate_returns_five_questions_in_seq_order() -> None:
@@ -252,6 +267,28 @@ def test_generate_fails_when_still_not_five_after_retry() -> None:
     assert len(chat.calls) == 2
 
 
+# 그룹 면접의 개인 맞춤 질문(AI 명세 2장 questionCount 2)
+GROUP_JOB = replace(JOB, question_count=2)
+TWO = {"questions": [question(seq) for seq in (2, 1)]}
+
+
+def test_group_generate_returns_two_questions() -> None:
+    chat = FakeChat([TWO])
+
+    result = generate_questions(chat, GROUP_JOB, CLAIMS)
+
+    assert [q.seq for q in result.questions] == [1, 2]
+    assert chat.calls == [build_question_messages(GROUP_JOB, CLAIMS)]
+
+
+def test_group_generate_retries_once_when_five_questions() -> None:
+    """개인 면접처럼 질문 5개를 생성하면 질문 수가 틀린 출력이므로 1회 재시도한다."""
+    chat = FakeChat([five(), TWO])
+
+    assert len(generate_questions(chat, GROUP_JOB, CLAIMS).questions) == 2
+    assert len(chat.calls) == 2
+
+
 def test_generate_does_not_retry_unavailable_gms() -> None:
     chat = FakeChat([GmsUnavailableError("5xx"), five()])
 
@@ -276,6 +313,20 @@ def test_regenerates_only_question_with_unknown_claim() -> None:
     assert [q for i, q in enumerate(result.questions) if i != 2] == [
         q for i, q in enumerate(expected) if i != 2
     ]
+
+
+def test_group_regenerates_only_question_with_unknown_claim() -> None:
+    """그룹 면접도 claimId가 틀린 질문만 다시 생성하고 질문 2개를 유지한다."""
+    wrong = {"questions": [question(1), question(2, "c9")]}
+    chat = FakeChat([wrong, regenerated("c2")])
+
+    result = generate_questions(chat, GROUP_JOB, CLAIMS)
+
+    assert chat.calls[1] == build_regenerate_messages(GROUP_JOB, CLAIMS, 2)
+    assert result.questions == (
+        Question(1, "1번 질문의 근거는 무엇인가?", "원인 분석 · 수치 근거", "c1"),
+        Question(2, "다시 묻는다?", "근거", "c2"),
+    )
 
 
 def test_regenerated_question_keeps_requested_seq() -> None:
@@ -436,6 +487,33 @@ def test_wrong_company_links_are_retried_once(first: dict[str, Any]) -> None:
     generate_questions(chat, CARD_JOB, CLAIMS)
 
     assert len(chat.calls) == 2
+
+
+def group_linked(*items: str) -> dict[str, Any]:
+    """앞 질문부터 순서대로 companyItem을 채운 질문 2개."""
+    reply = {"questions": [question(seq) for seq in (1, 2)]}
+    for question_item, company_item in zip(reply["questions"], items, strict=False):
+        question_item["companyItem"] = company_item
+    return reply
+
+
+@pytest.mark.parametrize("items", [(), ("co1",), ("co2", "")])
+def test_group_accepts_zero_or_one_company_link(items: tuple[str, ...]) -> None:
+    """그룹 면접은 질문 2개 중 회사 정보와 연결하는 질문이 0~1개다(AI 명세 2장)."""
+    chat = FakeChat([group_linked(*items)])
+
+    generate_questions(chat, replace(CARD_JOB, question_count=2), CLAIMS)
+
+    assert len(chat.calls) == 1
+
+
+def test_group_two_company_links_are_retried_once() -> None:
+    chat = FakeChat([group_linked("co1", "co2"), group_linked("co1")])
+
+    result = generate_questions(chat, replace(CARD_JOB, question_count=2), CLAIMS)
+
+    assert len(chat.calls) == 2
+    assert [q.company_item for q in result.questions] == ["co1", None]
 
 
 def test_talent_link_to_claim_with_other_criterion_is_retried() -> None:

@@ -5,6 +5,9 @@
 """
 
 import re
+from collections.abc import Mapping
+
+from app.common.session import GROUP_PERSONAL_QUESTION_COUNT, QUESTION_COUNT
 
 # AI 명세 2장: 자소서 문장 순번(sentenceNo).
 # 비어 있지 않은 줄마다 나누고,
@@ -27,14 +30,15 @@ MAX_CLAIMS = 10
 # AI 명세 2장 STEP 01: 주장마다 드러난 인재상 기준 이름을 0~2개 담는다(talentCriteria)
 MAX_TALENT_CRITERIA_PER_CLAIM = 2
 
-# AI 명세 2장: 주장 수가 5개와 다르면 질문 수(app.common.session.QUESTION_COUNT)를 우선한다.
+# AI 명세 2장: 주장 수가 질문 수와 다르면 질문 수(PlanJob.question_count)를 우선한다.
 # 면접관 기준이 드러난 주장이 적으면 같은 주장을 다른 기준으로 나누어 다시 질문하고,
 # 주장이 많으면 검증 가치가 큰 주장을 선택하게 한다(questions.question_system).
 
-# AI 명세 2장 회사 카드 사용: 질문 5개 중 회사 정보와 연결하는 질문은 모든 면접관 0~2개다.
-# 나머지 질문은 자소서 주장 검증에 집중하도록 상한을 둔다.
+# AI 명세 2장 회사 카드 사용: 회사 정보와 연결하는 질문은 모든 면접관
+# 질문 5개(개인 면접) 중 0~2개, 질문 2개(그룹 면접) 중 0~1개다.
+# 나머지 질문은 자소서 주장 검증에 집중하도록 질문 수별로 상한을 정한다.
 # 하한 없이도 연결 후보가 있으면 연결하므로 하한은 두지 않는다(2026-11-10 GMS 실측)
-COMPANY_LINKED_MAX = 2
+COMPANY_LINKED_MAX: Mapping[int, int] = {QUESTION_COUNT: 2, GROUP_PERSONAL_QUESTION_COUNT: 1}
 
 # AI 명세 2장: claimId가 없는 주장을 가리키면 그 질문만 1회 다시 생성한다
 CLAIM_ID_REGENERATIONS = 1
