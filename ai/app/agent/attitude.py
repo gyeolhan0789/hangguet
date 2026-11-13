@@ -1,4 +1,4 @@
-"""답변을 듣는 동안 인상 판단으로 면접 태도 점수를 계산해 지원자 화면에 보낸다.
+"""답변을 듣는 동안 인상 판단으로 인상 점수를 계산해 지원자 화면에 보낸다.
 
 기준: AI 명세 6.3 interview.attitude, 6.6 인상 판단.
 - 사진 판단(1초마다 1장)이 하나 올 때마다 가장 최근 사진부터 ATTITUDE_WINDOW 안의 판단으로 계산한다.
@@ -36,7 +36,7 @@ AttitudeSender = Callable[[str], Coroutine[Any, Any, None]]
 
 
 def attitude_score(frames: Sequence[TimedImpression]) -> int | None:
-    """최근 판단의 면접 태도 점수(0~100). 쓸 수 있는 사진이 없으면 None이다."""
+    """최근 판단의 인상 점수(0~100). 쓸 수 있는 사진이 없으면 None이다."""
     if not frames:
         return None
     latest = max(frame.captured_at for frame in frames)
@@ -63,7 +63,7 @@ def attitude_payload(session_id: int, score: int | None) -> str:
 
 
 class AttitudePublisher:
-    """답변 하나 동안 면접 태도 점수를 지원자 화면에 보낸다.
+    """답변 하나 동안 인상 점수를 지원자 화면에 보낸다.
 
     대기 중인 점수는 최신 하나만 유지한다.
     """

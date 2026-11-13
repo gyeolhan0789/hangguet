@@ -1,4 +1,4 @@
-// 기준: Figma 면접 태도 타일(531:2475 상태 모음 · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude
+// 기준: Figma 인상 점수 타일(531:2475 상태 모음 · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude
 // · 사용자 결정(2026-11-12: 숫자 하나와 선 하나 · 최근 30초 · 처음에는 접힘)
 // 상태별 문구 · 색 · 그래프 모양은 다시 적지 않고, 상태 계산 · 숫자 대체 · 접기 · 펼치기 분기만 본다.
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -12,7 +12,7 @@ const sample = (score: number | null, receivedAt = 0) => ({ score, receivedAt })
 
 beforeEach(() => useInterviewStore.getState().reset());
 
-describe("attitudeView · 면접 태도 타일 상태 계산", () => {
+describe("attitudeView · 인상 점수 타일 상태 계산", () => {
   describe("정상 처리", () => {
     it.each([
       {
@@ -45,8 +45,8 @@ describe("attitudeView · 면접 태도 타일 상태 계산", () => {
   });
 });
 
-describe("AttitudeTile · 면접 태도 타일", () => {
-  const tile = () => screen.getByRole("region", { name: "면접 태도" });
+describe("AttitudeTile · 인상 점수 타일", () => {
+  const tile = () => screen.getByRole("region", { name: "인상 점수" });
 
   describe("화면 표시", () => {
     it("보여 줄 숫자가 없으면(대기) 받은 점수 대신 '–'를 보인다", () => {
@@ -60,8 +60,8 @@ describe("AttitudeTile · 면접 태도 타일", () => {
     it("처음에는 접힌 한 줄로 시작한다", () => {
       render(<AttitudeTile samples={[sample(72)]} answering />);
 
-      expect(screen.getByRole("button", { name: "면접 태도 펼치기" })).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "면접 태도 접기" })).toBeNull();
+      expect(screen.getByRole("button", { name: "인상 점수 펼치기" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "인상 점수 접기" })).toBeNull();
     });
   });
 
@@ -70,10 +70,10 @@ describe("AttitudeTile · 면접 태도 타일", () => {
       useInterviewStore.getState().setAttitudeOpen(true);
       render(<AttitudeTile samples={[sample(72)]} answering />);
 
-      fireEvent.click(screen.getByRole("button", { name: "면접 태도 접기" }));
+      fireEvent.click(screen.getByRole("button", { name: "인상 점수 접기" }));
 
       expect(useInterviewStore.getState().attitudeOpen).toBe(false);
-      expect(screen.queryByRole("button", { name: "면접 태도 접기" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "인상 점수 접기" })).toBeNull();
       expect(tile().textContent).toContain("72");
     });
 
@@ -81,10 +81,10 @@ describe("AttitudeTile · 면접 태도 타일", () => {
       useInterviewStore.getState().setAttitudeOpen(false);
       render(<AttitudeTile samples={[sample(72)]} answering />);
 
-      fireEvent.click(screen.getByRole("button", { name: "면접 태도 펼치기" }));
+      fireEvent.click(screen.getByRole("button", { name: "인상 점수 펼치기" }));
 
       expect(useInterviewStore.getState().attitudeOpen).toBe(true);
-      expect(screen.queryByRole("button", { name: "면접 태도 펼치기" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "인상 점수 펼치기" })).toBeNull();
     });
   });
 });
