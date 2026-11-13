@@ -7,7 +7,7 @@ import { Area, AreaChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import type { AttitudeSample } from "@/lib/interview/room-messages";
 import { useInterviewStore } from "@/stores/interview-store";
 
-// 기준: Figma 면접 태도 타일(531:2386 S06 측정 중 · 531:2475 상태 모음: 측정 중 · 얼굴 확인 중 · 대기 · 접힘
+// 기준: Figma 인상 점수 타일(531:2386 S06 측정 중 · 531:2475 상태 모음: 측정 중 · 얼굴 확인 중 · 대기 · 접힘
 // · 536:2358 / 536:2396 모바일 접힘 · 펼침) · AI 명세 6.3 interview.attitude(0~100, 얼굴을 확인할 수 없으면 null)
 // · 사용자 결정(2026-11-12: 내 카메라 아래 · 숫자 하나와 선 하나 · 설명 문구 없음 · 최근 30초 · 처음에는 접힘)
 
@@ -29,7 +29,7 @@ export function attitudeView(samples: readonly AttitudeSample[], answering: bool
   return { status, score: status === "idle" ? null : latest };
 }
 
-/** S06 화상: 내 카메라 아래 면접 태도 타일. 접으면 한 줄로 줄어든다 */
+/** S06 화상: 내 카메라 아래 인상 점수 타일. 접으면 한 줄로 줄어든다 */
 export function AttitudeTile({
   samples,
   answering,
@@ -43,7 +43,7 @@ export function AttitudeTile({
     <div className="rounded-[18px] border border-white/10 bg-[rgba(14,16,22,0.8)] px-3.5 pt-3 pb-3.5 backdrop-blur-[16px] md:rounded-[20px] md:px-4 md:pt-3.5 md:pb-4">
       <div className="flex items-center gap-1.5">
         <span className="text-xs leading-normal font-bold text-white/70 md:text-[13px]">
-          면접 태도
+          인상 점수
         </span>
         <span className="ml-auto flex items-center gap-1.5">
           <StatusDot status={status} />
@@ -84,7 +84,7 @@ export function AttitudeTile({
     <div className="flex h-9 items-center gap-2 rounded-full border border-white/10 bg-[rgba(14,16,22,0.8)] pr-1.5 pl-3.5 backdrop-blur-[16px] md:h-10 md:pr-2 md:pl-4">
       <StatusDot status={status} />
       <span className="text-xs leading-normal font-bold text-white/70 md:text-[13px]">
-        면접 태도
+        인상 점수
       </span>
       <span className="ml-auto text-sm font-bold text-white tabular-nums md:text-[15px]">
         {shown}
@@ -96,7 +96,7 @@ export function AttitudeTile({
 
   return (
     <section
-      aria-label="면접 태도"
+      aria-label="인상 점수"
       className="absolute top-[216px] right-4 z-10 w-[180px] md:top-[260px] md:right-6 md:w-60"
     >
       {open ? card : pill}
@@ -176,7 +176,7 @@ function ToggleButton({ open, onClick }: Readonly<{ open: boolean; onClick: () =
   return (
     <button
       type="button"
-      aria-label={open ? "면접 태도 접기" : "면접 태도 펼치기"}
+      aria-label={open ? "인상 점수 접기" : "인상 점수 펼치기"}
       aria-expanded={open}
       onClick={onClick}
       className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/12 transition-colors hover:bg-white/22"

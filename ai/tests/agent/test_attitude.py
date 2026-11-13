@@ -1,4 +1,4 @@
-"""답변 중 면접 태도 점수 시험(AI 명세 6.3 interview.attitude)."""
+"""답변 중 인상 점수 시험(AI 명세 6.3 interview.attitude)."""
 
 import asyncio
 import json

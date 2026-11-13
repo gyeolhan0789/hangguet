@@ -79,9 +79,16 @@ def claim_json(claim: Claim) -> dict[str, Any]:
     }
 
 
-def question_json(question: Question, items: Mapping[str, CompanyItem]) -> dict[str, Any]:
-    """AI 명세 2장 questions 항목 형식이다. items는 회사 항목 번호별 회사 항목이다."""
-    item = items[question.company_item] if question.company_item else None
+def question_json(
+    question: Question, *, items: Mapping[str, CompanyItem] | None = None
+) -> dict[str, Any]:
+    """AI 명세 2장 questions 항목 형식이다.
+
+    items는 회사 항목 번호별 회사 항목이고, 생략하면 companyItem은 null이다.
+    회사 항목을 반환하기 전에 작성한 호출(효용지표 골든셋 질문 생성)이
+    그대로 동작하게 하기 위함이다.
+    """
+    item = items[question.company_item] if items is not None and question.company_item else None
     return {
         "seq": question.seq,
         "content": question.content,
@@ -132,7 +139,7 @@ class PlanJobHandler:
             {
                 "claims": [claim_json(c) for c in claims],
                 "questions": [
-                    question_json(q, {item.id: item for item in questions.company_items})
+                    question_json(q, items={item.id: item for item in questions.company_items})
                     for q in questions.questions
                 ],
                 "promptVersion": PROMPT_VERSION,

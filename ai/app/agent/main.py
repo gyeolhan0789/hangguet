@@ -192,7 +192,7 @@ class RoomCapture:
     """지원자 마이크를 답변 하나 동안 AnswerCapture로 전달하고 자막을 지원자 화면에 전송한다.
 
     impressions가 있으면 같은 동안 받은 카메라 사진의 인상 판단도 답변에 담고(AI 명세 6.6),
-    판단이 올 때마다 면접 태도 점수를 지원자 화면에 보낸다(6.3 interview.attitude).
+    판단이 올 때마다 인상 점수를 지원자 화면에 보낸다(6.3 interview.attitude).
     """
 
     def __init__(
