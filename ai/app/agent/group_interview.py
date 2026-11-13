@@ -13,11 +13,14 @@
   마감에는 말한 게 있을 때만 TIME_LIMIT으로 내고, 없으면 내지 않는다(BE가 닫는다).
   60초 무응답 안내는 보내지 않는다.
   자막 · 답변 상태 · 인상 점수는 답변자에게만, 리액션은 모두에게 보낸다.
-  리액션의 태도는 사람마다 이어진다. 채팅은 답변을 듣지 않는다(BE가 확정한다).
+  리액션의 태도는 사람마다 이어진다.
+- 채팅: 답변은 듣지 않는다(BE가 확정한다). ASKING부터 DECIDING · 다음 차례 전까지
+  지금 답변자가 지금 질문으로 보낸 chat.input만 받아 마지막 문장으로 리액션을 판단한다.
 - DECIDING: 꼬리질문 판단 · 생성(S15P31A301-527) 전까지는 바로 필요 없음(needed false)을 보낸다.
 - 질문 음성은 차례가 오는 순서대로 미리 하나씩 합성한다.
   BE는 차례를 정하고 20초 안에 질문이 시작되지 않으면 AI 정체로 본다.
-- 오리 면접관은 답변을 전달한 뒤 1초 기다렸다가 칭찬하고, 다음 질문은 칭찬이 끝난 뒤 말한다.
+- 오리 면접관은 답변 뒤 1초 기다렸다가 칭찬하고, 다음 질문은 칭찬이 끝난 뒤 말한다.
+  화상은 답변을 전달한 뒤, 채팅은 DECIDING이 오면(BE가 최종 답변을 저장했다는 뜻) 칭찬한다.
   그 사람이 마지막 질문을 마쳤으면 칭찬하지 않는다(6.2).
 """
 
@@ -57,7 +60,12 @@ from app.agent.group_room import (
 )
 from app.agent.interview import NEXT_QUESTION_DELAYS, CaptureSession, FinishedAnswer
 from app.agent.question import QUESTION_METHOD, SpeechState, play, question_payload
-from app.agent.reaction import ReactionStream
+from app.agent.reaction import (
+    InvalidChatInputError,
+    ReactionStream,
+    chat_input_reply,
+    parse_chat_input,
+)
 from app.agent.stt import SttState
 from app.agent.tts import ElevenLabsTTS, SpeechAudio, TtsError
 from app.common.results import KST, ResultPublishError
@@ -93,7 +101,7 @@ from app.interview.realtime.progress import (
     group_question_started,
     question_spoken,
 )
-from app.interview.realtime.sentence import Sentence
+from app.interview.realtime.sentence import Sentence, last_sentence
 
 log = logging.getLogger(__name__)
 # AI 명세 6.7: 같은 공통 질문의 다음 답변자를 부를 때 말하는 문구(면접관 공통)
@@ -198,6 +206,18 @@ class _Answering:
     wake: asyncio.Event = field(default_factory=asyncio.Event)
 
 
+@dataclass
+class _ChatTurn:
+    """지금 리액션을 판단하는 채팅 차례."""
+
+    session_id: int
+    seq: int
+    identity: str
+    reactions: ReactionStream
+    # 이 차례에서 받은 마지막 채팅 입력 순번(AI 명세 6.3)
+    input_seq: int = 0
+
+
 class GroupInterviewRunner:
     def __init__(
         self,
@@ -252,6 +272,7 @@ class GroupInterviewRunner:
         # 지금 하는 일: (종류, 면접 id, seq, 시작한 turnVersion)
         self._work_key: tuple[str, int, int, int] | None = None
         self._answering: _Answering | None = None
+        self._chat: _ChatTurn | None = None
         # (면접 id, seq) → 실제로 출제한 질문. 리액션 판단 입력이다
         self._asked: dict[tuple[int, int], AssignedQuestion] = {}
         self._decided: set[tuple[int, int]] = set()
@@ -292,6 +313,10 @@ class GroupInterviewRunner:
             return
         self._present.add(identity)
         self._presence.set()
+        chat = self._chat
+        if chat is not None and chat.identity == identity:
+            # 새로 연결한 화면은 이전 입력 순번을 모르므로 처음부터 받는다(AI 명세 6.5)
+            chat.input_seq = 0
         answering = self._answering
         if answering is None or answering.identity != identity:
             return
@@ -332,6 +357,27 @@ class GroupInterviewRunner:
         answering.wake.set()
         return answer_submit_reply(decision)
 
+    def chat_input_received(self, caller: str, payload: str) -> str:
+        """채팅 입력(chat.input) 처리 함수다.
+
+        보낸 사람의 면접 id가 메시지의 sessionId와 같고 그 면접 · 질문 순서가 지금 차례이며,
+        그 차례에서 받은 순번보다 클 때만 판단한다. 아니면 false다(AI 명세 6.3 · 6.7).
+        """
+        chat = self._chat
+        if chat is None or caller != chat.identity:
+            return chat_input_reply(False)
+        try:
+            message = parse_chat_input(payload, chat.session_id, max_seq=GROUP_MAX_SEQ)
+        except InvalidChatInputError:
+            return chat_input_reply(False)
+        if message.question_seq != chat.seq or message.seq <= chat.input_seq:
+            return chat_input_reply(False)
+        chat.input_seq = message.seq
+        # 채팅은 입력 칸 전체가 지금까지의 답변이고,
+        # 반응 여부는 마지막 문장으로 판단한다(AI 명세 6.4)
+        chat.reactions.submit(last_sentence(message.text), message.pause_ms, message.text)
+        return chat_input_reply(True)
+
     async def run(self) -> None:
         """그룹이 끝날 때(groupStatus ENDED)까지 방 정보를 따라 진행한다."""
         self._prepare_all()
@@ -348,6 +394,7 @@ class GroupInterviewRunner:
                 await self._follow(info)
         finally:
             await self._stop_work()
+            await self._stop_chat()
             pending = [*self._background, *self._audio.values()]
             for task in pending:
                 task.cancel()
@@ -355,6 +402,8 @@ class GroupInterviewRunner:
 
     async def _follow(self, info: RoomInfo) -> None:
         turn, phase = info.turn, info.phase
+        if not self._video:
+            await self._follow_chat(turn, phase)
         if turn is None or phase is None:
             await self._stop_work()
             return
@@ -382,6 +431,38 @@ class GroupInterviewRunner:
             self._decide(turn, info)
         else:
             await self._stop_work()
+
+    async def _follow_chat(self, turn: Turn | None, phase: GroupPhase | None) -> None:
+        """채팅 차례의 리액션을 ASKING에서 시작하고 DECIDING · 다음 차례에서 멈춘다."""
+        chat = self._chat
+        same = (
+            chat is not None
+            and turn is not None
+            and (chat.session_id, chat.seq) == (turn.session_id, turn.seq)
+        )
+        if same and phase in (GroupPhase.SPEAKING, GroupPhase.ANSWERING):
+            return
+        stopped = await self._stop_chat()
+        if turn is None:
+            return
+        if phase is GroupPhase.ASKING:
+            reactions = self._reactions(turn.session_id)
+            identity = group_candidate(turn.session_id)
+            if reactions is not None:
+                # 질문 음성 재생 중의 입력도 지금 질문의 입력이다(개인 면접과 같다)
+                reactions.start(turn.seq, identity)
+                self._chat = _ChatTurn(turn.session_id, turn.seq, identity, reactions)
+        elif phase is GroupPhase.DECIDING and (turn.session_id, turn.seq) not in self._decided:
+            # 채팅은 DECIDING이 와야 최종 답변이 저장된 것을 안다.
+            # 판단(followup.decided)을 보내기 전에 칭찬을 잡아 둬 다음 질문보다 먼저 말한다
+            reactions = stopped.reactions if same and stopped is not None else None
+            self._schedule_praise(turn.session_id, reactions)
+
+    async def _stop_chat(self) -> _ChatTurn | None:
+        chat, self._chat = self._chat, None
+        if chat is not None:
+            await chat.reactions.stop()
+        return chat
 
     async def _start(
         self, kind: str, turn: Turn, info: RoomInfo, work: Coroutine[Any, Any, None]
