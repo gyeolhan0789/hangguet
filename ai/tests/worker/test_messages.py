@@ -604,6 +604,23 @@ def test_plan_without_company_card_has_none(card: Any) -> None:
     assert job.company_card is None
 
 
+def test_evaluate_keeps_company_card_as_received() -> None:
+    """결과 생성 작업도 질문 생성과 같은 카드를 받는다(AI 명세 4장·8장)."""
+    card = {"name": "한끗전자", "talent": [{"title": "도전"}]}
+
+    job = parse_job(evaluate(companyCard=card))
+
+    assert isinstance(job, EvaluateJob)
+    assert job.company_card == card
+
+
+def test_evaluate_without_company_card_has_none() -> None:
+    job = parse_job(evaluate())
+
+    assert isinstance(job, EvaluateJob)
+    assert job.company_card is None
+
+
 @pytest.mark.parametrize("card", ["카드", [], 1, True])
 def test_company_card_that_is_not_object_is_invalid(card: Any) -> None:
     message = plan(companyCard=card)

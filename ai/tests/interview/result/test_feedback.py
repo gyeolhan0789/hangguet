@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any, cast
@@ -88,7 +89,7 @@ class FakeChat:
 
 
 def test_prompt_version_is_registered() -> None:
-    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v7"
+    assert REGISTRY.require(VersionKind.PROMPT, PROMPT_VERSION) == "evaluate-feedback-v8"
 
 
 # 기준: AI 명세 4장 WRITING_FEEDBACK(면접관의 2장 인재상 기준 중 답변에 드러난 것을 중심으로,
@@ -486,3 +487,44 @@ def test_stt_gaps_are_shown_with_instruction_not_to_criticize() -> None:
     without = build_feedback_messages(SESSION)
     assert all("음성 인식" not in m["content"] for m in without)
     assert all("앞뒤의 말 중단·반복" not in m["content"] for m in without)
+
+
+# 기준: AI 명세 4장 회사 정보 반영·8장 회사 카드
+CARD = {
+    "talent": [{"title": "주도적 실행", "criterion": "책임·주도성", "details": ["끝까지"]}],
+    "direction": [{"summary": "클라우드 전환", "quote": "클라우드로 전환한다"}],
+    "market": [{"summary": "결제 속도 경쟁"}],
+    "recent": [{"summary": "결제 지연 장애", "published": "2026-11-03"}],
+}
+
+
+@pytest.mark.parametrize(
+    ("persona", "sections"),
+    [
+        (Persona.DEVIL, ["talent", "recent"]),
+        (Persona.COFFEE_CHAT, ["direction", "market", "recent"]),
+        (Persona.DUCK, ["talent", "direction", "market", "recent"]),
+    ],
+)
+def test_company_card_sections_of_interviewer_are_added(
+    persona: Persona, sections: list[str]
+) -> None:
+    """면접관별로 질문 생성과 같은 카드 칸을 카드 값 그대로 전달한다."""
+    system, user = build_feedback_messages(replace(SESSION, persona=persona, company_card=CARD))
+
+    block = user["content"].split("[회사 정보(회사 카드)]\n")[1]
+    assert json.loads(block) == {key: CARD[key] for key in sections}
+    assert "핵심 부족점을 먼저 다루고, 회사 연결은 그 뒤에 덧붙인다" in system["content"]
+    assert "주어지지 않은 회사 사실은 작성하지 않는다" in system["content"]
+
+
+@pytest.mark.parametrize(
+    "card", [None, {"talent": CARD["talent"]}], ids=["no-card", "no-interviewer-section"]
+)
+def test_feedback_without_usable_card_has_no_company_rules(card: dict[str, Any] | None) -> None:
+    """카드가 없거나 면접관이 사용하는 칸이 없으면 회사 정보 없이 작성한다."""
+    system, user = build_feedback_messages(replace(SESSION, company_card=card))
+
+    assert "[회사 정보" not in user["content"]
+    assert system["content"] == feedback_system(SESSION.persona)
+    assert "회사 정보가 주어지면" not in system["content"]

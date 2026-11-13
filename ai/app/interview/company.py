@@ -176,6 +176,24 @@ _SECTIONS: Mapping[Persona, Sequence[str]] = {
 }
 
 
+# 구역마다 후보를 고르는 카드 칸 이름
+_TITLE_SECTIONS: Mapping[str, tuple[str, ...]] = {
+    TALENT_TITLE: ("talent",),
+    BUSINESS_TITLE: tuple(_BUSINESS_LABELS),
+    RECENT_TITLE: ("recent",),
+}
+
+
+def persona_card(card: Mapping[str, Any], persona: Persona) -> dict[str, Any]:
+    """면접관이 사용하는 카드 칸만 카드에 있는 값 그대로 반환한다.
+
+    결과 피드백도 면접관별로 질문 생성과 같은 칸을 사용한다(AI 명세 4장 회사 정보 반영).
+    카드에 없는 칸은 포함하지 않는다.
+    """
+    keys = [key for title in _SECTIONS.get(persona, ()) for key in _TITLE_SECTIONS[title]]
+    return {key: card[key] for key in keys if key in card}
+
+
 def _candidates(
     title: str,
     card: Mapping[str, Any],

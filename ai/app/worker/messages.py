@@ -188,6 +188,8 @@ class EvaluateJob(Job):
     answers: tuple[EvaluateAnswer, ...]
     # 같은 날 앞서 끝난 면접들의 summary(AI 명세 4장). 이전 BE 메시지에는 없다
     earlier_summaries: tuple[str, ...] = ()
+    # 면접을 만들 때 정한 회사 카드(AI 명세 8장). 카드가 없으면 None이다
+    company_card: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -657,6 +659,7 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
                 claims=_claims(data),
                 answers=_evaluate_answers(data),
                 earlier_summaries=_earlier_summaries(data),
+                company_card=_company_card(data),
             )
         case JobType.MERGE_RECORDING:
             raw_prefix, object_key = _merge_locations(data, session_id)

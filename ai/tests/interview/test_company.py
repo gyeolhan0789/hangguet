@@ -3,7 +3,13 @@ from typing import Any
 import pytest
 
 from app.common.session import Persona
-from app.interview.company import CompanyItem, company_item_text, company_items, company_section
+from app.interview.company import (
+    CompanyItem,
+    company_item_text,
+    company_items,
+    company_section,
+    persona_card,
+)
 from app.worker.messages import Claim, ClaimType
 
 # 기준: company-pipeline/pipeline/README.md 카드 형식(card-v11, 분류값 포함)
@@ -303,3 +309,20 @@ def test_company_item_text_by_section(section: str, entry: dict[str, Any], text:
 )
 def test_company_item_text_is_none_without_text(section: str, entry: dict[str, Any]) -> None:
     assert company_item_text(section, entry) is None
+
+
+@pytest.mark.parametrize(
+    ("persona", "keys"),
+    [
+        (Persona.DEVIL, ["talent", "recent"]),
+        (Persona.COFFEE_CHAT, ["direction", "market", "recent"]),
+        (Persona.DUCK, ["talent", "direction", "market", "recent"]),
+    ],
+)
+def test_persona_card_keeps_interviewer_sections(persona: Persona, keys: list[str]) -> None:
+    """결과 피드백도 질문 생성과 같은 카드 칸을 사용한다(AI 명세 4장)."""
+    assert persona_card(CARD, persona) == {key: CARD[key] for key in keys}
+
+
+def test_persona_card_skips_missing_sections() -> None:
+    assert persona_card({"recent": []}, Persona.DUCK) == {"recent": []}

@@ -236,6 +236,7 @@ def build_result(
         scores=scores,
         persona=job.persona,
         earlier_summaries=job.earlier_summaries,
+        company_card=job.company_card,
     )
     written = write_feedback(session, feedback_chat)
     models.add(written.model)
