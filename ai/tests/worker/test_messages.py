@@ -22,11 +22,13 @@ from app.worker.messages import (
     EvaluateAnswer,
     EvaluateJob,
     ExtractClaimsJob,
+    GroupRecording,
     InvalidJobError,
     JobHeader,
     JobType,
     MergeRecordingJob,
     PlanJob,
+    RecordingSegment,
     ScoreAnswerJob,
     job_header,
     parse_job,
@@ -811,6 +813,118 @@ def test_raw_prefix_of_other_session_is_invalid(raw_prefix: str) -> None:
     message = merge(rawPrefix=raw_prefix)
     with pytest.raises(InvalidJobError, match="rawPrefix"):
         parse_job(message)
+
+
+# 기준: AI 명세 7장 그룹 면접 녹화(roomName·candidateIdentity·segments)
+KST = timezone(timedelta(hours=9))
+SEGMENTS = [
+    {"start": "2026-11-13T14:00:05.120+09:00", "end": "2026-11-13T14:02:10.000+09:00"},
+    {"start": "2026-11-13T14:08:00.000+09:00", "end": "2026-11-13T14:09:30.500+09:00"},
+]
+
+
+def group_merge(**overrides: Any) -> dict[str, Any]:
+    data = {
+        "rawPrefix": "recordings/raw/group-12/1794550000000/",
+        "roomName": "group-12",
+        "candidateIdentity": "candidate-55",
+        "segments": SEGMENTS,
+    }
+    return merge(**{**data, **overrides})
+
+
+def test_parses_group_merge_recording_job() -> None:
+    job = parse_job(group_merge())
+
+    assert isinstance(job, MergeRecordingJob)
+    assert job.raw_prefix == "recordings/raw/group-12/1794550000000/"
+    assert job.group == GroupRecording(
+        room_name="group-12",
+        candidate_identity="candidate-55",
+        segments=(
+            RecordingSegment(
+                datetime(2026, 11, 13, 14, 0, 5, 120000, tzinfo=KST),
+                datetime(2026, 11, 13, 14, 2, 10, tzinfo=KST),
+            ),
+            RecordingSegment(
+                datetime(2026, 11, 13, 14, 8, tzinfo=KST),
+                datetime(2026, 11, 13, 14, 9, 30, 500000, tzinfo=KST),
+            ),
+        ),
+    )
+
+
+def test_personal_merge_recording_job_has_no_group() -> None:
+    job = parse_job(merge())
+
+    assert isinstance(job, MergeRecordingJob)
+    assert job.group is None
+
+
+@pytest.mark.parametrize("missing", ["roomName", "candidateIdentity", "segments"])
+def test_group_merge_without_all_group_fields_is_invalid(missing: str) -> None:
+    """일부만 있으면 개인·그룹 중 어느 규칙으로 합칠지 알 수 없다."""
+    with pytest.raises(InvalidJobError, match="모두 있어야"):
+        parse_job(group_merge(**{missing: ...}))
+
+
+@pytest.mark.parametrize("room", ["interview-12", "group-", "group-0", "group-1a", "group-12/"])
+def test_group_merge_with_wrong_room_name_is_invalid(room: str) -> None:
+    with pytest.raises(InvalidJobError, match="roomName"):
+        parse_job(group_merge(roomName=room, rawPrefix=f"recordings/raw/{room}/1/"))
+
+
+@pytest.mark.parametrize("identity", ["candidate-56", "candidate-550", "candidate", "interviewer"])
+def test_group_merge_of_other_participant_is_invalid(identity: str) -> None:
+    """다른 참가자의 트랙으로 이 면접의 녹화를 만들지 않는다(AI 명세 7장)."""
+    with pytest.raises(InvalidJobError, match="candidateIdentity"):
+        parse_job(group_merge(candidateIdentity=identity))
+
+
+@pytest.mark.parametrize(
+    "raw_prefix",
+    ["recordings/raw/group-13/1/", "recordings/raw/group-120/1/", "recordings/raw/55/1/"],
+)
+def test_group_raw_prefix_of_other_room_is_invalid(raw_prefix: str) -> None:
+    """그룹 면접은 roomName의 그룹 위치만 읽는다(AI 명세 7장)."""
+    with pytest.raises(InvalidJobError, match="rawPrefix"):
+        parse_job(group_merge(rawPrefix=raw_prefix))
+
+
+START, END = "2026-11-13T14:00:00+09:00", "2026-11-13T14:01:00+09:00"
+
+
+@pytest.mark.parametrize(
+    "segments",
+    [
+        pytest.param([], id="empty"),
+        pytest.param("구간", id="not-list"),
+        pytest.param(["구간"], id="not-object"),
+        pytest.param([{"start": START}], id="no-end"),
+        pytest.param([{"start": "2026-11-13T14:00:00", "end": END}], id="no-offset"),
+        pytest.param([{"start": END, "end": START}], id="end-before-start"),
+        pytest.param([{"start": START, "end": START}], id="zero-length"),
+        pytest.param(
+            [{"start": START, "end": END}, {"start": "2026-11-13T14:00:30+09:00", "end": END}],
+            id="overlap",
+        ),
+    ],
+)
+def test_wrong_segments_are_invalid(segments: Any) -> None:
+    with pytest.raises(InvalidJobError, match="segments"):
+        parse_job(group_merge(segments=segments))
+
+
+def test_touching_segments_are_valid() -> None:
+    """앞 구간이 끝난 시각에 다음 구간이 시작해도 겹치지 않는다."""
+    later = "2026-11-13T14:02:00+09:00"
+    job = parse_job(
+        group_merge(segments=[{"start": START, "end": END}, {"start": END, "end": later}])
+    )
+
+    assert isinstance(job, MergeRecordingJob)
+    assert job.group is not None
+    assert len(job.group.segments) == 2
 
 
 @pytest.mark.parametrize(

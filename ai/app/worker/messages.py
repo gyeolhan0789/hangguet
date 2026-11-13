@@ -15,6 +15,7 @@ AI는 DB를 읽지 않으므로 BE가 작업에 필요한 내용을 메시지에
 import json
 import logging
 import math
+import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,10 +39,12 @@ from app.common.cover_letter import (
 from app.common.session import (
     GROUP_MAX_SEQ,
     GROUP_PERSONAL_QUESTION_COUNT,
+    GROUP_ROOM_NAME_PREFIX,
     MIN_SEQ,
     QUESTION_COUNT,
     InterviewMode,
     Persona,
+    group_candidate,
 )
 
 log = logging.getLogger(__name__)
@@ -202,13 +205,36 @@ class EvaluateJob(Job):
     company_card: Mapping[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class RecordingSegment:
+    """그룹 면접 녹화에서 남길 본인 답변 구간 하나(AI 명세 7장 segments)."""
+
+    start: datetime
+    end: datetime
+
+
+@dataclass(frozen=True)
+class GroupRecording:
+    """그룹 면접 녹화 합치기 작업에만 있는 필드(AI 명세 7장)."""
+
+    # 녹화 목록을 조회할 그룹 면접방 이름(group-{groupId})
+    room_name: str
+    # 그 면접 지원자의 참가자 이름(candidate-{sessionId}). 이 참가자의 트랙만 사용한다
+    candidate_identity: str
+    # 시간 순이고 겹치지 않는 본인 답변 구간
+    segments: tuple[RecordingSegment, ...]
+
+
 @dataclass(frozen=True, kw_only=True)
 class MergeRecordingJob(Job):
     job_type: ClassVar[JobType] = JobType.MERGE_RECORDING
-    # BE가 녹화를 시작할 때 정한 원본 트랙 위치(BE 설계 10장 recordings/raw/{sessionId}/…)
+    # BE가 녹화를 시작할 때 정한 원본 트랙 위치(AI 명세 7장).
+    # 개인 면접은 recordings/raw/{sessionId}/…, 그룹 면접은 recordings/raw/group-{groupId}/…다
     raw_prefix: str
     # 병합한 mp4를 업로드할 위치(BE 설계 10장 recordings/{sessionId}.mp4)
     object_key: str
+    # 그룹 면접 녹화에만 있는 필드(AI 명세 7장). 개인 면접은 None이다
+    group: GroupRecording | None = None
 
 
 def _int(data: Mapping[str, Any], key: str, path: str) -> int:
@@ -544,28 +570,81 @@ def _evaluate_answers(data: Mapping[str, Any]) -> tuple[EvaluateAnswer, ...]:
     return tuple(answers)
 
 
-def _merge_locations(data: Mapping[str, Any], session_id: int) -> tuple[str, str]:
+def _merge_locations(
+    data: Mapping[str, Any], session_id: int, group: GroupRecording | None
+) -> tuple[str, str]:
     raw_prefix = _text(data, "rawPrefix")
     object_key = _text(data, "objectKey")
-    # 다른 면접의 녹화를 읽거나 덮어쓰지 않도록 BE 설계 10장의 키 규칙과 같은지 확인한다
-    if not raw_prefix.startswith(f"recordings/raw/{session_id}/"):
+    # 다른 면접의 녹화를 읽거나 덮어쓰지 않도록 AI 명세 7장의 위치 규칙과 같은지 확인한다
+    if group is None and not raw_prefix.startswith(f"recordings/raw/{session_id}/"):
         raise InvalidJobError("rawPrefix는 recordings/raw/{sessionId}/로 시작해야 한다")
+    if group is not None and not raw_prefix.startswith(f"recordings/raw/{group.room_name}/"):
+        raise InvalidJobError("rawPrefix는 recordings/raw/{roomName}/로 시작해야 한다")
     if object_key != f"recordings/{session_id}.mp4":
         raise InvalidJobError("objectKey는 recordings/{sessionId}.mp4여야 한다")
     return raw_prefix, object_key
 
 
-def _timestamp(data: Mapping[str, Any], key: str) -> datetime:
+_GROUP_FIELDS = ("roomName", "candidateIdentity", "segments")
+_GROUP_ROOM_ID = re.compile(r"[1-9][0-9]*")
+
+
+def _group_recording(data: Mapping[str, Any], session_id: int) -> GroupRecording | None:
+    """그룹 면접 녹화 필드(AI 명세 7장). 세 필드가 모두 없으면 개인 면접이라 None이다.
+
+    일부만 있으면 개인·그룹 중 어느 규칙으로 합칠지 알 수 없으므로 형식 오류다.
+    """
+    present = [key for key in _GROUP_FIELDS if data.get(key) is not None]
+    if not present:
+        return None
+    if len(present) != len(_GROUP_FIELDS):
+        raise InvalidJobError(
+            "그룹 면접 녹화는 roomName·candidateIdentity·segments가 모두 있어야 한다"
+        )
+    room_name = _text(data, "roomName")
+    group_id = room_name.removeprefix(GROUP_ROOM_NAME_PREFIX)
+    if group_id == room_name or not _GROUP_ROOM_ID.fullmatch(group_id):
+        raise InvalidJobError("roomName은 group-{groupId}여야 한다")
+    # 다른 참가자의 트랙으로 이 면접의 녹화를 만들지 않도록 이 면접의 참가자 이름만 허용한다
+    candidate_identity = _text(data, "candidateIdentity")
+    if candidate_identity != group_candidate(session_id):
+        raise InvalidJobError("candidateIdentity는 candidate-{sessionId}여야 한다")
+    return GroupRecording(room_name, candidate_identity, _segments(data))
+
+
+def _segments(data: Mapping[str, Any]) -> tuple[RecordingSegment, ...]:
+    """본인 답변 구간. 시간 순이고 겹치지 않으며 길이가 0보다 커야 한다(AI 명세 7장).
+
+    BE는 답변이 있는 면접에만 작업을 넣으므로 구간이 비어 있지 않다.
+    남길 영상이 없는 작업은 처리할 수 없으므로 형식 오류다.
+    """
+    items = _list(data, "segments")
+    if not items:
+        raise InvalidJobError("segments는 구간이 하나 이상이어야 한다")
+    segments: list[RecordingSegment] = []
+    for i, item in enumerate(items):
+        path = f"segments[{i}]."
+        segment = _object(item, f"segments[{i}]")
+        start, end = _timestamp(segment, "start", path), _timestamp(segment, "end", path)
+        if end <= start:
+            raise InvalidJobError(f"{path}end는 start보다 늦어야 한다")
+        if segments and start < segments[-1].end:
+            raise InvalidJobError(f"{path}start는 앞 구간의 end 이후여야 한다")
+        segments.append(RecordingSegment(start, end))
+    return tuple(segments)
+
+
+def _timestamp(data: Mapping[str, Any], key: str, path: str = "") -> datetime:
     value = data.get(key)
     if not isinstance(value, str):
-        raise InvalidJobError(f"{key}는 ISO 8601 시각 문자열이어야 한다")
+        raise InvalidJobError(f"{path}{key}는 ISO 8601 시각 문자열이어야 한다")
     try:
         parsed = datetime.fromisoformat(value)
     except ValueError as e:
-        raise InvalidJobError(f"{key}는 ISO 8601 시각 문자열이어야 한다") from e
+        raise InvalidJobError(f"{path}{key}는 ISO 8601 시각 문자열이어야 한다") from e
     # 시간대가 없으면 서버 시간대에 따라 마감이 달라지므로 오프셋이 있는 시각만 받는다
     if parsed.utcoffset() is None:
-        raise InvalidJobError(f"{key}는 시간대 오프셋이 있어야 한다")
+        raise InvalidJobError(f"{path}{key}는 시간대 오프셋이 있어야 한다")
     return parsed
 
 
@@ -692,11 +771,13 @@ def parse_job(raw: str | bytes | Mapping[str, Any]) -> BaseJob:
                 company_card=_company_card(data),
             )
         case JobType.MERGE_RECORDING:
-            raw_prefix, object_key = _merge_locations(data, session_id)
+            group = _group_recording(data, session_id)
+            raw_prefix, object_key = _merge_locations(data, session_id, group)
             return MergeRecordingJob(
                 job_id=job_id,
                 session_id=session_id,
                 requested_at=requested_at,
                 raw_prefix=raw_prefix,
                 object_key=object_key,
+                group=group,
             )
