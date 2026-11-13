@@ -120,7 +120,7 @@ cd backend && ./gradlew contractTest
 - 상황 이름은 FE 계약의 `given`과 글자까지 같아야 한다. **[공식]** [Provider states](https://docs.pact.io/getting_started/provider_states)
 - 매개변수는 `Map`으로 받는다. 요청에 넣을 값(id · 토큰 · 날짜)은 `Map`으로 돌려준다. **[공식]** [JVM Provider JUnit](https://docs.pact.io/implementation_guides/jvm/provider/junit)
 - 데이터는 BE 서비스(비즈니스 로직)를 불러 만든다. 저장소 · SQL로 직접 넣지 않는다. **[팀]**
-- 서비스로 만들 수 없는 경우만 예외로 하고, 메서드 주석에 이유를 적는다. 지금 예외는 아래 다섯 가지다.
+- 서비스로 만들 수 없는 경우만 예외로 하고, 메서드 주석에 이유를 적는다. 지금 예외는 아래 여섯 가지다.
 
 | 상황 | 방법 | 이유 |
 | --- | --- | --- |
@@ -129,6 +129,7 @@ cd backend && ./gradlew contractTest
 | 관리자 | repository로 생성 | 관리자 가입 서비스가 없다 |
 | 다른 요청에 쓴 멱등 키 | `IdempotencyStore`에 직접 기록 | 멱등 처리는 HTTP 인터셉터에만 있다 |
 | 비밀번호 재설정 링크 | `PasswordResetTokenStore.issue`로 token 생성 | 서비스(1.8)는 token을 메일로만 보내고 돌려주지 않는다 |
+| 답변 마감이 30초 안 남은 그룹 차례(10.8) | 서비스로 차례를 연 뒤 `deadline_at`만 SQL로 당김 | 서비스는 언제나 지금부터 2분 뒤를 마감으로 정한다 |
 
 ### 3.3 상호작용마다 격리한다
 

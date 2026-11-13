@@ -29,6 +29,7 @@ final class ContractData {
             users.addAll(
                     jdbc.queryForList("SELECT id FROM users WHERE email = ?", Long.class, email));
         }
+        deleteGroups(jdbc);
         users.forEach(id -> deleteUser(jdbc, id));
         String guestInquiries =
                 "SELECT id FROM inquiries WHERE user_id IS NULL AND email = ? AND created_at >= ?";
@@ -58,6 +59,22 @@ final class ContractData {
         jdbc.update("DELETE FROM company_cards WHERE company_id IN (" + company + ")");
         jdbc.update("DELETE FROM company_aliases WHERE company_id IN (" + company + ")");
         jdbc.update("DELETE FROM companies WHERE corp_code = ?", CORP_CODE);
+    }
+
+    /**
+     * 그룹 면접(10장)은 회원 여럿의 면접을 묶어 회원마다 지우기 전에 먼저 푼다: 그룹의 지금 차례 → 참가자 → 면접의 그룹 → 그룹(방장) 순서.
+     * 방장이 바뀌었어도(대기실 방장 넘김) 상황이 만든 회원끼리의 그룹이라 모두 지워진다.
+     */
+    private void deleteGroups(JdbcTemplate jdbc) {
+        for (long id : users) {
+            jdbc.update(
+                    "UPDATE interview_groups SET turn_session_id = NULL WHERE host_user_id = ?", id);
+            jdbc.update("DELETE FROM interview_group_participants WHERE user_id = ?", id);
+            jdbc.update("UPDATE interview_sessions SET group_id = NULL WHERE user_id = ?", id);
+        }
+        for (long id : users) {
+            jdbc.update("DELETE FROM interview_groups WHERE host_user_id = ?", id);
+        }
     }
 
     /** 회원과 회원이 만든 데이터를 외래키 순서대로 지운다. */
