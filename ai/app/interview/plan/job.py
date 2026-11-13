@@ -46,6 +46,7 @@ from app.common.results import (
     ResultPublishError,
     ResultType,
 )
+from app.common.session import GROUP_PERSONAL_QUESTION_COUNT
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.company import CompanyItem
 from app.interview.plan.generate import extract_claims, generate_questions
@@ -60,6 +61,10 @@ log = logging.getLogger(__name__)
 # claims.py·questions.py의 프롬프트를 변경하면 이 버전을 올리고 versions.py에 등록한다.
 # 등록되지 않았으면 작업을 처리하기 전에 import 단계에서 실패한다
 PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-v8")
+# 그룹 면접(questionCount 2)은 질문 수와 회사 정보 연결 상한만 다른 프롬프트이므로 버전을 나눈다.
+# 개인 면접 버전을 올리면 BE가 버전이 다른 미사용 보관함 질문을 폐기하므로(AI 명세 2장 질문 보관함)
+# 프롬프트 문장이 그대로인 개인 면접 버전은 유지한다
+GROUP_PROMPT_VERSION = REGISTRY.require(VersionKind.PROMPT, "plan-group-v1")
 # BE 최대 대기 시간(BE 설계 5.1, application.yml ai-job.plan-timeout, AI 명세 5장)과 같은 값이다.
 # BE가 작업을 요청한 시각(requestedAt)부터 계산해 큐에서 대기한 시간까지 포함한다(AI 명세 5장)
 PLAN_TIMEOUT_SECONDS = 180.0
@@ -142,7 +147,11 @@ class PlanJobHandler:
                     question_json(q, items={item.id: item for item in questions.company_items})
                     for q in questions.questions
                 ],
-                "promptVersion": PROMPT_VERSION,
+                "promptVersion": (
+                    GROUP_PROMPT_VERSION
+                    if job.question_count == GROUP_PERSONAL_QUESTION_COUNT
+                    else PROMPT_VERSION
+                ),
                 # 채점 기준을 생성한 질문 생성 단계 응답의 모델 이름을 기록한다
                 "modelVersion": questions.model,
             },
