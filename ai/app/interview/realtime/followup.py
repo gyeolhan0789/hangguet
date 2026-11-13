@@ -14,13 +14,16 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.common.session import Persona
+from app.interview.company import company_item_text
 from app.interview.interviewer import ANSWER, interviewer_guide
 
 # AI 명세 2.2: 답변이 끝난 시점부터 생성을 기다리는 시간(초, 임시 값).
 # 값을 정한 실측 근거는 AI 명세 2.2에 있다
 FOLLOWUP_TIMEOUT = 4.0
 # AI 명세 2.2·9장: 생성한 질문의 question.started에 담는 프롬프트 버전
-FOLLOWUP_PROMPT_VERSION = "followup-v1"
+FOLLOWUP_PROMPT_VERSION = "followup-v2"
+# 직전 기본 질문의 연결 회사 항목을 담는 사용자 메시지 구역 이름
+COMPANY_BLOCK = "[직전 질문과 연결한 회사 정보]"
 # AI 명세 2.2 출제 순서: 기본 질문 seq → 그 답변으로 생성하는 꼬리질문 seq
 FOLLOWUP_SEQS: Mapping[int, tuple[int, ...]] = {1: (2,), 3: (4, 5)}
 
@@ -45,21 +48,37 @@ def followup_system(persona: Persona, count: int) -> str:
     )
     return (
         "너는 면접관으로서 직전 질문에 대한 지원자의 답변을 파고드는 꼬리질문을 생성한다. "
-        "답변과 직전 질문에 없는 사실을 전제로 질문하지 않는다.\n"
+        "답변, 직전 질문, 그 질문의 연결 회사 정보에 없는 사실을 전제로 질문하지 않는다.\n"
         f"{interviewer_guide(persona, ANSWER)}"
         f"- questions: 정확히 {count}개\n"
         f"{distinct}"
         "- content: 지원자에게 묻는 질문 한 문장. 한 질문에서 한 가지만 묻는다\n"
         "- criteria: 이 질문의 답변을 채점할 기준 한 줄. 좋은 답변이 갖춰야 할 내용을 작성한다\n"
+        f"- {COMPANY_BLOCK}가 주어지면 답변이 그 회사 정보와 이어지는 지점을 파고들 수 있다\n"
         'JSON으로만 답한다: {"questions": [{"content": str, "criteria": str}]}'
     )
 
 
 def followup_messages(
-    persona: Persona, question: str, criteria: str, answer: str, count: int
+    persona: Persona,
+    question: str,
+    criteria: str,
+    answer: str,
+    count: int,
+    company_item: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
-    """직전 기본 질문의 글·채점 기준과 그 답변 글로 꼬리질문 count개를 요청하는 메시지다."""
+    """직전 기본 질문의 글·채점 기준과 그 답변 글로 꼬리질문 count개를 요청하는 메시지다.
+
+    company_item은 직전 기본 질문의 연결 회사 항목(배정 정보의 companyItem)이다.
+    질문 생성 프롬프트와 같은 글로 변환해 전달하고,
+    None이거나 글로 변환할 수 없으면 전달하지 않는다.
+    """
     user = f"[직전 질문]\n{question}\n\n[직전 질문의 채점 기준]\n{criteria}\n\n[답변]\n{answer}"
+    text = None
+    if company_item is not None:
+        text = company_item_text(str(company_item.get("section")), company_item)
+    if text is not None:
+        user += f"\n\n{COMPANY_BLOCK}\n{text}"
     return [
         {"role": "system", "content": followup_system(persona, count)},
         {"role": "user", "content": user},

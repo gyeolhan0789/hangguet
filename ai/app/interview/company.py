@@ -88,30 +88,6 @@ def _talent_text(entry: Mapping[str, Any]) -> str | None:
     return f"{name}: {' / '.join(details)}" if details else name
 
 
-def _talent_candidates(card: Mapping[str, Any], claims: Sequence[Claim]) -> list[Candidate]:
-    """인재상 항목 중 분류값이 주장의 인재상 기준에 있는 항목과 그 주장 id를 반환한다."""
-    candidates: list[Candidate] = []
-    for entry in _entries(card, "talent"):
-        text = _talent_text(entry)
-        # 분류값이 없거나 기준 이름이 아니면 같은 기준의 주장이 없으므로 후보에서 제외된다
-        criterion = entry.get("criterion")
-        claim_ids = tuple(c.id for c in claims if criterion in c.talent_criteria)
-        if text is not None and claim_ids:
-            candidates.append((text, claim_ids, "talent", entry))
-    return candidates
-
-
-def _matching_summary(entry: Mapping[str, Any], subcategories: Collection[str]) -> str | None:
-    """분류값에 지원 직무 세분류가 있으면 항목의 요약을, 없으면 None을 반환한다."""
-    summary = _texts(entry.get("summary"))
-    classified = entry.get("ncs_subcategories")
-    if not summary or not isinstance(classified, list):
-        return None
-    if not any(name in subcategories for name in classified):
-        return None
-    return summary[0]
-
-
 def _with_quote(text: str, entry: Mapping[str, Any]) -> str:
     """항목 글 뒤에 원문을 덧붙인다. 원문이 없으면 항목 글만 반환한다.
 
@@ -122,37 +98,72 @@ def _with_quote(text: str, entry: Mapping[str, Any]) -> str:
     return f"{text} (원문: {quote[0]})" if quote else text
 
 
+# 사업 방향·시장 항목의 카드 칸 이름과 프롬프트에 쓰는 구분 이름
+_BUSINESS_LABELS: Mapping[str, str] = {"direction": "사업 방향", "market": "시장"}
+
+
+def company_item_text(section: str, entry: Mapping[str, Any]) -> str | None:
+    """카드 칸 이름과 카드 항목으로 프롬프트에 넣는 회사 항목 글을 반환한다.
+
+    - 인재상(talent): 「항목명(상위 범주): 설명」
+    - 사업 방향(direction)·시장(market): 「구분: 요약 (원문: …)」
+    - 최근 이슈(recent): 「기사 날짜: 요약 (원문: …)」.
+      질문이 언제의 이슈인지 드러나도록 기사 날짜를 함께 전달하고, 날짜가 없으면 요약만 전달한다.
+    원문이 없으면 「(원문: …)」을 붙이지 않는다.
+    항목명·요약이 없거나 모르는 칸 이름이면 None이다.
+    """
+    if section == "talent":
+        return _talent_text(entry)
+    summary = _texts(entry.get("summary"))
+    if not summary:
+        return None
+    if section in _BUSINESS_LABELS:
+        return _with_quote(f"{_BUSINESS_LABELS[section]}: {summary[0]}", entry)
+    if section == "recent":
+        published = _texts(entry.get("published"))
+        return _with_quote(f"{published[0]}: {summary[0]}" if published else summary[0], entry)
+    return None
+
+
+def _talent_candidates(card: Mapping[str, Any], claims: Sequence[Claim]) -> list[Candidate]:
+    """인재상 항목 중 분류값이 주장의 인재상 기준에 있는 항목과 그 주장 id를 반환한다."""
+    candidates: list[Candidate] = []
+    for entry in _entries(card, "talent"):
+        text = company_item_text("talent", entry)
+        # 분류값이 없거나 기준 이름이 아니면 같은 기준의 주장이 없으므로 후보에서 제외된다
+        criterion = entry.get("criterion")
+        claim_ids = tuple(c.id for c in claims if criterion in c.talent_criteria)
+        if text is not None and claim_ids:
+            candidates.append((text, claim_ids, "talent", entry))
+    return candidates
+
+
+def _for_job(entry: Mapping[str, Any], subcategories: Collection[str]) -> bool:
+    """분류값에 지원 직무 세분류가 있는 항목인지 반환한다."""
+    classified = entry.get("ncs_subcategories")
+    return isinstance(classified, list) and any(name in subcategories for name in classified)
+
+
 def _business_candidates(
     card: Mapping[str, Any], subcategories: Collection[str]
 ) -> list[Candidate]:
-    """사업 방향·시장 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다.
-
-    항목은 「구분: 요약 (원문: …)」 형식이다.
-    """
+    """사업 방향·시장 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다."""
     candidates: list[Candidate] = []
-    for key, label in (("direction", "사업 방향"), ("market", "시장")):
+    for key in _BUSINESS_LABELS:
         for entry in _entries(card, key):
-            summary = _matching_summary(entry, subcategories)
-            if summary is not None:
-                candidates.append((_with_quote(f"{label}: {summary}", entry), None, key, entry))
+            text = company_item_text(key, entry) if _for_job(entry, subcategories) else None
+            if text is not None:
+                candidates.append((text, None, key, entry))
     return candidates
 
 
 def _recent_candidates(card: Mapping[str, Any], subcategories: Collection[str]) -> list[Candidate]:
-    """최근 이슈 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다.
-
-    항목은 「기사 날짜: 요약 (원문: …)」 형식이다.
-
-    질문이 언제의 이슈인지 드러나도록 기사 날짜를 함께 전달한다. 날짜가 없으면 요약만 전달한다.
-    """
+    """최근 이슈 항목 중 분류값에 지원 직무 세분류가 있는 항목을 반환한다."""
     candidates: list[Candidate] = []
     for entry in _entries(card, "recent"):
-        summary = _matching_summary(entry, subcategories)
-        if summary is None:
-            continue
-        published = _texts(entry.get("published"))
-        text = f"{published[0]}: {summary}" if published else summary
-        candidates.append((_with_quote(text, entry), None, "recent", entry))
+        text = company_item_text("recent", entry) if _for_job(entry, subcategories) else None
+        if text is not None:
+            candidates.append((text, None, "recent", entry))
     return candidates
 
 

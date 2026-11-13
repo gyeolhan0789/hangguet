@@ -79,6 +79,7 @@ REGISTRY = VersionRegistry(
             "cover-letter-check-v1",
             "cover-letter-check-v2",
             "followup-v1",
+            "followup-v2",
         }
     ),
     models=frozenset({"gpt-5.6-terra", "jev-1.14.0"}),

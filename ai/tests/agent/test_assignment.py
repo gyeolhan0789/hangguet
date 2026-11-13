@@ -59,6 +59,23 @@ def with_question(**fields: Any) -> list[dict[str, Any]]:
     return items
 
 
+def test_company_item_is_kept_as_received() -> None:
+    """연결 회사 항목은 꼬리질문 생성에 전달하도록 받은 객체 그대로 보관한다(AI 명세 6.1)."""
+    item = {"section": "market", "summary": "간편결제 점유율 1위", "quote": "점유율 1위"}
+
+    assignment = parse_assignment(metadata(questions=with_question(companyItem=item)))
+
+    assert assignment.questions[1].company_item == item
+
+
+@pytest.mark.parametrize("fields", [{"companyItem": None}, {}], ids=["null", "missing"])
+def test_unlinked_or_missing_company_item_is_none(fields: dict[str, Any]) -> None:
+    """필드를 추가하기 전에 BE가 전송한 배정도 연결 없음으로 시작한다(AI 명세 6.1)."""
+    assignment = parse_assignment(metadata(questions=with_question(**fields)))
+
+    assert assignment.questions[1].company_item is None
+
+
 @pytest.mark.parametrize(
     "raw",
     [
@@ -78,6 +95,8 @@ def with_question(**fields: Any) -> list[dict[str, Any]]:
         metadata(questions=with_question(seq="1")),
         metadata(questions=with_question(criteria=None)),
         metadata(questions=with_question(criteria="\n")),
+        pytest.param(metadata(questions=with_question(companyItem="시장")), id="item-text"),
+        pytest.param(metadata(questions=with_question(companyItem=[])), id="item-list"),
         pytest.param("[" * 100_000, id="deeply nested json"),
     ],
 )
