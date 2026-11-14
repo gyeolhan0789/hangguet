@@ -44,6 +44,8 @@ class FakeVoice:
         self.texts: dict[int, str] = {}
         self.played: list[str] = []
         self.said: list[Any] = []
+        # 질문 재생(play)과 칭찬(say)의 순서
+        self.events: list[str] = []
         # 질문 음성을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
         self.hold: asyncio.Event | None = None
         self.playing = asyncio.Event()
@@ -59,6 +61,7 @@ class FakeVoice:
     async def play(self, audio: SpeechAudio, on_start: Callable[[], None]) -> None:
         on_start()
         self.played.append(self.texts[id(audio)])
+        self.events.append("play")
         self.playing.set()
         try:
             if self.hold is not None:
@@ -68,6 +71,7 @@ class FakeVoice:
 
     async def say(self, audio: Any) -> None:
         self.said.append(audio)
+        self.events.append("say")
 
 
 class FakeSession:
@@ -680,3 +684,144 @@ def test_reaction_judge_is_kept_per_participant() -> None:
     assert reactions(55) is reactions(55)
     assert reactions(56) is not reactions(55)
     assert made == [55, 56]
+
+
+def chat_input(session_id: int, question_seq: int, seq: int, text: str = "경험을 말하면") -> str:
+    return json.dumps(
+        {
+            "type": "chat.input",
+            "sessionId": session_id,
+            "questionSeq": question_seq,
+            "seq": seq,
+            "text": text,
+            "pauseMs": 800,
+        }
+    )
+
+
+def test_chat_input_is_taken_only_from_answerer_for_current_question() -> None:
+    """보낸 사람 · sessionId · questionSeq가 지금 차례이고 순번이 커질 때만 판단한다.
+
+    기준: AI 명세 6.3 · 6.7
+    """
+
+    async def scenario(h: Harness) -> None:
+        h.join(55, 56)
+        h.info(1, "ASKING", session_id=55, seq=2, kind="PERSONAL", base=2)
+        await until(lambda: 55 in h.reactions)
+        assert h.reactions[55].calls == [("start", 2, "candidate-55")]
+        assert h.runner is not None
+        received = h.runner.chat_input_received
+
+        def reply(caller: str, payload: str) -> bool:
+            return bool(json.loads(received(caller, payload))["accepted"])
+
+        assert not reply("candidate-56", chat_input(56, 2, 1))
+        assert not reply("candidate-55", chat_input(56, 2, 1))
+        assert not reply("candidate-55", chat_input(55, 1, 1))
+        assert not reply("candidate-55", "{broken")
+        assert reply("candidate-55", chat_input(55, 2, 1, "첫 문장이다. 두 번째"))
+        assert not reply("candidate-55", chat_input(55, 2, 1))
+        assert reply("candidate-55", chat_input(55, 2, 2))
+        # 새로 연결한 화면은 순번을 1부터 다시 센다(AI 명세 6.5)
+        h.join(55)
+        assert reply("candidate-55", chat_input(55, 2, 1))
+
+    h = run(scenario, mode="CHAT")
+    submits = [c for c in h.reactions[55].calls if c[0] == "submit"]
+    # 반응 여부는 마지막 문장으로 판단한다(AI 명세 6.4)
+    assert submits[0] == ("submit", "두 번째")
+    assert len(submits) == 3
+
+
+def test_chat_reactions_stop_when_answer_is_decided() -> None:
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        h.info(1, "ASKING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 1)
+        h.info(2, "SPEAKING", session_id=55, seq=1)
+        h.info(3, "ANSWERING", session_id=55, seq=1, deadline_ms=300_000)
+        await asyncio.sleep(0.02)
+        assert h.runner is not None
+        assert json.loads(h.runner.chat_input_received("candidate-55", chat_input(55, 1, 1)))[
+            "accepted"
+        ]
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: ("stop",) in h.reactions[55].calls)
+        assert not json.loads(h.runner.chat_input_received("candidate-55", chat_input(55, 1, 2)))[
+            "accepted"
+        ]
+
+    h = run(scenario, mode="CHAT")
+    assert [c[0] for c in h.reactions[55].calls].count("start") == 1
+
+
+def test_video_group_does_not_take_chat_input() -> None:
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        h.info(1, "ASKING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 1)
+        assert h.runner is not None
+        assert not json.loads(h.runner.chat_input_received("candidate-55", chat_input(55, 1, 1)))[
+            "accepted"
+        ]
+
+    run(scenario)
+
+
+def duck_group(scenario: Callable[[Harness], Awaitable[None]], mode: str) -> Harness:
+    async def main() -> Harness:
+        h = Harness(persona="DUCK", mode=mode)
+        h.praises = {p: object() for p in Praise}
+        h.start()
+        try:
+            await scenario(h)
+        finally:
+            assert h.running is not None
+            h.running.cancel()
+            await asyncio.gather(h.running, return_exceptions=True)
+        return h
+
+    return asyncio.run(main())
+
+
+def test_chat_duck_praises_at_decision_before_next_question() -> None:
+    """채팅은 DECIDING이 오면(BE가 답변을 저장함) 1초 뒤 칭찬하고 다음 질문은 그 뒤에 말한다."""
+
+    async def scenario(h: Harness) -> None:
+        h.join(55, 56)
+        h.info(1, "ASKING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 1)
+        h.info(2, "DECIDING", session_id=55, seq=1)
+        # BE는 판단(followup.decided)을 받은 뒤 다음 차례를 정한다
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        h.info(3, "ASKING", session_id=56, seq=1, announce="CALL")
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 2)
+        # 같은 질문의 DECIDING이 다시 와도 한 번만 칭찬한다
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await asyncio.sleep(0.05)
+
+    h = duck_group(scenario, "CHAT")
+    assert h.voice.events == ["play", "say", "play"]
+    assert 1.0 in h.sleeps
+
+
+def test_chat_duck_does_not_praise_after_last_question() -> None:
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        h.info(1, "DECIDING", session_id=55, seq=4, states={55: "DONE", 56: "PRESENT"})
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        await asyncio.sleep(0.05)
+
+    assert duck_group(scenario, "CHAT").voice.said == []
+
+
+def test_video_duck_does_not_praise_again_at_decision() -> None:
+    """화상은 답변을 전달한 뒤 이미 칭찬하므로 DECIDING에서는 칭찬하지 않는다."""
+
+    async def scenario(h: Harness) -> None:
+        h.info(1, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        await asyncio.sleep(0.05)
+
+    assert duck_group(scenario, "VIDEO").voice.said == []

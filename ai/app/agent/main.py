@@ -507,7 +507,7 @@ async def run_group_interview(
         cleanup.push_async_callback(voice.aclose)
         if judge is not None:
             cleanup.push_async_callback(judge.aclose)
-        _watch_group_room(cleanup, room, runner, tracker, impressions)
+        _watch_group_room(cleanup, room, runner, tracker, impressions, video=video)
         await runner.run()
         await closed.wait()
 
@@ -518,6 +518,8 @@ def _watch_group_room(
     runner: GroupInterviewRunner,
     tracker: RoomInfoTracker,
     impressions: ImpressionRecorder | None,
+    *,
+    video: bool,
 ) -> None:
     """그룹 면접방 이벤트와 RPC 처리 함수를 등록하고, 면접이 끝나면 해제하도록 cleanup에 넣는다."""
 
@@ -562,6 +564,12 @@ def _watch_group_room(
         lambda data: runner.submit_requested(data.caller_identity, data.payload),
     )
     cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
+    if not video:
+        room.local_participant.register_rpc_method(
+            CHAT_INPUT_METHOD,
+            lambda data: runner.chat_input_received(data.caller_identity, data.payload),
+        )
+        cleanup.callback(room.local_participant.unregister_rpc_method, CHAT_INPUT_METHOD)
     for participant in room.remote_participants.values():
         joined(participant)
     # BE는 면접방을 만들 때 방 정보를 함께 넣으므로 접속할 때도 읽는다(AI 명세 6.7)

@@ -3,10 +3,13 @@ import contextlib
 import json
 from typing import Any
 
+import pytest
+
 from app.agent.reaction import (
     CHAT_INPUT_METHOD,
     REACTION_METHOD,
     ChatInput,
+    InvalidChatInputError,
     ReactionStream,
     chat_input_reply,
     parse_chat_input,
@@ -285,6 +288,23 @@ def test_chat_input_is_parsed_and_reply_has_only_accepted() -> None:
     assert json.loads(chat_input_reply(True)) == {"accepted": True}
     assert json.loads(chat_input_reply(False)) == {"accepted": False}
     assert CHAT_INPUT_METHOD == "interview.chatInput"
+
+
+def test_group_chat_input_accepts_question_seq_up_to_six() -> None:
+    """그룹 면접 질문 번호는 1~6이다(AI 명세 6.7). 개인 면접은 그대로 1~5다."""
+    payload = json.dumps(
+        {
+            "type": "chat.input",
+            "sessionId": 55,
+            "questionSeq": 6,
+            "seq": 1,
+            "text": "글",
+            "pauseMs": 0,
+        }
+    )
+    assert parse_chat_input(payload, 55, max_seq=6).question_seq == 6
+    with pytest.raises(InvalidChatInputError):
+        parse_chat_input(payload, 55)
 
 
 LONG_TOKENS = (SpeechToken("답변", 0, 60_000), SpeechToken(" 계속", 60_000, MAX_SPEAKING_MS))

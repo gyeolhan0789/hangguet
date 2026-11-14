@@ -62,10 +62,11 @@ class ChatInput:
     pause_ms: float
 
 
-def parse_chat_input(payload: str, session_id: int) -> ChatInput:
+def parse_chat_input(payload: str, session_id: int, *, max_seq: int = MAX_SEQ) -> ChatInput:
     """interview.chatInput 본문(AI 명세 6.3)을 해석한다.
 
     다른 면접의 메시지이거나 형식이 틀리면 InvalidChatInputError를 발생시킨다.
+    max_seq는 질문 번호 상한이다(그룹 면접은 GROUP_MAX_SEQ).
     """
     try:
         message = json.loads(payload)
@@ -80,8 +81,8 @@ def parse_chat_input(payload: str, session_id: int) -> ChatInput:
     text = message.get("text")
     pause_ms = message.get("pauseMs")
     # bool은 int에 속하므로 true를 1로 허용하지 않도록 형식을 비교한다
-    if type(question_seq) is not int or not MIN_SEQ <= question_seq <= MAX_SEQ:
-        raise InvalidChatInputError(f"questionSeq는 {MIN_SEQ}~{MAX_SEQ}의 정수여야 한다")
+    if type(question_seq) is not int or not MIN_SEQ <= question_seq <= max_seq:
+        raise InvalidChatInputError(f"questionSeq는 {MIN_SEQ}~{max_seq}의 정수여야 한다")
     if type(seq) is not int or seq < 1:
         raise InvalidChatInputError("seq는 1 이상의 정수여야 한다")
     if not isinstance(text, str) or len(text) > MAX_CHAT_INPUT_LENGTH:
