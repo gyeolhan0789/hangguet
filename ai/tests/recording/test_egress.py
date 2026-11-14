@@ -140,15 +140,23 @@ RUNNING = [info(Status.EGRESS_ACTIVE)]
 def test_lookup_polls_room_until_recordings_end() -> None:
     fake, time = FakeEgress(RUNNING, RUNNING, DONE), FakeTime()
 
-    assert lookup(fake, time)(55) == [(KEY, STARTED)]
+    assert lookup(fake, time)("interview-55") == [(KEY, STARTED)]
     assert fake.rooms == ["interview-55"] * 3
     assert time.now == 2 * POLL_SECONDS
+
+
+def test_lookup_polls_group_room_as_given() -> None:
+    """그룹 면접은 그룹 면접방의 녹화 목록을 조회한다(AI 명세 7장)."""
+    fake, time = FakeEgress(DONE), FakeTime()
+
+    assert lookup(fake, time)("group-12") == [(KEY, STARTED)]
+    assert fake.rooms == ["group-12"]
 
 
 def test_lookup_gives_up_when_recordings_do_not_end_in_time() -> None:
     fake, time = FakeEgress(RUNNING), FakeTime()
 
-    assert lookup(fake, time)(55) is None
+    assert lookup(fake, time)("interview-55") is None
     assert time.now == WAIT_SECONDS
     assert len(fake.rooms) == int(WAIT_SECONDS / POLL_SECONDS) + 1
 
@@ -157,7 +165,7 @@ def test_lookup_stops_after_consecutive_failures() -> None:
     """LiveKit 장애 중에 작업마다 최대 대기 시간을 채우지 않는다."""
     fake, time = FakeEgress(EgressLookupError("녹화 목록 조회 실패")), FakeTime()
 
-    assert lookup(fake, time)(55) is None
+    assert lookup(fake, time)("interview-55") is None
     assert len(fake.rooms) == MAX_FAILURES
 
 
@@ -166,7 +174,7 @@ def test_lookup_retries_failure_followed_by_success() -> None:
     responses = [error] * (MAX_FAILURES - 1) + [RUNNING] + [error] * (MAX_FAILURES - 1) + [DONE]
     fake, time = FakeEgress(*responses), FakeTime()
 
-    assert lookup(fake, time)(55) == [(KEY, STARTED)]
+    assert lookup(fake, time)("interview-55") == [(KEY, STARTED)]
     assert len(fake.rooms) == len(responses)
 
 

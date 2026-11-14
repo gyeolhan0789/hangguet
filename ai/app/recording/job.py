@@ -6,6 +6,10 @@
 - 시작 시각을 얻지 못했거나, 사용할 파일 중 한 종류라도 없거나, 목록의 파일이 저장소에 없으면
   원본 위치를 조회해 찾은 트랙을 이어 붙이고 recordingStartedAt을 null로 전달한다.
   다시보기가 이어 붙인 영상에 T0를 적용하면 마커가 영상과 맞지 않기 때문이다.
+- 그룹 면접은 그룹 면접방의 녹화 목록에서 그 면접 지원자의 트랙과 면접관 음성만 배치해
+  본인 답변 구간만 잘라 합치고, 첫 구간의 시작 시각을 recordingStartedAt으로 전달한다(AI 명세 7장).
+  이어 붙이기로 전환하지 않고, 시작 시각을 얻지 못하면 MERGE_ERROR,
+  사용할 파일이 없거나 저장소에 없으면 TRACK_NOT_FOUND로 실패한다.
 - 이때는 녹화가 끝나기 전에 작업이 등록되었을 수 있고,
   녹화 파일은 녹화가 끝난 뒤에 저장소에 올라간다.
   그래서 작업을 받은 시점에 트랙이 아직 없을 수 있으므로,
@@ -37,6 +41,7 @@ from app.common.results import (
     ResultPublisher,
     ResultType,
 )
+from app.common.session import room_name
 from app.recording.egress import TrackStarts, no_track_starts
 from app.recording.merge import (
     MergeError,
@@ -44,6 +49,7 @@ from app.recording.merge import (
     Placed,
     PlacedTracks,
     Tracks,
+    merge_group_segments,
     merge_placed_tracks,
     merge_tracks,
     place_tracks,
@@ -51,7 +57,7 @@ from app.recording.merge import (
 )
 from app.recording.storage import RecordingStorage, StorageError
 from app.worker.dispatch import Dispatcher
-from app.worker.messages import MergeRecordingJob
+from app.worker.messages import GroupRecording, MergeRecordingJob
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +78,10 @@ TRACK_SETTLE_SECONDS = 15.0
 MergeTracks = Callable[[Sequence[Path], Sequence[Path], Sequence[Path], Path], None]
 PlacedFiles = Sequence[Placed[Path]]
 MergePlacedTracks = Callable[[PlacedFiles, PlacedFiles, PlacedFiles, Path], None]
-TrackStartLookup = Callable[[int], TrackStarts | None]
+Spans = Sequence[tuple[float, float]]
+MergeGroupSegments = Callable[[PlacedFiles, PlacedFiles, PlacedFiles, Spans, Path], None]
+# 면접방 이름으로 트랙 파일별 녹화 시작 시각을 조회한다
+TrackStartLookup = Callable[[str], TrackStarts | None]
 
 
 class _TrackWaitExpiredError(Exception):
@@ -94,6 +103,7 @@ class RecordingMerger:
         track_starts: TrackStartLookup = no_track_starts,
         merge: MergeTracks = merge_tracks,
         merge_placed: MergePlacedTracks = merge_placed_tracks,
+        merge_group: MergeGroupSegments = merge_group_segments,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         work_root: Path | None = None,
@@ -101,13 +111,15 @@ class RecordingMerger:
         """storage는 처음 처리할 때 저장소를 생성한다.
 
         S3 설정이 없어도 작업자가 시작되고 녹화 합치기만 실패하게 하기 위함이다.
-        track_starts는 면접 id로 트랙 파일별 녹화 시작 시각을 조회하고, 얻지 못하면 None을 반환한다.
+        track_starts는 면접방 이름으로 트랙 파일별 녹화 시작 시각을 조회하고,
+        얻지 못하면 None을 반환한다.
         """
         self._storage = storage
         self._results = results
         self._track_starts = track_starts
         self._merge = merge
         self._merge_placed = merge_placed
+        self._merge_group = merge_group
         self._sleep = sleep
         self._clock = clock
         self._work_root = work_root
@@ -136,18 +148,15 @@ class RecordingMerger:
         try:
             storage = self._storage()
             output = work / OUTPUT_FILE
-            placed = self._placed_tracks(storage, job)
-            if placed is None:
-                merge = self._prepare_listed(storage, job.raw_prefix, work, output)
-            else:
-                merge = self._prepare_placed(storage, placed, work, output)
+            merge, origin, placed = self._prepare(storage, job, work, output)
             started = time.monotonic()
             merge()
             log.info(
-                "녹화 합치기 완료 sessionId=%s jobId=%s placed=%s seconds=%.1f",
+                "녹화 합치기 완료 sessionId=%s jobId=%s placed=%s group=%s seconds=%.1f",
                 job.session_id,
                 job.job_id,
-                placed is not None,
+                placed,
+                job.group is not None,
                 time.monotonic() - started,
             )
             storage.upload(output, job.object_key)
@@ -159,13 +168,72 @@ class RecordingMerger:
             return self._fail(job, FailureReason.MERGE_ERROR, e)
         except Exception as e:
             return self._fail(job, FailureReason.INTERNAL_ERROR, e)
-        return _Merged(None if placed is None else placed.origin)
+        return _Merged(origin)
+
+    def _prepare(
+        self, storage: RecordingStorage, job: MergeRecordingJob, work: Path, output: Path
+    ) -> tuple[Callable[[], None], datetime | None, bool]:
+        """(합치는 호출, 영상 0초 시각, 시작 시각 위치에 배치했는지)다."""
+        if job.group is not None:
+            merge, origin = self._prepare_group(storage, job, job.group, work, output)
+            return merge, origin, True
+        placed = self._placed_tracks(storage, job)
+        if placed is None:
+            return self._prepare_listed(storage, job.raw_prefix, work, output), None, False
+        return self._prepare_placed(storage, placed, work, output), placed.origin, True
+
+    def _prepare_group(
+        self,
+        storage: RecordingStorage,
+        job: MergeRecordingJob,
+        group: GroupRecording,
+        work: Path,
+        output: Path,
+    ) -> tuple[Callable[[], None], datetime]:
+        """본인 트랙을 배치·다운로드하고, 본인 답변 구간만 잘라 합치는 호출을 반환한다.
+
+        그룹 면접은 업로드 순서로 이어 붙이지 않는다(AI 명세 7장).
+        녹화 시작 시각이 없으면 구간을 자를 기준 시각이 없어
+        다른 참가자 차례가 파일에 남기 때문이다.
+        시작 시각을 얻지 못하면 MergeError, 사용할 파일이 없으면 MissingTrackError다.
+        영상 0초는 첫 구간의 시작 시각이다.
+        """
+        starts = self._track_starts(group.room_name)
+        if starts is None:
+            raise MergeError("녹화 시작 시각을 얻지 못해 구간을 자를 수 없다")
+        placed = place_tracks(starts, job.raw_prefix, group.candidate_identity)
+        self._require_stored(storage, job.raw_prefix, placed)
+        video, candidate, interviewer = self._download_placed(storage, placed, work)
+        spans = [
+            (
+                (segment.start - placed.origin).total_seconds(),
+                (segment.end - placed.origin).total_seconds(),
+            )
+            for segment in group.segments
+        ]
+        merge = partial(self._merge_group, video, candidate, interviewer, spans, output)
+        return merge, group.segments[0].start
+
+    def _require_stored(
+        self, storage: RecordingStorage, raw_prefix: str, placed: PlacedTracks[str]
+    ) -> None:
+        missing = self._missing(storage, raw_prefix, placed)
+        if missing:
+            raise MissingTrackError(f"녹화 목록의 파일이 저장소에 없다: {', '.join(missing)}")
+
+    @staticmethod
+    def _missing(
+        storage: RecordingStorage, raw_prefix: str, placed: PlacedTracks[str]
+    ) -> list[str]:
+        stored = {item.key for item in storage.list(raw_prefix)}
+        tracks = (*placed.candidate_video, *placed.candidate_audio, *placed.interviewer_audio)
+        return [track.track for track in tracks if track.track not in stored]
 
     def _placed_tracks(
         self, storage: RecordingStorage, job: MergeRecordingJob
     ) -> PlacedTracks[str] | None:
         """녹화 시작 시각 위치에 배치한 트랙이다. 배치할 수 없으면 None이다."""
-        starts = self._track_starts(job.session_id)
+        starts = self._track_starts(room_name(job.session_id))
         if starts is None:
             return None
         try:
@@ -173,9 +241,7 @@ class RecordingMerger:
         except MissingTrackError as e:
             log.warning("녹화 목록에 사용할 %s sessionId=%s", e, job.session_id)
             return None
-        stored = {item.key for item in storage.list(job.raw_prefix)}
-        tracks = (*placed.candidate_video, *placed.candidate_audio, *placed.interviewer_audio)
-        missing = [track.track for track in tracks if track.track not in stored]
+        missing = self._missing(storage, job.raw_prefix, placed)
         if missing:
             log.warning(
                 "녹화 목록의 파일이 저장소에 없다 sessionId=%s: %s",
@@ -200,6 +266,12 @@ class RecordingMerger:
         self, storage: RecordingStorage, placed: PlacedTracks[str], work: Path, output: Path
     ) -> Callable[[], None]:
         """배치한 트랙을 다운로드하고, 녹화 시작 시각 위치에 배치해 합치는 호출을 반환한다."""
+        video, candidate, interviewer = self._download_placed(storage, placed, work)
+        return partial(self._merge_placed, video, candidate, interviewer, output)
+
+    def _download_placed(
+        self, storage: RecordingStorage, placed: PlacedTracks[str], work: Path
+    ) -> tuple[list[Placed[Path]], list[Placed[Path]], list[Placed[Path]]]:
         video, candidate, interviewer = (
             [
                 Placed(self._download(storage, track.track, work), track.offset_seconds)
@@ -207,7 +279,7 @@ class RecordingMerger:
             ]
             for tracks in (placed.candidate_video, placed.candidate_audio, placed.interviewer_audio)
         )
-        return partial(self._merge_placed, video, candidate, interviewer, output)
+        return video, candidate, interviewer
 
     def _wait_for_tracks(self, storage: RecordingStorage, raw_prefix: str) -> Tracks:
         deadline = self._clock() + TRACK_WAIT_SECONDS

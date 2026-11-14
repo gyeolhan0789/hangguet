@@ -6,7 +6,8 @@
 - 정상 완료되고 시작 시각이 있으며 길이가 0보다 큰 파일만 반환한다.
   Egress는 첫 패킷을 수신하지 못한 파일의 시작 시각을 종료 시각으로 채우므로
   시작 시각만으로는 빈 트랙을 구분할 수 없다.
-- 시작 시각을 얻지 못하면 None을 반환하고, 호출한 쪽이 저장소 목록으로 트랙을 이어 붙인다.
+- 시작 시각을 얻지 못하면 None을 반환한다.
+  호출한 쪽은 개인 면접이면 저장소 목록으로 트랙을 이어 붙이고, 그룹 면접이면 실패로 처리한다.
   조회가 연속으로 실패하면 최대 대기 시간을 기다리지 않고 중단한다.
   LiveKit 장애 중에 작업마다 최대 대기 시간을 채우면
   뒤에 대기한 작업이 BE 최대 대기 시간을 넘기 때문이다.
@@ -22,7 +23,6 @@ import aiohttp
 from google.protobuf.message import DecodeError
 from livekit import api
 
-from app.common.session import room_name
 from app.common.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -107,12 +107,12 @@ class TrackStartLookup:
         self._sleep = sleep
         self._clock = clock
 
-    def __call__(self, session_id: int) -> TrackStarts | None:
-        """그 면접의 트랙 녹화가 모두 끝날 때까지 조회해 파일별 녹화 시작 시각을 반환한다.
+    def __call__(self, room: str) -> TrackStarts | None:
+        """면접방의 트랙 녹화가 모두 끝날 때까지 조회해 파일별 녹화 시작 시각을 반환한다.
 
+        room은 개인 면접은 interview-{sessionId}, 그룹 면접은 group-{groupId}다(AI 명세 7장).
         최대 대기 시간이 지나거나 조회가 연속으로 실패하면 None이다.
         """
-        room = room_name(session_id)
         deadline = self._clock() + WAIT_SECONDS
         failures = 0
         while True:
@@ -121,24 +121,24 @@ class TrackStartLookup:
             except EgressLookupError as e:
                 failures += 1
                 if failures >= MAX_FAILURES:
-                    log.warning("녹화 목록 조회를 중단한다 sessionId=%s: %s", session_id, e)
+                    log.warning("녹화 목록 조회를 중단한다 room=%s: %s", room, e)
                     return None
             else:
                 failures = 0
                 if files is not None:
                     return files
             if self._clock() >= deadline:
-                log.warning("녹화가 끝나지 않아 조회를 중단한다 sessionId=%s", session_id)
+                log.warning("녹화가 끝나지 않아 조회를 중단한다 room=%s", room)
                 return None
             self._sleep(POLL_SECONDS)
 
 
-def no_track_starts(_session_id: int) -> None:
-    """녹화 시작 시각을 조회하지 않는다. 녹화는 이어 붙여 합친다."""
+def no_track_starts(_room: str) -> None:
+    """녹화 시작 시각을 조회하지 않는다. 개인 면접 녹화는 이어 붙여 합친다."""
     return None
 
 
-def create_track_start_lookup(settings: Settings) -> Callable[[int], TrackStarts | None]:
+def create_track_start_lookup(settings: Settings) -> Callable[[str], TrackStarts | None]:
     """설정의 LiveKit 주소·키로 녹화 시작 시각 조회 함수를 생성한다.
 
     값이 없으면 조회하지 않고 None을 반환하는 함수다.
