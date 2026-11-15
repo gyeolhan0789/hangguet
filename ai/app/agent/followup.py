@@ -26,6 +26,12 @@ from app.interview.realtime.followup import (
     followup_messages,
     parse_followups,
 )
+from app.interview.realtime.group_followup import (
+    GROUP_FOLLOWUP_PROMPT_VERSION,
+    GROUP_FOLLOWUP_TIMEOUT,
+    group_followup_messages,
+    parse_group_followup,
+)
 
 log = logging.getLogger(__name__)
 
@@ -81,4 +87,50 @@ def followup_generator(settings: Settings) -> GmsFollowups | None:
         return GmsFollowups(client.chat_json)
     except (SettingsError, UnregisteredVersionError) as e:
         log.warning("꼬리질문을 생성하지 않고 예비 질문으로 진행한다: %s", e)
+        return None
+
+
+class GmsGroupFollowups:
+    """그룹 면접 꼬리질문 판단 · 생성(AI 명세 6.7)."""
+
+    def __init__(self, chat: Chat) -> None:
+        """프롬프트 버전이 등록되지 않았으면 UnregisteredVersionError를 발생시킨다(AI 명세 9장)."""
+        self._chat = chat
+        self._prompt_version = REGISTRY.require(VersionKind.PROMPT, GROUP_FOLLOWUP_PROMPT_VERSION)
+
+    async def judge(
+        self, persona: Persona, question: AssignedQuestion, answer: str
+    ) -> AssignedQuestion | None:
+        """직전 질문과 최종 답변으로 꼬리질문을 판단한다. 필요 없으면 None이다.
+
+        판단하지 못하면 FollowupError를 발생시킨다.
+        """
+        messages = group_followup_messages(
+            persona, question.content, question.criteria, answer, question.company_item
+        )
+        try:
+            result = await asyncio.to_thread(self._chat, messages)
+            followup = parse_group_followup(result.content)
+        except (GmsUnavailableError, GmsBadOutputError, FollowupOutputError) as e:
+            raise FollowupError(f"그룹 꼬리질문 판단 실패: {e}") from e
+        if followup is None:
+            return None
+        return AssignedQuestion(
+            followup.content, followup.criteria, self._prompt_version, result.model
+        )
+
+
+def group_followup_judge(settings: Settings) -> GmsGroupFollowups | None:
+    """GMS 설정으로 그룹 꼬리질문 판단기를 만든다. 설정이 없거나 등록되지 않은 버전이면 None이다.
+
+    없으면 판단 단계마다 필요 없음을 보낸다. 꼬리질문은 필수가 아니기 때문이다(AI 명세 6.7).
+    """
+    if settings.llm_api_key is None:
+        log.warning("LLM_API_KEY가 없어 그룹 면접 꼬리질문을 만들지 않는다")
+        return None
+    try:
+        client = GmsClient.from_settings(settings, timeout=GROUP_FOLLOWUP_TIMEOUT, retry_delays=())
+        return GmsGroupFollowups(client.chat_json)
+    except (SettingsError, UnregisteredVersionError) as e:
+        log.warning("그룹 면접 꼬리질문을 만들지 않는다: %s", e)
         return None

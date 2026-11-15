@@ -11,7 +11,7 @@ from app.interview.realtime.progress import (
     ProgressMessageError,
     SpeechResult,
     answer_completed,
-    followup_not_needed,
+    followup_decided,
     group_answer_completed,
     group_question_started,
     question_spoken,
@@ -103,7 +103,7 @@ def test_group_answer_completed_adds_turn_version_and_end_time() -> None:
 
 
 def test_followup_not_needed_has_null_question() -> None:
-    message = followup_not_needed(55, 2, turn_version=18, received_at=ENDED)
+    message = followup_decided(55, 2, turn_version=18, received_at=ENDED, generation_ms=1830)
 
     assert message.type is ResultType.FOLLOWUP_DECIDED
     assert message.fields == {
@@ -115,5 +115,34 @@ def test_followup_not_needed_has_null_question() -> None:
         "promptVersion": None,
         "modelVersion": None,
         "receivedAt": "2026-11-04T14:06:30.450+09:00",
-        "generationMs": None,
+        "generationMs": 1830,
     }
+
+
+def test_needed_followup_has_question_and_versions() -> None:
+    """AI 명세 6.7 followup.decided 예시와 같은 모양이다."""
+    message = followup_decided(
+        55,
+        2,
+        turn_version=18,
+        received_at=ENDED,
+        generation_ms=1830,
+        content="그때 팀원 의견을 어떻게 모았나요?",
+        criteria="의견 수렴 방법 · 결과",
+        prompt_version="group-followup-v1",
+        model_version="gpt-5.6-terra",
+    )
+
+    assert message.fields["needed"] is True
+    assert message.fields["content"] == "그때 팀원 의견을 어떻게 모았나요?"
+    assert message.fields["criteria"] == "의견 수렴 방법 · 결과"
+    assert message.fields["promptVersion"] == "group-followup-v1"
+    assert message.fields["modelVersion"] == "gpt-5.6-terra"
+
+
+@pytest.mark.parametrize(("content", "criteria"), [(" ", "기준"), ("질문", None), ("질문", " ")])
+def test_needed_followup_needs_question_and_criteria(content: str, criteria: str | None) -> None:
+    with pytest.raises(ProgressMessageError):
+        followup_decided(
+            55, 2, turn_version=18, received_at=ENDED, content=content, criteria=criteria
+        )

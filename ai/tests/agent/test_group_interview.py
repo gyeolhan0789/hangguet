@@ -12,9 +12,11 @@ from typing import Any
 import pytest
 from livekit import rtc
 
+from app.agent import group_interview
 from app.agent.answer_capture import CapturedAnswer
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, AnswerSubmitError
-from app.agent.assignment import GroupAssignment, parse_assignment
+from app.agent.assignment import AssignedQuestion, GroupAssignment, parse_assignment
+from app.agent.followup import FollowupError
 from app.agent.group_interview import CALL_PHRASE, GroupInterviewRunner, per_participant
 from app.agent.group_room import RoomInfoTracker
 from app.agent.interview import FinishedAnswer
@@ -137,6 +139,22 @@ class FakeReactions:
         self.calls.append(("stop",))
 
 
+class FakeJudge:
+    """꼬리질문 판단기 대역. 판단 요청을 남기고 결과(질문 · None · 오류)를 시험이 정한다."""
+
+    def __init__(self, outcome: AssignedQuestion | Exception | None) -> None:
+        self.outcome = outcome
+        self.calls: list[tuple[str, str]] = []
+
+    async def judge(
+        self, persona: Any, question: AssignedQuestion, answer: str
+    ) -> AssignedQuestion | None:
+        self.calls.append((question.content, answer))
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome
+
+
 class Harness:
     def __init__(self, **assignment: Any) -> None:
         parsed = parse_assignment(group_json(**assignment))
@@ -149,10 +167,13 @@ class Harness:
         self.sessions: list[FakeSession] = []
         self.delivered: list[tuple[int, FinishedAnswer, int]] = []
         self.deliver_failures = 0
+        # 답변 전달을 끝낼 시점을 시험이 정한다(없으면 바로 끝난다)
+        self.deliver_hold: asyncio.Event | None = None
         self.subscribed: list[int] = []
         self.reactions: dict[int, FakeReactions] = {}
         self.sleeps: list[float] = []
         self.praises: dict[Praise, Any] | None = None
+        self.followups: FakeJudge | None = None
         self.tracker = RoomInfoTracker()
         self.runner: GroupInterviewRunner | None = None
         self.running: asyncio.Task[None] | None = None
@@ -169,6 +190,7 @@ class Harness:
             subscribe=self.subscribed.append,
             reactions=lambda session_id: self.reactions.setdefault(session_id, FakeReactions()),  # type: ignore[arg-type,return-value]
             praises=self.praises,
+            followups=self.followups,
             sleep=self.sleep,
         )
         self.runner = runner
@@ -203,6 +225,8 @@ class Harness:
             self.deliver_failures -= 1
             raise ResultPublishError("결과 큐 전송 실패")
         self.delivered.append((session_id, finished, version))
+        if self.deliver_hold is not None:
+            await self.deliver_hold.wait()
         return True
 
     async def sleep(self, seconds: float) -> None:
@@ -277,9 +301,10 @@ class Harness:
         self, version: int, *, session_id: int = 55, seq: int = 1, **turn: Any
     ) -> FakeSession:
         """그 차례의 질문을 말하고 답변 듣기로 넘어간다."""
+        spoken = len(self.results(ResultType.QUESTION_SPOKEN))
         self.info(version, "ASKING", session_id=session_id, seq=seq, **turn)
         await until(
-            lambda: len(self.results(ResultType.QUESTION_SPOKEN)) >= 1 and self.speaking_done()
+            lambda: len(self.results(ResultType.QUESTION_SPOKEN)) > spoken and self.speaking_done()
         )
         self.info(version + 1, "SPEAKING", session_id=session_id, seq=seq, **turn)
         self.info(
@@ -621,6 +646,11 @@ def test_deciding_reports_no_followup_once() -> None:
 
 
 def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
+    """1~3번째 기본 질문은 마지막일 수 없어 판단을 기다리지 않고 1초 뒤 칭찬한다.
+
+    4번째 기본 질문은 BE가 그 차례를 넘겨야 마지막인지 알고,
+    마지막 질문을 마친 사람(DONE)은 칭찬하지 않는다(AI 명세 6.2 · 6.7).
+    """
     praise_audio = object()
 
     async def scenario(h: Harness) -> None:
@@ -630,21 +660,13 @@ def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
         session = await h.answer(1, session_id=55, seq=1)
         session.speak()
         await until(lambda: len(h.voice.said) == 1)
-        # 마지막 질문을 마친 사람(DONE)은 칭찬하지 않는다(AI 명세 6.2)
-        h.info(10, "DECIDING", session_id=56, seq=4, states={55: "PRESENT", 56: "DONE"})
-        h.info(
-            11,
-            "ANSWERING",
-            session_id=56,
-            seq=4,
-            kind="PERSONAL",
-            base=4,
-            deadline_ms=60_000,
-            states={55: "PRESENT", 56: "DONE"},
-        )
-        later = await h.next_session(2)
+        later = await h.answer(5, session_id=56, seq=4, kind="PERSONAL", base=4)
         later.speak()
         await until(lambda: len(h.delivered) == 2)
+        h.info(8, "DECIDING", session_id=56, seq=4, kind="PERSONAL", base=4)
+        await asyncio.sleep(0.05)
+        assert len(h.voice.said) == 1
+        h.info(10, None, states={55: "PRESENT", 56: "DONE"})
         await asyncio.sleep(0.05)
 
     async def main() -> Harness:
@@ -660,6 +682,43 @@ def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
     h = asyncio.run(main())
     assert h.voice.said == [praise_audio]
     assert 1.0 in h.sleeps
+
+
+def test_duck_waits_for_turn_after_followup_of_last_base_question() -> None:
+    """4번째 기본 질문 뒤 꼬리질문이 정해지면 마지막이 아니므로 그 차례로 넘어갈 때 칭찬한다.
+
+    그 꼬리질문도 마지막일 수 있어 차례가 넘어간 뒤 칭찬할지 정한다.
+    """
+
+    async def main() -> Harness:
+        h = Harness(persona="DUCK")
+        h.praises = {p: object() for p in Praise}
+        h.followups = FakeJudge(FOLLOWUP)
+        h.start()
+        try:
+            h.join(55)
+            first = await h.answer(1, session_id=55, seq=4, kind="PERSONAL", base=4)
+            first.speak()
+            await until(lambda: len(h.delivered) == 1)
+            h.info(4, "DECIDING", session_id=55, seq=4, kind="PERSONAL", base=4)
+            await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+            await asyncio.sleep(0.02)
+            assert h.voice.said == []
+            followup = await h.answer(5, session_id=55, seq=5, kind="FOLLOWUP", base=None)
+            assert len(h.voice.said) == 1
+            followup.speak()
+            await until(lambda: len(h.delivered) == 2)
+            await asyncio.sleep(0.05)
+            assert len(h.voice.said) == 1
+            h.info(9, None, states={55: "DONE", 56: "PRESENT"})
+            await asyncio.sleep(0.05)
+        finally:
+            assert h.running is not None
+            h.running.cancel()
+            await asyncio.gather(h.running, return_exceptions=True)
+        return h
+
+    assert len(asyncio.run(main()).voice.said) == 1
 
 
 def test_group_end_stops_progress() -> None:
@@ -809,11 +868,14 @@ def test_chat_duck_praises_at_decision_before_next_question() -> None:
 def test_chat_duck_does_not_praise_after_last_question() -> None:
     async def scenario(h: Harness) -> None:
         h.join(55)
-        h.info(1, "DECIDING", session_id=55, seq=4, states={55: "DONE", 56: "PRESENT"})
+        h.info(1, "DECIDING", session_id=55, seq=4, kind="PERSONAL", base=4)
         await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        h.info(2, None, states={55: "DONE", 56: "PRESENT"})
         await asyncio.sleep(0.05)
 
-    assert duck_group(scenario, "CHAT").voice.said == []
+    h = duck_group(scenario, "CHAT")
+    assert h.voice.said == []
+    assert 1.0 in h.sleeps
 
 
 def test_video_duck_does_not_praise_again_at_decision() -> None:
@@ -825,3 +887,244 @@ def test_video_duck_does_not_praise_again_at_decision() -> None:
         await asyncio.sleep(0.05)
 
     assert duck_group(scenario, "VIDEO").voice.said == []
+
+
+FOLLOWUP = AssignedQuestion(
+    "기준은 어떻게 정했나요?", "판단 근거", "group-followup-v1", "gms-model"
+)
+
+
+def group_answer(session_id: int, seq: int, content: str) -> str:
+    return json.dumps({"sessionId": session_id, "seq": seq, "content": content, "turnVersion": 9})
+
+
+def run_with_judge(
+    scenario: Callable[[Harness], Awaitable[None]],
+    outcome: AssignedQuestion | Exception | None,
+    **assignment: Any,
+) -> Harness:
+    async def main() -> Harness:
+        h = Harness(**assignment)
+        h.followups = FakeJudge(outcome)
+        h.start()
+        try:
+            await scenario(h)
+        finally:
+            assert h.running is not None
+            h.running.cancel()
+            await asyncio.gather(h.running, return_exceptions=True)
+        return h
+
+    return asyncio.run(main())
+
+
+def test_video_followup_is_judged_with_delivered_answer_and_asked_on_followup_turn() -> None:
+    """판단 재료는 보낸 답변 글이고, 만든 꼬리질문은 그 사람의 FOLLOWUP 차례에 말한다.
+
+    기준: AI 명세 6.7
+    """
+
+    async def scenario(h: Harness) -> None:
+        h.join(55, 56)
+        session = await h.answer(1, session_id=55, seq=1)
+        session.speak()
+        await until(lambda: len(h.delivered) == 1)
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        h.info(5, "ASKING", session_id=55, seq=2, kind="FOLLOWUP", base=None)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 2)
+
+    h = run_with_judge(scenario, FOLLOWUP)
+    assert h.followups is not None and h.followups.calls == [("자기소개", "답변")]
+    decided = h.results(ResultType.FOLLOWUP_DECIDED)[0]
+    assert (decided["needed"], decided["content"], decided["promptVersion"]) == (
+        True,
+        FOLLOWUP.content,
+        "group-followup-v1",
+    )
+    assert decided["turnVersion"] == 4
+    assert decided["generationMs"] is not None
+    assert h.voice.played[-1] == FOLLOWUP.content
+    started = h.results(ResultType.QUESTION_STARTED)[-1]
+    assert (started["seq"], started["kind"], started["content"], started["modelVersion"]) == (
+        2,
+        "FOLLOWUP",
+        FOLLOWUP.content,
+        "gms-model",
+    )
+
+
+def test_chat_followup_waits_for_final_answer_from_be() -> None:
+    """채팅은 BE가 보낸 group.answer의 글로 판단한다. 작성 중인 글로는 판단하지 않는다."""
+
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        h.info(1, "ASKING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 1)
+        h.info(2, "DECIDING", session_id=55, seq=1)
+        await asyncio.sleep(0.05)
+        assert h.results(ResultType.FOLLOWUP_DECIDED) == []
+        assert h.runner is not None
+        h.runner.group_answer_received(group_answer(55, 1, "최종 답변"))
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        # 같은 답변 글을 다시 받으면 처음 판단을 다시 보낸다
+        h.runner.group_answer_received(group_answer(55, 1, "다른 글"))
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 2)
+
+    h = run_with_judge(scenario, None, mode="CHAT")
+    assert h.followups is not None and h.followups.calls == [("자기소개", "최종 답변")]
+    first, again = h.results(ResultType.FOLLOWUP_DECIDED)
+    assert first == again
+    assert first["needed"] is False
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "{broken",
+        json.dumps({"sessionId": 55, "seq": 7, "content": "답"}),
+        json.dumps({"sessionId": "55", "seq": 1, "content": "답"}),
+        json.dumps({"sessionId": 55, "seq": 1, "content": " "}),
+    ],
+)
+def test_wrong_group_answer_is_ignored(payload: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(group_interview, "DECISION_SECONDS", 0.1)
+
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        h.info(1, "ASKING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 1)
+        assert h.runner is not None
+        h.runner.group_answer_received(payload)
+        h.info(2, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+
+    h = run_with_judge(scenario, FOLLOWUP, mode="CHAT")
+    # 최종 답변을 받지 못해 판단하지 못했으므로 필요 없음이다
+    assert h.followups is not None and h.followups.calls == []
+    assert h.results(ResultType.FOLLOWUP_DECIDED)[0]["needed"] is False
+
+
+@pytest.mark.parametrize("outcome", [FollowupError("GMS 실패"), None])
+def test_failed_or_unneeded_judgment_reports_not_needed(outcome: Exception | None) -> None:
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        session = await h.answer(1, session_id=55, seq=1)
+        session.speak()
+        await until(lambda: len(h.delivered) == 1)
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+
+    h = run_with_judge(scenario, outcome)
+    decided = h.results(ResultType.FOLLOWUP_DECIDED)[0]
+    assert (decided["needed"], decided["content"]) == (False, None)
+
+
+def test_followup_is_discarded_when_another_turn_comes() -> None:
+    """만든 꼬리질문은 그 사람의 FOLLOWUP 차례가 아닌 차례가 오면 버린다(AI 명세 6.7)."""
+
+    async def scenario(h: Harness) -> None:
+        h.join(55, 56)
+        session = await h.answer(1, session_id=55, seq=1)
+        session.speak()
+        await until(lambda: len(h.delivered) == 1)
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        h.info(5, "ASKING", session_id=56, seq=1, announce="CALL")
+        await until(lambda: len(h.results(ResultType.QUESTION_SPOKEN)) == 2)
+        h.info(6, "ASKING", session_id=55, seq=2, kind="FOLLOWUP", base=None)
+        await asyncio.sleep(0.05)
+
+    h = run_with_judge(scenario, FOLLOWUP)
+    assert FOLLOWUP.content not in h.voice.played
+    assert len(h.results(ResultType.QUESTION_STARTED)) == 2
+
+
+def test_followup_of_followup_uses_asked_followup_as_previous_question() -> None:
+    async def scenario(h: Harness) -> None:
+        h.join(55)
+        session = await h.answer(1, session_id=55, seq=1)
+        session.speak()
+        await until(lambda: len(h.delivered) == 1)
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        followup = await h.answer(5, session_id=55, seq=2, kind="FOLLOWUP", base=None)
+        followup.speak()
+        followup.speak()
+        await until(lambda: len(h.delivered) == 2)
+        h.info(8, "DECIDING", session_id=55, seq=2)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 2)
+
+    h = run_with_judge(scenario, FOLLOWUP)
+    assert h.followups is not None
+    assert h.followups.calls == [("자기소개", "답변"), (FOLLOWUP.content, "답변답변")]
+
+
+def test_without_judge_reports_not_needed_at_once() -> None:
+    async def scenario(h: Harness) -> None:
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+
+    h = run(scenario)
+    decided = h.results(ResultType.FOLLOWUP_DECIDED)[0]
+    assert (decided["needed"], decided["generationMs"]) == (False, None)
+
+
+def test_late_judgment_does_not_hold_followup() -> None:
+    """판단이 늦어 BE가 이미 다음 차례로 넘어갔으면 그 꼬리질문은 들고 있지 않는다."""
+
+    class SlowJudge(FakeJudge):
+        def __init__(self) -> None:
+            super().__init__(FOLLOWUP)
+            self.release = asyncio.Event()
+
+        async def judge(
+            self, persona: Any, question: AssignedQuestion, answer: str
+        ) -> AssignedQuestion | None:
+            await self.release.wait()
+            return await super().judge(persona, question, answer)
+
+    async def main() -> Harness:
+        h = Harness()
+        judge = SlowJudge()
+        h.followups = judge
+        h.start()
+        try:
+            h.join(55, 56)
+            session = await h.answer(1, session_id=55, seq=1)
+            session.speak()
+            await until(lambda: len(h.delivered) == 1)
+            h.info(4, "DECIDING", session_id=55, seq=1)
+            await asyncio.sleep(0.02)
+            h.info(5, "ASKING", session_id=56, seq=1, announce="CALL")
+            judge.release.set()
+            await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+            await asyncio.sleep(0.02)
+        finally:
+            assert h.running is not None
+            h.running.cancel()
+            await asyncio.gather(h.running, return_exceptions=True)
+        return h
+
+    h = asyncio.run(main())
+    assert FOLLOWUP.content not in h.voice.prepared
+
+
+def test_decision_arriving_before_answer_wrap_up_still_judges_answer() -> None:
+    """BE가 답변을 저장해 DECIDING이 와도 답변 작업의 마무리(판단 재료 저장)는 끊지 않는다."""
+
+    async def scenario(h: Harness) -> None:
+        h.deliver_hold = asyncio.Event()
+        h.join(55)
+        session = await h.answer(1, session_id=55, seq=1)
+        session.speak()
+        await until(lambda: len(h.delivered) == 1)
+        h.info(4, "DECIDING", session_id=55, seq=1)
+        await asyncio.sleep(0.02)
+        h.deliver_hold.set()
+        await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+        await until(lambda: ("candidate-55", "submitted") in h.states())
+
+    h = run_with_judge(scenario, FOLLOWUP)
+    assert h.followups is not None and h.followups.calls == [("자기소개", "답변")]
+    assert h.results(ResultType.FOLLOWUP_DECIDED)[0]["needed"] is True

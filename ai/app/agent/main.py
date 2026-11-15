@@ -23,8 +23,13 @@ from app.agent.answer_delivery import AnswerDelivery
 from app.agent.answer_rpc import ANSWER_STATE_METHOD, ANSWER_SUBMIT_METHOD
 from app.agent.assignment import Assignment, AssignmentError, GroupAssignment, parse_assignment
 from app.agent.attitude import ATTITUDE_METHOD, AttitudePublisher
-from app.agent.followup import followup_generator
-from app.agent.group_interview import GroupInterviewRunner, RoomVoice, per_participant
+from app.agent.followup import followup_generator, group_followup_judge
+from app.agent.group_interview import (
+    GROUP_ANSWER_TOPIC,
+    GroupInterviewRunner,
+    RoomVoice,
+    per_participant,
+)
 from app.agent.group_room import RoomInfoTracker
 from app.agent.impression import FRAME_TOPIC, ImpressionJudge, ImpressionRecorder, read_frame
 from app.agent.interview import FinishedAnswer, InterviewRunner
@@ -501,6 +506,7 @@ async def run_group_interview(
         subscribe=subscribe,
         reactions=per_participant(reactions),
         praises=load_praises() if assignment.persona is Persona.DUCK else None,
+        followups=group_followup_judge(common),
     )
 
     async with AsyncExitStack() as cleanup:
@@ -540,6 +546,11 @@ def _watch_group_room(
     def left(participant: rtc.RemoteParticipant) -> None:
         runner.candidate_left(participant.identity)
 
+    def data_received(packet: rtc.DataPacket) -> None:
+        # 채팅 최종 답변은 BE 서버가 보낸다(보낸 참가자 없음). 지원자가 보낸 같은 주제는 받지 않는다
+        if packet.topic == GROUP_ANSWER_TOPIC and packet.participant is None:
+            runner.group_answer_received(packet.data.decode("utf-8", errors="replace"))
+
     def frame_received(reader: rtc.ByteStreamReader, identity: str) -> None:
         # 지금 답변자 사진만 판단한다(AI 명세 6.7)
         if impressions is None or identity != runner.answering_identity:
@@ -565,6 +576,8 @@ def _watch_group_room(
     )
     cleanup.callback(room.local_participant.unregister_rpc_method, ANSWER_SUBMIT_METHOD)
     if not video:
+        room.on("data_received", data_received)
+        cleanup.callback(room.off, "data_received", data_received)
         room.local_participant.register_rpc_method(
             CHAT_INPUT_METHOD,
             lambda data: runner.chat_input_received(data.caller_identity, data.payload),
