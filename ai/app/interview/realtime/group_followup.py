@@ -24,7 +24,7 @@ from app.interview.realtime.followup import (
 # 개인 면접(followup-v2)과 지시가 달라 이름을 나눈다
 GROUP_FOLLOWUP_PROMPT_VERSION = "group-followup-v1"
 # GMS를 기다리는 시간(초, 임시 값). BE가 판단 단계 시작부터 7초 안에 온 판단만 쓰므로
-# 최종 답변 도착 · 결과 전송 여유를 남긴다. 실측은 AI 성능 시험(AI 명세 10장)에서 한다
+# 최종 답변 도착 · 결과 전송 여유를 남긴다. 실측은 AI 성능 시험(AI 명세 6.7)에서 한다
 GROUP_FOLLOWUP_TIMEOUT = 5.0
 
 

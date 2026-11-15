@@ -24,6 +24,8 @@
 - 오리 면접관은 답변 뒤 1초 기다렸다가 칭찬하고, 다음 질문은 칭찬이 끝난 뒤 말한다.
   화상은 답변을 전달한 뒤, 채팅은 DECIDING이 오면(BE가 최종 답변을 저장했다는 뜻) 칭찬한다.
   그 사람이 마지막 질문을 마쳤으면 칭찬하지 않는다(6.2).
+  마지막인지는 꼬리질문 판단 뒤에야 정해지므로 마지막일 수 있는 질문
+  (4번째 기본 질문과 그 뒤 꼬리질문)은 BE가 그 차례를 넘긴 뒤 칭찬한다.
 """
 
 from __future__ import annotations
@@ -73,7 +75,9 @@ from app.agent.stt import SttState
 from app.agent.tts import ElevenLabsTTS, SpeechAudio, TtsError
 from app.common.results import KST, ResultPublishError
 from app.common.session import (
+    GROUP_COMMON_QUESTION_COUNT,
     GROUP_MAX_SEQ,
+    GROUP_PERSONAL_QUESTION_COUNT,
     MIN_SEQ,
     InterviewMode,
     Persona,
@@ -117,9 +121,10 @@ GROUP_ANSWER_TOPIC = "group.answer"
 # 판단 단계에서 최종 답변 도착과 판단을 기다리는 시간(초, 임시 값).
 # BE는 판단 단계 시작부터 7초 안에 온 판단만 쓰므로 결과 전송 여유 1초를 남긴다(AI 명세 6.7)
 DECISION_SECONDS = 6.0
-# 오리 칭찬 전에 BE가 그 차례를 넘기기(다음 차례 · 꼬리질문 차례 · 종료)를 기다리는
-# 상한(초, 임시 값). 마지막 질문인지는 꼬리질문 판단 뒤에야 정해진다.
-# BE 판단 기한 7초에 여유를 더한다
+# 한 사람의 마지막 기본 질문 번호(baseIndex). 이 질문과 그 뒤 꼬리질문만 마지막 질문일 수 있다
+LAST_BASE_INDEX = GROUP_COMMON_QUESTION_COUNT + GROUP_PERSONAL_QUESTION_COUNT
+# 마지막일 수 있는 질문의 오리 칭찬 전에 BE가 그 차례를 넘기기(다음 차례 · 꼬리질문 차례 · 종료)를
+# 기다리는 상한(초, 임시 값). BE 판단 기한 7초에 여유를 더한다
 TURN_PASS_SECONDS = 10.0
 # AI 명세 6.7: 지금 답변자가 아니거나 지금 질문이 아닌 [답변 완료]의 응답
 NOT_ACCEPTED = json.dumps({"accepted": False}, separators=(",", ":"))
@@ -309,6 +314,8 @@ class GroupInterviewRunner:
         self._decisions: dict[tuple[int, int], ProgressMessage] = {}
         # 면접 id → 그 사람의 FOLLOWUP 차례에 말할 꼬리질문
         self._held: dict[int, AssignedQuestion] = {}
+        # 면접 id → 마지막으로 받은 기본 질문 번호. 꼬리질문이 몇 번째 기본 질문 뒤인지 안다
+        self._last_base: dict[int, int] = {}
         self._background: set[asyncio.Task[Any]] = set()
         self._subscribed: int | None = None
 
@@ -469,6 +476,8 @@ class GroupInterviewRunner:
 
     async def _follow(self, info: RoomInfo) -> None:
         turn, phase = info.turn, info.phase
+        if turn is not None and turn.base_index is not None:
+            self._last_base[turn.session_id] = turn.base_index
         if not self._video:
             await self._follow_chat(turn, phase)
         if turn is None or phase is None:
@@ -501,7 +510,7 @@ class GroupInterviewRunner:
             # submitted · 칭찬)만 남았다. 끊으면 판단 재료가 없어지므로 끝나게 둔다
             if not (same_turn and key is not None and key[0] == "answer"):
                 await self._stop_work()
-            self._decide(turn, info)
+            self._decide(turn)
         else:
             await self._stop_work()
 
@@ -896,14 +905,8 @@ class GroupInterviewRunner:
         # 다음 질문이 칭찬보다 먼저 나가지 않도록 기다리는 동안에도 음성을 잡아 둔다
         async with self._voice_lock:
             await self._sleep(delay)
-            # 마지막 질문인지는 꼬리질문 판단 뒤 BE가 그 차례를 넘겨야 안다
-            try:
-                async with asyncio.timeout(TURN_PASS_SECONDS):
-                    while self._is_turn(turn):
-                        self._info_event.clear()
-                        await self._info_event.wait()
-            except TimeoutError:
-                log.warning("차례가 넘어가지 않아 기다리지 않고 칭찬한다", extra={"seq": turn.seq})
+            if self._may_be_last(turn):
+                await self._turn_passed(turn)
             info = self._info
             state = None if info is None else info.participant_state(turn.session_id)
             # 마지막 질문을 마친 사람은 면접 끝내기(5.8)로 넘어가므로 칭찬하지 않는다(AI 명세 6.2)
@@ -913,7 +916,27 @@ class GroupInterviewRunner:
             if audio is not None:
                 await self._voice.say(audio)
 
-    def _decide(self, turn: Turn, info: RoomInfo) -> None:
+    def _may_be_last(self, turn: Turn) -> bool:
+        """그 사람의 마지막 질문일 수 있는지다. 4번째 기본 질문과 그 뒤 꼬리질문만 그렇다."""
+        base = (
+            self._last_base.get(turn.session_id)
+            if turn.kind is TurnKind.FOLLOWUP
+            else turn.base_index
+        )
+        # 몇 번째 기본 질문 뒤인지 모르면 마지막 뒤에 칭찬하지 않도록 마지막일 수 있다고 본다
+        return base is None or base >= LAST_BASE_INDEX
+
+    async def _turn_passed(self, turn: Turn) -> None:
+        """마지막 질문인지는 꼬리질문 판단 뒤 BE가 그 차례를 넘겨야 알므로 그때까지 기다린다."""
+        try:
+            async with asyncio.timeout(TURN_PASS_SECONDS):
+                while self._is_turn(turn):
+                    self._info_event.clear()
+                    await self._info_event.wait()
+        except TimeoutError:
+            log.warning("차례가 넘어가지 않아 기다리지 않고 칭찬한다", extra={"seq": turn.seq})
+
+    def _decide(self, turn: Turn) -> None:
         # 같은 질문은 한 번만 판단한다(AI 명세 6.7)
         key = (turn.session_id, turn.seq)
         if key in self._decided:

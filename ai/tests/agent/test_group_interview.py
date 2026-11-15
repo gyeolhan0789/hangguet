@@ -646,6 +646,11 @@ def test_deciding_reports_no_followup_once() -> None:
 
 
 def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
+    """1~3번째 기본 질문은 마지막일 수 없어 판단을 기다리지 않고 1초 뒤 칭찬한다.
+
+    4번째 기본 질문은 BE가 그 차례를 넘겨야 마지막인지 알고,
+    마지막 질문을 마친 사람(DONE)은 칭찬하지 않는다(AI 명세 6.2 · 6.7).
+    """
     praise_audio = object()
 
     async def scenario(h: Harness) -> None:
@@ -654,17 +659,13 @@ def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
         h.join(55, 56)
         session = await h.answer(1, session_id=55, seq=1)
         session.speak()
-        await until(lambda: len(h.delivered) == 1)
-        # 마지막 질문인지는 BE가 그 차례를 넘겨야 알므로 그때까지 칭찬하지 않는다
-        h.info(4, "DECIDING", session_id=55, seq=1)
-        await asyncio.sleep(0.05)
-        assert h.voice.said == []
-        h.info(5, "ASKING", session_id=56, seq=1, announce="CALL")
         await until(lambda: len(h.voice.said) == 1)
-        later = await h.answer(6, session_id=56, seq=4, kind="PERSONAL", base=4)
+        later = await h.answer(5, session_id=56, seq=4, kind="PERSONAL", base=4)
         later.speak()
         await until(lambda: len(h.delivered) == 2)
-        # 마지막 질문을 마친 사람(DONE)은 칭찬하지 않는다(AI 명세 6.2)
+        h.info(8, "DECIDING", session_id=56, seq=4, kind="PERSONAL", base=4)
+        await asyncio.sleep(0.05)
+        assert len(h.voice.said) == 1
         h.info(10, None, states={55: "PRESENT", 56: "DONE"})
         await asyncio.sleep(0.05)
 
@@ -681,6 +682,43 @@ def test_duck_praises_after_answer_unless_answerer_is_done() -> None:
     h = asyncio.run(main())
     assert h.voice.said == [praise_audio]
     assert 1.0 in h.sleeps
+
+
+def test_duck_waits_for_turn_after_followup_of_last_base_question() -> None:
+    """4번째 기본 질문 뒤 꼬리질문이 정해지면 마지막이 아니므로 그 차례로 넘어갈 때 칭찬한다.
+
+    그 꼬리질문도 마지막일 수 있어 차례가 넘어간 뒤 칭찬할지 정한다.
+    """
+
+    async def main() -> Harness:
+        h = Harness(persona="DUCK")
+        h.praises = {p: object() for p in Praise}
+        h.followups = FakeJudge(FOLLOWUP)
+        h.start()
+        try:
+            h.join(55)
+            first = await h.answer(1, session_id=55, seq=4, kind="PERSONAL", base=4)
+            first.speak()
+            await until(lambda: len(h.delivered) == 1)
+            h.info(4, "DECIDING", session_id=55, seq=4, kind="PERSONAL", base=4)
+            await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
+            await asyncio.sleep(0.02)
+            assert h.voice.said == []
+            followup = await h.answer(5, session_id=55, seq=5, kind="FOLLOWUP", base=None)
+            assert len(h.voice.said) == 1
+            followup.speak()
+            await until(lambda: len(h.delivered) == 2)
+            await asyncio.sleep(0.05)
+            assert len(h.voice.said) == 1
+            h.info(9, None, states={55: "DONE", 56: "PRESENT"})
+            await asyncio.sleep(0.05)
+        finally:
+            assert h.running is not None
+            h.running.cancel()
+            await asyncio.gather(h.running, return_exceptions=True)
+        return h
+
+    assert len(asyncio.run(main()).voice.said) == 1
 
 
 def test_group_end_stops_progress() -> None:
@@ -830,7 +868,7 @@ def test_chat_duck_praises_at_decision_before_next_question() -> None:
 def test_chat_duck_does_not_praise_after_last_question() -> None:
     async def scenario(h: Harness) -> None:
         h.join(55)
-        h.info(1, "DECIDING", session_id=55, seq=4)
+        h.info(1, "DECIDING", session_id=55, seq=4, kind="PERSONAL", base=4)
         await until(lambda: len(h.results(ResultType.FOLLOWUP_DECIDED)) == 1)
         h.info(2, None, states={55: "DONE", 56: "PRESENT"})
         await asyncio.sleep(0.05)
