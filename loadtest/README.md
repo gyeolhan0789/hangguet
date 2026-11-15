@@ -17,6 +17,7 @@
 | `agent/` | 에이전트 분리 · scale out: 시작 템플릿 user data, 인스턴스 역할 정책, 콘솔 작업 순서([agent/README.md](agent/README.md)) |
 | `agent-audio/` | 면접 에이전트 음성 처리 CPU를 로컬 LiveKit 방에서 재는 스크립트([보고서](report/agent-audio-2026-11-04.md)) |
 | `agent-cpu/` | 개발 서버 에이전트 컨테이너 CPU를 cgroup으로 재는 스크립트(`sample.sh`)와 화상 면접 2건 동시 진행(`two-interviews.cjs`, Playwright)([보고서](report/agent-cpu-dev-2026-11-05.md)) |
+| `group-ai/` | 그룹 면접 AI 성능 시험: 꼬리질문 판단 응답 시간, 그룹 면접 · 개인 면접 실제 화면 진행과 에이전트 CPU, 목소리 섞임, 다시보기 구간([보고서](report/group-ai-2026-11-15.md)) |
 | `report/` | 회차별 결과 보고서(`<시나리오>-<날짜>.md`). 예: [S0](report/s0-2026-11-02.md) |
 | `results/` | k6 원본 출력 · 실패 화면 캡처(커밋하지 않는다) |
 
