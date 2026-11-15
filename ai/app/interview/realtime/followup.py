@@ -73,16 +73,26 @@ def followup_messages(
     질문 생성 프롬프트와 같은 글로 변환해 전달하고,
     None이거나 글로 변환할 수 없으면 전달하지 않는다.
     """
+    return [
+        {"role": "system", "content": followup_system(persona, count)},
+        {"role": "user", "content": followup_user(question, criteria, answer, company_item)},
+    ]
+
+
+def followup_user(
+    question: str, criteria: str, answer: str, company_item: Mapping[str, Any] | None
+) -> str:
+    """직전 질문 · 채점 기준 · 답변과 연결 회사 정보를 담은 사용자 메시지다.
+
+    그룹 면접 꼬리질문 판단(app.interview.realtime.group_followup)도 같은 글을 쓴다.
+    """
     user = f"[직전 질문]\n{question}\n\n[직전 질문의 채점 기준]\n{criteria}\n\n[답변]\n{answer}"
     text = None
     if company_item is not None:
         text = company_item_text(str(company_item.get("section")), company_item)
     if text is not None:
         user += f"\n\n{COMPANY_BLOCK}\n{text}"
-    return [
-        {"role": "system", "content": followup_system(persona, count)},
-        {"role": "user", "content": user},
-    ]
+    return user
 
 
 def _text(item: Mapping[str, Any], key: str) -> str:

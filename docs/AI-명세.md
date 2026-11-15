@@ -655,7 +655,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 - 판단 재료는 최종 답변이다: 화상은 자기가 보낸 `answer.completed`의 글, 채팅은 BE가 `SendData`로 보낸 `group.answer`(아래)의 글. 채팅 작성 중인 글(`chat.input`)로는 판단하지 않는다
 - 꼬리질문에 답한 뒤에도 남은 수가 있으면 다시 `DECIDING`이 온다. 이때 직전 질문은 그 꼬리질문이다
 - 같은 `(sessionId, seq)`는 한 번만 판단한다. 같은 답변 글을 다시 받으면 처음 결과를 다시 보낸다
-- 필요하면 질문 글 · 채점 기준을 만들고(입력 · 생성 지침 · 검증은 2.2. 직전 질문이 개인 맞춤 질문이면 그 질문의 `companyItem`을 입력에 포함한다), 아니면 `needed: false`. 판단 방법(필요 여부를 어떻게 정할지)은 정하지 않았다
+- 필요하면 질문 글 · 채점 기준을 만들고(입력 · 생성 지침 · 검증은 2.2. 직전 질문이 개인 맞춤 질문이면 그 질문의 `companyItem`을 입력에 포함한다), 아니면 `needed: false`. GMS 한 번으로 판단과 생성을 함께 한다. 답변이 직전 질문의 채점 기준에서 확인할 핵심(근거 · 과정 · 결과 · 본인 역할)을 모두 구체적으로 보여 주면 필요 없고, 빠졌거나 모호한 지점이 있으면 그 지점을 묻는 질문 하나를 만든다. 판단하지 못하면(GMS 실패 · 시간 초과 · 최종 답변을 받지 못함) `needed: false`를 바로 보낸다. 프롬프트 버전은 `group-followup-v1`, 모델은 PLAN과 같다(9장)
 - BE는 `DECIDING`을 시작하고 7초(설정 값) 안에 온 판단만 쓴다. 늦으면 꼬리질문 없이 넘어가므로 에이전트는 기다리지 말고 바로 보낸다. 구현 뒤 응답 시간을 보고 2~3초로 줄일 수 있다
 - 만든 꼬리질문은 BE가 그 사람의 `FOLLOWUP` 차례를 정할 때까지 들고 있다. 다른 차례가 오면 버린다
 
@@ -668,7 +668,7 @@ RPC 메시지에 공통 필드 `type`(메시지 종류, API 명세 면접방 메
 | `interview.frame` | 참가자마다 에이전트에게 보내고, 에이전트는 지금 답변자 것만 판단한다 |
 | `interview.answerSubmit` | 화상만. 보낸 사람이 지금 답변자가 아니거나 `seq`가 지금 질문이 아니면 `false` |
 | `interview.chatInput` | 리액션용으로 그대로 쓴다. 보낸 사람의 참가자 이름(`candidate-{sessionId}`)의 면접 id가 메시지의 `sessionId`와 같고, 그 면접 · `questionSeq`가 지금 차례(`turn.sessionId` · `turn.seq`)일 때만 받는다. 아니면 `false`. 화면은 지금도 자기 면접 id와 질문 순서를 담아 보내므로 바꾸지 않는다 |
-| `group.answer` (새) | BE → 에이전트, LiveKit `SendData`(주제 `group.answer`, 대상 `interviewer`). 채팅 최종 답변이 저장되면 `sessionId` · `seq` · `content` · `turnVersion`. BE가 전달에 실패하면 7초 안에서 다시 보낸다 |
+| `group.answer` (새) | BE → 에이전트, LiveKit `SendData`(주제 `group.answer`, 대상 `interviewer`). 채팅 최종 답변을 저장하고 꼬리질문 판단(`DECIDING`)으로 넘어갈 때 `sessionId` · `seq` · `content` · `turnVersion`. 남은 꼬리질문이 없어 `DECIDING`을 건너뛰면 보내지 않는다. BE가 전달에 실패하면 7초 안에서 다시 보낸다 |
 
 **결과 메시지** `ai:results:group`으로 보낸다(1.4). 모든 메시지에 받은 방 정보의 `turnVersion`을 담는다. BE는 지금 차례(같은 `sessionId` · `seq`)를 정한 뒤의 버전이 아니거나 단계가 맞지 않으면 늦은 메시지로 보고 버린다(차례 안에서도 단계마다 버전이 오르므로 마지막으로 받은 버전을 그대로 담으면 된다). 전송 실패 재시도는 6.5와 같다.
 

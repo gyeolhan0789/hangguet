@@ -8,12 +8,19 @@ from typing import Any
 import pytest
 
 from app.agent.assignment import AssignedQuestion
-from app.agent.followup import FollowupError, GmsFollowups, followup_generator
+from app.agent.followup import (
+    FollowupError,
+    GmsFollowups,
+    GmsGroupFollowups,
+    followup_generator,
+    group_followup_judge,
+)
 from app.common.gms import GmsBadOutputError, GmsClient, GmsResult, GmsUnavailableError
 from app.common.session import Persona
 from app.common.settings import Settings, load_settings
 from app.common.versions import REGISTRY, VersionKind
 from app.interview.realtime.followup import FOLLOWUP_TIMEOUT
+from app.interview.realtime.group_followup import GROUP_FOLLOWUP_TIMEOUT
 
 BASE = AssignedQuestion("응답 시간을 40% 줄인 과정은?", "원인 분석 · 수치 근거")
 
@@ -145,3 +152,55 @@ def test_generator_calls_gms_once_within_waiting_time(monkeypatch: pytest.Monkey
     followup_generator(load_settings(env))
 
     assert created == [{"timeout": FOLLOWUP_TIMEOUT, "retry_delays": ()}]
+
+
+# 기준: AI 명세 6.7 그룹 면접 꼬리질문(판단과 생성을 한 번에, 별도 프롬프트 버전)
+def test_group_followup_carries_group_prompt_version_and_model() -> None:
+    chat = FakeChat({"needed": True, "question": {"content": "기준은?", "criteria": "근거"}})
+
+    question = asyncio.run(GmsGroupFollowups(chat).judge(Persona.COFFEE_CHAT, BASE, "답변 글"))
+
+    assert question == AssignedQuestion(
+        "기준은?", "근거", "group-followup-v1", "gpt-5.6-terra-2026-01-01"
+    )
+    [messages] = chat.messages
+    assert "답변 글" in messages[1]["content"]
+
+
+def test_group_followup_not_needed_is_none() -> None:
+    chat = FakeChat({"needed": False, "question": None})
+
+    assert asyncio.run(GmsGroupFollowups(chat).judge(Persona.DUCK, BASE, "답변")) is None
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        GmsUnavailableError("GMS 응답 없음"),
+        GmsBadOutputError("JSON이 아니다"),
+        {"needed": True, "question": None},
+    ],
+)
+def test_group_followup_failure_is_followup_error(outcome: Any) -> None:
+    with pytest.raises(FollowupError):
+        asyncio.run(GmsGroupFollowups(FakeChat(outcome)).judge(Persona.DEVIL, BASE, "답변"))
+
+
+def test_group_judge_needs_gms_key_and_waits_within_decision_time(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[dict[str, Any]] = []
+    original = GmsClient.from_settings
+
+    def record(settings: Settings, **kwargs: Any) -> GmsClient:
+        created.append(kwargs)
+        return original(settings, **kwargs)
+
+    monkeypatch.setattr(GmsClient, "from_settings", record)
+    env = {"LLM_CHAT_URL": "http://gms.test/chat", "LLM_MODEL": "gpt-5.6-terra"}
+
+    assert group_followup_judge(load_settings(env)) is None
+    assert isinstance(
+        group_followup_judge(load_settings({**env, "LLM_API_KEY": "k"})), GmsGroupFollowups
+    )
+    assert created == [{"timeout": GROUP_FOLLOWUP_TIMEOUT, "retry_delays": ()}]

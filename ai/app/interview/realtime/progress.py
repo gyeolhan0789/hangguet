@@ -285,27 +285,40 @@ def group_answer_completed(
     )
 
 
-def followup_not_needed(
-    session_id: int, seq: int, *, turn_version: int, received_at: datetime
+def followup_decided(
+    session_id: int,
+    seq: int,
+    *,
+    turn_version: int,
+    received_at: datetime,
+    generation_ms: int | None = None,
+    content: str | None = None,
+    criteria: str | None = None,
+    prompt_version: str | None = None,
+    model_version: str | None = None,
 ) -> ProgressMessage:
-    """그룹 면접의 followup.decided 중 꼬리질문이 필요 없다는 판단(AI 명세 6.7).
+    """그룹 면접의 꼬리질문 판단(AI 명세 6.7 followup.decided).
 
-    GMS를 부르지 않았으므로 generationMs는 null이다.
+    content가 있으면 필요(needed true)하고, 없으면 필요 없음이며 질문 · 버전은 null이다.
+    received_at은 판단을 시작한 시각, generation_ms는 GMS 호출 시간이다(부르지 않았으면 None).
     """
     _check_target(session_id, seq, GROUP_MAX_SEQ)
+    needed = content is not None
+    if content is not None and (is_java_blank(content) or not criteria or is_java_blank(criteria)):
+        raise ProgressMessageError("꼬리질문 글 · 채점 기준이 비었다")
     return ProgressMessage(
         ResultType.FOLLOWUP_DECIDED,
         session_id,
         {
             "seq": seq,
             "turnVersion": turn_version,
-            "needed": False,
-            "content": None,
-            "criteria": None,
-            "promptVersion": None,
-            "modelVersion": None,
+            "needed": needed,
+            "content": content,
+            "criteria": criteria if needed else None,
+            "promptVersion": prompt_version if needed else None,
+            "modelVersion": model_version if needed else None,
             "receivedAt": _timestamp(received_at, "receivedAt"),
-            "generationMs": None,
+            "generationMs": generation_ms,
         },
     )
 

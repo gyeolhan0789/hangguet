@@ -16,7 +16,9 @@
   리액션의 태도는 사람마다 이어진다.
 - 채팅: 답변은 듣지 않는다(BE가 확정한다). ASKING부터 DECIDING · 다음 차례 전까지
   지금 답변자가 지금 질문으로 보낸 chat.input만 받아 마지막 문장으로 리액션을 판단한다.
-- DECIDING: 꼬리질문 판단 · 생성(S15P31A301-527) 전까지는 바로 필요 없음(needed false)을 보낸다.
+- DECIDING: 최종 답변(화상은 보낸 answer.completed의 글, 채팅은 BE가 보낸 group.answer의 글)으로
+  꼬리질문이 필요한지 한 번만 판단해 followup.decided를 보낸다. 판단하지 못하면 필요 없음을 보낸다.
+  만든 꼬리질문은 그 사람의 FOLLOWUP 차례에 말하고, 다른 차례가 오면 버린다.
 - 질문 음성은 차례가 오는 순서대로 미리 하나씩 합성한다.
   BE는 차례를 정하고 20초 안에 질문이 시작되지 않으면 AI 정체로 본다.
 - 오리 면접관은 답변 뒤 1초 기다렸다가 칭찬하고, 다음 질문은 칭찬이 끝난 뒤 말한다.
@@ -47,6 +49,7 @@ from app.agent.answer_rpc import (
     parse_answer_submit,
 )
 from app.agent.assignment import AssignedQuestion, GroupAssignment
+from app.agent.followup import FollowupError
 from app.agent.group_room import (
     GROUP_ENDED,
     PARTICIPANT_DONE,
@@ -71,6 +74,7 @@ from app.agent.tts import ElevenLabsTTS, SpeechAudio, TtsError
 from app.common.results import KST, ResultPublishError
 from app.common.session import (
     GROUP_MAX_SEQ,
+    MIN_SEQ,
     InterviewMode,
     Persona,
     group_candidate,
@@ -97,7 +101,7 @@ from app.interview.realtime.progress import (
     EndReason,
     ProgressMessage,
     SpeechResult,
-    followup_not_needed,
+    followup_decided,
     group_question_started,
     question_spoken,
 )
@@ -108,6 +112,15 @@ log = logging.getLogger(__name__)
 CALL_PHRASE = "다음 지원자분, 같은 질문에 답변해 주세요."
 # AI 명세 6.5: 재시도 후에도 전송하지 못한 question.started를 다시 전송하는 간격(초)
 STARTED_RETRY_SECONDS = 4.0
+# AI 명세 6.7: BE가 채팅 최종 답변을 에이전트에게 보내는 SendData 주제
+GROUP_ANSWER_TOPIC = "group.answer"
+# 판단 단계에서 최종 답변 도착과 판단을 기다리는 시간(초, 임시 값).
+# BE는 판단 단계 시작부터 7초 안에 온 판단만 쓰므로 결과 전송 여유 1초를 남긴다(AI 명세 6.7)
+DECISION_SECONDS = 6.0
+# 오리 칭찬 전에 BE가 그 차례를 넘기기(다음 차례 · 꼬리질문 차례 · 종료)를 기다리는
+# 상한(초, 임시 값). 마지막 질문인지는 꼬리질문 판단 뒤에야 정해진다.
+# BE 판단 기한 7초에 여유를 더한다
+TURN_PASS_SECONDS = 10.0
 # AI 명세 6.7: 지금 답변자가 아니거나 지금 질문이 아닌 [답변 완료]의 응답
 NOT_ACCEPTED = json.dumps({"accepted": False}, separators=(",", ":"))
 
@@ -120,6 +133,14 @@ class GroupVoice(Protocol):
     async def play(self, audio: SpeechAudio, on_start: Callable[[], None]) -> None: ...
 
     async def say(self, audio: SpeechAudio) -> None: ...
+
+
+class GroupFollowupJudge(Protocol):
+    """그룹 면접 꼬리질문 판단기다. 필요 없으면 None, 판단하지 못하면 FollowupError다."""
+
+    async def judge(
+        self, persona: Persona, question: AssignedQuestion, answer: str
+    ) -> AssignedQuestion | None: ...
 
 
 Sender = Callable[[str, str, str], Coroutine[Any, Any, None]]
@@ -232,6 +253,7 @@ class GroupInterviewRunner:
         subscribe: Callable[[int], None] = lambda _session_id: None,
         reactions: Callable[[int], ReactionStream | None] = lambda _session_id: None,
         praises: Mapping[Praise, SpeechAudio] | None = None,
+        followups: GroupFollowupJudge | None = None,
         monotonic_ms: Callable[[], int] = _monotonic_ms,
         clock: Callable[[], datetime] = _now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -243,6 +265,7 @@ class GroupInterviewRunner:
         reactions(면접 id)는 그 사람의 리액션 판단이다.
         tracker는 방 정보 추적기이며 답변 마감을 에이전트 시계로 옮기는 데 쓴다.
         praises는 오리 면접관의 칭찬 음성이며, None이면 칭찬하지 않는다.
+        followups는 꼬리질문 판단기이며, None이면 판단 단계마다 필요 없음을 보낸다.
         """
         self._assignment = assignment
         self._video = assignment.mode is InterviewMode.VIDEO
@@ -254,6 +277,7 @@ class GroupInterviewRunner:
         self._subscribe = subscribe
         self._reactions = reactions
         self._praises = praises
+        self._followups = followups
         self._ms = monotonic_ms
         self._clock = clock
         self._sleep = sleep
@@ -261,6 +285,8 @@ class GroupInterviewRunner:
         self._tracker = tracker
         self._info: RoomInfo | None = None
         self._changed = asyncio.Event()
+        # 방 정보가 바뀔 때마다 켠다. 칭찬이 차례가 넘어가기를 기다리는 데 쓴다
+        self._info_event = asyncio.Event()
         self._present: set[str] = set()
         self._presence = asyncio.Event()
         # 질문 글 → 음성 합성
@@ -276,6 +302,13 @@ class GroupInterviewRunner:
         # (면접 id, seq) → 실제로 출제한 질문. 리액션 판단 입력이다
         self._asked: dict[tuple[int, int], AssignedQuestion] = {}
         self._decided: set[tuple[int, int]] = set()
+        # (면접 id, seq) → 최종 답변 글. 꼬리질문 판단 재료다
+        self._answers: dict[tuple[int, int], str] = {}
+        self._answer_arrived = asyncio.Event()
+        # (면접 id, seq) → 보낸 판단. 같은 답변 글을 다시 받으면 다시 보낸다
+        self._decisions: dict[tuple[int, int], ProgressMessage] = {}
+        # 면접 id → 그 사람의 FOLLOWUP 차례에 말할 꼬리질문
+        self._held: dict[int, AssignedQuestion] = {}
         self._background: set[asyncio.Task[Any]] = set()
         self._subscribed: int | None = None
 
@@ -303,6 +336,7 @@ class GroupInterviewRunner:
         """더 새 방 정보를 받았다."""
         self._info = info
         self._changed.set()
+        self._info_event.set()
         answering = self._answering
         if answering is not None:
             # 마감 연장 · 단계 변경을 답변 대기에 반영한다
@@ -378,6 +412,39 @@ class GroupInterviewRunner:
         chat.reactions.submit(last_sentence(message.text), message.pause_ms, message.text)
         return chat_input_reply(True)
 
+    def group_answer_received(self, payload: str) -> None:
+        """BE가 보낸 채팅 최종 답변(group.answer)이다(AI 명세 6.7).
+
+        같은 질문은 처음 글만 쓰고, 다시 받으면 처음 판단을 다시 보낸다.
+        """
+        try:
+            message = json.loads(payload)
+        except ValueError:
+            message = None
+        if not isinstance(message, dict):
+            log.error("group.answer를 읽지 못해 버린다")
+            return
+        session_id = message.get("sessionId")
+        seq = message.get("seq")
+        content = message.get("content")
+        if (
+            type(session_id) is not int
+            or type(seq) is not int
+            or not MIN_SEQ <= seq <= GROUP_MAX_SEQ
+            or not isinstance(content, str)
+            or not content.strip()
+        ):
+            log.error("group.answer 형식이 틀려 버린다")
+            return
+        key = (session_id, seq)
+        if key in self._answers:
+            decision = self._decisions.get(key)
+            if decision is not None:
+                self._spawn(self._publish_decision(decision))
+            return
+        self._answers[key] = content
+        self._answer_arrived.set()
+
     async def run(self) -> None:
         """그룹이 끝날 때(groupStatus ENDED)까지 방 정보를 따라 진행한다."""
         self._prepare_all()
@@ -412,6 +479,9 @@ class GroupInterviewRunner:
         key = self._work_key
         same_turn = key is not None and key[1:3] == (turn.session_id, turn.seq)
         if phase is GroupPhase.ASKING:
+            # 만든 꼬리질문은 그 사람의 FOLLOWUP 차례가 아닌 차례가 오면 버린다(AI 명세 6.7)
+            followup = self._held.get(turn.session_id) if turn.kind is TurnKind.FOLLOWUP else None
+            self._held = {} if followup is None else {turn.session_id: followup}
             # 같은 차례라도 ASKING이 다시 오면(이탈 뒤 다시 묻기) 처음부터 다시 말한다
             if not (
                 same_turn and key is not None and key[0] == "ask" and key[3] == info.turn_version
@@ -427,7 +497,10 @@ class GroupInterviewRunner:
                 else:
                     await self._stop_work()
         elif phase is GroupPhase.DECIDING:
-            await self._stop_work()
+            # 화상은 BE가 답변을 저장해야 DECIDING이 오므로 답변 작업에는 마무리(판단 재료 저장 ·
+            # submitted · 칭찬)만 남았다. 끊으면 판단 재료가 없어지므로 끝나게 둔다
+            if not (same_turn and key is not None and key[0] == "answer"):
+                await self._stop_work()
             self._decide(turn, info)
         else:
             await self._stop_work()
@@ -456,7 +529,7 @@ class GroupInterviewRunner:
             # 채팅은 DECIDING이 와야 최종 답변이 저장된 것을 안다.
             # 판단(followup.decided)을 보내기 전에 칭찬을 잡아 둬 다음 질문보다 먼저 말한다
             reactions = stopped.reactions if same and stopped is not None else None
-            self._schedule_praise(turn.session_id, reactions)
+            self._schedule_praise(turn, reactions)
 
     async def _stop_chat(self) -> _ChatTurn | None:
         chat, self._chat = self._chat, None
@@ -518,12 +591,13 @@ class GroupInterviewRunner:
         participant = self._assignment.participant(turn.session_id)
         if turn.kind is TurnKind.PERSONAL and index in (2, 4) and participant is not None:
             return participant.personal_questions[(index - 2) // 2]
+        if turn.kind is TurnKind.FOLLOWUP:
+            return self._held.get(turn.session_id)
         return None
 
     async def _ask(self, turn: Turn) -> None:
         question = self._question_of(turn)
         if question is None:
-            # 꼬리질문 차례는 꼬리질문 판단(S15P31A301-527)이 생기기 전에는 오지 않는다
             log.error(
                 "말할 질문이 없다 kind=%s baseIndex=%s",
                 turn.kind,
@@ -686,8 +760,11 @@ class GroupInterviewRunner:
         assert answering.finish is not None and ended_at is not None
         finished = FinishedAnswer(turn.seq, collected, answering.finish)
         if await self._deliver_until_saved(answering, finished, ended_at):
+            # 보낸 답변 글이 꼬리질문 판단 재료다(AI 명세 6.7)
+            self._answers[(turn.session_id, turn.seq)] = collected.content
+            self._answer_arrived.set()
             self._notify(answering, AnswerState.SUBMITTED)
-            self._schedule_praise(turn.session_id, reactions)
+            self._schedule_praise(turn, reactions)
 
     def _time_limit(self, answering: _Answering) -> bool:
         """마감이다. 말한 게 있어 TIME_LIMIT으로 내면 True, 낼 게 없으면 False다."""
@@ -805,22 +882,30 @@ class GroupInterviewRunner:
         payload = answer_state_payload(answering.session_id, answering.seq, state)
         self._spawn(self._send(answering.identity, ANSWER_STATE_METHOD, payload))
 
-    def _schedule_praise(self, session_id: int, reactions: ReactionStream | None) -> None:
+    def _schedule_praise(self, turn: Turn, reactions: ReactionStream | None) -> None:
         delay = NEXT_QUESTION_DELAYS.get(self._assignment.persona, 0.0)
         if self._praises is None or not delay:
             return
         # 답변 중에 받은 마지막 판단으로 고른다(AI 명세 6.2)
         praise = choose_praise(None if reactions is None else reactions.last_judgment)
-        self._spawn(self._praise(session_id, praise, self._praises.get(praise), delay))
+        self._spawn(self._praise(turn, praise, self._praises.get(praise), delay))
 
     async def _praise(
-        self, session_id: int, praise: Praise, audio: SpeechAudio | None, delay: float
+        self, turn: Turn, praise: Praise, audio: SpeechAudio | None, delay: float
     ) -> None:
         # 다음 질문이 칭찬보다 먼저 나가지 않도록 기다리는 동안에도 음성을 잡아 둔다
         async with self._voice_lock:
             await self._sleep(delay)
+            # 마지막 질문인지는 꼬리질문 판단 뒤 BE가 그 차례를 넘겨야 안다
+            try:
+                async with asyncio.timeout(TURN_PASS_SECONDS):
+                    while self._is_turn(turn):
+                        self._info_event.clear()
+                        await self._info_event.wait()
+            except TimeoutError:
+                log.warning("차례가 넘어가지 않아 기다리지 않고 칭찬한다", extra={"seq": turn.seq})
             info = self._info
-            state = None if info is None else info.participant_state(session_id)
+            state = None if info is None else info.participant_state(turn.session_id)
             # 마지막 질문을 마친 사람은 면접 끝내기(5.8)로 넘어가므로 칭찬하지 않는다(AI 명세 6.2)
             if state in (PARTICIPANT_DONE, PARTICIPANT_ENDED):
                 return
@@ -829,21 +914,70 @@ class GroupInterviewRunner:
                 await self._voice.say(audio)
 
     def _decide(self, turn: Turn, info: RoomInfo) -> None:
-        # 꼬리질문 판단 · 생성(S15P31A301-527) 전까지 바로 필요 없음을 보낸다.
-        # 같은 질문은 한 번만 판단한다
+        # 같은 질문은 한 번만 판단한다(AI 명세 6.7)
         key = (turn.session_id, turn.seq)
         if key in self._decided:
             return
         self._decided.add(key)
-        message = followup_not_needed(
+        self._spawn(self._judge(turn))
+
+    async def _judge(self, turn: Turn) -> None:
+        """최종 답변으로 꼬리질문을 판단해 보낸다. 판단하지 못하면 필요 없음을 바로 보낸다.
+
+        BE는 늦은 판단을 쓰지 않으므로 기다리지 말고 보낸다(AI 명세 6.7).
+        """
+        key = (turn.session_id, turn.seq)
+        received_at = self._clock()
+        followup: AssignedQuestion | None = None
+        generation_ms: int | None = None
+        question = self._asked.get(key)
+        try:
+            # 판단기가 없거나(GMS 설정 없음) 직전 질문을 모르면 기다리지 않고 필요 없음을 보낸다
+            if self._followups is not None and question is not None:
+                async with asyncio.timeout(DECISION_SECONDS):
+                    answer = await self._final_answer(key)
+                    started = self._ms()
+                    try:
+                        followup = await self._followups.judge(
+                            self._assignment.persona, question, answer
+                        )
+                    finally:
+                        generation_ms = self._ms() - started
+        except (TimeoutError, FollowupError) as e:
+            log.warning(
+                "꼬리질문을 판단하지 못해 필요 없음으로 보낸다: %r", e, extra={"seq": turn.seq}
+            )
+        except Exception:
+            # 판단 실패는 면접 진행에 영향을 주지 않아야 하므로
+            # 예상하지 못한 오류도 필요 없음으로 보낸다
+            log.exception("꼬리질문 판단 중 예상하지 못한 오류", extra={"seq": turn.seq})
+        message = followup_decided(
             turn.session_id,
             turn.seq,
-            turn_version=info.turn_version,
-            received_at=self._clock(),
+            turn_version=self._version(),
+            received_at=received_at,
+            generation_ms=generation_ms,
+            content=None if followup is None else followup.content,
+            criteria=None if followup is None else followup.criteria,
+            prompt_version=None if followup is None else followup.prompt_version,
+            model_version=None if followup is None else followup.model_version,
         )
-        self._spawn(self._publish_quietly(message))
+        self._decisions[key] = message
+        # 판단이 늦어 BE가 이미 다음 차례로 넘어갔으면 쓰이지 않으므로 들고 있지 않는다
+        if followup is not None and self._is_turn(turn):
+            self._held[turn.session_id] = followup
+            # FOLLOWUP 차례가 오기 전에 음성을 미리 합성한다
+            self._synthesis(followup.content)
+        await self._publish_decision(message)
 
-    async def _publish_quietly(self, message: ProgressMessage) -> None:
+    async def _final_answer(self, key: tuple[int, int]) -> str:
+        """그 질문의 최종 답변 글이다. 채팅은 BE가 group.answer를 보낼 때까지 기다린다."""
+        while key not in self._answers:
+            self._answer_arrived.clear()
+            await self._answer_arrived.wait()
+        return self._answers[key]
+
+    async def _publish_decision(self, message: ProgressMessage) -> None:
         try:
             await self._publish(message)
         except ResultPublishError:
