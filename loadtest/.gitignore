@@ -2,3 +2,4 @@ seed/accounts*.json
 results/
 media/*.wav
 media/*.y4m
+group-ai/media/
